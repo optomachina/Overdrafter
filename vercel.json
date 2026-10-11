@@ -27,6 +27,10 @@
       "destination": "/api/mobile-auth?action=bootstrap"
     },
     {
+      "source": "/api/admin-operations",
+      "destination": "/api/admin-operations"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

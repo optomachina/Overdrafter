@@ -1,4 +1,5 @@
 import type { ValueSource } from "./extractedValue.js";
+import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 
 /** Per-extraction model spend, recorded so cost and latency stay attributable. */
 export type ModelUsageSummary = {
@@ -8,6 +9,10 @@ export type ModelUsageSummary = {
   outputTokens: number;
   durationMs: number;
   estimatedCostUsd: number | null;
+  /** Coverage of cost estimates, never a claim of invoice reconciliation. */
+  costCoverage?: "complete" | "partial" | "unknown";
+  /** Known estimated subtotal; may exclude unresolved attempts. */
+  knownCostSubtotalUsd?: number | null;
   attempts: number;
 };
 
@@ -305,6 +310,8 @@ export type VendorQuoteAdapterInput = {
   };
   /** Required for production Xometry launches; omitted by explicit live evaluation. */
   xometryDispatchAuthorization?: XometryDispatchAuthorization;
+  /** Required for production generic-provider launches (OVD-381/673); never set by live evaluation. */
+  providerDispatchAuthorization?: ProviderDispatchAuthorization;
 };
 
 export type StagedFile = {

@@ -42,6 +42,10 @@ export type ModelRunOutput = {
   durationMs: number;
   /** Provider-reported cost when available (OpenRouter); otherwise null. */
   estimatedCostUsd: number | null;
+  /** Prompt tokens served from the provider's prompt cache, when reported. */
+  cacheReadTokens?: number;
+  /** Prompt tokens written to the provider's prompt cache (Anthropic only), when reported. */
+  cacheWriteTokens?: number;
   rawResponse: unknown;
 };
 
@@ -146,6 +150,13 @@ const EXTRACTION_TOOL_SCHEMA = {
 /** Stable description of the wire schema, for prompt-version hashing. */
 export const EXTRACTION_SCHEMA_SHAPE = JSON.stringify(EXTRACTION_TOOL_SCHEMA);
 
+/**
+ * Routing key for OpenAI/OpenRouter prompt caching. Constant per prompt version
+ * so every extraction shares the same stable prefix (instructions + schema);
+ * per-drawing content stays after that prefix.
+ */
+export const EXTRACTION_PROMPT_CACHE_KEY = "drawing-extraction-v1";
+
 export class OpenAIExtractionProvider implements ExtractionProvider {
   readonly provider = "openai" as const;
 
@@ -178,6 +189,8 @@ export class OpenAIExtractionProvider implements ExtractionProvider {
             { role: "user", content },
           ],
           text: { format: zodTextFormat(modelResponseSchema, "drawing_field_extraction") },
+          // Not in the pinned SDK's request types yet; the API accepts it.
+          ...({ prompt_cache_key: EXTRACTION_PROMPT_CACHE_KEY } as object),
         },
         { signal: options.signal },
       );
@@ -198,6 +211,7 @@ export class OpenAIExtractionProvider implements ExtractionProvider {
         outputTokens: response.usage?.output_tokens ?? 0,
         durationMs: Date.now() - start,
         estimatedCostUsd: null,
+        cacheReadTokens: response.usage?.input_tokens_details?.cached_tokens,
         rawResponse: response,
       };
     } catch (error) {
@@ -234,7 +248,12 @@ export class AnthropicExtractionProvider implements ExtractionProvider {
           model: modelId,
           max_tokens: 1024,
           ...(supportsTemperature(modelId) ? { temperature: 0 } : {}),
-          system: systemInstruction,
+          // Identical bytes every call; the breakpoint also covers `tools`
+          // (rendered before `system`). Below the model's minimum cacheable
+          // length the request is simply processed uncached.
+          system: [
+            { type: "text", text: systemInstruction, cache_control: { type: "ephemeral" } },
+          ],
           tools: [
             {
               name: "extract_fields",
@@ -275,6 +294,8 @@ export class AnthropicExtractionProvider implements ExtractionProvider {
         outputTokens: response.usage.output_tokens,
         durationMs: Date.now() - start,
         estimatedCostUsd: null,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? undefined,
+        cacheWriteTokens: response.usage.cache_creation_input_tokens ?? undefined,
         rawResponse: response,
       };
     } catch (error) {
@@ -317,6 +338,11 @@ export class OpenRouterExtractionProvider implements ExtractionProvider {
             { role: "system", content: systemInstruction },
             { role: "user", content: userContent as OpenAI.ChatCompletionContentPart[] },
           ],
+          // Only sent to OpenAI-routed models; other upstreams are not
+          // guaranteed to tolerate unknown request params.
+          ...(modelId.startsWith("openai/")
+            ? ({ prompt_cache_key: EXTRACTION_PROMPT_CACHE_KEY } as object)
+            : {}),
           response_format: {
             type: "json_schema",
             json_schema: {
@@ -368,6 +394,7 @@ export class OpenRouterExtractionProvider implements ExtractionProvider {
         modelName: modelId,
         inputTokens: response.usage?.prompt_tokens ?? 0,
         outputTokens: response.usage?.completion_tokens ?? 0,
+        cacheReadTokens: response.usage?.prompt_tokens_details?.cached_tokens,
         durationMs: Date.now() - start,
         estimatedCostUsd: typeof usageWithCost?.cost === "number" ? usageWithCost.cost : null,
         rawResponse: response,

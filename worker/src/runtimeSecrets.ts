@@ -2,6 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 import { withXometryProfileInterprocessLock } from "./adapters/persistentProfileLock.js";
+import {
+  resolveIsolatedProviderStorageState,
+  type ProviderPortalDefinition,
+} from "./adapters/providerPortalKernel.js";
+import { buildQuickpartsProductionPortalDefinition } from "./adapters/quickpartsPortal.js";
+import { buildWeergProductionPortalDefinition } from "./adapters/weergPortal.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import {
   restoreXometryProfileSnapshot,
@@ -247,28 +253,70 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
   return issues;
 }
 
-/** Production live mode is deliberately limited to the controlled Xometry lane. */
+/**
+ * A worker listing a production portal adapter must hold a session for it
+ * that the portal kernel can actually open (QUOTE_VENDOR_STORAGE_STATE_PATHS,
+ * _JSON or _DIR), resolved exactly as the kernel resolves it before launch.
+ */
+async function validatePortalSessionReadiness(
+  config: WorkerConfig,
+  definition: ProviderPortalDefinition,
+): Promise<string[]> {
+  if (config.workerMode !== "live" || !config.workerLiveAdapters.includes(definition.provider)) {
+    return [];
+  }
+  const storageState = await resolveIsolatedProviderStorageState(definition, config);
+  return storageState
+    ? []
+    : [
+        `Live mode with ${definition.provider} requires a readable ${definition.displayName} storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.`,
+      ];
+}
+
+/** OVD-674: Quickparts session readiness. */
+export function validateQuickpartsReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildQuickpartsProductionPortalDefinition());
+}
+
+/** OVD-675: Weerg session readiness. */
+export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
+}
+
+/**
+ * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
+ * preflight and the generic provider preflight for Fictiv (OVD-673),
+ * Quickparts (OVD-674) and Weerg (OVD-675). Listing a generic provider here
+ * never admits it; the database admission, reviewed envelope, and rollout
+ * still decide every dispatch.
+ */
+export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts", "weerg"] as const;
+
+/** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   if (config.workerMode !== "live") {
     return [];
   }
 
+  const production = new Set<string>(PRODUCTION_LIVE_ADAPTERS);
   if (
-    config.workerLiveAdapters.length === 1 &&
-    config.workerLiveAdapters[0] === "xometry"
+    config.workerLiveAdapters.length > 0 &&
+    config.workerLiveAdapters.every((adapter) => production.has(adapter))
   ) {
     return [];
   }
 
   return [
-    "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+    `Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: ${PRODUCTION_LIVE_ADAPTERS.join(", ")}.`,
   ];
 }
 
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, fictivIssues, extractionIssues] = await Promise.all([
+  const [xometryIssues, fictivIssues, quickpartsIssues, weergIssues, extractionIssues] = await Promise.all([
     validateXometryReadiness(config),
     validateFictivReadiness(config),
+    validateQuickpartsReadiness(config),
+    validateWeergReadiness(config),
     validateDrawingExtractionReadiness(config),
   ]);
 
@@ -276,6 +324,8 @@ export async function validateWorkerReadiness(config: WorkerConfig): Promise<str
     ...validateLiveAdapterReadiness(config),
     ...xometryIssues,
     ...fictivIssues,
+    ...quickpartsIssues,
+    ...weergIssues,
     ...extractionIssues,
   ];
 }

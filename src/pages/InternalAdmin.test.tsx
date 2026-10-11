@@ -8,6 +8,20 @@ import type { WorkspaceNotificationsController } from "@/features/notifications/
 import type { AppMembership } from "@/features/quotes/types";
 import InternalAdmin from "./InternalAdmin";
 
+const { fetchSpendSummaryMock, setGlobalSpendCapMock } = vi.hoisted(() => ({
+  fetchSpendSummaryMock: vi.fn(), setGlobalSpendCapMock: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/platform-admin-api", () => ({
+  fetchSpendSummary: fetchSpendSummaryMock,
+  setGlobalSpendCap: setGlobalSpendCapMock,
+}));
+
+const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
+vi.mock("@/features/operations/operations-status-client", () => ({
+  fetchOperationsStatus: fetchOperationsStatusMock,
+  OperationsStatusError: class extends Error {},
+}));
+
 const fetchAdminOrganizationsMock = vi.fn();
 const fetchAdminAllUsersMock = vi.fn();
 const fetchAdminAllJobsMock = vi.fn();
@@ -161,6 +175,13 @@ function renderInternalAdmin(
 
 describe("InternalAdmin", () => {
   beforeEach(() => {
+    fetchSpendSummaryMock.mockReset().mockResolvedValue({
+      since: "2026-10-03T00:00:00Z", totalSpendUsd: 12.5,
+      globalDailyCeilingUsd: 50, perRunCeilingUsd: 5, killSwitch: false,
+      byCategory: {}, byOrganization: [],
+    });
+    setGlobalSpendCapMock.mockReset().mockRejectedValue(new Error("Unexpected spend mutation in page fixture"));
+    fetchOperationsStatusMock.mockImplementation(() => new Promise(() => undefined));
     const store = new Map<string, string>();
     const localStorageMock = {
       getItem: (key: string) => store.get(key) ?? null,
@@ -258,6 +279,18 @@ describe("InternalAdmin", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the real spend panel error state when its synthetic query fails", async () => {
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(), activeMembership: makeMembership("internal_admin"),
+      isPlatformAdmin: true, isAuthInitializing: false, signOut: signOutMock,
+    });
+    fetchSpendSummaryMock.mockRejectedValueOnce(new Error("Synthetic spend query unavailable"));
+    renderInternalAdmin();
+    expect(await screen.findByText(/Could not load spend\./)).toBeInTheDocument();
+    expect(fetchSpendSummaryMock).toHaveBeenCalledOnce();
+    expect(setGlobalSpendCapMock).not.toHaveBeenCalled();
+  });
+
   it("renders cross-org tables for platform admins", async () => {
     useAppSessionMock.mockReturnValue({
       user: makeUser(),
@@ -275,6 +308,9 @@ describe("InternalAdmin", () => {
 
     expect(await screen.findByText("Platform Admin God Mode")).toBeInTheDocument();
     expect(screen.getByText("Organizations")).toBeInTheDocument();
+    expect(await screen.findByText("$12.50")).toBeInTheDocument();
+    expect(fetchSpendSummaryMock).toHaveBeenCalledOnce();
+    expect(setGlobalSpendCapMock).not.toHaveBeenCalled();
     expect(
       screen.getByText("Founding Beta enrollment fixture: Wilson Works"),
     ).toBeInTheDocument();
@@ -316,6 +352,19 @@ describe("InternalAdmin", () => {
     expect(fetchCommercialAdminAccessMock).not.toHaveBeenCalled();
   });
 
+  it("mounts the actual Operations card only for a platform admin and keeps existing workflow sections", async () => {
+    useAppSessionMock.mockReturnValue({ user: makeUser(), activeMembership: makeMembership("internal_admin"), isPlatformAdmin: true,
+      isAuthInitializing: false, signOut: signOutMock });
+    fetchOperationsStatusMock.mockRejectedValue(new Error("unavailable"));
+    renderInternalAdmin();
+    expect(await screen.findByRole("heading", { name: "Operations", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByText(/Refresh unavailable/)).toBeInTheDocument();
+    expect(screen.getByText("Manual request inbox fixture")).toBeInTheDocument();
+    expect(screen.getByText("Spend")).toBeInTheDocument();
+    expect(screen.getByText(/Founding Beta enrollment fixture/)).toBeInTheDocument();
+    expect(fetchOperationsStatusMock).toHaveBeenCalledOnce();
+  });
+
   it("shows a not-authorized card for non-platform-admin users", async () => {
     useAppSessionMock.mockReturnValue({
       user: makeUser(),
@@ -328,6 +377,8 @@ describe("InternalAdmin", () => {
     renderInternalAdmin();
 
     expect(await screen.findByText("Not authorized")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Operations" })).not.toBeInTheDocument();
+    expect(fetchOperationsStatusMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Organizations")).not.toBeInTheDocument();
     expect(screen.queryByText(/Founding Beta enrollment fixture/)).not.toBeInTheDocument();
   });

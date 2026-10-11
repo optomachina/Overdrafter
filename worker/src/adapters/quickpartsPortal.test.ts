@@ -45,6 +45,30 @@ describe("Quickparts offline portal preparation", () => {
     const row = { ...fixture, quantity: "100", "unit-price": "1000000000000", "total-price": "100000000000000" };
     expect(await extractQuickpartsSyntheticOffers(reader([row]), 100)).toEqual([]);
   });
+  it.each([
+    { label: "" }, { id: "" }, { currency: "EUR" }, { quantity: "2" },
+    { "unit-price": "" }, { "total-price": "$25" }, { "total-price": "24.00" },
+    { "unit-price": "9007199254740992", "total-price": "9007199254740992" },
+  ])("withholds the complete batch when either sibling is malformed: %j", async (change) => {
+    const malformed = { ...fixture, id: "synthetic-malformed", ...change };
+    for (const rows of [[fixture, malformed], [malformed, fixture]]) {
+      expect(await extractQuickpartsSyntheticOffers(reader(rows), 1)).toEqual([]);
+    }
+  });
+  it("withholds valid siblings when a quantity product exceeds safe cents", async () => {
+    const valid = { ...fixture, quantity: "100", "total-price": "2500.00" };
+    const malformed = { ...valid, id: "synthetic-overflow", "unit-price": "1000000000000", "total-price": "100000000000000" };
+    for (const rows of [[valid, malformed], [malformed, valid]]) {
+      expect(await extractQuickpartsSyntheticOffers(reader(rows), 100)).toEqual([]);
+    }
+  });
+  it("preserves different option prices and one-cent rounding tolerance", async () => {
+    const standard = { ...fixture, quantity: "3", "unit-price": "8.33", "total-price": "25.00" };
+    const fast = { ...standard, id: "synthetic-fast", "unit-price": "10.00", "total-price": "30.00" };
+    const result = await extractQuickpartsSyntheticOffers(reader([standard, fast]), 3);
+    expect(result.map((offer) => [offer.providerOptionId, offer.unitPriceUsd.value, offer.totalPriceUsd.value]))
+      .toEqual([["synthetic-standard", 8.33, 25], ["synthetic-fast", 10, 30]]);
+  });
   it("refuses duplicate IDs and bounded overflow rather than selecting an arbitrary option", async () => {
     expect(await extractQuickpartsSyntheticOffers(reader([fixture, fixture]), 1)).toEqual([]);
     expect(await extractQuickpartsSyntheticOffers(reader(Array.from({ length: 21 }, () => fixture)), 1)).toEqual([]);
@@ -56,6 +80,35 @@ describe("Quickparts offline portal preparation", () => {
     expect(result[0].leadTimeBusinessDays.value).toBeNull();
     expect(body).not.toHaveBeenCalled();
     expect(await extractQuickpartsSyntheticOffers(reader([]), 1)).toEqual([]);
+  });
+  it.each([undefined, "", "   ", "NaN", "0", "-1", "1.5", "9007199254740992", "9007199254740990.1"])(
+    "preserves a priced option without claiming anchored lead evidence for %j",
+    async (lead) => {
+      const row: Record<string, string> = { ...fixture };
+      if (lead === undefined) delete row["lead-business-days"];
+      else row["lead-business-days"] = lead;
+      const candidates = await extractQuickpartsSyntheticOffers(reader([row]), 1);
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].leadTimeBusinessDays).toEqual({ value: null, source: "none", selector: null });
+      const offers = normalizeAnchoredProviderOffers(candidates, { expectedQuantity: 1, allowedHosts: definition.allowedHosts });
+      expect(offers).toHaveLength(1);
+      expect(offers[0]).toMatchObject({
+        unitPriceUsd: 25, totalPriceUsd: 25, leadTimeBusinessDays: null,
+        provenance: { leadTimeSource: "none" }, rawPayload: { leadTimeAnchored: false },
+      });
+    },
+  );
+  it.each(["7", "7.0", "7.00"])("preserves valid integer lead evidence through normalization: %s", async (lead) => {
+    const candidates = await extractQuickpartsSyntheticOffers(reader([{ ...fixture, "lead-business-days": lead }]), 1);
+    expect(candidates[0].leadTimeBusinessDays).toEqual({
+      value: 7, source: "selector",
+      selector: "[data-ovd-synthetic-quickparts-option] >> nth=0 [data-lead-business-days]",
+    });
+    const offers = normalizeAnchoredProviderOffers(candidates, { expectedQuantity: 1, allowedHosts: definition.allowedHosts });
+    expect(offers[0]).toMatchObject({
+      leadTimeBusinessDays: 7,
+      provenance: { leadTimeSource: "selector" }, rawPayload: { leadTimeAnchored: true },
+    });
   });
   it.each([
     ["https://other.example/", "", "unexpected_origin"],

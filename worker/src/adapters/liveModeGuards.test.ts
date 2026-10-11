@@ -8,6 +8,7 @@ import { SendCutSendAdapter } from "./sendcutsend";
 import { buildAdapterRegistry } from "./index";
 import { EXTENDED_VENDOR_WORKFLOWS } from "./extendedVendorWorkflows";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
 
 function sortAlphabetically(values: string[]) {
   return [...values].sort((left, right) => left.localeCompare(right));
@@ -88,18 +89,29 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
 describe("live-mode adapter guards", () => {
   it("throws login_required for Fictiv in live mode when session state is missing", async () => {
     const adapter = new FictivAdapter("fictiv", makeConfig({ workerMode: "live" }));
+    const stagedCadFile = {
+      originalName: "part.step",
+      localPath: path.resolve(".tmp/part.step"),
+      storageBucket: "job-files",
+      storagePath: "cad/part.step",
+      trustedContentSha256: "e".repeat(64),
+    };
+    const input = makeInput({ stagedCadFile });
+
+    // OVD-673: the production dispatch authorization is checked first.
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      name: "VendorAutomationError",
+      payload: { reason: "dispatch_authorization_missing" },
+    });
 
     await expect(
-      adapter.quote(
-        makeInput({
-          stagedCadFile: {
-            originalName: "part.step",
-            localPath: path.resolve(".tmp/part.step"),
-            storageBucket: "job-files",
-            storagePath: "cad/part.step",
-          },
-        }),
-      ),
+      adapter.quote({
+        ...input,
+        providerDispatchAuthorization: fictivDispatchAuthorization(fictivDispatchEnvelope({
+          cadSha256: stagedCadFile.trustedContentSha256,
+          requestedQuantity: input.requestedQuantity,
+        })),
+      }),
     ).rejects.toMatchObject({
       name: "VendorAutomationError",
       code: "login_required",
@@ -165,6 +177,31 @@ describe("live-mode adapter guards", () => {
             operationalState: "manual_followup",
             reasonCode: "process_confirmation_required",
             customerLiveOfferEligible: false,
+          },
+        });
+        continue;
+      }
+
+      if (vendor === "quickparts" || vendor === "weerg") {
+        // OVD-674/OVD-675: the production branch refuses before any session read
+        // or launch when no generic provider-dispatch authorization was handed over.
+        await expect(
+          adapter.quote(
+            makeInput({
+              stagedCadFile: {
+                originalName: "part.step",
+                localPath: path.resolve(".tmp/part.step"),
+                storageBucket: "job-files",
+                storagePath: "cad/part.step",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({
+          name: "VendorAutomationError",
+          payload: {
+            reason: "dispatch_authorization_missing",
+            terminalState: "unsupported",
+            providerInteractionAttempted: false,
           },
         });
         continue;

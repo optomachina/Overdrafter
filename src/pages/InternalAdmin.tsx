@@ -6,6 +6,7 @@ import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { OperationsStatusCard } from "@/components/admin/OperationsStatusCard";
 import { SpendCapCard } from "@/components/admin/SpendCapCard";
 import { ManualQuoteRequestInbox } from "@/components/admin/ManualQuoteRequestInbox";
 import { FoundingBetaEnrollmentCard } from "@/components/admin/FoundingBetaEnrollmentCard";
@@ -194,6 +195,8 @@ const InternalAdmin = () => {
           </p>
         </div>
 
+        {isPlatformAdmin ? <OperationsStatusCard key={user.id} userId={user.id} /> : null}
+
         <section className="mb-8">
           <ManualQuoteRequestInbox />
         </section>
@@ -209,10 +212,9 @@ const InternalAdmin = () => {
           </Card>
         ) : (
           <div className="space-y-8">
-            {/* Spend first: it is the control an operator reaches for under
-                pressure, and burying it behind inventory tables costs time
-                exactly when time matters. */}
-            <section>
+            {/* Keep spend controls ahead of inventory tables and directly
+                reachable from the read-only Operations summary. */}
+            <section id="spend-controls">
               <SpendCapCard />
             </section>
 

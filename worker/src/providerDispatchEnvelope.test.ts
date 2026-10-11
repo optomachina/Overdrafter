@@ -1,0 +1,861 @@
+// @vitest-environment node
+
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import ts from "typescript";
+import { describe, expect, it, vi } from "vitest";
+import fixture from "../../test-fixtures/provider-dispatch-envelope/v1.json";
+import { parseXometryBetaDispatchScope } from "../../src/features/quotes/xometry-beta-dispatch";
+import {
+  canonicalizeProviderDispatchEnvelope,
+  compareProviderDispatchEnvelopes,
+  evaluateProviderDispatchAdmission,
+  fingerprintProviderDispatchEnvelope,
+  formatProviderEnvelopeRevision,
+  isRetryableProviderDispatchDenial,
+  LEGACY_XOMETRY_AUTHORIZATION_KEY_MAP,
+  LEGACY_XOMETRY_PERMIT_COLUMN_MAP,
+  LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP,
+  LEGACY_XOMETRY_TASK_PAYLOAD_KEY_MAP,
+  liftLegacyXometryPermit,
+  negotiateProviderDispatchEnvelopeSchema,
+  parseProviderDispatchEnvelope,
+  parseProviderEnvelopeRevision,
+  PROVIDER_DISPATCH_DENIAL_CODES,
+  type ProviderDispatchCurrentEvidence,
+  type ProviderDispatchEnvelope,
+  projectLegacyXometryBinding,
+} from "./providerDispatchEnvelope";
+import { isCurrentXometryControlledBetaAdmission, type ProviderAdmissionBinding } from "./providerUploadCapability";
+import type { ProviderUploadCapabilityAdmissionResolverResult } from "./providerUploadCapabilityTypes";
+import type { VendorQuoteAdapterInput } from "./types";
+import { quoteWithDispatchPreflight, XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight";
+
+type Json = unknown;
+const UNSET = Symbol("unset");
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+/** Sets a dotted path (numeric segments index arrays); UNSET deletes the key. */
+function setPath(target: Record<string, Json>, path: string, value: Json | typeof UNSET): void {
+  const segments = path.split(".");
+  let cursor = target as Record<string, Json>;
+  for (const segment of segments.slice(0, -1)) {
+    cursor = cursor[segment] as Record<string, Json>;
+  }
+  const last = segments[segments.length - 1];
+  if (value === UNSET) {
+    delete cursor[last];
+  } else {
+    cursor[last] = value;
+  }
+}
+
+function getPath(source: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((cursor, segment) => (cursor as Record<string, unknown>)[segment], source);
+}
+
+function mutate<T>(base: T, set: Record<string, Json> = {}, unset: string[] = []): T {
+  const copy = clone(base) as Record<string, Json>;
+  for (const [path, value] of Object.entries(set)) setPath(copy, path, value);
+  for (const path of unset) setPath(copy, path, UNSET);
+  return copy as T;
+}
+
+const golden = fixture.golden.envelope as unknown as ProviderDispatchEnvelope;
+const admittedEvidence = fixture.admittedEvidence as unknown as ProviderDispatchCurrentEvidence;
+
+/** Resolves a neutral mapping path; `envelope` is the legacy `${id}.v${version}` text. */
+function neutralValue(envelope: ProviderDispatchEnvelope, path: string): unknown {
+  return path === "envelope" ? formatProviderEnvelopeRevision(envelope.envelope) : getPath(envelope, path);
+}
+
+describe("provider dispatch envelope canonicalization", () => {
+  it("reproduces the shared golden canonical text and PostgreSQL-compatible fingerprint", () => {
+    expect(canonicalizeProviderDispatchEnvelope(golden)).toBe(fixture.golden.canonical);
+    expect(fingerprintProviderDispatchEnvelope(golden)).toBe(fixture.golden.fingerprint);
+    expect(createHash("sha256").update(fixture.golden.canonical, "utf8").digest("hex")).toBe(
+      fixture.golden.fingerprint,
+    );
+  });
+
+  it("is independent of input key order and file order", () => {
+    const reordered = Object.fromEntries(Object.entries(clone(golden)).reverse()) as ProviderDispatchEnvelope;
+    reordered.sourceFiles.reverse();
+    reordered.outboundFiles.reverse();
+    reordered.subject = Object.fromEntries(
+      Object.entries(reordered.subject).reverse(),
+    ) as ProviderDispatchEnvelope["subject"];
+    expect(canonicalizeProviderDispatchEnvelope(reordered)).toBe(fixture.golden.canonical);
+    expect(fingerprintProviderDispatchEnvelope(reordered)).toBe(fixture.golden.fingerprint);
+  });
+
+  it("orders keys like jsonb (length, then bytes) and versions the canonical form", () => {
+    const canonical = fixture.golden.canonical;
+    expect(canonical.startsWith('{"task": ')).toBe(true);
+    expect(canonical).toContain('"schema": "provider-dispatch-envelope.v1"');
+    expect(canonical.indexOf('"scope"')).toBeLessThan(canonical.indexOf('"permit"'));
+  });
+
+  it("refuses to canonicalize an invalid envelope", () => {
+    expect(() => canonicalizeProviderDispatchEnvelope(mutate(golden, { purpose: "order" }))).toThrow(
+      /envelope_malformed/,
+    );
+  });
+});
+
+describe("provider dispatch envelope strict parsing", () => {
+  it("accepts the golden envelope", () => {
+    expect(parseProviderDispatchEnvelope(golden)).toEqual({ ok: true, envelope: golden });
+  });
+
+  it.each(fixture.malformed)("$name fails closed as $denial", (entry) => {
+    const candidate = mutate(golden, (entry as { set?: Record<string, Json> }).set, (entry as { unset?: string[] }).unset);
+    expect(parseProviderDispatchEnvelope(candidate)).toEqual({ ok: false, denial: entry.denial });
+  });
+
+  it.each([null, undefined, "envelope", 1, [], [golden]])("rejects non-object input %#", (value) => {
+    expect(parseProviderDispatchEnvelope(value)).toEqual({ ok: false, denial: "envelope_malformed" });
+  });
+
+  it("negotiates only the supported schema version", () => {
+    expect(negotiateProviderDispatchEnvelopeSchema(["provider-dispatch-envelope.v2", "provider-dispatch-envelope.v1"])).toEqual({
+      ok: true,
+      schema: "provider-dispatch-envelope.v1",
+    });
+    const padding = Array.from({ length: 15 }, (_, index) => `provider-dispatch-envelope.v${index + 2}`);
+    expect(negotiateProviderDispatchEnvelopeSchema([...padding, "provider-dispatch-envelope.v1"])).toMatchObject({ ok: true });
+    for (const offered of [
+      [],
+      ["provider-dispatch-envelope.v2"],
+      "provider-dispatch-envelope.v1",
+      [1],
+      null,
+      ["provider-dispatch-envelope.v1", 42],
+      [...padding, "provider-dispatch-envelope.v17", "provider-dispatch-envelope.v1"],
+    ]) {
+      expect(negotiateProviderDispatchEnvelopeSchema(offered)).toEqual({
+        ok: false,
+        denial: "envelope_version_unsupported",
+      });
+    }
+  });
+
+  it("round-trips the legacy envelope revision text exactly", () => {
+    expect(parseProviderEnvelopeRevision(XOMETRY_ENVELOPE_REVISION)).toEqual(golden.envelope);
+    expect(formatProviderEnvelopeRevision(golden.envelope)).toBe(XOMETRY_ENVELOPE_REVISION);
+    for (const value of [
+      "xometry-controlled-beta-envelope",
+      "xometry.v0",
+      "Xometry-envelope.v1",
+      1,
+      [XOMETRY_ENVELOPE_REVISION],
+      `${XOMETRY_ENVELOPE_REVISION}x`,
+      "xometry.v1234567890",
+    ]) {
+      expect(parseProviderEnvelopeRevision(value)).toBeNull();
+    }
+  });
+});
+
+/**
+ * Type-checks `source` as a module beside this file (worker compiler options)
+ * and returns its diagnostics. Worker test files are outside the worker
+ * tsconfig, so a type-level expectation is checked here instead.
+ */
+function typeCheckBesideContract(source: string): readonly ts.Diagnostic[] {
+  const fileName = fileURLToPath(new URL("./__provider_dispatch_envelope_type_check__.ts", import.meta.url));
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+    resolveJsonModule: true,
+    noEmit: true,
+    types: ["node"],
+  };
+  const host = ts.createCompilerHost(options, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  const fileExists = host.fileExists.bind(host);
+  host.getSourceFile = (name, languageVersion, ...rest) =>
+    name === fileName ? ts.createSourceFile(name, source, languageVersion, true) : getSourceFile(name, languageVersion, ...rest);
+  host.fileExists = (name) => name === fileName || fileExists(name);
+  const program = ts.createProgram([fileName], options, host);
+  return [...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics(program.getSourceFile(fileName))];
+}
+
+describe("provider dispatch envelope type", () => {
+  // Every top-level key, and every key of each nested object, is required.
+  const omissions = Object.entries(golden).flatMap(([key, value]) => [
+    { label: key, line: `const { ${key}: _omitted, ...rest } = full;\nexport const value: ProviderDispatchEnvelope = rest;` },
+    ...(value !== null && typeof value === "object" && !Array.isArray(value)
+      ? Object.keys(value).map((nested) => ({
+          label: `${key}.${nested}`,
+          line: `const { ${nested}: _omitted, ...rest } = full.${key};\nexport const value: ProviderDispatchEnvelope = { ...full, ${key}: rest };`,
+        }))
+      : []),
+  ]);
+
+  it("rejects an envelope that omits any bound field", { timeout: 60_000 }, () => {
+    let source =
+      'import type { ProviderDispatchEnvelope } from "./providerDispatchEnvelope";\n' +
+      "declare const full: ProviderDispatchEnvelope;\n" +
+      "export const complete: ProviderDispatchEnvelope = full;\n";
+    const blocks = omissions.map(({ label, line }, index) => {
+      const start = source.length;
+      source += `export namespace omission${index} {\n${line}\n}\n`;
+      return { label, start, end: source.length };
+    });
+    const found = typeCheckBesideContract(source).map((diagnostic) => ({
+      block: blocks.find(({ start, end }) => diagnostic.start !== undefined && diagnostic.start >= start && diagnostic.start < end)
+        ?.label,
+      code: diagnostic.code,
+      text: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    }));
+    expect(omissions.length).toBeGreaterThan(30);
+    // The complete envelope type-checks; each omission is exactly one
+    // "property is missing" error naming the omitted key.
+    expect(found.map(({ block, code, text }) => [block, code, /^Property '(\w+)' is missing/.exec(text)?.[1]])).toEqual(
+      omissions.map(({ label }) => [label, 2741, label.split(".").at(-1)]),
+    );
+  });
+});
+
+type PatternProbe = { pattern: string; path: string; values: string[] };
+
+function expandProbes(probes: readonly PatternProbe[]): { pattern: string; path: string; value: string }[] {
+  return probes.flatMap(({ pattern, path, values }) => values.map((value) => ({ pattern, path, value })));
+}
+
+// Every value differs from a valid one by one or two characters, so each pins
+// the alphabet, quantifier, and literal of exactly the pattern it names.
+describe("provider dispatch envelope pattern probes", () => {
+  it.each(expandProbes(fixture.patternProbes.envelope))("$pattern rejects $value at $path", ({ path, value }) => {
+    expect(parseProviderDispatchEnvelope(mutate(golden, { [path]: value }))).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it.each(expandProbes(fixture.patternProbes.admissionEvidence))("$pattern rejects $value at $path", ({ path, value }) => {
+    const evidence = mutate(admittedEvidence, { [path]: value });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial: "admission_evidence_malformed",
+    });
+  });
+
+  it.each(fixture.patternProbes.envelopeRevisionText)("does not parse the legacy envelope revision %j", (value) => {
+    expect(parseProviderEnvelopeRevision(value)).toBeNull();
+  });
+
+  // The shared admission helper is checked directly with the resolver echoing
+  // the probed value, so only the binding's own pattern can deny.
+  const nowMs = Date.parse(admittedEvidence.now);
+  const resolver = admittedEvidence.admission as unknown as ProviderUploadCapabilityAdmissionResolverResult;
+  const binding: ProviderAdmissionBinding = {
+    provider: golden.provider,
+    policyRevision: golden.admission.policyRevision,
+    evidenceReference: golden.admission.evidenceReference,
+  };
+  const resolverKey = { policyRevision: "policy_revision", evidenceReference: "evidence_reference" } as const;
+
+  it("admits the unprobed binding in the shared admission helper", () => {
+    expect(isCurrentXometryControlledBetaAdmission(resolver, binding, nowMs)).toBe(true);
+  });
+
+  it.each(expandProbes(fixture.patternProbes.admissionBinding))(
+    "$pattern rejects $value as the binding $path in the shared admission helper",
+    ({ path, value }) => {
+      const field = path as keyof typeof resolverKey;
+      expect(
+        isCurrentXometryControlledBetaAdmission({ ...resolver, [resolverKey[field]]: value }, { ...binding, [field]: value }, nowMs),
+      ).toBe(false);
+    },
+  );
+});
+
+describe("provider dispatch envelope read-once plain data", () => {
+  it("rejects accessors so a getter cannot pass validation and then change", () => {
+    let reads = 0;
+    const scope = { ...golden.scope } as Record<string, unknown>;
+    Object.defineProperty(scope, "declaredModelUnits", {
+      enumerable: true,
+      get: () => (reads++ === 0 ? "inch" : "furlong"),
+    });
+    expect(parseProviderDispatchEnvelope({ ...golden, scope })).toEqual({ ok: false, denial: "envelope_malformed" });
+    expect(reads).toBe(0);
+  });
+
+  it("rejects class instances, array subclasses, and symbol keys", () => {
+    class EnvelopeLike {
+      constructor() {
+        Object.assign(this, clone(golden));
+      }
+    }
+    expect(parseProviderDispatchEnvelope(new EnvelopeLike())).toEqual({ ok: false, denial: "envelope_malformed" });
+    class FileList extends Array<unknown> {}
+    const files = FileList.from(clone(golden.sourceFiles));
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), [Symbol("grant")]: true })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it.each(["sourceFiles", "outboundFiles"] as const)("rejects %s arrays that carry an extra own property", (key) => {
+    const files = clone(golden[key]) as unknown[] & { grant?: boolean };
+    files.grant = true;
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), [key]: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it.each(["sourceFiles", "outboundFiles"] as const)("rejects a non-list %s value", (key) => {
+    for (const value of ["x", { 0: clone(golden[key][0]), length: 1 }]) {
+      expect(parseProviderDispatchEnvelope({ ...clone(golden), [key]: value })).toEqual({
+        ok: false,
+        denial: "envelope_malformed",
+      });
+    }
+  });
+
+  it("rejects arrays that carry a symbol-keyed property", () => {
+    const files = clone(golden.sourceFiles) as unknown[] & Record<symbol, boolean>;
+    files[Symbol("grant")] = true;
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it("rejects a required key that is present but non-enumerable", () => {
+    const envelope = clone(golden) as Record<string, unknown>;
+    Object.defineProperty(envelope, "purpose", { value: "quote_only", enumerable: false });
+    expect(parseProviderDispatchEnvelope(envelope)).toEqual({ ok: false, denial: "envelope_malformed" });
+  });
+
+  it("accepts null-prototype plain data", () => {
+    const bare = Object.assign(Object.create(null), clone(golden));
+    expect(parseProviderDispatchEnvelope(bare)).toEqual({ ok: true, envelope: golden });
+  });
+
+  it("rejects accessor-backed evidence before reading it", () => {
+    let reads = 0;
+    const evidence = { ...clone(admittedEvidence) } as Record<string, unknown>;
+    Object.defineProperty(evidence, "permitState", { enumerable: true, get: () => (reads++ === 0 ? "active" : "revoked") });
+    expect(
+      evaluateProviderDispatchAdmission({
+        expected: golden,
+        presented: golden,
+        evidence: evidence as unknown as ProviderDispatchCurrentEvidence,
+      }),
+    ).toMatchObject({ admitted: false, denial: "current_evidence_malformed" });
+    expect(reads).toBe(0);
+  });
+
+  it("parses both inputs inside the exported comparison", () => {
+    expect(compareProviderDispatchEnvelopes(golden, golden)).toEqual({ match: true });
+    expect(compareProviderDispatchEnvelopes({ ...golden, extra: 1 }, golden)).toEqual({
+      match: false,
+      denial: "envelope_malformed",
+    });
+    expect(compareProviderDispatchEnvelopes(golden, mutate(golden, { schema: "provider-dispatch-envelope.v2" }))).toEqual({
+      match: false,
+      denial: "envelope_version_unsupported",
+    });
+  });
+});
+
+describe("provider dispatch denial vocabulary", () => {
+  it("is closed, unique, and only preflight unavailability is retryable", () => {
+    expect(new Set(PROVIDER_DISPATCH_DENIAL_CODES).size).toBe(PROVIDER_DISPATCH_DENIAL_CODES.length);
+    const retryable = PROVIDER_DISPATCH_DENIAL_CODES.filter(isRetryableProviderDispatchDenial);
+    expect(retryable).toEqual(["preflight_unavailable"]);
+    const used = [
+      ...fixture.malformed,
+      ...fixture.substitutions,
+      ...fixture.evidenceDenials,
+      ...fixture.unreviewedEnvelopes,
+      ...fixture.legacyXometry.denials,
+    ].map((entry) => entry.denial);
+    for (const denial of used) expect(PROVIDER_DISPATCH_DENIAL_CODES).toContain(denial);
+  });
+});
+
+describe("provider dispatch admission decision", () => {
+  it("admits only the exact envelope under current authoritative evidence", () => {
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence: admittedEvidence })).toEqual({
+      admitted: true,
+      contractVersion: "provider-dispatch-envelope.v1",
+      provider: "xometry",
+      envelopeFingerprint: fixture.golden.fingerprint,
+      expiresAt: golden.expiresAt,
+    });
+  });
+
+  it("admits from the issue instant itself (the not-yet-valid boundary is exclusive)", () => {
+    const evidence = mutate(admittedEvidence, { now: golden.issuedAt });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: true,
+    });
+  });
+
+  it.each(fixture.substitutions)("rejects $name substitution as $denial", (entry) => {
+    const presented = mutate(golden, entry.set as Record<string, Json>);
+    expect(compareProviderDispatchEnvelopes(golden, presented)).toEqual({ match: false, denial: entry.denial });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented, evidence: admittedEvidence })).toEqual({
+      admitted: false,
+      contractVersion: "provider-dispatch-envelope.v1",
+      denial: entry.denial,
+      retryable: false,
+    });
+  });
+
+  it.each(fixture.evidenceDenials)("fails closed when $name ($denial)", (entry) => {
+    const typed = entry as { set?: Record<string, Json>; unset?: string[] };
+    const evidence = mutate(admittedEvidence, typed.set, typed.unset);
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial: entry.denial,
+      retryable: false,
+    });
+  });
+
+  // TypeScript-only rows: V8 Date.parse stops at U+0000, so only the pattern's
+  // end anchor denies these. PostgreSQL text cannot hold U+0000, so they stay
+  // out of the SQL-mirrored fixture sections.
+  it.each([
+    ["admission.reviewed_at", "2026-08-17T00:00:00+00:00"],
+    ["admission.reviewed_at", "2026-08-17T00:00:00Z"],
+    ["admission.expires_at", "2027-01-01T00:00:00+00:00"],
+    ["admission.expires_at", "2027-01-01T00:00:00Z"],
+  ] as const)("denies %s %s with a NUL-terminated tail as malformed evidence", (path, instant) => {
+    const untouched = mutate(admittedEvidence, { [path]: instant });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence: untouched })).toMatchObject({
+      admitted: true,
+    });
+    for (const tail of ["\u0000", "\u0000junk", "\u0000; 2026-08-17T00:00:00+00:00"]) {
+      expect(Number.isFinite(Date.parse(`${instant}${tail}`))).toBe(true);
+      const evidence = mutate(admittedEvidence, { [path]: `${instant}${tail}` });
+      expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toEqual({
+        admitted: false,
+        contractVersion: "provider-dispatch-envelope.v1",
+        denial: "admission_evidence_malformed",
+        retryable: false,
+      });
+    }
+  });
+
+  // The same unreviewed envelope on both sides, so the comparison matches and
+  // only the reviewed-envelope lookup (provider, id, and version) can deny.
+  it.each(fixture.unreviewedEnvelopes)("fails closed for the $name ($denial)", (entry) => {
+    const envelope = mutate(golden, entry.set as Record<string, Json>);
+    expect(parseProviderDispatchEnvelope(envelope)).toEqual({ ok: true, envelope });
+    expect(compareProviderDispatchEnvelopes(envelope, envelope)).toMatchObject({ match: true });
+    expect(evaluateProviderDispatchAdmission({ expected: envelope, presented: envelope, evidence: admittedEvidence })).toEqual({
+      admitted: false,
+      contractVersion: "provider-dispatch-envelope.v1",
+      denial: entry.denial,
+      retryable: false,
+    });
+  });
+
+  it("fails closed when the authoritative binding itself is malformed", () => {
+    expect(
+      evaluateProviderDispatchAdmission({ expected: { ...golden, extra: true }, presented: golden, evidence: admittedEvidence }),
+    ).toMatchObject({ admitted: false, denial: "envelope_malformed" });
+    expect(
+      evaluateProviderDispatchAdmission({
+        expected: golden,
+        presented: golden,
+        evidence: null as unknown as ProviderDispatchCurrentEvidence,
+      }),
+    ).toMatchObject({ admitted: false, denial: "current_evidence_malformed" });
+  });
+
+  it("keeps the specific denial when the authoritative binding is malformed", () => {
+    for (const [expected, denial] of [
+      [mutate(golden, { schema: "provider-dispatch-envelope.v2" }), "envelope_version_unsupported"],
+      [mutate(golden, { provider: "acme", "envelope.id": "acme-envelope" }), "provider_unknown"],
+      [mutate(golden, { "envelope.id": "fictiv-controlled-beta-envelope" }), "provider_envelope_mismatch"],
+    ] as const) {
+      expect(evaluateProviderDispatchAdmission({ expected, presented: golden, evidence: admittedEvidence })).toMatchObject({
+        admitted: false,
+        denial,
+      });
+    }
+  });
+
+  it.each([
+    ["permitState", "permit_state_missing"],
+    ["admission", "admission_evidence_missing"],
+    ["rollout", "rollout_evidence_missing"],
+  ] as const)("treats %s present as undefined like absent evidence (%s)", (key, denial) => {
+    const evidence = { ...clone(admittedEvidence), [key]: undefined } as unknown as ProviderDispatchCurrentEvidence;
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial,
+    });
+  });
+
+  it("denies an admission policy revision longer than the shared identifier limit", () => {
+    const revision = `xometry-${"a".repeat(92)}`;
+    const envelope = mutate(golden, { "admission.policyRevision": revision });
+    expect(parseProviderDispatchEnvelope(envelope)).toMatchObject({ ok: true });
+    const evidence = mutate(admittedEvidence, { "admission.policy_revision": revision });
+    expect(evaluateProviderDispatchAdmission({ expected: envelope, presented: envelope, evidence })).toMatchObject({
+      admitted: false,
+      denial: "admission_disabled",
+    });
+  });
+
+  it.each(["supported_processes", "accepted_file_extensions"] as const)(
+    "reads the admission %s array once and rejects accessor elements",
+    (key) => {
+      const evidence = clone(admittedEvidence) as unknown as { admission: Record<string, unknown> };
+      const original = evidence.admission[key] as string[];
+      let reads = 0;
+      const elements: unknown[] = [...original];
+      Object.defineProperty(elements, "0", {
+        enumerable: true,
+        configurable: true,
+        get() {
+          reads += 1;
+          return reads === 1 ? original[0] : 42;
+        },
+      });
+      evidence.admission[key] = elements;
+      expect(
+        evaluateProviderDispatchAdmission({
+          expected: golden,
+          presented: golden,
+          evidence: evidence as unknown as ProviderDispatchCurrentEvidence,
+        }),
+      ).toMatchObject({ admitted: false, denial: "admission_evidence_malformed" });
+      expect(reads).toBe(0);
+    },
+  );
+
+  it("never lets envelope fields or observations enable an unreviewed provider", () => {
+    const fictiv = mutate(golden, {
+      provider: "fictiv",
+      "envelope.id": "fictiv-generic-envelope",
+      "admission.policyRevision": "fictiv-approved-2026-10-01.v1",
+      "admission.evidenceReference": "OVD-999",
+    });
+    const approvedEvidence = mutate(admittedEvidence, {
+      "admission.provider": "fictiv",
+      "admission.admission_state": "approved",
+      "admission.generically_dispatchable": true,
+      "admission.policy_revision": "fictiv-approved-2026-10-01.v1",
+      "admission.evidence_reference": "OVD-999",
+      "admission.permission_basis": "written_provider_authorization",
+      "admission.reason_code": "provider_approved",
+      observations: [{ source: "provider-upload-capability.v1", effect: "none" }],
+    });
+    expect(evaluateProviderDispatchAdmission({ expected: fictiv, presented: fictiv, evidence: approvedEvidence })).toMatchObject({
+      admitted: false,
+      denial: "provider_envelope_unknown",
+    });
+  });
+
+  it("never lets a non-denying observation override disabled admission", () => {
+    const evidence = mutate(admittedEvidence, {
+      "admission.provider_admitted": false,
+      "admission.admission_state": "evidence_required",
+      "admission.reason_code": "evidence_required",
+      observations: [{ source: "provider-upload-capability.v1", effect: "none" }],
+    });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial: "admission_disabled",
+    });
+  });
+});
+
+describe("shared current-admission helper", () => {
+  const resolver = admittedEvidence.admission as ProviderUploadCapabilityAdmissionResolverResult;
+  const binding: ProviderAdmissionBinding = {
+    provider: "xometry",
+    policyRevision: golden.admission.policyRevision,
+    evidenceReference: golden.admission.evidenceReference,
+  };
+  const nowMs = Date.parse(admittedEvidence.now);
+  const longRevision = `xometry-${"a".repeat(92)}`;
+
+  function current(resolverSet: Record<string, Json>, bindingSet: Record<string, Json> = {}): boolean {
+    return isCurrentXometryControlledBetaAdmission(
+      mutate(resolver, resolverSet),
+      mutate(binding, bindingSet),
+      nowMs,
+    );
+  }
+
+  it.each([
+    ["the stored controlled-beta admission", {}],
+    ["a review at the clock instant", { reviewed_at: "2026-10-03T12:05:00+00:00" }],
+    ["a future expiry", { expires_at: "2026-10-04T00:00:00+00:00" }],
+  ] as const)("admits %s", (_name, resolverSet) => {
+    expect(current(resolverSet)).toBe(true);
+  });
+
+  it.each([
+    ["policy flag false", { policy_present: false }, {}],
+    ["admitted flag false", { provider_admitted: false }, {}],
+    ["processes given as text", { supported_processes: "cnc_milling" }, {}],
+    ["review time not text", { reviewed_at: 0 }, {}],
+    ["review time unparseable", { reviewed_at: "not-a-date" }, {}],
+    ["review time after the clock", { reviewed_at: "2026-10-03T12:05:00.001+00:00" }, {}],
+    ["binding for another provider", {}, { provider: "fictiv" }],
+    ["binding policy revision differs", {}, { policyRevision: "xometry-controlled-beta-2026-10-02.v2" }],
+    ["binding evidence reference differs", {}, { evidenceReference: "OVD-999" }],
+    ["policy revision over the identifier limit", { policy_revision: longRevision }, { policyRevision: longRevision }],
+    ["evidence reference not an issue key", { evidence_reference: "XYZ" }, { evidenceReference: "XYZ" }],
+    ["evidence reference with a trailing letter", { evidence_reference: "OVD-373x" }, { evidenceReference: "OVD-373x" }],
+    ["evidence reference with a leading letter", { evidence_reference: "xOVD-373" }, { evidenceReference: "xOVD-373" }],
+    ["expiry at the clock", { expires_at: "2026-10-03T12:05:00+00:00" }, {}],
+    ["expiry unparseable", { expires_at: "not-a-date" }, {}],
+    ["generically dispatchable", { generically_dispatchable: true }, {}],
+    ["another provider on both sides", { provider: "fictiv" }, { provider: "fictiv" }],
+    ["approved admission state", { admission_state: "approved" }, {}],
+    ["approved reason code", { reason_code: "provider_approved" }, {}],
+    ["written authorization basis", { permission_basis: "written_provider_authorization" }, {}],
+    ["customer-managed session", { session_owner: "customer_managed" }, {}],
+    ["milling not supported", { supported_processes: ["sheet_metal"] }, {}],
+  ] as const)("denies %s", (_name, resolverSet, bindingSet) => {
+    expect(current(resolverSet, bindingSet)).toBe(false);
+  });
+});
+
+describe("legacy Xometry compatibility mapping", () => {
+  const legacy = fixture.legacyXometry;
+
+  it("lifts an existing permit into the golden envelope only with explicit bindings", () => {
+    const lifted = liftLegacyXometryPermit({
+      scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
+      permit: legacy.permit,
+      scopeSnapshot: legacy.scopeSnapshot,
+      bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+    });
+    expect(lifted).toEqual({ ok: true, envelope: golden });
+  });
+
+  it("round-trips permit columns, task payload keys, and authorization keys verbatim", () => {
+    const projection = projectLegacyXometryBinding(golden);
+    expect(projection).toEqual({
+      ok: true,
+      permit: legacy.permit,
+      taskPayload: legacy.taskPayload,
+      authorization: legacy.authorization,
+    });
+  });
+
+  it("documents every legacy key with a mapping that resolves to the same value", () => {
+    const projection = projectLegacyXometryBinding(golden);
+    if (!projection.ok) throw new Error(projection.denial);
+    const surfaces: Array<[Record<string, string>, Record<string, unknown>]> = [
+      [LEGACY_XOMETRY_PERMIT_COLUMN_MAP, projection.permit],
+      [LEGACY_XOMETRY_TASK_PAYLOAD_KEY_MAP, projection.taskPayload],
+      [LEGACY_XOMETRY_AUTHORIZATION_KEY_MAP, projection.authorization],
+    ];
+    for (const [map, legacyValue] of surfaces) {
+      expect(Object.keys(map).sort()).toEqual(Object.keys(legacyValue).sort());
+      for (const [legacyKey, neutralPath] of Object.entries(map)) {
+        expect(legacyValue[legacyKey]).toEqual(neutralValue(golden, neutralPath));
+      }
+    }
+  });
+
+  /** Runs the existing client scope-preview parser on the legacy surface of `envelope`. */
+  function scopePreview(envelope: ProviderDispatchEnvelope): Record<string, unknown> {
+    return parseXometryBetaDispatchScope({
+      organizationId: envelope.subject.organizationId,
+      jobId: envelope.subject.jobId,
+      partId: envelope.subject.partId,
+      provider: "xometry",
+      requestedQuantity: envelope.scope.requestedQuantity,
+      scopeVersion: envelope.scope.version,
+      scopeFingerprint: envelope.scope.fingerprint,
+      declaredModelUnits: envelope.scope.declaredModelUnits,
+      policyRevision: envelope.noticeRevision,
+      envelopeRevision: XOMETRY_ENVELOPE_REVISION,
+      scope: {
+        schema: "quote-lane-scope.v1",
+        vendor: "xometry",
+        quantity: envelope.scope.requestedQuantity,
+        destination: {
+          confirmationRevision: "1",
+          state: "confirmed",
+          street: "1 Synthetic Way",
+          city: "Example",
+          region: "CA",
+          postalCode: "00000",
+          country: "US",
+        },
+        part: { id: envelope.subject.partId, ...legacy.scopeSnapshot.part },
+        requirements: {
+          id: "00000000-0000-4000-8000-0000000045aa",
+          capturedAt: "2026-10-03T11:00:00.000Z",
+          description: null,
+          partNumber: null,
+          revision: null,
+          material: "6061-T6",
+          finish: null,
+          tightestToleranceInch: 0.005,
+          requestedDeliveryDate: null,
+          specification: {},
+        },
+      },
+    }) as unknown as Record<string, unknown>;
+  }
+
+  it("maps the client scope-preview keys, keeping the notice revision distinct from admission", () => {
+    const preview = scopePreview(golden);
+    for (const [legacyKey, neutralPath] of Object.entries(LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP)) {
+      expect(preview[legacyKey]).toEqual(neutralValue(golden, neutralPath));
+    }
+    expect(LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP.policyRevision).toBe("noticeRevision");
+    expect(golden.admission.policyRevision).not.toBe(preview.policyRevision);
+  });
+
+  // The golden values are all defaults (scope version 1 = envelope version 1,
+  // quantity 1, inch), so a swapped or hard-coded mapping would pass the golden
+  // round trip. Each case gives the three scope values distinct, non-default
+  // values and checks lift, projection, key maps, and scope-preview parity.
+  describe.each(legacy.roundTrips)("legacy round trip with $name", (entry) => {
+    const permit = mutate(legacy.permit, {
+      scope_version: entry.scopeVersion,
+      declared_model_units: entry.declaredModelUnits,
+    });
+    const scopeSnapshot = mutate(legacy.scopeSnapshot, { quantity: entry.requestedQuantity });
+    const envelope = mutate(golden, {
+      "scope.version": entry.scopeVersion,
+      "scope.requestedQuantity": entry.requestedQuantity,
+      "scope.declaredModelUnits": entry.declaredModelUnits,
+    });
+
+    it("uses values that differ from each other and from the golden defaults", () => {
+      const values = [entry.scopeVersion, entry.requestedQuantity, golden.envelope.version];
+      expect(new Set(values).size).toBe(values.length);
+      expect(entry.scopeVersion).not.toBe(golden.scope.version);
+      expect(entry.requestedQuantity).not.toBe(golden.scope.requestedQuantity);
+    });
+
+    it("lifts the permit with its own scope version, quantity, and units", () => {
+      expect(
+        liftLegacyXometryPermit({
+          permit,
+          scopeSnapshot,
+          scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
+          bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+        }),
+      ).toEqual({ ok: true, envelope });
+    });
+
+    it("projects the envelope back onto the same permit columns and keys", () => {
+      expect(projectLegacyXometryBinding(envelope)).toEqual({
+        ok: true,
+        permit,
+        taskPayload: legacy.taskPayload,
+        authorization: legacy.authorization,
+      });
+    });
+
+    it("resolves every legacy key map to the same value", () => {
+      const projection = projectLegacyXometryBinding(envelope);
+      if (!projection.ok) throw new Error(projection.denial);
+      const preview = scopePreview(envelope);
+      const surfaces: Array<[Record<string, string>, Record<string, unknown>]> = [
+        [LEGACY_XOMETRY_PERMIT_COLUMN_MAP, projection.permit],
+        [LEGACY_XOMETRY_TASK_PAYLOAD_KEY_MAP, projection.taskPayload],
+        [LEGACY_XOMETRY_AUTHORIZATION_KEY_MAP, projection.authorization],
+        [LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP, preview],
+      ];
+      for (const [map, legacyValue] of surfaces) {
+        for (const [legacyKey, neutralPath] of Object.entries(map)) {
+          expect(legacyValue[legacyKey]).toEqual(neutralValue(envelope, neutralPath));
+        }
+      }
+      expect(preview).toMatchObject({
+        requestedQuantity: entry.requestedQuantity,
+        scopeVersion: entry.scopeVersion,
+        declaredModelUnits: entry.declaredModelUnits,
+      });
+    });
+  });
+
+  it("feeds the existing worker preflight parser without behavior change", async () => {
+    const projection = projectLegacyXometryBinding(golden);
+    if (!projection.ok) throw new Error(projection.denial);
+    const rpc = vi.fn().mockResolvedValue({
+      data: { authorized: true, reasonCode: null, ...projection.authorization },
+      error: null,
+    });
+    const quote = vi.fn().mockResolvedValue({ offers: [] });
+    await quoteWithDispatchPreflight({
+      supabase: { rpc } as unknown as SupabaseClient,
+      config: { workerMode: "live", workerName: "worker-1" },
+      workQueueTaskId: golden.task.workQueueTaskId,
+      vendorQuoteResultId: golden.task.vendorQuoteResultId,
+      claimedAt: golden.issuedAt,
+      vendor: "xometry",
+      scopeSnapshot: legacy.scopeSnapshot,
+      adapter: { quote },
+      quoteInput: {} as VendorQuoteAdapterInput,
+    });
+    expect(quote).toHaveBeenCalledWith({ xometryDispatchAuthorization: legacy.authorization });
+  });
+
+  it("rejects a missing or non-object scope snapshot", () => {
+    for (const scopeSnapshot of [null, undefined, "quote-lane-scope.v1"]) {
+      expect(
+        liftLegacyXometryPermit({
+          permit: legacy.permit,
+          scopeSnapshot,
+          scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
+          bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+        }),
+      ).toEqual({ ok: false, denial: "envelope_malformed" });
+    }
+  });
+
+  it.each(legacy.denials)("rejects $name as $denial", (entry) => {
+    const typed = entry as {
+      permitSet?: Record<string, Json>;
+      scopeSet?: Record<string, Json>;
+      scopeUnset?: string[];
+      bindingsSet?: Record<string, Json>;
+      scopeSnapshotFingerprint?: string | null;
+      denial: string;
+    };
+    expect(
+      liftLegacyXometryPermit({
+        permit: mutate(legacy.permit, typed.permitSet),
+        scopeSnapshot: mutate(legacy.scopeSnapshot, typed.scopeSet, typed.scopeUnset),
+        scopeSnapshotFingerprint:
+          "scopeSnapshotFingerprint" in typed ? typed.scopeSnapshotFingerprint : legacy.scopeSnapshotFingerprint,
+        bindings: mutate(legacy.bindings, typed.bindingsSet) as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+      }),
+    ).toEqual({ ok: false, denial: typed.denial });
+  });
+
+  it("refuses to project non-legacy envelopes onto Xometry legacy keys", () => {
+    expect(projectLegacyXometryBinding(mutate(golden, { "envelope.version": 2 }))).toEqual({
+      ok: false,
+      denial: "provider_envelope_mismatch",
+    });
+    expect(
+      projectLegacyXometryBinding(mutate(golden, { provider: "fictiv", "envelope.id": "fictiv-controlled-beta-envelope" })),
+    ).toEqual({ ok: false, denial: "provider_mismatch" });
+    expect(projectLegacyXometryBinding({ ...golden, extra: 1 })).toEqual({ ok: false, denial: "envelope_malformed" });
+  });
+});

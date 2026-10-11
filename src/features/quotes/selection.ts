@@ -666,7 +666,10 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       requestedByDate === null
         ? true
         : resolvedDeliveryDate !== null && resolvedDeliveryDate <= requestedByDate;
-    const isSelectable = Boolean(offer.id) && !offer.invalidatedAt;
+    // Preserve unknown validity for legacy rows, but never offer an explicitly
+    // expired or malformed deadline as selectable. Match the server's inclusive bound.
+    const commerciallyValid = offer.validUntil == null || Date.parse(offer.validUntil) >= now.getTime();
+    const isSelectable = Boolean(offer.id) && !offer.invalidatedAt && commerciallyValid;
 
     options.push({
       key: offer.id ?? `${quote.id}:${offer.offerId}`,

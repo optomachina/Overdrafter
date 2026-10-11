@@ -525,8 +525,8 @@ select throws_ok(
     )
   $$,
   '42501',
-  'Billing audit events may only be appended by the billing service.',
-  'the legacy security-definer audit helper cannot forge billing history'
+  'permission denied for function log_audit_event',
+  'signed-in callers cannot reach the audit helper to forge billing history'
 );
 
 -- Exercise the trigger itself even if a future migration broadens table grants.

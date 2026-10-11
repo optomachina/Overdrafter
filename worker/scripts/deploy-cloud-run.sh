@@ -10,6 +10,20 @@ REGION="${CLOUD_RUN_REGION:-us-west1}"
 SUPABASE_URL="${SUPABASE_URL:-}"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
+# OVD-673: no default. Fictiv is never enabled without an explicitly named
+# Secret Manager secret holding its operator-captured storage state.
+FICTIV_STORAGE_STATE_SECRET_NAME="${FICTIV_STORAGE_STATE_SECRET_NAME:-}"
+# OVD-674: no default. Quickparts is never enabled without an explicitly named
+# Secret Manager secret holding its operator-captured storage state. The secret
+# is mounted as a file and handed to the portal kernel through
+# QUOTE_VENDOR_STORAGE_STATE_PATHS; the mount path is fixed, not configurable.
+QUICKPARTS_STORAGE_STATE_SECRET_NAME="${QUICKPARTS_STORAGE_STATE_SECRET_NAME:-}"
+QUICKPARTS_STORAGE_STATE_MOUNT_PATH="/var/secrets/quickparts-storage-state/storage-state.json"
+# OVD-675: no default, same shape as Quickparts. Weerg is never enabled
+# without an explicitly named Secret Manager secret, mounted at a fixed path
+# and handed to the portal kernel through QUOTE_VENDOR_STORAGE_STATE_PATHS.
+WEERG_STORAGE_STATE_SECRET_NAME="${WEERG_STORAGE_STATE_SECRET_NAME:-}"
+WEERG_STORAGE_STATE_MOUNT_PATH="/var/secrets/weerg-storage-state/storage-state.json"
 XOMETRY_PROFILE_SNAPSHOT_BUCKET="${XOMETRY_PROFILE_SNAPSHOT_BUCKET:-}"
 XOMETRY_PROFILE_SNAPSHOT_OBJECT="${XOMETRY_PROFILE_SNAPSHOT_OBJECT:-}"
 XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES="${XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES:-268435456}"
@@ -28,6 +42,11 @@ QUOTE_ARTIFACT_BUCKET="${QUOTE_ARTIFACT_BUCKET:-quote-artifacts}"
 PLAYWRIGHT_HEADLESS="${PLAYWRIGHT_HEADLESS:-true}"
 PLAYWRIGHT_CAPTURE_TRACE="${PLAYWRIGHT_CAPTURE_TRACE:-false}"
 PLAYWRIGHT_BROWSER_TIMEOUT_MS="${PLAYWRIGHT_BROWSER_TIMEOUT_MS:-45000}"
+# TODO(OVD-610): default to false (sandbox on) once a Cloud Run smoke proves
+# sandboxed Chromium and Camoufox run as the non-root pwuser, and the pinned
+# release-tuple contracts (scripts/ovd419-*, verify-xometry-stable-egress,
+# configure-xometry-auth-probe-job) are updated with it. Until then the deploy
+# default must match those contracts.
 PLAYWRIGHT_DISABLE_SANDBOX="${PLAYWRIGHT_DISABLE_SANDBOX:-true}"
 PLAYWRIGHT_DISABLE_DEV_SHM_USAGE="${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE:-true}"
 XOMETRY_BROWSER_ENGINE="${XOMETRY_BROWSER_ENGINE:-playwright}"
@@ -121,6 +140,74 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
+# Production live adapters are xometry, fictiv (OVD-673), quickparts
+# (OVD-674), and weerg (OVD-675), each listed at most once. Fictiv, Quickparts,
+# and Weerg dispatch remain default-deny in the database until their admission
+# policy and reviewed envelope are recorded.
+fictiv_live_enabled=false
+quickparts_live_enabled=false
+weerg_live_enabled=false
+xometry_live_enabled=false
+if [[ "$WORKER_MODE" == "live" ]]; then
+  # read -a silently drops a trailing empty field, so reject empty fields here.
+  if [[ -z "$WORKER_LIVE_ADAPTERS" || "$WORKER_LIVE_ADAPTERS" == ,* || "$WORKER_LIVE_ADAPTERS" == *, || "$WORKER_LIVE_ADAPTERS" == *,,* ]]; then
+    echo "WORKER_LIVE_ADAPTERS must list xometry, fictiv, quickparts, and/or weerg for a live deploy."
+    exit 1
+  fi
+  IFS=',' read -r -a requested_live_adapters <<< "$WORKER_LIVE_ADAPTERS"
+  for adapter in "${requested_live_adapters[@]}"; do
+    case "$adapter" in
+      "xometry")
+        if [[ "$xometry_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists xometry more than once."
+          exit 1
+        fi
+        xometry_live_enabled=true
+        ;;
+      "fictiv")
+        if [[ "$fictiv_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists fictiv more than once."
+          exit 1
+        fi
+        fictiv_live_enabled=true
+        ;;
+      "quickparts")
+        if [[ "$quickparts_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists quickparts more than once."
+          exit 1
+        fi
+        quickparts_live_enabled=true
+        ;;
+      "weerg")
+        if [[ "$weerg_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists weerg more than once."
+          exit 1
+        fi
+        weerg_live_enabled=true
+        ;;
+      *)
+        echo "WORKER_LIVE_ADAPTERS may only list xometry, fictiv, quickparts, and/or weerg for a live deploy."
+        exit 1
+        ;;
+    esac
+  done
+fi
+
+if [[ "$fictiv_live_enabled" == "true" && -z "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then
+  echo "FICTIV_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes fictiv."
+  exit 1
+fi
+
+if [[ "$quickparts_live_enabled" == "true" && -z "$QUICKPARTS_STORAGE_STATE_SECRET_NAME" ]]; then
+  echo "QUICKPARTS_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes quickparts."
+  exit 1
+fi
+
+if [[ "$weerg_live_enabled" == "true" && -z "$WEERG_STORAGE_STATE_SECRET_NAME" ]]; then
+  echo "WEERG_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes weerg."
+  exit 1
+fi
+
 stable_egress_configured=false
 if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EGRESS" ]]; then
   if [[ -z "$CLOUD_RUN_NETWORK" || -z "$CLOUD_RUN_SUBNET" || -z "$CLOUD_RUN_VPC_EGRESS" ]]; then
@@ -131,8 +218,18 @@ if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EG
     echo "CLOUD_RUN_VPC_EGRESS must be all-traffic when stable egress is configured."
     exit 1
   fi
-  if [[ "$WORKER_MODE" != "live" || "$WORKER_LIVE_ADAPTERS" != "xometry" ]]; then
-    echo "Stable egress deployment is restricted to the live Xometry-only worker."
+  # Must match STABLE_EGRESS_LIVE_ADAPTER_VALUES in
+  # scripts/xometry-stable-egress-contract.mjs: xometry, then the enabled
+  # optional adapters in canonical order.
+  stable_egress_canonical_adapters="xometry"
+  for optional_adapter in fictiv quickparts weerg; do
+    optional_adapter_enabled_var="${optional_adapter}_live_enabled"
+    if [[ "${!optional_adapter_enabled_var}" == "true" ]]; then
+      stable_egress_canonical_adapters+=",${optional_adapter}"
+    fi
+  done
+  if [[ "$WORKER_MODE" != "live" || "$xometry_live_enabled" != "true" || "$WORKER_LIVE_ADAPTERS" != "$stable_egress_canonical_adapters" ]]; then
+    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order."
     exit 1
   fi
   if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then
@@ -269,9 +366,48 @@ else
   remove_secret_vars+=("ANTHROPIC_API_KEY")
 fi
 
+if [[ "$fictiv_live_enabled" == "true" ]]; then
+  secret_vars+=("FICTIV_STORAGE_STATE_JSON=${FICTIV_STORAGE_STATE_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("FICTIV_STORAGE_STATE_JSON")
+fi
+
+# Portal adapters read their mounted sessions through one generic path map.
+vendor_storage_state_paths=()
+if [[ "$quickparts_live_enabled" == "true" ]]; then
+  vendor_storage_state_paths+=("\"quickparts\":\"${QUICKPARTS_STORAGE_STATE_MOUNT_PATH}\"")
+  secret_vars+=("${QUICKPARTS_STORAGE_STATE_MOUNT_PATH}=${QUICKPARTS_STORAGE_STATE_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("$QUICKPARTS_STORAGE_STATE_MOUNT_PATH")
+fi
+
+if [[ "$weerg_live_enabled" == "true" ]]; then
+  vendor_storage_state_paths+=("\"weerg\":\"${WEERG_STORAGE_STATE_MOUNT_PATH}\"")
+  secret_vars+=("${WEERG_STORAGE_STATE_MOUNT_PATH}=${WEERG_STORAGE_STATE_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("$WEERG_STORAGE_STATE_MOUNT_PATH")
+fi
+
+if (( ${#vendor_storage_state_paths[@]} > 0 )); then
+  env_vars+=("QUOTE_VENDOR_STORAGE_STATE_PATHS={$(IFS=,; echo "${vendor_storage_state_paths[*]}")}")
+fi
+
 # Customer drawing extraction must never inherit a previously configured
 # OpenRouter credential from the Cloud Run service.
 remove_secret_vars+=("OPENROUTER_API_KEY")
+
+# gcloud splits --set-env-vars on commas, so a multi-adapter list needs its
+# alternate-delimiter form. Single-adapter deploys keep the plain form.
+set_env_vars_arg="$(IFS=,; echo "${env_vars[*]}")"
+if [[ "$WORKER_LIVE_ADAPTERS" == *","* ]]; then
+  for assignment in "${env_vars[@]}"; do
+    if [[ "$assignment" == *"@"* ]]; then
+      echo "Environment values may not contain @ when WORKER_LIVE_ADAPTERS lists several adapters."
+      exit 1
+    fi
+  done
+  set_env_vars_arg="^@^$(IFS=@; echo "${env_vars[*]}")"
+fi
 
 deploy_cmd=(
   "$GCLOUD_BIN" run deploy "$SERVICE_NAME"
@@ -287,7 +423,7 @@ deploy_cmd=(
   --timeout 3600
   --no-cpu-throttling
   --no-allow-unauthenticated
-  --set-env-vars "$(IFS=,; echo "${env_vars[*]}")"
+  --set-env-vars "$set_env_vars_arg"
   --update-secrets "$(IFS=,; echo "${secret_vars[*]}")"
 )
 

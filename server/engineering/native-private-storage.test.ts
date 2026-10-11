@@ -15,6 +15,16 @@ function setup(options: { response?: () => Response | Promise<Response>; rows?: 
   return { storage, fetch, query, sql };
 }
 describe("Supabase private storage driver", () => {
+  it("defaults off without explicit enabled flag", async () => {
+    const sql = { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql;
+    const fetch = vi.fn();
+    const f = createNativePrivateStorage({ sql, fetch, versionIdQualified: true,
+      authorization: "Bearer synthetic-fixture-only", storageOrigin: "https://storage.invalid" });
+    await expect(f.read(ref, signal())).rejects.toThrow();
+    await expect(f.create(put, signal())).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.query).not.toHaveBeenCalled();
+  });
   it("has a separate default-off versionId qualification gate", async () => {
     const f = setup({ qualified: false }); await expect(f.storage.read(ref, signal())).rejects.toThrow();
     expect(f.fetch).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled();
@@ -65,5 +75,24 @@ describe("Supabase private storage driver", () => {
     await expect(f.storage.read({ ...ref, storageVersion: "not-etag" }, signal())).rejects.toThrow();
     await expect(f.storage.create({ ...put, objectName: "../evil" }, signal())).rejects.toThrow();
     expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it("rejects non-HTTPS storage origins", () => {
+    expect(() => createNativePrivateStorage({ sql: { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql,
+      fetch: vi.fn(), enabled: true, versionIdQualified: true, authorization: "Bearer synthetic-fixture-only",
+      storageOrigin: "http://storage.invalid" })).toThrow("Invalid private Storage origin");
+  });
+  it("rejects redirecting create responses", async () => {
+    const redirectedResponse = new Response("redirect", { status: 201 });
+    Object.defineProperty(redirectedResponse, "redirected", { value: true });
+    const f = setup({ response: () => redirectedResponse });
+    await expect(f.storage.create(put, signal())).rejects.toThrow();
+  });
+  it("rejects authorization credentials containing CR or LF", () => {
+    expect(() => createNativePrivateStorage({ sql: { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql,
+      fetch: vi.fn(), enabled: true, versionIdQualified: true, authorization: "Bearer synthetic\r\ninjection",
+      storageOrigin: "https://storage.invalid" })).toThrow("Invalid private Storage configuration");
+    expect(() => createNativePrivateStorage({ sql: { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql,
+      fetch: vi.fn(), enabled: true, versionIdQualified: true, authorization: "Bearer synthetic\ninjection",
+      storageOrigin: "https://storage.invalid" })).toThrow("Invalid private Storage configuration");
   });
 });

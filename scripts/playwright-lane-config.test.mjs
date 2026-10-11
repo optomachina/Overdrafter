@@ -1,9 +1,10 @@
 // @vitest-environment node
 
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const configPath = fileURLToPath(new URL("../playwright.config.ts", import.meta.url));
@@ -16,6 +17,7 @@ function loadModule(sourcePath, env, dependencies) {
   }).outputText;
   const sandbox = {
     exports: {},
+    URL,
     process: { env: { ...env } },
     require(specifier) {
       if (!Object.hasOwn(dependencies, specifier)) {
@@ -24,19 +26,66 @@ function loadModule(sourcePath, env, dependencies) {
       return dependencies[specifier];
     },
   };
-  runInNewContext(compiled, sandbox, { filename: sourcePath, timeout: 1000 });
-  return sandbox.exports.default;
+  runInNewContext(compiled.replaceAll("import.meta.url", JSON.stringify(pathToFileURL(sourcePath).href)), sandbox, { filename: sourcePath, timeout: 1000 });
+  return sandbox.exports.default ?? sandbox.exports;
 }
 
 function loadConfig(env = {}) {
   return loadModule(configPath, env, { "@playwright/test": { defineConfig: (value) => value } });
 }
 
-function loadSetup(env, ensureAuthStates) {
-  return loadModule(setupPath, env, { "./auth.mjs": { ensureAuthStates } });
+function loadSetup(env, ensureAuthStates, warmFixtureRoutes = vi.fn().mockResolvedValue(undefined)) {
+  return loadModule(setupPath, env, {
+    "./auth.mjs": { ensureAuthStates },
+    "./fixture-warmup.mjs": { warmFixtureRoutes },
+  });
 }
 
 describe("Playwright execution lane configuration", () => {
+  it.each([{}, { CI: "true" }])("retains sandboxed auth-setup launches for %j", async env => {
+    const page = {
+      goto: vi.fn(),
+      locator: () => ({ fill: vi.fn(), getByRole: () => ({ click: vi.fn() }) }),
+      getByRole: () => ({ waitFor: vi.fn() }), getByText: () => ({ waitFor: vi.fn() }),
+      context: () => ({ storageState: vi.fn() }),
+    };
+    const browser = { newPage: vi.fn().mockResolvedValue(page), close: vi.fn() };
+    const launch = vi.fn().mockResolvedValue(browser);
+    const module = loadModule(fileURLToPath(new URL("../e2e/auth.mjs", import.meta.url)), env, {
+      "@playwright/test": { chromium: { launch } },
+      "node:fs/promises": { mkdir: vi.fn() }, "node:path": { default: path },
+      "node:url": { fileURLToPath },
+    });
+    await module.ensureAuthStates();
+    expect(launch).toHaveBeenCalledTimes(2);
+    for (const [options] of launch.mock.calls) expect(options).toEqual({
+      headless: true, chromiumSandbox: true, channel: env.CI === "true" ? "chrome" : undefined,
+    });
+    expect(browser.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("selects installed Chrome while retaining the sandbox for authenticated CI", () => {
+    const config = loadConfig({ CI: "true" });
+    expect(config.use.channel).toBe("chrome");
+    expect(config.use.launchOptions).toEqual({ chromiumSandbox: true });
+  });
+
+  it.each([
+    { env: {}, channel: undefined, executablePath: undefined },
+    { env: { CI: "true" }, channel: "chrome", executablePath: undefined },
+    { env: { CI: "true", ADMIN_TEST_CHROMIUM: "/fixture/explicit-chrome" }, channel: undefined, executablePath: "/fixture/explicit-chrome" },
+  ])("keeps admin sandboxing and explicit browser selection for $env", ({ env, channel, executablePath }) => {
+    const path = fileURLToPath(new URL("../e2e/admin-operations.config.ts", import.meta.url));
+    const config = loadModule(path, env, {
+      "@playwright/test": { defineConfig: value => value },
+      "node:url": { fileURLToPath },
+    });
+    expect(config.use.channel).toBe(channel);
+    expect(config.use.launchOptions.chromiumSandbox).toBe(true);
+    expect(config.use.launchOptions.executablePath).toBe(executablePath);
+    expect(config.use.launchOptions.args).toBeUndefined();
+  });
+
   it.each([
     { caseName: "locally", ci: undefined },
     { caseName: "in CI", ci: "true" },
@@ -61,6 +110,8 @@ describe("Playwright execution lane configuration", () => {
         .toString("utf8"),
     );
     expect(publicKeyClaims).toMatchObject({ iss: "supabase-demo", role: "anon" });
+    expect(config.use.launchOptions.chromiumSandbox).toBe(true);
+    expect(config.use.channel).toBe(ci === "true" ? "chrome" : undefined);
     expect(config.use.launchOptions.args).toEqual([
       "--use-angle=swiftshader",
       "--enable-unsafe-swiftshader",
@@ -72,8 +123,10 @@ describe("Playwright execution lane configuration", () => {
     const env = { PLAYWRIGHT_SKIP_AUTH_SETUP: "1" };
     const ensureAuthStates = vi.fn().mockResolvedValue(undefined);
     expect(loadConfig(env).globalSetup).toBe("./e2e/global-setup.mjs");
-    await loadSetup(env, ensureAuthStates)();
+    const warmFixtureRoutes = vi.fn().mockResolvedValue(undefined);
+    await loadSetup(env, ensureAuthStates, warmFixtureRoutes)();
     expect(ensureAuthStates).not.toHaveBeenCalled();
+    expect(warmFixtureRoutes).toHaveBeenCalledWith("http://127.0.0.1:4173");
   });
 
   it("preserves explicit authenticated backend and app overrides", async () => {
@@ -89,7 +142,7 @@ describe("Playwright execution lane configuration", () => {
     expect(config.webServer.env.VITE_SUPABASE_PUBLISHABLE_KEY)
       .toBe(env.VITE_SUPABASE_PUBLISHABLE_KEY);
     expect(config.webServer.reuseExistingServer).toBe(true);
-    expect(config.use.launchOptions).toBeUndefined();
+    expect(config.use.launchOptions).toEqual({ chromiumSandbox: true });
     const ensureAuthStates = vi.fn().mockResolvedValue(undefined);
     await loadSetup(env, ensureAuthStates)();
     expect(ensureAuthStates).toHaveBeenCalledOnce();
@@ -100,7 +153,7 @@ describe("Playwright execution lane configuration", () => {
     expect(config.use.baseURL).toBe("http://127.0.0.1:4173");
     expect(config.webServer.env.VITE_SUPABASE_URL).toBe("http://127.0.0.1:54321");
     expect(config.webServer.reuseExistingServer).toBe(true);
-    expect(config.use.launchOptions).toBeUndefined();
+    expect(config.use.launchOptions).toEqual({ chromiumSandbox: true });
     const ensureAuthStates = vi.fn().mockResolvedValue(undefined);
     await loadSetup({}, ensureAuthStates)();
     expect(ensureAuthStates).toHaveBeenCalledOnce();
@@ -110,7 +163,7 @@ describe("Playwright execution lane configuration", () => {
     const env = { PLAYWRIGHT_SKIP_AUTH_SETUP: flag };
     const config = loadConfig(env);
     expect(config.webServer.env.VITE_SUPABASE_URL).toBe("http://127.0.0.1:54321");
-    expect(config.use.launchOptions).toBeUndefined();
+    expect(config.use.launchOptions).toEqual({ chromiumSandbox: true });
     const ensureAuthStates = vi.fn().mockResolvedValue(undefined);
     await loadSetup(env, ensureAuthStates)();
     expect(ensureAuthStates).toHaveBeenCalledOnce();
@@ -137,6 +190,9 @@ describe("Playwright execution lane configuration", () => {
     expect(browserJob).toContain(
       "- name: Install Chromium\n        run: node ./node_modules/playwright/cli.js install --with-deps chromium\n",
     );
+    expect(browserJob).toContain("test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version");
+    expect(browserJob).not.toContain("--no-sandbox");
+    expect(browserJob).not.toContain("sysctl");
     expect(browserJob).not.toContain("run: npx ");
     expect(browserJob).not.toContain("run: npm exec ");
   });

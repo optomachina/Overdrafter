@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
 import type { LiveAutomationVendorName } from "../types.js";
+import { writePrivateStorageState } from "./privateStorageState.js";
 
 type AuthArgs = {
   vendors: LiveAutomationVendorName[];
@@ -119,7 +120,7 @@ async function bootstrapVendor(vendor: LiveAutomationVendorName, explicitOutputP
     await page.goto(workflow.loginUrl, { waitUntil: "domcontentloaded" });
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
-    await context.storageState({ path: outputPath });
+    await writePrivateStorageState(context, outputPath);
 
     console.log("");
     console.log(`Saved ${workflow.displayName} storage state to: ${outputPath}`);

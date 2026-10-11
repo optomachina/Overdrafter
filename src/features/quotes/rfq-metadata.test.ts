@@ -141,6 +141,26 @@ describe("rfq-metadata", () => {
     });
   });
 
+  it("writes only a string finish, never a raw extraction object", () => {
+    const extractionObject = {
+      raw: null,
+      reasons: [],
+      confidence: 0,
+      normalized: null,
+      reviewNeeded: false,
+    };
+
+    expect(
+      buildClientPartRequestUpdateInput("job-1", {
+        ...makeRequirement(),
+        finish: extractionObject as unknown as string,
+      }).finish,
+    ).toBeNull();
+    expect(
+      buildClientPartRequestUpdateInput("job-1", { ...makeRequirement(), finish: "Black anodize" }).finish,
+    ).toBe("Black anodize");
+  });
+
   it("parses comma- and newline-delimited metadata lists", () => {
     expect(parseDelimitedStringList("AS9100, ITAR\nMaterial cert")).toEqual([
       "AS9100",

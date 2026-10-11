@@ -29,6 +29,41 @@ export const OVD410_PRODUCTION_CONTRACT = Object.freeze({
 
 export const OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS = 1200;
 
+/**
+ * Generic-dispatch adapters that may share the governed egress, only alongside
+ * Xometry and in this canonical order: Fictiv (OVD-673), Quickparts (OVD-674)
+ * and Weerg (OVD-675). Their dispatch stays default-deny in the database until
+ * each is admitted.
+ */
+export const STABLE_EGRESS_OPTIONAL_ADAPTERS = Object.freeze(["fictiv", "quickparts", "weerg"]);
+
+/**
+ * Exact WORKER_LIVE_ADAPTERS values the stable-egress worker may carry:
+ * `xometry` followed by any canonical-order subset of the optional adapters.
+ * deploy-cloud-run.sh derives the same canonical value from the adapters it
+ * enabled (pinned by contract test).
+ */
+export const STABLE_EGRESS_LIVE_ADAPTER_VALUES = Object.freeze(
+  Array.from({ length: 2 ** STABLE_EGRESS_OPTIONAL_ADAPTERS.length }, (_, mask) =>
+    ["xometry", ...STABLE_EGRESS_OPTIONAL_ADAPTERS.filter((_, index) => mask & (1 << index))].join(","),
+  ),
+);
+
+/**
+ * Exact HTTPS hosts a generic-portal adapter on the stable egress may reach.
+ * The worker's portal kernel aborts every other request, so these must equal
+ * the adapter's production portal definition (pinned by contract test).
+ * Xometry and Fictiv are bespoke adapters with their own origin checks.
+ */
+export const STABLE_EGRESS_PROVIDER_HOSTS = Object.freeze({
+  quickparts: Object.freeze(["quickparts.com", "quickquote.quickparts.com"]),
+  weerg: Object.freeze(["www.weerg.com"]),
+});
+
+export function isStableEgressLiveAdapterValue(value) {
+  return STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(value);
+}
+
 export function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
