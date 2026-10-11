@@ -343,8 +343,10 @@ function renderTypeScript(registry) {
   ].join("\n");
 }
 
+const BASH_SINGLE_QUOTE_ESCAPE = String.raw`'\''`;
+
 function bashQuote(value) {
-  return `'${String(value).replaceAll("'", String.raw`'\''`)}'`;
+  return ["'", String(value).replaceAll("'", BASH_SINGLE_QUOTE_ESCAPE), "'"].join("");
 }
 
 function renderBashCase(entry) {
