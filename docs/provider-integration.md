@@ -176,17 +176,31 @@ Selector and terminal-signal changes are proposals until human-reviewed. Confide
 
 Public first-party research produces the manifest, conservative eligibility evaluation, default-off identity/catalog wiring, evidence date, and offline envelope tests. Unknown remains unknown. Marketing evidence is not production certification.
 
+Human attestations for this stage belong on the [provider go-live checklist](checklists/provider-go-live-checklist.md). Repo-verifiable envelope artifacts stay with `provider:check`.
+
 ### 2. Make `<provider>` live evaluation operational
 
 A declarative or custom adapter provides isolated session setup, exact allowed origins, provider-specific anchors, finite failures, scrubbed fixtures, normalized local evidence, and the shared adapter-contract proof. Authenticated interaction requires exact-file authorization. Completion means evaluation-ready/evaluated, not customer-enabled.
 
 Stage 2 depends on stage 1.
 
+Use the [provider go-live checklist](checklists/provider-go-live-checklist.md) for worker-adapter, secret-name, and egress attestations. A checked box does not deploy or enable anything.
+
 ### 3. Admit and certify `<provider>` for production quotes
 
 Production admission requires a reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization. Only this stage may update the production-certified allowlist or enable routing.
 
 Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
+
+Admission still requires a human-applied reviewed SQL revision. Record that work on the [provider go-live checklist](checklists/provider-go-live-checklist.md). Admit SQL never belongs in `supabase/migrations/` from a generator.
+
+### Generated-stage runbook (OVD-687)
+
+`provider:onboard` (OVD-687) emits a rollout runbook block for admit-stage work.
+That block must link the [provider go-live checklist](checklists/provider-go-live-checklist.md).
+Generated catalog and adapter output stays disabled by default, admit SQL stays
+in review-only stubs outside `supabase/migrations/`, and worker wiring records
+secret names only.
 
 ## Permissions matrix and paid-automation clearance
 

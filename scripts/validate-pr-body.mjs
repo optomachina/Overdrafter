@@ -194,10 +194,151 @@ function validateVerificationSection(content, rule) {
   return errors;
 }
 
+export const PROVIDER_GO_LIVE_HEADING = "Provider go-live";
+
+export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope/";
+
+export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
+  { id: "provider-check", label: "provider:check green", match: /provider:check\s+green/i },
+  { id: "envelope-reviewer", label: "envelope reviewed by a named reviewer", match: /named reviewer/i },
+  {
+    id: "admission-revision",
+    label: "approved admission revision (generic_dispatch_enabled=true)",
+    match: /generic_dispatch_enabled\s*=\s*true/i,
+  },
+  {
+    id: "rollout",
+    label: "automatic_quote_collection rollout and org enablement",
+    match: /automatic_quote_collection/i,
+  },
+  { id: "worker-secret", label: "worker adapter and Secret Manager secret", match: /secret manager/i },
+  { id: "egress", label: "stable egress verified", match: /egress/i },
+  { id: "certification", label: "certification run evidence", match: /certification/i },
+  { id: "rollback", label: "rollback/disable steps rehearsed", match: /rollback/i },
+];
+
+const CHECKBOX_LINE = /^\s*[-*]\s+\[([ xX])\]\s*(.*)$/;
+
+/**
+ * Return whether any changed path is under a `provider-dispatch-envelope/` directory.
+ */
+export function touchesProviderDispatchEnvelope(changedFiles = []) {
+  return changedFiles.some((file) => String(file).replaceAll("\\", "/").includes(PROVIDER_DISPATCH_ENVELOPE_DIR));
+}
+
+function parseCheckboxLines(content) {
+  return content.split("\n").flatMap((line) => {
+    const match = line.match(CHECKBOX_LINE);
+    if (!match) {
+      return [];
+    }
+
+    return [{ checked: match[1] !== " ", text: match[2] }];
+  });
+}
+
+function naReason(text) {
+  const match = text.match(/\bN\/A\b[:\s—-]*(.*)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const reason = match[1].trim();
+  return /[A-Za-z0-9]/.test(reason) ? reason : "";
+}
+
+function hasEvidence(text) {
+  if (/https?:\/\//i.test(text)) {
+    return true;
+  }
+
+  const evidence = text.match(/evidence:\s*(.+)$/i);
+  return Boolean(evidence && /[A-Za-z0-9]/.test(evidence[1]));
+}
+
+function checkboxSatisfied(box, requiredItem) {
+  const reason = naReason(box.text);
+  if (reason !== null) {
+    return reason.length > 0;
+  }
+
+  if (!box.checked) {
+    return false;
+  }
+
+  if (requiredItem?.id === "provider-check") {
+    return true;
+  }
+
+  return hasEvidence(box.text);
+}
+
+function extraCheckboxSatisfied(box) {
+  const reason = naReason(box.text);
+  if (reason !== null) {
+    return reason.length > 0;
+  }
+
+  return box.checked;
+}
+
+function validateProviderGoLiveSection(body) {
+  const sections = collectSections(body);
+  const section = sections.get(normalizeHeading(PROVIDER_GO_LIVE_HEADING));
+  const errors = [];
+
+  if (!section) {
+    return [
+      `missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches provider-dispatch-envelope/`,
+    ];
+  }
+
+  const boxes = parseCheckboxLines(section.content);
+  if (boxes.length === 0) {
+    errors.push(`add Provider go-live checkboxes to "${PROVIDER_GO_LIVE_HEADING}"`);
+  }
+
+  for (const required of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
+    const match = boxes.find((box) => required.match.test(box.text));
+    if (!match) {
+      errors.push(`missing Provider go-live item "${required.label}"`);
+      continue;
+    }
+
+    if (checkboxSatisfied(match, required)) {
+      continue;
+    }
+
+    if (naReason(match.text) !== null) {
+      errors.push(`mark N/A with a reason for "${required.label}"`);
+    } else if (!match.checked) {
+      errors.push(`check or mark N/A with a reason for "${required.label}"`);
+    } else {
+      errors.push(`add an evidence link or note for "${required.label}"`);
+    }
+  }
+
+  for (const box of boxes) {
+    const required = PROVIDER_GO_LIVE_REQUIRED_ITEMS.find((item) => item.match.test(box.text));
+    if (required || extraCheckboxSatisfied(box)) {
+      continue;
+    }
+
+    const label = box.text.trim() || "an extra Provider go-live checkbox";
+    errors.push(`check or mark N/A with a reason for "${label}"`);
+  }
+
+  return errors;
+}
+
 /**
  * Validate that a PR body includes all required sections and obvious non-placeholder content.
+ * The Provider go-live section is required only when `changedFiles` touch `provider-dispatch-envelope/`.
+ *
+ * @param {string} body
+ * @param {{ changedFiles?: string[] }} [options]
  */
-export function validatePrBody(body) {
+export function validatePrBody(body, options = {}) {
   const sections = collectSections(body);
   const errors = [];
 
@@ -217,6 +358,10 @@ export function validatePrBody(body) {
           : validateGenericSection(section.content, rule);
 
     errors.push(...sectionErrors);
+  }
+
+  if (touchesProviderDispatchEnvelope(options.changedFiles ?? [])) {
+    errors.push(...validateProviderGoLiveSection(body));
   }
 
   return {
@@ -239,20 +384,58 @@ async function readStdin() {
   return input;
 }
 
+function parseCliArgs(argv) {
+  const flags = new Set();
+  const values = {};
+  const positional = [];
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--stdin" || arg === "-") {
+      flags.add("stdin");
+      continue;
+    }
+
+    if (arg === "--changed-files-from") {
+      values.changedFilesFrom = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    positional.push(arg);
+  }
+
+  return { flags, values, positional };
+}
+
 /**
  * CLI entrypoint for validating pull request bodies from a file or stdin.
  */
 export async function main(argv = process.argv.slice(2)) {
-  const useStdin = argv.includes("--stdin") || argv[0] === "-";
-  const filePath = useStdin ? null : argv[0];
+  const parsed = parseCliArgs(argv);
+  const useStdin = parsed.flags.has("stdin");
+  const filePath = useStdin ? null : parsed.positional[0];
 
   if (!useStdin && !filePath) {
-    console.error("Usage: npm run validate:pr-body -- <path-to-markdown> | --stdin");
+    console.error(
+      "Usage: npm run validate:pr-body -- <path-to-markdown> | --stdin [--changed-files-from <path>]",
+    );
+    return 1;
+  }
+
+  if (parsed.values.changedFilesFrom === undefined && argv.includes("--changed-files-from")) {
+    console.error("Usage: --changed-files-from requires a path");
     return 1;
   }
 
   const body = useStdin ? await readStdin() : await fs.readFile(filePath, "utf8");
-  const result = validatePrBody(body);
+  const changedFiles = parsed.values.changedFilesFrom
+    ? (await fs.readFile(parsed.values.changedFilesFrom, "utf8"))
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : undefined;
+  const result = validatePrBody(body, changedFiles ? { changedFiles } : {});
 
   if (!result.ok) {
     console.error("PR body validation failed:");
@@ -260,9 +443,12 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  console.log(
-    `PR body validation passed for sections: ${REQUIRED_SECTIONS.map((section) => section.heading).join(", ")}`,
-  );
+  const sectionNames = REQUIRED_SECTIONS.map((section) => section.heading);
+  if (touchesProviderDispatchEnvelope(changedFiles ?? [])) {
+    sectionNames.push(PROVIDER_GO_LIVE_HEADING);
+  }
+
+  console.log(`PR body validation passed for sections: ${sectionNames.join(", ")}`);
   return 0;
 }
 

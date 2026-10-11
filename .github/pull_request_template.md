@@ -74,6 +74,35 @@ Baseline failures or exceptions:
 - [ ] Docs updated
 - [ ] No doc updates needed
 
+## Provider go-live
+
+Required only when this PR touches `provider-dispatch-envelope/`. Omit this
+section on unrelated PRs so the existing PR-body gate stays unchanged.
+
+A checked box grants no authority. Generated output stays disabled by default.
+Admission happens only when a human applies reviewed SQL; admit SQL never
+belongs in `supabase/migrations/`. Record Secret Manager secret names only.
+
+N/A is allowed only for non-admitting changes and must include a reason.
+See `docs/checklists/provider-go-live-checklist.md`.
+
+### Envelope
+
+- [ ] provider:check green
+- [ ] Envelope reviewed by a named reviewer. Evidence:
+
+### Live
+
+- [ ] Worker adapter deployed and Secret Manager secret created (name only). Evidence:
+- [ ] Stable egress verified (`verify:xometry-egress`-style). Evidence:
+
+### Admit
+
+- [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL was not added to `supabase/migrations/`. Evidence:
+- [ ] `automatic_quote_collection` rollout and org enablement. Evidence:
+- [ ] Certification run evidence:
+- [ ] Rollback/disable steps rehearsed. Evidence:
+
 ## Screenshots or videos (if UI)
 
 Add screenshots, videos, logs, or other evidence.
