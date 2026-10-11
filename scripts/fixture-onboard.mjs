@@ -112,8 +112,8 @@ export async function nextMigrationTimestamp(rootDir) {
   if (stamps.length === 0) {
     throw new Error(`no migrations found under ${MIGRATIONS_RELATIVE_DIR}`);
   }
-  // Fixed-width numeric strings: the lexicographic maximum is the latest timestamp.
-  return addOneHour(stamps.reduce((latest, stamp) => (stamp > latest ? stamp : latest)));
+  // 14-digit YYYYMMDDHHMMSS values are exact as numbers (< 2^53), so the numeric max is the latest.
+  return addOneHour(String(Math.max(...stamps.map(Number))));
 }
 
 async function existingAdmitTimestamp(rootDir, key) {
