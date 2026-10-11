@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(132);
+select plan(134);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -220,10 +220,12 @@ select ok(
   and pg_catalog.has_function_privilege('service_role', 'private.resolve_provider_dispatch_permit_state(uuid)', 'EXECUTE'),
   'private resolvers are definer-only; revocation and permit state are service_role only'
 );
+-- OVD-674 seeds the reviewed Quickparts envelope; its exact row and the still
+-- disabled Quickparts admission are asserted below.
 select is(
-  (select count(*) from private.provider_dispatch_envelope_reviews),
+  (select count(*) from private.provider_dispatch_envelope_reviews where provider <> 'quickparts'),
   0::bigint,
-  'no provider has a reviewed generic envelope by default'
+  'no provider other than Quickparts has a reviewed generic envelope by default'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),
@@ -397,6 +399,20 @@ begin
   return v_row.id;
 end;
 $$;
+
+-- OVD-674 records exactly one active reviewed Quickparts envelope and admits nothing.
+select results_eq(
+  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
+    from private.provider_dispatch_envelope_reviews
+    where provider = 'quickparts' and withdrawn_at is null$$,
+  $$values ('quickparts-quote-envelope'::text, 1, 7200, 'OVD-674'::text)$$,
+  'the migration seeds exactly one active reviewed Quickparts envelope with a 7200 s permit TTL'
+);
+select ok(
+  (select admission_state = 'disabled' and not generic_dispatch_enabled
+   from private.quote_provider_admission_policies where provider = 'quickparts'),
+  'the reviewed Quickparts envelope leaves Quickparts admission disabled'
+);
 
 -- Default-off: the registry is the rollback switch and starts disabled.
 set local role authenticated;

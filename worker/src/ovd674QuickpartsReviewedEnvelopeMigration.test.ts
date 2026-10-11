@@ -65,6 +65,6 @@ describe("OVD-674 Quickparts reviewed dispatch envelope migration", () => {
     const index = migrations.indexOf(MIGRATION);
     expect(index).toBeGreaterThan(migrations.indexOf("20261003160000_ovd458_generic_provider_dispatch_permits.sql"));
     expect(index).toBeGreaterThan(migrations.indexOf("20261004130000_ovd628_generic_admission_nowait.sql"));
-    expect(index).toBeGreaterThan(migrations.indexOf("20261010120000_ovd673_fictiv_reviewed_dispatch_envelope.sql"));
+    expect(index).toBeGreaterThan(migrations.indexOf("20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql"));
   });
 });
