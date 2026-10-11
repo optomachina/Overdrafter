@@ -53,6 +53,12 @@ test('CI requires replacement success before the standard lane and final aggrega
   assert.match(ci, /\[ "\$OVD591_SQL_RESULT" != "success" \]/);
 });
 
+test('OVD-684 pgTAP fixture is a byte copy of the migration it exercises', () => {
+  const name = '20261010120000_ovd684_backfill_object_finish.sql';
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd684_backfill_object_finish.inc')),
+    readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url))));
+});
+
 test('successful pg_prove summary must cover every selected file with real assertions', () => {
   const pass = 'All tests successful.\nFiles=53, Tests=2245, 27 wallclock secs\nResult: PASS\n';
   assert.deepEqual(admitPgProve(pass, 53), { files: 53, assertions: 2245, result: 'PASS' });
