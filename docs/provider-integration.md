@@ -118,6 +118,8 @@ Build the integration kit as separate reviewable slices for the manifest/scaffol
 
 ## Add a provider offline
 
+[Fixture](fixture.md) (`npm run fixture:onboard -- <key> --stage=envelope|live|admit`) generates the default-off, review-only artifacts for each of the three stages below. `provider:add` is its `--stage=envelope` alias.
+
 Use the repo-local `add-quote-provider` skill for intake, live continuation, or repair.
 
 For a list of providers, use the skill's batch-intake mode. It preflights duplicate identities, assigns one bounded writer to each provider-owned directory and evaluator/test set, and keeps shared indexes, generated catalogs, Linear changes, and final verification with one integrator. This permits parallel first-party research without concurrent edits to shared generated files. Batch intake remains offline; live evaluation still requires a separate exact-file approval per provider.
@@ -139,7 +141,7 @@ For intake:
    ```bash
    npm run provider:sync
    npm run provider:check
-   npm test -- scripts/provider-add.test.mjs scripts/provider-check.test.mjs
+   npm test -- scripts/provider-add.test.mjs scripts/fixture-onboard.test.mjs scripts/provider-check.test.mjs
    ```
 
 7. Create the provider parent and the three dependency-gated children below. No live provider interaction belongs in intake.
