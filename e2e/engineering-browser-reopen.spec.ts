@@ -114,6 +114,12 @@ test.describe("engineering browser-process reopen simulation", { tag: "@fixture"
         await context.tracing.start({ screenshots: true, snapshots: true });
         const page = await context.newPage();
         await page.goto(`/engineering?conversation=${conversationId}&fixture=client-quoted`);
+        // A fresh browser has no module cache, so the lazy app entry and /engineering chunk
+        // (unbundled on the fixture dev server, each request through `serve`) can outlast the
+        // 5 s expect budget. Wait for the first conversation read to settle, bounded by the
+        // test timeout, so the assertion below measures the read outcome rather than boot.
+        await page.getByRole("status")
+          .filter({ hasNotText: /^(Checking your session|Opening conversation)…$/ }).waitFor();
         await expect(page.getByRole("status")).toContainText("Conversation loaded");
         expect(await page.evaluate(() => localStorage.getItem("reopen-simulation-marker"))).toBeNull();
         return page;

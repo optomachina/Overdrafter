@@ -26,7 +26,7 @@ const testSuites = [
   { path: "supabase/tests/quote_lane_eligibility.sql", count: 25 },
   { path: "supabase/tests/job_service_detail_privileges.sql", count: 27 },
   { path: "supabase/tests/ovd537_internal_reader_privileges.sql", count: 51 },
-  { path: "supabase/tests/xometry_beta_dispatch_permits.sql", count: 63 },
+  { path: "supabase/tests/xometry_beta_dispatch_permits.sql", count: 66 },
   { path: "supabase/tests/xometry_beta_dispatch_permits_concurrency.sql", count: 3, user: "supabase_admin" },
   { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
   // Repeat in the same database to prove committed fixture cleanup.
