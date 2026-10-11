@@ -79,6 +79,16 @@ export type XometryBetaDispatchDiagnosticCode =
   | "postgrest_failure"
   | "unknown_failure";
 
+/** Server denials the customer can resolve directly from the dispatch dialog. */
+export type XometryBetaScopeDenialCode =
+  | "xometry_beta_confirmed_sourcing_address_required"
+  | "xometry_beta_standard_tolerance_required";
+
+const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
+  "xometry_beta_confirmed_sourcing_address_required",
+  "xometry_beta_standard_tolerance_required",
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -285,6 +295,12 @@ export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   );
 }
 
+/** Returns the actionable denial code when the server raised exactly that code. */
+export function getXometryBetaScopeDenialCode(error: unknown): XometryBetaScopeDenialCode | null {
+  const message = getFailureMessage(error).trim();
+  return ACTIONABLE_SCOPE_DENIAL_CODES.find((code) => code === message) ?? null;
+}
+
 /** A concurrent edit held one of the job's rows, so the server refused the admission without waiting. */
 export function isXometryBetaJobBusy(error: unknown): boolean {
   return /\bxometry_beta_job_busy\b/.test(getFailureMessage(error));
@@ -353,8 +369,18 @@ export function classifyXometryBetaDispatchFailure(
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(error: unknown): string {
+  switch (getXometryBetaScopeDenialCode(error)) {
+    case "xometry_beta_confirmed_sourcing_address_required":
+      return "Xometry needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.";
+    case "xometry_beta_standard_tolerance_required":
+      return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
+    default:
+      break;
+  }
+
   if (isExplicitXometryBetaDispatchDenial(error)) {
     return "This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.";
   }
+
   return "The current Xometry confirmation scope could not be verified. Try the scope check again.";
 }

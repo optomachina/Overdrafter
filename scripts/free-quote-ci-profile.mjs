@@ -9,9 +9,9 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head140-v1: authentic auth/storage bootstrap, all140 ordered migrations '
+export const FREE_BASELINE = 'fresh-full-head144-v1: authentic auth/storage bootstrap, all144 ordered migrations '
   + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight, '
-  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock and OVD-641 owner-approved permission basis appends), '
+  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis, OVD-631 archived-job canonical constraint fix, OVD-679 member sourcing destination, OVD-684 object-finish data backfill, and OVD-685 anon archived-job-delete privilege revocation appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -34,6 +34,14 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: '441494e77b7e09d9e931ed2f458dfff719ece8fc45fb2cc3a886466b93374da5' }),
   Object.freeze({ path: 'supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql', issue: 'OVD-641',
     sha256: 'd8076199f865a4ddf1eac5ac8c8c3c68479de1d14cfcb4e364f0fd24719d4fe6' }),
+  Object.freeze({ path: 'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql', issue: 'OVD-631',
+    sha256: '4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41' }),
+  Object.freeze({ path: 'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql', issue: 'OVD-679',
+    sha256: 'dd68e7f139050495d5206de065df89c9eb4da8e623b7b279ab91df3e0c7ed200' }),
+  Object.freeze({ path: 'supabase/migrations/20261011130000_ovd684_backfill_object_finish.sql', issue: 'OVD-684',
+    sha256: 'cdd03e721aa424055caf90e7ef801a6a51e482ddeabdbf73205e6fb259c40f86' }),
+  Object.freeze({ path: 'supabase/migrations/20261011140000_ovd685_revoke_anon_archived_job_delete.sql', issue: 'OVD-685',
+    sha256: 'd9cca91f8fc55e498a01bf3c3d74358460d373be118d06609ba1a63b0867b206' }),
 ]);
 
 export function sourceBytes(root, path) {
@@ -48,12 +56,12 @@ export function sourceBytes(root, path) {
 export function loadFreeQuoteInputs(root) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 140); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.migrationCount, 144); assert.equal(manifest.baselineCount, 126);
   assert.equal(manifest.contractMigrationCount, 133);
   assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
   const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
     .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 140, 'closed full140 profile must be reviewed for a new migration');
+  assert.equal(current.length, 144, 'closed full144 profile must be reviewed for a new migration');
   assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
@@ -190,10 +198,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate140');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate142');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free140');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free142');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });

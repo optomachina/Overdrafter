@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileText, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, RefreshCw, Settings, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -15,6 +15,7 @@ import type {
   XometryBetaDispatchDiagnosticCode,
   XometryBetaDispatchScope,
   XometryBetaModelUnits,
+  XometryBetaScopeDenialCode,
 } from "@/features/quotes/xometry-beta-dispatch";
 export type { XometryBetaDispatchScope } from "@/features/quotes/xometry-beta-dispatch";
 
@@ -47,9 +48,12 @@ type XometryBetaDispatchConfirmationDialogProps = {
   ) => Promise<XometryBetaDispatchConfirmationResult | null>;
   onDeclaredModelUnitsChange: (units: XometryBetaDeclaredModelUnits | null) => void;
   onOpenChange: (open: boolean) => void;
+  /** Shown when the scope denial is a missing confirmed shipping address. */
+  onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
   open: boolean;
   scope: XometryBetaDispatchScope | null;
+  scopeDenialCode?: XometryBetaScopeDenialCode | null;
   scopeError?: string | null;
 };
 
@@ -167,12 +171,16 @@ function ScopeDetail({ label, value }: Readonly<{ label: string; value: string }
 function ScopeLoadState({
   declaredModelUnits,
   isScopeLoading,
+  onOpenSourcingSettings,
   onRetryScope,
+  scopeDenialCode,
   scopeError,
 }: Readonly<{
   declaredModelUnits: XometryBetaDeclaredModelUnits | null;
   isScopeLoading: boolean;
+  onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
+  scopeDenialCode: XometryBetaScopeDenialCode | null;
   scopeError: string | null;
 }>) {
   if (!declaredModelUnits) {
@@ -200,12 +208,20 @@ function ScopeLoadState({
     <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
       <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled Xometry beta dispatch.</p>
       <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
-      {onRetryScope ? (
-        <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
-          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-          Retry scope check
-        </Button>
-      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {scopeDenialCode === "xometry_beta_confirmed_sourcing_address_required" && onOpenSourcingSettings ? (
+          <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={onOpenSourcingSettings}>
+            <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
+            Open Settings to confirm address
+          </Button>
+        ) : null}
+        {onRetryScope && (
+          <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={() => void onRetryScope()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Retry scope check
+          </Button>
+        )}
+      </div>
     </section>
   );
 }
@@ -256,9 +272,11 @@ export function XometryBetaDispatchConfirmationDialog({
   onConfirm,
   onDeclaredModelUnitsChange,
   onOpenChange,
+  onOpenSourcingSettings,
   onRetryScope,
   open,
   scope,
+  scopeDenialCode = null,
   scopeError = null,
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
@@ -454,7 +472,9 @@ export function XometryBetaDispatchConfirmationDialog({
           <ScopeLoadState
             declaredModelUnits={displayedUnits}
             isScopeLoading={effectiveScopeLoading}
+            onOpenSourcingSettings={onOpenSourcingSettings}
             onRetryScope={retryScope}
+            scopeDenialCode={uncertainAttempt ? null : scopeDenialCode}
             scopeError={effectiveScopeError}
           />
 
