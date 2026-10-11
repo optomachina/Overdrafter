@@ -37,6 +37,10 @@ Obtain Blaine's current exact authorization before:
 
 Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repository access, and broad project approval do not expand into these actions.
 
+### Migration window
+
+Writes under `supabase/migrations/` need a Blaine window. The window is open when the current branch's PR has the `blaine-window` label, or when Blaine starts the session with `OVD_BLAINE_WINDOW=1`. Reading migrations is always allowed. For Claude Code, `.claude/hooks/guard-migrations.mjs` enforces this rule as a PreToolUse hook. It fails closed when there is no PR, `gh` is missing, or GitHub can't be reached. If the hook blocks a write, stop and report it. Do not route around it.
+
 ## Standing approvals and the Blaine channel
 
 - Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
