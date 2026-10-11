@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
@@ -7,6 +7,7 @@ import type { WorkspaceNotificationsController } from "@/features/notifications/
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import * as organizationsApi from "@/features/quotes/api/organizations-api";
 import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
+import { requestAccountSettingsPanel } from "./account-settings-request";
 
 const diagnosticsMocks = vi.hoisted(() => ({
   setDiagnosticsEnabled: vi.fn(),
@@ -620,6 +621,51 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(button);
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("org-1", address));
     expect(await screen.findByText("Quote shipping destination: Confirmed")).toBeInTheDocument();
+  });
+
+  it("lets a client-role member edit the shipping address through the address-only API and confirm it", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    const editedAddress = { ...address, street: "500 Member Way" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
+      id: "org-1", name: "Wilson Works", companyName: "Wilson Works LLC", logoUrl: null, phone: null,
+      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
+      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
+    });
+    vi.spyOn(organizationsApi, "fetchSourcingDestination")
+      .mockResolvedValueOnce({ address, state: "inferred" })
+      .mockResolvedValueOnce({ address: editedAddress, state: "inferred" })
+      .mockResolvedValueOnce({ address: editedAddress, state: "confirmed" });
+    const saveAddresses = vi.spyOn(organizationsApi, "updateOrganizationAddresses").mockResolvedValue();
+    const saveDetails = vi.spyOn(organizationsApi, "updateOrganizationDetails").mockResolvedValue();
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "client" }} onSignOut={vi.fn()} />);
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    await screen.findByText("Quote shipping destination: Needs confirmation");
+    const editButtons = screen.getAllByRole("button", { name: "Edit" });
+    expect(editButtons).toHaveLength(2);
+    fireEvent.click(editButtons[1]);
+    fireEvent.change(screen.getByDisplayValue(address.street), { target: { value: editedAddress.street } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveAddresses).toHaveBeenCalledTimes(1));
+    const [organizationId, patch] = saveAddresses.mock.calls[0];
+    expect(organizationId).toBe("org-1");
+    expect(patch).toMatchObject({ shippingSameAsBilling: false, shippingStreet: editedAddress.street });
+    expect(Object.keys(patch).filter((key) => !/^(billing|shipping)/.test(key))).toEqual([]);
+    expect(saveDetails).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm this shipping address for supplier quotes" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("org-1", editedAddress));
+    expect(await screen.findByText("Quote shipping destination: Confirmed")).toBeInTheDocument();
+  });
+
+  it("opens Settings when another surface requests it", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+    act(() => requestAccountSettingsPanel());
+    expect(await screen.findByText("Organization")).toBeInTheDocument();
   });
 
   it("refreshes shipping details after a confirmation conflict before retrying the exact address", async () => {

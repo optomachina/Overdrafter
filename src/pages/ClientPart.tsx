@@ -238,12 +238,14 @@ const ClientPart = () => {
     user,
     accessibleJobs,
     isAuthInitializing,
+    hasCachedSession,
     workspaceAccessScope,
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
     dispatchProvider,
     xometryDispatchScope,
     xometryDispatchScopeError,
+    xometryDispatchScopeDenialCode,
     xometryDispatchUnits,
     setXometryDispatchUnits,
     refetchXometryDispatchScope,
@@ -319,7 +321,17 @@ const ClientPart = () => {
   }, [handleToggleCurrentPartPin, jobId]);
 
   if (isAuthInitializing && !user) {
-    return <AuthBootstrapScreen message="Restoring your part workspace." />;
+    // A persisted session means the user is probably signed in: draw the shell now and keep
+    // part data and the account menu gated on the verified `user`.
+    return hasCachedSession ? (
+      <QuoteIntelligenceShell title="Part">
+        <div className="flex min-h-[320px] flex-1 items-center justify-center" role="status" aria-label="Restoring your part workspace">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </QuoteIntelligenceShell>
+    ) : (
+      <AuthBootstrapScreen message="Restoring your part workspace." />
+    );
   }
 
   if (!user) {
@@ -635,6 +647,11 @@ const ClientPart = () => {
             ? xometryDispatchScopeError
             : `Automatic ${LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider]} beta dispatch is not enabled for this organization.`
         }
+        scopeDenialCode={automaticQuoteCollectionEnabled ? xometryDispatchScopeDenialCode : null}
+        onOpenSourcingSettings={() => {
+          handleQuoteRequestFlowOpenChange(false);
+          requestAccountSettingsPanel();
+        }}
         onRetryScope={async () => {
           await refetchXometryDispatchScope();
         }}
