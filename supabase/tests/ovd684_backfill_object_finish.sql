@@ -50,8 +50,9 @@ $$;
 
 create temporary table before_run on commit drop as select pg_temp.snapshot() as s;
 
--- Apply the migration file itself so the test cannot drift from it.
-\ir ../migrations/20261010120000_ovd684_backfill_object_finish.sql
+-- CI stages these tests without supabase/migrations; fixtures/ holds a byte copy of
+-- the migration, kept identical by scripts/run-supabase-policy-tests.node-test.mjs.
+\ir fixtures/ovd684_backfill_object_finish.inc
 
 select is(pg_temp.finish_of(1), 'Anodized', 'normalized string wins');
 select is(pg_temp.finish_of(2), 'Black oxide', 'raw string used when normalized is not a string');
@@ -64,7 +65,7 @@ select is(pg_temp.finish_of(8), 'Clear', 'null normalized falls through to raw')
 
 create temporary table after_first on commit drop as select pg_temp.snapshot() as s;
 
-\ir ../migrations/20261010120000_ovd684_backfill_object_finish.sql
+\ir fixtures/ovd684_backfill_object_finish.inc
 
 select is((select s from after_first), pg_temp.snapshot(), 'second run changes nothing (idempotent)');
 select isnt((select s from before_run), (select s from after_first), 'first run changed data');

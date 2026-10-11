@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 142,
+  "migrationCount": 143,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -145,6 +145,7 @@
     "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql",
     "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql",
     "supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql",
+    "supabase/migrations/20261010120000_ovd684_backfill_object_finish.sql",
     "supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql"
   ],
   "contractMigrationCount": 133,
@@ -188,6 +189,11 @@
       "path": "supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql",
       "issue": "OVD-631",
       "sha256": "4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41"
+    },
+    {
+      "path": "supabase/migrations/20261010120000_ovd684_backfill_object_finish.sql",
+      "issue": "OVD-684",
+      "sha256": "a762d6a67b18fb11249d016e8cef4db985f1070027839a1ef2df2f7c6b7c71ad"
     },
     {
       "path": "supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql",
@@ -597,6 +603,7 @@
     "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql": "441494e77b7e09d9e931ed2f458dfff719ece8fc45fb2cc3a886466b93374da5",
     "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql": "d8076199f865a4ddf1eac5ac8c8c3c68479de1d14cfcb4e364f0fd24719d4fe6",
     "supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql": "4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41",
+    "supabase/migrations/20261010120000_ovd684_backfill_object_finish.sql": "a762d6a67b18fb11249d016e8cef4db985f1070027839a1ef2df2f7c6b7c71ad",
     "supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql": "dd68e7f139050495d5206de065df89c9eb4da8e623b7b279ab91df3e0c7ed200"
   }
 }
