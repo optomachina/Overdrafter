@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   DEFAULT_MIGRATION_BASE_REF,
+  GIT_BIN,
   MissingMigrationBaseRefError,
   formatMigrationTimestamp,
   incrementMigrationTimestamp,
@@ -81,11 +82,11 @@ test("CLI prints only the filename and never writes a migration", (t) => {
   const cwd = tempDir(t);
   mkdirSync(join(cwd, "supabase/migrations"), { recursive: true });
   writeFileSync(join(cwd, "supabase/migrations/20260101000000_base.sql"), "select 1;\n");
-  execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "add", "."], { cwd });
-  execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base"], { cwd });
-  execFileSync("git", ["branch", "-M", "main"], { cwd });
-  execFileSync("git", ["update-ref", `refs/remotes/${DEFAULT_MIGRATION_BASE_REF}`, "HEAD"], { cwd });
+  execFileSync(GIT_BIN, ["init", "-q"], { cwd });
+  execFileSync(GIT_BIN, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "add", "."], { cwd });
+  execFileSync(GIT_BIN, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base"], { cwd });
+  execFileSync(GIT_BIN, ["branch", "-M", "main"], { cwd });
+  execFileSync(GIT_BIN, ["update-ref", `refs/remotes/${DEFAULT_MIGRATION_BASE_REF}`, "HEAD"], { cwd });
 
   const io = capture();
   const code = main(["ovd689_cli"], { cwd, stdout: io.stdout, stderr: io.stderr });
@@ -107,7 +108,7 @@ test("CLI refuses a missing slug and does not write files", () => {
 test("listRefMigrationFilenames fails closed when the base ref is missing", (t) => {
   const cwd = tempDir(t);
   mkdirSync(join(cwd, "supabase/migrations"), { recursive: true });
-  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync(GIT_BIN, ["init", "-q"], { cwd });
   assert.throws(
     () => listRefMigrationFilenames(cwd, "origin/main"),
     MissingMigrationBaseRefError,

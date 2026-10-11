@@ -8,6 +8,7 @@ export const DEFAULT_MIGRATION_BASE_REF = "origin/main";
 export const MIGRATION_FILENAME_PATTERN = /^(\d{14})_[a-z0-9_-]+\.sql$/;
 export const MIGRATION_SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,80}$/;
 export const MIGRATIONS_TREE = "supabase/migrations";
+export const GIT_BIN = "/usr/bin/git";
 
 const GIT_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
@@ -31,14 +32,14 @@ export function assertMigrationSlug(slug) {
 
 export function parseMigrationTimestamp(filename) {
   const base = String(filename).split("/").pop();
-  const match = base.match(MIGRATION_FILENAME_PATTERN);
+  const match = MIGRATION_FILENAME_PATTERN.exec(base);
   return match ? match[1] : null;
 }
 
 export function formatMigrationTimestamp(now = new Date()) {
   const date = now instanceof Date ? now : new Date(now);
   if (Number.isNaN(date.getTime())) {
-    throw new Error("now must be a valid Date");
+    throw new TypeError("now must be a valid Date");
   }
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
@@ -83,7 +84,7 @@ export function listRefMigrationFilenames(rootDir, baseRef = DEFAULT_MIGRATION_B
   }
   try {
     const output = execFileSync(
-      "git",
+      GIT_BIN,
       ["ls-tree", "-r", "--name-only", baseRef, "--", MIGRATIONS_TREE],
       { cwd: rootDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
