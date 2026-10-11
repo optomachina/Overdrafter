@@ -175,6 +175,17 @@ async function callModelWithinBudget(
       const estimated = validCost(candidate) ? candidate : null;
       const complete = attempts === 1 && estimated !== null;
 
+      if (result.cacheReadTokens !== undefined || result.cacheWriteTokens !== undefined) {
+        console.info(JSON.stringify({
+          source: "extraction.prompt_cache",
+          provider: provider.provider,
+          model: result.modelName,
+          inputTokens: result.inputTokens,
+          cacheReadTokens: result.cacheReadTokens ?? 0,
+          cacheWriteTokens: result.cacheWriteTokens ?? 0,
+        }));
+      }
+
       return {
         output: result,
         usage: {
