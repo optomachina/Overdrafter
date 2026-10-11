@@ -4,12 +4,14 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import fixture from "../../test-fixtures/provider-dispatch-envelope/v1.json";
 import {
-  canonicalizeProviderDispatchEnvelope,
+  GENERIC_PERMIT_ID,
+  genericAuthorizedResponse,
+  genericFictivEnvelope,
+} from "../test-support/genericDispatchResponse";
+import {
   fingerprintProviderDispatchEnvelope,
   PROVIDER_DISPATCH_DENIAL_CODES,
-  type ProviderDispatchEnvelope,
   type ReviewedProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope";
 import {
@@ -22,66 +24,18 @@ import {
 } from "./providerDispatchPreflight";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 
-const PERMIT_ID = "00000000-0000-4000-8000-00000000457c";
+const PERMIT_ID = GENERIC_PERMIT_ID;
 const migration = readFileSync(
   new URL("../../supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql", import.meta.url),
   "utf8",
 );
 
-/** A fictiv generic envelope derived from the shared OVD-457 golden. */
-function fictivEnvelope(overrides: Partial<ProviderDispatchEnvelope> = {}): ProviderDispatchEnvelope {
-  const golden = structuredClone(fixture.golden.envelope) as unknown as ProviderDispatchEnvelope;
-  return {
-    ...golden,
-    provider: "fictiv",
-    envelope: { id: "fictiv-quote-envelope", version: 1 },
-    admission: { policyRevision: "fictiv-generic-2026-10-03.v1", evidenceReference: "OVD-458" },
-    sessionBindingId: `lease:${PERMIT_ID}`,
-    ...overrides,
-  };
-}
+const fictivEnvelope = genericFictivEnvelope;
+const authorizedResponse = genericAuthorizedResponse;
 
 const REVIEWED: readonly ReviewedProviderDispatchEnvelope[] = [
   { provider: "fictiv", id: "fictiv-quote-envelope", version: 1, requiredAdmission: "generic_dispatch" },
 ];
-
-function evidence(): Record<string, unknown> {
-  return {
-    now: "2026-10-03T12:05:00.000Z",
-    permitState: "active",
-    admission: {
-      policy_present: true,
-      provider_admitted: true,
-      generically_dispatchable: true,
-      provider: "fictiv",
-      admission_state: "approved",
-      policy_revision: "fictiv-generic-2026-10-03.v1",
-      evidence_reference: "OVD-458",
-      permission_basis: "written_provider_authorization",
-      supported_processes: ["cnc_milling"],
-      accepted_file_extensions: ["step", "stp", "pdf"],
-      session_owner: "overdrafter_managed",
-      reviewed_at: "2026-10-02T12:00:00.123456+00:00",
-      expires_at: null,
-      reason_code: "provider_approved",
-    },
-    rollout: { capability: "automatic_quote_collection", enabled: true, revision: 3 },
-  };
-}
-
-function authorizedResponse(envelope = fictivEnvelope()): Record<string, unknown> {
-  return {
-    schema: "provider-dispatch-authorization.v1",
-    authorized: true,
-    permitId: envelope.permit.permitId,
-    provider: envelope.provider,
-    envelopeFingerprint: fingerprintProviderDispatchEnvelope(envelope),
-    canonicalEnvelope: canonicalizeProviderDispatchEnvelope(envelope),
-    expiresAt: envelope.expiresAt,
-    sessionBindingId: envelope.sessionBindingId,
-    evidence: evidence(),
-  };
-}
 
 function claim(overrides: Partial<ProviderDispatchClaim> = {}): ProviderDispatchClaim {
   const envelope = fictivEnvelope();
@@ -149,6 +103,13 @@ describe("provider dispatch preflight consumer", () => {
         envelopeFingerprint: claim().envelopeFingerprint,
       }),
     );
+  });
+
+  it("admits no generic provider with the code-reviewed envelope list, even for a database-approved Fictiv v1 authorization", async () => {
+    const { quote, onAuthorized, run } = harness(Promise.resolve({ data: authorizedResponse(), error: null }));
+    await expect(run({ reviewed: null })).rejects.toMatchObject({ denial: "provider_envelope_unknown", retryable: false });
+    expect(onAuthorized).not.toHaveBeenCalled();
+    expect(quote).not.toHaveBeenCalled();
   });
 
   it("hands the bounded authorization to the adapter alongside the unchanged quote input", async () => {
