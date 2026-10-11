@@ -993,12 +993,13 @@ describe("FictivAdapter", () => {
       },
       optionTexts: ["CNC"],
     });
-    const captureScreenshot = page.screenshot.bind(page);
-    page.screenshot = async (options: { path: string }) => {
+    // Screenshots are no longer captured (OVD-611), so fail the post-upload DOM capture instead.
+    const captureContent = page.content.bind(page);
+    page.content = async () => {
       if (uploaded) {
         throw new Error("Target page, context or browser has been closed");
       }
-      await captureScreenshot(options);
+      return captureContent();
     };
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
