@@ -499,6 +499,7 @@ export function XometryBetaDispatchConfirmationDialog({
             providerLabel={providerLabel}
             scopeDenialCode={uncertainAttempt ? null : scopeDenialCode}
             scopeError={effectiveScopeError}
+          />
 
           {activeScope && !effectiveScopeLoading && !effectiveScopeError ? (
             <>

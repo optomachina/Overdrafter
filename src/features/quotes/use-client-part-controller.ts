@@ -1672,7 +1672,6 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  }
   // RPC failures arrive as plain PostgrestError records, not Error instances.
   const xometryDispatchScopeError = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)

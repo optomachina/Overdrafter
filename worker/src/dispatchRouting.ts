@@ -37,7 +37,6 @@ import {
  * non-Xometry provider, Fictiv included, is refused with
  * `provider_envelope_unknown` and no adapter launches.
  */
- */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };
   vendorQuoteResultId: string;
