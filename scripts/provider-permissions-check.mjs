@@ -81,6 +81,20 @@ function requireObject(value, label) {
   return value;
 }
 
+function compareKeys(left, right) {
+  return left.localeCompare(right);
+}
+
+function parseBooleanCell(value) {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return value;
+}
+
 function daysBetween(earlier, later) {
   const start = Date.parse(`${earlier}T00:00:00.000Z`);
   const end = Date.parse(`${later}T00:00:00.000Z`);
@@ -88,6 +102,12 @@ function daysBetween(earlier, later) {
     throw new Error(`invalid date range ${earlier} → ${later}`);
   }
   return Math.floor((end - start) / 86_400_000);
+}
+
+function assertType(condition, message) {
+  if (!condition) {
+    throw new TypeError(message);
+  }
 }
 
 export function hasWrittenPermission(row) {
@@ -123,7 +143,7 @@ export function validatePermissionsMatrixSchema(schema) {
 
 function assertIsoDate(value, label) {
   if (typeof value !== "string" || !ISO_DATE_PATTERN.test(value)) {
-    throw new Error(`${label} must be an ISO date`);
+    throw new TypeError(`${label} must be an ISO date`);
   }
   if (!Number.isFinite(Date.parse(`${value}T00:00:00.000Z`))) {
     throw new Error(`${label} is not a real calendar date`);
@@ -131,81 +151,85 @@ function assertIsoDate(value, label) {
   return value;
 }
 
-function assertProviderRow(row, index) {
-  const label = `providers[${index}]`;
-  const provider = requireObject(row, label);
-  if (typeof provider.key !== "string" || !PROVIDER_KEY_PATTERN.test(provider.key)) {
-    throw new Error(`${label}.key is invalid`);
-  }
-  if (typeof provider.displayName !== "string" || provider.displayName.trim().length === 0) {
-    throw new Error(`${label}.displayName is required`);
-  }
-  if (typeof provider.in_1_0 !== "boolean") {
-    throw new Error(`${label}.in_1_0 must be a boolean`);
-  }
+function assertNonEmptyString(value, label) {
+  assertType(typeof value === "string" && value.trim().length > 0, `${label} is required`);
+}
+
+function assertProviderIdentity(provider, label) {
+  assertType(typeof provider.key === "string" && PROVIDER_KEY_PATTERN.test(provider.key), `${label}.key is invalid`);
+  assertNonEmptyString(provider.displayName, `${label}.displayName`);
+  assertType(typeof provider.in_1_0 === "boolean", `${label}.in_1_0 must be a boolean`);
   if (!API_AVAILABILITIES.includes(provider.api_availability)) {
     throw new Error(`${label}.api_availability is invalid`);
   }
+}
+
+function assertProviderTos(provider, label) {
   const clause = requireObject(provider.tos_automation_clause, `${label}.tos_automation_clause`);
-  if (typeof clause.quote !== "string" || clause.quote.trim().length === 0) {
-    throw new Error(`${label}.tos_automation_clause.quote is required`);
-  }
-  if (typeof clause.url !== "string" || !/^https:\/\//.test(clause.url)) {
-    throw new Error(`${label}.tos_automation_clause.url must be an https URL`);
-  }
+  assertNonEmptyString(clause.quote, `${label}.tos_automation_clause.quote`);
+  assertType(typeof clause.url === "string" && clause.url.startsWith("https://"), `${label}.tos_automation_clause.url must be an https URL`);
   if (!TOS_STANCES.includes(provider.tos_stance)) {
     throw new Error(`${label}.tos_stance is invalid`);
   }
-  if (typeof provider.partner_program !== "string" || provider.partner_program.trim().length === 0) {
-    throw new Error(`${label}.partner_program is required`);
-  }
+  assertNonEmptyString(provider.partner_program, `${label}.partner_program`);
+}
+
+function assertProviderContact(provider, label) {
   const contact = requireObject(provider.contact, `${label}.contact`);
-  if (typeof contact.role !== "string" || contact.role.trim().length === 0) {
-    throw new Error(`${label}.contact.role is required`);
+  assertNonEmptyString(contact.role, `${label}.contact.role`);
+  if (contact.published_address !== undefined) {
+    assertType(typeof contact.published_address === "string", `${label}.contact.published_address must be a string`);
   }
-  if (contact.published_address !== undefined && typeof contact.published_address !== "string") {
-    throw new Error(`${label}.contact.published_address must be a string`);
+  if (contact.published_url !== undefined) {
+    assertType(typeof contact.published_url === "string", `${label}.contact.published_url must be a string`);
   }
-  if (contact.published_url !== undefined && typeof contact.published_url !== "string") {
-    throw new Error(`${label}.contact.published_url must be a string`);
-  }
-  if (!PERMISSION_STATUSES.includes(provider.permission_status)) {
-    throw new Error(`${label}.permission_status is invalid`);
-  }
-  assertIsoDate(provider.date_checked, `${label}.date_checked`);
+}
+
+function assertProviderKillSwitch(provider, label) {
   const killSwitch = requireObject(provider.kill_switch_state, `${label}.kill_switch_state`);
   if (killSwitch.source !== "OVD-722") {
     throw new Error(`${label}.kill_switch_state must point at OVD-722`);
   }
-  if (typeof killSwitch.pointer !== "string" || !killSwitch.pointer.includes("provider_kill_switches")) {
-    throw new Error(`${label}.kill_switch_state.pointer must name the OVD-722 table`);
+  assertType(
+    typeof killSwitch.pointer === "string" && killSwitch.pointer.includes("provider_kill_switches"),
+    `${label}.kill_switch_state.pointer must name the OVD-722 table`,
+  );
+}
+
+function assertWrittenPermission(provider, label) {
+  if (provider.written_permission === null) {
+    return;
   }
-  if (provider.written_permission !== null) {
-    const permission = requireObject(provider.written_permission, `${label}.written_permission`);
-    if (typeof permission.recorded !== "boolean") {
-      throw new Error(`${label}.written_permission.recorded must be a boolean`);
-    }
-    if (typeof permission.reference !== "string" || permission.reference.trim().length === 0) {
-      throw new Error(`${label}.written_permission.reference is required`);
-    }
-    assertIsoDate(permission.recorded_on, `${label}.written_permission.recorded_on`);
-  }
-  if (typeof provider.enabled_for_paid_automation !== "boolean") {
-    throw new Error(`${label}.enabled_for_paid_automation must be a boolean`);
-  }
-  if (!Array.isArray(provider.replies)) {
-    throw new Error(`${label}.replies must be an array`);
-  }
+  const permission = requireObject(provider.written_permission, `${label}.written_permission`);
+  assertType(typeof permission.recorded === "boolean", `${label}.written_permission.recorded must be a boolean`);
+  assertNonEmptyString(permission.reference, `${label}.written_permission.reference`);
+  assertIsoDate(permission.recorded_on, `${label}.written_permission.recorded_on`);
+}
+
+function assertProviderReplies(provider, label) {
+  assertType(Array.isArray(provider.replies), `${label}.replies must be an array`);
   for (const [replyIndex, reply] of provider.replies.entries()) {
     requireObject(reply, `${label}.replies[${replyIndex}]`);
     assertIsoDate(reply.on, `${label}.replies[${replyIndex}].on`);
-    if (typeof reply.summary !== "string" || reply.summary.trim().length === 0) {
-      throw new Error(`${label}.replies[${replyIndex}].summary is required`);
-    }
+    assertNonEmptyString(reply.summary, `${label}.replies[${replyIndex}].summary`);
   }
-  if (typeof provider.notes !== "string") {
-    throw new Error(`${label}.notes must be a string`);
+}
+
+function assertProviderRow(row, index) {
+  const label = `providers[${index}]`;
+  const provider = requireObject(row, label);
+  assertProviderIdentity(provider, label);
+  assertProviderTos(provider, label);
+  assertProviderContact(provider, label);
+  if (!PERMISSION_STATUSES.includes(provider.permission_status)) {
+    throw new Error(`${label}.permission_status is invalid`);
   }
+  assertIsoDate(provider.date_checked, `${label}.date_checked`);
+  assertProviderKillSwitch(provider, label);
+  assertWrittenPermission(provider, label);
+  assertType(typeof provider.enabled_for_paid_automation === "boolean", `${label}.enabled_for_paid_automation must be a boolean`);
+  assertProviderReplies(provider, label);
+  assertType(typeof provider.notes === "string", `${label}.notes must be a string`);
   return provider;
 }
 
@@ -266,11 +290,11 @@ export function parseMarkdownMatrix(markdown) {
     const [key, in_1_0, api_availability, tos_stance, permission_status, enabled, date_checked, kill_switch_state] = cells;
     rows.push({
       key,
-      in_1_0: in_1_0 === "true" ? true : in_1_0 === "false" ? false : in_1_0,
+      in_1_0: parseBooleanCell(in_1_0),
       api_availability,
       tos_stance,
       permission_status,
-      enabled_for_paid_automation: enabled === "true" ? true : enabled === "false" ? false : enabled,
+      enabled_for_paid_automation: parseBooleanCell(enabled),
       date_checked,
       kill_switch_state,
     });
@@ -386,17 +410,24 @@ async function readJson(filePath, label) {
   }
 }
 
+function extractRegistryKeys(document) {
+  if (Array.isArray(document.providers)) {
+    return document.providers.map((row) => row.key ?? row);
+  }
+  if (Array.isArray(document.keys)) {
+    return document.keys;
+  }
+  return Object.keys(document.providers ?? {});
+}
+
 export async function readOvd688RegistryOrManifestKeys(rootDir, today) {
   for (const relativePath of OVD688_REGISTRY_CANDIDATES) {
     const absolutePath = path.join(rootDir, relativePath);
     try {
       const document = JSON.parse(await fs.readFile(absolutePath, "utf8"));
-      const keys = Array.isArray(document.providers)
-        ? document.providers.map((row) => row.key ?? row)
-        : Array.isArray(document.keys)
-          ? document.keys
-          : Object.keys(document.providers ?? {});
-      const normalized = keys.filter((key) => typeof key === "string" && PROVIDER_KEY_PATTERN.test(key)).sort();
+      const normalized = extractRegistryKeys(document)
+        .filter((key) => typeof key === "string" && PROVIDER_KEY_PATTERN.test(key))
+        .sort(compareKeys);
       if (normalized.length > 0) {
         return { source: relativePath, keys: normalized };
       }
@@ -409,7 +440,7 @@ export async function readOvd688RegistryOrManifestKeys(rootDir, today) {
   const manifests = await readProviderManifests(rootDir, { today });
   return {
     source: "provider-integrations/*/manifest.v1.json",
-    keys: manifests.map(({ manifest }) => manifest.key).sort(),
+    keys: manifests.map(({ manifest }) => manifest.key).sort(compareKeys),
   };
 }
 
@@ -530,6 +561,47 @@ async function readOptionalFile(filePath) {
   }
 }
 
+async function loadAdmissionSql(rootDir, admissionSql) {
+  if (admissionSql) {
+    return admissionSql;
+  }
+  const files = await Promise.all(
+    ADMISSION_FIXTURE_RELATIVE_PATHS.map((relativePath) => readOptionalFile(path.join(rootDir, relativePath))),
+  );
+  return files.filter(Boolean);
+}
+
+async function loadOutreachDrafts(rootDir, outreachFiles) {
+  if (outreachFiles) {
+    return outreachFiles;
+  }
+  const entries = await Promise.all(
+    REQUIRED_OUTREACH_DRAFT_KEYS.map(async (key) => {
+      const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
+      if (!contents) {
+        throw new Error(`outreach draft missing: ${key}.md`);
+      }
+      return [key, contents];
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
+function assertAcceptanceTables(acceptance) {
+  for (const key of [...REQUIRED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]) {
+    if (!acceptance.includes(key) || !acceptance.includes("permissions-matrix.md")) {
+      throw new Error(`acceptance tables must name ${key} and link the permissions matrix`);
+    }
+  }
+}
+
+async function resolveRegistry(rootDir, today, registryKeys) {
+  if (registryKeys) {
+    return { source: "test", keys: [...registryKeys].sort(compareKeys) };
+  }
+  return readOvd688RegistryOrManifestKeys(rootDir, today);
+}
+
 export async function checkProviderPermissions({
   rootDir,
   today = new Date().toISOString().slice(0, 10),
@@ -564,10 +636,8 @@ export async function checkProviderPermissions({
   assertEnabledDerivation(document.providers, today);
   assertPaidAutomationGate(document.providers);
 
-  const registry = registryKeys
-    ? { source: "test", keys: [...registryKeys].sort() }
-    : await readOvd688RegistryOrManifestKeys(rootDir, today);
-  assertRegistryParity(document.providers.map((row) => row.key).sort(), registry.keys);
+  const registry = await resolveRegistry(rootDir, today, registryKeys);
+  assertRegistryParity(document.providers.map((row) => row.key).sort(compareKeys), registry.keys);
 
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   const unknownVendor = document.providers.map((row) => row.key).filter((key) => !vendorKeys.includes(key));
@@ -575,47 +645,21 @@ export async function checkProviderPermissions({
     throw new Error(`matrix keys missing from vendor_name: ${unknownVendor.join(",")}`);
   }
 
-  let resolvedAdmissionSql = admissionSql;
-  if (!resolvedAdmissionSql) {
-    resolvedAdmissionSql = [];
-    for (const relativePath of ADMISSION_FIXTURE_RELATIVE_PATHS) {
-      const sql = await readOptionalFile(path.join(rootDir, relativePath));
-      if (sql) {
-        resolvedAdmissionSql.push(sql);
-      }
-    }
-  }
   assertNoAdmittedProviderIsProhibitedOrCd(
     document.providers,
-    parseAdmissionPolicyFixtures(resolvedAdmissionSql),
+    parseAdmissionPolicyFixtures(await loadAdmissionSql(rootDir, admissionSql)),
   );
-
-  const resolvedPlaybook = playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8");
-  assertCeaseAndDesistPlaybook(resolvedPlaybook);
+  assertCeaseAndDesistPlaybook(playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8"));
 
   const resolvedLegal = legalReview ?? await readOptionalFile(path.join(rootDir, LEGAL_REVIEW_RELATIVE_PATH));
   if (!resolvedLegal || !/not legal advice/i.test(resolvedLegal)) {
     throw new Error("legal council review must exist and state it is not legal advice");
   }
 
-  const resolvedAcceptance = acceptanceTables
-    ?? await fs.readFile(path.join(rootDir, ACCEPTANCE_TABLES_RELATIVE_PATH), "utf8");
-  for (const key of [...REQUIRED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]) {
-    if (!resolvedAcceptance.includes(key) || !resolvedAcceptance.includes("permissions-matrix.md")) {
-      throw new Error(`acceptance tables must name ${key} and link the permissions matrix`);
-    }
-  }
-
-  const drafts = outreachFiles ?? {};
-  if (!outreachFiles) {
-    for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {
-      const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
-      if (!contents) {
-        throw new Error(`outreach draft missing: ${key}.md`);
-      }
-      drafts[key] = contents;
-    }
-  }
+  assertAcceptanceTables(
+    acceptanceTables ?? await fs.readFile(path.join(rootDir, ACCEPTANCE_TABLES_RELATIVE_PATH), "utf8"),
+  );
+  const drafts = await loadOutreachDrafts(rootDir, outreachFiles);
   for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {
     assertOutreachDraft(drafts[key], key);
   }

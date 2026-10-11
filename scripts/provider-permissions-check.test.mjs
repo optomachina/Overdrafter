@@ -93,7 +93,10 @@ describe("OVD-724 provider permissions matrix lint", () => {
     expect(result.ok).toBe(true);
     expect(result.providerCount).toBe(9);
     expect(result.enabledKeys).toEqual(["rmfg"]);
-    expect(result.registrySource).toContain("manifest.v1.json");
+    expect([
+      "provider-integrations/provider-registry.v1.json",
+      "provider-integrations/*/manifest.v1.json",
+    ]).toContain(result.registrySource);
   });
 
   it("covers every 1.0 key plus Protolabs marked not in 1.0", async () => {
@@ -335,6 +338,30 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const { temporaryRoot } = await writeTempRepo();
     const result = await checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" });
     expect(result.ok).toBe(true);
+    expect(result.registrySource).toBe("provider-integrations/*/manifest.v1.json");
+  });
+
+  it("prefers an OVD-688 registry when that file is present", async () => {
+    const { temporaryRoot } = await writeTempRepo();
+    await fs.writeFile(
+      path.join(temporaryRoot, "provider-integrations/provider-registry.v1.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        providers: [
+          { key: "xometry" },
+          { key: "fictiv" },
+          { key: "quickparts" },
+          { key: "weerg" },
+          { key: "geomiq" },
+          { key: "rmfg" },
+          { key: "oshcut" },
+          { key: "sendcutsend" },
+          { key: "protolabs" },
+        ],
+      }, null, 2)}\n`,
+    );
+    const result = await checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" });
+    expect(result.registrySource).toBe("provider-integrations/provider-registry.v1.json");
   });
 });
 
