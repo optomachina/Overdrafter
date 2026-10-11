@@ -203,6 +203,7 @@ describe("checked-in provider manifests and projections", () => {
     const registryPath = path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH);
     const registry = JSON.parse(await fs.readFile(registryPath, "utf8"));
     registry.providers = registry.providers.filter((entry) => entry.key !== "rmfg");
+    registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "rmfg");
     await fs.writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
     await expect(checkProviderIntegrations({

@@ -11,18 +11,13 @@ export const OUTREACH_DIR_RELATIVE_PATH = "docs/providers/outreach";
 export const LEGAL_REVIEW_RELATIVE_PATH = "docs/providers/legal-council-review-2026-10.md";
 export const PLAYBOOK_RELATIVE_PATH = "docs/runbooks/provider-cease-and-desist.md";
 export const ACCEPTANCE_TABLES_RELATIVE_PATH = "docs/providers/acceptance-tables.md";
+export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
 export const MAX_ENABLED_AGE_DAYS = 90;
-
-export const REQUIRED_1_0_KEYS = Object.freeze([
-  "xometry",
-  "fictiv",
-  "quickparts",
-  "weerg",
-  "geomiq",
-  "rmfg",
-  "oshcut",
-  "sendcutsend",
-]);
+export const PLAYBOOK_PENDING_MARKER = "Target: 1 hour, no deploy, **pending OVD-722** (until the kill switch ships, follow the manual fallback below)";
+export const OUTREACH_DRAFT_ONLY_LINE = "> DRAFT ONLY. Nothing is sent without Blaine's approval.";
+export const OUTREACH_STATUSES = Object.freeze(["draft", "approved_by_blaine", "sent_by_blaine", "replied"]);
+export const PLAYBOOK_STEP_ONE_HEADING = "## Step 1: Engage the OVD-722 kill switch";
+const KILL_COMMAND_PATTERN = /^npm run provider:kill -- (?:<provider_key>|[a-z][a-z0-9]{1,49}) --on --reason ".+"$/m;
 
 export const REQUIRED_NOT_1_0_KEYS = Object.freeze(["protolabs"]);
 
@@ -35,6 +30,35 @@ export const REQUIRED_OUTREACH_DRAFT_KEYS = Object.freeze([
   "oshcut",
   "rmfg",
 ]);
+
+/**
+ * The 1.0 scope comes from the reviewed provider registry (`oneDotZero` list, or an
+ * `in_1_0` / `release: "1.0"` flag on a registry entry or manifest), never from this script.
+ */
+export function deriveRequired10Keys(registry, manifests = []) {
+  const keys = new Set();
+  const flagged = (entry) => isObject(entry) && (entry.in_1_0 === true || entry.release === "1.0");
+  if (isObject(registry)) {
+    if (Array.isArray(registry.oneDotZero)) {
+      registry.oneDotZero.filter((key) => typeof key === "string").forEach((key) => keys.add(key));
+    }
+    for (const entry of Array.isArray(registry.providers) ? registry.providers : []) {
+      if (flagged(entry) && typeof entry.key === "string") {
+        keys.add(entry.key);
+      }
+    }
+  }
+  for (const item of manifests) {
+    const manifest = item?.manifest ?? item;
+    if (flagged(manifest) && typeof manifest.key === "string") {
+      keys.add(manifest.key);
+    }
+  }
+  if (keys.size === 0) {
+    throw new Error("no 1.0 providers are declared; add them to oneDotZero in provider-integrations/provider-registry.v1.json");
+  }
+  return Object.freeze([...keys].sort(compareKeys));
+}
 
 export const TOS_STANCES = Object.freeze(["allowed", "prior-consent", "prohibited", "silent"]);
 export const PERMISSION_STATUSES = Object.freeze([
@@ -133,7 +157,7 @@ export function validatePermissionsMatrixSchema(schema) {
     throw new Error("permissions matrix JSON schema does not define the closed V1 contract");
   }
   const required = document.required;
-  for (const field of ["$schema", "schemaVersion", "title", "checkedOn", "killSwitch", "derivation", "providers"]) {
+  for (const field of ["$schema", "schemaVersion", "title", "checkedOn", "kill_switch_shipped", "killSwitch", "derivation", "providers"]) {
     if (!Array.isArray(required) || !required.includes(field)) {
       throw new Error(`permissions matrix schema is missing required field ${field}`);
     }
@@ -213,6 +237,9 @@ function assertProviderReplies(provider, label) {
     assertIsoDate(reply.on, `${label}.replies[${replyIndex}].on`);
     assertNonEmptyString(reply.summary, `${label}.replies[${replyIndex}].summary`);
   }
+  if (provider.replies.length > 0 && provider.permission_status === "draft_outreach_prepared") {
+    throw new Error(`${label} logs a reply but permission_status is still draft_outreach_prepared`);
+  }
 }
 
 function assertProviderRow(row, index) {
@@ -243,6 +270,9 @@ export function validatePermissionsMatrixDocument(document, schema) {
     throw new Error("permissions matrix is not the closed V1 document");
   }
   assertIsoDate(matrix.checkedOn, "checkedOn");
+  if (typeof matrix.kill_switch_shipped !== "boolean") {
+    throw new TypeError("kill_switch_shipped must be a boolean");
+  }
   const killSwitch = requireObject(matrix.killSwitch, "killSwitch");
   if (killSwitch.issue !== "OVD-722" || killSwitch.rpc !== "api_admin_set_provider_kill_switch") {
     throw new Error("killSwitch must name the OVD-722 RPC");
@@ -305,7 +335,19 @@ export function parseMarkdownMatrix(markdown) {
   return rows;
 }
 
-export function assertMarkdownAgreesWithJson(markdownRows, providers) {
+export function parseMarkdownReplyCounts(markdown) {
+  const counts = new Map();
+  for (const section of String(markdown).split(/^### /m).slice(1)) {
+    const key = section.split(/\r?\n/, 1)[0].trim();
+    const match = section.match(/^- replies: (\d+)\s*$/m);
+    if (match) {
+      counts.set(key, Number(match[1]));
+    }
+  }
+  return counts;
+}
+
+export function assertMarkdownAgreesWithJson(markdownRows, providers, replyCounts) {
   if (markdownRows.length !== providers.length) {
     throw new Error(
       `markdown/JSON provider count mismatch; markdown=${markdownRows.length} json=${providers.length}`,
@@ -331,6 +373,13 @@ export function assertMarkdownAgreesWithJson(markdownRows, providers) {
     }
     if (!String(markdownRow.kill_switch_state).includes("OVD-722")) {
       throw new Error(`markdown kill_switch_state for ${jsonRow.key} must point at OVD-722`);
+    }
+    if (replyCounts) {
+      if (replyCounts.get(jsonRow.key) !== jsonRow.replies.length) {
+        throw new Error(
+          `markdown/JSON disagree on ${jsonRow.key} reply count; markdown=${replyCounts.get(jsonRow.key)} json=${jsonRow.replies.length}`,
+        );
+      }
     }
   }
 }
@@ -380,9 +429,9 @@ export function assertEnabledDerivation(providers, today) {
   }
 }
 
-export function assertRequiredProviderCoverage(providers) {
+export function assertRequiredProviderCoverage(providers, required10Keys) {
   const byKey = new Map(providers.map((row) => [row.key, row]));
-  for (const key of REQUIRED_1_0_KEYS) {
+  for (const key of required10Keys) {
     const row = byKey.get(key);
     if (!row) {
       throw new Error(`1.0 provider ${key} is missing from the permissions matrix`);
@@ -444,18 +493,18 @@ export async function readOvd688RegistryOrManifestKeys(rootDir, today) {
   };
 }
 
-export function assertRegistryParity(matrixKeys, registryKeys) {
+export function assertRegistryParity(matrixKeys, registryKeys, required10Keys) {
   const missingFromRegistry = matrixKeys.filter((key) => !registryKeys.includes(key));
   if (missingFromRegistry.length > 0) {
     throw new Error(`matrix keys missing from OVD-688 registry or manifests: ${missingFromRegistry.join(",")}`);
   }
-  const missingFromMatrix = REQUIRED_1_0_KEYS.filter((key) => registryKeys.includes(key) && !matrixKeys.includes(key));
+  const missingFromMatrix = required10Keys.filter((key) => registryKeys.includes(key) && !matrixKeys.includes(key));
   if (missingFromMatrix.length > 0) {
     throw new Error(`1.0 registry/manifest keys missing from the matrix: ${missingFromMatrix.join(",")}`);
   }
 }
 
-export function assertCeaseAndDesistPlaybook(playbook) {
+export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = false } = {}) {
   if (typeof playbook !== "string" || playbook.trim().length === 0) {
     throw new Error("cease-and-desist playbook is missing");
   }
@@ -475,9 +524,17 @@ export function assertCeaseAndDesistPlaybook(playbook) {
       throw new Error(message);
     }
   }
-  if (/npm run provider:kill -- [a-z]+ --on --reason "/.test(playbook) === false
-    && !playbook.includes("npm run provider:kill -- <provider_key> --on --reason")) {
-    throw new Error("playbook step one must show the exact provider:kill flip command");
+  const headings = playbook.split(/\r?\n/).filter((line) => /^## /.test(line));
+  if (headings[0]?.trimEnd() !== PLAYBOOK_STEP_ONE_HEADING) {
+    throw new Error(`playbook must open with "${PLAYBOOK_STEP_ONE_HEADING}" as its first ## heading`);
+  }
+  const stepOne = playbook.slice(playbook.indexOf(PLAYBOOK_STEP_ONE_HEADING) + PLAYBOOK_STEP_ONE_HEADING.length);
+  const firstFence = stepOne.match(/```[^\n]*\r?\n([\s\S]*?)```/);
+  if (!firstFence || !KILL_COMMAND_PATTERN.test(firstFence[1].trim())) {
+    throw new Error("playbook step one's first code block must be the exact provider:kill flip command");
+  }
+  if (!killSwitchShipped && !playbook.split(/\r?\n/).some((line) => line.trim() === PLAYBOOK_PENDING_MARKER)) {
+    throw new Error("playbook must carry the pending OVD-722 headline until kill_switch_shipped is true");
   }
 }
 
@@ -509,27 +566,74 @@ export function extractPlaybookKillCommand(playbook, providerKey = "fictiv") {
   };
 }
 
+export function parseOutreachFrontMatter(contents) {
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!match) {
+    return null;
+  }
+  const fields = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const separator = line.indexOf(":");
+    if (separator > 0) {
+      fields[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+    }
+  }
+  return { fields, body: contents.slice(match[0].length) };
+}
+
 export function assertOutreachDraft(contents, providerKey) {
   if (typeof contents !== "string" || contents.trim().length === 0) {
     throw new Error(`outreach draft for ${providerKey} is empty`);
   }
-  if (!/^status:\s+(draft|approved_by_blaine|sent_by_blaine|replied)\s*$/m.test(contents)) {
+  const parsed = parseOutreachFrontMatter(contents);
+  if (!parsed) {
+    throw new Error(`outreach draft for ${providerKey} must start with YAML front matter`);
+  }
+  const { fields, body } = parsed;
+  if (!OUTREACH_STATUSES.includes(fields.status)) {
     throw new Error(`outreach draft for ${providerKey} must declare a status`);
   }
-  if (providerKey === "rmfg") {
-    if (!/Oct 23/i.test(contents)) {
-      throw new Error("RMFG outreach must reference the Oct 23 checkpoint instead of duplicating it");
-    }
-    return;
+  if (fields.sender !== "Blaine Wilson") {
+    throw new Error(`outreach draft for ${providerKey} must declare sender: Blaine Wilson`);
   }
-  if (!/draft only|do not send|nothing is sent/i.test(contents)) {
-    throw new Error(`outreach draft for ${providerKey} must say it is draft-only and unsent`);
+  if (fields.send_mode !== "manual_by_blaine") {
+    throw new Error(`outreach draft for ${providerKey} must declare send_mode: manual_by_blaine`);
   }
-  if (!/Blaine/i.test(contents)) {
-    throw new Error(`outreach draft for ${providerKey} must say Blaine is the sender`);
+  if (fields.auto_send !== "false") {
+    throw new Error(`outreach draft for ${providerKey} must declare auto_send: false`);
+  }
+  const bodyLines = body.split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim().length > 0);
+  if (!/^# \S/.test(bodyLines[0] ?? "") || bodyLines[1] !== OUTREACH_DRAFT_ONLY_LINE) {
+    throw new Error(
+      `outreach draft for ${providerKey} must have "${OUTREACH_DRAFT_ONLY_LINE}" as the first line under the H1`,
+    );
   }
   if (/mailto:|send this email|submit this form|call the API now/i.test(contents)) {
     throw new Error(`outreach draft for ${providerKey} must not include send or vendor-call instructions`);
+  }
+  if (providerKey === "rmfg" && !/Oct 23/i.test(contents)) {
+    throw new Error("RMFG outreach must reference the Oct 23 checkpoint instead of duplicating it");
+  }
+}
+
+/** The outreach directory holds only regular `.md` files: no other types, subdirectories, or symlinks. */
+export async function assertOutreachDirectoryContents(directory) {
+  let entries;
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(`outreach directory is unreadable: ${error.message}`);
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      throw new Error(`outreach directory must not contain symlinks: ${entry.name}`);
+    }
+    if (entry.isDirectory()) {
+      throw new Error(`outreach directory must not contain subdirectories: ${entry.name}`);
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".md")) {
+      throw new Error(`outreach directory may only contain .md files: ${entry.name}`);
+    }
   }
 }
 
@@ -575,6 +679,7 @@ async function loadOutreachDrafts(rootDir, outreachFiles) {
   if (outreachFiles) {
     return outreachFiles;
   }
+  await assertOutreachDirectoryContents(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH));
   const entries = await Promise.all(
     REQUIRED_OUTREACH_DRAFT_KEYS.map(async (key) => {
       const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
@@ -587,8 +692,8 @@ async function loadOutreachDrafts(rootDir, outreachFiles) {
   return Object.fromEntries(entries);
 }
 
-function assertAcceptanceTables(acceptance) {
-  for (const key of [...REQUIRED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]) {
+function assertAcceptanceTables(acceptance, required10Keys) {
+  for (const key of [...required10Keys, ...REQUIRED_NOT_1_0_KEYS]) {
     if (!acceptance.includes(key) || !acceptance.includes("permissions-matrix.md")) {
       throw new Error(`acceptance tables must name ${key} and link the permissions matrix`);
     }
@@ -614,6 +719,8 @@ export async function checkProviderPermissions({
   playbook,
   legalReview,
   acceptanceTables,
+  registryDocument,
+  manifests,
 } = {}) {
   if (typeof rootDir !== "string" || rootDir.trim().length === 0) {
     throw new Error("rootDir is required");
@@ -631,13 +738,21 @@ export async function checkProviderPermissions({
     path.join(rootDir, MATRIX_MARKDOWN_RELATIVE_PATH),
     "utf8",
   );
-  assertMarkdownAgreesWithJson(parseMarkdownMatrix(resolvedMarkdown), document.providers);
-  assertRequiredProviderCoverage(document.providers);
+  assertMarkdownAgreesWithJson(
+    parseMarkdownMatrix(resolvedMarkdown),
+    document.providers,
+    parseMarkdownReplyCounts(resolvedMarkdown),
+  );
+  const required10Keys = deriveRequired10Keys(
+    registryDocument ?? await readJson(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH), "provider registry"),
+    manifests ?? await readProviderManifests(rootDir, { today }),
+  );
+  assertRequiredProviderCoverage(document.providers, required10Keys);
   assertEnabledDerivation(document.providers, today);
   assertPaidAutomationGate(document.providers);
 
   const registry = await resolveRegistry(rootDir, today, registryKeys);
-  assertRegistryParity(document.providers.map((row) => row.key).sort(compareKeys), registry.keys);
+  assertRegistryParity(document.providers.map((row) => row.key).sort(compareKeys), registry.keys, required10Keys);
 
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   const unknownVendor = document.providers.map((row) => row.key).filter((key) => !vendorKeys.includes(key));
@@ -649,7 +764,10 @@ export async function checkProviderPermissions({
     document.providers,
     parseAdmissionPolicyFixtures(await loadAdmissionSql(rootDir, admissionSql)),
   );
-  assertCeaseAndDesistPlaybook(playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8"));
+  assertCeaseAndDesistPlaybook(
+    playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8"),
+    { killSwitchShipped: document.kill_switch_shipped },
+  );
 
   const resolvedLegal = legalReview ?? await readOptionalFile(path.join(rootDir, LEGAL_REVIEW_RELATIVE_PATH));
   if (!resolvedLegal || !/not legal advice/i.test(resolvedLegal)) {
@@ -658,6 +776,7 @@ export async function checkProviderPermissions({
 
   assertAcceptanceTables(
     acceptanceTables ?? await fs.readFile(path.join(rootDir, ACCEPTANCE_TABLES_RELATIVE_PATH), "utf8"),
+    required10Keys,
   );
   const drafts = await loadOutreachDrafts(rootDir, outreachFiles);
   for (const key of REQUIRED_OUTREACH_DRAFT_KEYS) {

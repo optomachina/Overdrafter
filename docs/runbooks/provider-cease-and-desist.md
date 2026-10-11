@@ -6,7 +6,7 @@ OVD-722 per-provider switch.
 This is an operations playbook, not legal advice. Escalate to paid counsel if any
 financial demand is made.
 
-## Target
+Target: 1 hour, no deploy, **pending OVD-722** (until the kill switch ships, follow the manual fallback below)
 
 Turn the named provider off **within 1 hour** of receiving a cease-and-desist,
 by flipping the OVD-722 config switch. The flip needs **no deploy**. Latency is
@@ -15,7 +15,7 @@ the next preflight or worker check, typically a few seconds. There is no cache.
 Until OVD-722 lands, the command and RPC below are the planned interface from
 that issue's design. Do not invent a second switch.
 
-## Step 1 — Flip the OVD-722 switch (exact)
+## Step 1: Engage the OVD-722 kill switch
 
 Use the platform-admin session. Never the service role.
 
@@ -54,7 +54,11 @@ Confirm immediately:
 No deploy, no admission-policy edit, and no envelope withdrawal is required for
 the emergency stop. Envelope withdrawal remains the durable follow-up.
 
-## Step 2 — Preserve evidence
+## Manual fallback until OVD-722 ships
+
+If `provider:kill` or the RPC does not exist yet, Blaine stops traffic by hand within the same hour, without a deploy: remove the provider key from `WORKER_LIVE_ADAPTERS` on the Cloud Run worker (config change only) and set the provider's admission policy to `disabled` through the existing admin path. Record what was done and when, then continue with Step 2. Do not build a second kill switch.
+
+## Step 2: Preserve evidence
 
 Keep, without altering:
 
@@ -65,13 +69,13 @@ Keep, without altering:
 
 Do not delete tasks, permits, or audit rows.
 
-## Step 3 — Update the matrix
+## Step 3: Update the matrix
 
 Set that provider's `permission_status=cease_and_desist`. The lint then forces
 `enabled_for_paid_automation` to false. Record the receipt date and a short
 summary on the row's `replies`.
 
-## Step 4 — Reply-template draft for Blaine
+## Step 4: Reply-template draft for Blaine
 
 Do not send this. Blaine approves and sends it.
 
@@ -83,7 +87,7 @@ Please send any further correspondence to <Blaine's address>.
 
 Acknowledge, confirm we stopped, and make no admissions.
 
-## Step 5 — Ownership and escalation
+## Step 5: Ownership and escalation
 
 Owner: Blaine. Team bots do not contact the vendor. Escalate to paid counsel if
 the letter demands money, a release, or anything beyond stopping access.
