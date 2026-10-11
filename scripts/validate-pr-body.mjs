@@ -129,11 +129,13 @@ function isInsideRange(ranges, index) {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
+const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/gm;
+
 function collectSections(body) {
   const normalizedBody = normalizeText(body);
   const fences = fencedCodeRanges(normalizedBody);
-  const matches = [...normalizedBody.matchAll(/^##\s+(.+)$/gm)].filter(
-    (match) => !isInsideRange(fences, match.index ?? -1),
+  const matches = [...normalizedBody.matchAll(SECTION_HEADING_LINE)].filter(
+    (match) => typeof match.index === "number" && !isInsideRange(fences, match.index),
   );
   const sections = new Map();
 
@@ -291,8 +293,8 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   },
 ];
 
-const CHECKBOX_LINE = /^\s*[-*]\s+\[([ xX])\]\s*(.*)$/;
-const GIT_NAME_STATUS_LINE = /^[A-Z](?:\d{0,3})?\t(.+)$/;
+const CHECKBOX_LINE = /^[ \t]*[-*][ \t]+\[([ xX])\][ \t]*(.*)$/;
+const GIT_NAME_STATUS_LINE = /^[A-Z](?:\d{1,3})?\t(.+)$/;
 
 /**
  * Expand `git diff --name-status` lines so rename sources and destinations
@@ -305,7 +307,7 @@ export function normalizeChangedFiles(changedFiles = []) {
       return [];
     }
 
-    const statusMatch = raw.match(GIT_NAME_STATUS_LINE);
+    const statusMatch = GIT_NAME_STATUS_LINE.exec(raw);
     if (!statusMatch) {
       return [raw];
     }
@@ -355,8 +357,9 @@ function parseCheckboxLines(content) {
       continue;
     }
 
-    if (boxes.length > 0 && /^\s+\S/.test(line)) {
-      boxes[boxes.length - 1].text += ` ${line.trim()}`;
+    const last = boxes.at(-1);
+    if (last && /^[ \t]+\S/.test(line)) {
+      last.text += ` ${line.trim()}`;
     }
   }
 
@@ -364,13 +367,18 @@ function parseCheckboxLines(content) {
 }
 
 function parseNaAnnotation(text) {
-  const match = text.match(/\bN\/A\b[:\s—-]*(.*)$/i);
-  if (!match) {
+  const marker = text.search(/\bN\/A\b/i);
+  if (marker === -1) {
     return null;
   }
 
-  const reason = match[1].trim();
-  const normalized = reason.toLowerCase().replace(/[.\s]+$/g, "");
+  let rest = text.slice(marker + 3).trimStart();
+  if (rest.startsWith(":") || rest.startsWith("—") || rest.startsWith("-")) {
+    rest = rest.slice(1).trimStart();
+  }
+
+  const reason = rest.trim();
+  const normalized = reason.toLowerCase().replace(/\.+$/, "");
   if (PROVIDER_GO_LIVE_NA_PLACEHOLDERS.has(normalized) || reason.length < PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH) {
     return { present: true, valid: false, reason };
   }
