@@ -1,3 +1,20 @@
+/**
+ * PR-body validator (`npm run validate:pr-body`).
+ *
+ * Heading rule: a section is any ATX heading of level 2 or 3 (`##` / `###`).
+ * Titles match case-insensitively after trimming. A section ends at the next
+ * heading of the same or a higher level (fewer `#`), so a `## X` section
+ * includes its `###` subsections. Headings and checkboxes inside fenced code
+ * blocks (``` or ~~~) are ignored. When a title repeats, the first one wins.
+ *
+ * Provider go-live: required only when a changed file matches
+ * `PROVIDER_GO_LIVE_PATH_PATTERNS` (root-anchored globs, not substrings). Each
+ * required item is satisfied only by its own checkbox line whose text starts
+ * with the item's template label. Every item must be ticked `[x]`. A ticked
+ * item carries either real evidence (URL, backticked command/output, 7-40 hex
+ * commit SHA, or repo file path) or, for non-admission items only, `N/A:` with
+ * a real reason. See `docs/checklists/provider-go-live-checklist.md`.
+ */
 import fs from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -99,17 +116,57 @@ function hasMeaningfulText(value) {
   return /[A-Za-z0-9]/.test(stripMarkdown(stripCodeBlocks(value)));
 }
 
-function collectSections(body) {
-  const normalizedBody = normalizeText(body);
-  const matches = [...normalizedBody.matchAll(/^##\s+(.+)$/gm)];
-  const sections = new Map();
+const FENCE_OPEN = /^\s{0,3}(`{3,}|~{3,})/;
 
-  matches.forEach((match, index) => {
-    const heading = match[1].trim();
-    const start = match.index + match[0].length;
-    const end = index + 1 < matches.length ? matches[index + 1].index : normalizedBody.length;
-    const content = normalizedBody.slice(start, end).trim();
-    sections.set(normalizeHeading(heading), { heading, content });
+/**
+ * Tag each line with whether it sits inside (or on the fence of) a fenced code block.
+ */
+function classifyFencedLines(text) {
+  let fence = null;
+
+  return text.split("\n").map((line) => {
+    const marker = line.match(FENCE_OPEN)?.[1];
+    if (fence) {
+      const closes =
+        marker && marker[0] === fence[0] && marker.length >= fence.length && !line.trim().slice(marker.length).trim();
+      if (closes) {
+        fence = null;
+      }
+      return { line, fenced: true };
+    }
+
+    if (marker) {
+      fence = marker;
+    }
+    return { line, fenced: Boolean(marker) };
+  });
+}
+
+const SECTION_HEADING = /^\s{0,3}(#{2,3})\s+(.+?)(?:\s+#+)?\s*$/;
+
+function collectSections(body) {
+  const lines = classifyFencedLines(normalizeText(body));
+  const headings = [];
+
+  lines.forEach(({ line, fenced }, index) => {
+    const match = fenced ? null : line.match(SECTION_HEADING);
+    if (match) {
+      headings.push({ index, level: match[1].length, heading: match[2].trim() });
+    }
+  });
+
+  const sections = new Map();
+  headings.forEach((current, position) => {
+    const next = headings.slice(position + 1).find((candidate) => candidate.level <= current.level);
+    const content = lines
+      .slice(current.index + 1, next ? next.index : lines.length)
+      .map((entry) => entry.line)
+      .join("\n")
+      .trim();
+    const key = normalizeHeading(current.heading);
+    if (!sections.has(key)) {
+      sections.set(key, { heading: current.heading, content });
+    }
   });
 
   return sections;
@@ -196,136 +253,272 @@ function validateVerificationSection(content, rule) {
 
 export const PROVIDER_GO_LIVE_HEADING = "Provider go-live";
 
-export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope/";
-
-export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
-  { id: "provider-check", label: "provider:check green", match: /provider:check\s+green/i },
-  { id: "envelope-reviewer", label: "envelope reviewed by a named reviewer", match: /named reviewer/i },
-  {
-    id: "admission-revision",
-    label: "approved admission revision (generic_dispatch_enabled=true)",
-    match: /generic_dispatch_enabled\s*=\s*true/i,
-  },
-  {
-    id: "rollout",
-    label: "automatic_quote_collection rollout and org enablement",
-    match: /automatic_quote_collection/i,
-  },
-  { id: "worker-secret", label: "worker adapter and Secret Manager secret", match: /secret manager/i },
-  { id: "egress", label: "stable egress verified", match: /egress/i },
-  { id: "certification", label: "certification run evidence", match: /certification/i },
-  { id: "rollback", label: "rollback/disable steps rehearsed", match: /rollback/i },
+/**
+ * Repo paths where a provider is defined, wired, or admitted. A PR that changes
+ * (adds, modifies, deletes, or renames into or out of) any matching path must
+ * carry a complete Provider go-live section.
+ *
+ * Globs are anchored at the repo root: `*` matches within one path segment and
+ * `**` matches across segments. Matching is case-sensitive like git paths and
+ * never uses substring search, so `my-provider-dispatch-envelope/a` does not match.
+ */
+export const PROVIDER_GO_LIVE_PATH_PATTERNS = [
+  // Reviewed dispatch envelopes (fixtures, worker allowlist, reviewed SQL).
+  "test-fixtures/provider-dispatch-envelope/**",
+  "worker/src/providerDispatchEnvelope.ts",
+  "supabase/migrations/*_reviewed_dispatch_envelope.sql",
+  // Provider registry and its generators/checkers (OVD-691 / PR #661).
+  "provider-integrations/**",
+  "worker/src/generated/providerRegistry.ts",
+  "scripts/provider-registry.mjs",
+  "scripts/provider-sync.mjs",
+  "scripts/provider-check.mjs",
+  "worker/scripts/generated/provider-secrets.sh",
 ];
 
-const CHECKBOX_LINE = /^\s*[-*]\s+\[([ xX])\]\s*(.*)$/;
+function globToRegExp(pattern) {
+  let source = "";
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*" && pattern[index + 1] === "*") {
+      source += ".*";
+      index += 1;
+    } else if (char === "*") {
+      source += "[^/]*";
+    } else {
+      source += char.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+
+  return new RegExp(`^${source}$`);
+}
+
+const PROVIDER_GO_LIVE_PATH_MATCHERS = PROVIDER_GO_LIVE_PATH_PATTERNS.map(globToRegExp);
+
+function normalizeRepoPath(file) {
+  return String(file).trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+}
 
 /**
- * Return whether any changed path is under a `provider-dispatch-envelope/` directory.
+ * Return whether one repo-relative path matches a provider go-live pattern.
  */
-export function touchesProviderDispatchEnvelope(changedFiles = []) {
-  return changedFiles.some((file) => String(file).replaceAll("\\", "/").includes(PROVIDER_DISPATCH_ENVELOPE_DIR));
+export function matchesProviderGoLivePath(file) {
+  const normalized = normalizeRepoPath(file);
+  return PROVIDER_GO_LIVE_PATH_MATCHERS.some((matcher) => matcher.test(normalized));
+}
+
+/**
+ * Return the changed paths that require the Provider go-live section.
+ */
+export function providerGoLivePaths(changedFiles = []) {
+  return changedFiles.filter(matchesProviderGoLivePath).map(normalizeRepoPath);
+}
+
+export function touchesProviderGoLivePath(changedFiles = []) {
+  return providerGoLivePaths(changedFiles).length > 0;
+}
+
+const NAME_STATUS_LINE = /^[A-Z]\d*\t/;
+
+/**
+ * Parse `git diff --name-only` or `git diff --name-status` output into paths.
+ * Rename/copy lines (`R100\told\tnew`) yield both the source and destination so a
+ * file moved out of a protected path still triggers the gate.
+ */
+export function parseChangedFiles(text) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .flatMap((line) => {
+      if (!line.trim()) {
+        return [];
+      }
+
+      if (NAME_STATUS_LINE.test(line)) {
+        return line.split("\t").slice(1).filter(Boolean);
+      }
+
+      return [line.trim()];
+    });
+}
+
+/**
+ * Required Provider go-live items. Each item is satisfied only by its own
+ * checkbox line whose text starts with `label` (case-insensitive, whitespace
+ * collapsed). Items with `admission: true` represent the decision to admit the
+ * provider (repo checks green, envelope review, admission revision) and can
+ * never be marked N/A.
+ */
+export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
+  { id: "provider-check", label: "provider:check green", admission: true },
+  { id: "envelope-reviewer", label: "Envelope reviewed by a named reviewer", admission: true },
+  {
+    id: "worker-secret",
+    label: "Worker adapter deployed and Secret Manager secret created (name only)",
+    admission: false,
+  },
+  { id: "egress", label: "Stable egress verified (`verify:xometry-egress`-style)", admission: false },
+  {
+    id: "admission-revision",
+    label: "Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied",
+    admission: true,
+  },
+  { id: "rollout", label: "`automatic_quote_collection` rollout and org enablement", admission: false },
+  { id: "certification", label: "Certification run passed", admission: false },
+  { id: "rollback", label: "Rollback/disable steps rehearsed", admission: false },
+];
+
+export const NA_REASON_MIN_LENGTH = 15;
+export const NA_REASON_MIN_WORDS = 3;
+
+const CHECKBOX_LINE = /^\s*[-*+]\s+\[([ xX])\]\s*(.*)$/;
+const PLACEHOLDER_REASONS = new Set(["x", "n/a", "na", "-", "--", "tbd", "todo", "none", "...", "…", "."]);
+const PLACEHOLDER_EVIDENCE = [
+  /\b(?:tbd|todo|fixme|placeholder|xxx+)\b/i,
+  /<[^>\n]*>/,
+  /(?:^|\s)(?:\.{3}|…)(?:\s|$)/,
+];
+const EVIDENCE_PATTERNS = [
+  /\bhttps?:\/\/[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?:[/?#]\S*)?/i,
+  /`[^`]*[A-Za-z0-9][^`]*`/,
+  /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/i,
+  /(?:^|[\s(])(?:\.\/)?[A-Za-z0-9_.-]+\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+\b/,
+];
+
+function collapseWhitespace(value) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function parseCheckboxLines(content) {
-  return content.split("\n").flatMap((line) => {
-    const match = line.match(CHECKBOX_LINE);
+  const withoutComments = content.replace(/<!--[\s\S]*?-->/g, "");
+
+  return classifyFencedLines(withoutComments).flatMap(({ line, fenced }) => {
+    const match = fenced ? null : line.match(CHECKBOX_LINE);
     if (!match) {
       return [];
     }
 
-    return [{ checked: match[1] !== " ", text: match[2] }];
+    return [{ checked: match[1] !== " ", text: collapseWhitespace(match[2]) }];
   });
 }
 
-function naReason(text) {
-  const match = text.match(/\bN\/A\b[:\s—-]*(.*)$/i);
-  if (!match) {
+/**
+ * Return the text after `label` when the line starts with it at a word boundary,
+ * otherwise null.
+ */
+function remainderAfterLabel(text, label) {
+  const normalizedLabel = collapseWhitespace(label).toLowerCase();
+  if (!text.toLowerCase().startsWith(normalizedLabel)) {
     return null;
   }
 
-  const reason = match[1].trim();
-  return /[A-Za-z0-9]/.test(reason) ? reason : "";
+  const rest = text.slice(normalizedLabel.length);
+  return /^(?:$|[\s.:;,—–-])/.test(rest) ? rest : null;
 }
 
-function hasEvidence(text) {
-  if (/https?:\/\//i.test(text)) {
-    return true;
-  }
-
-  const evidence = text.match(/evidence:\s*(.+)$/i);
-  return Boolean(evidence && /[A-Za-z0-9]/.test(evidence[1]));
+/**
+ * The attestation is the text after `Evidence:` when present, otherwise the text
+ * after the label (leading punctuation removed).
+ */
+function attestationText(remainder) {
+  const evidenceIndex = remainder.search(/\bevidence\s*:/i);
+  const raw =
+    evidenceIndex >= 0 ? remainder.slice(evidenceIndex).replace(/^evidence\s*:/i, "") : remainder;
+  return raw.replace(/^\s*[.:;,—–-]?(?=\s|$)/, "").trim();
 }
 
-function checkboxSatisfied(box, requiredItem) {
-  const reason = naReason(box.text);
-  if (reason !== null) {
-    return reason.length > 0;
-  }
+function naReasonFrom(attestation) {
+  const match = attestation.match(/^N\/A\b\s*[:—–-]?\s*(.*)$/i);
+  return match ? match[1].trim() : null;
+}
 
-  if (!box.checked) {
+function naReasonIsReal(reason) {
+  if (PLACEHOLDER_REASONS.has(reason.toLowerCase())) {
     return false;
   }
 
-  if (requiredItem?.id === "provider-check") {
-    return true;
-  }
-
-  return hasEvidence(box.text);
+  const words = reason.split(/\s+/).filter((word) => /[A-Za-z]/.test(word));
+  return reason.length >= NA_REASON_MIN_LENGTH && words.length >= NA_REASON_MIN_WORDS;
 }
 
-function extraCheckboxSatisfied(box) {
-  const reason = naReason(box.text);
-  if (reason !== null) {
-    return reason.length > 0;
-  }
-
-  return box.checked;
+function hasPlaceholderEvidence(attestation) {
+  return PLACEHOLDER_EVIDENCE.some((pattern) => pattern.test(attestation));
 }
 
-function validateProviderGoLiveSection(body) {
+function hasRealEvidence(attestation) {
+  return EVIDENCE_PATTERNS.some((pattern) => pattern.test(attestation));
+}
+
+function validateProviderGoLiveItem(required, boxes) {
+  const matches = boxes.flatMap((box) => {
+    const remainder = remainderAfterLabel(box.text, required.label);
+    return remainder === null ? [] : [{ box, remainder }];
+  });
+
+  if (matches.length === 0) {
+    return [`missing Provider go-live item "${required.label}" (start its own checkbox line with the template label)`];
+  }
+
+  if (matches.length > 1) {
+    return [`use exactly one checkbox line for Provider go-live item "${required.label}"`];
+  }
+
+  const [{ box, remainder }] = matches;
+  const attestation = attestationText(remainder);
+  const naReason = naReasonFrom(attestation);
+  const errors = [];
+
+  if (!box.checked) {
+    errors.push(`tick [x] for Provider go-live item "${required.label}"`);
+  }
+
+  if (naReason !== null) {
+    if (required.admission) {
+      errors.push(`"${required.label}" is an admission item and cannot be N/A`);
+    } else if (!naReasonIsReal(naReason)) {
+      errors.push(
+        `give a real N/A reason (at least ${NA_REASON_MIN_LENGTH} characters and ${NA_REASON_MIN_WORDS} words) for "${required.label}"`,
+      );
+    }
+    return errors;
+  }
+
+  if (hasPlaceholderEvidence(attestation)) {
+    errors.push(`replace placeholder evidence for "${required.label}"`);
+  } else if (!hasRealEvidence(attestation)) {
+    errors.push(
+      `add evidence (URL, \`command\`, commit SHA, or repo file path) for "${required.label}"`,
+    );
+  }
+
+  return errors;
+}
+
+function validateProviderGoLiveSection(body, triggeringPaths) {
   const sections = collectSections(body);
   const section = sections.get(normalizeHeading(PROVIDER_GO_LIVE_HEADING));
-  const errors = [];
 
   if (!section) {
     return [
-      `missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches provider-dispatch-envelope/`,
+      `missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches provider go-live paths (${triggeringPaths.join(", ")})`,
     ];
   }
 
   const boxes = parseCheckboxLines(section.content);
   if (boxes.length === 0) {
-    errors.push(`add Provider go-live checkboxes to "${PROVIDER_GO_LIVE_HEADING}"`);
+    return [`add Provider go-live checkboxes to "${PROVIDER_GO_LIVE_HEADING}"`];
   }
 
-  for (const required of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
-    const match = boxes.find((box) => required.match.test(box.text));
-    if (!match) {
-      errors.push(`missing Provider go-live item "${required.label}"`);
-      continue;
-    }
-
-    if (checkboxSatisfied(match, required)) {
-      continue;
-    }
-
-    if (naReason(match.text) !== null) {
-      errors.push(`mark N/A with a reason for "${required.label}"`);
-    } else if (!match.checked) {
-      errors.push(`check or mark N/A with a reason for "${required.label}"`);
-    } else {
-      errors.push(`add an evidence link or note for "${required.label}"`);
-    }
-  }
+  const errors = PROVIDER_GO_LIVE_REQUIRED_ITEMS.flatMap((required) => validateProviderGoLiveItem(required, boxes));
 
   for (const box of boxes) {
-    const required = PROVIDER_GO_LIVE_REQUIRED_ITEMS.find((item) => item.match.test(box.text));
-    if (required || extraCheckboxSatisfied(box)) {
-      continue;
+    const isRequired = PROVIDER_GO_LIVE_REQUIRED_ITEMS.some(
+      (required) => remainderAfterLabel(box.text, required.label) !== null,
+    );
+    if (!isRequired && !box.checked) {
+      errors.push(`tick [x] or remove the extra Provider go-live checkbox "${box.text || "(empty)"}"`);
     }
-
-    const label = box.text.trim() || "an extra Provider go-live checkbox";
-    errors.push(`check or mark N/A with a reason for "${label}"`);
   }
 
   return errors;
@@ -333,7 +526,7 @@ function validateProviderGoLiveSection(body) {
 
 /**
  * Validate that a PR body includes all required sections and obvious non-placeholder content.
- * The Provider go-live section is required only when `changedFiles` touch `provider-dispatch-envelope/`.
+ * The Provider go-live section is required only when `changedFiles` match `PROVIDER_GO_LIVE_PATH_PATTERNS`.
  *
  * @param {string} body
  * @param {{ changedFiles?: string[] }} [options]
@@ -360,8 +553,9 @@ export function validatePrBody(body, options = {}) {
     errors.push(...sectionErrors);
   }
 
-  if (touchesProviderDispatchEnvelope(options.changedFiles ?? [])) {
-    errors.push(...validateProviderGoLiveSection(body));
+  const triggeringPaths = providerGoLivePaths(options.changedFiles ?? []);
+  if (triggeringPaths.length > 0) {
+    errors.push(...validateProviderGoLiveSection(body, triggeringPaths));
   }
 
   return {
@@ -430,10 +624,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   const body = useStdin ? await readStdin() : await fs.readFile(filePath, "utf8");
   const changedFiles = parsed.values.changedFilesFrom
-    ? (await fs.readFile(parsed.values.changedFilesFrom, "utf8"))
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
+    ? parseChangedFiles(await fs.readFile(parsed.values.changedFilesFrom, "utf8"))
     : undefined;
   const result = validatePrBody(body, changedFiles ? { changedFiles } : {});
 
@@ -444,7 +635,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const sectionNames = REQUIRED_SECTIONS.map((section) => section.heading);
-  if (touchesProviderDispatchEnvelope(changedFiles ?? [])) {
+  if (touchesProviderGoLivePath(changedFiles ?? [])) {
     sectionNames.push(PROVIDER_GO_LIVE_HEADING);
   }
 

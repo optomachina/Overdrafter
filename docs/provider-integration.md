@@ -170,6 +170,8 @@ Public first-party research produces the manifest, conservative eligibility eval
 
 Human attestations for this stage belong on the [provider go-live checklist](checklists/provider-go-live-checklist.md). Repo-verifiable envelope artifacts stay with `provider:check`.
 
+PRs that change provider go-live paths (envelope fixtures, `worker/src/providerDispatchEnvelope.ts`, reviewed-envelope migrations, `provider-integrations/**`, and the registry generators) must fill the **Provider go-live** PR section; CI enforces it with `scripts/validate-pr-body.mjs`. The checklist lists the exact paths and rules.
+
 ### 2. Make `<provider>` live evaluation operational
 
 A declarative or custom adapter provides isolated session setup, exact allowed origins, provider-specific anchors, finite failures, scrubbed fixtures, normalized local evidence, and the shared adapter-contract proof. Authenticated interaction requires exact-file authorization. Completion means evaluation-ready/evaluated, not customer-enabled.

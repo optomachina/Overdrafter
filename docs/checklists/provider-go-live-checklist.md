@@ -11,9 +11,48 @@ Manager secret names only; never write secret values, cookies, tokens, or
 storage-state contents.
 
 Use this checklist with the **Provider go-live** section in
-`.github/pull_request_template.md`. CI requires that section only for PRs that
-touch `provider-dispatch-envelope/`. Mark an item N/A only for a non-admitting
-change, and include a reason.
+`.github/pull_request_template.md`.
+
+## When CI requires it
+
+`scripts/validate-pr-body.mjs` requires the PR section when any changed path
+(including either side of a rename) matches `PROVIDER_GO_LIVE_PATH_PATTERNS`.
+Patterns are root-anchored globs, not substrings:
+
+- `test-fixtures/provider-dispatch-envelope/**`
+- `worker/src/providerDispatchEnvelope.ts` (`REVIEWED_PROVIDER_DISPATCH_ENVELOPES`)
+- `supabase/migrations/*_reviewed_dispatch_envelope.sql`
+- `provider-integrations/**`
+- `worker/src/generated/providerRegistry.ts`
+- `scripts/provider-registry.mjs`, `scripts/provider-sync.mjs`,
+  `scripts/provider-check.mjs`
+- `worker/scripts/generated/provider-secrets.sh`
+
+CI diffs with `git diff --name-status --no-renames` and re-runs when the PR
+description is edited.
+
+## PR section rules
+
+- **Headings.** The section is `## Provider go-live` or `### Provider go-live`
+  (case-insensitive). It ends at the next heading of the same or a higher
+  level, so `###` subsections under a `##` section count. Headings and
+  checkboxes inside fenced code blocks (```` ``` ```` or `~~~`) are ignored.
+- **One line per item.** Each item needs its own checkbox line that starts
+  with the template label (for example `- [x] provider:check green.`). A line
+  that lists several items satisfies at most the one whose label it starts
+  with. Duplicate lines for one item fail.
+- **Tick every item.** `[ ]` fails, including `[ ]` with N/A.
+- **Evidence.** After `Evidence:`, give a URL, a backticked command or output,
+  a 7-40 character hex commit SHA, or a repo file path. A bare tick, empty
+  evidence, or placeholders (`TBD`, `TODO`, `<link>`, `...`) fail.
+- **N/A.** Allowed only on non-admission items (worker adapter and secret,
+  egress, rollout, certification, rollback), still ticked, written as
+  `Evidence: N/A: <reason>`. The reason needs at least 15 characters and 3
+  words; `x`, `n/a`, `-`, `tbd`, `todo`, `none`, and `...` fail.
+- **Admission items cannot be N/A:** provider:check green, envelope reviewed by
+  a named reviewer, and the approved admission revision. A PR that changes a
+  path above is treated as part of admitting a provider, so these always need
+  evidence.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those
@@ -48,7 +87,7 @@ items appear here only as **provider:check green**.
 - [ ] **`automatic_quote_collection` rollout and org enablement.** Record the
       rollout revision, the organization enablement evidence, and that both
       remain independently disableable.
-- [ ] **Certification run evidence.** Link the hosted certification run for
+- [ ] **Certification run passed.** Link the hosted certification run for
       this provider. Failed certification leaves only this provider disabled.
 - [ ] **Rollback/disable steps rehearsed.** Record the disable path: admission
       revision with `generic_dispatch_enabled=false`, rollout off, adapter

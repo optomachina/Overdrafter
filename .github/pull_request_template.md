@@ -76,19 +76,36 @@ Baseline failures or exceptions:
 
 ## Provider go-live
 
-Required only when this PR touches `provider-dispatch-envelope/`. Omit this
-section on unrelated PRs so the existing PR-body gate stays unchanged.
+Required only when this PR touches a provider go-live path (for example
+`test-fixtures/provider-dispatch-envelope/**`,
+`worker/src/providerDispatchEnvelope.ts`,
+`supabase/migrations/*_reviewed_dispatch_envelope.sql`, or
+`provider-integrations/**`; the full list is `PROVIDER_GO_LIVE_PATH_PATTERNS`
+in `scripts/validate-pr-body.mjs`). Omit this section on unrelated PRs.
 
 A checked box grants no authority. Generated output stays disabled by default.
 Admission happens only when a human applies reviewed SQL; admit SQL never
 belongs in `supabase/migrations/`. Record Secret Manager secret names only.
-
-N/A is allowed only for non-admitting changes and must include a reason.
 See `docs/checklists/provider-go-live-checklist.md`.
+
+<!--
+Rules (enforced by scripts/validate-pr-body.mjs):
+- Keep one checkbox line per item and keep each line starting with its label.
+- Tick every item: [x]. An unticked box fails, even with N/A.
+- After "Evidence:" give a URL, a `backticked command or output`, a 7-40 hex
+  commit SHA, or a repo file path. TBD, TODO, <link>, and ... fail.
+- N/A is allowed only on Live, rollout, certification, and rollback items, and
+  needs a real reason (15+ characters, 3+ words), for example:
+  - [x] Certification run passed. Evidence: N/A: fixture-only change, no hosted run yet
+- provider:check, envelope review, and the admission revision can never be N/A.
+Examples:
+  - [x] provider:check green. Evidence: `npm run provider:check` passed on 1a2b3c4d
+  - [x] Envelope reviewed by a named reviewer. Evidence: Jane Doe, https://linear.app/overdrafter/issue/OVD-123
+-->
 
 ### Envelope
 
-- [ ] provider:check green
+- [ ] provider:check green. Evidence:
 - [ ] Envelope reviewed by a named reviewer. Evidence:
 
 ### Live
@@ -100,7 +117,7 @@ See `docs/checklists/provider-go-live-checklist.md`.
 
 - [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL was not added to `supabase/migrations/`. Evidence:
 - [ ] `automatic_quote_collection` rollout and org enablement. Evidence:
-- [ ] Certification run evidence:
+- [ ] Certification run passed. Evidence:
 - [ ] Rollback/disable steps rehearsed. Evidence:
 
 ## Screenshots or videos (if UI)
