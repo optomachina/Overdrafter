@@ -112,13 +112,19 @@ export type ReviewedProviderDispatchEnvelope = {
   requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
 };
 
-/** OVD-673: the reviewed Fictiv quote-only envelope (`fictiv-quote-envelope.v1`). */
+/**
+ * OVD-673: identity the Fictiv adapter binds to (`fictiv-quote-envelope.v1`).
+ * Deliberately not listed in the array below; admitting it is a separate
+ * reviewed change.
+ */
 export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
 
 /**
- * OVD-674: the reviewed Quickparts quote-only envelope
+ * OVD-674: the Quickparts quote-only envelope identity
  * (`quickparts-quote-envelope.v1`): one CAD file, no drawing, uploaded through
- * the production Quickparts portal definition.
+ * the production Quickparts portal definition. It is not in
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` at this revision (the review lands in
+ * #652), so nothing admits it yet.
  */
 export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quote-envelope", version: 1 });
 

@@ -21,6 +21,35 @@ export async function confirmSourcingDestination(organizationId: string, address
   if (error) throw new Error("The shipping address changed or is incomplete. Reload and confirm the current address.");
 }
 
+export type OrganizationAddressPatch = Partial<
+  Pick<
+    OrganizationDetails,
+    | "billingStreet"
+    | "billingCity"
+    | "billingState"
+    | "billingZip"
+    | "billingCountry"
+    | "shippingSameAsBilling"
+    | "shippingStreet"
+    | "shippingCity"
+    | "shippingState"
+    | "shippingZip"
+    | "shippingCountry"
+  >
+>;
+
+/** Saves only billing/shipping fields; any organization member may call it. */
+export async function updateOrganizationAddresses(
+  organizationId: string,
+  patch: OrganizationAddressPatch,
+): Promise<void> {
+  const { error } = await callUntypedRpc("api_update_organization_addresses", {
+    p_organization_id: organizationId,
+    p_patch: patch,
+  });
+  if (error) throw new Error("Failed to update organization address");
+}
+
 export async function createSelfServiceOrganization(organizationName: string): Promise<string> {
   const { data, error } = await callRpc("api_create_self_service_organization", {
     p_organization_name: organizationName,
