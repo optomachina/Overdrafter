@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# Live-adapter allow-list, session-secret names, and mount paths come from
+# provider-integrations/provider-registry.v1.json via provider:sync.
+# shellcheck source=generated/provider-secrets.sh
+source "$SCRIPT_DIR/scripts/generated/provider-secrets.sh"
+
 SERVICE_NAME="${SERVICE_NAME:-overdrafter-cad-worker}"
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${CLOUD_RUN_REGION:-us-west1}"
@@ -126,6 +131,11 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
+# Production live adapters and required session-secret names come from the
+# provider registry. Listing an adapter here never grants production authority.
+provider_registry_parse_live_adapters
+provider_registry_require_session_secrets
+
 stable_egress_configured=false
 if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EGRESS" ]]; then
   if [[ -z "$CLOUD_RUN_NETWORK" || -z "$CLOUD_RUN_SUBNET" || -z "$CLOUD_RUN_VPC_EGRESS" ]]; then
@@ -136,8 +146,12 @@ if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EG
     echo "CLOUD_RUN_VPC_EGRESS must be all-traffic when stable egress is configured."
     exit 1
   fi
-  if [[ "$WORKER_MODE" != "live" || "$WORKER_LIVE_ADAPTERS" != "xometry" ]]; then
-    echo "Stable egress deployment is restricted to the live Xometry-only worker."
+  # Must match STABLE_EGRESS_LIVE_ADAPTER_VALUES in
+  # scripts/xometry-stable-egress-contract.mjs: required adapter, then the
+  # enabled optional adapters in canonical registry order.
+  stable_egress_canonical_adapters="$(provider_registry_stable_egress_canonical_adapters)"
+  if [[ "$WORKER_MODE" != "live" || "$xometry_live_enabled" != "true" || "$WORKER_LIVE_ADAPTERS" != "$stable_egress_canonical_adapters" ]]; then
+    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order."
     exit 1
   fi
   if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then
@@ -274,9 +288,28 @@ else
   remove_secret_vars+=("ANTHROPIC_API_KEY")
 fi
 
+provider_registry_apply_session_secrets
+
+if (( ${#vendor_storage_state_paths[@]} > 0 )); then
+  env_vars+=("QUOTE_VENDOR_STORAGE_STATE_PATHS={$(IFS=,; echo "${vendor_storage_state_paths[*]}")}")
+fi
+
 # Customer drawing extraction must never inherit a previously configured
 # OpenRouter credential from the Cloud Run service.
 remove_secret_vars+=("OPENROUTER_API_KEY")
+
+# gcloud splits --set-env-vars on commas, so a multi-adapter list needs its
+# alternate-delimiter form. Single-adapter deploys keep the plain form.
+set_env_vars_arg="$(IFS=,; echo "${env_vars[*]}")"
+if [[ "$WORKER_LIVE_ADAPTERS" == *","* ]]; then
+  for assignment in "${env_vars[@]}"; do
+    if [[ "$assignment" == *"@"* ]]; then
+      echo "Environment values may not contain @ when WORKER_LIVE_ADAPTERS lists several adapters."
+      exit 1
+    fi
+  done
+  set_env_vars_arg="^@^$(IFS=@; echo "${env_vars[*]}")"
+fi
 
 deploy_cmd=(
   "$GCLOUD_BIN" run deploy "$SERVICE_NAME"
@@ -292,7 +325,7 @@ deploy_cmd=(
   --timeout 3600
   --no-cpu-throttling
   --no-allow-unauthenticated
-  --set-env-vars "$(IFS=,; echo "${env_vars[*]}")"
+  --set-env-vars "$set_env_vars_arg"
   --update-secrets "$(IFS=,; echo "${secret_vars[*]}")"
 )
 

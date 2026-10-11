@@ -119,6 +119,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
         approvalReference: expect.any(String),
         authorityToShare: true,
         declaredModelUnits: "inch",
+        envelopeRevision: "xometry-controlled-beta-envelope.v1",
         nonExportControlled: true,
         policyRevision: "founding-beta-notice.v1",
         quoteOnly: true,
@@ -172,6 +173,30 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry scope check" }));
     expect(onRetryScope).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+  });
+
+  it("offers Settings only for a missing confirmed shipping destination", () => {
+    const onOpenSourcingSettings = vi.fn();
+    const { rerender, props } = renderDialog({
+      declaredModelUnits: "inch",
+      onOpenSourcingSettings,
+      scopeDenialCode: "xometry_beta_confirmed_sourcing_address_required",
+      scopeError: "Xometry needs a confirmed shipping address.",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Settings to confirm address" }));
+    expect(onOpenSourcingSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        scopeDenialCode="xometry_beta_standard_tolerance_required"
+        scopeError="Enter this part's tightest tolerance."
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Open Settings to confirm address" })).not.toBeInTheDocument();
+    expect(screen.getByText("Enter this part's tightest tolerance.")).toBeInTheDocument();
   });
 
   it("shows a truthful denial and refresh path without claiming dispatch approval", async () => {
@@ -292,4 +317,65 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+});
+
+describe("ProviderDispatchConfirmationDialog for Fictiv (OVD-673)", () => {
+  function createFictivScope(): XometryBetaDispatchScope {
+    const scope = createScope({ provider: "fictiv", envelopeRevision: "fictiv-quote-envelope.v1" });
+    return { ...scope, scope: { ...scope.scope, vendor: "fictiv" } };
+  }
+  const fictivAuthorityLabel = "I am authorized to share these files and requirements with Fictiv to request a quote.";
+
+  it("names Fictiv everywhere the customer is told who receives the package", () => {
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope: createFictivScope() });
+
+    expect(screen.getByText("Founding Beta · Fictiv")).toBeInTheDocument();
+    expect(screen.getByText("Confirm Fictiv beta quote request")).toBeInTheDocument();
+    expect(screen.getByText(/OverDrafter will queue for Fictiv\./)).toBeInTheDocument();
+    expect(screen.getByText("Fictiv")).toBeInTheDocument();
+    expect(screen.getByText("fictiv-quote-envelope.v1")).toBeInTheDocument();
+    expect(screen.getByLabelText(fictivAuthorityLabel)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" })).toBeDisabled();
+    expect(screen.queryByText(/Xometry/)).not.toBeInTheDocument();
+  });
+
+  it("submits the exact Fictiv scope only after all three affirmations", async () => {
+    const scope = createFictivScope();
+    const onConfirm = vi.fn().mockResolvedValue({ accepted: true, created: true, status: "queued" });
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope, onConfirm });
+
+    const submit = screen.getByRole("button", { name: "Confirm & queue Fictiv quote" });
+    fireEvent.click(screen.getByLabelText(fictivAuthorityLabel));
+    fireEvent.click(screen.getByLabelText(exportLabel));
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(quoteOnlyLabel));
+    fireEvent.click(submit);
+
+    await screen.findByText("Fictiv quote request queued");
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      authorityToShare: true,
+      nonExportControlled: true,
+      quoteOnly: true,
+      declaredModelUnits: "inch",
+      envelopeRevision: "fictiv-quote-envelope.v1",
+      policyRevision: scope.policyRevision,
+      scopeFingerprint: scope.scopeFingerprint,
+    }));
+    expect(screen.getByText(/Fictiv has not yet been confirmed as having received the package\./)).toBeInTheDocument();
+  });
+
+  it("never presents a scope computed for a different provider", () => {
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope: createScope() });
+
+    expect(screen.queryByText("BRKT-001.step")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(fictivAuthorityLabel)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" })).toBeDisabled();
+  });
+
+  it("keeps the Xometry copy when no provider is named", () => {
+    renderDialog({ declaredModelUnits: "inch", scope: createFictivScope() });
+
+    expect(screen.getByText("Confirm Xometry beta quote request")).toBeInTheDocument();
+    expect(screen.queryByText("BRKT-001.step")).not.toBeInTheDocument();
+  });
 });

@@ -37,6 +37,26 @@ Obtain Blaine's current exact authorization before:
 
 Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repository access, and broad project approval do not expand into these actions.
 
+## Standing approvals and the Blaine channel
+
+- Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
+- Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
+- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
+
+## Sensitive paths (single shared list)
+
+Triage (`ovd-auto-triage`) and the Jev PR screen (`screen.py`) use this one list. A Linear issue whose scope touches it is routed architect-first; a PR that touches it gets Opus review regardless of the Jev score. Keep the screen patterns in sync when this list changes.
+
+| Area | Paths / signals |
+| --- | --- |
+| Database schema and migrations | `supabase/migrations/`, schema or RLS changes |
+| Auth, permissions, sessions | `auth`, `rls`, `permission(s)`, `session` paths |
+| Payments, pricing, billing | `payment`, `billing`, `stripe`, `pricing`, `invoice`, `checkout` |
+| Provider dispatch | `dispatch`, `worker/src/adapters/`, `provider-admission`, `provider-upload` |
+| Secrets and env | `secret`, `credential`, `*.pem`, `*.key`, `keys/`, `token(s).{json,yaml,ts,js}`, `vault`, `.env*`, `env.{ts,js,json}`, `.envrc` |
+| Infra, CI, deploy | `.github/workflows/`, `.github/actions/`, `infra/`, `terraform/`, `deploy/`, `k8s/`, `helm/`, `ops/`, `*.tf`, `Dockerfile`, `docker-compose`, `vercel.json`, `netlify.toml`, `fly.toml`, `scripts/deploy*`, `scripts/release*` |
+| New dependencies | `package.json`, lockfiles, `requirements*.txt`, `pyproject.toml`, `uv.lock`, `Cargo.toml`, `go.mod` |
+
 ## Ownership and durable state
 
 Repository state and the controller's durable run store are authoritative. Plans, chat narration, Linear comments, heartbeat summaries, and Markdown status pages are projections.
@@ -66,6 +86,16 @@ Use complexity to choose decomposition and evidence, not permission. Split indep
 - Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.
 
 Independent review is required for cross-cutting architecture, security-sensitive boundaries, disputed evidence, repeated failure, and protected-operation packets. Review confidence never replaces deterministic checks.
+
+## Preflight, repair budget, and review sizing
+
+Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) before opening or updating a PR. CI calls the same script for those stages, so a local pass predicts the hosted result. Paste its stage lines into the PR.
+
+- One writer per PR owns every repair. Total budget is 2 repair rounds across local and CI combined; each round gets all current failure logs at once, not one check at a time.
+- Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
+- A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
+- Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch [sensitive paths](#sensitive-paths-single-shared-list) or provider/customer data. Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks.
+- Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Completion and failure
 

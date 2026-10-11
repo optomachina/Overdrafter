@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_MIGRATION_BASE_REF,
+  MIGRATION_FILENAME_PATTERN,
+  listRefMigrationFilenames,
+  nextMigrationTimestamp,
+} from "./migration-timestamp.mjs";
 
 /**
  * Production-recorded migration versions whose statement payloads were
@@ -55,7 +61,17 @@ export const RETIRED_LINEAGE_ALIASES = new Set([
   "20260812003732_restore_job_vendor_preferences.sql",
 ]);
 
-const MIGRATION_FILENAME_PATTERN = /^(\d{14})_[a-z0-9_-]+\.sql$/;
+function isCiEnvironment(env = process.env) {
+  return env.CI === "true" || env.GITHUB_ACTIONS === "true";
+}
+
+function nextFreeTimestamp(filenames, options = {}) {
+  return nextMigrationTimestamp({
+    now: options.now,
+    localFilenames: filenames,
+    refFilenames: options.baseFilenames ?? [],
+  });
+}
 
 function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");
@@ -85,7 +101,9 @@ function inspectMigrationEntry(entry, filenamesByVersion, violations) {
 
   const match = entry.name.match(MIGRATION_FILENAME_PATTERN);
   if (!match) {
-    violations.push(`${entry.name}: invalid migration filename`);
+    violations.push(
+      `${entry.name}: invalid migration filename; expected YYYYMMDDHHMMSS_slug.sql`,
+    );
     return;
   }
 
@@ -95,11 +113,42 @@ function inspectMigrationEntry(entry, filenamesByVersion, violations) {
   filenamesByVersion.set(version, versionFiles);
 }
 
-function appendDuplicateVersionViolations(filenamesByVersion, violations) {
+function appendDuplicateVersionViolations(
+  filenamesByVersion,
+  violations,
+  nextFree,
+) {
   for (const [version, versionFiles] of filenamesByVersion) {
     if (versionFiles.length > 1) {
       violations.push(
-        `${version}: duplicate migration version in ${versionFiles.join(", ")}`,
+        `${version}: duplicate migration version in ${versionFiles.join(", ")}; next free timestamp is ${nextFree}`,
+      );
+    }
+  }
+}
+
+function appendOutOfOrderAgainstBaseViolations(
+  localFilenames,
+  baseFilenames,
+  violations,
+  nextFree,
+) {
+  const baseLatest = [...baseFilenames]
+    .filter((name) => MIGRATION_FILENAME_PATTERN.test(name.split("/").pop()))
+    .sort((left, right) => left.localeCompare(right))
+    .at(-1);
+  if (!baseLatest) {
+    return;
+  }
+
+  const baseSet = new Set(baseFilenames.map((name) => name.split("/").pop()));
+  for (const filename of localFilenames) {
+    if (baseSet.has(filename)) {
+      continue;
+    }
+    if (filename.localeCompare(baseLatest) < 0) {
+      violations.push(
+        `${filename} sorts before merge-base head ${baseLatest}; next free timestamp is ${nextFree}`,
       );
     }
   }
@@ -147,6 +196,7 @@ async function appendExpectedLineageViolations(
 export async function inspectMigrationLineage(
   migrationRoot,
   expectedLineage = CANONICAL_PRODUCTION_LINEAGE,
+  options = {},
 ) {
   const entries = await readdir(migrationRoot, { withFileTypes: true });
   const migrationEntries = entries
@@ -160,7 +210,22 @@ export async function inspectMigrationLineage(
     inspectMigrationEntry(entry, filenamesByVersion, violations);
   }
 
-  appendDuplicateVersionViolations(filenamesByVersion, violations);
+  const nextFree = nextFreeTimestamp([...filenames], options);
+  for (let index = 0; index < violations.length; index += 1) {
+    if (violations[index].includes("invalid migration filename")) {
+      violations[index] = `${violations[index]}; next free timestamp is ${nextFree}`;
+    }
+  }
+
+  appendDuplicateVersionViolations(filenamesByVersion, violations, nextFree);
+  if (options.baseFilenames) {
+    appendOutOfOrderAgainstBaseViolations(
+      [...filenames],
+      options.baseFilenames,
+      violations,
+      nextFree,
+    );
+  }
   appendRetiredAliasViolations(filenames, violations);
   await appendExpectedLineageViolations(
     migrationRoot,
@@ -172,13 +237,39 @@ export async function inspectMigrationLineage(
   return violations.sort((left, right) => left.localeCompare(right));
 }
 
+export function resolveLineageBaseFilenames(
+  repositoryRoot,
+  {
+    againstBase = false,
+    baseRef = process.env.MIGRATION_LINEAGE_BASE_REF || DEFAULT_MIGRATION_BASE_REF,
+    env = process.env,
+  } = {},
+) {
+  const required = againstBase || isCiEnvironment(env);
+  try {
+    return { baseRef, baseFilenames: listRefMigrationFilenames(repositoryRoot, baseRef) };
+  } catch (error) {
+    if (required) {
+      throw error;
+    }
+    return { baseRef, baseFilenames: null };
+  }
+}
+
 async function main() {
-  const requestedRoot = process.argv[2] ?? "supabase/migrations";
+  const againstBase = process.argv.includes("--against-base");
+  const requestedRoot = process.argv.slice(2).find((value) => !value.startsWith("--"))
+    ?? "supabase/migrations";
   const migrationRoot = resolveCanonicalMigrationRoot(
     process.cwd(),
     requestedRoot,
   );
-  const violations = await inspectMigrationLineage(migrationRoot);
+  const { baseFilenames } = resolveLineageBaseFilenames(process.cwd(), { againstBase });
+  const violations = await inspectMigrationLineage(
+    migrationRoot,
+    undefined,
+    baseFilenames ? { baseFilenames } : {},
+  );
 
   if (violations.length > 0) {
     console.error("Supabase migration-lineage verification failed:");

@@ -1,0 +1,79 @@
+{
+  "description": "OVD-673 synthetic Fictiv provider-dispatch-envelope.v1 for the reviewed fictiv-quote-envelope.v1. Every identifier and digest is synthetic; tests overwrite file digests and quantity with the staged values under test. Not evidence of any real provider, account, or customer.",
+  "envelope": {
+    "schema": "provider-dispatch-envelope.v1",
+    "provider": "fictiv",
+    "envelope": {
+      "id": "fictiv-quote-envelope",
+      "version": 1
+    },
+    "admission": {
+      "policyRevision": "fictiv-generic-2026-10-10.v1",
+      "evidenceReference": "OVD-673"
+    },
+    "noticeRevision": "founding-beta-2026-08-15",
+    "purpose": "quote_only",
+    "affirmations": {
+      "authorityToShare": true,
+      "nonExportControlled": true,
+      "quoteOnly": true
+    },
+    "subject": {
+      "actorUserId": "00000000-0000-4000-8000-000000006731",
+      "organizationId": "00000000-0000-4000-8000-000000006732",
+      "jobId": "00000000-0000-4000-8000-000000006733",
+      "partId": "00000000-0000-4000-8000-000000006734"
+    },
+    "scope": {
+      "schema": "quote-lane-scope.v1",
+      "version": 1,
+      "fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "requestedQuantity": 1,
+      "declaredModelUnits": "inch"
+    },
+    "sourceFiles": [
+      {
+        "role": "cad",
+        "fileId": "00000000-0000-4000-8000-000000006735",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "role": "drawing",
+        "fileId": "00000000-0000-4000-8000-000000006736",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "outboundFiles": [
+      {
+        "role": "cad",
+        "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "derivation": "identity"
+      },
+      {
+        "role": "drawing",
+        "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "derivation": "identity"
+      }
+    ],
+    "task": {
+      "quoteRequestId": "00000000-0000-4000-8000-000000006737",
+      "quoteRunId": "00000000-0000-4000-8000-000000006738",
+      "vendorQuoteResultId": "00000000-0000-4000-8000-000000006739",
+      "quoteRequestLaneId": "00000000-0000-4000-8000-00000000673a",
+      "workQueueTaskId": "00000000-0000-4000-8000-00000000673b"
+    },
+    "permit": {
+      "permitId": "00000000-0000-4000-8000-00000000673c",
+      "approvalReference": "00000000-0000-4000-8000-00000000673d"
+    },
+    "sessionBindingId": "lease:00000000-0000-4000-8000-00000000673c",
+    "rollout": {
+      "capability": "automatic_quote_collection",
+      "revision": 1
+    },
+    "issuedAt": "2026-10-10T12:00:00.000Z",
+    "expiresAt": "2099-01-01T00:00:00.000Z"
+  }
+}

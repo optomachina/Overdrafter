@@ -5,6 +5,14 @@ import {
   isCurrentXometryControlledBetaAdmission,
 } from "./providerUploadCapability.js";
 import type { ProviderUploadCapabilityAdmissionResolverResult } from "./providerUploadCapabilityTypes.js";
+import {
+  PROVIDER_DISPATCH_ENVELOPE_SCHEMA,
+  type ProviderDispatchEnvelope,
+  type ProviderDispatchFileRole,
+  type ProviderDispatchModelUnits,
+  type ProviderDispatchOutboundFile,
+  type ProviderDispatchSourceFile,
+} from "./providerDispatchTypes.js";
 import type { VendorName, XometryDispatchAuthorization } from "./types.js";
 import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
 
@@ -21,7 +29,14 @@ import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
  * `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`.
  */
 
-export const PROVIDER_DISPATCH_ENVELOPE_SCHEMA = "provider-dispatch-envelope.v1" as const;
+export {
+  PROVIDER_DISPATCH_ENVELOPE_SCHEMA,
+  type ProviderDispatchEnvelope,
+  type ProviderDispatchFileRole,
+  type ProviderDispatchModelUnits,
+  type ProviderDispatchOutboundFile,
+  type ProviderDispatchSourceFile,
+} from "./providerDispatchTypes.js";
 export const SUPPORTED_PROVIDER_DISPATCH_ENVELOPE_SCHEMAS: readonly string[] = [
   PROVIDER_DISPATCH_ENVELOPE_SCHEMA,
 ];
@@ -77,60 +92,6 @@ export function isRetryableProviderDispatchDenial(code: ProviderDispatchDenialCo
   return RETRYABLE_DENIALS.has(code);
 }
 
-export type ProviderDispatchFileRole = "cad" | "drawing";
-export type ProviderDispatchModelUnits = "inch" | "millimeter";
-
-export type ProviderDispatchSourceFile = {
-  role: ProviderDispatchFileRole;
-  fileId: string;
-  sha256: string;
-};
-
-/** Exact outbound bytes. v1 discloses source bytes unchanged (`identity`). */
-export type ProviderDispatchOutboundFile = {
-  role: ProviderDispatchFileRole;
-  sourceSha256: string;
-  sha256: string;
-  derivation: "identity";
-};
-
-export type ProviderDispatchEnvelope = {
-  schema: typeof PROVIDER_DISPATCH_ENVELOPE_SCHEMA;
-  provider: VendorName;
-  /** Reviewed provider envelope; legacy text form is `${id}.v${version}`. */
-  envelope: { id: string; version: number };
-  /** OVD-379 admission policy revision and evidence reference at mint time. */
-  admission: { policyRevision: string; evidenceReference: string };
-  /** Founding Beta notice revision (the legacy Xometry `policyRevision` key). */
-  noticeRevision: string;
-  purpose: "quote_only";
-  affirmations: { authorityToShare: true; nonExportControlled: true; quoteOnly: true };
-  subject: { actorUserId: string; organizationId: string; jobId: string; partId: string };
-  scope: {
-    schema: "quote-lane-scope.v1";
-    version: number;
-    /** Opaque SQL-authoritative quote-lane scope fingerprint; never recomputed here. */
-    fingerprint: string;
-    requestedQuantity: number;
-    declaredModelUnits: ProviderDispatchModelUnits;
-  };
-  sourceFiles: ProviderDispatchSourceFile[];
-  outboundFiles: ProviderDispatchOutboundFile[];
-  task: {
-    quoteRequestId: string;
-    quoteRunId: string;
-    vendorQuoteResultId: string;
-    quoteRequestLaneId: string;
-    workQueueTaskId: string;
-  };
-  permit: { permitId: string; approvalReference: string };
-  /** Opaque session-lease identifier. Never credentials or session material. */
-  sessionBindingId: string;
-  rollout: { capability: "automatic_quote_collection"; revision: number };
-  issuedAt: string;
-  expiresAt: string;
-};
-
 export type ProviderDispatchParseResult =
   | { ok: true; envelope: ProviderDispatchEnvelope }
   | { ok: false; denial: ProviderDispatchDenialCode };
@@ -143,12 +104,31 @@ export type ReviewedProviderDispatchEnvelope = {
   /**
    * Which current OVD-379 admission form the envelope requires: the reviewed
    * Xometry controlled-beta form, or an approved generically dispatchable
-   * policy (OVD-459). No generic envelope is listed below, so the generic form
-   * admits nothing until a reviewed envelope is added here in code as well as
-   * in private.provider_dispatch_envelope_reviews.
+   * policy (OVD-459). A generic envelope listed below still admits nothing
+   * until a matching active row exists in
+   * private.provider_dispatch_envelope_reviews, the OVD-379 registry marks the
+   * provider generically dispatchable, and the worker enables the adapter.
    */
   requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
 };
+
+/** OVD-673: the reviewed Fictiv quote-only envelope (`fictiv-quote-envelope.v1`). */
+export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
+
+/**
+ * OVD-674: the reviewed Quickparts quote-only envelope
+ * (`quickparts-quote-envelope.v1`): one CAD file, no drawing, uploaded through
+ * the production Quickparts portal definition.
+ */
+export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quote-envelope", version: 1 });
+
+/**
+ * OVD-675: the reviewed Weerg quote-only envelope (`weerg-quote-envelope.v1`):
+ * one STEP file, no drawing, aluminium 6082, uploaded through the production
+ * Weerg portal definition. Native EUR quotes are recorded as non-comparable
+ * evidence, never as USD.
+ */
+export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
 
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
@@ -156,6 +136,24 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     id: "xometry-controlled-beta-envelope",
     version: 1,
     requiredAdmission: "xometry_controlled_beta",
+  },
+  {
+    provider: "fictiv",
+    id: FICTIV_DISPATCH_ENVELOPE.id,
+    version: FICTIV_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
+  },
+  {
+    provider: "quickparts",
+    id: QUICKPARTS_DISPATCH_ENVELOPE.id,
+    version: QUICKPARTS_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
+  },
+  {
+    provider: "weerg",
+    id: WEERG_DISPATCH_ENVELOPE.id,
+    version: WEERG_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
   },
 ];
 

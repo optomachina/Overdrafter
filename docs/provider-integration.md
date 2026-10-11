@@ -1,6 +1,6 @@
 # Quote-provider integration lifecycle
 
-Last updated: September 3, 2026
+Last updated: October 11, 2026
 
 ## Purpose
 
@@ -26,6 +26,14 @@ Each provider has one versioned manifest at `provider-integrations/<provider>/ma
 Capability values are tri-state: `supported`, `unsupported`, or `unknown`. Use the first two only when current public first-party evidence is direct. Missing or broad evidence remains `unknown`.
 
 Manifests are non-runtime source metadata. `provider:sync` projects display name, color, official RFQ URL, purchasing domains, and integration metadata into generated web and worker catalogs. The worker projection additionally carries the canonical capability envelope for pure offline eligibility checks; the web projection remains presentation-only. Neither projection contains an admission, permit, dispatch, certification, or production-authorization field. The manually reviewed production-certified allowlist remains separate.
+
+### Live-adapter registry
+
+`provider-integrations/provider-registry.v1.json` is the single source of truth for live-adapter listing, session-secret **names**, and stable-NAT egress. It holds names only, never secret values or default secret names.
+
+`provider:sync` generates `worker/src/generated/providerRegistry.ts` and `worker/scripts/generated/provider-secrets.sh`. `runtimeSecrets.ts`, `deploy-cloud-run.sh`, and the stable-egress contract read those projections or the registry itself. `provider:check` fails on drift or a hand edit of generated files.
+
+Every checked-in manifest has exactly one registry entry; `provider:check` fails on a manifest without an entry or an entry without a manifest. Generators (Fixture, OVD-687) add an entry with `withDefaultRegistryEntry` from `scripts/provider-registry.mjs`, which never changes an existing entry, then run `provider:sync`. New entries default to `liveAdapter: false`, `sessionSecrets: []`, and `egress: "none"`. Turning on `liveAdapter`, adding session-secret names, or setting `egress: "stable_nat"` is a reviewed edit to the registry file only, never to the generated files. `liveAdapter: true` only allows a live deploy to list the adapter. Registry presence is not production admission; the reviewed policy, envelope, and permit still decide every dispatch. Do not put admit SQL in `supabase/migrations/`.
 
 ### Identity and disabled admission
 
@@ -180,6 +188,16 @@ Production admission requires a reviewed admission-policy revision, provider-neu
 
 Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
 
+## Permissions matrix and paid-automation clearance
+
+Paid automated quoting is cleared only by
+[`docs/providers/permissions-matrix.md`](providers/permissions-matrix.md). A
+manifest, catalog entry, local evaluation, or admission seed does not clear a
+provider. The lint is `npm run provider:permissions`. Partner outreach lives as
+drafts in [`docs/providers/outreach/`](providers/outreach/README.md) and is never
+sent by an agent. A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](runbooks/provider-cease-and-desist.md)).
+
 ## Validation and rollback
 
 Provider-kit changes use targeted scaffold/catalog/kernel/contract/skill checks during development, followed by `npm run verify` for a completed implementation slice. Live-provider commands are outside the offline gate and require their own exact approval.
@@ -188,7 +206,7 @@ The offline rollback is to revert the provider's manifest/catalog projection and
 
 ### Local evaluation wiring for Quickparts, Weerg and Geomiq
 
-The standalone evaluation registry uses the provider-specific offline definitions for Quickparts, Weerg and Geomiq. The production registry remains on its existing admission path. Exact file and provider approval checks precede eligibility; missing reviewed portal evidence terminates before session access or browser launch. Weerg derives only supplied package facts and keeps process, account access, tolerance and geometry unknown unless separately reviewed. Local result evidence reports the selected definition revisions and approved account mode; an account mode describes the requested scope, not proof of account access. These definitions do not establish operational readiness or authorize customer-offer persistence. See each provider’s `offline-evaluation.md` for remaining account, geometry, drawing and portal-binding prerequisites.
+The standalone evaluation registry uses the provider-specific offline definitions for Quickparts, Weerg and Geomiq. The production registry remains on its existing admission path; for Quickparts and Weerg that path is a default-off production definition, which launches only behind a generic provider-dispatch authorization (OVD-674, `docs/workflows/ovd674-quickparts-live-readiness.md`; OVD-675, `docs/workflows/ovd675-weerg-live-readiness.md`). Weerg's production path records native EUR quotes as non-comparable evidence and never converts them to USD. Exact file and provider approval checks precede eligibility; missing reviewed portal evidence terminates before session access or browser launch. Weerg derives only supplied package facts and keeps process, account access, tolerance and geometry unknown unless separately reviewed. Local result evidence reports the selected definition revisions and approved account mode; an account mode describes the requested scope, not proof of account access. These definitions do not establish operational readiness or authorize customer-offer persistence. See each provider’s `offline-evaluation.md` for remaining account, geometry, drawing and portal-binding prerequisites.
 
 ### Candidate envelope preflight in local evaluation
 

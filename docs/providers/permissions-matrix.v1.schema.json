@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overdrafter.local/schemas/provider-permissions-matrix.v1.schema.json",
+  "title": "ProviderPermissionsMatrixV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "title",
+    "checkedOn",
+    "killSwitch",
+    "derivation",
+    "providers"
+  ],
+  "properties": {
+    "$schema": { "const": "./permissions-matrix.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "title": { "const": "ProviderPermissionsMatrixV1" },
+    "checkedOn": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "killSwitch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issue", "cli", "rpc", "note"],
+      "properties": {
+        "issue": { "const": "OVD-722" },
+        "cli": { "type": "string", "minLength": 1 },
+        "rpc": { "const": "api_admin_set_provider_kill_switch" },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabledForPaidAutomation"],
+      "properties": {
+        "enabledForPaidAutomation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 9,
+      "items": { "$ref": "#/$defs/providerRow" }
+    }
+  },
+  "$defs": {
+    "providerRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "displayName",
+        "in_1_0",
+        "api_availability",
+        "tos_automation_clause",
+        "tos_stance",
+        "partner_program",
+        "contact",
+        "permission_status",
+        "date_checked",
+        "kill_switch_state",
+        "written_permission",
+        "enabled_for_paid_automation",
+        "replies",
+        "notes"
+      ],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9]{1,49}$" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "in_1_0": { "type": "boolean" },
+        "api_availability": {
+          "enum": ["none", "public_quote_api", "public_agent_api", "partner_or_request_only"]
+        },
+        "tos_automation_clause": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["quote", "url"],
+          "properties": {
+            "quote": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "minLength": 8 },
+            "section": { "type": "string" }
+          }
+        },
+        "tos_stance": {
+          "enum": ["allowed", "prior-consent", "prohibited", "silent"]
+        },
+        "partner_program": { "type": "string", "minLength": 1 },
+        "contact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role"],
+          "properties": {
+            "role": { "type": "string", "minLength": 1 },
+            "published_address": { "type": "string" },
+            "published_url": { "type": "string" }
+          }
+        },
+        "permission_status": {
+          "enum": [
+            "not_requested",
+            "draft_outreach_prepared",
+            "oct23_checkpoint_referenced",
+            "approved_by_blaine",
+            "sent_by_blaine",
+            "replied",
+            "written_permission_recorded",
+            "cease_and_desist",
+            "not_in_1_0"
+          ]
+        },
+        "date_checked": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "kill_switch_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "pointer"],
+          "properties": {
+            "source": { "const": "OVD-722" },
+            "pointer": { "type": "string", "minLength": 1 }
+          }
+        },
+        "written_permission": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["recorded", "reference", "recorded_on"],
+          "properties": {
+            "recorded": { "type": "boolean" },
+            "reference": { "type": "string", "minLength": 1 },
+            "recorded_on": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+          }
+        },
+        "enabled_for_paid_automation": { "type": "boolean" },
+        "replies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["on", "summary"],
+            "properties": {
+              "on": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "summary": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

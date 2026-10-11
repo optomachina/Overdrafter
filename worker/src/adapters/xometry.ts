@@ -413,34 +413,20 @@ function withSnapshotTeardownDiagnostic(
   return combined;
 }
 
+/**
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
+ */
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
   const artifacts: VendorArtifact[] = [];
   const failures: Array<{ kind: VendorArtifact["kind"]; message: string }> = [];
-
-  try {
-    await page.screenshot({
-      path: screenshotPath,
-      fullPage: true,
-    });
-    artifacts.push({
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    });
-  } catch (error) {
-    failures.push({
-      kind: "screenshot",
-      message: error instanceof Error ? error.message : "unknown screenshot failure",
-    });
-  }
 
   try {
     // Logged-in DOM carries session and account data; never persist it raw.
@@ -3191,17 +3177,11 @@ export class XometryAdapter extends VendorAdapter {
 
       await appendArtifacts(artifacts, page, runDir, "result");
 
+      // OVD-611: Traces hold unredacted DOM snapshots and request headers, so
+      // stop without a path: the recording is discarded, never written or uploaded.
       if (this.config.playwrightCaptureTrace && browserContext) {
-        const tracePath = path.join(runDir, "trace.zip");
-        await browserContext.tracing.stop({ path: tracePath });
-        traceStopped = true;
-        artifacts.push({
-          kind: "trace",
-          label: "playwright-trace",
-          localPath: tracePath,
-          contentType: "application/zip",
-        });
-      }
+        await browserContext.tracing.stop();
+        traceStopped = true;      }
 
       quoteResult = {
         vendor: "xometry",
@@ -3273,10 +3253,8 @@ export class XometryAdapter extends VendorAdapter {
     } finally {
       let browserClosed = true;
       if (browserContext) {
-        const maybeTracePath = path.join(runDir, "trace.zip");
-
         if (this.config.playwrightCaptureTrace && !traceStopped) {
-          await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+          await browserContext.tracing.stop().catch(() => undefined);
         }
 
         await browserContext.close().catch(() => {

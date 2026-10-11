@@ -21,6 +21,7 @@ import {
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
+import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -155,6 +156,15 @@ export type ProviderPortalDefinition = {
     quoteOnly: true;
     orderProhibited: true;
     isolatedSession: true;
+  };
+  /**
+   * Opt-in production dispatch (OVD-674). Absent, the kernel serves only
+   * operator-approved live evaluation. Present, a non-evaluation input
+   * launches only with a current generic provider-dispatch authorization for
+   * exactly this provider and reviewed envelope, bound to the staged bytes.
+   */
+  productionDispatch?: {
+    envelope: { id: string; version: number };
   };
   hooks: {
     assessEligibility: (
@@ -566,6 +576,53 @@ function exactAuthorizedFiles(
     );
   }
   return files;
+}
+
+/**
+ * Production counterpart of `exactAuthorizedFiles`: re-checks the handed-over
+ * generic dispatch authorization, then captures the staged CAD bytes into
+ * memory and requires them to hash to the authorized disclosure, so later
+ * browser waits cannot swap the uploaded file.
+ */
+async function productionDispatchFiles(
+  definition: ProviderPortalDefinition,
+  input: VendorQuoteAdapterInput,
+): Promise<LiveEvaluationUploadFiles> {
+  const reviewed = definition.productionDispatch;
+  if (!reviewed) {
+    throw terminalError(
+      definition,
+      "unsupported",
+      "exact_file_authorization_missing",
+      { providerInteractionAttempted: false },
+    );
+  }
+  const denial = providerDispatchAuthorizationDenial(input, {
+    provider: definition.provider,
+    id: reviewed.envelope.id,
+    version: reviewed.envelope.version,
+  });
+  if (denial) {
+    throw terminalError(definition, "unsupported", denial, { providerInteractionAttempted: false });
+  }
+  const staged = input.stagedCadFile;
+  const bytes = staged ? await readOpenedRegularFile(staged.localPath) : null;
+  if (
+    !staged
+    || !bytes
+    || createHash("sha256").update(bytes).digest("hex") !== staged.trustedContentSha256
+  ) {
+    throw terminalError(
+      definition,
+      "unsupported",
+      "dispatch_authorization_file_mismatch",
+      { providerInteractionAttempted: false },
+    );
+  }
+  return {
+    cad: { name: staged.originalName, mimeType: "application/octet-stream", buffer: bytes },
+    drawing: null,
+  };
 }
 
 /** Derives the complete action tuple that an operator must approve verbatim. */
@@ -1410,8 +1467,13 @@ export async function runProviderPortalKernel(
 ): Promise<ProviderPortalKernelResult> {
   assertProviderDefinition(definition);
   assertEnvelopeFileShape(definition, input);
-  const files = exactAuthorizedFiles(definition, input);
-  assertExactProviderPortalApproval(definition, input);
+  let files: LiveEvaluationUploadFiles;
+  if (input.executionContext === "live_evaluation") {
+    files = exactAuthorizedFiles(definition, input);
+    assertExactProviderPortalApproval(definition, input);
+  } else {
+    files = await productionDispatchFiles(definition, input);
+  }
   const eligibility = await definition.hooks.assessEligibility(input);
   if (eligibility.state !== "eligible") {
     return terminalResult(eligibility.state, eligibility.reason, null, [], false);

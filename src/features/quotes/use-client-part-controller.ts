@@ -26,9 +26,11 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  getProviderDispatchScope,
   getQuoteLaneEligibility,
   getXometryBetaDispatchScope,
   persistClientQuoteSelection,
+  requestProviderDispatch,
   requestXometryBetaDispatch,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
@@ -37,9 +39,12 @@ import type {
   XometryBetaDispatchResult,
   XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
+import { getConfiguredLiveDispatchProvider } from "@/features/quotes/live-dispatch-provider";
 import {
+  LIVE_DISPATCH_PROVIDER_LABELS,
   classifyXometryBetaDispatchFailure,
   getXometryBetaDispatchDenialMessage,
+  getXometryBetaScopeDenialCode,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -151,6 +156,25 @@ type ResetFieldMutationInput = {
   draftSnapshot: ClientPartRequestUpdateInput | null;
 };
 
+function getWorkspacePollingInterval(data: PartDetailAggregate | undefined): number | false {
+  if (!data) {
+    return false;
+  }
+
+  const hasCadFile = data.files.some((file) => file.file_kind === "cad");
+  return shouldPollClientWorkspaceState({
+    extractionLifecycle: data.part?.clientExtraction?.lifecycle,
+    quoteRequestStatus: data.latestQuoteRequest?.status,
+    quoteRequestMode: data.latestQuoteRequest?.request_mode,
+    quoteRequestUpdatedAt: data.latestQuoteRequest?.updated_at,
+    hasPersistedOffers: (data.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+    partIsNull: data.part === null,
+    hasCadFile,
+  })
+    ? 5000
+    : false;
+}
+
 function buildRequestDraftFromPartDetail(
   partDetail: PartDetailAggregate | null | undefined,
   jobId: string,
@@ -233,7 +257,7 @@ export function useClientPartController(
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth, hasCachedSession } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -255,10 +279,13 @@ export function useClientPartController(
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const [xometryDispatchUnits, setXometryDispatchUnits] =
     useState<XometryBetaModelUnits | null>(null);
+  // Fixed per deployment (OVD-673); defaults to the legacy Xometry path.
+  const [dispatchProvider] = useState(getConfiguredLiveDispatchProvider);
+  const dispatchProviderLabel = LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider];
   const isRequestQuoteLockedRef = useRef(false);
   const attemptedQuoteRef = useRef<{
     identity: string;
-    input: { approvalReference: string; declaredModelUnits: XometryBetaModelUnits; policyRevision: string; scopeFingerprint: string };
+    input: { approvalReference: string; declaredModelUnits: XometryBetaModelUnits; envelopeRevision?: string; policyRevision: string; scopeFingerprint: string };
     status: "pending" | "unknown";
   } | null>(null);
   const [uncertainQuoteIdentity, setUncertainQuoteIdentity] = useState<string | null>(null);
@@ -334,18 +361,7 @@ export function useClientPartController(
     queryFn: () => fetchPartDetailByJobId(resolvedJobId ?? ""),
     enabled: Boolean(user) && Boolean(resolvedJobId),
     retry: false,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      return shouldPollClientWorkspaceState({
-        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
-        quoteRequestStatus: data?.latestQuoteRequest?.status,
-        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
-        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
-        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
-      })
-        ? 5000
-        : false;
-    },
+    refetchInterval: (query) => getWorkspacePollingInterval(query.state.data),
     ...workspaceDetailQueryOptions,
   });
   const activityEventsQuery = useQuery({
@@ -355,18 +371,7 @@ export function useClientPartController(
     ),
     queryFn: () => fetchClientActivityEventsByJobIds([resolvedJobId ?? ""]),
     enabled: Boolean(user) && Boolean(resolvedJobId),
-    refetchInterval: () => {
-      const data = partDetailQuery.data;
-      return shouldPollClientWorkspaceState({
-        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
-        quoteRequestStatus: data?.latestQuoteRequest?.status,
-        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
-        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
-        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
-      })
-        ? 5000
-        : false;
-    },
+    refetchInterval: () => getWorkspacePollingInterval(partDetailQuery.data),
     ...workspaceDetailQueryOptions,
   });
   const vendorCapabilityProfilesQuery = useQuery({
@@ -417,9 +422,11 @@ export function useClientPartController(
     retry: false,
   });
   const xometryDispatchScopeQuery = useQuery({
-    queryKey: ["xometry-beta-dispatch-scope", canonicalJobId, user?.id, partDetail?.job.organization_id, xometryDispatchUnits],
+    queryKey: ["xometry-beta-dispatch-scope", canonicalJobId, user?.id, partDetail?.job.organization_id, xometryDispatchUnits, dispatchProvider],
     queryFn: async () => {
-      const scope = await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!);
+      const scope = dispatchProvider === "xometry"
+        ? await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!)
+        : await getProviderDispatchScope(canonicalJobId, dispatchProvider, xometryDispatchUnits!);
       if (scope.jobId !== canonicalJobId || scope.organizationId !== partDetail?.job.organization_id) {
         throw new TypeError("The confirmation scope identity could not be verified.");
       }
@@ -658,6 +665,7 @@ export function useClientPartController(
   const isExactUnknownReplay = (input: {
     approvalReference: string;
     declaredModelUnits: XometryBetaModelUnits;
+    envelopeRevision?: string;
     policyRevision: string;
     scopeFingerprint: string;
   }) => {
@@ -666,6 +674,7 @@ export function useClientPartController(
       attempted.identity === quoteConfirmationIdentity &&
       attempted.input.approvalReference === input.approvalReference &&
       attempted.input.declaredModelUnits === input.declaredModelUnits &&
+      attempted.input.envelopeRevision === input.envelopeRevision &&
       attempted.input.policyRevision === input.policyRevision &&
       attempted.input.scopeFingerprint === input.scopeFingerprint;
   };
@@ -674,6 +683,7 @@ export function useClientPartController(
     mutationFn: (input: {
       approvalReference: string;
       declaredModelUnits: XometryBetaModelUnits;
+      envelopeRevision?: string;
       policyRevision: string;
       scopeFingerprint: string;
     }) => {
@@ -684,6 +694,22 @@ export function useClientPartController(
       // Only a real, explicitly confirmed invocation creates replay eligibility.
       attemptedQuoteRef.current = { identity: quoteConfirmationIdentity, input: { ...input }, status: "pending" };
       setUncertainQuoteIdentity(null);
+      if (dispatchProvider !== "xometry") {
+        // The envelope revision is the one the customer reviewed in the dialog;
+        // the server refuses it unless it is still the active reviewed envelope.
+        if (!input.envelopeRevision) {
+          throw new TypeError("The confirmation scope identity could not be verified.");
+        }
+        return requestProviderDispatch({
+          jobId: canonicalJobId,
+          provider: dispatchProvider,
+          declaredModelUnits: input.declaredModelUnits,
+          expectedScopeFingerprint: input.scopeFingerprint,
+          noticeRevision: input.policyRevision,
+          expectedEnvelopeRevision: input.envelopeRevision,
+          approvalReference: input.approvalReference,
+        });
+      }
       return requestXometryBetaDispatch({
         jobId: canonicalJobId,
         declaredModelUnits: input.declaredModelUnits,
@@ -700,7 +726,11 @@ export function useClientPartController(
       await queryClient.invalidateQueries({
         queryKey: ["xometry-beta-dispatch-scope", canonicalJobId],
       });
-      toast.success(result.created ? "Xometry quote request queued." : "Xometry quote request is already queued.");
+      toast.success(
+        result.created
+          ? `${dispatchProviderLabel} quote request queued.`
+          : `${dispatchProviderLabel} quote request is already queued.`,
+      );
     },
     onError: async (error) => {
       const isExplicitDenial = isExplicitXometryBetaDispatchDenial(error);
@@ -1551,6 +1581,7 @@ export function useClientPartController(
   const handleRequestQuote = async (input: {
     approvalReference: string;
     declaredModelUnits: XometryBetaModelUnits;
+    envelopeRevision?: string;
     policyRevision: string;
     scopeFingerprint: string;
   }): Promise<XometryBetaDispatchResult | XometryBetaDispatchFailure | null> => {
@@ -1570,7 +1601,7 @@ export function useClientPartController(
         attemptedQuoteRef.current = failure.status === "unknown" ? { ...attempted, status: "unknown" } : null;
         setUncertainQuoteIdentity(failure.status === "unknown" ? attempted.identity : null);
       }
-      console.error("Xometry beta dispatch was not accepted.", {
+      console.error(`${dispatchProviderLabel} beta dispatch was not accepted.`, {
         diagnosticCode: failure.diagnosticCode,
       });
       return failure;
@@ -1638,12 +1669,13 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  let xometryDispatchScopeError: string | null = null;
-  if (xometryDispatchScopeQuery.error instanceof Error) {
-    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error);
-  } else if (xometryDispatchScopeQuery.error) {
-    xometryDispatchScopeError = "The Xometry confirmation scope could not be loaded.";
-  }
+  // RPC failures arrive as plain PostgrestError records, not Error instances.
+  const xometryDispatchScopeError = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    : null;
+  const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
+    : null;
 
   return {
     accessibleJobs: sidebarJobs,
@@ -1663,8 +1695,10 @@ export function useClientPartController(
       attemptedQuoteRef.current?.identity === quoteConfirmationIdentity &&
       attemptedQuoteRef.current.status === "unknown" &&
       !requestQuoteMutation.isPending,
+    dispatchProvider,
     xometryDispatchScope: quoteCollectionMode.automaticEnabled ? xometryDispatchScopeQuery.data ?? null : null,
     xometryDispatchScopeError,
+    xometryDispatchScopeDenialCode,
     xometryDispatchUnits,
     setXometryDispatchUnits,
     refetchXometryDispatchScope: async () => {
@@ -1785,6 +1819,7 @@ export function useClientPartController(
     updatePartRenameValue: setPartRenameValue,
     user,
     isAuthInitializing,
+    hasCachedSession,
     isVerifiedAuth,
     workspaceAccessScope,
   };

@@ -177,6 +177,31 @@ describe("actual worker operational advisory seam", () => {
     expect(fixture.caps.decide).not.toHaveBeenCalled(); expect(fixture.caps.reserve).not.toHaveBeenCalled();
   });
 
+  it("routes a live generic-permit task through the provider-neutral preflight and records its denial", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const fixture = sessionFixture(); const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+      ? (db.writes.push({ rpc: name, args: structuredClone(args) }), Promise.resolve({ data: {
+        schema: "provider-dispatch-authorization.v1", authorized: false, denial: "permit_revoked", retryable: false }, error: null }))
+      : rpc(name as never, args as never);
+    await handleVendorQuoteTask(db.client, generic, live, fixture.capability);
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).toContain("api_authorize_provider_worker_dispatch");
+    expect(rpcs).not.toContain("api_authorize_xometry_beta_worker_dispatch");
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
+        notes: ["Automatic fictiv dispatch authorization was denied before adapter launch; manual follow-up is required."],
+        raw_payload: expect.objectContaining({ failureCode: "permit_revoked", manualFollowUpReason: "permit_revoked",
+          requiresManualVendorFollowUp: true, retryScheduledFor: null }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "completed" }) },
+    ]));
+    await fixture.capability.observations.drain();
+    expect(fixture.caps.decide).not.toHaveBeenCalled();
+  });
+
   it("registry checks actual input org/run and actual provider against admission", async () => {
     const fixture = sessionFixture(); const registry = buildAdapterRegistry(config, { session: fixture.session, scope, observations: fixture.capability.observations });
     const input = { organizationId: "another-org", quoteRunId: "another-run", part, requirement, requestedQuantity: 2,

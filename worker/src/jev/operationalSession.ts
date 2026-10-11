@@ -6,6 +6,7 @@ import { isOperationalEvidencePlan, type EvidencePlan, type OperationalEvidenceP
 import { selectClarification } from "../quoteIntelligence/clarification.js";
 import type { SpendReservation } from "../spendGuard.js";
 import { VendorAutomationError, type ApprovedRequirementRecord, type VendorName } from "../types.js";
+import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight.js";
 import { XometryDispatchAuthorizationError } from "../xometryDispatchPreflight.js";
 
 export const OPERATIONAL_JEV_REVISION = "jev-operational-source.v1";
@@ -200,6 +201,7 @@ export class OperationalJevSession {
   failure(scope: OperationalJevScope, error: unknown): Promise<OperationalJevReceipt> {
     if (this.options.mode === "off") return Promise.resolve(this.receipt("exception_routing", "off"));
     const structured = error instanceof VendorAutomationError || error instanceof XometryDispatchAuthorizationError
+        || error instanceof ProviderDispatchAuthorizationError
         || (error !== null && typeof error === "object" && Object.getOwnPropertyDescriptor(error, "code") !== undefined);
     const evidence = structured ? [] : projectFailureEvidence(error);
     return this.once(scope, "exception_routing", "failure_words.v1", async (capabilities, signal, deadline) => {
@@ -375,6 +377,7 @@ export class OperationalJevObservations {
 /** Capture closed-vocabulary words before an asynchronous caller can mutate the original error. */
 export function captureOperationalFailure(error: unknown): unknown {
   if (error instanceof VendorAutomationError || error instanceof XometryDispatchAuthorizationError
+    || error instanceof ProviderDispatchAuthorizationError
     || (error !== null && typeof error === "object" && Object.getOwnPropertyDescriptor(error, "code") !== undefined)) {
     return Object.freeze({ code: "structured_error" });
   }

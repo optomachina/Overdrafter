@@ -9,12 +9,8 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head141-v1: authentic auth/storage bootstrap, all141 ordered migrations '
-  + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight, '
-  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis '
-  + 'and OVD-631 archived job delete canonical blob constraint fix appends), '
-  + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
-  + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
+export const CONTRACT_MIGRATION_COUNT = 133;
+export const BASELINE_COUNT = 126;
 export const hash = value => createHash('sha256').update(value).digest('hex');
 const WORKER = 'supabase/fixtures/worker-compatibility/';
 const FREE = 'supabase/fixtures/free-quote-qualification/';
@@ -37,7 +33,61 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: 'd8076199f865a4ddf1eac5ac8c8c3c68479de1d14cfcb4e364f0fd24719d4fe6' }),
   Object.freeze({ path: 'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql', issue: 'OVD-631',
     sha256: '4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41' }),
+  Object.freeze({ path: 'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql', issue: 'OVD-679',
+    sha256: 'dd68e7f139050495d5206de065df89c9eb4da8e623b7b279ab91df3e0c7ed200' }),
+  Object.freeze({ path: 'supabase/migrations/20261011130000_ovd684_backfill_object_finish.sql', issue: 'OVD-684',
+    sha256: 'cdd03e721aa424055caf90e7ef801a6a51e482ddeabdbf73205e6fb259c40f86' }),
+  Object.freeze({ path: 'supabase/migrations/20261011140000_ovd685_revoke_anon_archived_job_delete.sql', issue: 'OVD-685',
+    sha256: 'd9cca91f8fc55e498a01bf3c3d74358460d373be118d06609ba1a63b0867b206' }),
+  Object.freeze({ path: 'supabase/migrations/20261011170000_fix_no_drawing_lifecycle.sql', issue: 'OVD-670',
+    sha256: 'd69a7aef3a175f18ca16e789799feb18ce6328ecb110439a8fa59e8a37cfbce9' }),
+  Object.freeze({ path: 'supabase/migrations/20261011180000_ovd673_fictiv_reviewed_dispatch_envelope.sql', issue: 'OVD-673',
+    sha256: '57c3eed9cdb23c9b071ab5eab7bf9436333d2fc04933beb1c813fe92276bf44e' }),
+  Object.freeze({ path: 'supabase/migrations/20261011190000_ovd674_quickparts_reviewed_dispatch_envelope.sql', issue: 'OVD-674',
+    sha256: '3ed95f8466d75fe41054f202b625bd23476b07c29d38c06f78c35c37bc8abd08' }),
+  Object.freeze({ path: 'supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql', issue: 'OVD-675',
+    sha256: '9b61bd0d78ab9f868c3f316a423dd1ef892b947f9e5f15bf3acd093adf71c2b0' }),
 ]);
+
+export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {
+  return CONTRACT_MIGRATION_COUNT + reviewed.length;
+}
+
+export function describeFreeQuoteBaseline(reviewed = REVIEWED_APPENDED_MIGRATIONS) {
+  const count = reviewedMigrationCount(reviewed);
+  return `fresh-full-head${count}-v1: authentic auth/storage bootstrap, all${count} ordered migrations `
+    + `(contract${CONTRACT_MIGRATION_COUNT} plus reviewed ${reviewed.map(entry => entry.issue).join(', ')} appends), `
+    + `baseline${BASELINE_COUNT} actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. `
+    + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
+}
+
+export const FREE_BASELINE = describeFreeQuoteBaseline();
+
+export function listOrderedMigrationPaths(root) {
+  return readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
+    .sort().map(name => `supabase/migrations/${name}`);
+}
+
+export function deriveFreeQuoteMigrationPins(root, reviewed = REVIEWED_APPENDED_MIGRATIONS) {
+  const migrations = listOrderedMigrationPaths(root);
+  return {
+    migrationCount: migrations.length,
+    expectedCount: reviewedMigrationCount(reviewed),
+    migrations,
+    files: Object.fromEntries(migrations.map(path => [path, hash(sourceBytes(root, path))])),
+    reviewedAppendedMigrations: reviewed,
+  };
+}
+
+export function applyDerivedFreeQuoteMigrationPins(manifest, derived) {
+  return {
+    ...manifest,
+    migrationCount: derived.migrationCount,
+    migrations: derived.migrations,
+    reviewedAppendedMigrations: derived.reviewedAppendedMigrations,
+    files: { ...manifest.files, ...derived.files },
+  };
+}
 
 export function sourceBytes(root, path) {
   assert(typeof path === 'string' && /^(supabase|scripts)\/[A-Za-z0-9_./-]+$/.test(path));
@@ -48,20 +98,28 @@ export function sourceBytes(root, path) {
   return readFileSync(absolute);
 }
 
-export function loadFreeQuoteInputs(root) {
+export function loadFreeQuoteInputs(root, { reviewedAppendedMigrations = REVIEWED_APPENDED_MIGRATIONS } = {}) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
+  const reviewed = reviewedAppendedMigrations;
+  const derived = deriveFreeQuoteMigrationPins(root, reviewed);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 141); assert.equal(manifest.baselineCount, 126);
-  assert.equal(manifest.contractMigrationCount, 133);
-  assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
-  const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
-    .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 141, 'closed full141 profile must be reviewed for a new migration');
-  assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
+  assert.equal(manifest.baselineCount, BASELINE_COUNT);
+  assert.equal(manifest.contractMigrationCount, CONTRACT_MIGRATION_COUNT);
+  const current = derived.migrations;
+  assert.equal(current.length, derived.expectedCount);
+  if (reviewed === REVIEWED_APPENDED_MIGRATIONS) {
+    assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
+  }
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
-  assert.deepEqual(current.slice(133), REVIEWED_APPENDED_MIGRATIONS.map(entry => entry.path), 'reviewed append order mismatch');
-  for (const entry of REVIEWED_APPENDED_MIGRATIONS) assert.equal(manifest.files[entry.path], entry.sha256, `reviewed append bytes differ: ${entry.path}`);
+  assert.deepEqual(current.slice(CONTRACT_MIGRATION_COUNT), reviewed.map(entry => entry.path), 'reviewed append order mismatch');
+  for (const path of current.slice(0, CONTRACT_MIGRATION_COUNT)) {
+    assert.equal(derived.files[path], manifest.files[path], `source bytes differ: ${path}`);
+  }
+  for (const entry of reviewed) {
+    assert.equal(derived.files[entry.path], entry.sha256, `source bytes differ: ${entry.path}`);
+  }
+  Object.assign(manifest, applyDerivedFreeQuoteMigrationPins(manifest, derived));
   assert.deepEqual(manifest.baselineSuites, ['catalog', 'service_role', 'old_scope', 'publication_source_baseline'].map(name => WORKER + name + '.sql'));
   assert.deepEqual(manifest.candidateSuites, ['catalog', 'service_role', 'old_scope', 'publication_source_candidate'].map(name => WORKER + name + '.sql'));
   assert.deepEqual(manifest.tapSuites, ['free-quote-job-meter', 'free-confirmed-quote-access', 'free-quote-terminal-lifecycle'].map(name => FREE + name + '.expanded.sql'));
@@ -193,10 +251,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate140');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate142');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free140');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free142');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });
