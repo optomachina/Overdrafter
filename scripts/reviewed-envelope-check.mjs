@@ -88,17 +88,19 @@ export function parseCodeReviewedGenericProviders(source) {
   if (typeof source !== "string" || !source.includes("REVIEWED_PROVIDER_DISPATCH_ENVELOPES")) {
     return [];
   }
-  const block = source.match(
-    /export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES[\s\S]*?=\s*\[([\s\S]*?)\n\];/,
-  );
-  if (!block) {
+  const marker = "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES";
+  const start = source.indexOf(marker);
+  const arrayStart = source.indexOf("[", start);
+  const arrayEnd = source.indexOf("\n];", arrayStart);
+  if (start < 0 || arrayStart < 0 || arrayEnd < 0) {
     throw new Error("unable to parse REVIEWED_PROVIDER_DISPATCH_ENVELOPES");
   }
   const keys = [];
-  const entryPattern = /\{[\s\S]*?provider:\s*"([a-z][a-z0-9_]*)"[\s\S]*?requiredAdmission:\s*"([^"]+)"[\s\S]*?\}/g;
-  for (const match of block[1].matchAll(entryPattern)) {
-    if (match[2] === "generic_dispatch" && !keys.includes(match[1])) {
-      keys.push(match[1]);
+  for (const objectText of source.slice(arrayStart, arrayEnd).split("{").slice(1)) {
+    const provider = /provider:\s*"([a-z][a-z0-9_]*)"/.exec(objectText);
+    const admission = /requiredAdmission:\s*"([^"]+)"/.exec(objectText);
+    if (provider && admission?.[1] === "generic_dispatch" && !keys.includes(provider[1])) {
+      keys.push(provider[1]);
     }
   }
   return keys;
@@ -110,17 +112,10 @@ export async function collectReviewedEnvelopeGaps({
   exceptions = REVIEWED_ENVELOPE_EXCEPTIONS,
 }) {
   const reviewedKeys = await readReviewedProviderKeys(rootDir);
-  const gaps = [];
-  for (const key of reviewedKeys) {
-    const missing = await missingArtifactsForProvider(rootDir, key);
-    for (const gap of missing) {
-      if (isExcepted(exceptions, key, gap.artifact, today)) {
-        continue;
-      }
-      gaps.push(gap);
-    }
-  }
-  return gaps;
+  const missingByProvider = await Promise.all(
+    reviewedKeys.map((key) => missingArtifactsForProvider(rootDir, key)),
+  );
+  return missingByProvider.flat().filter((item) => !isExcepted(exceptions, item.key, item.artifact, today));
 }
 
 export async function assertReviewedEnvelopeCompleteness(options) {
@@ -142,8 +137,19 @@ function firstNonEmptyString(...values) {
 }
 
 function mentionsProviderKey(source, key) {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(source);
+  return source.includes(`"${key}"`) || source.includes(`'${key}'`);
+}
+
+function sortProviderKeys(keys) {
+  return [...keys].sort((left, right) => {
+    if (left < right) {
+      return -1;
+    }
+    if (left > right) {
+      return 1;
+    }
+    return 0;
+  });
 }
 
 function isExcepted(exceptions, key, artifact, today) {
@@ -200,27 +206,29 @@ async function readReviewedProviderKeys(rootDir) {
   const envelopeDir = path.join(rootDir, PROVIDER_DISPATCH_ENVELOPE_DIR);
   const dirStat = await lstatIfPresent(envelopeDir);
   if (!dirStat) {
-    return [...keys].sort();
+    return sortProviderKeys(keys);
   }
   if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
     throw new Error(`${PROVIDER_DISPATCH_ENVELOPE_DIR} must be a real directory`);
   }
   const entries = await fs.readdir(envelopeDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) {
-      continue;
-    }
-    const document = await readJsonIfPresent(path.join(envelopeDir, entry.name));
+  const documents = await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map(async (entry) => ({
+      name: entry.name,
+      document: await readJsonIfPresent(path.join(envelopeDir, entry.name)),
+    })));
+  for (const { name, document } of documents) {
     if (!isReviewedEnvelopeDocument(document)) {
       continue;
     }
-    const key = providerKeyFromEnvelopeDocument(document, entry.name);
+    const key = providerKeyFromEnvelopeDocument(document, name);
     if (!key) {
-      throw new Error(`reviewed envelope ${entry.name} does not name a provider key`);
+      throw new Error(`reviewed envelope ${name} does not name a provider key`);
     }
     keys.add(key);
   }
-  return [...keys].sort();
+  return sortProviderKeys(keys);
 }
 
 async function missingArtifactsForProvider(rootDir, key) {
@@ -250,19 +258,15 @@ function gap(key, artifactId) {
 }
 
 async function hasReadinessDoc(rootDir, key) {
-  const workflowsDir = path.join(rootDir, "docs/workflows");
-  const entries = await listFiles(workflowsDir, (name) => name.endsWith("-live-readiness.md"));
-  for (const filePath of entries) {
+  const entries = await listFiles(path.join(rootDir, "docs/workflows"), (name) => name.endsWith("-live-readiness.md"));
+  if (entries.some((filePath) => {
     const base = path.basename(filePath, ".md");
-    if (base === `${key}-live-readiness` || base.endsWith(`-${key}-live-readiness`)) {
-      return true;
-    }
-    const content = await fs.readFile(filePath, "utf8");
-    if (mentionsProviderKey(content, key)) {
-      return true;
-    }
+    return base === `${key}-live-readiness` || base.endsWith(`-${key}-live-readiness`);
+  })) {
+    return true;
   }
-  return false;
+  const contents = await Promise.all(entries.map((filePath) => fs.readFile(filePath, "utf8")));
+  return contents.some((content) => mentionsProviderKey(content, key));
 }
 
 async function hasDispatchFixture(rootDir, key) {
@@ -271,15 +275,12 @@ async function hasDispatchFixture(rootDir, key) {
   if (conventionalText !== null && conventionalText.includes("providerDispatchFixture")) {
     return true;
   }
-  const supportDir = path.join(rootDir, "worker/test-support");
-  const files = await listFiles(supportDir, (name) => name.endsWith(".ts") || name.endsWith(".js"));
-  for (const filePath of files) {
-    const text = await fs.readFile(filePath, "utf8");
-    if (text.includes("providerDispatchFixture") && mentionsProviderKey(text, key)) {
-      return true;
-    }
-  }
-  return false;
+  const files = await listFiles(
+    path.join(rootDir, "worker/test-support"),
+    (name) => name.endsWith(".ts") || name.endsWith(".js"),
+  );
+  const contents = await Promise.all(files.map((filePath) => fs.readFile(filePath, "utf8")));
+  return contents.some((text) => text.includes("providerDispatchFixture") && mentionsProviderKey(text, key));
 }
 
 async function hasDefaultDenyTest(rootDir, key) {
@@ -287,16 +288,11 @@ async function hasDefaultDenyTest(rootDir, key) {
     path.join(rootDir, "worker/src"),
     path.join(rootDir, "worker/test-support"),
   ];
-  for (const searchRoot of searchRoots) {
-    const files = await listFiles(searchRoot, (name) => name.endsWith(".test.ts") || name.endsWith(".test.mjs"));
-    for (const filePath of files) {
-      const text = await fs.readFile(filePath, "utf8");
-      if (text.includes("productionPortalDefaultDeny") && mentionsProviderKey(text, key)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  const fileGroups = await Promise.all(searchRoots.map((searchRoot) => (
+    listFiles(searchRoot, (name) => name.endsWith(".test.ts") || name.endsWith(".test.mjs"))
+  )));
+  const contents = await Promise.all(fileGroups.flat().map((filePath) => fs.readFile(filePath, "utf8")));
+  return contents.some((text) => text.includes("productionPortalDefaultDeny") && mentionsProviderKey(text, key));
 }
 
 async function hasDeployWiring(rootDir, key) {
@@ -393,36 +389,24 @@ function looksLikeSecretValue(value) {
   if (ENV_NAME.test(value) || EGRESS_VALUES.has(value) || PROVIDER_KEY.test(value)) {
     return false;
   }
-  if (value.length >= 40 && /^[A-Za-z0-9+/=._-]+$/.test(value)) {
-    return true;
-  }
-  return /eyJ[A-Za-z0-9_-]+\.|cookie=|storage-state/i.test(value);
+  return value.length >= 40;
 }
 
 async function listFiles(root, predicate) {
   const stat = await lstatIfPresent(root);
-  if (!stat) {
+  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) {
     return [];
   }
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    return [];
-  }
-  const files = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist") {
-        continue;
-      }
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && predicate(entry.name)) {
-        files.push(fullPath);
-      }
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist") {
+      return [];
     }
-  }
-  return files;
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      return listFiles(fullPath, predicate);
+    }
+    return entry.isFile() && predicate(entry.name) ? [fullPath] : [];
+  }));
+  return nested.flat();
 }
