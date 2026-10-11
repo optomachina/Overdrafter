@@ -483,11 +483,17 @@ CAD extensions (from the manifest envelope): ${cadExtensions(manifest).map((exte
    \`${C}_PRODUCTION_LOCATORS\` from one authorized live DOM review.
 2. Implement \`assessEligibility\`, \`configure\` and \`extractOffers\`, then
    un-skip the browser fixture.
-3. Register the definition in \`worker/src/adapters/index.ts\`, add \`${key}\`
-   to \`PRODUCTION_LIVE_ADAPTERS\` and its session readiness check in
-   \`worker/src/runtimeSecrets.ts\`, and extend \`worker/scripts/deploy-cloud-run.sh\`
-   with \`${C}_STORAGE_STATE_SECRET_NAME\`.
-4. Review the envelope: add it to \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` and
+3. Register the definition in \`worker/src/adapters/index.ts\`.
+4. Make one reviewed edit to the \`${key}\` entry in
+   \`provider-integrations/provider-registry.v1.json\`: \`liveAdapter: true\`, a
+   \`sessionSecrets\` entry naming \`${C}_STORAGE_STATE_SECRET_NAME\` (name only,
+   never a value), and \`egress: "stable_nat"\` only if the egress decision needs
+   it. Then run \`npm run provider:sync\` and \`npm run provider:check\`. Do not
+   hand-edit \`worker/src/runtimeSecrets.ts\`, \`worker/scripts/deploy-cloud-run.sh\`
+   or the egress settings, and never edit the generated
+   \`worker/src/generated/providerRegistry.ts\` or
+   \`worker/scripts/generated/provider-secrets.sh\`.
+5. Review the envelope: add it to \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` and
    generate the review-only admission SQL with
    \`npm run fixture:onboard -- ${key} --stage=admit\`.
 
@@ -592,8 +598,10 @@ tasks before the browser launches.
 3. **Rollout.** The shared \`automatic_quote_collection\` rollout control.
 4. **Organization enablement.** Enable ${displayName} in the organization's
    vendor configuration; the part must list ${displayName} as applicable.
-5. **Worker adapter and secret.** Deploy with \`${key}\` in
-   \`WORKER_LIVE_ADAPTERS\` and \`${C}_STORAGE_STATE_SECRET_NAME\` set.
+5. **Worker adapter and secret.** The \`${key}\` registry entry is enabled
+   by its one reviewed edit plus \`npm run provider:sync\` (never by editing
+   generated files); deploy with \`${key}\` in \`WORKER_LIVE_ADAPTERS\` and
+   \`${C}_STORAGE_STATE_SECRET_NAME\` set.
 6. **Certification run.** One exact-file certification quote per
    \`docs/provider-integration.md\` (stage 3) before customer traffic.
 

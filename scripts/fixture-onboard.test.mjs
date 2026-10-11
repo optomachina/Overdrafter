@@ -4,22 +4,61 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   livePaths,
   nextMigrationTimestamp,
   parseFixtureOnboardArgs,
   runFixtureOnboard,
+  runFixtureOnboardCli,
 } from "./fixture-onboard.mjs";
 import { scaffoldProvider } from "./provider-add.mjs";
-import { PROVIDER_MANIFEST_FILE, createProviderManifest, formatManifest } from "./provider-manifest.mjs";
+import {
+  PROVIDER_MANIFEST_FILE,
+  WEB_CATALOG_RELATIVE_PATH,
+  WORKER_CATALOG_RELATIVE_PATH,
+  createProviderManifest,
+  formatManifest,
+} from "./provider-manifest.mjs";
+import {
+  PROVIDER_REGISTRY_RELATIVE_PATH,
+  WORKER_REGISTRY_RELATIVE_PATH,
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  defaultRegistryEntry,
+} from "./provider-registry.mjs";
 
 const temporaryRoots = [];
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
+
+const XOMETRY_ENTRY = { key: "xometry", liveAdapter: true, sessionSecrets: [], egress: "stable_nat" };
+const SYNCED_OUTPUTS = [
+  WEB_CATALOG_RELATIVE_PATH,
+  WORKER_CATALOG_RELATIVE_PATH,
+  WORKER_REGISTRY_RELATIVE_PATH,
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+];
+
+function registryDocument(providers) {
+  const document = {
+    $schema: "./provider-registry.v1.schema.json",
+    schemaVersion: 1,
+    stableEgressRequiredKey: "xometry",
+    providers,
+  };
+  return `${JSON.stringify(document, null, 2)}\n`;
+}
+
+async function writeRegistry(root, providers) {
+  await fs.writeFile(path.join(root, PROVIDER_REGISTRY_RELATIVE_PATH), registryDocument(providers));
+}
+
+async function readRegistryFile(root) {
+  return fs.readFile(path.join(root, PROVIDER_REGISTRY_RELATIVE_PATH), "utf8");
+}
 
 async function createRoot({ vendorKeys = ["xometry", "shopname"], liveKeys = vendorKeys } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-fixture-onboard-"));
@@ -38,6 +77,7 @@ async function createRoot({ vendorKeys = ["xometry", "shopname"], liveKeys = ven
     `export type VendorName =\n${union};\n\nexport const LIVE_AUTOMATION_VENDORS = [\n${liveKeys.map((key) => `  "${key}",`).join("\n")}\n] as const;\n`,
   );
   await fs.writeFile(path.join(root, "worker/.env.example"), "WORKER_MODE=simulate\n");
+  await writeRegistry(root, [XOMETRY_ENTRY]);
   for (const name of ["20261011170000_fix_no_drawing_lifecycle.sql", "20261011180000_ovd673_fictiv.sql"]) {
     await fs.writeFile(path.join(root, "supabase/migrations", name), "-- applied\n");
   }
@@ -74,7 +114,7 @@ async function snapshot(root) {
 const LIVE_OUTPUTS = Object.values(livePaths("shopname"));
 
 describe("fixture:onboard --stage=envelope", () => {
-  it("reproduces provider:add output exactly and is a no-op on rerun", async () => {
+  it("scaffolds what provider:add does, adds a default-off registry entry, syncs, and is a no-op on rerun", async () => {
     const viaFixture = await createRoot({ vendorKeys: ["xometry"] });
     const viaProviderAdd = await createRoot({ vendorKeys: ["xometry"] });
     const fixtureResult = await runFixtureOnboard({
@@ -82,20 +122,82 @@ describe("fixture:onboard --stage=envelope", () => {
     });
     const providerAddResult = await scaffoldProvider({ rootDir: viaProviderAdd, url: "https://www.shopname.com/path" });
 
-    expect(fixtureResult).toEqual(providerAddResult);
+    expect(fixtureResult).toEqual({ ...providerAddResult, registryEntry: "added", synced: SYNCED_OUTPUTS });
     expect(fixtureResult.files).toEqual([
       "provider-integrations/shopname/manifest.v1.json",
       "provider-integrations/shopname/01-add-vendor-enum.sql.stub",
       "provider-integrations/shopname/02-add-disabled-admission-policy.sql.stub",
     ]);
-    expect(await snapshot(viaFixture)).toEqual(await snapshot(viaProviderAdd));
+    const scaffolded = await snapshot(viaFixture);
+    const scaffoldOnly = await snapshot(viaProviderAdd);
+    for (const file of fixtureResult.files) {
+      expect(scaffolded[file]).toBe(scaffoldOnly[file]);
+    }
+    expect(await readRegistryFile(viaFixture)).toBe(registryDocument([defaultRegistryEntry("shopname"), XOMETRY_ENTRY]));
+    expect(defaultRegistryEntry("shopname")).toEqual({ key: "shopname", liveAdapter: false, sessionSecrets: [], egress: "none" });
+    const workerRegistry = scaffolded[WORKER_REGISTRY_RELATIVE_PATH];
+    expect(workerRegistry).toContain('PRODUCTION_LIVE_ADAPTERS = ["xometry"]');
+    expect(workerRegistry).toContain("shopname");
+    expect(Object.keys(scaffolded)).toEqual(expect.arrayContaining(SYNCED_OUTPUTS));
 
-    const before = await snapshot(viaFixture);
     await expect(runFixtureOnboard({ rootDir: viaFixture, key: "shopname", stage: "envelope", url: "https://shopname.com/" }))
-      .resolves.toMatchObject({ alreadyExists: true, files: [] });
+      .resolves.toMatchObject({ alreadyExists: true, files: [], registryEntry: "unchanged", synced: [] });
     await expect(runFixtureOnboard({ rootDir: viaFixture, key: "shopname", stage: "envelope" }))
-      .resolves.toEqual({ key: "shopname", stage: "envelope", dryRun: false, alreadyExists: true, files: [] });
-    expect(await snapshot(viaFixture)).toEqual(before);
+      .resolves.toEqual({
+        key: "shopname", stage: "envelope", dryRun: false, alreadyExists: true, files: [], registryEntry: "unchanged", synced: [],
+      });
+    expect(await snapshot(viaFixture)).toEqual(scaffolded);
+  });
+
+  it("never changes an existing registry entry", async () => {
+    const root = await createRoot();
+    await addEnvelopeManifest(root);
+    const reviewed = {
+      key: "shopname",
+      liveAdapter: true,
+      sessionSecrets: [{
+        secretNameEnv: "SHOPNAME_STORAGE_STATE_SECRET_NAME",
+        mountEnv: "SHOPNAME_STORAGE_STATE_JSON",
+        requiredWhenListed: true,
+      }],
+      egress: "stable_nat",
+    };
+    await writeRegistry(root, [reviewed, XOMETRY_ENTRY]);
+    const before = await snapshot(root);
+
+    await expect(runFixtureOnboard({ rootDir: root, key: "shopname", stage: "envelope" }))
+      .resolves.toMatchObject({ alreadyExists: true, registryEntry: "unchanged", synced: [] });
+    await expect(runFixtureOnboard({ rootDir: root, stage: "envelope", url: "https://www.shopname.com/quote" }))
+      .resolves.toMatchObject({ alreadyExists: true, registryEntry: "unchanged", synced: [] });
+    expect(await snapshot(root)).toEqual(before);
+    expect(await readRegistryFile(root)).toBe(registryDocument([reviewed, XOMETRY_ENTRY]));
+  });
+
+  it("adds the missing entry for an existing manifest without touching other entries", async () => {
+    const root = await createRoot();
+    await addEnvelopeManifest(root);
+    const result = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "envelope" });
+    expect(result).toMatchObject({ alreadyExists: true, files: [], registryEntry: "added", synced: SYNCED_OUTPUTS });
+    expect(await readRegistryFile(root)).toBe(registryDocument([defaultRegistryEntry("shopname"), XOMETRY_ENTRY]));
+
+    const before = await snapshot(root);
+    await expect(runFixtureOnboard({ rootDir: root, key: "shopname", stage: "envelope" }))
+      .resolves.toMatchObject({ registryEntry: "unchanged", synced: [] });
+    expect(await snapshot(root)).toEqual(before);
+  });
+
+  it("writes nothing during a dry-run and refuses an invalid registry before scaffolding", async () => {
+    const root = await createRoot({ vendorKeys: ["xometry"] });
+    const before = await snapshot(root);
+    await expect(runFixtureOnboard({ rootDir: root, stage: "envelope", url: "https://shopname.com/", dryRun: true }))
+      .resolves.toMatchObject({ alreadyExists: false, registryEntry: "added", synced: [] });
+    expect(await snapshot(root)).toEqual(before);
+
+    await fs.writeFile(path.join(root, PROVIDER_REGISTRY_RELATIVE_PATH), "{}\n");
+    const invalid = await snapshot(root);
+    await expect(runFixtureOnboard({ rootDir: root, stage: "envelope", url: "https://shopname.com/" }))
+      .rejects.toThrow("registry");
+    expect(await snapshot(root)).toEqual(invalid);
   });
 
   it("refuses a key that disagrees with the URL or has no manifest and no URL", async () => {
@@ -124,6 +226,7 @@ describe("fixture:onboard --stage=live", () => {
     expect(rerun).toMatchObject({ created: [], appended: [], kept: [] });
     expect(rerun.unchanged.sort()).toEqual([...LIVE_OUTPUTS].sort());
     expect(await snapshot(first)).toEqual(before);
+    expect(await readRegistryFile(first)).toBe(registryDocument([XOMETRY_ENTRY]));
   });
 
   it("writes nothing during a dry-run", async () => {
@@ -177,6 +280,12 @@ describe("fixture:onboard --stage=live", () => {
     expect(test).toContain('unauthorizedCadName: "part.sldprt"');
     expect(await read(paths.dispatchFixture)).toContain("buildProviderDispatchFixtureEnvelope");
     expect(await read(paths.productionPortalBrowserTest)).toContain("describe.skip(");
+
+    const readiness = await read(paths.readinessDoc);
+    expect(readiness).toContain("one reviewed edit to the `shopname` entry in\n   `provider-integrations/provider-registry.v1.json`");
+    expect(readiness).toContain("Then run `npm run provider:sync`");
+    expect(readiness).toContain("Do not\n   hand-edit `worker/src/runtimeSecrets.ts`, `worker/scripts/deploy-cloud-run.sh`");
+    expect(readiness).toContain("never edit the generated");
 
     const env = await read(paths.sessionSecret);
     expect(env.startsWith("WORKER_MODE=simulate\n# fixture:onboard shopname session")).toBe(true);
@@ -289,6 +398,23 @@ describe("fixture:onboard helpers", () => {
     const pkg = JSON.parse(await fs.readFile(path.join(process.cwd(), "package.json"), "utf8"));
     expect(pkg.scripts["provider:add"]).toBe("node scripts/fixture-onboard.mjs --stage=envelope");
     expect(pkg.scripts["fixture:onboard"]).toBe("node scripts/fixture-onboard.mjs");
+  });
+
+  it("adds the default-off registry entry through the provider:add CLI alias and is a no-op on rerun", async () => {
+    const root = await createRoot({ vendorKeys: ["xometry"] });
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const aliasArgv = ["--stage=envelope", "--url", "https://shopname.com/"];
+      await runFixtureOnboardCli(aliasArgv, root);
+      expect(JSON.parse(write.mock.calls[0][0])).toMatchObject({ key: "shopname", registryEntry: "added", synced: SYNCED_OUTPUTS });
+      const before = await snapshot(root);
+      await runFixtureOnboardCli(aliasArgv, root);
+      expect(JSON.parse(write.mock.calls[1][0])).toMatchObject({ alreadyExists: true, registryEntry: "unchanged", synced: [] });
+      expect(await snapshot(root)).toEqual(before);
+    } finally {
+      write.mockRestore();
+    }
+    expect(await readRegistryFile(root)).toBe(registryDocument([defaultRegistryEntry("shopname"), XOMETRY_ENTRY]));
   });
 
   it("rejects unknown stages and malformed issues", async () => {

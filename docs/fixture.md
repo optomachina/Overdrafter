@@ -9,8 +9,9 @@ each of the three stages in [the provider integration lifecycle](provider-integr
 npm run fixture:onboard -- <key> --stage=envelope|live|admit [--url <https-url>] [--issue OVD-<n>] [--dry-run]
 ```
 
-Fixture only writes files. It does not contact a provider, read or create a
-credential, apply SQL, register an adapter, deploy, or admit anything. All
+Fixture only writes files and runs `provider:sync`. It does not contact a
+provider, read or create a credential, apply SQL, enable an adapter, deploy, or
+admit anything. All
 output is disabled and non-authoritative until a human reviews it and takes
 the protected actions in `AGENTS.md`.
 
@@ -24,7 +25,9 @@ the protected actions in `AGENTS.md`.
   file with identical content is reported as `unchanged`, and a file a human
   has edited is reported as `kept` and left alone. The appended
   `worker/.env.example` block is keyed by a marker line and added at most once.
-  Re-running a stage is a no-op.
+  An existing provider-registry entry is never changed, and `provider:sync`
+  runs only when the envelope stage changed something. Re-running a stage is a
+  no-op.
 - **Fail-closed.** Each stage refuses to run before its prerequisite stage. It
   also refuses symlinked target directories and non-regular target files.
 - **Dry run.** `--dry-run` reports the plan and writes nothing.
@@ -33,11 +36,22 @@ The JSON result lists `created`, `appended`, `unchanged`, and `kept` paths.
 
 ## Stage 1: `--stage=envelope`
 
-This stage is identical to the existing scaffolder. `npm run provider:add -- --url <url>` is now an alias of
-`fixture:onboard --stage=envelope --url <url>`, and both produce the same JSON
-and files: the manifest, plus the two disabled review-only SQL stubs when the
-key is new. With a key and no `--url`, the stage is a no-op if the manifest exists and
-refuses otherwise. If the key and `--url` disagree, it refuses.
+`npm run provider:add -- --url <url>` is an alias of
+`fixture:onboard --stage=envelope --url <url>`. The stage writes the same
+files as the existing scaffolder: the manifest, plus the two disabled
+review-only SQL stubs when the key is new.
+
+It then adds the key's entry to
+[the live-adapter registry](provider-integration.md#live-adapter-registry)
+with `withDefaultRegistryEntry` (`liveAdapter: false`, `sessionSecrets: []`,
+`egress: "none"`) and runs `provider:sync`, so `provider:check` passes. An
+existing registry entry is never changed. The JSON result adds
+`registryEntry` (`added` or `unchanged`) and `synced` (the regenerated
+outputs, empty when nothing changed).
+
+With a key and no `--url`, the stage requires the manifest; it only adds a
+missing registry entry. If the key and `--url` disagree, it refuses. An
+invalid registry refuses before any file is written.
 
 ## Stage 2: `--stage=live`
 
@@ -58,15 +72,20 @@ Requires all of the following:
 | `worker/.env.example` (appended) | Comment-only session-secret entry (`QUOTE_VENDOR_STORAGE_STATE_PATHS`, `<KEY>_STORAGE_STATE_SECRET_NAME`) with no value |
 | `docs/workflows/<key>-live-readiness.md` | Readiness doc listing the remaining manual steps |
 
-The live stage deliberately leaves these shared registries untouched:
+The live stage deliberately leaves these untouched:
 
 - `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`;
 - the adapter registry in `worker/src/adapters/index.ts`;
-- `PRODUCTION_LIVE_ADAPTERS` and the readiness checks in `runtimeSecrets.ts`;
-- `deploy-cloud-run.sh`;
-- stable egress.
+- the provider's entry in `provider-integrations/provider-registry.v1.json`.
 
-Each of those changes stays a reviewed edit.
+Each of those changes stays a reviewed edit. To list the adapter for a live
+deploy, make one reviewed edit to its registry entry (`liveAdapter`,
+session-secret names, and `egress`), then run `npm run provider:sync`. Do not
+hand-edit `runtimeSecrets.ts`, `deploy-cloud-run.sh`, or egress settings; they
+read the registry's generated projections. Never edit generated files
+(`worker/src/generated/providerRegistry.ts`,
+`worker/scripts/generated/provider-secrets.sh`, or the provider catalogs);
+`provider:check` fails on drift.
 
 ## Stage 3: `--stage=admit`
 
@@ -96,6 +115,7 @@ evidence reference. The default is `OVD-687`.
 
 ```bash
 npm test -- scripts/fixture-onboard.test.mjs scripts/provider-add.test.mjs
+npm run provider:check
 ```
 
 Running the live-stage output for a real key through `typecheck:worker`,

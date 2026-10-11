@@ -5,10 +5,18 @@ import { pathToFileURL } from "node:url";
 
 import { scaffoldProvider } from "./provider-add.mjs";
 import {
+  PROVIDER_MANIFEST_FILE,
   deriveProviderKey,
   normalizeProviderUrl,
   readProviderManifests,
 } from "./provider-manifest.mjs";
+import {
+  PROVIDER_REGISTRY_RELATIVE_PATH,
+  readProviderRegistry,
+  renderProviderRegistryDocument,
+  withDefaultRegistryEntry,
+} from "./provider-registry.mjs";
+import { assertSafeGeneratedOutput, syncProviderIntegrations } from "./provider-sync.mjs";
 import {
   GENERATOR_ISSUE,
   admissionRevisionSql,
@@ -33,7 +41,9 @@ import {
  * docs/provider-integration.md. Every stage is idempotent: an existing file is
  * never overwritten (identical content is `unchanged`, edited content is
  * `kept`), so re-running a stage is a no-op. All output is disabled and
- * non-authoritative; nothing is applied, admitted, registered, or deployed.
+ * non-authoritative; nothing is applied, admitted, or deployed. The envelope
+ * stage adds only a default-off provider-registry entry (never changing an
+ * existing one) and runs provider:sync.
  */
 
 export const FIXTURE_STAGES = ["envelope", "live", "admit"];
@@ -277,12 +287,8 @@ function validateKey(key) {
   return key;
 }
 
-async function runEnvelope({ rootDir, key, url, dryRun }) {
+async function scaffoldEnvelope({ rootDir, key, url, dryRun }) {
   if (url) {
-    const derived = deriveProviderKey(normalizeProviderUrl(url));
-    if (key && derived !== key) {
-      throw new Error(`--url derives provider key ${derived}, not ${key}`);
-    }
     return scaffoldProvider({ rootDir, url, dryRun });
   }
   const manifests = await readProviderManifests(rootDir, { allowUnreviewedEvidence: true });
@@ -290,6 +296,42 @@ async function runEnvelope({ rootDir, key, url, dryRun }) {
     throw new Error(`no manifest for ${key}; pass --url <official-https-url> to scaffold it`);
   }
   return { key, stage: "envelope", dryRun, alreadyExists: true, files: [] };
+}
+
+/**
+ * Adds the default-off registry entry (`liveAdapter: false`, no session
+ * secrets, `egress: "none"`) for a new key. An existing entry is never changed;
+ * enabling it stays one reviewed edit to the registry file plus provider:sync.
+ */
+async function writeDefaultRegistryEntry(rootDir, registry, key, dryRun) {
+  const next = withDefaultRegistryEntry(registry, key);
+  if (next.providers.length === registry.providers.length) {
+    return "unchanged";
+  }
+  if (!dryRun) {
+    const target = await assertSafeGeneratedOutput(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH, "provider registry");
+    await fs.writeFile(target, renderProviderRegistryDocument(next));
+  }
+  return "added";
+}
+
+async function runEnvelope({ rootDir, key, url, dryRun }) {
+  const providerKey = url ? deriveProviderKey(normalizeProviderUrl(url)) : key;
+  if (url && key && providerKey !== key) {
+    throw new Error(`--url derives provider key ${providerKey}, not ${key}`);
+  }
+  // Read and validate the registry before scaffolding, so a bad registry refuses with the tree untouched.
+  const registry = await readProviderRegistry(rootDir);
+  const scaffold = await scaffoldEnvelope({ rootDir, key: providerKey, url, dryRun });
+  // A URL can match an existing provider under another key; only a key with a manifest gets an entry.
+  const ownsManifest = !scaffold.alreadyExists
+    || await exists(path.join(rootDir, "provider-integrations", providerKey, PROVIDER_MANIFEST_FILE));
+  const registryEntry = ownsManifest
+    ? await writeDefaultRegistryEntry(rootDir, registry, providerKey, dryRun)
+    : "unchanged";
+  const changed = !scaffold.alreadyExists || registryEntry === "added";
+  const synced = changed && !dryRun ? (await syncProviderIntegrations({ rootDir })).outputs : [];
+  return { ...scaffold, registryEntry, synced };
 }
 
 export async function runFixtureOnboard({ rootDir, key, stage, url, dryRun = false, issue = GENERATOR_ISSUE }) {
