@@ -120,3 +120,11 @@ Rollback: record a new revision with `admission_state = 'disabled'`,
 `generic_dispatch_enabled = false`, and `change_reason = 'policy_disabled'`.
 Then revoke any issued permits. Redeploying without `quickparts` removes the
 session mount.
+
+## Permissions matrix (OVD-724)
+
+Quickparts paid automated quoting is not matrix-cleared. See
+[`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#quickparts)
+and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
+A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](../runbooks/provider-cease-and-desist.md)).
