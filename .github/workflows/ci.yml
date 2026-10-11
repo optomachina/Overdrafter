@@ -32,6 +32,11 @@ jobs:
       - name: Setup Node.js and install root dependencies
         uses: ./.github/actions/setup-root-dependencies
 
+      - name: Verify migration lineage
+        run: |
+          git fetch origin main --depth=1
+          npm run verify:migration-lineage -- --against-base
+
       - name: Lint
         run: bash scripts/preflight.sh lint
 
