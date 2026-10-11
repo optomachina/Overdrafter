@@ -339,8 +339,6 @@ async function writeCompleteReviewedProvider(rootDir, key, { reviewed = true, ev
   );
 }
 
-const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
-
 async function createEnvelopeRoot() {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-reviewed-envelope-"));
   temporaryRoots.push(temporaryRoot);
