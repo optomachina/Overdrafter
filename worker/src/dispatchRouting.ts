@@ -29,13 +29,12 @@ import {
  * - any other live non-Xometry task stays on the specialized path, which
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *
- *   refuses it with `dispatch_live_provider_not_permitted` before launch
- *
  * The generic path admits only envelopes listed in
- * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. None is listed there yet (Fictiv's
- * envelope is split out of OVD-673), so a database-approved decision for any
- * non-Xometry provider, Fictiv included, is refused with
- * `provider_envelope_unknown` and no adapter launches.
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. Fictiv's
+ * (`fictiv-quote-envelope.v1`, OVD-673) is listed here; Quickparts and Weerg
+ * remain unreviewed until #652/#655. A database-approved decision for any
+ * other envelope is refused with `provider_envelope_unknown` and no adapter
+ * launches.
  */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };
