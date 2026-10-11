@@ -67,7 +67,7 @@ describe("checked-in provider manifests and projections", () => {
     expect(result.providerCount).toBe(18);
     expect(result.vendorKeys).toHaveLength(18);
     expect(result.vendorKeys).toContain("rmfg");
-    expect(result.reviewedProviders).toEqual(["fictiv"]);
+    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     for (const { manifest } of manifests) {
       expect(manifest.official.urls.length).toBeGreaterThan(0);
       expect(manifest.official.domains.length).toBeGreaterThan(0);
@@ -356,7 +356,7 @@ describe("reviewed envelope completeness", () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-10-11" });
     const gaps = await collectReviewedEnvelopeGaps({ rootDir: repoRoot, today: "2026-10-11" });
 
-    expect(result.reviewedProviders).toEqual(["fictiv"]);
+    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     expect(gaps).toEqual([]);
     expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "quickparts", "weerg"]));
   });
