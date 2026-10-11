@@ -1187,7 +1187,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Billing Address</PanelSectionTitle>
-                    {canManageAddresses &&(
+                    {canManageAddresses && (
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
@@ -1215,7 +1215,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Shipping Address</PanelSectionTitle>
-                    {canManageAddresses &&(
+                    {canManageAddresses && (
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
@@ -1251,7 +1251,7 @@ export function WorkspaceAccountMenu({
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
                           sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
                       </p>
-                      {canManageAddresses &&sourcingDestination.state !== "confirmed" && (
+                      {canManageAddresses && sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
