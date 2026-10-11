@@ -120,3 +120,13 @@ where provider = 'fictiv'::public.vendor_name;
 Rollback: record a new revision with `admission_state = 'disabled'`,
 `generic_dispatch_enabled = false`, and `change_reason = 'policy_disabled'`.
 Then revoke any issued permits.
+
+## Permissions matrix (OVD-724)
+
+Fictiv paid automated quoting is not cleared until written consent is recorded.
+See the provider permissions matrix
+([`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#fictiv))
+and the Fictiv acceptance row in
+[`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
+A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](../runbooks/provider-cease-and-desist.md)).

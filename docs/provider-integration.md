@@ -188,6 +188,16 @@ Production admission requires a reviewed admission-policy revision, provider-neu
 
 Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
 
+## Permissions matrix and paid-automation clearance
+
+Paid automated quoting is cleared only by
+[`docs/providers/permissions-matrix.md`](providers/permissions-matrix.md). A
+manifest, catalog entry, local evaluation, or admission seed does not clear a
+provider. The lint is `npm run provider:permissions`. Partner outreach lives as
+drafts in [`docs/providers/outreach/`](providers/outreach/README.md) and is never
+sent by an agent. A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](runbooks/provider-cease-and-desist.md)).
+
 ## Validation and rollback
 
 Provider-kit changes use targeted scaffold/catalog/kernel/contract/skill checks during development, followed by `npm run verify` for a completed implementation slice. Live-provider commands are outside the offline gate and require their own exact approval.
