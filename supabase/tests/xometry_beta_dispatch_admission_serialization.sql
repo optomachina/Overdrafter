@@ -132,8 +132,6 @@ begin
   alter table private.quote_access_admissions enable trigger quote_access_admission_immutable;
   alter table private.provider_dispatch_envelope_reviews disable trigger guard_provider_dispatch_envelope_review_mutation;
   delete from private.provider_dispatch_envelope_reviews where envelope_id = 'fictiv-ovd598-race-envelope';
-  update private.provider_dispatch_envelope_reviews set withdrawn_at = null
-  where envelope_id = 'fictiv-quote-envelope' and envelope_version = 1 and evidence_reference = 'OVD-673';
   alter table private.provider_dispatch_envelope_reviews enable trigger guard_provider_dispatch_envelope_review_mutation;
 
   alter table private.quote_provider_admission_policies disable trigger guard_quote_provider_admission_policy_mutation;
@@ -1251,9 +1249,6 @@ set admission_state = 'approved', generic_dispatch_enabled = true,
   reviewed_by = pg_temp.ovd598_user(), reviewed_at = now() - interval '1 day',
   expires_at = null, change_reason = 'approval_recorded'
 where provider = 'fictiv';
--- Replace the OVD-673 migration envelope with this file's synthetic review.
-update private.provider_dispatch_envelope_reviews set withdrawn_at = now()
-where provider = 'fictiv' and withdrawn_at is null;
 insert into private.provider_dispatch_envelope_reviews (provider, envelope_id, envelope_version, evidence_reference, permit_ttl_seconds)
 values ('fictiv', 'fictiv-ovd598-race-envelope', 1, 'OVD-598', 900);
 commit;

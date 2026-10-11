@@ -137,24 +137,6 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     version: 1,
     requiredAdmission: "xometry_controlled_beta",
   },
-  {
-    provider: "fictiv",
-    id: FICTIV_DISPATCH_ENVELOPE.id,
-    version: FICTIV_DISPATCH_ENVELOPE.version,
-    requiredAdmission: "generic_dispatch",
-  },
-  {
-    provider: "quickparts",
-    id: QUICKPARTS_DISPATCH_ENVELOPE.id,
-    version: QUICKPARTS_DISPATCH_ENVELOPE.version,
-    requiredAdmission: "generic_dispatch",
-  },
-  {
-    provider: "weerg",
-    id: WEERG_DISPATCH_ENVELOPE.id,
-    version: WEERG_DISPATCH_ENVELOPE.version,
-    requiredAdmission: "generic_dispatch",
-  },
 ];
 
 const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(Object.keys(PROVIDER_CATALOG));
