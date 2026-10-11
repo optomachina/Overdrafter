@@ -406,15 +406,9 @@ function buildManualVendorFollowupOutput(
 }
 
 /**
- * Captures evidence from logged-in provider pages.
- * 
- * OVD-611: Screenshot capture is disabled for Fictiv to prevent unmasked
- * credential and account information from being uploaded. This matches the
- * provider portal kernel's metadata-only evidence policy. Deterministic
- * screenshot masking is not yet implemented.
- * 
- * DOM capture is preserved for debugging but should be redacted before upload
- * in production.
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
  */
 async function capturePageArtifacts(
   page: Page,
@@ -424,15 +418,6 @@ async function capturePageArtifacts(
   const baseName = sanitizeSegment(label);
   const htmlPath = path.join(runDir, `${baseName}.html`);
 
-  // Screenshot capture disabled per OVD-611 to prevent unmasked evidence upload.
-  // Uncomment and implement masking when deterministic screenshot redaction exists.
-  //
-  // const screenshotPath = path.join(runDir, `${baseName}.png`);
-  // await page.screenshot({
-  //   path: screenshotPath,
-  //   fullPage: true,
-  // });
-
   // Logged-in DOM carries session and account data; never persist it raw.
   await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
     encoding: "utf8",
@@ -440,13 +425,6 @@ async function capturePageArtifacts(
   });
 
   return [
-    // Screenshot artifact removed per OVD-611
-    // {
-    //   kind: "screenshot",
-    //   label: `${label}-screenshot`,
-    //   localPath: screenshotPath,
-    //   contentType: "image/png",
-    // },
     {
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -1624,37 +1602,26 @@ export class FictivAdapter extends VendorAdapter {
   }
 
   /**
-   * OVD-611: Trace is stopped but not uploaded to prevent unmasked DOM snapshots
-   * and request headers from leaving the worker. The trace file is written locally
-   * for debugging but excluded from artifacts.
+   * OVD-611: Traces hold unredacted DOM snapshots and request headers, so the
+   * recording is stopped without a path: discarded, never written or uploaded.
    */
-  private async stopTraceAndAttachArtifact(
-    browserContext: BrowserContext,
-    runDir: string,
-    artifacts: VendorArtifact[],
-  ) {
+  private async stopTraceDiscarding(browserContext: BrowserContext) {
     if (!this.config.playwrightCaptureTrace) {
       return false;
     }
 
-    const tracePath = path.join(runDir, "trace.zip");
-    await browserContext.tracing.stop({ path: tracePath });
-    // Trace file written to disk but NOT added to artifacts to prevent upload
-    // of unredacted DOM snapshots and request headers.
+    await browserContext.tracing.stop();
     return true;
   }
 
   private async cleanupLiveSession(
     browserContext: BrowserContext | null,
     browser: Browser | null,
-    runDir: string,
     traceStopped: boolean,
   ) {
     if (browserContext) {
-      const maybeTracePath = path.join(runDir, "trace.zip");
-
       if (this.config.playwrightCaptureTrace && !traceStopped) {
-        await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+        await browserContext.tracing.stop().catch(() => undefined);
       }
 
       await browserContext.close().catch(() => undefined);
@@ -1774,7 +1741,7 @@ export class FictivAdapter extends VendorAdapter {
 
       const isInstantQuote = resultClassification === "instant_quote";
       await appendArtifacts(artifacts, page, runDir, "result");
-      traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
+      traceStopped = await this.stopTraceDiscarding(browserContext);
 
       const quoteUrl = await detectQuoteUrl(page);
       const offers = isInstantQuote
@@ -1874,9 +1841,7 @@ export class FictivAdapter extends VendorAdapter {
       };
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
-        traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts).catch(
-          () => false,
-        );
+        traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
       }
 
       if (error instanceof VendorAutomationError) {
@@ -1895,7 +1860,7 @@ export class FictivAdapter extends VendorAdapter {
         artifacts,
       );
     } finally {
-      await this.cleanupLiveSession(browserContext, browser, runDir, traceStopped);
+      await this.cleanupLiveSession(browserContext, browser, traceStopped);
     }
   }
 

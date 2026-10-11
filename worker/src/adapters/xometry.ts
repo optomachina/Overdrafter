@@ -414,15 +414,9 @@ function withSnapshotTeardownDiagnostic(
 }
 
 /**
- * Captures evidence from logged-in provider pages.
- * 
- * OVD-611: Screenshot capture is disabled for Xometry to prevent unmasked
- * credential and account information from being uploaded. This matches the
- * provider portal kernel's metadata-only evidence policy. Deterministic
- * screenshot masking is not yet implemented.
- * 
- * DOM capture is preserved for debugging but should be redacted before upload
- * in production.
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
  */
 async function capturePageArtifacts(
   page: Page,
@@ -433,28 +427,6 @@ async function capturePageArtifacts(
   const htmlPath = path.join(runDir, `${baseName}.html`);
   const artifacts: VendorArtifact[] = [];
   const failures: Array<{ kind: VendorArtifact["kind"]; message: string }> = [];
-
-  // Screenshot capture disabled per OVD-611 to prevent unmasked evidence upload.
-  // Uncomment and implement masking when deterministic screenshot redaction exists.
-  //
-  // const screenshotPath = path.join(runDir, `${baseName}.png`);
-  // try {
-  //   await page.screenshot({
-  //     path: screenshotPath,
-  //     fullPage: true,
-  //   });
-  //   artifacts.push({
-  //     kind: "screenshot",
-  //     label: `${label}-screenshot`,
-  //     localPath: screenshotPath,
-  //     contentType: "image/png",
-  //   });
-  // } catch (error) {
-  //   failures.push({
-  //     kind: "screenshot",
-  //     message: error instanceof Error ? error.message : "unknown screenshot failure",
-  //   });
-  // }
 
   try {
     // Logged-in DOM carries session and account data; never persist it raw.
@@ -3205,16 +3177,11 @@ export class XometryAdapter extends VendorAdapter {
 
       await appendArtifacts(artifacts, page, runDir, "result");
 
-      // OVD-611: Trace capture is stopped but not uploaded to prevent unmasked
-      // DOM snapshots and request headers from leaving the worker. The trace
-      // file is written locally for debugging but excluded from artifacts.
+      // OVD-611: Traces hold unredacted DOM snapshots and request headers, so
+      // stop without a path: the recording is discarded, never written or uploaded.
       if (this.config.playwrightCaptureTrace && browserContext) {
-        const tracePath = path.join(runDir, "trace.zip");
-        await browserContext.tracing.stop({ path: tracePath });
-        traceStopped = true;
-        // Trace file written to disk but NOT added to artifacts to prevent upload
-        // of unredacted DOM snapshots and request headers.
-      }
+        await browserContext.tracing.stop();
+        traceStopped = true;      }
 
       quoteResult = {
         vendor: "xometry",
@@ -3286,10 +3253,8 @@ export class XometryAdapter extends VendorAdapter {
     } finally {
       let browserClosed = true;
       if (browserContext) {
-        const maybeTracePath = path.join(runDir, "trace.zip");
-
         if (this.config.playwrightCaptureTrace && !traceStopped) {
-          await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+          await browserContext.tracing.stop().catch(() => undefined);
         }
 
         await browserContext.close().catch(() => {

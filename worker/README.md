@@ -59,11 +59,13 @@ Optional:
 
 ## Evidence Capture and Redaction (OVD-611)
 
-**Screenshot capture is disabled** for Xometry and Fictiv to prevent unmasked credential and account information from being uploaded. This matches the provider portal kernel's metadata-only evidence policy. HTML snapshots are preserved for debugging but should be redacted before production upload.
+**Screenshots are not captured** for Xometry and Fictiv, because deterministic image masking does not exist. This matches the provider portal kernel's metadata-only evidence policy.
 
-**Trace capture:** When `PLAYWRIGHT_CAPTURE_TRACE=true`, trace files (`trace.zip`) are written locally for debugging but **NOT uploaded** to artifacts. Traces contain unredacted DOM snapshots and request headers that must not leave the worker.
+**HTML snapshots** are uploaded after passing through `redactProviderPortalHtml()`.
 
-**Known limitations:** HTML snapshots currently have limited redaction. Names, addresses, and some account identifiers in visible text may pass through. See `worker/docs/OVD-611-evidence-redaction-decisions.md` for details and future integration path.
+**Trace capture:** `PLAYWRIGHT_CAPTURE_TRACE=true` still records a trace, but it is discarded when the run ends: no `trace.zip` is uploaded or written to disk. Traces contain unredacted DOM snapshots and request headers.
+
+**Known limitations:** Names and addresses in visible text, and account identifiers written with a space after the separator (`account id: ABC-123`), are not redacted. See `worker/docs/OVD-611-evidence-redaction-decisions.md`.
 
 ## Bootstrap Live Vendor Login State
 

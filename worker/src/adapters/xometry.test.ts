@@ -787,8 +787,8 @@ function createFakeContext(page: ReturnType<typeof createFakePage>) {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
-      start: vi.fn(),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     },
     async newPage() {
       return page;
@@ -1229,7 +1229,7 @@ describe("XometryAdapter", () => {
     );
   });
 
-  it("captures a live evaluation upload and instant quote without production authorization", async () => {
+  it.each([false, true])("captures a live evaluation upload and instant quote without production authorization (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
     const saveConfiguration = vi.fn();
@@ -1349,6 +1349,7 @@ describe("XometryAdapter", () => {
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
         xometryBrowserEngine: "playwright",
+        playwrightCaptureTrace: captureTrace,
       }),
     );
 
@@ -1392,9 +1393,28 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    // OVD-611: Artifact count reduced from 10 to 5 after disabling screenshot capture
-    // (5 HTML snapshots: landing, post-dashboard, uploaded, configured, result)
-    expect(result.artifacts).toHaveLength(5);
+    // OVD-611: screenshots are no longer captured, so only the 5 HTML snapshots remain.
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
+      Array(5).fill("html_snapshot"),
+    );
+
+    // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
+    const browser = await playwrightLaunchMock.mock.results[0]?.value;
+    const context = await browser.newContext();
+    if (captureTrace) {
+      expect(context.tracing.start).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledWith();
+    } else {
+      expect(context.tracing.start).not.toHaveBeenCalled();
+    }
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+    const runDir = path.dirname(result.artifacts[0]!.localPath);
+    await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
   });
 
   it("uses a verified auto-configured quote summary without reopening material options", async () => {
@@ -4730,7 +4750,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       screenshotFails: true, // Would fail, but we don't capture screenshots anymore
       selectorBehaviors: {},
     });
@@ -4772,7 +4792,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       screenshotFails: true, // Would fail, but not attempted per OVD-611
       contentFails: true,
       selectorBehaviors: {},
@@ -4838,7 +4858,7 @@ describe("XometryAdapter", () => {
   it("does not capture screenshots per OVD-611 evidence masking policy", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4868,17 +4888,32 @@ describe("XometryAdapter", () => {
     }
   });
 
-  it("does not upload trace artifacts per OVD-611 even when trace capture is enabled", async () => {
-    // This test verifies that even when PLAYWRIGHT_CAPTURE_TRACE=true,
-    // the trace.zip file is not added to the artifacts array.
-    // The code stops the trace (writing it locally) but does not push it to artifacts.
-    // 
-    // Note: This test doesn't actually run with a full browser context + tracing
-    // because the test harness uses mocks. The verification is that the code path
-    // in xometry.ts lines 3102-3112 does NOT call artifacts.push() for the trace.
-    // 
-    // Manual verification: inspect xometry.ts:3102-3112 and confirm trace is stopped
-    // but NOT added to artifacts array.
-    expect(true).toBe(true); // Placeholder - verification is by code inspection
+  it("discards the trace on failure instead of writing or uploading it (OVD-611)", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      contentFails: true,
+      selectorBehaviors: {},
+    });
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        playwrightCaptureTrace: true,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    const error = await adapter.quote(makeInput()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(VendorAutomationError);
+    expect((error as VendorAutomationError).artifacts.map((a) => a.kind)).not.toContain("trace");
+    const context = await browser.newContext();
+    expect(context.tracing.start).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledWith();
   });
 });
