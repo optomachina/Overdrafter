@@ -1,25 +1,39 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 
 export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope";
+export const PROVIDER_DISPATCH_FIXTURE_JSON_DIR = "test-fixtures/provider-dispatch-envelope";
 export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
 export const GENERATED_PROVIDER_REGISTRY_TS = "worker/src/generated/providerRegistry.ts";
 export const GENERATED_PROVIDER_SECRETS_SH = "worker/scripts/generated/provider-secrets.sh";
 export const REVIEWED_ENVELOPE_SOURCE = "worker/src/providerDispatchEnvelope.ts";
+export const REVIEWED_ENVELOPE_EXPORT = "REVIEWED_PROVIDER_DISPATCH_ENVELOPES";
 export const EGRESS_CONTRACT_RELATIVE_PATH = "scripts/xometry-stable-egress-contract.mjs";
+export const EGRESS_OPTIONAL_ADAPTERS_EXPORT = "STABLE_EGRESS_OPTIONAL_ADAPTERS";
 export const DEPLOY_SCRIPT_RELATIVE_PATH = "worker/scripts/deploy-cloud-run.sh";
 export const RUNTIME_SECRETS_RELATIVE_PATH = "worker/src/runtimeSecrets.ts";
+export const DEFAULT_DENY_REGISTRAR = "registerProductionPortalAuthorizationRefusals";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PROVIDER_KEY = /^[a-z][a-z0-9_]*$/;
+const ENVELOPE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const EVIDENCE_REFERENCE = /^OVD-([1-9]\d{0,9})$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const EGRESS_VALUES = new Set(["stable_nat", "none"]);
 const SECRET_LIKE_KEY = /^(value|token|cookie|password|secret|storagestate|storage_state)$/i;
+const DEFAULT_DENY_MODULE = /(?:^|\/)test-support\/productionPortalDefaultDeny(?:\.js|\.ts)?$/;
+const DISPATCH_FIXTURE_HELPER_MODULE = /^\.\/providerDispatchFixture(?:\.js|\.ts)?$/;
 
+/**
+ * Every reviewed provider must carry its own artifacts at paths derived only
+ * from its provider key and reviewed envelope metadata. No artifact of one
+ * provider can satisfy another provider by mentioning its key.
+ */
 export const REVIEWED_ENVELOPE_ARTIFACTS = Object.freeze({
   readinessDoc: {
     artifact: "readiness doc",
-    expectedPath: (key) => `docs/workflows/${key}-live-readiness.md`,
+    expectedPath: (key, envelope) => readinessDocPaths(key, envelope).at(-1),
   },
   dispatchFixture: {
     artifact: "dispatch fixture",
@@ -53,19 +67,37 @@ export function formatReviewedEnvelopeGap(key, artifact, expectedPath) {
   return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run provider:onboard -- ${key} --stage=live`;
 }
 
+export function dispatchFixtureJsonPath(key, version) {
+  return `${PROVIDER_DISPATCH_FIXTURE_JSON_DIR}/${key}-v${version}.json`;
+}
+
+/**
+ * Deterministic readiness doc candidates: `<key>-live-readiness.md`, or
+ * `ovd<N>-<key>-live-readiness.md` when the envelope's own fixture names
+ * evidence reference OVD-<N>. The last entry is the preferred path.
+ */
+export function readinessDocPaths(key, envelope) {
+  const paths = [`docs/workflows/${key}-live-readiness.md`];
+  const match = EVIDENCE_REFERENCE.exec(envelope?.evidenceReference ?? "");
+  if (match) {
+    paths.push(`docs/workflows/ovd${match[1]}-${key}-live-readiness.md`);
+  }
+  return paths;
+}
+
 export function isReviewedEnvelopeDocument(document) {
-  if (!document || typeof document !== "object" || Array.isArray(document)) {
+  if (!isPlainObject(document)) {
     return false;
   }
-  const review = document.review && typeof document.review === "object" ? document.review : document;
+  const review = isPlainObject(document.review) ? document.review : document;
   const reviewer = firstNonEmptyString(review.reviewer, review.reviewedBy, document.reviewer, document.reviewedBy);
   const reviewedAt = firstNonEmptyString(review.reviewedAt, review.date, document.reviewedAt);
   return Boolean(reviewer && ISO_DATE.test(reviewedAt));
 }
 
 export function providerKeyFromEnvelopeDocument(document, fallbackName = "") {
-  if (document && typeof document === "object" && !Array.isArray(document)) {
-    const nested = document.envelope && typeof document.envelope === "object" ? document.envelope : null;
+  if (isPlainObject(document)) {
+    const nested = isPlainObject(document.envelope) ? document.envelope : null;
     const key = firstNonEmptyString(document.provider, document.key, nested?.provider);
     if (key && PROVIDER_KEY.test(key)) {
       return key;
@@ -84,26 +116,51 @@ export function isActiveReviewedEnvelopeException(exception, today) {
   );
 }
 
-export function parseCodeReviewedGenericProviders(source) {
-  if (typeof source !== "string" || !source.includes("REVIEWED_PROVIDER_DISPATCH_ENVELOPES")) {
-    return [];
+/**
+ * Parses the reviewed envelope registry with the TypeScript compiler, so
+ * quoting, whitespace, comments, property order, and `as const` / `satisfies`
+ * wrappers do not change which providers are found. Anything that cannot be
+ * resolved statically fails closed.
+ */
+export function parseCodeReviewedEnvelopes(source, fileName = REVIEWED_ENVELOPE_SOURCE) {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const initializer = findTopLevelConstInitializer(sourceFile, REVIEWED_ENVELOPE_EXPORT);
+  if (!initializer) {
+    throw new Error(`provider:check: ${fileName} does not declare ${REVIEWED_ENVELOPE_EXPORT}`);
   }
-  const marker = "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES";
-  const start = source.indexOf(marker);
-  const arrayStart = source.indexOf("[", start);
-  const arrayEnd = source.indexOf("\n];", arrayStart);
-  if (start < 0 || arrayStart < 0 || arrayEnd < 0) {
-    throw new Error("unable to parse REVIEWED_PROVIDER_DISPATCH_ENVELOPES");
+  const array = unwrapExpression(initializer);
+  if (!ts.isArrayLiteralExpression(array)) {
+    throw new Error(`provider:check: ${REVIEWED_ENVELOPE_EXPORT} must be an array literal`);
   }
-  const keys = [];
-  for (const objectText of source.slice(arrayStart, arrayEnd).split("{").slice(1)) {
-    const provider = /provider:\s*"([a-z][a-z0-9_]*)"/.exec(objectText);
-    const admission = /requiredAdmission:\s*"([^"]+)"/.exec(objectText);
-    if (provider && admission?.[1] === "generic_dispatch" && !keys.includes(provider[1])) {
-      keys.push(provider[1]);
+  return array.elements.map((element, index) => {
+    const object = unwrapExpression(element);
+    if (!ts.isObjectLiteralExpression(object)) {
+      throw new Error(`provider:check: ${REVIEWED_ENVELOPE_EXPORT}[${index}] must be an object literal`);
     }
-  }
-  return keys;
+    const read = (name) => resolveStaticValue(sourceFile, objectProperty(object, name));
+    const entry = {
+      provider: read("provider"),
+      id: read("id"),
+      version: read("version"),
+      requiredAdmission: read("requiredAdmission"),
+    };
+    if (
+      !PROVIDER_KEY.test(entry.provider ?? "")
+      || !ENVELOPE_ID.test(entry.id ?? "")
+      || !Number.isSafeInteger(entry.version)
+      || typeof entry.requiredAdmission !== "string"
+    ) {
+      throw new Error(`provider:check: ${REVIEWED_ENVELOPE_EXPORT}[${index}] is not statically resolvable`);
+    }
+    return entry;
+  });
+}
+
+export function parseCodeReviewedGenericProviders(source) {
+  const keys = parseCodeReviewedEnvelopes(source)
+    .filter((entry) => entry.requiredAdmission === "generic_dispatch")
+    .map((entry) => entry.provider);
+  return [...new Set(keys)];
 }
 
 export async function collectReviewedEnvelopeGaps({
@@ -111,9 +168,9 @@ export async function collectReviewedEnvelopeGaps({
   today = new Date().toISOString().slice(0, 10),
   exceptions = REVIEWED_ENVELOPE_EXCEPTIONS,
 }) {
-  const reviewedKeys = await readReviewedProviderKeys(rootDir);
+  const reviewed = await readReviewedEnvelopes(rootDir);
   const missingByProvider = await Promise.all(
-    reviewedKeys.map((key) => missingArtifactsForProvider(rootDir, key)),
+    reviewed.map((envelope) => missingArtifactsForProvider(rootDir, envelope)),
   );
   return missingByProvider.flat().filter((item) => !isExcepted(exceptions, item.key, item.artifact, today));
 }
@@ -123,8 +180,12 @@ export async function assertReviewedEnvelopeCompleteness(options) {
   if (gaps.length > 0) {
     throw new Error(gaps.map((gap) => formatReviewedEnvelopeGap(gap.key, gap.artifact, gap.expectedPath)).join("\n"));
   }
-  const reviewedKeys = await readReviewedProviderKeys(options.rootDir);
-  return { reviewedProviders: reviewedKeys };
+  const reviewed = await readReviewedEnvelopes(options.rootDir);
+  return { reviewedProviders: reviewed.map((envelope) => envelope.key) };
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function firstNonEmptyString(...values) {
@@ -136,20 +197,14 @@ function firstNonEmptyString(...values) {
   return null;
 }
 
-function mentionsProviderKey(source, key) {
-  return source.includes(`"${key}"`) || source.includes(`'${key}'`);
-}
-
-function sortProviderKeys(keys) {
-  return [...keys].sort((left, right) => {
-    if (left < right) {
-      return -1;
-    }
-    if (left > right) {
-      return 1;
-    }
-    return 0;
-  });
+function compareStrings(left, right) {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
 }
 
 function isExcepted(exceptions, key, artifact, today) {
@@ -158,6 +213,10 @@ function isExcepted(exceptions, key, artifact, today) {
     && exception.artifact === artifact
     && isActiveReviewedEnvelopeException(exception, today)
   ));
+}
+
+function containsEnvName(text, name) {
+  return new RegExp(`(?<![A-Z0-9_])${name}(?![A-Z0-9_])`).test(text);
 }
 
 async function lstatIfPresent(targetPath) {
@@ -194,19 +253,44 @@ async function readJsonIfPresent(targetPath) {
   }
 }
 
-async function readReviewedProviderKeys(rootDir) {
-  const keys = new Set();
+// ---------------------------------------------------------------------------
+// Reviewed envelope discovery
+// ---------------------------------------------------------------------------
+
+async function readReviewedEnvelopes(rootDir) {
+  const byKey = new Map();
+  const add = (envelope, source) => {
+    const existing = byKey.get(envelope.key);
+    if (existing && (existing.id !== envelope.id || existing.version !== envelope.version)) {
+      throw new Error(`provider:check: ${envelope.key} has conflicting reviewed envelopes in ${existing.source} and ${source}`);
+    }
+    byKey.set(envelope.key, existing ?? { ...envelope, source });
+  };
+
   const envelopeSource = await readTextIfPresent(path.join(rootDir, REVIEWED_ENVELOPE_SOURCE));
   if (envelopeSource !== null) {
-    for (const key of parseCodeReviewedGenericProviders(envelopeSource)) {
-      keys.add(key);
+    for (const entry of parseCodeReviewedEnvelopes(envelopeSource)) {
+      if (entry.requiredAdmission === "generic_dispatch") {
+        add({ key: entry.provider, id: entry.id, version: entry.version }, REVIEWED_ENVELOPE_SOURCE);
+      }
     }
   }
+  for (const { name, envelope } of await readReviewedEnvelopeDocuments(rootDir)) {
+    add(envelope, `${PROVIDER_DISPATCH_ENVELOPE_DIR}/${name}`);
+  }
 
+  const envelopes = [...byKey.values()].sort((left, right) => compareStrings(left.key, right.key));
+  return Promise.all(envelopes.map(async (envelope) => ({
+    ...envelope,
+    fixture: await readEnvelopeFixtureJson(rootDir, envelope),
+  })));
+}
+
+async function readReviewedEnvelopeDocuments(rootDir) {
   const envelopeDir = path.join(rootDir, PROVIDER_DISPATCH_ENVELOPE_DIR);
   const dirStat = await lstatIfPresent(envelopeDir);
   if (!dirStat) {
-    return sortProviderKeys(keys);
+    return [];
   }
   if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
     throw new Error(`${PROVIDER_DISPATCH_ENVELOPE_DIR} must be a real directory`);
@@ -218,6 +302,7 @@ async function readReviewedProviderKeys(rootDir) {
       name: entry.name,
       document: await readJsonIfPresent(path.join(envelopeDir, entry.name)),
     })));
+  const reviewed = [];
   for (const { name, document } of documents) {
     if (!isReviewedEnvelopeDocument(document)) {
       continue;
@@ -226,76 +311,134 @@ async function readReviewedProviderKeys(rootDir) {
     if (!key) {
       throw new Error(`reviewed envelope ${name} does not name a provider key`);
     }
-    keys.add(key);
+    const revision = document.envelope?.envelope;
+    if (!isPlainObject(revision) || !ENVELOPE_ID.test(revision.id ?? "") || !Number.isSafeInteger(revision.version)) {
+      throw new Error(`reviewed envelope ${name} does not name an envelope id and version`);
+    }
+    reviewed.push({ name, envelope: { key, id: revision.id, version: revision.version } });
   }
-  return sortProviderKeys(keys);
+  return reviewed;
 }
 
-async function missingArtifactsForProvider(rootDir, key) {
-  const missing = [];
-  if (!await hasReadinessDoc(rootDir, key)) {
-    missing.push(gap(key, "readinessDoc"));
+/**
+ * The provider's own synthetic envelope JSON. It must bind exactly this
+ * provider, envelope id, and version; otherwise it is treated as absent.
+ */
+async function readEnvelopeFixtureJson(rootDir, { key, id, version }) {
+  const document = await readJsonIfPresent(path.join(rootDir, dispatchFixtureJsonPath(key, version)));
+  const envelope = document?.envelope;
+  if (
+    !isPlainObject(envelope)
+    || envelope.provider !== key
+    || envelope.envelope?.id !== id
+    || envelope.envelope?.version !== version
+  ) {
+    return null;
   }
-  if (!await hasDispatchFixture(rootDir, key)) {
-    missing.push(gap(key, "dispatchFixture"));
-  }
-  if (!await hasDefaultDenyTest(rootDir, key)) {
-    missing.push(gap(key, "defaultDenyTest"));
-  }
-  if (!await hasDeployWiring(rootDir, key)) {
-    missing.push(gap(key, "deployWiring"));
-  }
-  return missing;
+  const evidenceReference = envelope.admission?.evidenceReference;
+  return { evidenceReference: typeof evidenceReference === "string" ? evidenceReference : null };
 }
 
-function gap(key, artifactId) {
+// ---------------------------------------------------------------------------
+// Per-provider artifacts
+// ---------------------------------------------------------------------------
+
+async function missingArtifactsForProvider(rootDir, envelope) {
+  const checks = [
+    ["readinessDoc", hasReadinessDoc],
+    ["dispatchFixture", hasDispatchFixture],
+    ["defaultDenyTest", hasDefaultDenyTest],
+    ["deployWiring", hasDeployWiring],
+  ];
+  const results = await Promise.all(checks.map(([, check]) => check(rootDir, envelope)));
+  return checks
+    .filter((_, index) => !results[index])
+    .map(([artifactId]) => gap(envelope, artifactId));
+}
+
+function gap(envelope, artifactId) {
   const spec = REVIEWED_ENVELOPE_ARTIFACTS[artifactId];
   return {
-    key,
+    key: envelope.key,
     artifact: spec.artifact,
-    expectedPath: spec.expectedPath(key),
+    expectedPath: spec.expectedPath(envelope.key, envelope.fixture),
   };
 }
 
-async function hasReadinessDoc(rootDir, key) {
-  const entries = await listFiles(path.join(rootDir, "docs/workflows"), (name) => name.endsWith("-live-readiness.md"));
-  if (entries.some((filePath) => {
-    const base = path.basename(filePath, ".md");
-    return base === `${key}-live-readiness` || base.endsWith(`-${key}-live-readiness`);
-  })) {
-    return true;
-  }
-  const contents = await Promise.all(entries.map((filePath) => fs.readFile(filePath, "utf8")));
-  return contents.some((content) => mentionsProviderKey(content, key));
-}
-
-async function hasDispatchFixture(rootDir, key) {
-  const conventional = path.join(rootDir, REVIEWED_ENVELOPE_ARTIFACTS.dispatchFixture.expectedPath(key));
-  const conventionalText = await readTextIfPresent(conventional);
-  if (conventionalText !== null && conventionalText.includes("providerDispatchFixture")) {
-    return true;
-  }
-  const files = await listFiles(
-    path.join(rootDir, "worker/test-support"),
-    (name) => name.endsWith(".ts") || name.endsWith(".js"),
+async function hasReadinessDoc(rootDir, envelope) {
+  const contents = await Promise.all(
+    readinessDocPaths(envelope.key, envelope.fixture).map((relative) => readTextIfPresent(path.join(rootDir, relative))),
   );
-  const contents = await Promise.all(files.map((filePath) => fs.readFile(filePath, "utf8")));
-  return contents.some((text) => text.includes("providerDispatchFixture") && mentionsProviderKey(text, key));
+  return contents.some((text) => text !== null && text.trim().length > 0);
 }
 
-async function hasDefaultDenyTest(rootDir, key) {
-  const searchRoots = [
-    path.join(rootDir, "worker/src"),
-    path.join(rootDir, "worker/test-support"),
-  ];
-  const fileGroups = await Promise.all(searchRoots.map((searchRoot) => (
-    listFiles(searchRoot, (name) => name.endsWith(".test.ts") || name.endsWith(".test.mjs"))
-  )));
-  const contents = await Promise.all(fileGroups.flat().map((filePath) => fs.readFile(filePath, "utf8")));
-  return contents.some((text) => text.includes("productionPortalDefaultDeny") && mentionsProviderKey(text, key));
+/**
+ * `worker/test-support/<key>DispatchFixture.ts` must import this provider's
+ * own envelope JSON (`test-fixtures/provider-dispatch-envelope/<key>-v<N>.json`)
+ * and the shared fixture helper. Imports are read from the TypeScript AST.
+ */
+async function hasDispatchFixture(rootDir, envelope) {
+  if (!envelope.fixture) {
+    return false;
+  }
+  const relative = REVIEWED_ENVELOPE_ARTIFACTS.dispatchFixture.expectedPath(envelope.key);
+  const source = await readTextIfPresent(path.join(rootDir, relative));
+  if (source === null) {
+    return false;
+  }
+  const sourceFile = ts.createSourceFile(relative, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const specifiers = importDeclarations(sourceFile).map((declaration) => declaration.moduleSpecifier.text);
+  const ownJson = `../../${dispatchFixtureJsonPath(envelope.key, envelope.version)}`;
+  return specifiers.includes(ownJson) && specifiers.some((specifier) => DISPATCH_FIXTURE_HELPER_MODULE.test(specifier));
 }
 
-async function hasDeployWiring(rootDir, key) {
+/**
+ * `worker/src/adapters/<key>ProductionPortal.test.ts` must import the shared
+ * default-deny registrar and call it with a harness whose `vendor` is this
+ * provider and whose `envelopeId` is this provider's reviewed envelope id.
+ */
+async function hasDefaultDenyTest(rootDir, envelope) {
+  const relative = REVIEWED_ENVELOPE_ARTIFACTS.defaultDenyTest.expectedPath(envelope.key);
+  const source = await readTextIfPresent(path.join(rootDir, relative));
+  if (source === null) {
+    return false;
+  }
+  const sourceFile = ts.createSourceFile(relative, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const localNames = new Set();
+  for (const declaration of importDeclarations(sourceFile)) {
+    if (!DEFAULT_DENY_MODULE.test(declaration.moduleSpecifier.text)) {
+      continue;
+    }
+    const bindings = declaration.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if ((element.propertyName ?? element.name).text === DEFAULT_DENY_REGISTRAR) {
+          localNames.add(element.name.text);
+        }
+      }
+    }
+  }
+  if (localNames.size === 0) {
+    return false;
+  }
+  return findNodes(sourceFile, ts.isCallExpression).some((call) => (
+    ts.isIdentifier(call.expression)
+    && localNames.has(call.expression.text)
+    && call.arguments.length === 1
+    && harnessBindsEnvelope(sourceFile, call.arguments[0], envelope)
+  ));
+}
+
+function harnessBindsEnvelope(sourceFile, argument, envelope) {
+  const harness = resolveHarnessObject(sourceFile, argument, new Set());
+  if (!harness) {
+    return false;
+  }
+  return resolveStaticValue(sourceFile, objectProperty(harness, "vendor")) === envelope.key
+    && resolveStaticValue(sourceFile, objectProperty(harness, "envelopeId")) === envelope.id;
+}
+
+async function hasDeployWiring(rootDir, { key }) {
   const registry = await readJsonIfPresent(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH));
   if (registry !== null) {
     return registryDeclaresProvider(registry, key, rootDir);
@@ -309,7 +452,7 @@ async function registryDeclaresProvider(registry, key, rootDir) {
     return false;
   }
   const entry = entries.find((candidate) => candidate && candidate.key === key);
-  if (!entry || typeof entry !== "object") {
+  if (!isPlainObject(entry)) {
     return false;
   }
   assertRegistryNamesOnly(entry, key);
@@ -318,7 +461,7 @@ async function registryDeclaresProvider(registry, key, rootDir) {
   }
   const secretNames = [];
   for (const secret of entry.sessionSecrets) {
-    if (!secret || typeof secret !== "object" || Array.isArray(secret)) {
+    if (!isPlainObject(secret)) {
       return false;
     }
     assertRegistryNamesOnly(secret, key);
@@ -348,7 +491,7 @@ async function generatedMappingsContainNames(rootDir, secretNames) {
   if (present.length === 0) {
     return true;
   }
-  return present.every((text) => secretNames.every((name) => text.includes(name)));
+  return present.every((text) => secretNames.every((name) => containsEnvName(text, name)));
 }
 
 async function fallbackDeployWiringDeclaresProvider(rootDir, key) {
@@ -362,17 +505,35 @@ async function fallbackDeployWiringDeclaresProvider(rootDir, key) {
   const runtime = await readTextIfPresent(path.join(rootDir, RUNTIME_SECRETS_RELATIVE_PATH));
   const egress = await readTextIfPresent(path.join(rootDir, EGRESS_CONTRACT_RELATIVE_PATH));
   const sources = [deploy, runtime].filter((text) => text !== null);
-  if (sources.length === 0 || !egress) {
+  if (sources.length === 0 || egress === null) {
     return false;
   }
-  const secretDeclared = sources.some((text) => text.includes(secretName));
-  const mountDeclared = sources.some((text) => mountNames.some((name) => text.includes(name)));
-  const egressDeclared = mentionsProviderKey(egress, key);
-  return secretDeclared && mountDeclared && egressDeclared;
+  const secretDeclared = sources.some((text) => containsEnvName(text, secretName));
+  const mountDeclared = sources.some((text) => mountNames.some((name) => containsEnvName(text, name)));
+  return secretDeclared && mountDeclared && parseEgressOptionalAdapters(egress).includes(key);
+}
+
+/** Reads STABLE_EGRESS_OPTIONAL_ADAPTERS from the egress contract's AST. */
+export function parseEgressOptionalAdapters(source) {
+  const sourceFile = ts.createSourceFile(
+    EGRESS_CONTRACT_RELATIVE_PATH,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+  const initializer = findTopLevelConstInitializer(sourceFile, EGRESS_OPTIONAL_ADAPTERS_EXPORT);
+  const array = initializer ? unwrapExpression(initializer) : null;
+  if (!array || !ts.isArrayLiteralExpression(array)) {
+    return [];
+  }
+  return array.elements
+    .map((element) => resolveStaticValue(sourceFile, element))
+    .filter((value) => typeof value === "string");
 }
 
 function assertRegistryNamesOnly(value, key) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isPlainObject(value)) {
     return;
   }
   for (const [field, fieldValue] of Object.entries(value)) {
@@ -392,21 +553,171 @@ function looksLikeSecretValue(value) {
   return value.length >= 40;
 }
 
-async function listFiles(root, predicate) {
-  const stat = await lstatIfPresent(root);
-  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) {
-    return [];
+// ---------------------------------------------------------------------------
+// TypeScript AST helpers (static, same-file resolution only)
+// ---------------------------------------------------------------------------
+
+function importDeclarations(sourceFile) {
+  return sourceFile.statements.filter((statement) => (
+    ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+  ));
+}
+
+function findNodes(root, predicate) {
+  const found = [];
+  const visit = (node) => {
+    if (predicate(node)) {
+      found.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return found;
+}
+
+function findTopLevelConstInitializer(sourceFile, name) {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) {
+        return declaration.initializer;
+      }
+    }
   }
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  const nested = await Promise.all(entries.map(async (entry) => {
-    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist") {
-      return [];
+  return null;
+}
+
+function findTopLevelFunctionReturn(sourceFile, name) {
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name && statement.body) {
+      return singleReturnExpression(statement.body);
     }
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      return listFiles(fullPath, predicate);
+  }
+  const initializer = findTopLevelConstInitializer(sourceFile, name);
+  const fn = initializer ? unwrapExpression(initializer) : null;
+  if (fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+    return ts.isBlock(fn.body) ? singleReturnExpression(fn.body) : fn.body;
+  }
+  return null;
+}
+
+function singleReturnExpression(block) {
+  const returns = block.statements.filter(ts.isReturnStatement);
+  return returns.length === 1 ? returns[0].expression ?? null : null;
+}
+
+/** Strips parentheses, `as`, `satisfies`, `!`, type assertions, and `Object.freeze(...)`. */
+function unwrapExpression(node) {
+  let current = node;
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(current)
+      || ts.isAsExpression(current)
+      || ts.isNonNullExpression(current)
+      || ts.isTypeAssertionExpression(current)
+      || (ts.isSatisfiesExpression?.(current) ?? false)
+    ) {
+      current = current.expression;
+    } else if (isObjectFreezeCall(current)) {
+      current = current.arguments[0];
+    } else {
+      return current;
     }
-    return entry.isFile() && predicate(entry.name) ? [fullPath] : [];
-  }));
-  return nested.flat();
+  }
+}
+
+function isObjectFreezeCall(node) {
+  return ts.isCallExpression(node)
+    && node.arguments.length === 1
+    && ts.isPropertyAccessExpression(node.expression)
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === "Object"
+    && node.expression.name.text === "freeze";
+}
+
+function propertyNameText(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    const inner = unwrapExpression(name.expression);
+    if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
+      return inner.text;
+    }
+  }
+  return null;
+}
+
+/** Returns the value node of a property, or null when absent or ambiguous. */
+function objectProperty(object, name) {
+  const matches = [];
+  for (const property of object.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      return null;
+    }
+    if (property.name && propertyNameText(property.name) === name) {
+      matches.push(property);
+    }
+  }
+  if (matches.length !== 1) {
+    return null;
+  }
+  const [property] = matches;
+  if (ts.isPropertyAssignment(property)) {
+    return property.initializer;
+  }
+  if (ts.isShorthandPropertyAssignment(property)) {
+    return property.name;
+  }
+  return null;
+}
+
+function resolveStaticValue(sourceFile, node, seen = new Set()) {
+  if (!node) {
+    return undefined;
+  }
+  const expression = unwrapExpression(node);
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return expression.text;
+  }
+  if (ts.isNumericLiteral(expression)) {
+    return Number(expression.text);
+  }
+  if (ts.isIdentifier(expression)) {
+    if (seen.has(expression.text)) {
+      return undefined;
+    }
+    seen.add(expression.text);
+    return resolveStaticValue(sourceFile, findTopLevelConstInitializer(sourceFile, expression.text), seen);
+  }
+  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)) {
+    const target = findTopLevelConstInitializer(sourceFile, expression.expression.text);
+    const object = target ? unwrapExpression(target) : null;
+    if (object && ts.isObjectLiteralExpression(object)) {
+      return resolveStaticValue(sourceFile, objectProperty(object, expression.name.text), seen);
+    }
+  }
+  return undefined;
+}
+
+function resolveHarnessObject(sourceFile, node, seen) {
+  const expression = unwrapExpression(node);
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression;
+  }
+  const name = ts.isIdentifier(expression)
+    ? expression.text
+    : ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.arguments.length === 0
+      ? expression.expression.text
+      : null;
+  if (!name || seen.has(name)) {
+    return null;
+  }
+  seen.add(name);
+  const next = ts.isIdentifier(expression)
+    ? findTopLevelConstInitializer(sourceFile, name)
+    : findTopLevelFunctionReturn(sourceFile, name);
+  return next ? resolveHarnessObject(sourceFile, next, seen) : null;
 }
