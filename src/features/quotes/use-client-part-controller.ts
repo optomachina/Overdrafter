@@ -1681,8 +1681,6 @@ export function useClientPartController(
     ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
     : null;
 
->>>>>>> origin/main
-
   return {
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,

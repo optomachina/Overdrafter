@@ -33,9 +33,6 @@ import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } fr
  * non-Xometry provider, Fictiv included, is refused with
  * `provider_envelope_unknown` and this module admits nothing in production.
  */
- * production today.
->>>>>>> origin/main
- */
 
 export const PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA = "provider-dispatch-authorization.v1" as const;
 const PREFLIGHT_RPC = "api_authorize_provider_worker_dispatch";

@@ -200,8 +200,6 @@ function ScopeLoadState({
   scopeDenialCode: XometryBetaScopeDenialCode | null;
   scopeError: string | null;
 }>) {
-  scopeError: string | null;
-}>) {
   if (!declaredModelUnits) {
     return (
       <output className="block border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm text-paper-muted">
