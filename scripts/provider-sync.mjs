@@ -10,6 +10,7 @@ import {
   readProviderManifests,
   renderCatalog,
 } from "./provider-manifest.mjs";
+import { syncProviderRegistry } from "./provider-registry.mjs";
 
 async function lstatIfPresent(targetPath) {
   try {
@@ -22,7 +23,11 @@ async function lstatIfPresent(targetPath) {
   }
 }
 
-export async function assertSafeGeneratedOutput(rootDir, relativePath) {
+export async function assertSafeGeneratedOutput(
+  rootDir,
+  relativePath,
+  kind = "generated provider catalog",
+) {
   const outputPath = path.join(rootDir, relativePath);
   const parentSegments = path.dirname(relativePath).split(path.sep);
   let currentPath = rootDir;
@@ -33,12 +38,12 @@ export async function assertSafeGeneratedOutput(rootDir, relativePath) {
       break;
     }
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error(`generated provider catalog parent must be a real directory: ${currentPath}`);
+      throw new Error(`${kind} parent must be a real directory: ${currentPath}`);
     }
   }
   const outputStat = await lstatIfPresent(outputPath);
   if (outputStat && (outputStat.isSymbolicLink() || !outputStat.isFile())) {
-    throw new Error(`generated provider catalog output must be a regular file: ${relativePath}`);
+    throw new Error(`${kind} output must be a regular file: ${relativePath}`);
   }
   return outputPath;
 }
@@ -74,6 +79,26 @@ export async function syncProviderCatalogs({
   };
 }
 
+export async function syncProviderIntegrations({
+  rootDir,
+  dryRun = false,
+  today = new Date().toISOString().slice(0, 10),
+}) {
+  const catalogs = await syncProviderCatalogs({ rootDir, dryRun, today });
+  const registry = await syncProviderRegistry({
+    rootDir,
+    dryRun,
+    assertSafeGeneratedOutput,
+  });
+  return {
+    providerCount: catalogs.providerCount,
+    dryRun,
+    outputs: [...catalogs.outputs, ...registry.outputs],
+    rendered: [...catalogs.rendered, ...registry.rendered],
+    liveAdapters: registry.liveAdapters,
+  };
+}
+
 function parseArgs(argv) {
   for (const arg of argv) {
     if (arg !== "--dry-run") {
@@ -84,11 +109,12 @@ function parseArgs(argv) {
 }
 
 export async function runProviderSyncCli(argv = process.argv.slice(2), rootDir = process.cwd()) {
-  const result = await syncProviderCatalogs({ rootDir, ...parseArgs(argv) });
+  const result = await syncProviderIntegrations({ rootDir, ...parseArgs(argv) });
   process.stdout.write(`${JSON.stringify({
     providerCount: result.providerCount,
     dryRun: result.dryRun,
     outputs: result.outputs,
+    liveAdapters: result.liveAdapters,
   }, null, 2)}\n`);
 }
 

@@ -10,7 +10,16 @@ import {
   readCurrentVendorKeys,
   readProviderManifests,
 } from "./provider-manifest.mjs";
-import { assertSafeGeneratedOutput, syncProviderCatalogs } from "./provider-sync.mjs";
+import { assertSafeGeneratedOutput, syncProviderIntegrations } from "./provider-sync.mjs";
+import {
+  PROVIDER_REGISTRY_RELATIVE_PATH,
+  PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
+  WORKER_REGISTRY_RELATIVE_PATH,
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  assertGeneratedRegistryOutput,
+  readProviderRegistry,
+  readProviderRegistrySchema,
+} from "./provider-registry.mjs";
 
 const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
 const REQUIRED_CATALOG_CONSUMERS = new Map([
@@ -102,6 +111,11 @@ async function readProviderSchema(rootDir) {
   }
 }
 
+async function readRegistryContract(rootDir) {
+  await readProviderRegistrySchema(rootDir);
+  return readProviderRegistry(rootDir);
+}
+
 function assertManifestKeysMatch(manifestKeys, vendorKeys) {
   if (JSON.stringify(manifestKeys) === JSON.stringify(vendorKeys)) {
     return;
@@ -111,26 +125,40 @@ function assertManifestKeysMatch(manifestKeys, vendorKeys) {
   throw new Error(`manifest/vendor enum mismatch; missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
 }
 
-async function assertGeneratedCatalogs(rootDir, today) {
-  const expected = await syncProviderCatalogs({ rootDir, dryRun: true, today });
+function generatedOutputKind(relativePath) {
+  if (
+    relativePath === WORKER_REGISTRY_RELATIVE_PATH
+    || relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH
+  ) {
+    return "generated provider registry";
+  }
+  return "generated provider catalog";
+}
+
+async function assertGeneratedOutputs(rootDir, today) {
+  const expected = await syncProviderIntegrations({ rootDir, dryRun: true, today });
   for (const output of expected.rendered) {
-    const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath);
+    const kind = generatedOutputKind(output.relativePath);
+    const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath, kind);
     let actual;
     try {
       actual = await fs.readFile(outputPath, "utf8");
     } catch (error) {
       if (error?.code === "ENOENT") {
-        throw new Error(`generated provider catalog is missing: ${output.relativePath}`);
+        throw new Error(`${kind} is missing: ${output.relativePath}`);
       }
       throw error;
     }
     if (actual !== output.contents) {
-      throw new Error(`generated provider catalog is stale: ${output.relativePath}`);
+      throw new Error(`${kind} is stale: ${output.relativePath}`);
     }
-    if (/certified|admission|dispatchEnabled|productionAuthorized/i.test(actual)) {
-      throw new Error(`generated provider catalog contains production authority language: ${output.relativePath}`);
+    if (kind === "generated provider registry") {
+      assertGeneratedRegistryOutput(actual, output.relativePath);
+    } else if (/certified|admission|dispatchEnabled|productionAuthorized/i.test(actual)) {
+      throw new Error(`${kind} contains production authority language: ${output.relativePath}`);
     }
   }
+  return expected;
 }
 
 async function assertCatalogConsumers(rootDir) {
@@ -154,8 +182,15 @@ export async function checkProviderIntegrations({
   checkConsumers = true,
 }) {
   await readProviderSchema(rootDir);
+  const registry = await readRegistryContract(rootDir);
   const manifests = await readProviderManifests(rootDir, { today });
   manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
+  const manifestKeySet = new Set(manifests.map(({ manifest }) => manifest.key));
+  for (const entry of registry.providers) {
+    if (!manifestKeySet.has(entry.key)) {
+      throw new Error(`provider registry key is not a checked-in manifest: ${entry.key}`);
+    }
+  }
   const manifestKeys = manifests
     .map(({ manifest }) => manifest.key)
     .sort((left, right) => {
@@ -169,7 +204,7 @@ export async function checkProviderIntegrations({
     });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
-  await assertGeneratedCatalogs(rootDir, today);
+  const generated = await assertGeneratedOutputs(rootDir, today);
 
   if (checkConsumers) {
     await assertCatalogConsumers(rootDir);
@@ -177,7 +212,15 @@ export async function checkProviderIntegrations({
   return {
     providerCount: manifests.length,
     vendorKeys,
-    generatedOutputs: [WEB_CATALOG_RELATIVE_PATH, WORKER_CATALOG_RELATIVE_PATH],
+    liveAdapters: generated.liveAdapters,
+    generatedOutputs: [
+      WEB_CATALOG_RELATIVE_PATH,
+      WORKER_CATALOG_RELATIVE_PATH,
+      WORKER_REGISTRY_RELATIVE_PATH,
+      WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+    ],
+    registryPath: PROVIDER_REGISTRY_RELATIVE_PATH,
+    registrySchemaPath: PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
   };
 }
 
