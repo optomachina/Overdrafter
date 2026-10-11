@@ -17,6 +17,7 @@ import {
   type XometryBetaDispatchDiagnosticCode,
   type XometryBetaDispatchScope,
   type XometryBetaModelUnits,
+  type XometryBetaScopeDenialCode,
 } from "@/features/quotes/xometry-beta-dispatch";
 export type { XometryBetaDispatchScope } from "@/features/quotes/xometry-beta-dispatch";
 
@@ -188,6 +189,7 @@ function ScopeLoadState({
   onOpenSourcingSettings,
   onRetryScope,
   providerLabel,
+  scopeDenialCode,
   scopeError,
 }: Readonly<{
   declaredModelUnits: XometryBetaDeclaredModelUnits | null;
@@ -195,6 +197,7 @@ function ScopeLoadState({
   onOpenSourcingSettings?: () => void;
   onRetryScope?: () => void | Promise<void>;
   providerLabel: string;
+  scopeDenialCode: XometryBetaScopeDenialCode | null;
   scopeError: string | null;
 }>) {
   if (!declaredModelUnits) {
@@ -494,6 +497,7 @@ export function XometryBetaDispatchConfirmationDialog({
             onOpenSourcingSettings={onOpenSourcingSettings}
             onRetryScope={retryScope}
             providerLabel={providerLabel}
+            scopeDenialCode={uncertainAttempt ? null : scopeDenialCode}
             scopeError={effectiveScopeError}
           />
 

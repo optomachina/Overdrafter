@@ -1678,6 +1678,9 @@ export function useClientPartController(
   } else if (xometryDispatchScopeQuery.error) {
     xometryDispatchScopeError = `The ${dispatchProviderLabel} confirmation scope could not be loaded.`;
   }
+  const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
+    : null;
 
   return {
     accessibleJobs: sidebarJobs,
