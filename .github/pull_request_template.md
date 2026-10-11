@@ -76,14 +76,18 @@ Baseline failures or exceptions:
 
 ## Provider go-live
 
-Required only when this PR touches `provider-dispatch-envelope/`. Omit this
-section on unrelated PRs so the existing PR-body gate stays unchanged.
+Required only when this PR touches `worker/src/providerDispatchEnvelope.ts`,
+`supabase/migrations/*_reviewed_dispatch_envelope.sql`, or
+`provider-integrations/**` (registry and manifests). Omit this section on
+unrelated PRs so the existing PR-body gate stays unchanged.
 
 A checked box grants no authority. Generated output stays disabled by default.
 Admission happens only when a human applies reviewed SQL; admit SQL never
 belongs in `supabase/migrations/`. Record Secret Manager secret names only.
 
-N/A is allowed only for non-admitting changes and must include a reason.
+N/A must be checked `[x]` and include a real justification (not placeholders
+such as `N/A: x`, `n/a`, `-`, or `tbd`). Admission items cannot be N/A.
+Every item needs evidence: a link, command output, a SHA, or a path.
 See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Envelope

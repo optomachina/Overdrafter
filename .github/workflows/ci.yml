@@ -6,6 +6,7 @@ on:
       - opened
       - reopened
       - synchronize
+      - edited
   push:
     branches:
       - main
@@ -367,9 +368,9 @@ jobs:
     uses: ./.github/workflows/free-quote-sql-qualification.yml
 
   # Always run (never path-filter) so the aggregate `ci` job stays green for
-  # existing open PRs that do not touch provider-dispatch-envelope/. The
-  # validator no-ops unless those files changed, so this job cannot fail a
-  # non-provider PR.
+  # existing open PRs that do not touch provider go-live paths. The validator
+  # skips unless worker/src/providerDispatchEnvelope.ts, a reviewed-envelope
+  # migration, or provider-integrations/** changed, including rename sources.
   validate-provider-go-live:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -396,10 +397,12 @@ jobs:
             echo "Provider go-live section is enforced only on pull_request events."
             exit 0
           fi
-          git diff --name-only "${BASE_SHA}...HEAD" > /tmp/changed-files.txt
+          # --name-status --no-renames keeps rename sources as deletions so a
+          # move out of a protected path still triggers the go-live section.
+          git diff --name-status --no-renames "${BASE_SHA}...HEAD" > /tmp/changed-files.txt
           echo "Changed files:"
           cat /tmp/changed-files.txt
-          printf '%s\n' "$PR_BODY" | node scripts/validate-pr-body.mjs --stdin --changed-files-from /tmp/changed-files.txt
+          printf '%s\n' "$PR_BODY" | node scripts/validate-pr-body.mjs --stdin --changed-files-from /tmp/changed-files.txt --skip-unless-go-live
 
   ci:
     name: ci
