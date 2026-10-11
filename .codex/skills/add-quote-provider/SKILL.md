@@ -16,10 +16,22 @@ Build provider integrations without weakening OverDrafter's quote-only safety bo
 
 For skill validation or a dry-run rehearsal, read [references/forward-tests.md](references/forward-tests.md).
 
+## Drive the generator, not hand edits
+
+Every stage runs through Fixture, the provider onboarding generator (contract in `docs/fixture.md`):
+
+```bash
+npm run fixture:onboard -- <key> --stage=envelope|live|admit [--url <https-url>] [--issue OVD-<n>] [--dry-run]
+```
+
+Run `--dry-run` first, then the real stage, then `npm run provider:check`. Fixture only writes disabled, non-authoritative files and runs `provider:sync`; it is deterministic, never overwrites (`unchanged`/`kept` on rerun), and refuses to run before its prerequisite stage. The envelope stage also adds a default-off entry to `provider-integrations/provider-registry.v1.json` and reports it as `registryEntry` (`added`/`unchanged`) with the regenerated outputs in `synced`. Do not hand-write what it generates, migration numbers, or CI pins. If the generator is missing or its output looks wrong, stop and report; do not fall back to hand edits.
+
+Provider config (live-adapter listing, session-secret names, stable egress) goes through one reviewed edit to the provider's registry entry, followed by `npm run provider:sync` and `npm run provider:check`. Never hand-edit `runtimeSecrets.ts`, `deploy-cloud-run.sh`, or egress settings; they read the registry's projections. Never edit generated files (`worker/src/generated/providerRegistry.ts`, `worker/scripts/generated/provider-secrets.sh`, generated catalogs); `provider:check` fails on drift. See `references/live-continuation.md`. The go-live checklist (OVD-690, not yet built) will own the final production-readiness sequence; reference it, do not recreate it.
+
 ## Invariants
 
 - Treat manifests, evidence, implementation stage, evaluation output, and adapter readiness as descriptive only. None grants production authority.
-- Keep every new provider disabled. Only lifecycle stage 3 may change the manually reviewed production-certified allowlist or enable routing.
+- Keep every new provider disabled. Generator output never changes that. Only lifecycle stage 3 may change the manually reviewed production-certified allowlist or enable routing.
 - Preserve exact-file authorization, isolated sessions, allowed-origin enforcement, bounded waits, finite truthful outcomes, anchored offer extraction, provenance, and the checkout/order prohibition.
 - Keep unknown capabilities unknown. A marketing page is not production certification.
 - Do not create accounts, contact providers, bypass access controls or CAPTCHA, handle secrets, purchase, or reach checkout.

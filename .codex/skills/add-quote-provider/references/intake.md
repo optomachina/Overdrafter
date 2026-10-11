@@ -22,15 +22,15 @@ Use a conservative `processFamily`. Classification describes implementation shap
 
 ## Scaffold and populate
 
-Run the no-write preview first:
+Run the no-write preview first (`provider:add` is an alias of this stage):
 
 ```bash
-npm run provider:add -- --url "<official-https-url>" --dry-run
+npm run fixture:onboard -- <key> --stage=envelope --url "<official-https-url>" --dry-run
 ```
 
 Review the derived key, canonical domain, collision result, and planned files. An exact existing provider is an idempotent no-op. A key/domain collision or existing unrelated directory is a stop condition; never overwrite provider work.
 
-When a scaffold is needed, run the same command without `--dry-run`. For a genuinely new enum key, leave the generated migration files as review-only stubs. Do not apply them, edit an existing migration, or enable the admission row.
+When a scaffold is needed, run the same command without `--dry-run`. The stage also adds the key's default-off provider-registry entry (`liveAdapter: false`, `sessionSecrets: []`, `egress: "none"`) and runs `provider:sync`; the JSON result reports `registryEntry` (`added`/`unchanged`) and `synced`. An existing registry entry is never changed. With a key and no `--url` the stage requires the manifest and only adds a missing registry entry; a key that disagrees with `--url` is refused. For a genuinely new enum key, leave the generated migration files as review-only stubs. Do not apply them, edit an existing migration, or enable the admission row.
 
 Populate `manifest.v1.json` with:
 
@@ -47,7 +47,7 @@ Regenerate and validate offline:
 ```bash
 npm run provider:sync
 npm run provider:check
-npm test -- scripts/provider-add.test.mjs scripts/provider-check.test.mjs
+npm test -- scripts/fixture-onboard.test.mjs scripts/provider-add.test.mjs scripts/provider-check.test.mjs
 ```
 
 Do not edit the production-certified allowlist. Report unknown, unsupported, conflicting, or stale claims explicitly.
