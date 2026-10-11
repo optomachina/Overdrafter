@@ -12,10 +12,9 @@ import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types"
 import { fictivDispatchEnvelope } from "../test-support/fictivDispatchFixture";
 
 /**
- * OVD-673: an admitted generic decision for the reviewed Fictiv envelope
- * reaches the adapter as an authorization the Fictiv adapter accepts for the
- * exact staged bytes and quantity, and is refused for any other bytes.
- * Synthetic fixtures only; no provider, database, or browser is contacted.
+ * OVD-673: once Fictiv v1 is on the code-reviewed list, a database-admitted
+ * generic decision reaches the adapter, which accepts only the exact staged
+ * bytes. Synthetic fixtures; no provider, database, or browser.
  */
 
 const CAD_SHA256 = "e".repeat(64);
@@ -54,7 +53,7 @@ const admitted = {
   },
 };
 
-function stagedInput(cadSha256: string): VendorQuoteAdapterInput {
+function stagedInput(trustedContentSha256: string): VendorQuoteAdapterInput {
   return {
     organizationId: envelope.subject.organizationId,
     quoteRunId: envelope.task.quoteRunId,
@@ -64,21 +63,26 @@ function stagedInput(cadSha256: string): VendorQuoteAdapterInput {
       localPath: "/tmp/part.step",
       storageBucket: "job-files",
       storagePath: "cad/part.step",
-      trustedContentSha256: cadSha256,
+      trustedContentSha256,
     },
     stagedDrawingFile: null,
   } as unknown as VendorQuoteAdapterInput;
 }
 
-async function routed(quoteInput: VendorQuoteAdapterInput) {
+async function authorizationFor(quoteInput: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterInput> {
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
-  await quoteWithRoutedDispatchPreflight({
-    supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
-    config: { workerMode: "live", workerName: "worker-1" },
-    task: {
-      id: envelope.task.workQueueTaskId,
-      payload: { providerDispatchPermitId: envelope.permit.permitId, providerDispatchEnvelopeFingerprint: fingerprint },
+  const rpc = vi.fn().mockResolvedValue({ data: admitted, error: null });
+  const task = {
+    id: envelope.task.workQueueTaskId,
+    payload: {
+      providerDispatchPermitId: envelope.permit.permitId,
+      providerDispatchEnvelopeFingerprint: fingerprint,
     },
+  };
+  await quoteWithRoutedDispatchPreflight({
+    supabase: { rpc } as unknown as SupabaseClient,
+    config: { workerMode: "live", workerName: "ovd-673-fictiv" },
+    task,
     vendorQuoteResultId: envelope.task.vendorQuoteResultId,
     claimedAt: "2026-10-10T12:04:00.000Z",
     vendor: "fictiv",
@@ -91,13 +95,16 @@ async function routed(quoteInput: VendorQuoteAdapterInput) {
 
 describe("Fictiv preflight-to-adapter binding (OVD-673)", () => {
   it("produces an authorization the Fictiv adapter accepts for the exact staged bytes", async () => {
-    const adapterInput = await routed(stagedInput(CAD_SHA256));
-    expect(adapterInput.providerDispatchAuthorization).toMatchObject({ provider: "fictiv", envelopeFingerprint: fingerprint });
+    const adapterInput = await authorizationFor(stagedInput(CAD_SHA256));
+    expect(adapterInput.providerDispatchAuthorization).toMatchObject({
+      provider: "fictiv",
+      envelopeFingerprint: fingerprint,
+    });
     expect(fictivDispatchAuthorizationDenial(adapterInput)).toBeNull();
   });
 
   it("is refused by the adapter when the staged bytes differ from the authorized ones", async () => {
-    const adapterInput = await routed(stagedInput("a".repeat(64)));
+    const adapterInput = await authorizationFor(stagedInput("a".repeat(64)));
     expect(fictivDispatchAuthorizationDenial(adapterInput)).toBe("dispatch_authorization_file_mismatch");
   });
 });
