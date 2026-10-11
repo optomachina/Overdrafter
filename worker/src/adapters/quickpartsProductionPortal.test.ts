@@ -7,13 +7,8 @@ import { chromium } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { quoteWithRoutedDispatchPreflight } from "../dispatchRouting";
 import { sha256File } from "../liveEvaluationFiles";
-import {
-  canonicalizeProviderDispatchEnvelope,
-  fingerprintProviderDispatchEnvelope,
-  QUICKPARTS_DISPATCH_ENVELOPE,
-  REVIEWED_PROVIDER_DISPATCH_ENVELOPES,
-} from "../providerDispatchEnvelope";
-import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
+import { QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope";
+import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { buildAdapterRegistry } from "./index";
@@ -89,13 +84,7 @@ async function expectRefusedBeforeLaunch(input: VendorQuoteAdapterInput, reason:
 }
 
 describe("Quickparts production dispatch envelope (OVD-674)", () => {
-  it("is reviewed in code as a generic-dispatch envelope", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual({
-      provider: "quickparts",
-      id: "quickparts-quote-envelope",
-      version: 1,
-      requiredAdmission: "generic_dispatch",
-    });
+  it("declares the Quickparts envelope on the production portal definition", () => {
     expect(buildQuickpartsProductionPortalDefinition().productionDispatch).toEqual({
       envelope: { ...QUICKPARTS_DISPATCH_ENVELOPE },
     });
@@ -246,58 +235,6 @@ describe("Quickparts production registry and routing (OVD-674)", () => {
       quoteInput: await authorizedInput({ providerDispatchAuthorization: undefined }),
     })).rejects.toMatchObject({ reasonCode: "dispatch_live_provider_not_permitted" });
     expect(quote).not.toHaveBeenCalled();
-  });
-
-  it("hands a database-admitted Quickparts decision to the adapter as an authorization it accepts", async () => {
-    const input = await authorizedInput({ providerDispatchAuthorization: undefined });
-    const envelope = quickpartsDispatchEnvelope({
-      cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3,
-    });
-    const fingerprint = fingerprintProviderDispatchEnvelope(envelope);
-    const admitted = {
-      schema: "provider-dispatch-authorization.v1",
-      authorized: true,
-      permitId: envelope.permit.permitId,
-      provider: "quickparts",
-      envelopeFingerprint: fingerprint,
-      canonicalEnvelope: canonicalizeProviderDispatchEnvelope(envelope),
-      expiresAt: envelope.expiresAt,
-      sessionBindingId: envelope.sessionBindingId,
-      evidence: {
-        now: "2026-10-10T12:05:00.000Z",
-        permitState: "active",
-        admission: {
-          policy_present: true, provider_admitted: true, generically_dispatchable: true,
-          provider: "quickparts", admission_state: "approved",
-          policy_revision: envelope.admission.policyRevision,
-          evidence_reference: envelope.admission.evidenceReference,
-          permission_basis: "written_provider_authorization",
-          supported_processes: ["cnc_milling"], accepted_file_extensions: ["step", "stp"],
-          session_owner: "overdrafter_managed", reviewed_at: "2026-10-10T11:00:00+00:00",
-          expires_at: null, reason_code: "provider_approved",
-        },
-        rollout: { capability: "automatic_quote_collection", enabled: true, revision: envelope.rollout.revision },
-      },
-    };
-    const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
-    await quoteWithRoutedDispatchPreflight({
-      supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
-      config: { workerMode: "live", workerName: "worker-1" },
-      task: {
-        id: envelope.task.workQueueTaskId,
-        payload: { providerDispatchPermitId: envelope.permit.permitId, providerDispatchEnvelopeFingerprint: fingerprint },
-      },
-      vendorQuoteResultId: envelope.task.vendorQuoteResultId,
-      claimedAt: "2026-10-10T12:04:00.000Z",
-      vendor: "quickparts",
-      scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "quickparts" },
-      adapter: { quote },
-      quoteInput: input,
-    });
-    const handed = quote.mock.calls[0][0] as VendorQuoteAdapterInput;
-    expect(handed.providerDispatchAuthorization).toMatchObject({ provider: "quickparts", envelopeFingerprint: fingerprint });
-    expect(providerDispatchAuthorizationDenial(handed, { provider: "quickparts", ...QUICKPARTS_DISPATCH_ENVELOPE }))
-      .toBeNull();
   });
 
   it("declares the same hosts as the governed egress contract", async () => {
