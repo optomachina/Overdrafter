@@ -1,0 +1,68 @@
+{
+  "description": "OVD-675 synthetic Weerg provider-dispatch-envelope.v1 for the reviewed weerg-quote-envelope.v1 (one STEP file, no drawing). Every identifier and digest is synthetic; tests overwrite the CAD digest and quantity with the staged values under test. Not evidence of any real provider, account, or customer.",
+  "envelope": {
+    "schema": "provider-dispatch-envelope.v1",
+    "provider": "weerg",
+    "envelope": {
+      "id": "weerg-quote-envelope",
+      "version": 1
+    },
+    "admission": {
+      "policyRevision": "weerg-generic-2026-10-11.v1",
+      "evidenceReference": "OVD-675"
+    },
+    "noticeRevision": "founding-beta-2026-08-15",
+    "purpose": "quote_only",
+    "affirmations": {
+      "authorityToShare": true,
+      "nonExportControlled": true,
+      "quoteOnly": true
+    },
+    "subject": {
+      "actorUserId": "00000000-0000-4000-8000-000000006751",
+      "organizationId": "00000000-0000-4000-8000-000000006752",
+      "jobId": "00000000-0000-4000-8000-000000006753",
+      "partId": "00000000-0000-4000-8000-000000006754"
+    },
+    "scope": {
+      "schema": "quote-lane-scope.v1",
+      "version": 1,
+      "fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "requestedQuantity": 1,
+      "declaredModelUnits": "millimeter"
+    },
+    "sourceFiles": [
+      {
+        "role": "cad",
+        "fileId": "00000000-0000-4000-8000-000000006755",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "outboundFiles": [
+      {
+        "role": "cad",
+        "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "derivation": "identity"
+      }
+    ],
+    "task": {
+      "quoteRequestId": "00000000-0000-4000-8000-000000006757",
+      "quoteRunId": "00000000-0000-4000-8000-000000006758",
+      "vendorQuoteResultId": "00000000-0000-4000-8000-000000006759",
+      "quoteRequestLaneId": "00000000-0000-4000-8000-00000000675a",
+      "workQueueTaskId": "00000000-0000-4000-8000-00000000675b"
+    },
+    "permit": {
+      "permitId": "00000000-0000-4000-8000-00000000675c",
+      "approvalReference": "00000000-0000-4000-8000-00000000675d"
+    },
+    "sessionBindingId": "lease:00000000-0000-4000-8000-00000000675c",
+    "rollout": {
+      "capability": "automatic_quote_collection",
+      "revision": 1
+    },
+    "issuedAt": "2026-10-11T12:00:00.000Z",
+    "expiresAt": "2099-01-01T00:00:00.000Z"
+  }
+}

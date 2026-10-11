@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(135);
+select plan(137);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -220,13 +220,13 @@ select ok(
   and pg_catalog.has_function_privilege('service_role', 'private.resolve_provider_dispatch_permit_state(uuid)', 'EXECUTE'),
   'private resolvers are definer-only; revocation and permit state are service_role only'
 );
--- OVD-673 and OVD-674 seed the reviewed Fictiv and Quickparts envelopes; their
--- exact rows and the still disabled admissions are asserted below.
+-- OVD-673, OVD-674 and OVD-675 seed the reviewed Fictiv, Quickparts and Weerg
+-- envelopes; their exact rows and the still disabled admissions are asserted below.
 select is(
   (select count(*) from private.provider_dispatch_envelope_reviews
-   where provider not in ('fictiv', 'quickparts')),
+   where provider not in ('fictiv', 'quickparts', 'weerg')),
   0::bigint,
-  'no provider other than Fictiv and Quickparts has a reviewed generic envelope by default'
+  'no provider other than Fictiv, Quickparts and Weerg has a reviewed generic envelope by default'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),
@@ -427,6 +427,20 @@ select ok(
   (select admission_state = 'disabled' and not generic_dispatch_enabled
    from private.quote_provider_admission_policies where provider = 'quickparts'),
   'the reviewed Quickparts envelope leaves Quickparts admission disabled'
+);
+
+-- OVD-675 records exactly one active reviewed Weerg envelope and admits nothing.
+select results_eq(
+  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
+    from private.provider_dispatch_envelope_reviews
+    where provider = 'weerg' and withdrawn_at is null$$,
+  $$values ('weerg-quote-envelope'::text, 1, 7200, 'OVD-675'::text)$$,
+  'the migration seeds exactly one active reviewed Weerg envelope with a 7200 s permit TTL'
+);
+select ok(
+  (select admission_state = 'disabled' and not generic_dispatch_enabled
+   from private.quote_provider_admission_policies where provider = 'weerg'),
+  'the reviewed Weerg envelope leaves Weerg admission disabled'
 );
 
 -- Default-off: the registry is the rollback switch and starts disabled.
