@@ -234,8 +234,10 @@ describe("bounded service-returned fields", () => {
       return { ok: true, model: JEV_MODEL, answers, usage: hostileUsage(), latencyMs: 2 };
     };
     const report = await runEvaluation({ ask });
-    const { generatedAt, ...reportWithoutTimestamp } = report;
-    const text = JSON.stringify(reportWithoutTimestamp);
+    // generatedAt lives on summary, not the report root. ISO seconds.ms such as
+    // 51.533 contains the hostile needle "1.5" and would flake the scan.
+    const { generatedAt: _generatedAt, ...summaryWithoutTimestamp } = report.summary;
+    const text = JSON.stringify({ ...report, summary: summaryWithoutTimestamp });
     for (const needle of ["FAKE LOG LINE", "nested", "xxxxxxxx", "reviewer_extra", "T9", "1.5", "polluted"]) expect(text).not.toContain(needle);
     // Calls that returned usage record the bounded counts; the 422 probe returned none and records null.
     for (const c of report.calls) expect(c.usage).toEqual(c.label === "fail:422" ? null : { input_tokens: 471, output_tokens: null });
