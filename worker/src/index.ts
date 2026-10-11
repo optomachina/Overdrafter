@@ -90,9 +90,9 @@ import {
 import { isRetryableCadPreviewError } from "./cadPreview.js";
 import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
-  quoteWithDispatchPreflight,
-  XometryDispatchAuthorizationError,
-} from "./xometryDispatchPreflight.js";
+  dispatchAuthorizationFailure,
+  quoteWithRoutedDispatchPreflight,
+} from "./dispatchRouting.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1257,10 +1257,10 @@ export async function handleVendorQuoteTask(
       try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
       catch { /* Local advisory capture cannot affect dispatch authority. */ }
     }
-    const result = await quoteWithDispatchPreflight({
+    const result = await quoteWithRoutedDispatchPreflight({
       supabase,
       config,
-      workQueueTaskId: task.id,
+      task,
       vendorQuoteResultId: currentResult.id,
       claimedAt: task.locked_at ?? "",
       vendor,
@@ -1370,8 +1370,7 @@ export async function handleVendorQuoteTask(
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
-    const dispatchAuthorizationError =
-      error instanceof XometryDispatchAuthorizationError ? error : null;
+    const dispatchAuthorizationError = dispatchAuthorizationFailure(error);
     const failureArtifacts = vendorError?.artifacts ?? [];
     failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
     const failureArtifactStoragePaths =
@@ -1395,7 +1394,7 @@ export async function handleVendorQuoteTask(
       : failureCodeForError(error);
     const failureMessage = summarizeWorkerError(error);
     const retryableDispatchAuthorizationError =
-      dispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable";
+      dispatchAuthorizationError?.retryable === true;
     const requiresManualVendorFollowUp =
       vendorError?.code === "not_implemented" ||
       Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
@@ -1417,7 +1416,11 @@ export async function handleVendorQuoteTask(
       resultStatus = "queued";
     }
     let failureNote = failureMessage;
-    if (retryableDispatchAuthorizationError && retryAt) {
+    if (dispatchAuthorizationError?.boundary === "provider") {
+      failureNote = retryableDispatchAuthorizationError && retryAt
+        ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
+        : `Automatic ${vendor} dispatch authorization was denied before adapter launch; manual follow-up is required.`;
+    } else if (retryableDispatchAuthorizationError && retryAt) {
       failureNote = `Xometry dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`;
     } else if (dispatchAuthorizationError) {
       failureNote =
