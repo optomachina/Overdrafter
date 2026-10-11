@@ -105,6 +105,11 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_confirmed_sourcing_address_required"
   | "xometry_beta_standard_tolerance_required";
 
+/** Server denials the customer can resolve directly from the dispatch dialog. */
+export type XometryBetaScopeDenialCode =
+  | "xometry_beta_confirmed_sourcing_address_required"
+  | "xometry_beta_standard_tolerance_required";
+
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
@@ -475,6 +480,16 @@ export function getXometryBetaScopeFailureMessage(
   provider: LiveDispatchProvider = "xometry",
 ): string {
   const label = LIVE_DISPATCH_PROVIDER_LABELS[provider];
+  
+  switch (getXometryBetaScopeDenialCode(error)) {
+    case "xometry_beta_confirmed_sourcing_address_required":
+      return `${label} needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.`;
+    case "xometry_beta_standard_tolerance_required":
+      return `Enter this part's tightest tolerance. The controlled ${label} beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.`;
+    default:
+      break;
+  }
+
   if (isExplicitXometryBetaDispatchDenial(error)) {
     return `This package is not currently eligible for controlled ${label} beta dispatch. Review its access, files, and manufacturing requirements.`;
   }
