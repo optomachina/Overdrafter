@@ -20,6 +20,7 @@ const PROVIDER_KEY = /^[a-z][a-z0-9_]*$/;
 const ENVELOPE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const EVIDENCE_REFERENCE = /^OVD-([1-9]\d{0,9})$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
+const REGISTRY_MOUNT_PATH = /^\/var\/secrets\/[a-z0-9-]+\/storage-state\.json$/;
 const EGRESS_VALUES = new Set(["stable_nat", "none"]);
 const SECRET_LIKE_KEY = /^(value|token|cookie|password|secret|storagestate|storage_state)$/i;
 const DEFAULT_DENY_MODULE = /(?:^|\/)test-support\/productionPortalDefaultDeny(?:\.js|\.ts)?$/;
@@ -469,10 +470,18 @@ async function registryDeclaresProvider(registry, key, rootDir) {
       return false;
     }
     secretNames.push(secret.secretNameEnv);
-    if (secret.mountEnv !== undefined && !ENV_NAME.test(secret.mountEnv)) {
+    const hasMountEnv = typeof secret.mountEnv === "string";
+    const hasMountPath = typeof secret.mountPath === "string";
+    if (hasMountEnv === hasMountPath) {
       return false;
     }
-    if (typeof secret.mountEnv === "string") {
+    if (hasMountEnv && !ENV_NAME.test(secret.mountEnv)) {
+      return false;
+    }
+    if (hasMountPath && !REGISTRY_MOUNT_PATH.test(secret.mountPath)) {
+      return false;
+    }
+    if (hasMountEnv) {
       secretNames.push(secret.mountEnv);
     }
   }
@@ -537,6 +546,9 @@ function assertRegistryNamesOnly(value, key) {
     return;
   }
   for (const [field, fieldValue] of Object.entries(value)) {
+    if (field === "mountPath" && typeof fieldValue === "string" && REGISTRY_MOUNT_PATH.test(fieldValue)) {
+      continue;
+    }
     if (SECRET_LIKE_KEY.test(field) || (typeof fieldValue === "string" && looksLikeSecretValue(fieldValue))) {
       throw new Error(`provider:check: ${key} registry entry must declare secret names only`);
     }
