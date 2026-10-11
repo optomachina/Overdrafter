@@ -1,9 +1,26 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertCatalogPrice,
+  BILLING_CATALOG_PRICES,
+  BILLING_SELF_SERVICE_FLAG,
+  BILLING_TIER_CATALOG_FLAG,
+  type CatalogPrice,
+  catalogAmountsAreTbd,
+  catalogPriceMetadata,
+  DEFAULT_CHECKOUT_LOOKUP_KEY,
+  getCatalogPrice,
+  isCheckoutCatalogEnabled,
+} from "../_shared/billingCatalog.ts";
 
 export const BILLING_STRIPE_API_VERSION =
   "2024-11-20.acacia" as Stripe.LatestApiVersion;
-export const PRO_MONTHLY_AMOUNT_CENTS = 4_900;
+export {
+  BILLING_CATALOG_PRICES,
+  BILLING_SELF_SERVICE_FLAG,
+  BILLING_TIER_CATALOG_FLAG,
+  DEFAULT_CHECKOUT_LOOKUP_KEY,
+};
 
 type BillingAction = "checkout" | "portal";
 type EnvironmentReader = (name: string) => string | undefined;
@@ -83,6 +100,7 @@ export type BillingStripeClient = {
 
 export type BillingRuntime = {
   appBaseUrl: URL;
+  catalog: readonly CatalogPrice[];
   expectedLivemode: boolean;
   proMonthlyPriceId: string | null;
   serviceClient: BillingServiceClient;
@@ -211,6 +229,7 @@ function loadBillingRuntime(
 
   cachedRuntime = {
     appBaseUrl,
+    catalog: BILLING_CATALOG_PRICES,
     expectedLivemode,
     proMonthlyPriceId,
     serviceClient,
@@ -429,38 +448,23 @@ function findReusableCheckoutSession(
     session.metadata?.organization_id === organizationId &&
     session.metadata?.plan === "pro" &&
     session.metadata?.billing_interval === "month" &&
+    session.metadata?.lookup_key === DEFAULT_CHECKOUT_LOOKUP_KEY &&
     session.metadata?.stripe_price_id === priceId &&
     isValidHostedUrl(session.url)
   ) ?? null;
 }
 
-function isValidMonthlyProPrice(
+function isValidCatalogCheckoutPrice(
   price: Stripe.Price,
   configuredPriceId: string,
+  expected: CatalogPrice,
   expectedLivemode: boolean,
 ): boolean {
-  if (
-    price.id !== configuredPriceId ||
-    !price.active ||
-    price.livemode !== expectedLivemode ||
-    price.currency.toLowerCase() !== "usd" ||
-    price.unit_amount !== PRO_MONTHLY_AMOUNT_CENTS ||
-    price.type !== "recurring" ||
-    price.recurring?.interval !== "month" ||
-    price.recurring.interval_count !== 1
-  ) {
+  if (price.id !== configuredPriceId) {
     return false;
   }
 
-  const product = price.product;
-  if (typeof product === "string") {
-    return false;
-  }
-  if ("deleted" in product && product.deleted) {
-    return false;
-  }
-
-  return product.active === true;
+  return assertCatalogPrice(price, expected, { expectedLivemode }).ok;
 }
 
 async function resolveStripeCustomer(
@@ -574,7 +578,10 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
     }
     if (
       payload.action === "checkout" &&
-      getEnvironmentVariable("BILLING_SELF_SERVICE_ENABLED") !== "true"
+      !isCheckoutCatalogEnabled(
+        getEnvironmentVariable(BILLING_SELF_SERVICE_FLAG),
+        getEnvironmentVariable(BILLING_TIER_CATALOG_FLAG),
+      )
     ) {
       return json(503, {
         error:
@@ -660,6 +667,16 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
         return json(200, { url: portalSession.url });
       }
 
+      const catalog = runtime.catalog ?? BILLING_CATALOG_PRICES;
+      const checkoutEntry = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, catalog);
+      if (!checkoutEntry || catalogAmountsAreTbd(catalog)) {
+        console.error("billing-sessions: catalog amounts remain TBD");
+        return json(503, {
+          error:
+            "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
+        });
+      }
+
       const proMonthlyPriceId = runtime.proMonthlyPriceId;
       if (!proMonthlyPriceId) {
         console.error("billing-sessions: checkout price configuration missing");
@@ -674,14 +691,15 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
         { expand: ["product"] },
       );
       if (
-        !isValidMonthlyProPrice(
+        !isValidCatalogCheckoutPrice(
           price,
           proMonthlyPriceId,
+          checkoutEntry,
           runtime.expectedLivemode,
         )
       ) {
         console.error(
-          "billing-sessions: configured Pro price failed validation",
+          "billing-sessions: configured catalog price failed validation",
         );
         return json(503, {
           error:
@@ -691,9 +709,10 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
 
       const { error: priceConfigurationError } = await runtime.serviceClient
         .rpc(
-          "api_configure_stripe_pro_price",
+          "api_configure_stripe_catalog_price",
           {
             p_livemode: runtime.expectedLivemode,
+            p_lookup_key: checkoutEntry.lookupKey,
             p_stripe_price_id: proMonthlyPriceId,
           },
         );
@@ -780,17 +799,21 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
             },
           ],
           metadata: {
-            billing_interval: "month",
+            billing_interval: checkoutEntry.interval,
+            lookup_key: checkoutEntry.lookupKey,
             organization_id: preparation.organizationId,
-            plan: "pro",
+            plan: checkoutEntry.tier,
             stripe_price_id: proMonthlyPriceId,
+            ...catalogPriceMetadata(checkoutEntry, false),
           },
           mode: "subscription",
           subscription_data: {
             metadata: {
-              billing_interval: "month",
+              billing_interval: checkoutEntry.interval,
+              lookup_key: checkoutEntry.lookupKey,
               organization_id: preparation.organizationId,
-              plan: "pro",
+              plan: checkoutEntry.tier,
+              ...catalogPriceMetadata(checkoutEntry, false),
             },
           },
           success_url: buildReturnUrl(runtime.appBaseUrl, "success"),

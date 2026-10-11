@@ -1,5 +1,10 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import {
+  BILLING_TIER_CATALOG_FLAG,
+  evaluateCatalogWebhookEvent,
+  isBillingFlagEnabled,
+} from "../_shared/billingCatalog.ts";
 
 export const STRIPE_EVENT_API_VERSION =
   "2024-11-20.acacia" as Stripe.LatestApiVersion;
@@ -177,6 +182,35 @@ export function createStripeEventHandler(
     if (!result || result.state === "failed") {
       console.error("stripe-events: event requires retry");
       return json(500, { error: "Event processing failed." });
+    }
+
+    const catalogDecision = evaluateCatalogWebhookEvent(event, {
+      expectedLivemode: getEnvironmentVariable("STRIPE_EXPECTED_LIVEMODE") ===
+        "true",
+      replayed: result.replayed,
+    });
+    if (catalogDecision.action === "disable_key") {
+      const { error: disableError } = await runtime.serviceClient.rpc(
+        "api_disable_stripe_catalog_price",
+        {
+          p_lookup_key: catalogDecision.lookupKey,
+          p_livemode: event.livemode,
+          p_reason: catalogDecision.reason ?? "catalog_mismatch",
+          p_stripe_event_id: event.id,
+        },
+      );
+      if (
+        disableError &&
+        isBillingFlagEnabled(getEnvironmentVariable(BILLING_TIER_CATALOG_FLAG))
+      ) {
+        console.error("stripe-events: catalog price disable failed");
+        return json(500, { error: "Catalog price disable failed." });
+      }
+      console.error(
+        "stripe-events: catalog price disabled",
+        catalogDecision.lookupKey,
+        catalogDecision.reason,
+      );
     }
 
     return json(200, {

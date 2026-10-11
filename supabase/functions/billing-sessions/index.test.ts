@@ -1,13 +1,23 @@
 import { assertEquals, assertObjectMatch } from "@std/assert";
 import type Stripe from "stripe";
 import {
+  BILLING_CATALOG_PRICES,
+  catalogPriceMetadata,
+  DEFAULT_CHECKOUT_LOOKUP_KEY,
+  getCatalogPrice,
+  PLACEHOLDER_AMOUNT_CENTS,
+  withApprovedTestAmounts,
+} from "../_shared/billingCatalog.ts";
+import {
   type BillingRuntime,
   type BillingServiceClient,
   type BillingStripeClient,
   type BillingUserClient,
   createBillingSessionHandler,
-  PRO_MONTHLY_AMOUNT_CENTS,
 } from "./index.ts";
+
+const TEST_CATALOG = withApprovedTestAmounts(PLACEHOLDER_AMOUNT_CENTS);
+const TEST_CHECKOUT_ENTRY = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, TEST_CATALOG)!;
 
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000002281";
 const USER_ID = "00000000-0000-4000-8000-000000002282";
@@ -42,8 +52,8 @@ function validPrice(
     custom_unit_amount: null,
     id: "price_OVD228Pro",
     livemode: false,
-    lookup_key: null,
-    metadata: {},
+    lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+    metadata: catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
     nickname: null,
     object: "price",
     product: {
@@ -78,8 +88,8 @@ function validPrice(
     tiers_mode: null,
     transform_quantity: null,
     type: "recurring",
-    unit_amount: PRO_MONTHLY_AMOUNT_CENTS,
-    unit_amount_decimal: String(PRO_MONTHLY_AMOUNT_CENTS),
+    unit_amount: PLACEHOLDER_AMOUNT_CENTS,
+    unit_amount_decimal: String(PLACEHOLDER_AMOUNT_CENTS),
     ...overrides,
   } as Stripe.Price;
 }
@@ -94,6 +104,7 @@ function subscription(
 }
 
 function makeRuntime(options: {
+  catalog?: BillingRuntime["catalog"];
   checkoutSessions?: Stripe.Checkout.Session[];
   preparation?: Record<string, unknown>;
   preparationError?: { message: string };
@@ -253,6 +264,7 @@ function makeRuntime(options: {
 
   const runtime: BillingRuntime = {
     appBaseUrl: new URL("https://app.overdrafter.com/"),
+    catalog: options.catalog ?? TEST_CATALOG,
     expectedLivemode: false,
     proMonthlyPriceId: options.proMonthlyPriceId === undefined
       ? "price_OVD228Pro"
@@ -268,8 +280,40 @@ function makeRuntime(options: {
 }
 
 function enabledEnvironment(name: string) {
+  if (
+    name === "BILLING_SELF_SERVICE_ENABLED" ||
+    name === "BILLING_TIER_CATALOG_ENABLED"
+  ) {
+    return "true";
+  }
+  return "configured";
+}
+
+function selfServiceOnlyEnvironment(name: string) {
   return name === "BILLING_SELF_SERVICE_ENABLED" ? "true" : "configured";
 }
+
+Deno.test("disabled catalog flag rejects Checkout even when self-service is on", async () => {
+  let loaded = false;
+  const handler = createBillingSessionHandler(
+    selfServiceOnlyEnvironment,
+    () => {
+      loaded = true;
+      throw new Error("runtime must not load");
+    },
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), {
+    error:
+      "New subscriptions are unavailable during the free, invitation-only Founding Beta.",
+  });
+  assertEquals(loaded, false);
+});
 
 Deno.test("disabled self-service rejects Checkout before loading secrets or Stripe", async () => {
   let loaded = false;
@@ -393,9 +437,44 @@ Deno.test("denies non-owner and cross-organization billing access", async () => 
   assertEquals(calls.checkout.length, 0);
 });
 
-Deno.test("refuses Checkout when the configured catalog entry is not exactly $49 monthly", async () => {
+Deno.test("refuses Checkout while catalog amounts remain TBD", async () => {
   const { calls, runtime } = makeRuntime({
-    price: validPrice({ unit_amount: 4_800 }),
+    catalog: BILLING_CATALOG_PRICES,
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 503);
+  assertEquals(calls.price.length, 0);
+  assertEquals(calls.checkout.length, 0);
+});
+
+Deno.test("refuses Checkout when livemode does not match the catalog guard", async () => {
+  const { calls, runtime } = makeRuntime({
+    price: validPrice({ livemode: true }),
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 503);
+  assertEquals(calls.checkout.length, 0);
+});
+
+Deno.test("refuses Checkout when the configured catalog entry does not match the lookup key", async () => {
+  const { calls, runtime } = makeRuntime({
+    price: validPrice({ lookup_key: "od_unknown_v1" }),
   });
   const handler = createBillingSessionHandler(
     enabledEnvironment,
@@ -459,14 +538,18 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
   });
   assertEquals(calls.checkout[0].parameters.metadata, {
     billing_interval: "month",
+    lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
     organization_id: ORGANIZATION_ID,
     plan: "pro",
     stripe_price_id: "price_OVD228Pro",
+    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
   });
   assertEquals(calls.checkout[0].parameters.subscription_data?.metadata, {
     billing_interval: "month",
+    lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
     organization_id: ORGANIZATION_ID,
     plan: "pro",
+    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
   });
   assertEquals(calls.checkout[0].options, {
     idempotencyKey:
@@ -475,7 +558,7 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
   assertEquals(
     calls.rpc.map((call) => call.name),
     [
-      "api_configure_stripe_pro_price",
+      "api_configure_stripe_catalog_price",
       "api_bind_organization_stripe_customer",
       "api_acquire_organization_billing_checkout",
       "api_finalize_organization_billing_checkout",
@@ -643,6 +726,7 @@ Deno.test("reuses an open Checkout session for the same organization and launch 
       id: "cs_test_OVD228Open",
       metadata: {
         billing_interval: "month",
+        lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
         organization_id: ORGANIZATION_ID,
         plan: "pro",
         stripe_price_id: "price_OVD228Pro",

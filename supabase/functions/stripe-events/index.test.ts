@@ -1,11 +1,21 @@
 import { assertEquals } from "@std/assert";
 import Stripe from "stripe";
 import {
+  catalogPriceMetadata,
+  DEFAULT_CHECKOUT_LOOKUP_KEY,
+  getCatalogPrice,
+  PLACEHOLDER_AMOUNT_CENTS,
+  withApprovedTestAmounts,
+} from "../_shared/billingCatalog.ts";
+import {
   createStripeEventHandler,
   STRIPE_EVENT_API_VERSION,
   type StripeEventRuntime,
   type StripeEventServiceClient,
 } from "./index.ts";
+
+const APPROVED_CATALOG = withApprovedTestAmounts(PLACEHOLDER_AMOUNT_CENTS);
+const APPROVED_PRO = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, APPROVED_CATALOG)!;
 
 const WEBHOOK_SECRET = "whsec_ovd235";
 
@@ -297,4 +307,89 @@ Deno.test("acknowledges safely replayed and ignored events", async () => {
       replayed: expected.replayed,
     });
   }
+});
+
+Deno.test("price.updated amount mismatch disables the catalog key without changing entitlements", async () => {
+  const event = makeEvent({
+    data: {
+      object: {
+        active: true,
+        currency: "usd",
+        id: "price_OVD725",
+        livemode: false,
+        lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+        metadata: catalogPriceMetadata(APPROVED_PRO, false),
+        product: { active: true },
+        recurring: { interval: "month", interval_count: 1 },
+        type: "recurring",
+        unit_amount: 200,
+      } as unknown as Stripe.Price,
+    },
+    type: "price.updated",
+  });
+  const calls: Array<{ functionName: string; parameters: Record<string, unknown> }> = [];
+  const runtime = makeRuntime(event, (functionName, parameters) => {
+    calls.push({ functionName, parameters });
+    if (functionName === "api_ingest_stripe_event") {
+      return Promise.resolve({
+        data: { state: "pending", duplicate: false },
+        error: null,
+      });
+    }
+    if (functionName === "api_process_stripe_event") {
+      return Promise.resolve({
+        data: { state: "processed", replayed: false, attemptCount: 1 },
+        error: null,
+      });
+    }
+    return Promise.resolve({ data: { disabled: true }, error: null });
+  });
+  const handler = createStripeEventHandler(() => "configured", () => runtime);
+
+  const response = await handler(signedRequest(JSON.stringify(event)));
+
+  assertEquals(response.status, 200);
+  assertEquals(calls[2], {
+    functionName: "api_disable_stripe_catalog_price",
+    parameters: {
+      p_lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+      p_livemode: false,
+      p_reason: "catalog_amount_tbd",
+      p_stripe_event_id: event.id,
+    },
+  });
+});
+
+Deno.test("replaying price.updated is a no-op for catalog disable", async () => {
+  const event = makeEvent({
+    data: {
+      object: {
+        active: true,
+        id: "price_OVD725",
+        lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+        unit_amount: 200,
+      } as unknown as Stripe.Price,
+    },
+    type: "price.updated",
+  });
+  const calls: string[] = [];
+  const runtime = makeRuntime(event, (functionName) => {
+    calls.push(functionName);
+    if (functionName === "api_ingest_stripe_event") {
+      return Promise.resolve({
+        data: { state: "pending", duplicate: true },
+        error: null,
+      });
+    }
+    return Promise.resolve({
+      data: { state: "processed", replayed: true, attemptCount: 1 },
+      error: null,
+    });
+  });
+  const handler = createStripeEventHandler(() => "configured", () => runtime);
+
+  const response = await handler(signedRequest(JSON.stringify(event)));
+
+  assertEquals(response.status, 200);
+  assertEquals(calls, ["api_ingest_stripe_event", "api_process_stripe_event"]);
 });
