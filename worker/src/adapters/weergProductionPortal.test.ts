@@ -9,7 +9,6 @@ import { sha256File } from "../liveEvaluationFiles";
 import {
   canonicalizeProviderDispatchEnvelope,
   fingerprintProviderDispatchEnvelope,
-  REVIEWED_PROVIDER_DISPATCH_ENVELOPES,
   WEERG_DISPATCH_ENVELOPE,
 } from "../providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
@@ -118,10 +117,7 @@ function defaultDenyHarness(): ProductionPortalDefaultDenyHarness {
 }
 
 describe("Weerg production dispatch envelope (OVD-675)", () => {
-  // The reviewed-envelope list entry and its review-row migration ship in the
-  // separate envelope PR (#655). Until then Weerg is plumbing only, default-deny.
-  it("is not yet listed as a reviewed dispatch envelope (default-deny until #655)", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.map((entry) => entry.provider)).not.toContain("weerg");
+  it("declares the Weerg envelope on the production portal definition", () => {
     expect(buildWeergProductionPortalDefinition().productionDispatch).toEqual({
       envelope: { ...WEERG_DISPATCH_ENVELOPE },
     });
@@ -317,10 +313,7 @@ describe("Weerg production registry and routing (OVD-675)", () => {
 
   registerProductionPortalRoutingRefusals(defaultDenyHarness());
 
-  // Admission of the Weerg envelope lands in #655. Here the database says
-  // "admitted", but the envelope is not reviewed in code, so the worker still
-  // refuses before the adapter runs. #655 should flip this to an acceptance test.
-  it("refuses a database-admitted Weerg decision while the envelope is not reviewed in code", async () => {
+  it("hands a database-admitted Weerg decision to the adapter as an authorization it accepts", async () => {
     const input = await authorizedInput({ providerDispatchAuthorization: undefined });
     const envelope = weergDispatchEnvelope({
       cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3,
@@ -365,8 +358,8 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "weerg" },
       adapter: { quote },
       quoteInput: input,
-    })).rejects.toMatchObject({ denial: "provider_envelope_unknown" });
-    expect(quote).not.toHaveBeenCalled();
+    })).resolves.toEqual({ artifacts: [] });
+    expect(quote).toHaveBeenCalledTimes(1);
   });
 
   it("declares the same hosts as the governed egress contract", async () => {

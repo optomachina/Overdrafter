@@ -149,6 +149,12 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     version: QUICKPARTS_DISPATCH_ENVELOPE.version,
     requiredAdmission: "generic_dispatch",
   },
+  {
+    provider: "weerg",
+    id: WEERG_DISPATCH_ENVELOPE.id,
+    version: WEERG_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
+  },
 ];
 
 const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(Object.keys(PROVIDER_CATALOG));
