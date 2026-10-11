@@ -31,10 +31,26 @@ export const OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS = 1200;
 
 /**
  * Exact WORKER_LIVE_ADAPTERS values the stable-egress worker may carry. Fictiv
- * may share the governed egress only alongside Xometry (OVD-673); its dispatch
- * stays default-deny in the database until it is admitted.
+ * (OVD-673) and Quickparts (OVD-674) may share the governed egress only
+ * alongside Xometry, in this canonical order; their dispatch stays
+ * default-deny in the database until each is admitted.
  */
-export const STABLE_EGRESS_LIVE_ADAPTER_VALUES = Object.freeze(["xometry", "xometry,fictiv"]);
+export const STABLE_EGRESS_LIVE_ADAPTER_VALUES = Object.freeze([
+  "xometry",
+  "xometry,fictiv",
+  "xometry,quickparts",
+  "xometry,fictiv,quickparts",
+]);
+
+/**
+ * Exact HTTPS hosts a generic-portal adapter on the stable egress may reach.
+ * The worker's portal kernel aborts every other request, so these must equal
+ * the adapter's production portal definition (pinned by contract test).
+ * Xometry and Fictiv are bespoke adapters with their own origin checks.
+ */
+export const STABLE_EGRESS_PROVIDER_HOSTS = Object.freeze({
+  quickparts: Object.freeze(["quickparts.com", "quickquote.quickparts.com"]),
+});
 
 export function isStableEgressLiveAdapterValue(value) {
   return STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(value);

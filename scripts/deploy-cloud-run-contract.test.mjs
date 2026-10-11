@@ -117,6 +117,7 @@ async function runDeployScript({
     "SUPABASE_SERVICE_ROLE_SECRET_NAME",
     "XOMETRY_STORAGE_STATE_SECRET_NAME",
     "FICTIV_STORAGE_STATE_SECRET_NAME",
+    "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
     "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
     "XOMETRY_PROFILE_SNAPSHOT_OBJECT",
     "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
@@ -595,6 +596,153 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
     [{ WORKER_LIVE_ADAPTERS: "xometry,", FICTIV_STORAGE_STATE_SECRET_NAME: FICTIV_SECRET }],
     [{ WORKER_LIVE_ADAPTERS: "xometry,,fictiv", FICTIV_STORAGE_STATE_SECRET_NAME: FICTIV_SECRET }],
   ])("refuses unsafe live adapter configuration %j before invoking gcloud", async (envOverrides) => {
+    const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
+describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () => {
+  const QUICKPARTS_SECRET = "synthetic-quickparts-storage-state";
+  const QUICKPARTS_MOUNT = "/var/secrets/quickparts-storage-state/storage-state.json";
+  const PRE_OVD674_ENV_VARS = [
+    "SUPABASE_URL=https://synthetic.supabase.co",
+    "WORKER_MODE=live",
+    "WORKER_LIVE_ADAPTERS=xometry",
+    "WORKER_NAME=overdrafter-cad-worker",
+    "WORKER_POLL_INTERVAL_MS=5000",
+    "WORKER_BUILD_VERSION=pinned",
+    "WORKER_HTTP_HOST=0.0.0.0",
+    "WORKER_TEMP_DIR=/root/.cache/overdrafter-worker",
+    "QUOTE_ARTIFACT_BUCKET=quote-artifacts",
+    "PLAYWRIGHT_HEADLESS=true",
+    "PLAYWRIGHT_CAPTURE_TRACE=false",
+    "PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000",
+    "PLAYWRIGHT_DISABLE_SANDBOX=true",
+    "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE=true",
+    "XOMETRY_BROWSER_ENGINE=camoufox",
+    "XOMETRY_PROFILE_SNAPSHOT_BUCKET=synthetic-bucket",
+    "XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/synthetic.tgz",
+    "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES=268435456",
+  ].join(",");
+
+  // The governed Xometry-only stable-egress deploy exactly as the
+  // pre-OVD-674 script issued it, with OVD-674's single addition: removal of
+  // any stale Quickparts session mount.
+  const XOMETRY_ONLY_ARGV = [
+    "run", "deploy", "overdrafter-cad-worker",
+    "--project", "synthetic-project",
+    "--region", "us-west1",
+    "--source", ".",
+    "--execution-environment", "gen2",
+    "--min-instances", "0",
+    "--max-instances", "1",
+    "--concurrency", "1",
+    "--cpu", "2",
+    "--memory", "2Gi",
+    "--timeout", "3600",
+    "--no-cpu-throttling",
+    "--no-allow-unauthenticated",
+    "--set-env-vars", PRE_OVD674_ENV_VARS,
+    "--update-secrets", "SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest",
+    "--service-account", "worker@synthetic-project.iam.gserviceaccount.com",
+    "--network", "synthetic-network",
+    "--subnet", "synthetic-subnet",
+    "--vpc-egress", "all-traffic",
+    "--remove-secrets",
+    [
+      "XOMETRY_STORAGE_STATE_JSON",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "FICTIV_STORAGE_STATE_JSON",
+      QUICKPARTS_MOUNT,
+      "OPENROUTER_API_KEY",
+    ].join(","),
+  ];
+
+  it("leaves the Xometry-only deploy unchanged except for stripping a stale Quickparts mount", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_BUILD_VERSION: "pinned", ...STABLE_EGRESS_ENV },
+    });
+    expect(failure).toBeNull();
+    // The stub terminates every recorded argument, leaving one empty trailing field.
+    expect(findCall(calls, ["run", "deploy"])).toEqual([...XOMETRY_ONLY_ARGV, ""]);
+  });
+
+  it("keeps Quickparts disabled by default with no session binding or path map", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry");
+    expect(envVars).not.toHaveProperty("QUOTE_VENDOR_STORAGE_STATE_PATHS");
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))).not.toHaveProperty(QUICKPARTS_MOUNT);
+    expect((optionValue(deployCall, "--remove-secrets") ?? "").split(",")).toContain(QUICKPARTS_MOUNT);
+  });
+
+  it("mounts the named Quickparts secret and points the vendor path map at it", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "xometry,quickparts", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const rawEnv = optionValue(deployCall, "--set-env-vars");
+    expect(rawEnv.startsWith("^@^")).toBe(true);
+    const envVars = parseAssignments(rawEnv);
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry,quickparts");
+    expect(JSON.parse(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({ quickparts: QUICKPARTS_MOUNT });
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))[QUICKPARTS_MOUNT]).toBe(`${QUICKPARTS_SECRET}:latest`);
+    const removed = (optionValue(deployCall, "--remove-secrets") ?? "").split(",");
+    expect(removed).not.toContain(QUICKPARTS_MOUNT);
+    // Fictiv stays independently off.
+    expect(removed).toContain("FICTIV_STORAGE_STATE_JSON");
+  });
+
+  it("keeps a single-adapter path map in gcloud's plain comma form", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "quickparts", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET },
+    });
+    expect(failure).toBeNull();
+    const rawEnv = optionValue(findCall(calls, ["run", "deploy"]), "--set-env-vars");
+    expect(rawEnv.startsWith("^")).toBe(false);
+    expect(JSON.parse(parseAssignments(rawEnv).QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({ quickparts: QUICKPARTS_MOUNT });
+  });
+
+  it("accepts on the stable egress exactly the adapter values the egress contract allows", async () => {
+    const { STABLE_EGRESS_LIVE_ADAPTER_VALUES } = await import("./xometry-stable-egress-contract.mjs");
+    expect(STABLE_EGRESS_LIVE_ADAPTER_VALUES).toEqual(
+      expect.arrayContaining(["xometry,quickparts", "xometry,fictiv,quickparts"]),
+    );
+    for (const adapters of [...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "quickparts", "quickparts,xometry", "fictiv,quickparts"]) {
+      const { failure, calls } = await runDeployScript({
+        snapshot: true,
+        envOverrides: {
+          WORKER_LIVE_ADAPTERS: adapters,
+          FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+          QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+          ...STABLE_EGRESS_ENV,
+        },
+      });
+      const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
+      expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
+      if (allowed) {
+        expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
+      }
+    }
+  });
+
+  it.each([
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts" }],
+    [{ WORKER_LIVE_ADAPTERS: "quickparts" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,quickparts", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry, quickparts", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,weerg", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
+  ])("refuses unsafe Quickparts configuration %j before invoking gcloud", async (envOverrides) => {
     const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["projects", "describe"])).toBeUndefined();

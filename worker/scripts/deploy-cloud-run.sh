@@ -13,6 +13,12 @@ XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-
 # OVD-673: no default. Fictiv is never enabled without an explicitly named
 # Secret Manager secret holding its operator-captured storage state.
 FICTIV_STORAGE_STATE_SECRET_NAME="${FICTIV_STORAGE_STATE_SECRET_NAME:-}"
+# OVD-674: no default. Quickparts is never enabled without an explicitly named
+# Secret Manager secret holding its operator-captured storage state. The secret
+# is mounted as a file and handed to the portal kernel through
+# QUOTE_VENDOR_STORAGE_STATE_PATHS; the mount path is fixed, not configurable.
+QUICKPARTS_STORAGE_STATE_SECRET_NAME="${QUICKPARTS_STORAGE_STATE_SECRET_NAME:-}"
+QUICKPARTS_STORAGE_STATE_MOUNT_PATH="/var/secrets/quickparts-storage-state/storage-state.json"
 XOMETRY_PROFILE_SNAPSHOT_BUCKET="${XOMETRY_PROFILE_SNAPSHOT_BUCKET:-}"
 XOMETRY_PROFILE_SNAPSHOT_OBJECT="${XOMETRY_PROFILE_SNAPSHOT_OBJECT:-}"
 XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES="${XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES:-268435456}"
@@ -129,15 +135,17 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
-# Production live adapters are xometry and fictiv (OVD-673), each listed at
-# most once. Fictiv dispatch remains default-deny in the database until its
-# admission policy and reviewed envelope are recorded.
+# Production live adapters are xometry, fictiv (OVD-673), and quickparts
+# (OVD-674), each listed at most once. Fictiv and Quickparts dispatch remain
+# default-deny in the database until their admission policy and reviewed
+# envelope are recorded.
 fictiv_live_enabled=false
+quickparts_live_enabled=false
 xometry_live_enabled=false
 if [[ "$WORKER_MODE" == "live" ]]; then
   # read -a silently drops a trailing empty field, so reject empty fields here.
   if [[ -z "$WORKER_LIVE_ADAPTERS" || "$WORKER_LIVE_ADAPTERS" == ,* || "$WORKER_LIVE_ADAPTERS" == *, || "$WORKER_LIVE_ADAPTERS" == *,,* ]]; then
-    echo "WORKER_LIVE_ADAPTERS must list xometry and/or fictiv for a live deploy."
+    echo "WORKER_LIVE_ADAPTERS must list xometry, fictiv, and/or quickparts for a live deploy."
     exit 1
   fi
   IFS=',' read -r -a requested_live_adapters <<< "$WORKER_LIVE_ADAPTERS"
@@ -157,8 +165,15 @@ if [[ "$WORKER_MODE" == "live" ]]; then
         fi
         fictiv_live_enabled=true
         ;;
+      "quickparts")
+        if [[ "$quickparts_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists quickparts more than once."
+          exit 1
+        fi
+        quickparts_live_enabled=true
+        ;;
       *)
-        echo "WORKER_LIVE_ADAPTERS may only list xometry and/or fictiv for a live deploy."
+        echo "WORKER_LIVE_ADAPTERS may only list xometry, fictiv, and/or quickparts for a live deploy."
         exit 1
         ;;
     esac
@@ -167,6 +182,11 @@ fi
 
 if [[ "$fictiv_live_enabled" == "true" && -z "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then
   echo "FICTIV_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes fictiv."
+  exit 1
+fi
+
+if [[ "$quickparts_live_enabled" == "true" && -z "$QUICKPARTS_STORAGE_STATE_SECRET_NAME" ]]; then
+  echo "QUICKPARTS_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes quickparts."
   exit 1
 fi
 
@@ -180,8 +200,13 @@ if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EG
     echo "CLOUD_RUN_VPC_EGRESS must be all-traffic when stable egress is configured."
     exit 1
   fi
-  if [[ "$WORKER_MODE" != "live" ]] || [[ "$WORKER_LIVE_ADAPTERS" != "xometry" && "$WORKER_LIVE_ADAPTERS" != "xometry,fictiv" ]]; then
-    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv."
+  # Must match STABLE_EGRESS_LIVE_ADAPTER_VALUES in scripts/xometry-stable-egress-contract.mjs.
+  case "$WORKER_LIVE_ADAPTERS" in
+    "xometry"|"xometry,fictiv"|"xometry,quickparts"|"xometry,fictiv,quickparts") stable_egress_adapters_allowed=true ;;
+    *) stable_egress_adapters_allowed=false ;;
+  esac
+  if [[ "$WORKER_MODE" != "live" || "$stable_egress_adapters_allowed" != "true" ]]; then
+    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv and/or Quickparts."
     exit 1
   fi
   if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then
@@ -322,6 +347,13 @@ if [[ "$fictiv_live_enabled" == "true" ]]; then
   secret_vars+=("FICTIV_STORAGE_STATE_JSON=${FICTIV_STORAGE_STATE_SECRET_NAME}:latest")
 else
   remove_secret_vars+=("FICTIV_STORAGE_STATE_JSON")
+fi
+
+if [[ "$quickparts_live_enabled" == "true" ]]; then
+  env_vars+=("QUOTE_VENDOR_STORAGE_STATE_PATHS={\"quickparts\":\"${QUICKPARTS_STORAGE_STATE_MOUNT_PATH}\"}")
+  secret_vars+=("${QUICKPARTS_STORAGE_STATE_MOUNT_PATH}=${QUICKPARTS_STORAGE_STATE_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("$QUICKPARTS_STORAGE_STATE_MOUNT_PATH")
 fi
 
 # Customer drawing extraction must never inherit a previously configured

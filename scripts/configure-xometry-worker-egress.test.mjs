@@ -117,6 +117,26 @@ describe("configuration-only worker egress manifest", () => {
     }
   });
 
+  it("accepts Quickparts only alongside Xometry, in canonical order, on the governed egress (OVD-674)", () => {
+    for (const value of ["xometry,quickparts", "xometry,fictiv,quickparts"]) {
+      const service = currentService();
+      service.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      expect(envValue(buildWorkerEgressManifest(service, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(value);
+    }
+
+    for (const value of ["quickparts", "quickparts,xometry", "xometry,quickparts,fictiv", "fictiv,quickparts"]) {
+      const unsafe = currentService();
+      unsafe.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
+        "current service safety contract is invalid",
+      );
+    }
+  });
+
   it("accepts an omitted minScale annotation and preserves the omission", () => {
     const service = currentService();
     delete service.spec.template.metadata.annotations[
