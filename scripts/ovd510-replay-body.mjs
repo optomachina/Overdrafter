@@ -797,6 +797,16 @@ end $ovd560_temp$;`;
               const { runOvd520StagedProof } = await import("./ovd520-staged-proof.mjs");
               runOvd520StagedProof({ psql, catalogSql, root, output, save, fixturePrefix, proof561, proof563,
                 catalog563, fixtureId, sourceRevision: revision.stdout.trim() });
+              // OVD-649 window 2 order: the staged observer replacement applies after
+              // this chain and its paired restoration runs before any reverse below.
+              stage = "ovd649_window_order";
+              const { runOvd649WindowOrderProof } = await import("./ovd510-ovd649-window-order.mjs");
+              const windowOrder = await runOvd649WindowOrderProof({ dockerExecutable, container,
+                password: fixturePassword, psql, catalogSql, root, suffix, sourceCatalog: catalog563,
+                reverse558: readFileSync(join(root, "docs/release/ovd-558-verifier-authority-reverse.sql"), "utf8") });
+              save("ovd649-window-order-proof.json", { status: "passed", fixtureId,
+                sourceRevision: revision.stdout.trim(), ...windowOrder });
+              stage = "ovd563_step_review";
               psql(reverse563);
               if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
                 throw new Error("ovd563_reverse_catalog_drift");

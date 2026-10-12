@@ -3,6 +3,8 @@
 -- Prerequisites: native ownership plus staged OVD-560 result registry.
 -- No rows, buckets, credentials, roles or grants are created by this contract.
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 create table engineering_private.native_artifact_inputs (
   id uuid primary key,
   input_admission_id uuid not null references engineering_private.native_input_admissions(id),

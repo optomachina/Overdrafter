@@ -5,8 +5,13 @@ create extension if not exists pgcrypto with schema extensions;
 create schema engineering_private;
 grant usage on schema engineering_private to authenticated, service_role;
 create table engineering_private.native_runtime_admissions (id uuid primary key);
+create table engineering_private.native_input_admissions (id uuid primary key);
+-- Production foreign keys: a revocation INSERT takes FOR KEY SHARE on its
+-- admission row, which the staged replay validator's FOR UPDATE serializes.
 create table engineering_private.native_admission_revocations (
-  id uuid primary key, runtime_admission_id uuid, input_admission_id uuid
+  id uuid primary key,
+  runtime_admission_id uuid references engineering_private.native_runtime_admissions(id),
+  input_admission_id uuid references engineering_private.native_input_admissions(id)
 );
 create table public.engineering_workers (
   id uuid primary key, current_boot_id uuid, revoked_at timestamptz
