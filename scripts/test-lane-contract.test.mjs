@@ -19,6 +19,7 @@ const portableSuites = [
   "scripts/stripe-catalog-setup.node-test.mjs",
   "scripts/verify-migration-lineage.node-test.mjs",
   "scripts/provider-permissions-verify.node-test.mjs",
+  "tools/guardrails/proposed/guard-migrations.node-test.mjs",
 ];
 
 function portableCommand() {
