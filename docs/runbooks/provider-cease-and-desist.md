@@ -65,12 +65,39 @@ within the same hour.
 
 ```bash
 gcloud run services update overdrafter-cad-worker \
-  --region "${CLOUD_RUN_REGION:-us-west1}" \
-  --update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>
+  --project overdrafter-worker-9133 \
+  --region us-west1 \
+  --update-env-vars "^@^WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>"
 ```
 
-Replace `<remaining_comma_separated_keys>` with the current list minus the
-provider being stopped. An empty remainder means no live adapters.
+The `^@^` prefix changes the list delimiter to `@`. Without it gcloud splits the
+value on commas and fails with `Bad syntax for dict arg` whenever two or more
+adapters remain, which would leave the provider live. Replace
+`<remaining_comma_separated_keys>` with the current list minus the provider being
+stopped.
+
+Never set an empty remainder. In live mode an empty `WORKER_LIVE_ADAPTERS` is a
+readiness error (`worker/src/runtimeSecrets.ts`), so the new revision does not
+become ready and the old revision, with the provider still on, keeps traffic. If
+the provider is the last live adapter, stop here and get Blaine's decision on
+stopping the worker service.
+
+Verify that the new revision is serving and the provider is gone (read only):
+
+```bash
+gcloud run services describe overdrafter-cad-worker \
+  --project overdrafter-worker-9133 \
+  --region us-west1 \
+  --format="yaml(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.traffic)"
+gcloud run services describe overdrafter-cad-worker \
+  --project overdrafter-worker-9133 \
+  --region us-west1 \
+  --format="value(spec.template.spec.containers[0].env)" | grep WORKER_LIVE_ADAPTERS
+```
+
+The latest created and latest ready revisions must match, traffic must point at
+that revision, and the `WORKER_LIVE_ADAPTERS` value must no longer list the
+provider.
 
 2. Admission policy lives in `private.quote_provider_admission_policies`, which no
    admin role can write. There is no command to paste for it. Do not run SQL by

@@ -272,7 +272,7 @@ describe("OVD-724 provider permissions matrix lint", () => {
       today: "2026-10-11",
       matrixDocument: matrix,
       markdown: brokenMarkdown,
-    })).rejects.toThrow("rmfg.date_checked is older than 90 days");
+    })).rejects.toThrow(/rmfg\.date_checked is older than 90 days; re-check the provider's terms, then bump date_checked .*permissions-matrix\.v1\.json.*permissions-matrix\.md/);
   });
 
   it("rejects markdown that disagrees with the JSON", async () => {
@@ -699,7 +699,7 @@ describe("OVD-728 playbook structure and pending marker", () => {
   it("requires the Manual fallback section with an executable Cloud Run command", async () => {
     const text = await playbook();
     expect(text).toContain("gcloud run services update overdrafter-cad-worker");
-    expect(text).toContain("--update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>");
+    expect(text).toContain("--update-env-vars \"^@^WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>\"");
     expect(text).toMatch(/new revision/i);
     expect(text).toContain("reviewed migration");
     const withoutSection = text.replace(/## Manual fallback until OVD-722 ships[\s\S]*?(?=\n## Step 2:)/, "");
@@ -711,6 +711,45 @@ describe("OVD-728 playbook structure and pending marker", () => {
     expect(() => assertCeaseAndDesistPlaybook(unfenced)).toThrow("fenced code block");
     const noAdmission = text.replaceAll("reviewed migration", "later change");
     expect(() => assertCeaseAndDesistPlaybook(noAdmission)).toThrow("reviewed migration");
+  });
+
+  it("rejects the plain comma form of --update-env-vars, which gcloud splits on commas", async () => {
+    const text = await playbook();
+    const plain = text.replace("\"^@^WORKER_LIVE_ADAPTERS=", "WORKER_LIVE_ADAPTERS=").replace("<remaining_comma_separated_keys>\"", "<remaining_comma_separated_keys>");
+    expect(plain).not.toBe(text);
+    expect(() => assertCeaseAndDesistPlaybook(plain)).toThrow("plain comma form");
+    const quotedPlain = text.replace("^@^", "");
+    expect(() => assertCeaseAndDesistPlaybook(quotedPlain)).toThrow("plain comma form");
+  });
+
+  it("requires the production project and region on the fallback commands", async () => {
+    const text = await playbook();
+    const noProject = text.replaceAll("  --project overdrafter-worker-9133 \\\n", "");
+    expect(noProject).not.toBe(text);
+    expect(() => assertCeaseAndDesistPlaybook(noProject)).toThrow("--project overdrafter-worker-9133");
+    const noRegion = text.replaceAll("  --region us-west1 \\\n", "");
+    expect(noRegion).not.toBe(text);
+    expect(() => assertCeaseAndDesistPlaybook(noRegion)).toThrow("--region us-west1");
+  });
+
+  it("requires a read only describe step and the empty list readiness warning", async () => {
+    const text = await playbook();
+    const noDescribe = text.replaceAll("gcloud run services describe", "echo");
+    expect(() => assertCeaseAndDesistPlaybook(noDescribe)).toThrow("describe");
+    const noWarning = text.replace(/Never set an empty remainder[\s\S]*?stopping the worker service\.\n/, "");
+    expect(noWarning).not.toBe(text);
+    expect(() => assertCeaseAndDesistPlaybook(noWarning)).toThrow("fails readiness");
+  });
+
+  it("ignores a Manual fallback hidden in an HTML comment", async () => {
+    const text = await playbook();
+    const start = text.indexOf("## Manual fallback until OVD-722 ships");
+    const end = text.indexOf("## Step 2:");
+    const hidden = `${text.slice(0, start)}<!--\n${text.slice(start, end)}-->\n\n${text.slice(end)}`;
+    expect(() => assertCeaseAndDesistPlaybook(hidden)).toThrow("Manual fallback section");
+    const commented = text.replace("## Manual fallback until OVD-722 ships", "## Manual fallback until OVD-722 ships\n\n<!--");
+    const withDecoy = `${commented.slice(0, commented.indexOf("## Step 2:"))}-->\n\n${commented.slice(commented.indexOf("## Step 2:"))}`;
+    expect(() => assertCeaseAndDesistPlaybook(withDecoy)).toThrow();
   });
 
   it("rejects kill_switch_shipped true unless the OVD-722 switch exists in code", async () => {

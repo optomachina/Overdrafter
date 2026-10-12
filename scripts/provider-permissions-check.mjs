@@ -23,11 +23,8 @@ export const PLAYBOOK_MANUAL_FALLBACK_HEADING = "## Manual fallback";
 export const OVD722_KILL_CLI_RELATIVE_PATH = "scripts/provider-kill.mjs";
 export const OVD722_RPC_CLIENT_RELATIVE_PATH = "src/features/quotes/api/provider-kill-switch-api.ts";
 export const OVD722_RPC_NAME = "api_admin_set_provider_kill_switch";
-export const WORKER_LIVE_ADAPTERS_UPDATE_COMMAND = [
-  "gcloud run services update overdrafter-cad-worker \\",
-  "  --region \"${CLOUD_RUN_REGION:-us-west1}\" \\",
-  "  --update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>",
-].join("\n");
+export const WORKER_CLOUD_RUN_PROJECT = "overdrafter-worker-9133";
+export const WORKER_CLOUD_RUN_REGION = "us-west1";
 export const ADMISSION_FOLLOW_UP_PHRASE = "reviewed migration";
 const KILL_COMMAND_PATTERN = /^npm run provider:kill -- (?:<provider_key>|[a-z][a-z0-9]{1,49}) --on --reason ".+"$/m;
 
@@ -450,7 +447,9 @@ export function assertEnabledDerivation(providers, today) {
       );
     }
     if (row.enabled_for_paid_automation && daysBetween(row.date_checked, today) > MAX_ENABLED_AGE_DAYS) {
-      throw new Error(`${row.key}.date_checked is older than ${MAX_ENABLED_AGE_DAYS} days`);
+      throw new Error(
+        `${row.key}.date_checked is older than ${MAX_ENABLED_AGE_DAYS} days; re-check the provider's terms, then bump date_checked (and checkedOn) in ${MATRIX_JSON_RELATIVE_PATH} and the date_checked column in ${MATRIX_MARKDOWN_RELATIVE_PATH}`,
+      );
     }
   }
 }
@@ -547,7 +546,7 @@ function visibleMarkdownLines(text) {
 }
 
 function playbookSection(playbook, headingPrefix) {
-  const lines = String(playbook).split(/\r?\n/);
+  const lines = stripHtmlComments(playbook).split(/\r?\n/);
   let inFence = false;
   let start = -1;
   for (const [index, line] of lines.entries()) {
@@ -579,10 +578,14 @@ function playbookSection(playbook, headingPrefix) {
   return body.join("\n");
 }
 
+function stripHtmlComments(text) {
+  return String(text).replace(/<!--[\s\S]*?-->/g, "");
+}
+
 function fencedBlocks(text) {
   const blocks = [];
   let current = null;
-  for (const line of String(text).split(/\r?\n/)) {
+  for (const line of stripHtmlComments(text).split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(line)) {
       if (current === null) {
         current = [];
@@ -699,8 +702,25 @@ export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = fal
   if (!fallbackCommands.includes("gcloud run services update overdrafter-cad-worker")) {
     throw new Error("playbook Manual fallback must give the gcloud command that removes a key from WORKER_LIVE_ADAPTERS in a fenced code block");
   }
-  if (!fallbackCommands.includes("--update-env-vars WORKER_LIVE_ADAPTERS=")) {
-    throw new Error("playbook Manual fallback must name --update-env-vars WORKER_LIVE_ADAPTERS= in a fenced code block");
+  if (/--update-env-vars\s+"?WORKER_LIVE_ADAPTERS=/.test(fallbackCommands)) {
+    throw new Error(
+      "playbook Manual fallback must not use the plain comma form; gcloud splits dict flags on commas, so use --update-env-vars \"^@^WORKER_LIVE_ADAPTERS=<keys>\"",
+    );
+  }
+  if (!/--update-env-vars\s+"\^@\^WORKER_LIVE_ADAPTERS=/.test(fallbackCommands)) {
+    throw new Error("playbook Manual fallback must use --update-env-vars \"^@^WORKER_LIVE_ADAPTERS=<keys>\" in a fenced code block");
+  }
+  if (!new RegExp(`--project\\s+${WORKER_CLOUD_RUN_PROJECT}\\b`).test(fallbackCommands)) {
+    throw new Error(`playbook Manual fallback commands must pass --project ${WORKER_CLOUD_RUN_PROJECT}`);
+  }
+  if (!new RegExp(`--region\\s+${WORKER_CLOUD_RUN_REGION}\\b`).test(fallbackCommands)) {
+    throw new Error(`playbook Manual fallback commands must pass --region ${WORKER_CLOUD_RUN_REGION}`);
+  }
+  if (!fallbackCommands.includes("gcloud run services describe overdrafter-cad-worker")) {
+    throw new Error("playbook Manual fallback must include a read only gcloud describe step that verifies the new revision is serving");
+  }
+  if (!/empty/i.test(fallback) || !/readiness/i.test(fallback)) {
+    throw new Error("playbook Manual fallback must say an empty WORKER_LIVE_ADAPTERS fails readiness and the old revision keeps traffic");
   }
   if (!/new revision/i.test(fallback)) {
     throw new Error("playbook Manual fallback must say a Cloud Run env change creates a new revision");
