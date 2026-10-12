@@ -7,6 +7,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  classify,
+  containsSessionSecretMarker,
   livePaths,
   nextMigrationTimestamp,
   parseFixtureOnboardArgs,
@@ -14,6 +16,7 @@ import {
   runFixtureOnboard,
   runFixtureOnboardCli,
 } from "./fixture-onboard.mjs";
+import { sessionSecretMarker } from "./fixture-onboard-templates.mjs";
 import { scaffoldProvider } from "./provider-add.mjs";
 import {
   PROVIDER_MANIFEST_FILE,
@@ -416,6 +419,64 @@ describe("readLiveAutomationVendors", () => {
       "xometry", "fictiv", "protolabs", "sendcutsend", "oshcut", "fabworks",
       "ponoko", "quickparts", "rapiddirect", "geomiq", "weerg", "protolabsnetwork",
     ]);
+  });
+});
+
+describe("session-secret marker matching", () => {
+  const marker = sessionSecretMarker("shopname");
+
+  it("matches only an exact whole line outside comments and fences", () => {
+    expect(containsSessionSecretMarker(`${marker}\n`, marker, "worker/.env.example")).toBe(true);
+    expect(containsSessionSecretMarker(`  ${marker}  \n`, marker, "worker/.env.example")).toBe(true);
+  });
+
+  it.each([
+    ["a comment", `WORKER_MODE=simulate\n<!-- ${marker} -->\n`],
+    ["a string", `WORKER_MODE=simulate\nNOTE="${marker}"\n`],
+    ["a longer token", `WORKER_MODE=simulate\n${marker}X\n`],
+  ])("does not treat the marker in %s as present in a non-TS file", (_label, contents) => {
+    expect(containsSessionSecretMarker(contents, marker, "worker/.env.example")).toBe(false);
+  });
+
+  it.each([
+    ["a comment", `export const note = 1;\n// ${marker}\n`],
+    ["a string", `export const note = "${marker}";\n`],
+    ["a longer token", `export const keep = 1;\n${marker}X\n`],
+  ])("does not treat the marker in %s as present in a TypeScript file", (_label, contents) => {
+    expect(containsSessionSecretMarker(contents, marker, "worker/src/runtimeSecrets.ts")).toBe(false);
+  });
+
+  it("classifies append files by the structural marker, not includes()", async () => {
+    const root = await createRoot();
+    const file = {
+      path: "worker/.env.example",
+      append: true,
+      marker,
+      contents: `${marker}\n`,
+    };
+    await fs.writeFile(path.join(root, file.path), `WORKER_MODE=simulate\n<!-- ${marker} -->\nNOTE="${marker}"\n${marker}X\n`);
+    await expect(classify(root, file)).resolves.toBe("append");
+    await fs.writeFile(path.join(root, file.path), `WORKER_MODE=simulate\n${marker}\n`);
+    await expect(classify(root, file)).resolves.toBe("unchanged");
+
+    const tsFile = { ...file, path: "worker/src/runtimeSecrets.ts" };
+    await fs.writeFile(path.join(root, tsFile.path), `// ${marker}\nexport const note = "${marker}";\n`);
+    await expect(classify(root, tsFile)).resolves.toBe("append");
+    await fs.writeFile(path.join(root, tsFile.path), `${marker}\nexport const keep = 1;\n`);
+    await expect(classify(root, tsFile)).resolves.toBe("unchanged");
+  });
+
+  it("re-runs live onboarding when the marker exists only as a comment, string, or substring", async () => {
+    const root = await createRoot();
+    await addEnvelopeManifest(root);
+    await fs.writeFile(
+      path.join(root, "worker/.env.example"),
+      `WORKER_MODE=simulate\n<!-- ${marker} -->\nNOTE="${marker}"\n${marker}extra\n`,
+    );
+    const result = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "live" });
+    expect(result.appended).toContain("worker/.env.example");
+    const env = await fs.readFile(path.join(root, "worker/.env.example"), "utf8");
+    expect(env.split(/\r?\n/).some((line) => line.trim() === marker)).toBe(true);
   });
 });
 
