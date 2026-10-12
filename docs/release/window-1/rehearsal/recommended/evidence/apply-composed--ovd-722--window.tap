@@ -1,6 +1,6 @@
  plan  
 -------
- 1..53
+ 1..66
 (1 row)
 
                           is                          
@@ -228,19 +228,124 @@
  ok 40 - a quickparts permit passes the guard and reaches the table's own constraints
 (1 row)
 
-                            is                             
------------------------------------------------------------
- ok 41 - the sweep cancels at least the queued fictiv task
+                                   is                                   
+------------------------------------------------------------------------
+ ok 41 - the sweep reports the fictiv task without a lane id as skipped
 (1 row)
 
-                            ok                            
-----------------------------------------------------------
- ok 42 - the fictiv task ends cancelled_provider_disabled
+                                                        ok                                                        
+------------------------------------------------------------------------------------------------------------------
+ ok 42 - a task whose payload has no vendorQuoteResultId stays queued (never cancelled with its lane left queued)
 (1 row)
 
                     is                    
 ------------------------------------------
  ok 43 - the quickparts task is untouched
+(1 row)
+
+ ovd722_member_as 
+------------------
+ 
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                                                                                        api_admin_set_provider_kill_switch                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"reason": "OVD-722 test: end to end enqueue drill", "engaged": true, "version": 1, "provider": "xometry", "changedAt": "2026-10-12T13:22:04.435445+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+(1 row)
+
+ ovd722_member_as 
+------------------
+ 
+(1 row)
+
+                                   throws_ok                                    
+--------------------------------------------------------------------------------
+ ok 44 - the real Xometry dispatch RPC is refused while the provider is engaged
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 45 - the refused dispatch left no quote request
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 46 - the refused dispatch left no quote run
+(1 row)
+
+                                  is                                  
+----------------------------------------------------------------------
+ ok 47 - the refused dispatch left no lane (vendor_quote_results row)
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 48 - the refused dispatch left no work_queue task
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                                                                                          api_admin_set_provider_kill_switch                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"reason": "OVD-722 test: end to end enqueue released", "engaged": false, "version": 2, "provider": "xometry", "changedAt": "2026-10-12T13:22:04.487247+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+(1 row)
+
+ ovd722_member_as 
+------------------
+ 
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 49 - with the switch released the same dispatch is accepted
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 50 - the accepted dispatch created its queued task and lane
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                                                                                     api_admin_set_provider_kill_switch                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"reason": "OVD-722 test: sweep bad row drill", "engaged": true, "version": 3, "provider": "xometry", "changedAt": "2026-10-12T13:22:04.527337+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+(1 row)
+
+                                        ok                                        
+----------------------------------------------------------------------------------
+ ok 51 - the cancelled task's own lane ends failed as cancelled_provider_disabled
+(1 row)
+
+                                                          ok                                                           
+-----------------------------------------------------------------------------------------------------------------------
+ ok 52 - the sweep skips the row whose trigger raises instead of aborting, and the task without a lane id stays queued
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 53 - the sweep cancelled the other row
+(1 row)
+
+                                           ok                                           
+----------------------------------------------------------------------------------------
+ ok 54 - the skipped row stays queued (its changes rolled back with the subtransaction)
+(1 row)
+
+                     is                      
+---------------------------------------------
+ ok 55 - the skipped row's lane is untouched
 (1 row)
 
  ovd722_as 
@@ -250,22 +355,32 @@
 
                          is                         
 ----------------------------------------------------
- ok 44 - a platform admin engages the global switch
+ ok 56 - Xometry is released again after the drills
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 57 - a platform admin engages the global switch
 (1 row)
 
                                ok                                
 -----------------------------------------------------------------
- ok 45 - with the global switch engaged every provider is denied
+ ok 58 - with the global switch engaged every provider is denied
 (1 row)
 
                         is                         
 ---------------------------------------------------
- ok 46 - the worker read reports the global switch
+ ok 59 - the worker read reports the global switch
 (1 row)
 
                                  throws_ok                                 
 ---------------------------------------------------------------------------
- ok 47 - a new Xometry permit (enqueue) is refused under the global switch
+ ok 60 - a new Xometry permit (enqueue) is refused under the global switch
 (1 row)
 
  ovd722_as 
@@ -275,36 +390,36 @@
 
                  throws_ok                 
 -------------------------------------------
- ok 48 - a stale global release is refused
+ ok 61 - a stale global release is refused
 (1 row)
 
                                      is                                     
 ----------------------------------------------------------------------------
- ok 49 - a platform admin releases the global switch at the current version
+ ok 62 - a platform admin releases the global switch at the current version
 (1 row)
 
                                    ok                                   
 ------------------------------------------------------------------------
- ok 50 - releasing the global switch restores each provider's own state
+ ok 63 - releasing the global switch restores each provider's own state
 (1 row)
 
                              is                             
 ------------------------------------------------------------
- ok 51 - both global flips are audited with a null provider
+ ok 64 - both global flips are audited with a null provider
 (1 row)
 
                                 ok                                
 ------------------------------------------------------------------
- ok 52 - a provider with no kill-switch row is treated as engaged
+ ok 65 - a provider with no kill-switch row is treated as engaged
 (1 row)
 
                             ok                            
 ----------------------------------------------------------
- ok 53 - an unknown provider string is treated as engaged
+ ok 66 - an unknown provider string is treated as engaged
 (1 row)
 
  finish 
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-7BS0MP/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:29: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-US7SYk/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:35: NOTICE:  extension "pgtap" already exists, skipping

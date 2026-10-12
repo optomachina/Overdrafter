@@ -63,6 +63,14 @@
       {
         "definer": true,
         "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_check_export_control_extraction(uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
           "authenticated",
           "service_role"
         ],
@@ -102,6 +110,14 @@
           "service_role"
         ],
         "search_path": "\"\"",
+        "signature": "public.api_queue_export_marking_rescan(uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
         "signature": "public.api_record_export_control_clean_scan(uuid,uuid,uuid,text,text)"
       },
       {
@@ -110,7 +126,7 @@
           "service_role"
         ],
         "search_path": "\"\"",
-        "signature": "public.api_record_export_control_marking_hits(uuid,uuid,uuid,text,text[])"
+        "signature": "public.api_record_export_control_marking_hits(uuid,uuid,uuid,text,text[],text)"
       },
       {
         "definer": true,

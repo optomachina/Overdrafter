@@ -1,6 +1,6 @@
- plan  
--------
- 1..94
+  plan  
+--------
+ 1..128
 (1 row)
 
  set_ovd723_request_identity 
@@ -273,29 +273,74 @@
  ok 49 - a task lookup that finds nothing is denied
 (1 row)
 
+                               is                               
+----------------------------------------------------------------
+ ok 50 - extraction: a clean, unblocked job may reach the model
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 51 - extraction: an unsure job never reaches the model
+(1 row)
+
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 52 - extraction: an undeclared job (legacy upload path) never reaches the model
+(1 row)
+
+                                      ok                                      
+------------------------------------------------------------------------------
+ ok 53 - RapidDirect and Protolabs Network are foreign, with Weerg and Geomiq
+(1 row)
+
+                      ok                      
+----------------------------------------------
+ ok 54 - declarations store no client IP hash
+(1 row)
+
+                             ok                             
+------------------------------------------------------------
+ ok 55 - only the service role can run the extraction check
+(1 row)
+
                                            is                                           
 ----------------------------------------------------------------------------------------
- ok 50 - a core denial of an unknown task is returned unchanged by the provider wrapper
+ ok 56 - a core denial of an unknown task is returned unchanged by the provider wrapper
 (1 row)
 
                                           is                                           
 ---------------------------------------------------------------------------------------
- ok 51 - a core denial of an unknown task is returned unchanged by the Xometry wrapper
+ ok 57 - a core denial of an unknown task is returned unchanged by the Xometry wrapper
+(1 row)
+
+                                         is                                          
+-------------------------------------------------------------------------------------
+ ok 58 - a repeat hit on the same file and source returns the open block, unresolved
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 59 - extraction: a job with an open marking block never reaches the model
+(1 row)
+
+                                   ok                                    
+-------------------------------------------------------------------------
+ ok 60 - the repeat hit opened no second block and no second audit event
 (1 row)
 
                        is                        
 -------------------------------------------------
- ok 52 - fictiv: an open marking block is denied
+ ok 61 - fictiv: an open marking block is denied
 (1 row)
 
                         is                        
 --------------------------------------------------
- ok 53 - xometry: an open marking block is denied
+ ok 62 - xometry: an open marking block is denied
 (1 row)
 
                                  is                                  
 ---------------------------------------------------------------------
- ok 54 - geomiq: an open marking block is denied by the foreign rule
+ ok 63 - geomiq: an open marking block is denied by the foreign rule
 (1 row)
 
  set_ovd723_request_identity 
@@ -305,22 +350,22 @@
 
                         is                        
 --------------------------------------------------
- ok 55 - the member sees the part held for review
+ ok 64 - the member sees the part held for review
 (1 row)
 
                       throws_ok                      
 -----------------------------------------------------
- ok 56 - further uploads to a held part are rejected
+ ok 65 - further uploads to a held part are rejected
 (1 row)
 
                   throws_ok                  
 ---------------------------------------------
- ok 57 - a user cannot clear a marking block
+ ok 66 - a user cannot clear a marking block
 (1 row)
 
                           throws_ok                           
 --------------------------------------------------------------
- ok 58 - a user cannot declare for another organization's job
+ ok 67 - a user cannot declare for another organization's job
 (1 row)
 
  set_ovd723_request_identity 
@@ -330,77 +375,82 @@
 
                 throws_ok                
 -----------------------------------------
- ok 59 - an admin review requires a note
+ ok 68 - an admin review requires a note
 (1 row)
 
                      is                     
 --------------------------------------------
- ok 60 - an admin can clear a marking block
+ ok 69 - an admin can clear a marking block
 (1 row)
 
                      throws_ok                     
 ---------------------------------------------------
- ok 61 - a reviewed block cannot be reviewed again
+ ok 70 - a reviewed block cannot be reviewed again
 (1 row)
 
                                is                               
 ----------------------------------------------------------------
- ok 62 - the admin clearance is audited with the admin as actor
+ ok 71 - the admin clearance is audited with the admin as actor
 (1 row)
 
                                   is                                   
 -----------------------------------------------------------------------
- ok 63 - after admin clearance the clean declaration is admitted again
+ ok 72 - after admin clearance the clean declaration is admitted again
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 73 - after admin clearance extraction is allowed again
 (1 row)
 
                                            is                                           
 ----------------------------------------------------------------------------------------
- ok 64 - a clean, unblocked job is still denied while its part files have no clean scan
+ ok 74 - a clean, unblocked job is still denied while its part files have no clean scan
 (1 row)
 
                           ok                           
 -------------------------------------------------------
- ok 65 - only the service role can record a clean scan
+ ok 75 - only the service role can record a clean scan
 (1 row)
 
                                 throws_ok                                
 -------------------------------------------------------------------------
- ok 66 - a clean scan cannot be recorded against a file from another job
+ ok 76 - a clean scan cannot be recorded against a file from another job
 (1 row)
 
                                                 throws_ok                                                 
 ----------------------------------------------------------------------------------------------------------
- ok 67 - a clean scan of bytes whose hash differs from the file's claimed hash is rejected (finding 2, 4)
+ ok 77 - a clean scan of bytes whose hash differs from the file's claimed hash is rejected (finding 2, 4)
 (1 row)
 
                                 throws_ok                                 
 --------------------------------------------------------------------------
- ok 68 - a clean scan cannot name a part that does not reference the file
+ ok 78 - a clean scan cannot name a part that does not reference the file
 (1 row)
 
                     lives_ok                     
 -------------------------------------------------
- ok 69 - the worker records a clean drawing scan
+ ok 79 - the worker records a clean drawing scan
 (1 row)
 
                                        is                                        
 ---------------------------------------------------------------------------------
- ok 70 - a scanned drawing is not enough while the STEP header has no clean scan
+ ok 80 - a scanned drawing is not enough while the STEP header has no clean scan
 (1 row)
 
  api_record_export_control_clean_scan 
 --------------------------------------
- 01370cb2-50b8-4499-8195-cf02536a8e5e
+ 95955fc7-2794-4000-9b55-aca9485539c6
 (1 row)
 
                              is                              
 -------------------------------------------------------------
- ok 71 - with both files scanned clean, the part is admitted
+ ok 81 - with both files scanned clean, the part is admitted
 (1 row)
 
                                              is                                              
 ---------------------------------------------------------------------------------------------
- ok 72 - a reused copy of the same bytes is denied: another file's scan never vouches for it
+ ok 82 - a reused copy of the same bytes is denied: another file's scan never vouches for it
 (1 row)
 
  set_ovd723_request_identity 
@@ -410,17 +460,17 @@
 
                                  lives_ok                                 
 --------------------------------------------------------------------------
- ok 73 - an internal org role repoints the scanned CAD row to other bytes
+ ok 83 - an internal org role repoints the scanned CAD row to other bytes
 (1 row)
 
                         is                        
 --------------------------------------------------
- ok 74 - a repointed CAD row loses its clean scan
+ ok 84 - a repointed CAD row loses its clean scan
 (1 row)
 
                              is                             
 ------------------------------------------------------------
- ok 75 - restoring the scanned bytes restores the admission
+ ok 85 - restoring the scanned bytes restores the admission
 (1 row)
 
  set_ovd723_request_identity 
@@ -430,67 +480,72 @@
 
                                  lives_ok                                  
 ---------------------------------------------------------------------------
- ok 76 - an internal org role moves the scanned drawing row to another job
+ ok 86 - an internal org role moves the scanned drawing row to another job
 (1 row)
 
                                is                                
 -----------------------------------------------------------------
- ok 77 - a drawing row moved to another job loses its clean scan
+ ok 87 - a drawing row moved to another job loses its clean scan
 (1 row)
 
                                       is                                      
 ------------------------------------------------------------------------------
- ok 78 - a drawing whose staged bytes do not match its claimed hash is denied
+ ok 88 - a drawing whose staged bytes do not match its claimed hash is denied
 (1 row)
 
                             lives_ok                             
 -----------------------------------------------------------------
- ok 79 - the other job's drawing is scanned clean in its own job
+ ok 89 - the other job's drawing is scanned clean in its own job
 (1 row)
 
                                 is                                
 ------------------------------------------------------------------
- ok 80 - a part repointed to another job's scanned file is denied
+ ok 90 - a part repointed to another job's scanned file is denied
 (1 row)
 
                      is                      
 ---------------------------------------------
- ok 81 - the restored part is admitted again
+ ok 91 - the restored part is admitted again
 (1 row)
 
                                  is                                 
 --------------------------------------------------------------------
- ok 82 - a native CAD file without a worker-verified hash is denied
+ ok 92 - a native CAD file without a worker-verified hash is denied
 (1 row)
 
                                              is                                             
 --------------------------------------------------------------------------------------------
- ok 83 - a native CAD file with a verified hash is admitted (no scanner for the format yet)
+ ok 93 - a native CAD file with a verified hash is admitted (no scanner for the format yet)
 (1 row)
 
                             ok                            
 ----------------------------------------------------------
- ok 84 - only the service role can run the dispatch check
+ ok 94 - only the service role can run the dispatch check
 (1 row)
 
                         is                         
 ---------------------------------------------------
- ok 85 - the dispatch check denies the reused copy
+ ok 95 - the dispatch check denies the reused copy
 (1 row)
 
                                 is                                 
 -------------------------------------------------------------------
- ok 86 - the dispatch check admits a clean, scanned, verified part
+ ok 96 - the dispatch check admits a clean, scanned, verified part
 (1 row)
 
                            is                            
 ---------------------------------------------------------
- ok 87 - the dispatch check denies a task it cannot find
+ ok 97 - the dispatch check denies a task it cannot find
 (1 row)
 
                   throws_ok                   
 ----------------------------------------------
- ok 88 - clean scan records cannot be deleted
+ ok 98 - clean scan records cannot be deleted
+(1 row)
+
+                                     is                                      
+-----------------------------------------------------------------------------
+ ok 99 - a part extracted before the deploy is held until its owner declares
 (1 row)
 
  set_ovd723_request_identity 
@@ -498,34 +553,174 @@
  
 (1 row)
 
-                            throws_ok                            
------------------------------------------------------------------
- ok 89 - another organization cannot read the declaration status
+                                                  is                                                   
+-------------------------------------------------------------------------------------------------------
+ ok 100 - extraction queues nothing for a part that already has an extraction (why a rescan is needed)
 (1 row)
 
-               throws_ok                
-----------------------------------------
- ok 90 - audit events cannot be updated
+                                            is                                            
+------------------------------------------------------------------------------------------
+ ok 101 - a clean declaration queues a scan only rescan for the drawing and the STEP file
 (1 row)
 
-               throws_ok                
-----------------------------------------
- ok 91 - declarations cannot be deleted
+                                   is                                   
+------------------------------------------------------------------------
+ ok 102 - one queued rescan task per unscanned file, linked to the part
 (1 row)
 
-                                 ok                                  
----------------------------------------------------------------------
- ok 92 - anon cannot execute the declaration, status, or review RPCs
+                              is                               
+---------------------------------------------------------------
+ ok 103 - after the declaration, the part waits for the rescan
 (1 row)
 
-                          ok                           
--------------------------------------------------------
- ok 93 - only the service role can record marking hits
+ set_ovd723_request_identity 
+-----------------------------
+ 
 (1 row)
 
-                                    ok                                     
+                                    is                                     
 ---------------------------------------------------------------------------
- ok 94 - the declaration RPC is SECURITY DEFINER with an empty search_path
+ ok 104 - declaring again queues no duplicate while the rescans are queued
+(1 row)
+
+                                                    ok                                                    
+----------------------------------------------------------------------------------------------------------
+ ok 105 - only the service role can queue a rescan; the RPC is SECURITY DEFINER with an empty search_path
+(1 row)
+
+                                     lives_ok                                      
+-----------------------------------------------------------------------------------
+ ok 106 - the rescan records a clean OCR drawing scan and a clean STEP header scan
+(1 row)
+
+                                                             is                                                             
+----------------------------------------------------------------------------------------------------------------------------
+ ok 107 - end to end: the part extracted before the deploy is dispatchable after declare and rescan, with no new extraction
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 108 - files with a clean scan of their current bytes are not queued again
+(1 row)
+
+                         is                          
+-----------------------------------------------------
+ ok 109 - a file whose bytes changed is queued again
+(1 row)
+
+                  is                   
+---------------------------------------
+ ok 110 - a marking hit holds the part
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 111 - clearing a false positive records an admin cleared scan of the reviewed bytes
+(1 row)
+
+                                               is                                                
+-------------------------------------------------------------------------------------------------
+ ok 112 - after clearance the part is dispatchable: the scan rule accepts the admin cleared scan
+(1 row)
+
+                                                          ok                                                          
+----------------------------------------------------------------------------------------------------------------------
+ ok 113 - the admin cleared scan is bound to the file, its hash, its source, and the cleared patterns, and is audited
+(1 row)
+
+                                             is                                              
+---------------------------------------------------------------------------------------------
+ ok 114 - a rescan of the same bytes with already cleared patterns resolves to the clearance
+(1 row)
+
+                        is                        
+--------------------------------------------------
+ ok 115 - the resolved rescan opened no new block
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 116 - the part stays dispatchable after the resolved rescan
+(1 row)
+
+                                      ok                                       
+-------------------------------------------------------------------------------
+ ok 117 - a new pattern on the same bytes opens a new block and holds the part
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 118 - the admin clears the new pattern too
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 119 - a clearance does not vouch for different bytes in the same file row
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 120 - the same patterns on a different hash open a new block
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                          is                                           
+---------------------------------------------------------------------------------------
+ ok 121 - a clearance records no scan when the file no longer holds the reviewed bytes
+(1 row)
+
+                                is                                
+------------------------------------------------------------------
+ ok 122 - the changed bytes stay held until the worker scans them
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                            throws_ok                             
+------------------------------------------------------------------
+ ok 123 - another organization cannot read the declaration status
+(1 row)
+
+                throws_ok                
+-----------------------------------------
+ ok 124 - audit events cannot be updated
+(1 row)
+
+                throws_ok                
+-----------------------------------------
+ ok 125 - declarations cannot be deleted
+(1 row)
+
+                                  ok                                  
+----------------------------------------------------------------------
+ ok 126 - anon cannot execute the declaration, status, or review RPCs
+(1 row)
+
+                           ok                           
+--------------------------------------------------------
+ ok 127 - only the service role can record marking hits
+(1 row)
+
+                                     ok                                     
+----------------------------------------------------------------------------
+ ok 128 - the declaration RPC is SECURITY DEFINER with an empty search_path
 (1 row)
 
  finish 

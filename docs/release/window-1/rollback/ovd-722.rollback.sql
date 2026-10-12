@@ -1,13 +1,14 @@
 -- OVD-722 rollback, runnable form. Window 1 packet, not a migration.
 --
 -- Source: the commented ROLLBACK section of docs/migration-drafts/ovd-722.sql
--- at 8302da984036352ad21b9ce86827682f275657a5, from "-- begin;" through "-- commit;" with the leading "-- "
+-- at a8e0bfd7a347759a6ddcc4e88d70194c825b88bd, from "-- begin;" through "-- commit;" with the leading "-- "
 -- removed and nothing else changed. scripts/window-1/rehearse.mjs refuses to
 -- run if the body below the marker drifts from that section.
 --
 -- Order: roll back strictly in reverse order of apply (recommended order is
--- 462, 723, 722, so this runs first). The draft's own guard refuses while a
--- switch is engaged or when the role cannot bypass RLS.
+-- 462, 723, 722, so this runs first). The draft's own guard fails closed: it
+-- refuses while any switch is engaged, while the global switch row or any
+-- provider switch row is missing, or when the role cannot bypass RLS.
 -- Roll the worker back to a build without OVD-722 first (the worker fails
 -- closed while api_worker_provider_kill_switch_state is missing).
 -- The last block drops private.provider_kill_switch_audit. Export it first, or
@@ -29,8 +30,11 @@ begin
     end if;
     lock table private.provider_global_kill_switch, private.provider_kill_switches in access exclusive mode;
     if coalesce(pg_catalog.current_setting('ovd722.rollback_discard_engagements', true), '') <> 'confirmed'
-       and (exists (select 1 from private.provider_global_kill_switch where engaged)
-            or exists (select 1 from private.provider_kill_switches where engaged)) then
+       and (coalesce((select g.engaged from private.provider_global_kill_switch g where g.singleton), true)
+            or exists (select 1
+                       from pg_catalog.unnest(pg_catalog.enum_range(null::public.vendor_name)) as v(provider)
+                       left join private.provider_kill_switches s on s.provider = v.provider
+                       where s.provider is null or s.engaged)) then
       raise exception 'OVD-722 rollback refused: a provider kill switch is engaged'
         using errcode = 'P0001',
               hint = 'Record the engagements, or set local ovd722.rollback_discard_engagements = ''confirmed''.';
