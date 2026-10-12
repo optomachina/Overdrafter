@@ -17,6 +17,15 @@ const SECRET_VALUE_SHAPES = Object.freeze({
   openai: "sk-abcdefghijklmnopqrstuv",
   entropy: "n7Q2vL9xR4mP8wK3tY6bC1hF5jD0sA2u",
   hex32: "0123456789abcdef0123456789abcdef",
+  hex40: "0123456789abcdef0123456789abcdef01234567",
+  hex64: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  base32: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+  lowerAlnum32: "abcd1234efgh5678ijkl9012mnop3456",
+  lowerAlnum50: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5",
+  awsSecret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  dotted: "Zm9vYmFyQmF6UXV4.Q29ycmVjdEhvcnNl.U3RhcGxlQmF0dGVyeQ",
+  slackBot: "xoxb-123456789012-abcdefghijkl",
+  slackUser: "xoxp-123456789012-abcdefghijkl",
 });
 
 describe("provider hostname identity", () => {
