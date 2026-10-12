@@ -12,6 +12,7 @@ const {
   api,
   mockQuoteCollectionMode,
   mockUseAppSession,
+  mockUsePartDeadline,
   prefetchProjectPage,
   prefetchPartPage,
   toastMock,
@@ -74,6 +75,7 @@ const {
     refresh: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUsePartDeadline: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -182,6 +184,10 @@ vi.mock("@/features/quotes/workspace-navigation", async () => {
     prefetchPartPage,
   };
 });
+
+vi.mock("@/features/quotes/use-part-deadline", () => ({
+  usePartDeadline: (...args: unknown[]) => mockUsePartDeadline(...args),
+}));
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
@@ -354,6 +360,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     options,
     selectedOption,
     activePreset,
+    deadline,
     controls,
     headerActions,
     onSelect,
@@ -370,6 +377,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       selectionTarget?: unknown;
     } | null;
     activePreset?: string | null;
+    deadline?: { date: string | null; state: string } | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
     onSelect?: (option: unknown) => void;
@@ -381,6 +389,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       lastOption: options?.at(-1) ?? null,
       selectedOption,
       activePreset,
+      deadline,
       onSelect,
     };
 
@@ -1336,6 +1345,11 @@ describe("ClientPart", () => {
 
       expect(result.current.activePreset).toBe("balanced_domestic");
       expect(result.current.selectedQuoteOption).toBeNull();
+      // TanStack Query runs mutationFn asynchronously, so let it flush before asserting nothing was persisted.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(result.current.activePreset).toBe("balanced_domestic"));
       expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
       expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
       queryClient.clear();
@@ -1352,6 +1366,51 @@ describe("ClientPart", () => {
       const button = await findReviewOrderButton("offer-gone");
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    });
+
+    it("passes an expired confirmed deadline to the panel as expired with its recorded date", async () => {
+      mockUsePartDeadline.mockReturnValue({
+        partId: "part-1",
+        revision: null,
+        recordedDate: "2026-01-15",
+        activeDate: null,
+        state: "expired",
+      });
+      await findReviewOrderButton("offer-1");
+      expect(lastQuoteDecisionPanelProps?.deadline).toEqual({ date: "2026-01-15", state: "expired" });
+    });
+
+    it("rolls the selection back and keeps the error state when persisting a selection fails", async () => {
+      const button = await findReviewOrderButton("offer-1");
+      expect(button).toBeEnabled();
+      const persistedKey = (lastQuoteDecisionPanelProps?.selectedOption as { key: string }).key;
+      api.setJobSelectedVendorQuoteOffer.mockRejectedValue(new Error("boom"));
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("boom"));
+
+      await act(async () => {
+        (lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void)(null);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("boom"));
+      await waitFor(() => {
+        expect((lastQuoteDecisionPanelProps?.selectedOption as { key: string } | null)?.key).toBe(persistedKey);
+      });
+      expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled();
+    });
+
+    it("rolls back an optimistic selection to the persisted one when the persist mutation rejects", async () => {
+      const button = await findReviewOrderButton("offer-gone");
+      expect(button).toBeDisabled();
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("persist failed"));
+
+      await act(async () => {
+        const onSelect = lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void;
+        onSelect(lastQuoteDecisionPanelProps?.firstOption);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("persist failed"));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled());
+      expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
     });
 
     it("enables the Review order button when the stored selection is still current", async () => {
