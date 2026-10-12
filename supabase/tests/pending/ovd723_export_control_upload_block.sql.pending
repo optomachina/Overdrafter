@@ -3,7 +3,7 @@
 -- preflight denies without a clean latest declaration.
 --
 -- Targets the DRAFT docs/migration-drafts/ovd-723.sql (PHASE 1 and PHASE 2).
--- Apply both phases before running it. The dispatch assertions (3, 5, 6, 8)
+-- Apply both phases before running it. The dispatch assertions (3, 5, 6, 8, 9)
 -- need only PHASE 1. The upload assertions (1, 2) need PHASE 2, because
 -- PHASE 1 alone leaves the old upload signatures delegating.
 -- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
@@ -24,9 +24,12 @@
 --   8. dispatch needs a clean scan of record for the part's own files; a
 --      reused file (same bytes, different job_file) is not covered by another
 --      file's scan
+--   9. an existing job (backfilled 'missing', already extracted) can be
+--      declared; api_request_extraction does not re-queue it; the rescan
+--      RPC does, and fresh clean scans admit it
 begin;
 
-select plan(64);
+select plan(77);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -628,6 +631,162 @@ select throws_ok(
   $$delete from private.job_file_export_scans$$,
   '42501', 'export_control_audit_append_only',
   'clean scan records cannot be deleted'
+);
+
+-- 9. Existing (pre-deploy) job: backfilled 'missing', already extracted, no
+-- scan. The member declares on the existing job; api_request_extraction does
+-- not re-queue an extracted part; the rescan RPC does; fresh clean scans of
+-- the part's own files admit it.
+reset role;
+
+insert into public.jobs (id, organization_id, created_by, title)
+select '00000000-0000-4000-8000-0000000072d0', organization_id, member_user_id, 'OVD 723 legacy'
+from ovd723_ctx;
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select file.id, '00000000-0000-4000-8000-0000000072d0', context.organization_id, context.member_user_id,
+  file.sha, 'job-files', 'org-sha256/' || context.organization_id || '/' || file.sha || '/' || file.name,
+  file.name, file.name, file.kind::public.job_file_kind, 100
+from ovd723_ctx context
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072d1'::uuid, repeat('1', 64), 'legacy.step', 'cad'),
+  ('00000000-0000-4000-8000-0000000072d2'::uuid, repeat('2', 64), 'legacy.pdf', 'drawing')
+) as file(id, sha, name, kind);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+select '00000000-0000-4000-8000-0000000072d3', '00000000-0000-4000-8000-0000000072d0', organization_id,
+  'legacy', 'legacy', '00000000-0000-4000-8000-0000000072d1', '00000000-0000-4000-8000-0000000072d2'
+from ovd723_ctx;
+
+insert into public.drawing_extractions (part_id, organization_id)
+select '00000000-0000-4000-8000-0000000072d3', organization_id from ovd723_ctx;
+
+-- What the 1.17 backfill writes for a job that existed before the deploy.
+insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+select '00000000-0000-4000-8000-0000000072d0', organization_id, null, 'missing', terms_version
+from ovd723_ctx;
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select '00000000-0000-4000-8000-0000000072d4', organization_id, '00000000-0000-4000-8000-0000000072d0',
+  '00000000-0000-4000-8000-0000000072d3', 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx;
+
+select is(
+  private.export_control_dispatch_denial('00000000-0000-4000-8000-0000000072d0', 'fictiv'),
+  'export_declaration_missing',
+  'a backfilled existing job is denied until someone declares'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_declare_job_export_status('00000000-0000-4000-8000-0000000072d0', 'unsure', (select terms_version from ovd723_ctx)) ->> 'answer',
+  'unsure',
+  'a member can declare on an existing job'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial('00000000-0000-4000-8000-0000000072d0', 'fictiv'),
+  'export_declaration_not_clean',
+  'unsure on an existing job keeps it denied'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  (public.api_declare_job_export_status('00000000-0000-4000-8000-0000000072d0', 'not_controlled', (select terms_version from ovd723_ctx)) ->> 'uploadAllowed')::boolean,
+  true,
+  'not_controlled on an existing job clears the declaration rule'
+);
+
+select public.api_request_extraction('00000000-0000-4000-8000-0000000072d0');
+
+select is(
+  (select count(*)::integer from public.work_queue
+   where part_id = '00000000-0000-4000-8000-0000000072d3' and task_type = 'extract_part'),
+  0,
+  'api_request_extraction does not re-queue an already extracted part, so it never rescans it'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072d4', 'fictiv'),
+  'export_scan_missing',
+  'a declared existing job is still denied while its extracted part has no scan'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select other_user_id from ovd723_ctx));
+
+select throws_ok(
+  $$select public.api_request_export_control_rescan('00000000-0000-4000-8000-0000000072d0')$$,
+  '42501', 'export_rescan_forbidden',
+  'another organization cannot request a rescan'
+);
+
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_request_export_control_rescan('00000000-0000-4000-8000-0000000072d0'),
+  jsonb_build_object('jobId', '00000000-0000-4000-8000-0000000072d0'::uuid, 'requestedAs', 'member', 'tasksQueued', 1),
+  'a member queues one rescan task per part with files'
+);
+
+select is(
+  (public.api_request_export_control_rescan('00000000-0000-4000-8000-0000000072d0') ->> 'tasksQueued')::integer,
+  0,
+  'a queued rescan is not queued twice'
+);
+
+select is(
+  public.api_get_job_export_control_status('00000000-0000-4000-8000-0000000072d0') - 'latestDeclaredAt' - 'termsVersion',
+  jsonb_build_object(
+    'jobId', '00000000-0000-4000-8000-0000000072d0'::uuid,
+    'latestAnswer', 'not_controlled',
+    'exportReviewState', 'clear',
+    'partsMissingScan', 1,
+    'rescansPending', 1
+  ),
+  'the status RPC reports the unscanned part and the pending rescan'
+);
+
+reset role;
+
+select is(
+  (select count(*)::integer from private.export_control_events
+   where job_id = '00000000-0000-4000-8000-0000000072d0' and event = 'rescan_requested'),
+  2,
+  'every rescan request is audited'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.api_request_export_control_rescan(uuid)', 'execute')
+  and has_function_privilege('authenticated', 'public.api_request_export_control_rescan(uuid)', 'execute'),
+  'anon cannot request a rescan'
+);
+
+-- The worker's export_rescan_part task records fresh clean scans.
+set local role service_role;
+select public.api_record_export_control_clean_scan(
+  '00000000-0000-4000-8000-0000000072d0', '00000000-0000-4000-8000-0000000072d3',
+  '00000000-0000-4000-8000-0000000072d2', 'drawing_text');
+select public.api_record_export_control_clean_scan(
+  '00000000-0000-4000-8000-0000000072d0', '00000000-0000-4000-8000-0000000072d3',
+  '00000000-0000-4000-8000-0000000072d1', 'step_header');
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072d4', 'fictiv'),
+  null,
+  'after the rescan records clean scans, the existing part is admitted'
 );
 
 -- 7. Isolation and audit immutability.
