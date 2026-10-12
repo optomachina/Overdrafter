@@ -81,6 +81,12 @@ import {
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
+import {
+  enforceExportControlMarkings,
+  isStepFileName,
+  scanDrawingTextForExportMarkings,
+  scanStepHeaderForExportMarkings,
+} from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
 import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
 import {
@@ -562,6 +568,14 @@ async function runDrawingExtractionForTask(
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
+    // OVD-723: a marking hit records a blocked_pending_review block and fails
+    // the task before any model call; a failed record also fails the task.
+    await enforceExportControlMarkings(supabase, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      jobFileId: context.drawingFile?.id ?? null,
+      scan: scanDrawingTextForExportMarkings(pdfText),
+    });
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
     if (stagedDrawingFile && pdfText) {
@@ -1224,6 +1238,15 @@ export async function handleVendorQuoteTask(
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    // OVD-723: STEP header strings are scanned before any provider preflight.
+    if (stagedCadFile && isStepFileName(context.cadFile?.original_name)) {
+      await enforceExportControlMarkings(supabase, {
+        jobId: task.job_id,
+        partId: context.part.id,
+        jobFileId: context.cadFile?.id ?? null,
+        scan: scanStepHeaderForExportMarkings(await pathToBuffer(stagedCadFile.localPath)),
+      });
+    }
     const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(
       "api_get_worker_sourcing_intent",
       { p_job_id: task.job_id, p_part_id: context.part.id },
