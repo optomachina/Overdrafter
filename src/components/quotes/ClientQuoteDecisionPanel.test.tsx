@@ -108,6 +108,77 @@ function SelectionHarness({
   );
 }
 
+describe("ClientQuoteDecisionPanel when the previous choice is gone", () => {
+  function UnavailableSelectionHarness({
+    options,
+    onSelect,
+  }: {
+    readonly options: readonly ClientQuoteSelectionOption[];
+    readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  }) {
+    const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(null);
+
+    return (
+      <ClientQuoteDecisionPanel
+        options={options}
+        selectedOption={selected}
+        previousSelectionUnavailable={selected === null}
+        onSelect={(option) => {
+          onSelect(option);
+          setSelected(option);
+        }}
+        requestedByDate="2026-04-15"
+      />
+    );
+  }
+
+  it("shows no option as selected, explains why, and allows a normal reselection", async () => {
+    const onSelect = vi.fn();
+    const first = makeClientQuoteOption();
+    const second = makeSecondOption();
+
+    render(<UnavailableSelectionHarness options={[first, second]} onSelect={onSelect} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your previous quote choice is no longer available. Choose a quote to continue.",
+    );
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
+    expect(screen.queryByText("Current selection")).not.toBeInTheDocument();
+    // OVD-571 removed the recommendation fallback, so nothing stands in for the lost choice.
+    expect(screen.queryByText("Recommended starting point")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("row", { selected: true })).toHaveLength(0);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Proto Labs"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(second);
+    expect(screen.queryByTestId("previous-selection-unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
+    expect(screen.getByText("Current selection")).toBeInTheDocument();
+  });
+
+  it("does not show the notice when nothing was ever chosen", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeClientQuoteOption()]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("previous-selection-unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
+  });
+});
+
 describe("ClientQuoteDecisionPanel", () => {
   it("renders quote data and selects a clicked option", async () => {
     const onSelect = vi.fn();
@@ -291,75 +362,15 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
   });
 
-  it("sorts the compact vendor table only after an explicit header action", async () => {
-    const expensive = makeClientQuoteOption({
-      key: "option-expensive",
-      totalPriceUsd: 220,
-      vendorLabel: "Xometry",
-    });
-    const economical = makeSecondOption();
-
-    render(
-      <ClientQuoteDecisionPanel
-        options={[expensive, economical]}
-        selectedOption={null}
-        onSelect={vi.fn()}
-        requestedByDate={null}
-        activePreset="balanced"
-      />,
-    );
-    await screen.findByText("Quote Chart");
-
-    expect(getVendorRowNames()[0]).toContain("Proto Labs");
-    fireEvent.click(screen.getByRole("button", { name: "Sort providers by vendor" }));
-    expect(getVendorRowNames()[0]).toContain("Proto Labs");
-    fireEvent.click(screen.getByRole("button", { name: "Sort providers by vendor, ascending" }));
-    expect(getVendorRowNames()[0]).toContain("Xometry");
-  });
-
-  it("sorts provider groups by their leading variant without breaking grouping", async () => {
-    const xometryLow = makeClientQuoteOption({
-      key: "xometry-low",
-      offerId: "xometry-low",
-      persistedOfferId: "xometry-low",
-      laneLabel: "Economy",
-      totalPriceUsd: 100,
-    });
-    const xometryHigh = makeClientQuoteOption({
-      key: "xometry-high",
-      offerId: "xometry-high",
-      persistedOfferId: "xometry-high",
-      laneLabel: "Expedited",
-      totalPriceUsd: 300,
-    });
-    const proto = makeSecondOption();
-
-    render(
-      <ClientQuoteDecisionPanel
-        options={[proto, xometryHigh, xometryLow]}
-        selectedOption={null}
-        onSelect={vi.fn()}
-        requestedByDate={null}
-        activePreset="balanced"
-      />,
-    );
-    await screen.findByText("Quote Chart");
-
-    fireEvent.click(screen.getByRole("button", { name: "Sort providers by total" }));
-
-    const rows = getVendorRowNames();
-    expect(rows[0]).toContain("Xometry");
-    expect(rows[1]).toContain("Expedited");
-    expect(rows[2]).toContain("Proto Labs");
-  });
-
-  it("renders estimated delivery in days in the comparison table", async () => {
+  it("renders the projected delivered date in the comparison table", async () => {
     render(
       <ClientQuoteDecisionPanel
         options={[makeClientQuoteOption({ leadTimeBusinessDays: 7, resolvedDeliveryDate: "2026-04-10" })]}
         selectedOption={null}
         onSelect={vi.fn()}
-        requestedByDate="2026-04-15"
+        requestedByDate="2026-10-15"
+        now={new Date("2026-10-12T15:00:00.000Z")}
+        timeZone="UTC"
       />,
     );
 
@@ -367,11 +378,11 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    const table = screen.getByRole("columnheader", { name: "Working days" }).closest("table");
+    const table = screen.getByRole("columnheader", { name: "Delivered by" }).closest("table");
 
     expect(table).not.toBeNull();
-    expect(within(table as HTMLTableElement).getByText("7")).toBeInTheDocument();
-    expect(screen.queryByText("7 business days")).not.toBeInTheDocument();
+    expect(within(table as HTMLTableElement).getByText("After Wed, Oct 21, 2026")).toBeInTheDocument();
+    expect(within(table as HTMLTableElement).getByText("Ships then; transit not quoted")).toBeInTheDocument();
   });
 
   it("renders a stable empty state when quote data is absent", () => {
@@ -490,7 +501,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByRole("columnheader", { name: "Vendor" })).toBeInTheDocument();
   });
 
-  it("groups provider variants and excludes unknown provenance from US-only scope", async () => {
+  it("lists every provider variant and excludes unknown provenance from US-only scope", async () => {
     const domestic = makeClientQuoteOption({
       key: "xometry-domestic",
       offerId: "domestic-standard",
@@ -522,7 +533,8 @@ describe("ClientQuoteDecisionPanel", () => {
     await screen.findByText("Quote Chart");
     expect(getVendorRowNames()).toHaveLength(1);
     expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
-    expect(within(screen.getByTestId("selected-option-summary")).getByText("US")).toBeInTheDocument();
+    // A concealed selection is not replaced by a recommended option.
+    expect(screen.queryByTestId("selected-option-summary")).not.toBeInTheDocument();
 
     rerender(
       <ClientQuoteDecisionPanel
@@ -537,7 +549,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(getVendorRowNames()).toHaveLength(2);
     expect(screen.getAllByText("Unknown")).not.toHaveLength(0);
     const unknownRow = screen.getByRole("row", { name: /Economy Unknown/ });
-    expect(within(unknownRow).getByText("↳ Economy")).toBeInTheDocument();
+    expect(within(unknownRow).getByText("Economy")).toBeInTheDocument();
     expect(within(unknownRow).queryByText("Domestic")).not.toBeInTheDocument();
 
     rerender(
@@ -559,8 +571,7 @@ describe("ClientQuoteDecisionPanel", () => {
       key: "option-on-time",
       offerId: "offer-on-time",
       persistedOfferId: "offer-on-time",
-      resolvedDeliveryDate: "2026-04-10",
-      dueDateEligible: true,
+      shipReceiveBy: "2026-10-14",
     });
     const second = makeClientQuoteOption({
       key: "option-late",
@@ -570,8 +581,7 @@ describe("ClientQuoteDecisionPanel", () => {
       vendorKey: "protolabs",
       vendorLabel: "Proto Labs",
       supplier: "Proto Labs",
-      resolvedDeliveryDate: "2026-04-22",
-      dueDateEligible: false,
+      shipReceiveBy: "2026-10-22",
     });
 
     render(
@@ -579,7 +589,9 @@ describe("ClientQuoteDecisionPanel", () => {
         options={[first, second]}
         selectedOption={first}
         onSelect={vi.fn()}
-        requestedByDate="2026-04-15"
+        requestedByDate="2026-10-15"
+        now={new Date("2026-10-12T15:00:00.000Z")}
+        timeZone="UTC"
       />,
     );
 
@@ -589,10 +601,11 @@ describe("ClientQuoteDecisionPanel", () => {
 
     expect(getVendorRowNames().some((name) => name.includes("Xometry"))).toBe(true);
     expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(true);
-    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
+    expect(screen.getByText("Misses deadline")).toBeInTheDocument();
   });
 
-  it("visibly reorders vendor rows and updates the indicator when preset mode changes", async () => {
+  it("follows an external Cheapest/Fastest preset with the table order and never badges a winner", async () => {
+    const now = new Date("2026-10-12T15:00:00.000Z");
     const fastest = makeClientQuoteOption({
       key: "option-fast",
       offerId: "offer-fast",
@@ -602,21 +615,7 @@ describe("ClientQuoteDecisionPanel", () => {
       vendorLabel: "Fictiv",
       supplier: "Fictiv",
       totalPriceUsd: 180,
-      unitPriceUsd: 18,
-      leadTimeBusinessDays: 3,
-      resolvedDeliveryDate: "2026-04-08",
-    });
-    const balanced = makeClientQuoteOption({
-      key: "option-balanced",
-      offerId: "offer-balanced",
-      persistedOfferId: "offer-balanced",
-      vendorQuoteResultId: "result-balanced",
-      vendorLabel: "Xometry",
-      supplier: "Xometry",
-      totalPriceUsd: 120,
-      unitPriceUsd: 12,
-      leadTimeBusinessDays: 5,
-      resolvedDeliveryDate: "2026-04-10",
+      shipReceiveBy: "2026-10-14",
     });
     const cheapest = makeClientQuoteOption({
       key: "option-cheap",
@@ -627,18 +626,18 @@ describe("ClientQuoteDecisionPanel", () => {
       vendorLabel: "Proto Labs",
       supplier: "Proto Labs",
       totalPriceUsd: 90,
-      unitPriceUsd: 9,
-      leadTimeBusinessDays: 8,
-      resolvedDeliveryDate: "2026-04-16",
+      shipReceiveBy: "2026-10-23",
     });
 
     const { rerender } = render(
       <ClientQuoteDecisionPanel
-        options={[fastest, balanced, cheapest]}
+        options={[fastest, cheapest]}
         selectedOption={null}
         onSelect={vi.fn()}
         requestedByDate={null}
         activePreset="balanced"
+        now={now}
+        timeZone="UTC"
       />,
     );
 
@@ -646,94 +645,25 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    let vendorRows = getVendorRowNames();
-    expect(vendorRows[0]).toContain("Xometry");
-    expect(screen.getByText("Balanced mode: best price-speed tradeoff")).toBeInTheDocument();
-    expect(screen.getByText("Balanced pick")).toBeInTheDocument();
+    expect(getVendorRowNames()[0]).toContain("Proto Labs");
+    expect(screen.getByRole("radio", { name: "Cheapest" })).toHaveAttribute("aria-checked", "true");
 
     rerender(
       <ClientQuoteDecisionPanel
-        options={[fastest, balanced, cheapest]}
+        options={[fastest, cheapest]}
         selectedOption={null}
         onSelect={vi.fn()}
         requestedByDate={null}
         activePreset="fastest"
+        now={now}
+        timeZone="UTC"
       />,
     );
 
-    vendorRows = getVendorRowNames();
-    expect(vendorRows[0]).toContain("Fictiv");
-    expect(screen.getByText("Fast mode: fastest delivery first")).toBeInTheDocument();
-    expect(screen.getByText("Fast pick")).toBeInTheDocument();
-
-    rerender(
-      <ClientQuoteDecisionPanel
-        options={[fastest, balanced, cheapest]}
-        selectedOption={null}
-        onSelect={vi.fn()}
-        requestedByDate={null}
-        activePreset="cheapest"
-      />,
-    );
-
-    vendorRows = getVendorRowNames();
-    expect(vendorRows[0]).toContain("Proto Labs");
-    expect(screen.getByText("Cheap mode: lowest unit price first")).toBeInTheDocument();
-    expect(screen.getByText("Cheap pick")).toBeInTheDocument();
-  });
-
-  it("badges the top-ranked vendor under the active ranking mode", async () => {
-    const first = makeClientQuoteOption({
-      key: "option-1",
-      vendorKey: "fictiv",
-      vendorLabel: "Fictiv",
-      totalPriceUsd: 90,
-      unitPriceUsd: 9,
-      leadTimeBusinessDays: 4,
-      resolvedDeliveryDate: "2026-04-09",
-    });
-    const second = makeClientQuoteOption({
-      key: "option-2",
-      offerId: "offer-2",
-      persistedOfferId: "offer-2",
-      vendorQuoteResultId: "result-2",
-      vendorKey: "protolabs",
-      vendorLabel: "Proto Labs",
-      supplier: "Proto Labs",
-      totalPriceUsd: 90,
-      unitPriceUsd: 9,
-      leadTimeBusinessDays: 4,
-      resolvedDeliveryDate: "2026-04-09",
-    });
-    const third = makeClientQuoteOption({
-      key: "option-3",
-      offerId: "offer-3",
-      persistedOfferId: "offer-3",
-      vendorQuoteResultId: "result-3",
-      vendorLabel: "Xometry",
-      supplier: "Xometry",
-      totalPriceUsd: 110,
-      unitPriceUsd: 11,
-      leadTimeBusinessDays: 6,
-      resolvedDeliveryDate: "2026-04-11",
-    });
-
-    render(
-      <ClientQuoteDecisionPanel
-        options={[third, second, first]}
-        selectedOption={null}
-        onSelect={vi.fn()}
-        requestedByDate={null}
-        activePreset="cheapest"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
-    });
-
-    expect(getVendorRowNames().filter((name) => name.includes("Cheap pick"))).toHaveLength(1);
-    expect(screen.getByText("1 leader")).toBeInTheDocument();
+    expect(getVendorRowNames()[0]).toContain("Fictiv");
+    expect(screen.getByRole("radio", { name: "Fastest" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/pick$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/leaders?$/)).not.toBeInTheDocument();
   });
 
   it("keeps all vendors visible when every vendor misses the need by date", async () => {
@@ -741,8 +671,7 @@ describe("ClientQuoteDecisionPanel", () => {
       key: "option-late",
       offerId: "offer-late",
       persistedOfferId: "offer-late",
-      dueDateEligible: false,
-      resolvedDeliveryDate: "2026-04-22",
+      shipReceiveBy: "2026-10-22",
     });
 
     render(
@@ -750,7 +679,9 @@ describe("ClientQuoteDecisionPanel", () => {
         options={[lateOption]}
         selectedOption={lateOption}
         onSelect={vi.fn()}
-        requestedByDate="2026-04-15"
+        requestedByDate="2026-10-15"
+        now={new Date("2026-10-12T15:00:00.000Z")}
+        timeZone="UTC"
       />,
     );
 
@@ -759,7 +690,7 @@ describe("ClientQuoteDecisionPanel", () => {
     });
 
     expect(screen.queryByText("No vendors meet this due date")).not.toBeInTheDocument();
-    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
+    expect(screen.getByText("Misses deadline")).toBeInTheDocument();
     expect(screen.getAllByText("Xometry").length).toBeGreaterThan(0);
   });
 });

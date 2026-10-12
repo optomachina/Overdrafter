@@ -3,9 +3,14 @@ status: draft
 provider: xometry
 audience: Xometry Developer API / partner support
 contact_route: Published developer support address support@xometry.com
+sender: Blaine Wilson
+send_mode: manual_by_blaine
+auto_send: false
 ---
 
 # Draft only — do not send
+
+> DRAFT ONLY. Nothing is sent without Blaine's approval.
 
 Nothing in this file is sent by an agent or by automation. Blaine reviews, edits, and
 sends it himself if he approves it.

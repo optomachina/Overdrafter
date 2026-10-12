@@ -7,6 +7,7 @@ import {
 import {
   buildClientQuoteSelectionResult,
   filterQuoteOptionsForScope,
+  resolveStoredQuoteSelection,
 } from "@/features/quotes/selection";
 import {
   buildClientQuoteComparisonOptions,
@@ -29,8 +30,8 @@ const EXPIRED_ID = "fx-offer-comparison-xometry-lapsed";
 const STALE_ID = "fx-offer-comparison-xometry-archived";
 const UNCERTIFIED_PROVIDER_ID = "fx-offer-comparison-fictiv-global";
 
-async function loadComparisonPartDetail(): Promise<PartDetailAggregate> {
-  window.history.replaceState({}, "", "/parts/fx-job-comparison?fixture=client-comparison");
+async function loadComparisonPartDetail(scenarioId = "client-comparison"): Promise<PartDetailAggregate> {
+  window.history.replaceState({}, "", `/parts/fx-job-comparison?fixture=${scenarioId}`);
   const gateway = getActiveClientWorkspaceGateway();
   expect(gateway).not.toBeNull();
   return gateway!.fetchPartDetail(COMPARISON_JOB_ID);
@@ -89,11 +90,26 @@ describe("client-comparison fixture scenario", () => {
       "client-quoted",
       "client-published",
       "client-comparison",
+      "client-comparison-lapsed-selection",
     ]);
     const scenario = CLIENT_WORKSPACE_FIXTURE_SCENARIOS.find(
       (candidate) => candidate.id === "client-comparison",
     );
     expect(scenario?.canonicalPath).toBe("/parts/fx-job-comparison?fixture=client-comparison");
+  });
+
+  it("stores the expired offer as the choice in the lapsed selection scenario and resolves no substitute", async () => {
+    const detail = await loadComparisonPartDetail("client-comparison-lapsed-selection");
+    expect(detail.job.selected_vendor_quote_offer_id).toBe(EXPIRED_ID);
+
+    const { comparison } = buildComparisonPipeline(detail, NOW);
+    const lapsed = comparison.find((option) => option.persistedOfferId === EXPIRED_ID);
+    expect(lapsed?.isSelectable).toBe(false);
+    expect(comparison.some((option) => option.eligible)).toBe(true);
+    expect(resolveStoredQuoteSelection(comparison, detail.job.selected_vendor_quote_offer_id, null)).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: true,
+    });
   });
 
   it("models each comparison condition with explicit offer facts and HTTPS vendor URLs", async () => {
