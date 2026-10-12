@@ -24,7 +24,8 @@
  *   a write there. Readers (cat, sed -n, awk, jq, grep, head, sort, eslint and
  *   prettier without their writing flags, psql -f and so on) pass, also with a
  *   redirect to a path that is not protected;
- * - running tools/guardrails/apply.mjs by any route;
+ * - running tools/guardrails/apply.mjs by path (generated or ~ paths
+ *   included), through an interpreter or through a package.json script;
  * - supabase CLI commands that create migration files, or that target a
  *   hosted project (--linked, --project-ref, a --db-url that is not loopback,
  *   or a remote only command) unless they are on a read allow list, also when
@@ -368,6 +369,21 @@ function isDirectory(path) {
 }
 
 /**
+ * Path segments a word names from dir, with ~ and $HOME kept as a ~ root. A
+ * substitution inside a word stands for one unknown name, so a fixed
+ * directory with a generated name still resolves; a word that is only
+ * substitutions is a generated path (see writeTargetReason) and gives null.
+ */
+function wordSegs(word, dir) {
+  if (word.includes(SUB)) {
+    if (word.split("/").every((part) => part.replaceAll(SUB, "") === "")) return null;
+    word = word.replaceAll(SUB, "_");
+  }
+  const home = /^(~|\$\{?HOME\}?)\//.exec(word);
+  return home ? ["~", ...changeDir([], word.slice(home[0].length))] : changeDir(dir, word);
+}
+
+/**
  * Names the protected area a word points at from dir, or null. Paths are
  * normalized first, so supabase/migrations/../../docs/x.md is not a hit.
  * With wholeDir a word naming the supabase, .claude or tools/guardrails
@@ -375,13 +391,8 @@ function isDirectory(path) {
  * which matters only for commands that write files.
  */
 function protectedName(word, dir, wholeDir = false) {
-  if (word.includes(SUB)) {
-    // A word that is only substitutions is a generated path (see writeTargetReason); a fixed directory with a generated name is not.
-    if (word.split("/").every((part) => part.replaceAll(SUB, "") === "")) return null;
-    word = word.replaceAll(SUB, "_");
-  }
-  const home = /^(~|\$\{?HOME\}?)\//.exec(word);
-  const segs = home ? ["~", ...changeDir([], word.slice(home[0].length))] : changeDir(dir, word);
+  const segs = wordSegs(word, dir);
+  if (segs === null) return null;
   const joined = segs.join("/");
   const last = segs.at(-1) ?? "";
   const named = word.split("/").some(Boolean);
@@ -518,9 +529,9 @@ function gitCall(argv, dir) {
   return { argv: [argv[0], ...expanded], dir: cwd, config };
 }
 
-/** Reads a file named in a command, resolved from dir; null when it cannot be read. */
+/** Reads a file named in a command, resolved from dir; null when it cannot be read or is a device such as /dev/stdin. */
 function readNamed(word, dir) {
-  if (!word || word.includes(SUB) || word === "-") return null;
+  if (!word || word.includes(SUB) || word === "-" || /^\/(dev|proc)\//.test(word)) return null;
   try {
     return readFileSync(word.startsWith("/") ? word : pathOf(dir, word), "utf8");
   } catch {
@@ -881,7 +892,7 @@ function httpRequests(argv, dir) {
     const requests = [newRequest()];
     for (const [flag, value] of curlOptions(argv.slice(1))) {
       const req = requests.at(-1);
-      if (flag === null || flag === "--url") req.urls.push(value);
+      if (flag === null || flag === "--url" || flag === "--expand-url") req.urls.push(value);
       else if (flag === "--next" || flag === "-:") requests.push(newRequest());
       else if (flag === "-X" || flag === "--request") req.method = value;
       else if (CURL_BODY.test(flag)) addBody(req, flag, value);
@@ -1258,7 +1269,8 @@ function protectedWrite(argv, segment, dir, substs) {
   if (cmd === "git") {
     const git = gitCall(argv, dir);
     if (git.config) return `git -c ${git.config} names a protected path`;
-    if (git.shell !== undefined) return git.shellArgs.some((w) => protectedName(w, git.dir, true)) ? "git shell alias gets a protected path as an argument" : null;
+    // Plain arguments were checked with the alias text (checkSegment); a generated one that names a protected path cannot be.
+    if (git.shell !== undefined) return git.shellArgs.some((w) => w.includes(SUB) && protectedName(w, git.dir, true)) ? "git shell alias gets a generated protected path as an argument" : null;
     return gitReason(git.argv, segment, git.dir);
   }
   if (cmd === "gh") {
@@ -1324,13 +1336,19 @@ function argsReason(cmd, args, segment, dir, substs) {
  * Inline command texts a shell runs with -c, or null when it runs none. A
  * word such as -ce is a cluster of options and the text is the next
  * argument; -cTEXT is also read as the text itself, so both readings are checked.
+ * Long options such as --login or --noprofile are skipped, and a -- that
+ * ends the options is not the text.
  */
 function shellInline(argv) {
   const texts = [];
   let inline = false;
   let i = 1;
-  for (; i < argv.length && /^[-+][^-]/.test(argv[i]); i++) {
+  for (; i < argv.length && /^([-+][^-]|--.)/.test(argv[i]); i++) {
     const w = argv[i];
+    if (w.startsWith("--")) {
+      if (/^--(rcfile|init-file)$/.test(w)) i++;
+      continue;
+    }
     const at = w.indexOf("c");
     if (at > 0) {
       inline = true;
@@ -1339,6 +1357,7 @@ function shellInline(argv) {
     if (/^[-+][a-zA-Z]*[oO]$/.test(w)) i++;
   }
   if (!inline) return null;
+  if (argv[i] === "--") i++;
   if (i < argv.length) texts.push(argv[i]);
   return texts;
 }
@@ -1414,7 +1433,7 @@ function dockerInner(argv) {
 
 /** True when argv runs tools/guardrails/apply.mjs, by path or through an interpreter. */
 function runsInstaller(argv, dir) {
-  const isInstaller = (w) => !w.includes(SUB) && /(^|\/)tools\/guardrails\/apply\.mjs$/i.test(changeDir(dir, w).join("/"));
+  const isInstaller = (w) => /(^|\/)tools\/guardrails\/apply\.mjs$/i.test(wordSegs(w, dir)?.join("/") ?? "");
   if (isInstaller(argv[0] ?? "")) return true;
   return INTERPRETERS.has(base(argv[0])) && !SHELLS.has(base(argv[0])) && argv.slice(1).some(isInstaller);
 }
@@ -1425,7 +1444,9 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   if (runsInstaller(argv, dir)) return "runs tools/guardrails/apply.mjs, which installs the guardrail; only the lead runs it, with Blaine's approval";
   const shellAlias = cmd === "git" ? gitCall(argv, dir) : null;
   if (shellAlias?.shell !== undefined) {
-    const reason = checkCommand(shellAlias.shell, shellAlias.dir, ctx, depth + 1);
+    // git appends the alias arguments to its text, so they are checked as part of the command they reach.
+    const quoted = shellAlias.shellArgs.filter((w) => !w.includes(SUB)).map((w) => `'${w.replaceAll("'", "'\\''")}'`);
+    const reason = checkCommand([shellAlias.shell, ...quoted].join(" "), shellAlias.dir, ctx, depth + 1);
     if (reason) return `git shell alias: ${reason}`;
   }
   const piped = segment.op === "|" || segment.op === "|&";

@@ -90,6 +90,8 @@ writeFileSync(join(FIXTURE, "clean-tool"), "#!/bin/sh\necho hello\n");
 writeFileSync(join(FIXTURE, "push.py"), "#!/usr/bin/env python3\nimport subprocess\nsubprocess.run(['supabase', 'db', 'push'])\n");
 writeFileSync(join(FIXTURE, "merge-pr1.graphql"), "mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }");
 writeFileSync(join(FIXTURE, "viewer.graphql"), "query { viewer { login } }");
+writeFileSync(join(FIXTURE, "run-args.sh"), '#!/bin/sh\n"$@"\n');
+writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1/jobs"\ndata = "{}"\n');
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
@@ -403,7 +405,7 @@ pass | bash -o pipefail -c 'git status'
 block | supabase db diff -fx
 block | supabase db diff --file=x
 pass | supabase db diff
-# 6. Agents never run the installer, by any route.
+# 6. Agents never run the installer, by path, through an interpreter or through a package script.
 block | env -u CLAUDECODE node tools/guardrails/apply.mjs
 block | node --import tsx tools/guardrails/apply.mjs
 block | CLAUDECODE= node ./tools/guardrails/apply.mjs
@@ -449,6 +451,55 @@ residual sql (Supabase shipped functions that write are not on the side effect l
 residual (env -C and env --chdir change directory without a cd the hook can follow) | env --chdir=supabase/migrations touch x.sql
 residual (env -C and env --chdir change directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
 residual fixture (after a cd to a generated or unresolved directory, a script run by a relative path is read from the directory before that cd) | cd "$OTHER" && ./clean.sh
+`;
+
+// Round 14: polish before install. False positives that failed closed now pass, their writing forms block, and the
+// residuals named by the reviews stay visible.
+const ROUND_14 = String.raw`
+# 1. Long bash options before -c are skipped, so the -c text is checked instead of read as a script file name.
+pass | bash --login -c 'git status'
+pass | bash --noprofile --norc -c 'git status'
+pass | bash --noprofile -c 'git diff -- tools/guardrails'
+pass | bash --rcfile /tmp/rc -c 'git status'
+pass | bash -lc 'git status'
+block | bash --login -c 'supabase db push'
+block | bash --noprofile --norc -c 'echo x > supabase/migrations/x.sql'
+block | bash --noprofile -c 'git checkout main -- tools/guardrails'
+# 1b. A git ! alias gets its arguments appended to its text, and the whole command is checked.
+pass | git -c alias.review='!git diff' review tools/guardrails
+pass | git -c alias.review='!git diff --stat' review -- supabase/migrations
+block | git -c alias.w='!git checkout main --' w tools/guardrails
+block | git -c alias.w='!cp /tmp/x' w tools/guardrails/apply.mjs
+block | git -c alias.x='!git push origin' x HEAD:main
+# 2. curl --expand-url is a URL like --url.
+block | curl --expand-url https://abc.supabase.co/rest/v1/jobs -d '{}'
+block | curl --expand-url=https://abc.supabase.co/rest/v1/jobs --json={}
+pass | curl --expand-url https://abc.supabase.co/rest/v1/jobs
+# 3. A -- after -c ends the options; the text after it is checked.
+block | bash -c -- 'supabase db push'
+block | bash -c -- 'node tools/guardrails/apply.mjs'
+block | sh -ec -- 'echo x > supabase/migrations/x.sql'
+pass | bash -c -- 'git status'
+# 4. Installer paths with a substitution or a ~ resolve.
+block | env -u CLAUDECODE node "$(git rev-parse --show-toplevel)/tools/guardrails/apply.mjs"
+block | node "$(pwd)/tools/guardrails/apply.mjs"
+block | node ~/Overdrafter/tools/guardrails/apply.mjs
+block | ~/Overdrafter/tools/guardrails/apply.mjs
+pass | node "$(pwd)/scripts/x.mjs"
+pass | cat ~/Overdrafter/tools/guardrails/apply.mjs
+# 5. A value read from a device such as /dev/stdin cannot be checked and fails closed.
+block | printf 'mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }' | gh api graphql -F query=@/dev/stdin
+pass | gh api graphql -F query=@$FIXTURE/viewer.graphql
+# 6. Residuals that stay visible.
+residual (a git ! alias that places its arguments with $1 or "$@" inside its text is not resolved) | git -c alias.x='!git push origin "$1"; :' x HEAD:main
+residual (a git alias that expands to another -c alias is expanded only once) | git -c alias.a=b -c alias.b='push origin HEAD:main' a
+residual fixture (a script that runs its own arguments with "$@" is not resolved) | ./run-args.sh supabase db push
+residual (curl -K reads options from a config file that is not inspected) | curl -K $FIXTURE/curl.cfg
+residual (archive extraction writes the paths stored in the archive, which are not read) | tar -xf /tmp/m.tar
+residual (archive extraction writes the paths stored in the archive, which are not read) | unzip /tmp/m.zip
+residual (plain text piped into an interpreter other than a shell is not inspected) | echo "require('fs').writeFileSync('supabase/migrations/x.sql','')" | node
+residual (plain text piped into an interpreter other than a shell is not inspected) | printf 'open("supabase/migrations/x.sql","w")' | python3
+residual (a merge without a pinned head sha can race a push that adds a migration after the changed files were listed) | gh pr merge 2 --squash
 `;
 
 function tableRows(round, table) {
@@ -813,7 +864,7 @@ const PROBES = [
   [11, "python3 -c \"open('.claude/settings.json','w')\"", HOOK_BLOCKS],
   [11, "cat .claude/settings.json", PASSES],
   [11, "node --test .claude/hooks/guard-migrations.node-test.mjs", PASSES],
-  [11, "node tools/guardrails/apply.mjs", HOOK_BLOCKS], // closed in the last round: agents never run the installer, by any route
+  [11, "node tools/guardrails/apply.mjs", HOOK_BLOCKS], // closed in the last round: agents never run the installer
   // Codex HIGH: Postgres clients against hosts that are not local, and HTTP writes to Supabase APIs.
   [11, "psql \"$DATABASE_URL\" -c 'CREATE TABLE t (id int)'", HOOK_BLOCKS],
   [11, "psql \"$DATABASE_URL\" -c 'select count(*) from jobs'", PASSES],
@@ -906,6 +957,7 @@ const PROBES = [
   [11, "echo 'echo x > supabase/migrations/x.sql' > /tmp/w.sh", HOOK_BLOCKS],
   ...tableRows(12, ROUND_12),
   ...tableRows(13, ROUND_13),
+  ...tableRows(14, ROUND_14),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -998,7 +1050,7 @@ const REAL_SCRIPTS = {
       "build", "dev", "start", "start:prod", "typecheck", "check", "canary:capability", "verify", "auth:xometry", "probe:xometry-auth",
       "export:xometry-profile", "auth:fictiv", "auth:vendor", "sweep:fictiv-quantity", "eval:gate", "sweep:xometry-quantity", "eval:live-provider",
       "smoke:vendor-workflow", "validate:openclaw-gate", "cleanup:dmrifles-demo", "extract:smoke", "import:dmrifles-quotes", "import:quotes",
-      "install:browsers", "install:camoufox", "extract:eval", "compare:browser-recovery"
+      "install:browsers", "install:camoufox", "extract:eval", "compare:browser-recovery", "probe:session"
     ],
   },
 };
