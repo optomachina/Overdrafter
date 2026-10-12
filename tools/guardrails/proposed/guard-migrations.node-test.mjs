@@ -90,6 +90,279 @@ const sql = (query, server = "claude_ai_Supabase") => mcp(`mcp__${server}__execu
 const SUPABASE_UUID = "fb51b900-5d04-4884-9f50-844879db0029";
 const VERCEL_UUID = "119d805b-7afd-4036-836e-4c808cb268e8";
 
+// Round 12 rows, one per line: "<verdict> [<kind>] [(<note>)] | <payload>". The verdict is pass, block, deny (the note
+// is the rule, checked to exist) or residual (the note says why). The kind is fixture or fixture:<subdir> (run in the
+// package.json fixture), sql (execute_sql), or an edit tool name (the payload is the file path); without one the payload
+// is a Bash command run from /repo. In payloads ⏎ stands for a newline, $FIXTURE for the fixture directory and $\{ for
+// a dollar brace. Lines starting with # are section notes. A text table keeps hundreds of similar rows readable.
+const ROUND_12 = String.raw`
+# Round 12: the final bounded repair round. Every fix has a block row and every false positive fix an allow row.
+# 1a. Readers outside the old READERS list pass on protected paths; their writing modes and interpreters still block.
+pass | sed -n 1,80p supabase/migrations/x.sql
+pass | sed -n '/create table/,/;/p' supabase/migrations/x.sql
+pass | awk '{print $1}' supabase/migrations/x.sql
+pass | awk -F, 'NR > 1 {print $2}' supabase/migrations/x.csv
+pass | jq . supabase/migrations/x.json
+pass | cut -c1-40 supabase/migrations/x.sql
+pass | xxd supabase/migrations/x.sql
+pass | xxd -l 64 supabase/migrations/x.sql
+pass | tail -n 20 supabase/migrations/x.sql
+pass | sha256sum supabase/migrations/x.sql
+pass | shasum -a 256 supabase/migrations/x.sql
+pass | sha1sum supabase/migrations/*.sql
+pass | cmp supabase/migrations/x.sql /tmp/y.sql
+pass | stat supabase/migrations/x.sql
+block | sed -i s/a/b/ supabase/migrations/x.sql
+block | sed -ni s/a/b/p supabase/migrations/x.sql
+block | sed --in-place=.bak s/a/b/ supabase/migrations/x.sql
+block | sed -n 'w supabase/migrations/y.sql' /tmp/x.sql
+block | sed 's/a/b/w supabase/migrations/y.sql' /tmp/x.sql
+block | sed -f /tmp/x.sed supabase/migrations/x.sql
+block | awk -i inplace '{print}' supabase/migrations/x.sql
+block | awk '{print > "supabase/migrations/y.sql"}' /tmp/x
+block | awk '{system("touch x")}' supabase/migrations/x.sql
+block | xxd -r /tmp/x.hex supabase/migrations/x.sql
+block | node scripts/x.mjs supabase/migrations/x.sql
+block | python3 scripts/x.py .claude/settings.json
+pass | node scripts/x.mjs docs/x.md
+# 1b. Only a redirect whose target is protected (or generated or unresolved in a command naming a protected path) is a write.
+pass | ls supabase/migrations 2>/dev/null | tail
+pass | grep -rn "security definer" supabase/migrations 2>/dev/null
+pass | cat supabase/migrations/x.sql > /tmp/x.sql
+pass | find supabase/migrations -name '*.sql' > /tmp/list.txt
+pass | cat .claude/settings.json 2>/dev/null
+pass | cat > /tmp/review.md <<'EOF'⏎Review notes for supabase/migrations/x.sql⏎EOF
+pass | printf '%s\n' supabase/migrations/x.sql >> docs/notes.md
+block | ls supabase/migrations > supabase/migrations/list.txt
+block | cat supabase/migrations/x.sql > "$OUT"
+pass | cat docs/x.md > "$OUT"
+block | cat > /tmp/w.sh <<'EOF'⏎echo x > supabase/migrations/x.sql⏎EOF
+# 1c. git global options are normalized before the subcommand is checked.
+pass | git -C /tmp/wt log -- supabase/migrations
+pass | git -C /tmp/wt diff origin/main -- supabase/migrations
+pass | git -C /tmp/wt show origin/main:supabase/migrations/x.sql
+pass | git --no-pager diff -- supabase/migrations
+pass | git -C /tmp/wt commit -m "note supabase/migrations/x.sql"
+pass | git -c core.quotepath=off --literal-pathspecs log -- supabase/migrations
+block | git -C . restore --source=HEAD~5 -- .
+block | git -c x=y checkout main -- .
+block | git --no-pager apply /tmp/missing.patch
+block | git -C supabase checkout main -- migrations
+block | git --git-dir=.git --work-tree=. checkout main -- .
+block | git -c core.hooksPath=.claude/hooks commit -m x
+# 1d. A substitution or variable blocks only as the target of a write.
+pass | node scripts/x.mjs "$(ls supabase/migrations | tail -1)"
+pass | actual="$(shasum -a 256 "supabase/migrations/$\{OVD417_FILES[$index]}" | awk '{print $1}')"
+block | cp /tmp/x.sql "$(echo supabase/migrations)"
+block | touch "$(echo supabase/migrations/x.sql)"
+block | sed -i s/a/b/ "$(ls supabase/migrations/*.sql | tail -1)"
+block | echo x | tee "$(echo supabase/migrations/x.sql)"
+# 2. Package.json scripts through every runner form; npm reads directory flags anywhere before --.
+block fixture:safe | npm run db:push --prefix ..
+block fixture:safe | npm run db:push --prefix=..
+pass fixture:safe | npm run db:push -- --prefix ..
+block fixture | node --run db:push
+pass fixture | node --run test
+block fixture | npx npm run db:push
+block fixture | npm exec -- npm run db:push
+block fixture | bun run db:push
+block fixture | bun db:push
+pass fixture | bun test
+block fixture | pnpm run db:push
+block fixture | yarn run db:push
+block fixture | yarn db:push --cwd safe
+block fixture | npm -w app run db:push
+block fixture | npm -w packages/app run db:push
+block fixture | npm run db:push -w app
+pass fixture:safe | npm --workspaces run db:push
+block fixture | npm --workspaces run db:push
+block fixture | pnpm --filter app run db:push
+block fixture | yarn workspace app db:push
+pass fixture | npm -w app run safe
+block fixture | npm -w nope run safe
+block fixture | npx turbo run db:push
+block fixture | npx some-unknown-runner db:push
+block fixture | npx concurrently 'npm run db:push' 'npm test'
+pass fixture | npx prettier --check src
+pass fixture | npx some-unknown-runner test
+# 3. Self protection, attached option values, and copy sources landing on protected paths.
+deny (Edit(/tools/guardrails/proposed/**)) | Edit /repo/tools/guardrails/proposed/guard-migrations.mjs
+block Edit | /repo/tools/guardrails/proposed/guard-migrations.mjs
+deny (Edit(/tools/guardrails/apply.mjs)) | Write /repo/tools/guardrails/apply.mjs
+block Write | /repo/tools/guardrails/apply.mjs
+pass Edit | /repo/tools/other/x.mjs
+block | echo x > tools/guardrails/apply.mjs
+block | cp /tmp/x.mjs tools/guardrails/proposed/guard-migrations.mjs
+block | sed -i s/2/0/ tools/guardrails/proposed/guard-migrations.mjs
+block | rm -rf tools/guardrails
+block fixture | rm -rf tools
+pass fixture | mkdir -p src/tools
+pass | cat tools/guardrails/apply.mjs
+pass | node --test tools/guardrails/proposed/guard-migrations.node-test.mjs
+pass | node --test scripts/a.node-test.mjs tools/guardrails/proposed/guard-migrations.node-test.mjs
+block | cp -t.claude/hooks /tmp/guard-migrations.mjs
+block | cp -tsupabase/migrations /tmp/x.sql
+block | cp -rt supabase/migrations /tmp/x.sql
+block | cp --target-directory=.claude/hooks /tmp/x.mjs
+block | install -m644 -t.claude/hooks /tmp/x.mjs
+block | rsync -a --backup-dir=supabase/migrations /tmp/x/ /tmp/y/
+block | cp -r /tmp/clone/supabase .
+block | rsync -a /tmp/stage/ ./
+block | cp -r /tmp/evil/.claude/ .
+block | cp -r /tmp/stage/. .
+block | cp -r /tmp/stage/* .
+block | rsync -a /tmp/clone/supabase ./
+pass | cp -t /tmp/out supabase/migrations/x.sql
+pass | cp -r /tmp/clone/src .
+pass | rsync -a /tmp/stage/ /tmp/out/
+pass | cp -r /tmp/clone/supabase /tmp/out/
+# 5. Merge bypasses: gh repo flags anywhere, GraphQL bodies, pushes and ref writes to main, the merges API.
+block | gh -R o/r pr merge 1
+block | gh pr -R o/r merge 1
+block | gh pr --repo=o/r merge 1
+block | gh -Ro/r pr merge 1 --squash
+pass | gh -R o/r pr merge 2 --squash
+block | gh -R other/repo pr merge 2
+block | curl -X POST https://api.github.com/graphql -d @$FIXTURE/merge-pr1.json
+pass | curl https://api.github.com/graphql --data-binary @$FIXTURE/merge-pr2.json
+block | curl -X POST https://api.github.com/graphql -d @/tmp/does-not-exist.json
+block | curl -X POST https://api.github.com/graphql --json '{"query":"mutation { enablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }"}'
+pass | curl -X POST https://api.github.com/graphql -d @$FIXTURE/viewer.json
+block | gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_1
+pass | gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_2
+block | gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }'
+block | git push origin HEAD:main
+block | git push origin x:refs/heads/main
+block | git push upstream +feature:main
+block | git push origin :main
+block | git push origin main
+block | git push --all origin
+block | git -C /tmp/wt push origin HEAD:main
+pass | git push -u origin chore/guardrail-staged
+pass | git push origin HEAD:refs/heads/feature/main-fix
+block | gh api -X POST repos/o/r/merges -f base=main -f head=x
+block | gh api repos/o/r/merges -f base=feature -f head=x
+block | gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc
+block | gh api -X POST repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc
+block | gh api -X POST repos/o/r/git/refs --input $FIXTURE/ref-main.json
+block | gh api -X POST repos/o/r/git/refs --input /tmp/does-not-exist.json
+block | curl -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main -d '{"sha":"abc"}'
+pass | gh api -X POST repos/o/r/git/refs -f ref=refs/heads/feature -f sha=abc
+pass | gh api repos/o/r/git/refs/heads/main
+# 6. Postgres client options are normalized; a target that is not provably loopback fails closed.
+block | psql -hdb.x.supabase.co -c 'delete from t'
+block | psql -dpostgres://u@db.x.supabase.co/postgres -c 'delete from t'
+block | psql --dbname=postgres://u@db.x.supabase.co/postgres -c 'delete from t'
+block | psql --host=db.x.supabase.co -c 'delete from t'
+block | psql 'hostaddr=10.0.0.1 dbname=x' -c 'delete from t'
+block | psql 'host=localhost hostaddr=10.0.0.1' -c 'delete from t'
+block | psql 'postgres://u@localhost/x?host=db.x.supabase.co' -c 'delete from t'
+block | psql 'postgres://u@localhost/x?hostaddr=10.0.0.1' -c 'delete from t'
+block | psql 'service=prod' -c 'delete from t'
+block | PGSERVICE=prod psql -c 'delete from t'
+block | psql -hdb.x.supabase.co -c 'select 1' -c'delete from t'
+block | psql -hdb.x.supabase.co -Atc 'delete from t'
+block | psql -hdb.x.supabase.co -fx.sql
+block | pgbench -h db.x.supabase.co -i postgres
+block | pgbench postgres://u@db.x.supabase.co/postgres
+block | docker run --rm --entrypoint psql img postgres://u@db.x.supabase.co/postgres
+block | docker run --rm -i --entrypoint=psql img "$DATABASE_URL" -c 'drop table t'
+block | docker run --rm -e PGHOST=db.x.supabase.co img psql -c 'drop table t'
+block | docker exec -i ctr psql -h db.x.supabase.co -c 'delete from t'
+block | docker compose exec db psql -h db.x.supabase.co -c 'delete from t'
+pass | psql -h localhost -c 'select 1' -c'delete from t'
+pass | psql 'postgres://postgres@[::1]:54322/postgres' -c 'drop table t'
+pass | psql -h 127.0.0.2 -c 'drop table t'
+pass | psql -hdb.x.supabase.co -Atc 'select count(*) from jobs'
+pass | pgbench -h localhost -c 10 postgres
+pass | docker exec -i supabase_db_overdrafter psql -U postgres -c 'drop table t'
+pass | docker run --rm --entrypoint pg_dump img postgres://u@db.x.supabase.co/postgres
+# 7. supabase CLI against a hosted target: read allow list only; --local forms pass.
+block | supabase db push --linked
+block | supabase db query --linked 'delete from t'
+block | supabase migration repair --status applied 1 --linked
+block | supabase migration repair --status applied 1
+block | supabase migration down --linked
+block | supabase seed buckets --linked
+block | supabase test db --db-url "$DATABASE_URL"
+block | supabase storage rm ss:///bucket/x
+block | supabase postgres-config update --config x=1
+block | supabase branches pause b
+block | supabase db schema declarative sync
+pass | supabase migration list --linked
+pass | supabase db diff --linked
+pass | supabase db lint --linked
+pass | supabase inspect db locks --linked
+pass | supabase projects list
+pass | supabase branches list
+pass | supabase secrets list --project-ref abc
+pass | supabase gen types typescript --project-id abc
+pass | supabase migration repair --local --status applied 1
+pass | supabase db push --local
+pass | supabase db push --db-url postgres://postgres@127.0.0.1:54322/postgres
+pass | supabase migration up --local
+pass | supabase functions serve
+# 8. HTTP methods normalized; unresolved SUPABASE variables fail closed; loopback includes [::1] and 127.0.0.0/8.
+block | curl --json='{}' https://abc.supabase.co/rest/v1/jobs
+block | curl --json @/tmp/x.json https://abc.supabase.co/rest/v1/jobs
+block | curl --request=DELETE https://abc.supabase.co/rest/v1/jobs
+block | curl -XDELETE https://abc.supabase.co/rest/v1/jobs
+block | curl --data-raw '{}' https://abc.supabase.co/rest/v1/jobs
+block | curl -dx=1 https://abc.supabase.co/rest/v1/jobs
+block | curl -T x.json https://abc.supabase.co/storage/v1/object/b/x
+block | curl -X POST "$MY_SUPABASE_ENDPOINT/x"
+block | curl -X POST "$\{NEXT_PUBLIC_SUPABASE_URL}/functions/v1/x"
+pass | curl -X POST http://[::1]:54321/rest/v1/jobs -d '{}'
+pass | curl -X POST http://127.0.0.5:54321/rest/v1/jobs -d '{}'
+pass | curl -X POST http://localhost:54321/rest/v1/jobs -d '{}'
+pass | SUPABASE_URL=http://127.0.0.1:54321; curl -X POST "$SUPABASE_URL/rest/v1/jobs" -d '{}'
+pass | curl -G -d select=id https://abc.supabase.co/rest/v1/jobs
+pass | curl -I https://abc.supabase.co/rest/v1/jobs
+# 9. execute_sql: U& escapes, pgmq, dblink and the known write function list fail closed.
+block sql | select U&'\0064rop'
+block sql | select * from U&"\0074able"
+block sql | select pgmq.send('q', '{}')
+block sql | select "pgmq"."delete"('q', 1)
+block sql | select pgmq.read('q', 30, 1)
+block sql | select * from dblink('host=x', 'delete from t') as t(x int)
+block sql | select pg_stat_reset()
+block sql | select pg_try_advisory_lock(1)
+block sql | select net.http_post('https://x', '{}')
+block sql | select cron.alter_job(1, schedule := '* * * * *')
+pass sql | select msg_id from pgmq.q_jobs limit 5
+pass sql | select 'U&' as label
+residual sql (a user defined function with side effects is not inspected) | select my_function_that_writes()
+# 10. Bash deny rules as defense in depth; Blaine still runs these himself.
+deny (Bash(supabase db push:*)) | supabase db push
+deny (Bash(npx supabase db push:*)) | npx supabase db push
+deny (Bash(npm run db:push:*)) | npm run db:push
+# 13. Residuals that stay visible.
+residual (a symlink made earlier hides the target) | echo x > m/x.sql
+residual (a path generated from file contents at run time is not known) | touch "$(cat /tmp/name)"
+residual (git reset, stash, merge, pull and clean move many files at once and are not inspected) | git reset --hard origin/main
+residual (a push of the current branch is not resolved, so a checked out main is not seen) | git push origin HEAD
+residual (a gh alias made before the guard is not expanded) | gh m 1
+residual (env -C changes directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
+residual (an interpreter script file is not inspected) | node /tmp/w.js
+`;
+
+function tableRows(round, table) {
+  return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
+    const at = line.indexOf(" | ");
+    const head = /^(pass|block|deny|residual)(?: ([\w:]+))?(?: \((.*)\))?$/.exec(line.slice(0, at));
+    if (at < 0 || !head) throw new Error(`malformed round ${String(round)} row: ${line}`);
+    const [, verdict, kind = "", note] = head;
+    const text = line.slice(at + 3).replaceAll("⏎", "\n").replaceAll("$FIXTURE", FIXTURE).replaceAll("$\\{", "${");
+    let probe = text;
+    if (kind.startsWith("fixture")) probe = inFixture(text, kind.split(":")[1] ?? "");
+    else if (kind === "sql") probe = sql(text);
+    else if (EDIT_TOOL_NAMES.has(kind)) probe = { tool_name: kind, tool_input: { file_path: text } };
+    const expected = { pass: PASSES, block: HOOK_BLOCKS, deny: deny(note), residual: residual(note) }[verdict];
+    return [round, probe, expected];
+  });
+}
+const EDIT_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit"]);
+
 // [QA round, probe (Bash command or { tool_name, tool_input }), expectation]
 const PROBES = [
   [1, { tool_name: "Write", tool_input: { file_path: MIG } }, deny("Edit(/supabase/migrations/**)")],
@@ -526,254 +799,7 @@ const PROBES = [
   [11, "touch supabase/migrations/../../docs/x.md", PASSES],
   [11, "touch supabase/migrations/../migrations/x.sql", HOOK_BLOCKS],
   [11, "echo 'echo x > supabase/migrations/x.sql' > /tmp/w.sh", HOOK_BLOCKS],
-  // Round 12: the final bounded repair round. Every fix has a block row and every false positive fix an allow row.
-  // 1a. Readers outside the old READERS list pass on protected paths; their writing modes and interpreters still block.
-  [12, "sed -n 1,80p supabase/migrations/x.sql", PASSES],
-  [12, "sed -n '/create table/,/;/p' supabase/migrations/x.sql", PASSES],
-  [12, "awk '{print $1}' supabase/migrations/x.sql", PASSES],
-  [12, "awk -F, 'NR > 1 {print $2}' supabase/migrations/x.csv", PASSES],
-  [12, "jq . supabase/migrations/x.json", PASSES],
-  [12, "cut -c1-40 supabase/migrations/x.sql", PASSES],
-  [12, "xxd supabase/migrations/x.sql", PASSES],
-  [12, "xxd -l 64 supabase/migrations/x.sql", PASSES],
-  [12, "tail -n 20 supabase/migrations/x.sql", PASSES],
-  [12, "sha256sum supabase/migrations/x.sql", PASSES],
-  [12, "shasum -a 256 supabase/migrations/x.sql", PASSES],
-  [12, "sha1sum supabase/migrations/*.sql", PASSES],
-  [12, "cmp supabase/migrations/x.sql /tmp/y.sql", PASSES],
-  [12, "stat supabase/migrations/x.sql", PASSES],
-  [12, "sed -i s/a/b/ supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "sed -ni s/a/b/p supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "sed --in-place=.bak s/a/b/ supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "sed -n 'w supabase/migrations/y.sql' /tmp/x.sql", HOOK_BLOCKS],
-  [12, "sed 's/a/b/w supabase/migrations/y.sql' /tmp/x.sql", HOOK_BLOCKS],
-  [12, "sed -f /tmp/x.sed supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "awk -i inplace '{print}' supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "awk '{print > \"supabase/migrations/y.sql\"}' /tmp/x", HOOK_BLOCKS],
-  [12, "awk '{system(\"touch x\")}' supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "xxd -r /tmp/x.hex supabase/migrations/x.sql", HOOK_BLOCKS],
-  [12, "node scripts/x.mjs supabase/migrations/x.sql", HOOK_BLOCKS], // residual: interpreters with a protected path argument stay blocked; the message names the readers
-  [12, "python3 scripts/x.py .claude/settings.json", HOOK_BLOCKS],
-  [12, "node scripts/x.mjs docs/x.md", PASSES],
-  // 1b. Only a redirect whose target is protected (or generated or unresolved in a command naming a protected path) is a write.
-  [12, "ls supabase/migrations 2>/dev/null | tail", PASSES],
-  [12, 'grep -rn "security definer" supabase/migrations 2>/dev/null', PASSES],
-  [12, "cat supabase/migrations/x.sql > /tmp/x.sql", PASSES],
-  [12, "find supabase/migrations -name '*.sql' > /tmp/list.txt", PASSES],
-  [12, "cat .claude/settings.json 2>/dev/null", PASSES],
-  [12, "cat > /tmp/review.md <<'EOF'\nReview notes for supabase/migrations/x.sql\nEOF", PASSES],
-  [12, "printf '%s\\n' supabase/migrations/x.sql >> docs/notes.md", PASSES],
-  [12, "ls supabase/migrations > supabase/migrations/list.txt", HOOK_BLOCKS],
-  [12, 'cat supabase/migrations/x.sql > "$OUT"', HOOK_BLOCKS],
-  [12, 'cat docs/x.md > "$OUT"', PASSES],
-  [12, "cat > /tmp/w.sh <<'EOF'\necho x > supabase/migrations/x.sql\nEOF", HOOK_BLOCKS],
-  // 1c. git global options are normalized before the subcommand is checked.
-  [12, "git -C /tmp/wt log -- supabase/migrations", PASSES],
-  [12, "git -C /tmp/wt diff origin/main -- supabase/migrations", PASSES],
-  [12, "git -C /tmp/wt show origin/main:supabase/migrations/x.sql", PASSES],
-  [12, "git --no-pager diff -- supabase/migrations", PASSES],
-  [12, 'git -C /tmp/wt commit -m "note supabase/migrations/x.sql"', PASSES],
-  [12, "git -c core.quotepath=off --literal-pathspecs log -- supabase/migrations", PASSES],
-  [12, "git -C . restore --source=HEAD~5 -- .", HOOK_BLOCKS],
-  [12, "git -c x=y checkout main -- .", HOOK_BLOCKS],
-  [12, "git --no-pager apply /tmp/missing.patch", HOOK_BLOCKS],
-  [12, "git -C supabase checkout main -- migrations", HOOK_BLOCKS],
-  [12, "git --git-dir=.git --work-tree=. checkout main -- .", HOOK_BLOCKS],
-  [12, "git -c core.hooksPath=.claude/hooks commit -m x", HOOK_BLOCKS],
-  // 1d. A substitution or variable blocks only as the target of a write.
-  [12, 'node scripts/x.mjs "$(ls supabase/migrations | tail -1)"', PASSES],
-  [12, 'actual="$(shasum -a 256 "supabase/migrations/${OVD417_FILES[$index]}" | awk \'{print $1}\')"', PASSES],
-  [12, 'cp /tmp/x.sql "$(echo supabase/migrations)"', HOOK_BLOCKS],
-  [12, 'touch "$(echo supabase/migrations/x.sql)"', HOOK_BLOCKS],
-  [12, "sed -i s/a/b/ \"$(ls supabase/migrations/*.sql | tail -1)\"", HOOK_BLOCKS],
-  [12, 'echo x | tee "$(echo supabase/migrations/x.sql)"', HOOK_BLOCKS],
-  // 2. Package.json scripts through every runner form; npm reads directory flags anywhere before --.
-  [12, inFixture("npm run db:push --prefix ..", "safe"), HOOK_BLOCKS],
-  [12, inFixture("npm run db:push --prefix=..", "safe"), HOOK_BLOCKS],
-  [12, inFixture("npm run db:push -- --prefix ..", "safe"), PASSES],
-  [12, inFixture("node --run db:push"), HOOK_BLOCKS],
-  [12, inFixture("node --run test"), PASSES],
-  [12, inFixture("npx npm run db:push"), HOOK_BLOCKS],
-  [12, inFixture("npm exec -- npm run db:push"), HOOK_BLOCKS],
-  [12, inFixture("bun run db:push"), HOOK_BLOCKS],
-  [12, inFixture("bun db:push"), HOOK_BLOCKS],
-  [12, inFixture("bun test"), PASSES],
-  [12, inFixture("pnpm run db:push"), HOOK_BLOCKS],
-  [12, inFixture("yarn run db:push"), HOOK_BLOCKS],
-  [12, inFixture("yarn db:push --cwd safe"), HOOK_BLOCKS],
-  [12, inFixture("npm -w app run db:push"), HOOK_BLOCKS],
-  [12, inFixture("npm -w packages/app run db:push"), HOOK_BLOCKS],
-  [12, inFixture("npm run db:push -w app"), HOOK_BLOCKS],
-  [12, inFixture("npm --workspaces run db:push", "safe"), PASSES],
-  [12, inFixture("npm --workspaces run db:push"), HOOK_BLOCKS],
-  [12, inFixture("pnpm --filter app run db:push"), HOOK_BLOCKS],
-  [12, inFixture("yarn workspace app db:push"), HOOK_BLOCKS],
-  [12, inFixture("npm -w app run safe"), PASSES],
-  [12, inFixture("npm -w nope run safe"), HOOK_BLOCKS],
-  [12, inFixture("npx turbo run db:push"), HOOK_BLOCKS],
-  [12, inFixture("npx some-unknown-runner db:push"), HOOK_BLOCKS],
-  [12, inFixture("npx concurrently 'npm run db:push' 'npm test'"), HOOK_BLOCKS],
-  [12, inFixture("npx prettier --check src"), PASSES],
-  [12, inFixture("npx some-unknown-runner test"), PASSES],
-  // 3. Self protection, attached option values, and copy sources landing on protected paths.
-  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/guardrails/proposed/guard-migrations.mjs" } }, deny("Edit(/tools/guardrails/proposed/**)")],
-  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/guardrails/proposed/guard-migrations.mjs" } }, HOOK_BLOCKS],
-  [12, { tool_name: "Write", tool_input: { file_path: "/repo/tools/guardrails/apply.mjs" } }, deny("Edit(/tools/guardrails/apply.mjs)")],
-  [12, { tool_name: "Write", tool_input: { file_path: "/repo/tools/guardrails/apply.mjs" } }, HOOK_BLOCKS],
-  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/other/x.mjs" } }, PASSES],
-  [12, "echo x > tools/guardrails/apply.mjs", HOOK_BLOCKS],
-  [12, "cp /tmp/x.mjs tools/guardrails/proposed/guard-migrations.mjs", HOOK_BLOCKS],
-  [12, "sed -i s/2/0/ tools/guardrails/proposed/guard-migrations.mjs", HOOK_BLOCKS],
-  [12, "rm -rf tools/guardrails", HOOK_BLOCKS],
-  [12, inFixture("rm -rf tools"), HOOK_BLOCKS],
-  [12, inFixture("mkdir -p src/tools"), PASSES],
-  [12, "cat tools/guardrails/apply.mjs", PASSES],
-  [12, "node --test tools/guardrails/proposed/guard-migrations.node-test.mjs", PASSES],
-  [12, "node --test scripts/a.node-test.mjs tools/guardrails/proposed/guard-migrations.node-test.mjs", PASSES],
-  [12, "cp -t.claude/hooks /tmp/guard-migrations.mjs", HOOK_BLOCKS],
-  [12, "cp -tsupabase/migrations /tmp/x.sql", HOOK_BLOCKS],
-  [12, "cp -rt supabase/migrations /tmp/x.sql", HOOK_BLOCKS],
-  [12, "cp --target-directory=.claude/hooks /tmp/x.mjs", HOOK_BLOCKS],
-  [12, "install -m644 -t.claude/hooks /tmp/x.mjs", HOOK_BLOCKS],
-  [12, "rsync -a --backup-dir=supabase/migrations /tmp/x/ /tmp/y/", HOOK_BLOCKS],
-  [12, "cp -r /tmp/clone/supabase .", HOOK_BLOCKS],
-  [12, "rsync -a /tmp/stage/ ./", HOOK_BLOCKS],
-  [12, "cp -r /tmp/evil/.claude/ .", HOOK_BLOCKS],
-  [12, "cp -r /tmp/stage/. .", HOOK_BLOCKS],
-  [12, "cp -r /tmp/stage/* .", HOOK_BLOCKS],
-  [12, "rsync -a /tmp/clone/supabase ./", HOOK_BLOCKS],
-  [12, "cp -t /tmp/out supabase/migrations/x.sql", PASSES],
-  [12, "cp -r /tmp/clone/src .", PASSES],
-  [12, "rsync -a /tmp/stage/ /tmp/out/", PASSES],
-  [12, "cp -r /tmp/clone/supabase /tmp/out/", PASSES],
-  // 5. Merge bypasses: gh repo flags anywhere, GraphQL bodies, pushes and ref writes to main, the merges API.
-  [12, "gh -R o/r pr merge 1", HOOK_BLOCKS],
-  [12, "gh pr -R o/r merge 1", HOOK_BLOCKS],
-  [12, "gh pr --repo=o/r merge 1", HOOK_BLOCKS],
-  [12, "gh -Ro/r pr merge 1 --squash", HOOK_BLOCKS],
-  [12, "gh -R o/r pr merge 2 --squash", PASSES],
-  [12, "gh -R other/repo pr merge 2", HOOK_BLOCKS],
-  [12, `curl -X POST https://api.github.com/graphql -d @${FIXTURE}/merge-pr1.json`, HOOK_BLOCKS],
-  [12, `curl https://api.github.com/graphql --data-binary @${FIXTURE}/merge-pr2.json`, PASSES],
-  [12, "curl -X POST https://api.github.com/graphql -d @/tmp/does-not-exist.json", HOOK_BLOCKS],
-  [12, "curl -X POST https://api.github.com/graphql --json '{\"query\":\"mutation { enablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }\"}'", HOOK_BLOCKS],
-  [12, `curl -X POST https://api.github.com/graphql -d @${FIXTURE}/viewer.json`, PASSES],
-  [12, "gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_1", HOOK_BLOCKS],
-  [12, "gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_2", PASSES],
-  [12, "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }'", HOOK_BLOCKS],
-  [12, "git push origin HEAD:main", HOOK_BLOCKS],
-  [12, "git push origin x:refs/heads/main", HOOK_BLOCKS],
-  [12, "git push upstream +feature:main", HOOK_BLOCKS],
-  [12, "git push origin :main", HOOK_BLOCKS],
-  [12, "git push origin main", HOOK_BLOCKS],
-  [12, "git push --all origin", HOOK_BLOCKS],
-  [12, "git -C /tmp/wt push origin HEAD:main", HOOK_BLOCKS],
-  [12, "git push -u origin chore/guardrail-staged", PASSES],
-  [12, "git push origin HEAD:refs/heads/feature/main-fix", PASSES],
-  [12, "gh api -X POST repos/o/r/merges -f base=main -f head=x", HOOK_BLOCKS],
-  [12, "gh api repos/o/r/merges -f base=feature -f head=x", HOOK_BLOCKS],
-  [12, "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc", HOOK_BLOCKS],
-  [12, "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc", HOOK_BLOCKS],
-  [12, `gh api -X POST repos/o/r/git/refs --input ${FIXTURE}/ref-main.json`, HOOK_BLOCKS],
-  [12, "gh api -X POST repos/o/r/git/refs --input /tmp/does-not-exist.json", HOOK_BLOCKS],
-  [12, "curl -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main -d '{\"sha\":\"abc\"}'", HOOK_BLOCKS],
-  [12, "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/feature -f sha=abc", PASSES],
-  [12, "gh api repos/o/r/git/refs/heads/main", PASSES],
-  // 6. Postgres client options are normalized; a target that is not provably loopback fails closed.
-  [12, "psql -hdb.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql -dpostgres://u@db.x.supabase.co/postgres -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql --dbname=postgres://u@db.x.supabase.co/postgres -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql --host=db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql 'hostaddr=10.0.0.1 dbname=x' -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql 'host=localhost hostaddr=10.0.0.1' -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql 'postgres://u@localhost/x?host=db.x.supabase.co' -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql 'postgres://u@localhost/x?hostaddr=10.0.0.1' -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql 'service=prod' -c 'delete from t'", HOOK_BLOCKS],
-  [12, "PGSERVICE=prod psql -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql -hdb.x.supabase.co -c 'select 1' -c'delete from t'", HOOK_BLOCKS],
-  [12, "psql -hdb.x.supabase.co -Atc 'delete from t'", HOOK_BLOCKS],
-  [12, "psql -hdb.x.supabase.co -fx.sql", HOOK_BLOCKS],
-  [12, "pgbench -h db.x.supabase.co -i postgres", HOOK_BLOCKS],
-  [12, "pgbench postgres://u@db.x.supabase.co/postgres", HOOK_BLOCKS],
-  [12, "docker run --rm --entrypoint psql img postgres://u@db.x.supabase.co/postgres", HOOK_BLOCKS],
-  [12, "docker run --rm -i --entrypoint=psql img \"$DATABASE_URL\" -c 'drop table t'", HOOK_BLOCKS],
-  [12, "docker run --rm -e PGHOST=db.x.supabase.co img psql -c 'drop table t'", HOOK_BLOCKS],
-  [12, "docker exec -i ctr psql -h db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
-  [12, "docker compose exec db psql -h db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
-  [12, "psql -h localhost -c 'select 1' -c'delete from t'", PASSES],
-  [12, "psql 'postgres://postgres@[::1]:54322/postgres' -c 'drop table t'", PASSES],
-  [12, "psql -h 127.0.0.2 -c 'drop table t'", PASSES],
-  [12, "psql -hdb.x.supabase.co -Atc 'select count(*) from jobs'", PASSES],
-  [12, "pgbench -h localhost -c 10 postgres", PASSES],
-  [12, "docker exec -i supabase_db_overdrafter psql -U postgres -c 'drop table t'", PASSES],
-  [12, "docker run --rm --entrypoint pg_dump img postgres://u@db.x.supabase.co/postgres", PASSES],
-  // 7. supabase CLI against a hosted target: read allow list only; --local forms pass.
-  [12, "supabase db push --linked", HOOK_BLOCKS],
-  [12, "supabase db query --linked 'delete from t'", HOOK_BLOCKS],
-  [12, "supabase migration repair --status applied 1 --linked", HOOK_BLOCKS],
-  [12, "supabase migration repair --status applied 1", HOOK_BLOCKS],
-  [12, "supabase migration down --linked", HOOK_BLOCKS],
-  [12, "supabase seed buckets --linked", HOOK_BLOCKS],
-  [12, "supabase test db --db-url \"$DATABASE_URL\"", HOOK_BLOCKS],
-  [12, "supabase storage rm ss:///bucket/x", HOOK_BLOCKS],
-  [12, "supabase postgres-config update --config x=1", HOOK_BLOCKS],
-  [12, "supabase branches pause b", HOOK_BLOCKS],
-  [12, "supabase db schema declarative sync", HOOK_BLOCKS],
-  [12, "supabase migration list --linked", PASSES],
-  [12, "supabase db diff --linked", PASSES],
-  [12, "supabase db lint --linked", PASSES],
-  [12, "supabase inspect db locks --linked", PASSES],
-  [12, "supabase projects list", PASSES],
-  [12, "supabase branches list", PASSES],
-  [12, "supabase secrets list --project-ref abc", PASSES],
-  [12, "supabase gen types typescript --project-id abc", PASSES],
-  [12, "supabase migration repair --local --status applied 1", PASSES],
-  [12, "supabase db push --local", PASSES],
-  [12, "supabase db push --db-url postgres://postgres@127.0.0.1:54322/postgres", PASSES],
-  [12, "supabase migration up --local", PASSES],
-  [12, "supabase functions serve", PASSES],
-  // 8. HTTP methods normalized; unresolved SUPABASE variables fail closed; loopback includes [::1] and 127.0.0.0/8.
-  [12, "curl --json='{}' https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl --json @/tmp/x.json https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl --request=DELETE https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl -XDELETE https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl --data-raw '{}' https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl -dx=1 https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
-  [12, "curl -T x.json https://abc.supabase.co/storage/v1/object/b/x", HOOK_BLOCKS],
-  [12, 'curl -X POST "$MY_SUPABASE_ENDPOINT/x"', HOOK_BLOCKS],
-  [12, 'curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/functions/v1/x"', HOOK_BLOCKS],
-  [12, "curl -X POST http://[::1]:54321/rest/v1/jobs -d '{}'", PASSES],
-  [12, "curl -X POST http://127.0.0.5:54321/rest/v1/jobs -d '{}'", PASSES],
-  [12, "curl -X POST http://localhost:54321/rest/v1/jobs -d '{}'", PASSES],
-  [12, "SUPABASE_URL=http://127.0.0.1:54321; curl -X POST \"$SUPABASE_URL/rest/v1/jobs\" -d '{}'", PASSES],
-  [12, "curl -G -d select=id https://abc.supabase.co/rest/v1/jobs", PASSES],
-  [12, "curl -I https://abc.supabase.co/rest/v1/jobs", PASSES],
-  // 9. execute_sql: U& escapes, pgmq, dblink and the known write function list fail closed.
-  [12, sql("select U&'\\0064rop'"), HOOK_BLOCKS],
-  [12, sql('select * from U&"\\0074able"'), HOOK_BLOCKS],
-  [12, sql("select pgmq.send('q', '{}')"), HOOK_BLOCKS],
-  [12, sql('select "pgmq"."delete"(\'q\', 1)'), HOOK_BLOCKS],
-  [12, sql("select pgmq.read('q', 30, 1)"), HOOK_BLOCKS],
-  [12, sql("select * from dblink('host=x', 'delete from t') as t(x int)"), HOOK_BLOCKS],
-  [12, sql("select pg_stat_reset()"), HOOK_BLOCKS],
-  [12, sql("select pg_try_advisory_lock(1)"), HOOK_BLOCKS],
-  [12, sql("select net.http_post('https://x', '{}')"), HOOK_BLOCKS],
-  [12, sql("select cron.alter_job(1, schedule := '* * * * *')"), HOOK_BLOCKS],
-  [12, sql("select msg_id from pgmq.q_jobs limit 5"), PASSES],
-  [12, sql("select 'U&' as label"), PASSES],
-  [12, sql("select my_function_that_writes()"), residual("a user defined function with side effects is not inspected")],
-  // 10. Bash deny rules as defense in depth; Blaine still runs these himself.
-  [12, "supabase db push", deny("Bash(supabase db push:*)")],
-  [12, "npx supabase db push", deny("Bash(npx supabase db push:*)")],
-  [12, "npm run db:push", deny("Bash(npm run db:push:*)")],
-  // 13. Residuals that stay visible.
-  [12, "echo x > m/x.sql", residual("a symlink made earlier hides the target")],
-  [12, 'touch "$(cat /tmp/name)"', residual("a path generated from file contents at run time is not known")],
-  [12, "git reset --hard origin/main", residual("git reset, stash, merge, pull and clean move many files at once and are not inspected")],
-  [12, "git push origin HEAD", residual("a push of the current branch is not resolved, so a checked out main is not seen")],
-  [12, "gh m 1", residual("a gh alias made before the guard is not expanded")],
-  [12, "env -C supabase/migrations touch x.sql", residual("env -C changes directory without a cd the hook can follow")],
-  [12, "node /tmp/w.js", residual("an interpreter script file is not inspected")],
+  ...tableRows(12, ROUND_12),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

@@ -264,8 +264,8 @@ function expandVars(src) {
   const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|)]*)|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
   return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
     if (name !== undefined) {
-      const raw = value.replace(/^["']|["']$/g, "");
-      if (/^\(|\$\(|`|["'\\]/.test(raw)) delete vars[name];
+      const raw = value.replace(/(^["'])|(["']$)/g, "");
+      if (/(^\()|\$\(|[`"'\\]/.test(raw)) delete vars[name];
       else vars[name] = raw.replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
       return all;
     }
@@ -512,7 +512,7 @@ function connHosts(value) {
   }
   for (const m of value.matchAll(/\b(host|hostaddr|service)\s*=\s*('[^']*'|\S+)/gi)) {
     if (m[1].toLowerCase() === "service") hosts.push("$");
-    else hosts.push(...m[2].replace(/^'|'$/g, "").split(","));
+    else hosts.push(...m[2].replace(/(^')|('$)/g, "").split(","));
   }
   return hosts;
 }
@@ -833,7 +833,7 @@ function httpRequest(argv, dir) {
     req.method ??= hasBody ? "POST" : "GET";
   } else {
     req.method = argv.slice(1).find((w) => /^(GET|HEAD|POST|PUT|PATCH|DELETE)$/i.test(w)) ?? (argv.some((w) => /^[\w-]+:?=/.test(w)) ? "POST" : "GET");
-    req.urls = argv.slice(1).filter((w) => /:\/\/|^:\d|^\$/.test(w) || SUPABASE_HTTP.test(w));
+    req.urls = argv.slice(1).filter((w) => /(:\/\/)|(^:\d)|(^\$)/.test(w) || SUPABASE_HTTP.test(w));
     req.body = argv.slice(1).join("\n");
   }
   req.method = String(req.method).toUpperCase();
