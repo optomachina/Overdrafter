@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,7 +40,7 @@ function getErrorMessage(error: unknown) {
     return "This password does not meet the security requirements. Choose a stronger password and try again.";
   }
 
-  return error instanceof Error ? error.message : "Authentication failed.";
+  return error instanceof Error ? getUserFacingErrorMessage(error, "Authentication failed.") : "Authentication failed.";
 }
 
 function isEmailNotConfirmedError(error: unknown) {

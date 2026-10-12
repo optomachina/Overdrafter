@@ -145,10 +145,12 @@ describe("createRecorder", () => {
 });
 
 /** Service-shaped values an unexpected or compromised response could carry. */
+// Distinctive digits so the report text check cannot match a timestamp or cost by chance.
+const OUT_OF_RANGE_PROBABILITY = 1.5000123;
 const hostileUsage = () => ({ input_tokens: 471, output_tokens: "77", cached: { nested: "\u001b[2J" }, note: "x".repeat(500) });
 const hostileProbabilities = (validKey) => ({
   [validKey]: 0.9,
-  none: 1.5,
+  none: OUT_OF_RANGE_PROBABILITY,
   T9: 0.2,
   reviewer_extra: "0.1",
   verifier: Number.NaN,
@@ -234,9 +236,11 @@ describe("bounded service-returned fields", () => {
       return { ok: true, model: JEV_MODEL, answers, usage: hostileUsage(), latencyMs: 2 };
     };
     const report = await runEvaluation({ ask });
-    const { generatedAt, ...reportWithoutTimestamp } = report;
-    const text = JSON.stringify(reportWithoutTimestamp);
-    for (const needle of ["FAKE LOG LINE", "nested", "xxxxxxxx", "reviewer_extra", "T9", "1.5", "polluted"]) expect(text).not.toContain(needle);
+    // The timestamp lives in summary and can contain any digit run (14:00:41.582Z holds "1.5"), so drop it.
+    const { generatedAt, ...summaryWithoutTimestamp } = report.summary;
+    expect(generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const text = JSON.stringify({ ...report, summary: summaryWithoutTimestamp });
+    for (const needle of ["FAKE LOG LINE", "nested", "xxxxxxxx", "reviewer_extra", "T9", String(OUT_OF_RANGE_PROBABILITY), "polluted"]) expect(text).not.toContain(needle);
     // Calls that returned usage record the bounded counts; the 422 probe returned none and records null.
     for (const c of report.calls) expect(c.usage).toEqual(c.label === "fail:422" ? null : { input_tokens: 471, output_tokens: null });
     for (const r of [...report.duplicates, ...report.routing.filter((x) => x.mode === "jev")]) {

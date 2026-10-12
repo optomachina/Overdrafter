@@ -281,6 +281,12 @@ export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
     description: "Part with grouped, mixed-origin, stale, and expired vendor offers.",
     canonicalPath: "/parts/fx-job-comparison?fixture=client-comparison",
   },
+  {
+    id: "client-comparison-lapsed-selection",
+    label: "Lapsed Quote Choice",
+    description: "Quote comparison part whose stored choice is the expired vendor offer.",
+    canonicalPath: "/parts/fx-job-comparison?fixture=client-comparison-lapsed-selection",
+  },
 ] as const;
 
 export type ClientQuoteWorkspaceFixtureOverrides = {
@@ -1646,7 +1652,9 @@ const COMPARISON_DAY_MS = 24 * 60 * 60_000;
  * passes those rules, but its vendor validity has lapsed, so the comparison
  * lists it as blocked and it cannot be selected.
  */
-function buildComparisonScenario(): FixtureState {
+function buildComparisonScenario(
+  selectedOfferId = "fx-offer-comparison-xometry-economy",
+): FixtureState {
   const user = createFixtureUser({
     id: "fixture-user-client",
     email: "client.fixture@example.com",
@@ -1665,7 +1673,6 @@ function buildComparisonScenario(): FixtureState {
   const jobId = "fx-job-comparison";
   const partId = "fx-part-comparison";
   const quoteRunId = `${partId}-quote-run`;
-  const selectedOfferId = "fx-offer-comparison-xometry-economy";
   const project = createProjectRecord({
     id: "fx-project-comparison",
     ownerUserId: user.id,
@@ -1989,7 +1996,8 @@ const SCENARIO_BUILDERS: Record<FixtureScenarioId, () => FixtureState> = {
   "client-needs-attention": buildNeedsAttentionScenario,
   "client-quoted": buildQuotedScenario,
   "client-published": buildPublishedScenario,
-  "client-comparison": buildComparisonScenario,
+  "client-comparison": () => buildComparisonScenario(),
+  "client-comparison-lapsed-selection": () => buildComparisonScenario("fx-offer-comparison-xometry-lapsed"),
 };
 
 function getState(scenarioId: FixtureScenarioId): FixtureState {

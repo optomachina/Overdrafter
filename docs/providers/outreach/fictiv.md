@@ -3,9 +3,14 @@ status: draft
 provider: fictiv
 audience: Fictiv / MISUMI partner or legal contact
 contact_route: Published terms contact help@fictiv.com (https://www.fictiv.com/terms)
+sender: Blaine Wilson
+send_mode: manual_by_blaine
+auto_send: false
 ---
 
 # Draft only — do not send
+
+> DRAFT ONLY. Nothing is sent without Blaine's approval.
 
 Nothing in this file is sent by an agent or by automation. Blaine reviews, edits, and
 sends it himself if he approves it.

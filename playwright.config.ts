@@ -10,8 +10,15 @@ const baseURL = fixtureOnly
 
 export default defineConfig({
   testDir: "./e2e",
+  // Served only by its synthetic server; `npm run e2e:fixture` runs it through
+  // e2e/delivered-comparison.config.ts.
+  testIgnore: ["delivered-comparison.spec.ts"],
   fullyParallel: false,
   globalSetup: "./e2e/global-setup.mjs",
+  // The dev server serves ~340 unbundled modules before React mounts, so a cold
+  // browser context can take over 5 s to paint its first heading. Match the
+  // 15 s budget e2e/intake.spec.ts gives its first post login assertions.
+  expect: { timeout: 15_000 },
   use: {
     baseURL,
     headless: true,

@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "title": "ProviderPermissionsMatrixV1",
   "checkedOn": "2026-10-11",
+  "kill_switch_shipped": false,
   "killSwitch": {
     "issue": "OVD-722",
     "cli": "npm run provider:kill -- <key>|--all --on|--off --reason \"...\"",

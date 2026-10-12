@@ -67,6 +67,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { toPanelDeadline } from "@/features/quotes/api/part-deadline-api";
+import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   buildScopedPreset,
@@ -222,6 +224,7 @@ const ClientPart = () => {
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,
@@ -262,6 +265,7 @@ const ClientPart = () => {
   });
 
   const storageScopeKey = user?.id ?? "anonymous";
+  const partDeadline = usePartDeadline(partDetail?.part?.id);
 
   const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(selectedQuoteOption?.key ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
@@ -282,6 +286,10 @@ const ClientPart = () => {
     nextSearchParams.delete("quote");
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  const validSelectedQuoteOption =
+    rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
+    selectedQuoteOption;
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -381,15 +389,12 @@ const ClientPart = () => {
   };
 
   const handleWorkspaceOfferSelect = (option: ClientQuoteSelectionOption | null) => {
-    if (option === null) {
-      setSelectedOptionKey(null);
-      handleSelectQuoteOption(null);
-      return;
-    }
-
-    setSelectedOptionKey(option.key);
-    handleSelectQuoteOption(option);
+    const persistedKey = selectedQuoteOption?.key ?? null;
+    setSelectedOptionKey(option?.key ?? null);
+    // The mutation's own error toast is the error state; only the local selection needs rolling back.
+    handleSelectQuoteOption(option, () => setSelectedOptionKey(persistedKey));
   };
+  const reviewOrderDisabledForSelection = rankedQuoteOptions.length > 0 && !validSelectedQuoteOption;
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
@@ -932,11 +937,10 @@ const ClientPart = () => {
                 <ClientQuoteDecisionPanel
                     className="rounded-[12px]"
                     title="Quote comparison"
-                    description="Set the sourcing criteria, then compare every quote by price and lead time."
+                    description="Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost."
                     options={rankedQuoteOptions}
-                    selectedOption={
-                      rankedQuoteOptions.find((option) => option.key === selectedOptionKey) ?? selectedQuoteOption
-                    }
+                    selectedOption={validSelectedQuoteOption}
+                    previousSelectionUnavailable={previousQuoteSelectionUnavailable}
                     onSelect={handleWorkspaceOfferSelect}
                     requestedByDate={requestSummaryRequestedByDate}
                     quoteDataStatus={quoteDataStatus}
@@ -944,21 +948,48 @@ const ClientPart = () => {
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
+                    deadline={toPanelDeadline(partDeadline)}
+                    requestCompletion={{
+                      request: partDetail.latestQuoteRequest
+                        ? {
+                            id: partDetail.latestQuoteRequest.id,
+                            status: partDetail.latestQuoteRequest.status,
+                            requestedVendors: partDetail.latestQuoteRequest.requested_vendors,
+                          }
+                        : null,
+                      run: partDetail.latestQuoteRun
+                        ? { id: partDetail.latestQuoteRun.id, quoteRequestId: partDetail.latestQuoteRun.quote_request_id }
+                        : null,
+                      vendorResults: (partDetail.part?.vendorQuotes ?? []).map((quote) => ({
+                        id: quote.id,
+                        vendor: quote.vendor,
+                        quoteRunId: quote.quote_run_id,
+                        status: quote.status,
+                      })),
+                    }}
                     headerActions={
-                      <Button
-                        type="button"
-                        className="rounded-full shadow-sm"
-                        onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                        disabled={rankedQuoteOptions.length === 0}
-                      >
-                        Review order
-                        <MoveRight className="ml-2 h-4 w-4" />
-                      </Button>
+                      <>
+                        <Button
+                          type="button"
+                          className="rounded-full shadow-sm"
+                          onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
+                          disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
+                          title={reviewOrderDisabledForSelection ? "Choose a quote to continue" : undefined}
+                          aria-describedby={reviewOrderDisabledForSelection ? "review-order-disabled-reason" : undefined}
+                        >
+                          Review order
+                          <MoveRight className="ml-2 h-4 w-4" />
+                        </Button>
+                        {reviewOrderDisabledForSelection ? (
+                          <span id="review-order-disabled-reason" className="sr-only">
+                            Choose a quote to continue
+                          </span>
+                        ) : null}
+                      </>
                     }
                     controls={
                       <QuoteSelectionFunctionBar
                         scope={partPresetScope}
-                        mode={partPresetMode}
                         requestedByDate={requestSummaryRequestedByDate}
                         matchingOptionCount={
                           requestSummaryRequestedByDate
@@ -967,7 +998,6 @@ const ClientPart = () => {
                         }
                         totalOptionCount={rankedQuoteOptions.length}
                         onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
-                        onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
                         onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
                         disabled={saveRequestMutation.isPending}
                         dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."

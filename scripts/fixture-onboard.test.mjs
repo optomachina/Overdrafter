@@ -12,11 +12,13 @@ import {
   livePaths,
   nextMigrationTimestamp,
   parseFixtureOnboardArgs,
+  readLiveAutomationVendors,
   runFixtureOnboard,
   runFixtureOnboardCli,
 } from "./fixture-onboard.mjs";
 import { sessionSecretMarker } from "./fixture-onboard-templates.mjs";
 import { scaffoldProvider } from "./provider-add.mjs";
+import { REQUIRED_READINESS_HEADINGS, validateReadinessDoc } from "./provider-readiness-doc.mjs";
 import {
   PROVIDER_MANIFEST_FILE,
   WEB_CATALOG_RELATIVE_PATH,
@@ -37,7 +39,18 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-const XOMETRY_ENTRY = { key: "xometry", liveAdapter: true, sessionSecrets: [], egress: "stable_nat" };
+const XOMETRY_ENTRY = {
+  key: "xometry",
+  liveAdapter: true,
+  sessionSecrets: [{
+    secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
+    mountEnv: "XOMETRY_STORAGE_STATE_JSON",
+    requiredWhenListed: false,
+    manualDeploy: true,
+  }],
+  egress: "stable_nat",
+  sessionlessJustification: "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper.",
+};
 const SYNCED_OUTPUTS = [
   WEB_CATALOG_RELATIVE_PATH,
   WORKER_CATALOG_RELATIVE_PATH,
@@ -289,6 +302,8 @@ describe("fixture:onboard --stage=live", () => {
     expect(readiness).toContain("Then run `npm run provider:sync`");
     expect(readiness).toContain("Do not\n   hand-edit `worker/src/runtimeSecrets.ts`, `worker/scripts/deploy-cloud-run.sh`");
     expect(readiness).toContain("never edit the generated");
+    expect(readiness.split("\n").filter((line) => line.startsWith("## "))).toEqual([...REQUIRED_READINESS_HEADINGS]);
+    expect(validateReadinessDoc(readiness)).toEqual([]);
 
     const env = await read(paths.sessionSecret);
     expect(env.startsWith("WORKER_MODE=simulate\n# fixture:onboard shopname session")).toBe(true);
@@ -377,6 +392,47 @@ describe("fixture:onboard --stage=admit", () => {
     const mine = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "admit" });
     expect(other.migrationTimestamp).toBe("20261011190000");
     expect(mine.migrationTimestamp).toBe("20261011200000");
+  });
+});
+
+describe("readLiveAutomationVendors", () => {
+  it("ignores line- and block-commented vendors and rejects live onboarding of them", async () => {
+    const root = await createRoot({ vendorKeys: ["xometry", "foo", "bar"], liveKeys: ["xometry"] });
+    const typesPath = path.join(root, "worker/src/types.ts");
+    const source = await fs.readFile(typesPath, "utf8");
+    await fs.writeFile(
+      typesPath,
+      source.replace('  "xometry",\n', '  "xometry",\n  // "foo",\n  /* "bar", */\n'),
+    );
+    expect(await fs.readFile(typesPath, "utf8")).toContain('// "foo",');
+
+    await expect(readLiveAutomationVendors(root)).resolves.toEqual(["xometry"]);
+    for (const key of ["foo", "bar"]) {
+      await addEnvelopeManifest(root, key);
+      await expect(runFixtureOnboard({ rootDir: root, key, stage: "live" }))
+        .rejects.toThrow("LIVE_AUTOMATION_VENDORS");
+    }
+  });
+
+  it("unwraps satisfies and parentheses, and throws when absent, not an array, or unparsable", async () => {
+    const root = await createRoot();
+    const typesPath = path.join(root, "worker/src/types.ts");
+    await fs.writeFile(typesPath, 'export const LIVE_AUTOMATION_VENDORS = (["a1", "b2"] as const) satisfies readonly string[];\n');
+    await expect(readLiveAutomationVendors(root)).resolves.toEqual(["a1", "b2"]);
+
+    await fs.writeFile(typesPath, 'const LIVE_AUTOMATION_VENDORS = ["a1"] as const;\n');
+    await expect(readLiveAutomationVendors(root)).rejects.toThrow("could not locate worker LIVE_AUTOMATION_VENDORS");
+    await fs.writeFile(typesPath, 'export const LIVE_AUTOMATION_VENDORS = "a1";\n');
+    await expect(readLiveAutomationVendors(root)).rejects.toThrow("could not locate worker LIVE_AUTOMATION_VENDORS");
+    await fs.writeFile(typesPath, 'export const LIVE_AUTOMATION_VENDORS = [ "a1" ;\n');
+    await expect(readLiveAutomationVendors(root)).rejects.toThrow("could not parse");
+  });
+
+  it("returns the real worker list unchanged", async () => {
+    await expect(readLiveAutomationVendors(process.cwd())).resolves.toEqual([
+      "xometry", "fictiv", "protolabs", "sendcutsend", "oshcut", "fabworks",
+      "ponoko", "quickparts", "rapiddirect", "geomiq", "weerg", "protolabsnetwork",
+    ]);
   });
 });
 

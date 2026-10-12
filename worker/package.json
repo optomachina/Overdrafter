@@ -20,6 +20,7 @@
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "probe:xometry-auth": "tsx src/tools/probeXometryProfileAuth.ts",
+    "probe:session": "tsx src/tools/probeProviderSession.ts",
     "export:xometry-profile": "tsx src/tools/exportXometryProfile.ts",
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
     "auth:vendor": "tsx src/tools/vendorAuth.ts",
