@@ -75,3 +75,9 @@ identifiers, raw captures, file bytes or session secrets. Until geometry and por
 bindings are reviewed, selecting Geomiq through that harness must retain the
 unconditional pre-session `unavailable` result; no local flag or synthetic parser
 may enable live execution.
+
+## Permissions matrix (OVD-724)
+
+Geomiq paid automated quoting is not matrix-cleared. See
+[`docs/providers/permissions-matrix.md`](../../docs/providers/permissions-matrix.md#geomiq)
+and [`docs/providers/acceptance-tables.md`](../../docs/providers/acceptance-tables.md).
