@@ -5,6 +5,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  deriveStableEgressOptionalAdapters,
+  formatStableEgressRestrictionMessage,
+  readProviderRegistry,
+  renderProviderRegistryOutputs,
+  validateProviderRegistry,
+} from "./provider-registry.mjs";
+
 const execFileAsync = promisify(execFile);
 const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh");
 const TARGET_PROJECT_NUMBER = "123456789012";
@@ -939,5 +948,79 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
+describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () => {
+  async function restrictionMessageFromScript(script) {
+    const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-message-"));
+    const scriptPath = path.join(dir, "provider-secrets.sh");
+    await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);
+    const { stdout } = await execFileAsync("bash", [scriptPath]);
+    return stdout.trim();
+  }
+
+  it("prints the current registry-built message and lists a temporary fourth adapter", async () => {
+    const repoRoot = path.resolve(process.cwd());
+    const registry = await readProviderRegistry(repoRoot);
+    const currentScript = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH)
+      .contents;
+    const currentMessage = await restrictionMessageFromScript(currentScript);
+    expect(currentMessage).toBe(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+    );
+    expect(currentMessage).toBe(formatStableEgressRestrictionMessage(
+      registry.stableEgressRequiredKey,
+      deriveStableEgressOptionalAdapters(registry),
+    ));
+
+    const withFourth = validateProviderRegistry({
+      ...registry,
+      providers: registry.providers.map((entry) => (
+        entry.key === "geomiq"
+          ? {
+            key: "geomiq",
+            liveAdapter: true,
+            sessionSecrets: [{
+              secretNameEnv: "GEOMIQ_STORAGE_STATE_SECRET_NAME",
+              mountEnv: "GEOMIQ_STORAGE_STATE_JSON",
+              requiredWhenListed: true,
+            }],
+            egress: "stable_nat",
+          }
+          : entry
+      )),
+    });
+    expect(deriveStableEgressOptionalAdapters(withFourth)).toEqual([
+      "fictiv",
+      "geomiq",
+      "quickparts",
+      "weerg",
+    ]);
+    const fourthScript = renderProviderRegistryOutputs(withFourth)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH)
+      .contents;
+    const fourthMessage = await restrictionMessageFromScript(fourthScript);
+    expect(fourthMessage).toBe(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Geomiq, Quickparts, and/or Weerg in that order.",
+    );
+    expect(fourthMessage).toContain("Geomiq");
+  });
+
+  it("uses the generated helper when a stable-egress deploy is rejected", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        ...STABLE_EGRESS_ENV,
+        WORKER_LIVE_ADAPTERS: "fictiv,xometry",
+        FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+      },
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+    );
   });
 });

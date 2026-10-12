@@ -10,6 +10,7 @@
     "title",
     "checkedOn",
     "killSwitch",
+    "kill_switch_shipped",
     "derivation",
     "providers"
   ],
@@ -18,6 +19,10 @@
     "schemaVersion": { "const": 1 },
     "title": { "const": "ProviderPermissionsMatrixV1" },
     "checkedOn": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "kill_switch_shipped": {
+      "type": "boolean",
+      "description": "False until OVD-722 ships. While false the cease-and-desist playbook must carry the pending OVD-722 marker."
+    },
     "killSwitch": {
       "type": "object",
       "additionalProperties": false,
