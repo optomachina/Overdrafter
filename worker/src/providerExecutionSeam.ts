@@ -397,7 +397,9 @@ export type ProviderExecutionOptions = {
    * PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES[outcome])`). A terminal outcome
    * is then thrown, so the lease blocks the binding. Without it the outcome
    * is returned as a value and a surrounding lease would release unblocked.
-   * An adapter's own ProviderSessionOutcomeError is rethrown unchanged.
+   * A terminal outcome is always rebuilt through this, including one matched
+   * by error name; a session outcome with no adapter failure kind (for
+   * example corrupt_state) is rethrown unchanged.
    */
   toLeaseError?: (outcome: ProviderExecutionTerminalOutcome) => Error;
 };
@@ -500,7 +502,10 @@ export async function executeWithProviderAuthorization<T>(
     const outcome = providerExecutionTerminalOutcomeForError(error);
     if (outcome) {
       log({ event: "provider_execution.terminal", provider: envelope.provider, outcome });
-      if (options.toLeaseError) throw isSessionOutcomeError(error) ? error : options.toLeaseError(outcome);
+      // Always rebuild through toLeaseError, even for an error matched only by
+      // name: the lease recognizes its own class, so a look alike would be
+      // treated as a plain failure and release the binding unblocked.
+      if (options.toLeaseError) throw options.toLeaseError(outcome);
       return { kind: "terminal", outcome, disposition: "manual_follow_up", retryable: false };
     }
     log({ event: "provider_execution.failed", provider: envelope.provider });

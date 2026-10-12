@@ -63,6 +63,7 @@ import {
   VendorArtifact,
   VendorAutomationError,
   VendorName,
+  VendorQuoteAdapterInput,
   WorkerConfig,
 } from "./types.js";
 import { buildExtractionCompletionPayload } from "./extractionObservability.js";
@@ -75,11 +76,12 @@ import {
 } from "./vendorTaskRetry.js";
 import {
   createProviderMutationPhase,
+  markProviderMutationStarted,
   providerMutationEvidence,
   runInProviderMutationPhase,
 } from "./providerMutationPhase.js";
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
-import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
+import { isProductionEnvironment, shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
 import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
@@ -91,8 +93,18 @@ import { isRetryableCadPreviewError } from "./cadPreview.js";
 import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
   dispatchAuthorizationFailure,
+  providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting.js";
+import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
+import { createProviderDaySwitch, type ProviderTaskOutcome } from "./providerTaskPipeline.js";
+import { providerTaskFailureRecord, providerTaskOutcomeNote, runGenericProviderTask } from "./providerTaskRoute.js";
+
+// OVD-464: process wide state for the generic provider route. The replay
+// record is scoped per claim inside the pipeline; the day switch turns a
+// provider off until the next UTC midnight after a block or ban.
+const providerAuthorizationConsumer = createProviderAuthorizationConsumer();
+const providerDaySwitch = createProviderDaySwitch();
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1257,6 +1269,104 @@ export async function handleVendorQuoteTask(
       try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
       catch { /* Local advisory capture cannot affect dispatch authority. */ }
     }
+    // OVD-464: a live non Xometry task carrying a generic permit runs the
+    // ordered provider pipeline and records its own finite outcome. Xometry
+    // and simulate mode keep the path below unchanged.
+    const genericClaim =
+      config.workerMode === "live"
+        ? providerDispatchClaimFromTask({ task, vendorQuoteResultId: currentResult.id, vendor })
+        : null;
+    if (genericClaim) {
+      const { quote_run_id: quoteRunId, part_id: partId } = task;
+      const approvedRequirement = context.requirement;
+      const quoteInput: VendorQuoteAdapterInput = {
+        organizationId: task.organization_id,
+        quoteRunId: task.quote_run_id,
+        part: context.part,
+        cadFile: context.cadFile,
+        drawingFile: context.drawingFile,
+        stagedCadFile,
+        stagedDrawingFile,
+        requirement: context.requirement,
+        requestedQuantity: currentResult.requested_quantity,
+      };
+      const outcome = await runGenericProviderTask({
+        supabase,
+        workerName: config.workerName,
+        claimedAt: task.locked_at ?? "",
+        task: { id: task.id, attempts: task.attempts, organizationId: task.organization_id, quoteRunId: task.quote_run_id },
+        claim: genericClaim,
+        scopeSnapshot,
+        requestedQuantity: currentResult.requested_quantity,
+        environment: isProductionEnvironment() ? "production" : "development",
+        adapterRevision: `${vendor}@${config.workerBuildVersion}`.slice(0, 80),
+        leaseSetting: config.providerSessionLease ?? "off",
+        // The OVD-462 lease manager is not on main yet; with the setting on
+        // the pipeline fails closed with session_lease_unavailable.
+        lease: null,
+        quoteInput,
+        adapter: { provider: vendor, quote: (input) => adapter.quote(input) },
+        consumer: providerAuthorizationConsumer,
+        daySwitch: providerDaySwitch,
+        onAdapterStart: () => {
+          vendorAutomationStarted = true;
+          // Anything thrown after this point is never retried by the generic task retry.
+          markProviderMutationStarted();
+        },
+        persist: async (output) => {
+          output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
+          const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
+            vendorQuoteResultId: currentResult.id,
+            organizationId: task.organization_id,
+            quoteRunId,
+            partId,
+            vendor,
+            artifacts: output.artifacts,
+          });
+          await finalizeVendorQuoteResult(
+            supabase,
+            currentResult.id,
+            {
+              status: output.status,
+              unit_price_usd: output.unitPriceUsd,
+              total_price_usd: output.totalPriceUsd,
+              lead_time_business_days: output.leadTimeBusinessDays,
+              quote_url: output.quoteUrl,
+              dfm_issues: output.dfmIssues,
+              notes: output.notes,
+              raw_payload: {
+                ...output.rawPayload,
+                offers: output.offers ?? [],
+                artifactStoragePaths,
+                requestedQuantity: currentResult.requested_quantity,
+                requirementCapturedAt,
+                retryCount,
+                failureCode: null,
+              },
+            },
+            buildVendorQuoteOfferPayloads({
+              vendorQuoteResultId: currentResult.id,
+              organizationId: task.organization_id,
+              vendor,
+              requestedQuantity: currentResult.requested_quantity,
+              requirement: approvedRequirement,
+              requirementCapturedAt,
+              result: output,
+            }),
+          );
+          return { artifactCount: artifactStoragePaths.length };
+        },
+      });
+      await recordGenericProviderOutcome(supabase, task, {
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        requestedQuantity: currentResult.requested_quantity,
+        retryCount,
+        outcome,
+      });
+      return;
+    }
+
     const result = await quoteWithRoutedDispatchPreflight({
       supabase,
       config,
@@ -1474,6 +1584,89 @@ export async function handleVendorQuoteTask(
       vendorAutomationStarted ? VENDOR_RUN_SPEND_ESTIMATE_USD : 0,
     );
     await cleanupPaths([stageDir, ...artifactDirs]);
+  }
+}
+
+/**
+ * OVD-464: writes one finite visible state for a generic provider outcome.
+ * The pipeline already decided retry; this never rethrows a provider failure
+ * into the generic task retry.
+ */
+async function recordGenericProviderOutcome(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  input: {
+    vendor: VendorName;
+    vendorQuoteResultId: string;
+    requestedQuantity: number;
+    retryCount: number;
+    outcome: ProviderTaskOutcome;
+  },
+) {
+  const { vendor, outcome } = input;
+  const { job_id: jobId, quote_run_id: quoteRunId } = task;
+  if (!jobId || !quoteRunId) throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
+  if (outcome.disposition === "persisted") {
+    try {
+      await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
+    } catch (scoringError) {
+      console.warn(
+        JSON.stringify({
+          service: "overdrafter-cad-worker",
+          level: "warn",
+          source: "worker.scoring",
+          message: `Routing score computation failed: ${summarizeWorkerError(scoringError)}`,
+          context: { quoteRunId: task.quote_run_id },
+        }),
+      );
+    }
+    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
+    if (requestStatusAfterResult === "canceled") {
+      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
+        vendorStatus: outcome.persisted?.status ?? null,
+        artifactCount: outcome.persisted?.artifactCount ?? 0,
+        ignoredDueToCanceledRequest: true,
+      });
+      return;
+    }
+    await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+    await markTaskCompleted(supabase, task, {
+      vendorStatus: outcome.persisted?.status ?? null,
+      artifactCount: outcome.persisted?.artifactCount ?? 0,
+      offerCount: outcome.persisted?.offerCount ?? 0,
+    });
+    return;
+  }
+
+  const record = providerTaskFailureRecord(vendor, outcome, {
+    retryCount: input.retryCount,
+    requestedQuantity: input.requestedQuantity,
+  });
+  const { error: resultError } = await supabase
+    .from("vendor_quote_results")
+    .update(record)
+    .eq("id", input.vendorQuoteResultId);
+  if (resultError) throw resultError;
+  await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+
+  const note = providerTaskOutcomeNote(vendor, outcome);
+  const taskPatch = {
+    failureCode: outcome.code,
+    failureStage: outcome.stage,
+    adapterStarted: outcome.adapterStarted,
+    providerDisabledForDay: outcome.providerDisabledForDay,
+  };
+  if (outcome.disposition === "requeue" && outcome.retryAt) {
+    await markTaskQueuedForRetry(supabase, task, note, outcome.retryAt, { ...taskPatch, nextRetryAt: outcome.retryAt });
+  } else if (outcome.disposition === "manual_follow_up") {
+    await markTaskCompleted(supabase, task, {
+      ...taskPatch,
+      vendorStatus: "manual_vendor_followup",
+      manualVendor: true,
+      manualReasonCode: outcome.code,
+    });
+  } else {
+    await markTaskFailed(supabase, task, note, taskPatch);
   }
 }
 

@@ -165,7 +165,7 @@ device release gate before this flow replaces the current embedded sign-in.
 - reauthorizing the claimed task through a service-role-only preflight after file staging and immediately before adapter invocation; the preflight rechecks the immutable permit/task/lane identities, current beta and entitlement state, rollout, exact Xometry-only provider configuration, and both staged and current scope fingerprints, while the live Xometry adapter independently refuses browser launch without that bounded non-export-controlled authorization
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
-- validating adapter results before they can become offers (`OVD-463`, as-built, pure) through `worker/src/providerResultValidation.ts`: `validateProviderResult` binds a candidate to the authorized provider, task, lane, permit, run, envelope and policy revision, package identity and quantity, then checks USD currency, finite prices consistent with quantity, lead time, HTTPS destination allowlist, collection freshness and vendor validity, typed geographic origin with provider text evidence, unique offer identifiers and complete option sets. It rejects simulated results, adapter admission claims and credential material, and it fails closed with one typed `ProviderResultRejection` (finite code, retry disposition, bounded issue paths, never adapter values) that `toAdminRejectionDiagnostic` shapes for admin visibility. `toDeliveryObservation` feeds validated offers into the OVD-569 projection with fees, tax and shipping left unknown. It is not wired into the worker or persistence; `OVD-464` integrates it
+- validating adapter results before they can become offers (`OVD-463`, as-built, pure) through `worker/src/providerResultValidation.ts`: `validateProviderResult` binds a candidate to the authorized provider, task, lane, permit, run, envelope and policy revision, package identity and quantity, then checks USD currency, finite prices consistent with quantity, lead time, HTTPS destination allowlist, collection freshness and vendor validity, typed geographic origin with provider text evidence, unique offer identifiers and complete option sets. It rejects simulated results, adapter admission claims and credential material, and it fails closed with one typed `ProviderResultRejection` (finite code, retry disposition, bounded issue paths, never adapter values) that `toAdminRejectionDiagnostic` shapes for admin visibility. `toDeliveryObservation` feeds validated offers into the OVD-569 projection with fees, tax and shipping left unknown. `OVD-464` wires it into the generic provider route before persistence
 - projecting delivered cost and arrival (`OVD-569`, as-built, pure) through `shared/delivered-cost-arrival.ts`: `projectDeliveredCostAndArrival` takes one immutable provider observation plus a hypothetical order instant, business calendar, and at most `MAX_SHIPPING_SCENARIOS` shipping scenarios, and returns a frozen, versioned projection of component costs and arrival with `confirmed`/`estimated`/`unknown` provenance. Unstated tax, fees, shipping, transit, lead time, and expiry stay unknown; caller assumptions are labeled estimated; fixed provider delivery dates override lead-time duration. `src/features/quotes/delivered-cost-arrival-input.ts` maps `ClientQuoteSelectionOption` into it. It reads no clock, persists nothing, and changes no quote evidence, validity, or dispatch behavior
 
 Hosted Xometry session boundary (as-built and active target):
@@ -482,16 +482,33 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
   Xometry task are ignored)
 - a live non-Xometry task whose payload carries both
   `providerDispatchPermitId` and `providerDispatchEnvelopeFingerprint` as
-  strings goes through `quoteWithProviderDispatchPreflight`; the claim is
-  built only from the worker's own claimed task and result row
+  strings runs `worker/src/providerTaskPipeline.ts` (OVD-464) through
+  `providerTaskRoute.ts`, in this order: read the registered lane, the
+  OVD-459 preflight, a byte check against the authorized outbound files, the
+  OVD-462 session lease (only when `WORKER_PROVIDER_SESSION_LEASE=on`; default
+  off, and on fails closed with `session_lease_unavailable` until the lease
+  module lands), the OVD-461 seam around exactly the registered adapter, the
+  OVD-463 validator (expectation from the authorization, candidate binding
+  from worker state), one atomic `reconcile_vendor_quote_offers` write, then
+  lease release. Every denial records a finite lane and task state with zero
+  adapter calls; the claim is built only from the worker's own claimed task
+  and result row
+- retry on that route has one authority, `decideProviderTaskRetry`: pre
+  dispatch transients (`preflight_unavailable`, lease contended or
+  unavailable) follow the shared finite schedule; an adapter failure or a
+  validator `bounded` code requeues at most once and only from the first
+  database claim (`work_queue.attempts`); terminal outcomes never requeue, and
+  `provider_blocked` or `account_banned` also turn the provider off in that
+  worker until the next UTC midnight
 - any other live non-Xometry task stays on the specialized path and is
   refused with `dispatch_live_provider_not_permitted` before launch
 - generic denials are recorded with their OVD-457 code as `failureCode` and
   `manualFollowUpReason`; only `preflight_unavailable` schedules a retry, and
   the generic error is a structured error for advisory triage
-- session leases (OVD-462) and result validation (OVD-463) are not part of
-  routing; with no reviewed generic envelope nothing is admitted
-- rollback: revert the seam to always call `quoteWithDispatchPreflight`
+- a provider without a reviewed generic envelope, or without a registered
+  adapter, is refused before the preflight; there is no fallback
+- rollback: revert the OVD-464 branch in `handleVendorQuoteTask`; generic
+  tasks then return to `quoteWithProviderDispatchPreflight`
 
 Provider-neutral dispatch envelope SQL obligations (requirements for every SQL producer and consumer of the envelope, including the `OVD-458` permit builder above and the `OVD-459` preflight):
 

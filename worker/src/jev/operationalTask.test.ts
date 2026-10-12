@@ -63,7 +63,9 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
         : table === "approved_part_requirements" ? approved
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "instant_quote_received" }] : { id: "result", requested_quantity: 2 })
             : table === "jobs" ? { organization_id: scope.organizationId, status: "internal_review" }
-              : table === "quote_runs" ? { status: "received", quote_requests: { status: requestCanceled ? "canceled" : "requesting" } } : null;
+              : table === "quote_runs" ? { status: "received", quote_requests: { status: requestCanceled ? "canceled" : "requesting" } }
+                : table === "quote_request_lanes" ? { id: "lane", quote_request_id: "request", quote_run_id: scope.quoteRunId,
+                  vendor_quote_result_id: "result", scope_fingerprint: "f".repeat(64) } : null;
       return { data, error: null };
     };
     const query = {
@@ -193,13 +195,48 @@ describe("actual worker operational advisory seam", () => {
     expect(rpcs).not.toContain("api_authorize_xometry_beta_worker_dispatch");
     expect(db.writes).toEqual(expect.arrayContaining([
       { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
-        notes: ["Automatic fictiv dispatch authorization was denied before adapter launch; manual follow-up is required."],
+        notes: ["fictiv automation stopped at authorize (permit_revoked); manual follow up is required."],
         raw_payload: expect.objectContaining({ failureCode: "permit_revoked", manualFollowUpReason: "permit_revoked",
-          requiresManualVendorFollowUp: true, retryScheduledFor: null }) }) },
+          requiresManualVendorFollowUp: true, retryScheduledFor: null, adapterStarted: false }) }) },
       { table: "work_queue", update: expect.objectContaining({ status: "completed" }) },
     ]));
     await fixture.capability.observations.drain();
     expect(fixture.caps.decide).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before the preflight when the session lease setting is on but no lease is wired (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"], providerSessionLease: "on" } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const db = database();
+    await handleVendorQuoteTask(db.client, generic, live);
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
+        raw_payload: expect.objectContaining({ failureCode: "session_lease_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "completed" }) },
+    ]));
+  });
+
+  it("requeues a generic task on a transient preflight failure with zero adapter calls (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, attempts: 1, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+      ? (db.writes.push({ rpc: name }), Promise.resolve({ data: null, error: { code: "08006" }, status: 503 }))
+      : rpc(name as never, args as never);
+    await handleVendorQuoteTask(db.client, generic, live);
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "queued",
+        raw_payload: expect.objectContaining({ failureCode: "preflight_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "queued" }) },
+    ]));
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {
