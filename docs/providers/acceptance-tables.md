@@ -24,6 +24,36 @@ Kill-switch certification for every 1.0 provider is an OVD-722 / OVD-319
 acceptance item. Record the flip-off / no-traffic / flip-on result in the
 provider's live-readiness or acceptance notes when that issue lands.
 
+## OVD-723 export-control certification (OVD-319 walk)
+
+OVD-723 blocks controlled or uncertain uploads at upload time and denies
+dispatch unless the latest declaration is `not_controlled` and no marking block
+is open. The OVD-319 certification walk must run two extra cases per 1.0
+provider and record the result here:
+
+- **Marked drawing**: upload a drawing whose title block carries an ITAR, ECCN,
+  CUI, or distribution-statement marking with a `not_controlled` declaration.
+  Expected: extraction records `blocked_pending_review` and the preflight
+  denies with `export_review_pending` (foreign providers:
+  `export_foreign_provider_requires_clean_declaration`). Zero provider traffic.
+- **`unsure` answer**: answer `unsure` at upload. Expected: the upload stops,
+  zero storage objects and zero `job_files` rows, so nothing can be dispatched.
+
+Status: **not run**. The gate is a migration draft
+(`docs/migration-drafts/ovd-723.sql`, needs a Blaine migration window). Run the
+walk after both phases are applied, then fill in the result column.
+
+| key | Marked drawing | `unsure` answer | Expected denial code | Result |
+| --- | --- | --- | --- | --- |
+| xometry | pending | pending | `export_review_pending` | not run |
+| fictiv | pending | pending | `export_review_pending` | not run |
+| quickparts | pending | pending | `export_review_pending` | not run |
+| weerg | pending | pending | `export_foreign_provider_requires_clean_declaration` | not run |
+| geomiq | pending | pending | `export_foreign_provider_requires_clean_declaration` | not run |
+| rmfg | pending | pending | `export_review_pending` | not run |
+| oshcut | pending | pending | `export_review_pending` | not run |
+| sendcutsend | pending | pending | `export_review_pending` | not run |
+
 ## Per-provider acceptance notes
 
 ### xometry
