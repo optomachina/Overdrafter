@@ -74,7 +74,7 @@
         },
         "manualDeploy": {
           "type": "boolean",
-          "description": "When true, the generated deploy helper does not apply or remove this secret. Use when deploy-cloud-run.sh handles the binding itself."
+          "description": "When true, the generated deploy helper skips apply/remove for this secret because deploy-cloud-run.sh owns the binding. Restricted to the xometry allowlist; other providers are rejected. Required-secret checks and stale-remove steps for every other listed secret still run."
         }
       }
     }

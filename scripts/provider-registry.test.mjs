@@ -20,6 +20,7 @@ import {
   formatLiveAdapterPhrase,
   formatStableEgressRestrictionMessage,
   isReservedDeployEnv,
+  looksLikeSecretValue,
   parseProviderRegistry,
   readProviderRegistry,
   readProviderRegistrySchema,
@@ -265,6 +266,7 @@ const SECRET_VALUE_SHAPES = Object.freeze({
   gho: "gho_01234567890123456789",
   openai: "sk-abcdefghijklmnopqrstuv",
   entropy: "n7Q2vL9xR4mP8wK3tY6bC1hF5jD0sA2u",
+  hex32: "0123456789abcdef0123456789abcdef",
 });
 
 function xometryManualEntry(overrides = {}) {
@@ -515,5 +517,117 @@ describe("provider registry hardening (OVD-727)", () => {
     )).toBe(
       "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
     );
+  });
+
+  it("rejects fictiv manualDeploy:true and still emits fictiv remove plus required checks", () => {
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      sessionSecrets: [{
+        secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+        mountEnv: "FICTIV_STORAGE_STATE_JSON",
+        requiredWhenListed: true,
+        manualDeploy: true,
+      }],
+    }))).toThrow("manualDeploy is restricted to: xometry");
+    expect(() => validateSessionSecret({
+      secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "FICTIV_STORAGE_STATE_JSON",
+      requiredWhenListed: true,
+      manualDeploy: true,
+    }, "secret", { providerKey: "fictiv" })).toThrow("manualDeploy is restricted to: xometry");
+    expect(() => validateSessionSecret({
+      secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "FICTIV_STORAGE_STATE_JSON",
+      requiredWhenListed: true,
+      manualDeploy: false,
+    }, "secret", { providerKey: "fictiv" })).toThrow("manualDeploy is restricted to: xometry");
+
+    const registry = twoProviderRegistry(liveRegistry());
+    const secrets = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH);
+    expect(secrets.contents).toContain(
+      'if [[ "$fictiv_live_enabled" == "true" && -z "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then',
+    );
+    expect(secrets.contents).toContain("remove_secret_vars+=('FICTIV_STORAGE_STATE_JSON')");
+    expect(secrets.contents).not.toContain("XOMETRY_STORAGE_STATE_JSON=${XOMETRY_STORAGE_STATE_SECRET_NAME}");
+  });
+
+  it("trims sessionlessJustification before the length check", () => {
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: " ".repeat(30),
+    })).toThrow("sessionlessJustification must be at least 20 characters");
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: `ok${" ".repeat(20)}`,
+    })).toThrow("sessionlessJustification must be at least 20 characters");
+  });
+
+  it("detects high-entropy tokens inside whitespace, slashes, and 32-character hex", () => {
+    const entropy = SECRET_VALUE_SHAPES.entropy;
+    const hex32 = SECRET_VALUE_SHAPES.hex32;
+    expect(looksLikeSecretValue(`justify ${entropy} here`)).toBe(true);
+    expect(looksLikeSecretValue(`https://example.com/${entropy}`)).toBe(true);
+    expect(looksLikeSecretValue(hex32)).toBe(true);
+    expect(looksLikeSecretValue(`prefix ${hex32} suffix`)).toBe(true);
+    expect(looksLikeSecretValue(`https://example.com/${hex32}`)).toBe(true);
+    expect(looksLikeSecretValue("./provider-registry.v1.schema.json")).toBe(false);
+    expect(looksLikeSecretValue("/var/secrets/desk-x/storage-state.json")).toBe(false);
+    expect(looksLikeSecretValue("https://www.rmfg.com/")).toBe(false);
+    expect(looksLikeSecretValue("https://www.fictiv.com/help/getting-a-quote/how-do-i-add-finishing-to-my-parts")).toBe(false);
+    expect(looksLikeSecretValue("https://help.ponoko.com/en/articles/2688477-what-design-software-file-type-should-i-use")).toBe(false);
+    expect(looksLikeSecretValue("FICTIV_STORAGE_STATE_SECRET_NAME")).toBe(false);
+
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: `Sessionless adapter notes ${entropy} stay out of registry files.`,
+    })).toThrow("secret-value-like string");
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: `https://docs.example.com/${hex32}`,
+    })).toThrow("secret-value-like string");
+  });
+
+  it("rejects two providers that share a mountPath under different variable names", () => {
+    const sharedPath = "/var/secrets/shared-storage-state/storage-state.json";
+    expect(() => validateProviderRegistry({
+      $schema: "./provider-registry.v1.schema.json",
+      schemaVersion: 1,
+      stableEgressRequiredKey: "xometry",
+      providers: [
+        {
+          key: "fictiv",
+          liveAdapter: true,
+          sessionSecrets: [{
+            secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+            mountPath: sharedPath,
+            requiredWhenListed: true,
+          }],
+          egress: "stable_nat",
+        },
+        {
+          key: "geomiq",
+          liveAdapter: true,
+          sessionSecrets: [{
+            secretNameEnv: "GEOMIQ_STORAGE_STATE_SECRET_NAME",
+            mountPath: sharedPath,
+            requiredWhenListed: true,
+          }],
+          egress: "none",
+        },
+        xometryManualEntry(),
+      ],
+    })).toThrow(`collides with another provider mountPath: ${sharedPath}`);
   });
 });

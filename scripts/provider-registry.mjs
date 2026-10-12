@@ -46,7 +46,9 @@ export const SECRET_VALUE_PATTERNS = Object.freeze([
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}/,
   /\bsk-[A-Za-z0-9]{16,}/,
+  /\b[0-9a-fA-F]{32}\b/,
 ]);
+export const MANUAL_DEPLOY_ALLOWLIST = Object.freeze(["xometry"]);
 
 const KEY_PATTERN = /^[a-z][a-z0-9]{1,49}$/;
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]{1,80}$/;
@@ -118,6 +120,30 @@ export function shannonEntropy(value) {
   return entropy;
 }
 
+const TOKEN_SPLIT_PATTERN = /[\s/:?#&=]+/;
+const KEBAB_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)+$/;
+
+function isKnownSafeLiteral(value) {
+  return MOUNT_PATH_PATTERN.test(value)
+    || ENV_NAME_PATTERN.test(value)
+    || KEY_PATTERN.test(value);
+}
+
+function tokenLooksLikeSecret(token) {
+  if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(token))) {
+    return true;
+  }
+  if (
+    token.length < HIGH_ENTROPY_MIN_LENGTH
+    || isKnownSafeLiteral(token)
+    || token.includes(".")
+    || KEBAB_SLUG_PATTERN.test(token)
+  ) {
+    return false;
+  }
+  return shannonEntropy(token) >= HIGH_ENTROPY_THRESHOLD;
+}
+
 export function looksLikeSecretValue(value) {
   if (typeof value !== "string" || value.length === 0) {
     return false;
@@ -125,16 +151,10 @@ export function looksLikeSecretValue(value) {
   if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
     return true;
   }
-  if (
-    MOUNT_PATH_PATTERN.test(value)
-    || /\s/.test(value)
-    || ENV_NAME_PATTERN.test(value)
-    || KEY_PATTERN.test(value)
-    || value.includes("/")
-  ) {
+  if (isKnownSafeLiteral(value)) {
     return false;
   }
-  return value.length >= HIGH_ENTROPY_MIN_LENGTH && shannonEntropy(value) > HIGH_ENTROPY_THRESHOLD;
+  return value.split(TOKEN_SPLIT_PATTERN).some((token) => token.length > 0 && tokenLooksLikeSecret(token));
 }
 
 export function assertStringHasNoSecretValue(value, label) {
@@ -144,7 +164,7 @@ export function assertStringHasNoSecretValue(value, label) {
   return value;
 }
 
-function assertNoSecretValues(value, label) {
+export function assertNoSecretValues(value, label) {
   if (typeof value === "string") {
     assertStringHasNoSecretValue(value, label);
     return;
@@ -373,6 +393,11 @@ export function validateSessionSecret(secret, label, { providerKey } = {}) {
     requiredWhenListed: value.requiredWhenListed,
   };
   if (keys.includes("manualDeploy")) {
+    if (!MANUAL_DEPLOY_ALLOWLIST.includes(providerKey)) {
+      throw new Error(
+        `${label}.manualDeploy is restricted to: ${MANUAL_DEPLOY_ALLOWLIST.join(", ")}`,
+      );
+    }
     validated.manualDeploy = requireBoolean(value.manualDeploy, `${label}.manualDeploy`);
   }
   for (const name of sessionSecretVarNames(validated)) {
@@ -415,7 +440,7 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
     sessionlessJustification = requireString(
       value.sessionlessJustification,
       `${label}.sessionlessJustification`,
-    );
+    ).trim();
     if (sessionlessJustification.length < SESSIONLESS_JUSTIFICATION_MIN_LENGTH) {
       throw new Error(`${label}.sessionlessJustification must be at least ${SESSIONLESS_JUSTIFICATION_MIN_LENGTH} characters`);
     }
@@ -477,17 +502,29 @@ export function validateProviderRegistry(document) {
 
 function assertNoCrossProviderEnvCollisions(providers) {
   const seenVars = new Map();
+  const seenMountPaths = new Map();
   for (const entry of providers) {
     for (const [index, secret] of entry.sessionSecrets.entries()) {
+      const owner = `${entry.key}.sessionSecrets[${index}]`;
       for (const name of sessionSecretVarNames(secret)) {
-        const owner = seenVars.get(name);
-        if (owner) {
+        const existing = seenVars.get(name);
+        if (existing) {
           throw new Error(
-            `registry.providers ${entry.key} collides with another provider variable: ${name} (${owner})`,
+            `registry.providers ${entry.key} collides with another provider variable: ${name} (${existing})`,
           );
         }
-        seenVars.set(name, `${entry.key}.sessionSecrets[${index}]`);
+        seenVars.set(name, owner);
       }
+      if (!secret.mountPath) {
+        continue;
+      }
+      const existingPath = seenMountPaths.get(secret.mountPath);
+      if (existingPath) {
+        throw new Error(
+          `registry.providers ${entry.key} collides with another provider mountPath: ${secret.mountPath} (${existingPath})`,
+        );
+      }
+      seenMountPaths.set(secret.mountPath, owner);
     }
   }
 }
@@ -711,6 +748,10 @@ function renderStableEgressRestrictionMessageFn() {
   ].join("\n");
 }
 
+function skipsGeneratedSecretBinding(entry, secret) {
+  return secret.manualDeploy === true && MANUAL_DEPLOY_ALLOWLIST.includes(entry.key);
+}
+
 function renderSecretsScript(registry) {
   const liveAdapters = deriveLiveAdapters(registry);
   const optionalEgress = deriveStableEgressOptionalAdapters(registry);
@@ -718,10 +759,14 @@ function renderSecretsScript(registry) {
   const phrase = formatLiveAdapterPhrase(liveAdapters);
   const generatedSecrets = liveEntries.flatMap((entry) => (
     entry.sessionSecrets
-      .filter((secret) => secret.manualDeploy !== true)
+      .filter((secret) => !skipsGeneratedSecretBinding(entry, secret))
       .map((secret) => ({ entry, secret }))
   ));
-  const requiredSecrets = generatedSecrets.filter(({ secret }) => secret.requiredWhenListed);
+  const requiredSecrets = liveEntries.flatMap((entry) => (
+    entry.sessionSecrets
+      .filter((secret) => secret.requiredWhenListed)
+      .map((secret) => ({ entry, secret }))
+  ));
   const emptySecretInits = [...new Set(generatedSecrets.map(({ secret }) => secret.secretNameEnv))]
     .sort(compareStrings)
     .map((name) => `${name}="\${${name}:-}"`);
