@@ -23,7 +23,7 @@ const ANSWER_LABELS: Record<JobExportControlStatus["latestAnswer"], string> = {
   unsure: "Not sure",
 };
 
-export function jobExportControlStatusQueryKey(jobId: string) {
+function jobExportControlStatusQueryKey(jobId: string) {
   return ["job-export-control-status", jobId] as const;
 }
 
