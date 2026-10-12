@@ -28,7 +28,7 @@
     "typecheck:worker": "npm --prefix worker run typecheck",
     "preview": "vite preview",
     "e2e": "npm run e2e:authenticated",
-    "e2e:fixture": "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture",
+    "e2e:fixture": "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture && playwright test --config e2e/delivered-comparison.config.ts",
     "e2e:authenticated": "playwright test --grep-invert @fixture",
     "e2e:quote-confirmation": "tsc --noEmit -p e2e/quote-confirmation/tsconfig.json && playwright test --config e2e/quote-confirmation/playwright.config.ts",
     "e2e:ui": "playwright test --ui",

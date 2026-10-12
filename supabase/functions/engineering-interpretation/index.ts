@@ -3,6 +3,7 @@ import {
   dispatchPreparedRequest, type DispatchIdentity, type PreparedAdapter,
   type PreparedDispatchRuntime,
 } from "../../../server/engineering/dispatch-prepared-request.ts";
+import { setDepthAdapter } from "../../../server/engineering/set-depth-adapter.ts";
 
 const SCHEMA = "overdrafter.prepared-dispatch.v1";
 const MAX_BODY_BYTES = 1024;
@@ -78,7 +79,6 @@ async function serverRpc(name: RpcName, args: Record<string, unknown>, signal: A
   });
   return client.rpc(name, args).abortSignal(signal);
 }
-const unavailableAdapter: PreparedAdapter = () => { throw new Error("No model adapter is configured."); };
 function rpcValue(result: RpcResult): unknown {
   if (result.error) throw new Error(result.error.code ?? "database_error");
   return result.data;
@@ -106,10 +106,10 @@ export function createEngineeringInterpretationHandler(overrides: Partial<Runtim
   const runtime: Runtime = {
     enabled: () => Deno.env.get("ENGINEERING_INTERPRETATION_ENABLED") === "true",
     serviceKey: () => Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
-    rpc: serverRpc, adapter: unavailableAdapter, ...overrides,
+    rpc: serverRpc, adapter: setDepthAdapter, ...overrides,
   };
   return async (request: Request): Promise<Response> => {
-    if (!runtime.enabled() || runtime.adapter === unavailableAdapter) {
+    if (!runtime.enabled()) {
       return json(503, { state: "disabled" });
     }
     if (request.method !== "POST") return json(405, { state: "conflict" });

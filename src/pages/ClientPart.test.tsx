@@ -431,8 +431,12 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       >
         {scope === "domestic" ? "US-only sourcing" : "All sourcing"}
       </button>
-      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
-      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
+      {onModeChange ? (
+        <>
+          <button type="button" onClick={() => onModeChange("fastest")}>Fast</button>
+          <button type="button" onClick={() => onModeChange("cheapest")}>Cheap</button>
+        </>
+      ) : null}
     </div>
   ),
 }));
@@ -1438,19 +1442,9 @@ describe("ClientPart", () => {
       "offer-imported-1",
     );
 
-    api.persistClientQuoteSelection.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
-
-    await waitFor(() => {
-      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
-        jobId: "job-1",
-        target: {
-          kind: "published_quote_option",
-          packageId: "published-package-imported-1",
-          optionId: "published-option-imported-1",
-        },
-      });
-    });
+    // OVD-571: table order is Cheapest/Fastest on the comparison table; no preset button auto-selects a winner.
+    expect(screen.queryByRole("button", { name: "Cheap" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Balanced" })).not.toBeInTheDocument();
     expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
   });
 
@@ -2682,11 +2676,19 @@ describe("ClientPart", () => {
     );
     expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
-    await act(async () => updateRequest.resolve());
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    // The draft already shows the newer edit, so waiting on its value cannot observe the
+    // acknowledgement. Wait on the acknowledgement itself, inside one act scope: the save reports
+    // success only after its own refresh lands, and its per-call onSuccess marks the patch
+    // preservation completed in the microtasks that follow. Leaving act then commits that state
+    // and flushes the effect that clears the preservation. Refreshing before that commit lets the
+    // acknowledgement and the next server refresh land in one commit, which keeps the draft.
+    await act(async () => {
+      updateRequest.resolve();
+      await vi.waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+      });
     });
+    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
     persistedDescription = "Server description after acknowledgement";
     await act(async () => {
@@ -2757,11 +2759,22 @@ describe("ClientPart", () => {
       resolvePatchRequest?.();
     });
 
+    // Wait on each stage of the serialized pipeline in order instead of asserting its final state
+    // inside one real-time window: the pending save settles after its refresh, the queued reset
+    // runs, and the reset settles only after it has refreshed and reconciled the draft.
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+    });
     await waitFor(() => {
       expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
         jobId: "job-1",
         fields: ["description"],
       });
+    });
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Field reset to extracted value.");
+    });
+    await waitFor(() => {
       expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
       expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });

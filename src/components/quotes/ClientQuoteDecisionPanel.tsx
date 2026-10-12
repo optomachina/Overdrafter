@@ -1,15 +1,14 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import {
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
+  CheckCircle2,
   CircleOff,
   Clock,
   Loader2,
   SlidersHorizontal,
   TriangleAlert,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -34,19 +33,31 @@ import {
 import {
   getClientQuoteOptionStateReasons,
 } from "@/features/quotes/client-workspace-state";
+import {
+  buildDeliveredComparisonModel,
+  formatCivilDate,
+  formatUnknownCostComponents,
+  getDeadlineStatus,
+  resolveQuoteRequestCompletion,
+  sortDeliveredComparisonRows,
+  type DeadlineStatus,
+  type DeliveredComparisonMode,
+  type DeliveredComparisonRow,
+  type QuoteRequestCompletionInput,
+  type QuoteRequestCompletionNotice,
+} from "@/features/quotes/delivered-comparison";
+import type { PartDeadlineState } from "@/features/quotes/api/part-deadline-api";
 import type {
   ClientQuoteSelectionOption,
   QuotePreset,
-  QuotePresetMode,
 } from "@/features/quotes/selection";
 import {
   formatQuotePlotExclusionReason,
   filterQuoteOptionsForScope,
   getPresetScope,
   getPresetMode,
-  getTopRankedQuoteOptionKeys,
-  sortQuoteOptionsForPreset,
 } from "@/features/quotes/selection";
+import { getVendorColor } from "@/features/quotes/vendor-colors";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency } from "@/features/quotes/utils";
 import { resolveVendorPurchasingLink } from "@/features/quotes/vendor-purchasing-links";
@@ -57,6 +68,8 @@ type ClientQuoteDecisionPanelProps = {
   description?: string;
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
+  /** The stored choice no longer resolves to a selectable option, so nothing is selected. */
+  previousSelectionUnavailable?: boolean;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   requestedByDate: string | null;
   quoteDataStatus?: QuoteDataStatus;
@@ -72,18 +85,14 @@ type ClientQuoteDecisionPanelProps = {
   headerActions?: ReactNode;
   emptyState?: string;
   className?: string;
+  /** Persisted part deadline intent (OVD-570); falls back to `requestedByDate` when absent. */
+  deadline?: { date: string | null; state: PartDeadlineState } | null;
+  /** Active request and run context for the bounded completion notice. */
+  requestCompletion?: QuoteRequestCompletionInput | null;
+  /** Hypothetical order instant and calendar zone for delivered-date projection. */
+  now?: Date;
+  timeZone?: string;
 };
-
-function formatEstimatedDeliveryDays(
-  leadTimeBusinessDays: number | null | undefined,
-  resolvedDeliveryDate: string | null | undefined,
-): string {
-  if (leadTimeBusinessDays || leadTimeBusinessDays === 0) {
-    return `${leadTimeBusinessDays} day${leadTimeBusinessDays === 1 ? "" : "s"}`;
-  }
-
-  return resolvedDeliveryDate ?? "Pending";
-}
 
 function formatGeographicOrigin(origin: ClientQuoteSelectionOption["geographicOrigin"]) {
   if (origin === "domestic") return "US";
@@ -139,30 +148,6 @@ function VendorStatusBadge({
       {statusInfo.label}
     </Badge>
   );
-}
-
-function getPresetModeBadgeCopy(mode: QuotePresetMode) {
-  if (mode === "fastest") {
-    return {
-      indicatorLabel: "Fast mode: fastest delivery first",
-      indicatorDetail: "Rows are sorted by lead time ascending. The fastest vendor gets the Fast pick badge.",
-      rowBadge: "Fast pick",
-    };
-  }
-
-  if (mode === "balanced") {
-    return {
-      indicatorLabel: "Balanced mode: best price-speed tradeoff",
-      indicatorDetail: "Rows surface the strongest existing price-speed tradeoff first. The leading option gets the Balanced pick badge.",
-      rowBadge: "Balanced pick",
-    };
-  }
-
-  return {
-    indicatorLabel: "Cheap mode: lowest unit price first",
-    indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
-    rowBadge: "Cheap pick",
-  };
 }
 
 function QuoteDataStatusCard({
@@ -279,8 +264,8 @@ function formatDate(value: string | null | undefined): string {
 
 function SelectedOptionSummary({
   option,
-  isRecommendation,
-}: Readonly<{ option: ClientQuoteSelectionOption; isRecommendation: boolean }>) {
+  row,
+}: Readonly<{ option: ClientQuoteSelectionOption; row: DeliveredComparisonRow | null }>) {
   const collectedAt = option.offerCreatedAt ?? option.quoteResultUpdatedAt;
   const collectedRecently = collectedAt
     ? Date.now() - new Date(collectedAt).getTime() <= 14 * 24 * 60 * 60 * 1000
@@ -292,15 +277,12 @@ function SelectedOptionSummary({
   return (
     <div className="border-l-2 border-[var(--accent-red)] bg-ws-inset px-4 py-3" data-testid="selected-option-summary">
       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-        {isRecommendation ? "Recommended starting point" : "Current selection"}
+        Current selection
       </p>
       <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-6">
         <SummaryFact label="Vendor" value={option.vendorLabel} />
-        <SummaryFact label="Quoted total" value={formatCurrency(option.totalPriceUsd)} />
-        <SummaryFact
-          label="Ready to ship"
-          value={formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
-        />
+        <SummaryFact label="Expected delivered cost" value={row ? formatOtdText(row) : formatCurrency(option.totalPriceUsd)} />
+        <SummaryFact label="Delivered by" value={row ? formatArrivalText(row) : "Arrival unknown"} />
         <SummaryFact label="Quantity" value={String(option.requestedQuantity)} />
         <SummaryFact label="Sourcing" value={formatGeographicOrigin(option.geographicOrigin)} />
         <SummaryFact
@@ -315,6 +297,11 @@ function SelectedOptionSummary({
         <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryFact label="Quote date" value={formatDate(option.quoteDateIso)} />
           <SummaryFact label="Valid through" value={formatDate(option.validUntil)} />
+          <SummaryFact label="Quoted total" value={formatCurrency(option.totalPriceUsd)} />
+          <SummaryFact
+            label="Ready to ship"
+            value={option.leadTimeBusinessDays === null ? "Not quoted" : `${option.leadTimeBusinessDays} working days`}
+          />
           <SummaryFact label="Process" value={option.process ?? "Unavailable"} />
           <SummaryFact label="Material" value={option.material ?? "Unavailable"} />
         </dl>
@@ -333,71 +320,115 @@ function SummaryFact({ label, value }: Readonly<{ label: string; value: string }
   );
 }
 
-function RecommendationSummary({ mode, rankedCount }: Readonly<{ mode: QuotePresetMode; rankedCount: number }>) {
-  const copy = getPresetModeBadgeCopy(mode);
+function formatArrivalText(row: DeliveredComparisonRow): string {
+  if (row.arrival.kind === "arrival") {
+    return formatCivilDate(row.arrival.date);
+  }
+  if (row.arrival.kind === "ships_by") {
+    return `After ${formatCivilDate(row.arrival.shipDate)}`;
+  }
+  return "Arrival unknown";
+}
+
+function formatOtdText(row: DeliveredComparisonRow): string {
+  if (row.otd.kind === "complete") {
+    return formatCurrency(row.otd.amountUsd);
+  }
+  if (row.otd.kind === "partial") {
+    return `≥ ${formatCurrency(row.otd.knownAmountUsd)}`;
+  }
+  return "Unknown";
+}
+
+function ProvenanceNote({ children }: Readonly<{ children: ReactNode }>) {
+  return <span className="mt-0.5 block font-sans text-[10px] font-normal text-muted-foreground">{children}</span>;
+}
+
+function DeliveredArrivalCell({ row }: Readonly<{ row: DeliveredComparisonRow }>) {
+  if (row.arrival.kind === "arrival") {
+    return (
+      <>
+        <span>{formatCivilDate(row.arrival.date)}</span>
+        <ProvenanceNote>{row.arrival.provenance === "estimated" ? "Estimated" : "Provider date"}</ProvenanceNote>
+      </>
+    );
+  }
+  if (row.arrival.kind === "ships_by") {
+    return (
+      <>
+        <span>After {formatCivilDate(row.arrival.shipDate)}</span>
+        <ProvenanceNote>Ships then; transit not quoted</ProvenanceNote>
+      </>
+    );
+  }
+  return <span className="italic text-muted-foreground">Arrival unknown</span>;
+}
+
+function DeliveredOtdCell({ row }: Readonly<{ row: DeliveredComparisonRow }>) {
+  if (row.otd.kind === "complete") {
+    return (
+      <>
+        <span>{formatCurrency(row.otd.amountUsd)}</span>
+        {row.otd.provenance === "estimated" ? <ProvenanceNote>Estimated</ProvenanceNote> : null}
+      </>
+    );
+  }
+  if (row.otd.kind === "partial") {
+    return (
+      <>
+        <span>≥ {formatCurrency(row.otd.knownAmountUsd)}</span>
+        <ProvenanceNote>{formatUnknownCostComponents(row.otd.unknownComponents)} not quoted</ProvenanceNote>
+      </>
+    );
+  }
+  return <span className="italic text-muted-foreground">Unknown</span>;
+}
+
+const DEADLINE_STATUS_LABELS: Partial<Record<DeadlineStatus, string>> = {
+  late: "Misses deadline",
+  unconfirmed: "May miss deadline",
+};
+
+function ProviderSwatch({ option }: Readonly<{ option: ClientQuoteSelectionOption }>) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-2 text-xs">
-      <p className="text-foreground">
-        <span className="font-medium">{copy.indicatorLabel}</span>
-        <span className="ml-2 text-muted-foreground">{copy.indicatorDetail}</span>
-      </p>
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        {rankedCount} {rankedCount === 1 ? "leader" : "leaders"}
-      </span>
-    </div>
+    <span
+      aria-hidden="true"
+      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+      style={{ backgroundColor: getVendorColor(option.vendorKey) }}
+    />
   );
 }
 
 function QuoteProviderCell({
   option,
-  startsProviderGroup,
-  providerGroupSize,
-  selected,
-  recommended,
-  showTopRankBadge,
-  rowBadge,
+  deadlineStatus,
   reasons,
 }: Readonly<{
   option: ClientQuoteSelectionOption;
-  startsProviderGroup: boolean;
-  providerGroupSize: number;
-  selected: boolean;
-  recommended: boolean;
-  showTopRankBadge: boolean;
-  rowBadge: string;
+  deadlineStatus: DeadlineStatus;
   reasons: ReturnType<typeof getClientQuoteOptionStateReasons>;
 }>) {
-  const optionLabel = startsProviderGroup
-    ? option.vendorLabel
-    : `↳ ${option.laneLabel ?? option.tier ?? "Variant"}`;
+  const deadlineLabel = DEADLINE_STATUS_LABELS[deadlineStatus];
 
   return (
     <TableCell className="px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span
-          className="inline-block h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
-        />
+        <ProviderSwatch option={option} />
         <div>
-          <div className="flex items-center gap-1.5">
-            <span className={cn("text-sm font-medium", startsProviderGroup ? "text-foreground" : "text-muted-foreground")}>{optionLabel}</span>
-            {startsProviderGroup && providerGroupSize > 1 ? (
-              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                {providerGroupSize} variants
-              </span>
-            ) : null}
-            {showTopRankBadge ? (
-              <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
-                {rowBadge}
-              </Badge>
-            ) : null}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium text-foreground">{option.vendorLabel}</span>
             {option.excluded ? (
               <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">Excl</Badge>
             ) : null}
             <VendorStatusBadge status={option.vendorStatus} />
           </div>
-          {reasons.length > 0 ? (
+          {deadlineLabel || reasons.length > 0 ? (
             <div className="mt-0.5 flex flex-wrap gap-1">
+              {deadlineLabel ? (
+                <span className="rounded-[2px] border border-border px-1 font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">
+                  {deadlineLabel}
+                </span>
+              ) : null}
               {reasons.map((reason) => (
                 <ClientWorkspaceToneBadge
                   key={`${option.key}:${reason.id}`}
@@ -429,37 +460,29 @@ function QuoteScopeCell({ option }: Readonly<{ option: ClientQuoteSelectionOptio
 }
 
 function QuoteComparisonRow({
-  option,
-  startsProviderGroup,
-  providerGroupSize,
+  row,
+  deadlineStatus,
   selected,
   hovered,
-  recommended,
-  missesRequestedDate,
-  showTopRankBadge,
-  rowBadge,
-  requestedByDate,
   activePreset,
   onSelect,
   onHover,
+  onFocusKey,
   onToggleVendorExclusion,
 }: Readonly<{
-  option: ClientQuoteSelectionOption;
-  startsProviderGroup: boolean;
-  providerGroupSize: number;
+  row: DeliveredComparisonRow;
+  deadlineStatus: DeadlineStatus;
   selected: boolean;
   hovered: boolean;
-  recommended: boolean;
-  missesRequestedDate: boolean;
-  showTopRankBadge: boolean;
-  rowBadge: string;
-  requestedByDate: string | null;
   activePreset: QuotePreset | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   onHover: (key: string | null) => void;
+  onFocusKey: (key: string | null) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
 }>) {
-  const reasons = getClientQuoteOptionStateReasons({ option, requestedByDate, preset: activePreset });
+  const { option } = row;
+  // Deadline fit comes from the delivered projection, not the legacy ready-to-ship estimate.
+  const reasons = getClientQuoteOptionStateReasons({ option, requestedByDate: null, preset: activePreset });
   const selectOption = () => {
     if (option.isSelectable) onSelect(option);
   };
@@ -471,46 +494,45 @@ function QuoteComparisonRow({
 
   return (
     <TableRow
-      tabIndex={option.isSelectable ? 0 : -1}
+      tabIndex={0}
       aria-selected={selected}
+      aria-disabled={option.isSelectable ? undefined : true}
       data-quote-key={option.key}
+      data-deadline-status={deadlineStatus}
       className={cn(
         "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
         option.isSelectable && "cursor-pointer",
-        (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
+        selected && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
         !selected && hovered && "bg-accent",
         !selected && !hovered && "hover:bg-accent",
-        missesRequestedDate && "opacity-45",
-        !option.isSelectable && "cursor-not-allowed opacity-60",
+        (deadlineStatus === "late" || !option.isSelectable) && "opacity-60",
+        !option.isSelectable && "cursor-not-allowed",
       )}
       onClick={selectOption}
       onMouseEnter={() => onHover(option.key)}
       onMouseLeave={() => onHover(null)}
-      onFocus={() => onHover(option.key)}
-      onBlur={() => onHover(null)}
+      onFocus={() => {
+        onHover(option.key);
+        onFocusKey(option.key);
+      }}
+      onBlur={() => {
+        onHover(null);
+        onFocusKey(null);
+      }}
       onKeyDown={handleKeyDown}
     >
-      <QuoteProviderCell
-        option={option}
-        startsProviderGroup={startsProviderGroup}
-        providerGroupSize={providerGroupSize}
-        selected={selected}
-        recommended={recommended}
-        showTopRankBadge={showTopRankBadge}
-        rowBadge={rowBadge}
-        reasons={reasons}
-      />
+      <QuoteProviderCell option={option} deadlineStatus={deadlineStatus} reasons={reasons} />
       <QuoteScopeCell option={option} />
       <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
         {formatCurrency(option.unitPriceUsd)}
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
-        {formatCurrency(option.totalPriceUsd)}
+        <DeliveredOtdCell row={row} />
         {onToggleVendorExclusion ? (
           <Button
             type="button"
             variant="ghost"
-            className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
+            className="ml-auto mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onToggleVendorExclusion(option.vendorKey, !option.excluded);
@@ -521,7 +543,7 @@ function QuoteComparisonRow({
         ) : null}
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-        {option.leadTimeBusinessDays ?? "Unavailable"}
+        <DeliveredArrivalCell row={row} />
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right">
         <VendorPurchasingLinkButton option={option} label="Open" />
@@ -530,144 +552,165 @@ function QuoteComparisonRow({
   );
 }
 
+function findScrollContainer(element: HTMLElement): Element {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+  }
+  return document.scrollingElement ?? document.documentElement;
+}
+
+const TABLE_MODES: ReadonlyArray<{ key: DeliveredComparisonMode; label: string }> = [
+  { key: "cheapest", label: "Cheapest" },
+  { key: "fastest", label: "Fastest" },
+];
+
+function TableModeControl({
+  mode,
+  onChange,
+}: Readonly<{ mode: DeliveredComparisonMode; onChange: (mode: DeliveredComparisonMode) => void }>) {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([]);
+  // ARIA radiogroup pattern: the checked radio is the tab stop; arrows move and select.
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const next = mode === "cheapest" ? "fastest" : "cheapest";
+    onChange(next);
+    buttons.current[TABLE_MODES.findIndex((entry) => entry.key === next)]?.focus();
+  };
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Table order"
+      className="inline-flex w-fit rounded-[2px] border border-border"
+    >
+      {TABLE_MODES.map((entry, index) => (
+        <button
+          key={entry.key}
+          ref={(element) => {
+            buttons.current[index] = element;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={mode === entry.key}
+          tabIndex={mode === entry.key ? 0 : -1}
+          className={cn(
+            "min-h-8 border-r border-border px-3 text-xs font-medium outline-none last:border-r-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+            mode === entry.key ? "bg-primary text-primary-foreground" : "bg-ws-card text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => onChange(entry.key)}
+          onKeyDown={handleKeyDown}
+        >
+          {entry.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function QuoteComparisonTable({
-  options,
+  rows,
+  deadline,
   excludedOffers,
   selectedOption,
   hoveredKey,
   onSelect,
   onHover,
-  requestedByDate,
   activePreset,
-  topRankedKeys,
   onToggleVendorExclusion,
-  recommendedKey,
+  layoutKey = "",
 }: Readonly<{
-  options: readonly ClientQuoteSelectionOption[];
+  rows: readonly DeliveredComparisonRow[];
+  layoutKey?: string;
+  deadline: string | null;
   excludedOffers: QuoteDiagnostics["excludedOffers"];
   selectedOption: ClientQuoteSelectionOption | null;
   hoveredKey: string | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   onHover: (key: string | null) => void;
-  requestedByDate: string | null;
   activePreset: QuotePreset | null;
-  topRankedKeys: ReadonlySet<string>;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
-  recommendedKey: string | null;
 }>) {
-  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
-  const [sort, setSort] = useState<{ key: "vendor" | "total" | "lead"; direction: "asc" | "desc" } | null>(null);
-  const groupedOptions = useMemo(() => {
-    const groups = new Map<ClientQuoteSelectionOption["vendorKey"], ClientQuoteSelectionOption[]>();
-    options.forEach((option) => {
-      const group = groups.get(option.vendorKey) ?? [];
-      group.push(option);
-      groups.set(option.vendorKey, group);
-    });
+  const tableRef = useRef<HTMLDivElement>(null);
+  const focusedKeyRef = useRef<string | null>(null);
+  const rowOrder = rows.map((row) => row.key).join("|");
+  const selectedKey = selectedOption?.key ?? null;
 
-    if (!sort) {
-      return [...groups.values()].flat();
+  const findRow = (key: string) =>
+    [...(tableRef.current?.querySelectorAll<HTMLElement>("tr[data-quote-key]") ?? [])]
+      .find((element) => element.dataset.quoteKey === key) ?? null;
+
+  // Reordering on arrival can detach the focused row; restore focus without scrolling.
+  useLayoutEffect(() => {
+    const key = focusedKeyRef.current;
+    const container = tableRef.current;
+    if (!key || !container || container.contains(document.activeElement)) {
+      return;
     }
+    findRow(key)?.focus({ preventScroll: true });
+  }, [rowOrder]);
 
-    const direction = sort.direction === "asc" ? 1 : -1;
-    const compareOptions = (left: ClientQuoteSelectionOption, right: ClientQuoteSelectionOption) => {
-      if (sort.key === "vendor") {
-        return left.vendorLabel.localeCompare(right.vendorLabel) * direction;
-      }
-
-      if (sort.key === "total") {
-        return (left.totalPriceUsd - right.totalPriceUsd) * direction;
-      }
-
-      const leftLead = left.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
-      const rightLead = right.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
-      return (leftLead - rightLead) * direction;
-    };
-    const sortedGroups = [...groups.values()].map((group) => [...group].sort(compareOptions));
-    sortedGroups.sort((left, right) => {
-      const compared = compareOptions(left[0], right[0]);
-      if (compared !== 0) {
-        return compared;
-      }
-      return left[0].vendorLabel.localeCompare(right[0].vendorLabel);
-    });
-    return sortedGroups.flat();
-  }, [options, sort]);
-  const providerGroupSizes = useMemo(() => {
-    const sizes = new Map<ClientQuoteSelectionOption["vendorKey"], number>();
-    groupedOptions.forEach((option) => {
-      sizes.set(option.vendorKey, (sizes.get(option.vendorKey) ?? 0) + 1);
-    });
-    return sizes;
-  }, [groupedOptions]);
-
-  const toggleSort = (key: "vendor" | "total" | "lead") => {
-    setSort((current) => {
-      if (current?.key !== key) {
-        return { key, direction: "asc" };
-      }
-      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
-    });
-  };
-
-  const sortIcon = (key: "vendor" | "total" | "lead") => {
-    if (sort?.key !== key) {
-      return <ArrowUpDown className="h-3 w-3" aria-hidden="true" />;
+  // Keep the focused (or selected) row at the same viewport position when an
+  // arrival inserts rows or content above it. The position is read during
+  // render, before React commits the new DOM, so user scrolling is never undone.
+  // Only arrivals re-anchor. Reorders and selection changes the user makes
+  // (table order, deadline, picking a row) never scroll the page under them.
+  const anchorKey = focusedKeyRef.current ?? selectedKey;
+  const preCommitTop = anchorKey ? findRow(anchorKey)?.getBoundingClientRect().top ?? null : null;
+  useLayoutEffect(() => {
+    const element = anchorKey ? findRow(anchorKey) : null;
+    if (!element || preCommitTop === null) {
+      return;
     }
-    return sort.direction === "asc"
-      ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
-      : <ArrowDown className="h-3 w-3" aria-hidden="true" />;
-  };
+    const delta = element.getBoundingClientRect().top - preCommitTop;
+    if (Math.abs(delta) >= 1) {
+      findScrollContainer(element).scrollBy?.({ top: delta, behavior: "instant" as ScrollBehavior });
+    }
+    // Only arrivals (new options or the arrival notice above) re-anchor; hover renders never move the viewport.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutKey]);
 
-  const sortLabel = (label: string, key: "vendor" | "total" | "lead") => {
-    const direction = sort?.key === key
-      ? `, ${sort.direction === "asc" ? "ascending" : "descending"}`
-      : "";
-    return `Sort providers by ${label}${direction}`;
+  const handleFocusKey = (key: string | null) => {
+    if (key !== null) {
+      focusedKeyRef.current = key;
+      return;
+    }
+    // Defer clearing so a blur caused by a DOM move does not forget the focused row.
+    queueMicrotask(() => {
+      if (!tableRef.current?.contains(document.activeElement)) {
+        focusedKeyRef.current = null;
+      }
+    });
   };
 
   return (
-    <div className="border border-border bg-ws-card" data-testid="quote-vendor-table">
+    <div ref={tableRef} className="border border-border bg-ws-card" data-testid="quote-vendor-table">
       <Table className="min-w-[680px] text-foreground">
         <TableHeader>
           <TableRow className="border-border hover:bg-transparent">
-            <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              <button type="button" className="inline-flex items-center gap-1.5" onClick={() => toggleSort("vendor")} aria-label={sortLabel("vendor", "vendor")}>
-                Vendor {sortIcon("vendor")}
-              </button>
-            </TableHead>
+            <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Vendor</TableHead>
             <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Scope</TableHead>
             <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Unit</TableHead>
-            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              <button type="button" className="ml-auto inline-flex items-center gap-1.5" onClick={() => toggleSort("total")} aria-label={sortLabel("total", "total")}>
-                Total {sortIcon("total")}
-              </button>
-            </TableHead>
-            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              <button type="button" className="ml-auto inline-flex items-center gap-1.5" onClick={() => toggleSort("lead")} aria-label={sortLabel("working days", "lead")}>
-                Working days {sortIcon("lead")}
-              </button>
-            </TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Expected delivered cost</TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Delivered by</TableHead>
             <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Source</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {groupedOptions.map((option, optionIndex) => (
+          {rows.map((row) => (
             <QuoteComparisonRow
-              key={option.key}
-              option={option}
-              startsProviderGroup={optionIndex === 0 || groupedOptions[optionIndex - 1]?.vendorKey !== option.vendorKey}
-              providerGroupSize={providerGroupSizes.get(option.vendorKey) ?? 0}
-              selected={selectedOption?.key === option.key}
-              hovered={hoveredKey === option.key}
-              recommended={!selectedOption && recommendedKey === option.key}
-              missesRequestedDate={Boolean(requestedByDate) && !option.dueDateEligible}
-              showTopRankBadge={topRankedKeys.has(option.key)}
-              rowBadge={badgeCopy.rowBadge}
-              requestedByDate={requestedByDate}
+              key={row.key}
+              row={row}
+              deadlineStatus={getDeadlineStatus(row, deadline)}
+              selected={selectedOption?.key === row.key}
+              hovered={hoveredKey === row.key}
               activePreset={activePreset}
               onSelect={onSelect}
               onHover={onHover}
+              onFocusKey={handleFocusKey}
               onToggleVendorExclusion={onToggleVendorExclusion}
             />
           ))}
@@ -703,10 +746,143 @@ function QuoteComparisonTable({
   );
 }
 
+function UnplottedOptionsList({
+  rows,
+  selectedKey,
+  onSelect,
+  onHover,
+}: Readonly<{
+  rows: readonly DeliveredComparisonRow[];
+  selectedKey: string | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  onHover: (key: string | null) => void;
+}>) {
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-2 border-t border-dashed border-border px-1 pt-2">
+      <p id="quote-unplotted-heading" className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Not plotted: delivered date or cost unknown ({rows.length})
+      </p>
+      <ul aria-labelledby="quote-unplotted-heading" className="mt-1.5 flex flex-wrap gap-1.5">
+        {rows.map((row) => {
+          const reason = row.notPlottedReason === "otd_unknown" ? "cost unknown" : "arrival unknown";
+          return (
+            <li key={row.key}>
+              <button
+                type="button"
+                aria-pressed={selectedKey === row.key}
+                aria-disabled={row.option.isSelectable ? undefined : true}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-[2px] border border-dashed border-border px-2 py-1 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-foreground",
+                  selectedKey === row.key && "border-solid border-[var(--accent-red)]",
+                )}
+                onClick={() => {
+                  if (row.option.isSelectable) onSelect(row.option);
+                }}
+                onMouseEnter={() => onHover(row.key)}
+                onMouseLeave={() => onHover(null)}
+                onFocus={() => onHover(row.key)}
+                onBlur={() => onHover(null)}
+              >
+                <ProviderSwatch option={row.option} />
+                <span>{row.option.vendorLabel}</span>
+                <span className="text-muted-foreground">· {row.option.laneLabel ?? row.option.tier ?? "Standard"} · {reason}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+const DEADLINE_STATE_LABELS: Record<PartDeadlineState, string> = {
+  confirmed: "confirmed",
+  inferred: "not confirmed",
+  expired: "expired",
+};
+
+function DeadlineSummary({
+  viewDeadline,
+  baseDeadline,
+  baseState,
+  onReset,
+}: Readonly<{
+  viewDeadline: string | null;
+  baseDeadline: string | null;
+  baseState: PartDeadlineState;
+  onReset: () => void;
+}>) {
+  if (!viewDeadline) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="deadline-summary">
+        No part deadline set. Set a need-by date to compare on-time delivery.
+      </p>
+    );
+  }
+  const adjusted = viewDeadline !== baseDeadline;
+  const savedLabel = baseDeadline ? formatCivilDate(baseDeadline) : "not set";
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="deadline-summary">
+      <span className="text-foreground">
+        Deadline: <span className="font-mono">{formatCivilDate(viewDeadline)}</span>
+      </span>
+      <span className="text-muted-foreground">
+        {adjusted
+          ? `Adjusted for this view; saved deadline ${savedLabel}`
+          : DEADLINE_STATE_LABELS[baseState]}
+      </span>
+      {adjusted && baseDeadline ? (
+        <Button type="button" variant="ghost" className="h-6 px-2 text-xs" onClick={onReset}>
+          Reset to {baseState === "confirmed" ? "confirmed" : "saved"} deadline
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function formatCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function QuoteRequestCompletionBanner({
+  notice,
+  onDismiss,
+}: Readonly<{ notice: QuoteRequestCompletionNotice; onDismiss: () => void }>) {
+  const summary = notice.optionCount === 0
+    ? "Quote request complete: no comparable options to show."
+    : `Quote request complete: ${formatCount(notice.optionCount, "option", "options")} from ${formatCount(notice.providerWithOptionsCount, "provider", "providers")}.`;
+  return (
+    <output
+      data-testid="quote-request-completion-notice"
+      className="mt-4 flex items-start justify-between gap-3 border border-border bg-ws-inset px-3 py-2 text-xs text-foreground"
+    >
+      <span className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span>
+          {summary}
+          {notice.noQuoteProviderCount > 0
+            ? ` ${formatCount(notice.noQuoteProviderCount, "provider", "providers")} returned no quote.`
+            : ""}
+        </span>
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss request completion notice"
+        className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[2px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground"
+        onClick={onDismiss}
+      >
+        <X className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </output>
+  );
+}
+
 type DecisionPanelContentProps = Readonly<{
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
-  requestedByDate: string | null;
   quoteDataStatus: QuoteDataStatus;
   quoteDataMessage: string | null;
   quoteDiagnostics: QuoteDiagnostics | null;
@@ -716,6 +892,18 @@ type DecisionPanelContentProps = Readonly<{
   partId: string | null;
   organizationId: string | null;
   activePreset: QuotePreset | null;
+  tableMode: DeliveredComparisonMode;
+  onTableModeChange: (mode: DeliveredComparisonMode) => void;
+  viewDeadline: string | null;
+  baseDeadline: string | null;
+  baseDeadlineState: PartDeadlineState;
+  onViewDeadlineChange: (next: string | null) => void;
+  now: Date;
+  timeZone: string;
+  /** Changes when the arrival notice above the panel content appears or disappears. */
+  aboveContentKey: string;
+  /** Changes only when the set of received options changes (an arrival), never on a reorder or scope toggle. */
+  arrivalKey: string;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
 }>;
@@ -723,7 +911,6 @@ type DecisionPanelContentProps = Readonly<{
 function renderDecisionPanelContent({
   options,
   selectedOption,
-  requestedByDate,
   quoteDataStatus,
   quoteDataMessage,
   quoteDiagnostics,
@@ -733,6 +920,16 @@ function renderDecisionPanelContent({
   partId,
   organizationId,
   activePreset,
+  tableMode,
+  onTableModeChange,
+  viewDeadline,
+  baseDeadline,
+  baseDeadlineState,
+  onViewDeadlineChange,
+  now,
+  timeZone,
+  aboveContentKey,
+  arrivalKey,
   onSelect,
   onToggleVendorExclusion,
 }: DecisionPanelContentProps) {
@@ -757,16 +954,14 @@ function renderDecisionPanelContent({
         />
         {quoteDiagnostics?.excludedOffers.length ? (
           <QuoteComparisonTable
-            options={[]}
+            rows={[]}
+            deadline={null}
             excludedOffers={quoteDiagnostics.excludedOffers}
             selectedOption={null}
             hoveredKey={null}
             onSelect={onSelect}
             onHover={setHoveredKey}
-            requestedByDate={requestedByDate}
             activePreset={activePreset}
-            topRankedKeys={new Set<string>()}
-            recommendedKey={null}
           />
         ) : null}
       </div>
@@ -777,12 +972,11 @@ function renderDecisionPanelContent({
     return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
   }
 
-  const activeRankingPreset = activePreset ?? "balanced";
-  const rankedOptions = sortQuoteOptionsForPreset(options, activeRankingPreset);
-  const topRankedKeys = getTopRankedQuoteOptionKeys(rankedOptions, activeRankingPreset);
-  const recommendedOption = rankedOptions.find((option) => topRankedKeys.has(option.key)) ?? null;
-  const activeOption = selectedOption ?? recommendedOption;
-  const activeKey = activeOption?.key ?? null;
+  const model = buildDeliveredComparisonModel(options, { now, timeZone });
+  const sortedRows = sortDeliveredComparisonRows(model.rows, tableMode, viewDeadline);
+  const unplottedRows = sortedRows.filter((row) => row.plot === null);
+  const selectedKey = selectedOption?.key ?? null;
+  const selectedRow = model.rows.find((row) => row.key === selectedKey) ?? null;
 
   return (
     <div className="mt-4 space-y-3">
@@ -790,45 +984,59 @@ function renderDecisionPanelContent({
         <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-1 pb-2">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Decision map</p>
-            <p className="mt-1 text-sm text-foreground">Working days × quoted total</p>
+            <p className="mt-1 text-sm text-foreground">Delivered date × expected delivered cost</p>
           </div>
           <p className="max-w-xl text-right text-xs text-muted-foreground">
-            Select a point or table row. Hover and keyboard focus stay synchronized.
+            Solid points are fully quoted; hollow points are lower bounds. Drag the deadline or use arrow keys.
           </p>
+        </div>
+        <div className="px-1 pt-2">
+          <DeadlineSummary
+            viewDeadline={viewDeadline}
+            baseDeadline={baseDeadline}
+            baseState={baseDeadlineState}
+            onReset={() => onViewDeadlineChange(baseDeadline)}
+          />
         </div>
         <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
           <ClientQuoteComparisonChart
             options={options}
-            selectedKey={activeKey}
+            axes="delivered"
+            deliveredRows={model.rows}
+            orderLocalDate={model.orderLocalDate}
+            deadline={viewDeadline}
+            onDeadlineChange={(next) => onViewDeadlineChange(next)}
+            selectedKey={selectedKey}
             hoveredKey={hoveredKey}
             partId={partId}
             organizationId={organizationId}
-            colorMode="monochrome"
+            colorMode="vendor"
             onSelect={onSelect}
             onHover={setHoveredKey}
           />
         </Suspense>
+        <UnplottedOptionsList rows={unplottedRows} selectedKey={selectedKey} onSelect={onSelect} onHover={setHoveredKey} />
       </div>
 
-      {activeOption ? (
-        <SelectedOptionSummary option={activeOption} isRecommendation={!selectedOption} />
-      ) : null}
+      {selectedOption ? <SelectedOptionSummary option={selectedOption} row={selectedRow} /> : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TableModeControl mode={tableMode} onChange={onTableModeChange} />
+        <p className="text-xs text-muted-foreground">{describeTableOrder(tableMode, viewDeadline)}</p>
+      </div>
 
       <QuoteComparisonTable
-        options={rankedOptions}
+        rows={sortedRows}
+        layoutKey={[aboveContentKey, arrivalKey].join("|")}
+        deadline={viewDeadline}
         excludedOffers={quoteDiagnostics?.excludedOffers ?? []}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
         onHover={setHoveredKey}
-        requestedByDate={requestedByDate}
         activePreset={activePreset}
-        topRankedKeys={topRankedKeys}
         onToggleVendorExclusion={onToggleVendorExclusion}
-        recommendedKey={recommendedOption?.key ?? null}
       />
-
-      <RecommendationSummary mode={getPresetMode(activePreset)} rankedCount={topRankedKeys.size} />
 
       <QuoteStatsBar options={options} />
 
@@ -842,15 +1050,35 @@ function renderDecisionPanelContent({
   );
 }
 
+function describeTableOrder(mode: DeliveredComparisonMode, deadline: string | null): string {
+  if (mode === "fastest") return "Ordered by delivered date.";
+  if (deadline) return "On-time options first by expected delivered cost, then options that may miss the deadline, then late.";
+  return "Ordered by expected delivered cost.";
+}
+
+function presetTableMode(preset: QuotePreset | null): DeliveredComparisonMode {
+  return getPresetMode(preset) === "fastest" ? "fastest" : "cheapest";
+}
+
+function resolveDefaultTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 /**
- * Render the client-facing quote comparison experience, including the selected
- * vendor summary, ranking context, filters, and table/chart views.
+ * Render the client-facing quote comparison experience: delivered-date chart
+ * with an adjustable deadline, the selected option, and the Cheapest/Fastest
+ * table, all sharing one selection state.
  */
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
-  description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",
+  description = "Compare delivered date and expected delivered cost as one decision surface, then commit the selected option from the same workspace.",
   options,
   selectedOption,
+  previousSelectionUnavailable = false,
   onSelect,
   requestedByDate,
   quoteDataStatus = "available",
@@ -866,8 +1094,30 @@ export function ClientQuoteDecisionPanel({
   headerActions = null,
   emptyState = "No quote options are available yet.",
   className,
+  deadline = null,
+  requestCompletion = null,
+  now,
+  timeZone,
 }: Readonly<ClientQuoteDecisionPanelProps>) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  // One projection instant per mount keeps arrivals from shifting existing points.
+  const [mountedAt] = useState(() => new Date());
+  const projectionNow = now ?? mountedAt;
+  const projectionTimeZone = useMemo(() => timeZone ?? resolveDefaultTimeZone(), [timeZone]);
+
+  const [tableMode, setTableMode] = useState<DeliveredComparisonMode>(() => presetTableMode(activePreset));
+  const presetMode = presetTableMode(activePreset);
+  useEffect(() => {
+    setTableMode(presetMode);
+  }, [presetMode]);
+
+  const baseDeadline = deadline?.date ?? requestedByDate ?? null;
+  const baseDeadlineState: PartDeadlineState = deadline?.date ? deadline.state : "inferred";
+  const [viewDeadline, setViewDeadline] = useState<string | null>(baseDeadline);
+  useEffect(() => {
+    setViewDeadline(baseDeadline);
+  }, [baseDeadline]);
+
   const sourcingScope = controls || activePreset
     ? getPresetScope(activePreset)
     : "global";
@@ -882,8 +1132,23 @@ export function ClientQuoteDecisionPanel({
     ? "No options have verified US sourcing. Switch to All sourcing to include international and unknown-origin variants."
     : emptyState;
 
+  const arrivalKey = useMemo(
+    () => options.map((option) => option.key).sort((left, right) => left.localeCompare(right)).join(","),
+    [options],
+  );
+
+  const completionNotice = useMemo(
+    () => (requestCompletion ? resolveQuoteRequestCompletion(requestCompletion, visibleOptions) : null),
+    [requestCompletion, visibleOptions],
+  );
+  const [dismissedRequestId, setDismissedRequestId] = useState<string | null>(null);
+  const visibleNotice = completionNotice && completionNotice.requestId !== dismissedRequestId ? completionNotice : null;
+
   return (
-    <section className={cn("border border-ws-border bg-ws-card p-4 sm:p-5", className)} data-layout={layout}>
+    <section
+      className={cn("border border-ws-border bg-ws-card p-4 sm:p-5 [overflow-anchor:none]", className)}
+      data-layout={layout}
+    >
       <PanelHeader
         title={title}
         description={description}
@@ -892,10 +1157,23 @@ export function ClientQuoteDecisionPanel({
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
       />
+      {previousSelectionUnavailable && !selectedOption ? (
+        <output
+          className="mt-4 block border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
+          data-testid="previous-selection-unavailable"
+        >
+          Your previous quote choice is no longer available. Choose a quote to continue.
+        </output>
+      ) : null}
+      {visibleNotice ? (
+        <QuoteRequestCompletionBanner
+          notice={visibleNotice}
+          onDismiss={() => setDismissedRequestId(visibleNotice.requestId)}
+        />
+      ) : null}
       {renderDecisionPanelContent({
         options: visibleOptions,
         selectedOption: visibleSelectedOption,
-        requestedByDate,
         quoteDataStatus,
         quoteDataMessage,
         quoteDiagnostics,
@@ -905,6 +1183,16 @@ export function ClientQuoteDecisionPanel({
         partId,
         organizationId,
         activePreset,
+        tableMode,
+        onTableModeChange: setTableMode,
+        viewDeadline,
+        baseDeadline,
+        baseDeadlineState,
+        onViewDeadlineChange: setViewDeadline,
+        now: projectionNow,
+        timeZone: projectionTimeZone,
+        aboveContentKey: visibleNotice ? `notice:${visibleNotice.requestId}` : "",
+        arrivalKey,
         onSelect,
         onToggleVendorExclusion,
       })}
