@@ -2,6 +2,6 @@
 ---------
 (0 rows)
 
-psql:/tmp/ovd635-window1-s4oEIg/src-main/supabase/tests/capability_runtime_persistence_concurrency.sql:3: NOTICE:  extension "pgtap" already exists, skipping
-psql:/tmp/ovd635-window1-s4oEIg/src-main/supabase/tests/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter "ovd591.fixture_password_b64"
+psql:/tmp/ovd635-window1-hOI4Ya/suites-ovd-462/capability_runtime_persistence_concurrency.sql:3: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/suites-ovd-462/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter "ovd591.fixture_password_b64"
 CONTEXT:  SQL function "ovd591_connection" statement 1

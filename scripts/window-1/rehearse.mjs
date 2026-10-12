@@ -28,7 +28,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync, chownSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
+  chmodSync, chownSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -428,6 +428,23 @@ class Rehearsal {
       }
       const rec = (id) => summary.migrations.find((x) => x.id === id);
 
+      // Main suites a PR edits land together with its migration, so after a
+      // migration is applied the main suites run with that PR's versions.
+      const changedSuites = {};
+      for (const mig of m.migrations) {
+        changedSuites[mig.id] = this.git(["diff", "--name-only", `${m.base.sha}...${mig.sha}`, "--", "supabase/tests"])
+          .split("\n").filter((f) => /^supabase\/tests\/[^/]+\.sql$/.test(f)).map((f) => f.slice("supabase/tests/".length));
+        rec(mig.id).mainSuitesEditedByPr = changedSuites[mig.id];
+      }
+      const overlayFor = (applied) => {
+        const dir = join(this.work, `suites-${applied.map((x) => x.id).join("+")}`);
+        cpSync(testsDir, dir, { recursive: true });
+        for (const mig of applied) {
+          for (const f of changedSuites[mig.id]) cpSync(join(sources[mig.id].tests, f), join(dir, f));
+        }
+        return dir;
+      };
+
       // Apply, test, roll back, re-apply.
       const runDraftSuites = async (round, migs = m.migrations, onlyPhase = null) => {
         for (const mig of migs) {
@@ -460,7 +477,9 @@ class Rehearsal {
           if (r.rc !== 0) throw new Error(`${mig.id} failed to apply: ${r.stderr.slice(-2000)}`);
           await runDraftSuites(`${round}-own`, [mig], "window");
           if (round === "apply" && !this.options.skipMainSuites) {
-            const after = await this.step(`pgTAP: main suites after ${mig.id}`, () => this.runSuites(testsDir, mainSuites, `after-${mig.id}`));
+            const applied = m.migrations.slice(0, m.migrations.indexOf(mig) + 1);
+            const suitesDir = overlayFor(applied);
+            const after = await this.step(`pgTAP: main suites after ${mig.id}`, () => this.runSuites(suitesDir, mainSuites, `after-${mig.id}`));
             const regressed = mainSuites.filter((f) => suitePassed(summary.mainSuitesBaseline[f]) && !suitePassed(after[f]));
             rec(mig.id).mainSuiteRegressionsCumulative = regressed;
             process.stdout.write(`INFO main suites regressed after ${mig.id} (cumulative): ${regressed.join(", ") || "none"}\n`);

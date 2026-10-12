@@ -1,6 +1,6 @@
  plan  
 -------
- 1..91
+ 1..94
 (1 row)
 
  set_ovd723_request_identity 
@@ -23,14 +23,14 @@
  ok 2 - the member is eligible for uploads
 (1 row)
 
-                               throws_ok                               
------------------------------------------------------------------------
- ok 3 - the legacy prepare signature without a declaration is rejected
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 3 - window 1 leaves the legacy prepare unchanged (the contract makes it refuse)
 (1 row)
 
-                               throws_ok                                
-------------------------------------------------------------------------
- ok 4 - the legacy finalize signature without a declaration is rejected
+                                     throws_ok                                      
+------------------------------------------------------------------------------------
+ ok 4 - window 1 leaves the legacy finalize unchanged: it still runs its own checks
 (1 row)
 
                        throws_ok                       
@@ -43,9 +43,9 @@
  ok 6 - prepare with an unknown declaration id on an undeclared job is rejected
 (1 row)
 
-                                  throws_ok                                   
-------------------------------------------------------------------------------
- ok 7 - storage rejects a job-files object without a declaration-backed grant
+                                          is                                           
+---------------------------------------------------------------------------------------
+ ok 7 - the grant policy rejects a job-files object without a declaration backed grant
 (1 row)
 
                         throws_ok                         
@@ -93,9 +93,9 @@
  ok 16 - finalize with an unsure declaration is rejected
 (1 row)
 
-                           throws_ok                            
-----------------------------------------------------------------
- ok 17 - storage rejects the object after an unsure declaration
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 17 - the grant policy rejects the object after an unsure declaration
 (1 row)
 
                              is                             
@@ -138,9 +138,9 @@
  ok 24 - prepare with the latest clean declaration proceeds
 (1 row)
 
-                              throws_ok                              
----------------------------------------------------------------------
- ok 25 - storage rejects another basename under the granted org/hash
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 25 - the grant policy rejects another basename under the granted org/hash
 (1 row)
 
                            throws_ok                           
@@ -203,104 +203,99 @@
  
 (1 row)
 
-                              throws_ok                              
----------------------------------------------------------------------
- ok 36 - storage rejects the exact object once its grant has expired
-(1 row)
-
-                                    throws_ok                                    
----------------------------------------------------------------------------------
- ok 37 - the legacy prepare signature is rejected even after a clean declaration
-(1 row)
-
-                                    throws_ok                                     
-----------------------------------------------------------------------------------
- ok 38 - the legacy finalize signature is rejected even after a clean declaration
-(1 row)
-
-                              ok                              
---------------------------------------------------------------
- ok 39 - the moved upload cores are not executable by clients
-(1 row)
-
-                                           ok                                            
------------------------------------------------------------------------------------------
- ok 40 - the Storage helper is VOLATILE SECURITY DEFINER (fresh snapshot after the lock)
-(1 row)
-
-                             is                             
-------------------------------------------------------------
- ok 41 - fictiv: a clean, unblocked declaration is admitted
-(1 row)
-
-                            is                             
------------------------------------------------------------
- ok 42 - weerg: a clean, unblocked declaration is admitted
-(1 row)
-
-                           is                           
---------------------------------------------------------
- ok 43 - fictiv: an unsure latest declaration is denied
-(1 row)
-
-                           is                            
----------------------------------------------------------
- ok 44 - xometry: an unsure latest declaration is denied
-(1 row)
-
-                            is                             
------------------------------------------------------------
- ok 45 - weerg: the foreign-provider rule has its own code
-(1 row)
-
-                    is                     
--------------------------------------------
- ok 46 - xometry: no declaration is denied
-(1 row)
-
-                              is                              
---------------------------------------------------------------
- ok 47 - geomiq: no declaration is denied by the foreign rule
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 36 - the grant policy rejects the exact object once its grant has expired
 (1 row)
 
                                       is                                      
 ------------------------------------------------------------------------------
- ok 48 - an unknown provider with a clean declaration passes the foreign rule
+ ok 37 - the legacy prepare still works after a clean declaration in window 1
+(1 row)
+
+                                               ok                                               
+------------------------------------------------------------------------------------------------
+ ok 38 - the upload delegates are not client executable and the legacy RPC bodies are untouched
+(1 row)
+
+                                           ok                                            
+-----------------------------------------------------------------------------------------
+ ok 39 - the Storage helper is VOLATILE SECURITY DEFINER (fresh snapshot after the lock)
+(1 row)
+
+                             is                             
+------------------------------------------------------------
+ ok 40 - fictiv: a clean, unblocked declaration is admitted
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 41 - weerg: a clean, unblocked declaration is admitted
+(1 row)
+
+                           is                           
+--------------------------------------------------------
+ ok 42 - fictiv: an unsure latest declaration is denied
 (1 row)
 
                            is                            
 ---------------------------------------------------------
- ok 49 - an unknown provider is held to the foreign rule
+ ok 43 - xometry: an unsure latest declaration is denied
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 44 - weerg: the foreign-provider rule has its own code
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 45 - xometry: no declaration is denied
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 46 - geomiq: no declaration is denied by the foreign rule
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 47 - an unknown provider with a clean declaration passes the foreign rule
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 48 - an unknown provider is held to the foreign rule
 (1 row)
 
                          is                         
 ----------------------------------------------------
- ok 50 - a task lookup that finds nothing is denied
+ ok 49 - a task lookup that finds nothing is denied
 (1 row)
 
-                                             is                                             
---------------------------------------------------------------------------------------------
- ok 51 - the provider preflight denies before the core when the export lookup finds nothing
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 50 - a core denial of an unknown task is returned unchanged by the provider wrapper
 (1 row)
 
-                                            is                                             
--------------------------------------------------------------------------------------------
- ok 52 - the Xometry preflight denies before the core when the export lookup finds nothing
+                                          is                                           
+---------------------------------------------------------------------------------------
+ ok 51 - a core denial of an unknown task is returned unchanged by the Xometry wrapper
 (1 row)
 
                        is                        
 -------------------------------------------------
- ok 53 - fictiv: an open marking block is denied
+ ok 52 - fictiv: an open marking block is denied
 (1 row)
 
                         is                        
 --------------------------------------------------
- ok 54 - xometry: an open marking block is denied
+ ok 53 - xometry: an open marking block is denied
 (1 row)
 
                                  is                                  
 ---------------------------------------------------------------------
- ok 55 - geomiq: an open marking block is denied by the foreign rule
+ ok 54 - geomiq: an open marking block is denied by the foreign rule
 (1 row)
 
  set_ovd723_request_identity 
@@ -310,22 +305,22 @@
 
                         is                        
 --------------------------------------------------
- ok 56 - the member sees the part held for review
+ ok 55 - the member sees the part held for review
 (1 row)
 
                       throws_ok                      
 -----------------------------------------------------
- ok 57 - further uploads to a held part are rejected
+ ok 56 - further uploads to a held part are rejected
 (1 row)
 
                   throws_ok                  
 ---------------------------------------------
- ok 58 - a user cannot clear a marking block
+ ok 57 - a user cannot clear a marking block
 (1 row)
 
                           throws_ok                           
 --------------------------------------------------------------
- ok 59 - a user cannot declare for another organization's job
+ ok 58 - a user cannot declare for another organization's job
 (1 row)
 
  set_ovd723_request_identity 
@@ -335,77 +330,77 @@
 
                 throws_ok                
 -----------------------------------------
- ok 60 - an admin review requires a note
+ ok 59 - an admin review requires a note
 (1 row)
 
                      is                     
 --------------------------------------------
- ok 61 - an admin can clear a marking block
+ ok 60 - an admin can clear a marking block
 (1 row)
 
                      throws_ok                     
 ---------------------------------------------------
- ok 62 - a reviewed block cannot be reviewed again
+ ok 61 - a reviewed block cannot be reviewed again
 (1 row)
 
                                is                               
 ----------------------------------------------------------------
- ok 63 - the admin clearance is audited with the admin as actor
+ ok 62 - the admin clearance is audited with the admin as actor
 (1 row)
 
                                   is                                   
 -----------------------------------------------------------------------
- ok 64 - after admin clearance the clean declaration is admitted again
+ ok 63 - after admin clearance the clean declaration is admitted again
 (1 row)
 
                                            is                                           
 ----------------------------------------------------------------------------------------
- ok 65 - a clean, unblocked job is still denied while its part files have no clean scan
+ ok 64 - a clean, unblocked job is still denied while its part files have no clean scan
 (1 row)
 
                           ok                           
 -------------------------------------------------------
- ok 66 - only the service role can record a clean scan
+ ok 65 - only the service role can record a clean scan
 (1 row)
 
                                 throws_ok                                
 -------------------------------------------------------------------------
- ok 67 - a clean scan cannot be recorded against a file from another job
+ ok 66 - a clean scan cannot be recorded against a file from another job
 (1 row)
 
                                                 throws_ok                                                 
 ----------------------------------------------------------------------------------------------------------
- ok 68 - a clean scan of bytes whose hash differs from the file's claimed hash is rejected (finding 2, 4)
+ ok 67 - a clean scan of bytes whose hash differs from the file's claimed hash is rejected (finding 2, 4)
 (1 row)
 
                                 throws_ok                                 
 --------------------------------------------------------------------------
- ok 69 - a clean scan cannot name a part that does not reference the file
+ ok 68 - a clean scan cannot name a part that does not reference the file
 (1 row)
 
                     lives_ok                     
 -------------------------------------------------
- ok 70 - the worker records a clean drawing scan
+ ok 69 - the worker records a clean drawing scan
 (1 row)
 
                                        is                                        
 ---------------------------------------------------------------------------------
- ok 71 - a scanned drawing is not enough while the STEP header has no clean scan
+ ok 70 - a scanned drawing is not enough while the STEP header has no clean scan
 (1 row)
 
  api_record_export_control_clean_scan 
 --------------------------------------
- 26640133-cfcb-4785-ae9f-2bd8eeb78e3b
+ f99024fd-9d47-4579-aab3-3982343c4dd3
 (1 row)
 
                              is                              
 -------------------------------------------------------------
- ok 72 - with both files scanned clean, the part is admitted
+ ok 71 - with both files scanned clean, the part is admitted
 (1 row)
 
                                              is                                              
 ---------------------------------------------------------------------------------------------
- ok 73 - a reused copy of the same bytes is denied: another file's scan never vouches for it
+ ok 72 - a reused copy of the same bytes is denied: another file's scan never vouches for it
 (1 row)
 
  set_ovd723_request_identity 
@@ -415,17 +410,17 @@
 
                                  lives_ok                                 
 --------------------------------------------------------------------------
- ok 74 - an internal org role repoints the scanned CAD row to other bytes
+ ok 73 - an internal org role repoints the scanned CAD row to other bytes
 (1 row)
 
                         is                        
 --------------------------------------------------
- ok 75 - a repointed CAD row loses its clean scan
+ ok 74 - a repointed CAD row loses its clean scan
 (1 row)
 
                              is                             
 ------------------------------------------------------------
- ok 76 - restoring the scanned bytes restores the admission
+ ok 75 - restoring the scanned bytes restores the admission
 (1 row)
 
  set_ovd723_request_identity 
@@ -435,47 +430,67 @@
 
                                  lives_ok                                  
 ---------------------------------------------------------------------------
- ok 77 - an internal org role moves the scanned drawing row to another job
+ ok 76 - an internal org role moves the scanned drawing row to another job
 (1 row)
 
                                is                                
 -----------------------------------------------------------------
- ok 78 - a drawing row moved to another job loses its clean scan
+ ok 77 - a drawing row moved to another job loses its clean scan
 (1 row)
 
                                       is                                      
 ------------------------------------------------------------------------------
- ok 79 - a drawing whose staged bytes do not match its claimed hash is denied
+ ok 78 - a drawing whose staged bytes do not match its claimed hash is denied
 (1 row)
 
                             lives_ok                             
 -----------------------------------------------------------------
- ok 80 - the other job's drawing is scanned clean in its own job
+ ok 79 - the other job's drawing is scanned clean in its own job
 (1 row)
 
                                 is                                
 ------------------------------------------------------------------
- ok 81 - a part repointed to another job's scanned file is denied
+ ok 80 - a part repointed to another job's scanned file is denied
 (1 row)
 
                      is                      
 ---------------------------------------------
- ok 82 - the restored part is admitted again
+ ok 81 - the restored part is admitted again
 (1 row)
 
                                  is                                 
 --------------------------------------------------------------------
- ok 83 - a native CAD file without a worker-verified hash is denied
+ ok 82 - a native CAD file without a worker-verified hash is denied
 (1 row)
 
                                              is                                             
 --------------------------------------------------------------------------------------------
- ok 84 - a native CAD file with a verified hash is admitted (no scanner for the format yet)
+ ok 83 - a native CAD file with a verified hash is admitted (no scanner for the format yet)
+(1 row)
+
+                            ok                            
+----------------------------------------------------------
+ ok 84 - only the service role can run the dispatch check
+(1 row)
+
+                        is                         
+---------------------------------------------------
+ ok 85 - the dispatch check denies the reused copy
+(1 row)
+
+                                is                                 
+-------------------------------------------------------------------
+ ok 86 - the dispatch check admits a clean, scanned, verified part
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 87 - the dispatch check denies a task it cannot find
 (1 row)
 
                   throws_ok                   
 ----------------------------------------------
- ok 85 - clean scan records cannot be deleted
+ ok 88 - clean scan records cannot be deleted
 (1 row)
 
  set_ovd723_request_identity 
@@ -485,32 +500,32 @@
 
                             throws_ok                            
 -----------------------------------------------------------------
- ok 86 - another organization cannot read the declaration status
+ ok 89 - another organization cannot read the declaration status
 (1 row)
 
                throws_ok                
 ----------------------------------------
- ok 87 - audit events cannot be updated
+ ok 90 - audit events cannot be updated
 (1 row)
 
                throws_ok                
 ----------------------------------------
- ok 88 - declarations cannot be deleted
+ ok 91 - declarations cannot be deleted
 (1 row)
 
                                  ok                                  
 ---------------------------------------------------------------------
- ok 89 - anon cannot execute the declaration, status, or review RPCs
+ ok 92 - anon cannot execute the declaration, status, or review RPCs
 (1 row)
 
                           ok                           
 -------------------------------------------------------
- ok 90 - only the service role can record marking hits
+ ok 93 - only the service role can record marking hits
 (1 row)
 
                                     ok                                     
 ---------------------------------------------------------------------------
- ok 91 - the declaration RPC is SECURITY DEFINER with an empty search_path
+ ok 94 - the declaration RPC is SECURITY DEFINER with an empty search_path
 (1 row)
 
  finish 

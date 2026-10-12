@@ -15,30 +15,22 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `b6a66c83` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `673fbe33`, #676 `f3ce78b3`. Earlier heads were rehearsed too; their numbers are superseded and only noted where they still matter.
+Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `c1fbcd71` (723 EXPAND), #676 `b623890a`. Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 148 s |
-| `recommended/` | 462, 723, 722 | FAIL: 10 main suites regress (below) | 339 s |
+| `ovd-462-only/` | 462 | **PASS, every gate** | 154 s |
+| `recommended/` | 462, 723, 722 | **PASS, every gate** | 293 s |
 
 Per migration (recommended run; first apply / reapply):
 
-| | Apply | Own pgTAP after apply | Composed pgTAP | Rollback | Reapply |
+| | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 25/22 ms | 128/128 | 128/128 | ok 25 ms, inventory back to the pin exactly; **concurrent writer check: the rollback waited 3.0 s for an uncommitted acquire, then refused, and the table and the active lease remain** | ok; inventory identical to first apply; 128/128 |
-| OVD-723 (one migration) | ok, 39/31 ms | 91/91 | 91/91 | ok 17 ms with `rollback/ovd-723.rollback.sql`; only the 4 audit tables and their 4 read policies remain, as intended | ok; 91/91 |
-| OVD-722 | ok, 20/25 ms | 53/53 | 53/53 | ok 18 ms with the packet rollback, which byte matches the draft's commented section | ok; 53/53 |
+| OVD-462 | ok, 22/24 ms | 128/128 | 128/128 | ok 16 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
+| OVD-723 EXPAND | ok, 30/27 ms | 94/94 | 94/94 | ok 16 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 94/94 |
+| OVD-722 | ok, 22/26 ms | 56/56 | 56/56 | ok 16 ms with the packet rollback, which byte matches the draft's guarded rollback section | ok; 56/56 |
 
-Main suites that pass on the baseline and fail after a draft (cumulative):
-
-| After | Newly failing main suites |
-| --- | --- |
-| OVD-462 | none |
-| OVD-723 | `empty_file_upload_rejection`, `founding_beta_file_boundaries` (legacy upload signatures now refuse; R723-10), `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency`, `xometry_beta_dispatch_permits` (no declaration or scan in their fixtures; R723-2) |
-| OVD-722 | adds `job_service_detail_privileges`, `provider_dispatch_admission_serialization`, `provider_dispatch_permits`, `xometry_beta_dispatch_admission_serialization` (R722-1; at an earlier head, 722 without 723 also failed `provider_dispatch_preflight`) |
-
-Order: at the earlier heads, the order 462, 722, 723 made the composed 722 suite fail #32 and #40 (`export_declaration_missing` instead of `provider_kill_switch_engaged`), confirming RX-2. The manifest uses 462, 723, 722, where every draft assertion passes.
+Main suites: none regresses after any migration. A main suite that a PR edits lands with its migration. So after each migration the runner uses that PR's version: #675 edits `provider_session_leases.sql`, #677 edits 6 suites, #676 edits none. At earlier heads 10 main suites failed; the workers fixed them (see the review status table).
 
 **One unrelated flake.** In one 462 only run at the earlier heads (two rehearsals were running at once), `provider_dispatch_preflight` #9 failed. That assertion checks that the response text contains no `7075`, and the response embeds random UUIDs and a hex fingerprint, so a random value can contain that substring. It is a test on `main`, not a 462 effect. The TAP is kept in `flake-evidence/provider_dispatch_preflight-assertion9.tap`; every later run on an idle host passed it. The test was not changed. Fix it on `main` separately.
 
@@ -49,7 +41,8 @@ Order: at the earlier heads, the order 462, 722, 723 made the composed 722 suite
 Expected diffs (`ovd602-expected/`):
 
 * **462 only:** 6 new SECURITY DEFINER functions, all `service_role` only, all `search_path=""`; 2 new tables with RLS enabled and forced, no policies, no grants. **0 flags.**
-* **462, 723, 722:** 29 new SECURITY DEFINER functions, all with `search_path` pinned. Not all are `service_role` only: 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs, whose bodies check the caller), and several 723 additions keep `service_role` EXECUTE (R723-6). 6 existing RPCs change `search_path` from `pg_catalog` or `public` to `""` (the cause of the test pin failures), and the `storage.objects` policy `job_files_storage_insert` changes. 8 new private tables, all with RLS enabled. 20 flags in total, every one listed in the file.
+* **462, 723:** 15 new functions, 7 tables, 5 policies, 6 flags (`ovd602-expected/ovd-462+ovd-723.json`).
+* **462, 723, 722:** 25 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 10 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 12 flags, every one listed in the file.
 
 ## Reproduce
 

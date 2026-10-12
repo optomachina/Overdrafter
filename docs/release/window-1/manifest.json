@@ -3,7 +3,7 @@
   "window": "Migration window 1 (target Wed Oct 21, 2026)",
   "base": {
     "ref": "origin/main",
-    "sha": "b6a66c839c8043949b92626a308c19abe4033dab"
+    "sha": "cc9a5fe812bf83cafc9b94fc873d35ee74809260"
   },
   "pin": "docs/release/window-1/ovd602-pin.main.json",
   "expectedDiffDir": "docs/release/window-1/ovd602-expected",
@@ -47,7 +47,7 @@
       "id": "ovd-722",
       "title": "Provider kill switch (expand + enforce wrappers)",
       "pr": 676,
-      "sha": "f3ce78b3fe70c49ad7738e3b4930e9addd7dada4",
+      "sha": "b623890a4499eea412dbbbf5b5ac616cb8df301b",
       "slug": "ovd722_provider_kill_switch",
       "draft": {
         "path": "docs/migration-drafts/ovd-722.sql"
@@ -70,16 +70,16 @@
     },
     {
       "id": "ovd-723",
-      "title": "ITAR/EAR export control: upload block, dispatch gate, backfill (one migration)",
+      "title": "ITAR/EAR export control, EXPAND (window 1); contract is a later window",
       "pr": 677,
-      "sha": "673fbe33e4ef4e4269c5cabca70a09420a2fca33",
+      "sha": "c1fbcd71e96b02af12a42b679818cfba46cdcb64",
       "slug": "ovd723_export_control_upload_block",
       "draft": {
-        "path": "docs/migration-drafts/ovd-723.sql",
-        "endBeforeLineMatching": "^-- ROLLBACK$"
+        "path": "docs/migration-drafts/ovd-723.sql"
       },
       "rollback": {
-        "packet": "docs/release/window-1/rollback/ovd-723.rollback.sql",
+        "sha": "c1fbcd71e96b02af12a42b679818cfba46cdcb64",
+        "path": "docs/migration-drafts/ovd-723.rollback.sql",
         "singleTransaction": true
       },
       "suites": [

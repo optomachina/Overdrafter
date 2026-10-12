@@ -1,2 +1,4 @@
-psql:/tmp/ovd635-window1-s4oEIg/ovd-722.forward.sql:130: NOTICE:  trigger "provider_kill_switch_audit_no_update_delete" for relation "private.provider_kill_switch_audit" does not exist, skipping
-psql:/tmp/ovd635-window1-s4oEIg/ovd-722.forward.sql:136: NOTICE:  trigger "provider_kill_switch_audit_no_truncate" for relation "private.provider_kill_switch_audit" does not exist, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/ovd-722.forward.sql:128: NOTICE:  trigger "provider_kill_switch_audit_no_update_delete" for relation "private.provider_kill_switch_audit" does not exist, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/ovd-722.forward.sql:134: NOTICE:  trigger "provider_kill_switch_audit_no_truncate" for relation "private.provider_kill_switch_audit" does not exist, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/ovd-722.forward.sql:626: NOTICE:  trigger "provider_kill_switch_permit_guard" for relation "private.provider_dispatch_permits" does not exist, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/ovd-722.forward.sql:631: NOTICE:  trigger "provider_kill_switch_permit_guard" for relation "private.xometry_beta_dispatch_permits" does not exist, skipping

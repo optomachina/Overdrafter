@@ -2,7 +2,7 @@
   "writerCode": 0,
   "writerOut": "                                        acquire_provider_session_lease                                         \n---------------------------------------------------------------------------------------------------------------\n {\"status\": \"acquired\", \"generation\": 1, \"idempotent\": false, \"expires_in_ms\": 60000, \"renewals_remaining\": 2}\n(1 row)\n\n pg_sleep \n----------\n \n(1 row)\n\n",
   "rollbackRc": 3,
-  "rollbackMs": 3004,
+  "rollbackMs": 3003,
   "rollbackError": "ERROR:  OVD-462 rollback refused: provider_session_leases has active or blocked occupants",
   "verify": "true:1"
 }

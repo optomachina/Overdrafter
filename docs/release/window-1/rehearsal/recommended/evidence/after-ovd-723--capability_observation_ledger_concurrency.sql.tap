@@ -103,4 +103,4 @@
  # Looks like you failed 2 tests of 7
 (1 row)
 
-psql:/tmp/ovd635-window1-s4oEIg/src-main/supabase/tests/capability_observation_ledger_concurrency.sql:3: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-hOI4Ya/suites-ovd-462+ovd-723/capability_observation_ledger_concurrency.sql:3: NOTICE:  extension "pgtap" already exists, skipping
