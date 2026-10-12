@@ -4,6 +4,8 @@ Every provider parent has exactly these gated children. Replace `<provider>` wit
 
 ## 1. Define `<provider>`’s evidence-backed quote envelope
 
+Generator: `npm run fixture:onboard -- [<key>] --stage=envelope --url <https-url>` (the key is optional with `--url`; adds the default-off provider-registry entry and runs `provider:sync`), then `npm run provider:check`.
+
 Outcome: public first-party research establishes a conservative manifest, eligibility evaluator, default-off identity/catalog wiring, review date, and offline envelope tests.
 
 Acceptance boundaries:
@@ -27,6 +29,8 @@ Acceptance boundaries:
 
 Dependency: stage 2 depends on stage 1.
 
+Generate the offline scaffold with `npm run fixture:onboard -- <key> --stage=live` and verify with `npm run provider:check`.
+
 ## 3. Admit and certify `<provider>` for production quotes
 
 Outcome: independently reviewed controls and evidence permit production quote routing for this provider.
@@ -36,6 +40,8 @@ Acceptance boundaries:
 - A reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization all pass.
 - Production enablement is default-off and isolated to this provider.
 - Failed certification leaves the provider disabled without blocking other providers.
+
+Generate the review-only admission artifacts with `npm run fixture:onboard -- <key> --stage=admit [--issue OVD-<n>]` and run `npm run provider:check`. Run this stage only under the stage 3 issue. It writes `provider-integrations/<key>/admit/` review files and a rollout runbook; nothing goes to `supabase/migrations`, and the `<...>` placeholders in the admission revision keep it from running as-is. Moving a review file into a migration, applying it, and the operator admission revision are reviewed, protected actions (re-check the timestamp first). The go-live checklist (OVD-690, not yet built) covers the final sequence.
 
 Dependencies: stage 3 depends on successful stage 2 and the provider-neutral production-control issues. Only this stage may update the manually reviewed production-certified allowlist or enable routing.
 

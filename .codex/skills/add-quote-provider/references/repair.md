@@ -13,7 +13,7 @@ This preserves the useful snapshot/reference comparison pattern from `mfg-quotes
 
 ## Review and revalidation gate
 
-Keep a proposed selector or terminal-signal change untrusted until a human reviews it. After review, make the smallest adapter/portal-definition change and run:
+Keep a proposed selector or terminal-signal change untrusted until a human reviews it. After review, make the smallest adapter/portal-definition change by hand. Do not rerun `fixture:onboard` to regenerate it: Fixture never overwrites, so edited files are only reported `kept`. Then run:
 
 - the provider portal kernel tests;
 - the reusable adapter contract suite;
