@@ -111,8 +111,20 @@ export function isCheckoutCatalogEnabled(
     isBillingFlagEnabled(tierCatalogEnabled);
 }
 
+export function normalizeStripeSecret(secret: string | undefined): string {
+  if (typeof secret !== "string") {
+    return "";
+  }
+  let value = secret.trim();
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 export function isLiveStripeSecret(secret: string | undefined): boolean {
-  const value = secret?.trim() ?? "";
+  const value = normalizeStripeSecret(secret).toLowerCase();
   return value.startsWith("sk_live_") || value.startsWith("rk_live_");
 }
 

@@ -17,19 +17,42 @@ export const BILLING_CATALOG_VERSION = catalogData.version;
 export const BILLING_CATALOG_CURRENCY = catalogData.currency;
 export const BILLING_CATALOG_PRICES = catalogData.prices;
 
+export function normalizeStripeSecret(secret) {
+  if (typeof secret !== "string") {
+    return "";
+  }
+  let value = secret.trim();
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 export function isLiveStripeSecret(secret) {
-  const value = typeof secret === "string" ? secret.trim() : "";
+  const value = normalizeStripeSecret(secret).toLowerCase();
   return value.startsWith("sk_live_") || value.startsWith("rk_live_");
 }
 
 export function assertTestModeSecret(secret) {
-  if (!secret || typeof secret !== "string" || secret.trim().length === 0) {
+  const value = normalizeStripeSecret(secret);
+  if (!value) {
     throw new Error("stripe_catalog_secret_missing");
   }
-  if (isLiveStripeSecret(secret)) {
+  if (isLiveStripeSecret(value)) {
     throw new Error("stripe_catalog_live_key_refused");
   }
-  return secret.trim();
+  return value;
+}
+
+export async function assertTestModeAccount(client) {
+  const balance = await client.balance?.retrieve?.();
+  if (balance?.livemode === true) {
+    throw new Error("stripe_catalog_live_account_refused");
+  }
+  if (balance?.livemode !== false) {
+    throw new Error("stripe_catalog_livemode_unconfirmed");
+  }
 }
 
 export function parseSetupArgs(argv) {
@@ -186,6 +209,7 @@ export async function runStripeCatalogSetup(argv, env, options = {}) {
   if (!client) {
     throw new Error("stripe_catalog_client_missing");
   }
+  await assertTestModeAccount(client);
 
   return syncStripeCatalog({
     client,

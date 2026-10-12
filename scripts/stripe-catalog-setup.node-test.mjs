@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  assertTestModeAccount,
   assertTestModeSecret,
   BILLING_CATALOG_PRICES,
   parseSetupArgs,
@@ -21,14 +22,21 @@ const catalogPricesSource = readFileSync(
   "utf8",
 );
 
-function createMockStripe(existingPrices = []) {
+function createMockStripe(existingPrices = [], { livemode = false } = {}) {
   const state = {
+    livemode,
     prices: [...existingPrices],
     products: [],
     networkCalls: 0,
   };
 
   const client = {
+    balance: {
+      retrieve: async () => {
+        state.networkCalls += 1;
+        return { livemode: state.livemode };
+      },
+    },
     prices: {
       create: async (parameters) => {
         state.networkCalls += 1;
@@ -94,8 +102,62 @@ test("catalog script lookup keys stay aligned with the TypeScript source and TBD
 test("refuses live secrets and --live without creating Stripe objects", () => {
   assert.throws(() => assertTestModeSecret("sk_live_abc"), /stripe_catalog_live_key_refused/);
   assert.throws(() => assertTestModeSecret("rk_live_abc"), /stripe_catalog_live_key_refused/);
+  assert.throws(() => assertTestModeSecret('  "SK_LIVE_abc"  '), /stripe_catalog_live_key_refused/);
+  assert.throws(() => assertTestModeSecret("  'RK_LIVE_abc'  "), /stripe_catalog_live_key_refused/);
   assert.equal(assertTestModeSecret("sk_test_abc"), "sk_test_abc");
+  assert.equal(assertTestModeSecret('  "sk_test_abc"  '), "sk_test_abc");
   assert.throws(() => parseSetupArgs(["--apply", "--live"]), /stripe_catalog_live_mode_refused/);
+});
+
+test("refuses a Stripe account that reports live mode", async () => {
+  const { client, state } = createMockStripe([], { livemode: true });
+  await assert.rejects(() => assertTestModeAccount(client), /stripe_catalog_live_account_refused/);
+  await assert.rejects(
+    () => runStripeCatalogSetup(["--apply", "--placeholder"], { STRIPE_SECRET_KEY: "sk_test_ovd725" }, {
+      client,
+    }),
+    /stripe_catalog_live_account_refused/,
+  );
+  assert.equal(state.prices.length, 0);
+  assert.equal(state.products.length, 0);
+});
+
+test("draft SQL revokes authenticated, keeps disabled markers, and caps founding slots", () => {
+  const draftSql = readFileSync(
+    join(root, "supabase/tests/ovd725_stripe_catalog_draft.sql"),
+    "utf8",
+  );
+  assert.match(
+    draftSql,
+    /revoke all on function public\.api_configure_stripe_catalog_price\(boolean, text, text\)\s+from public, anon, authenticated/,
+  );
+  assert.match(
+    draftSql,
+    /revoke all on function public\.api_disable_stripe_catalog_price\(text, boolean, text, text\)\s+from public, anon, authenticated/,
+  );
+  assert.match(
+    draftSql,
+    /grant execute on function public\.api_configure_stripe_catalog_price\(boolean, text, text\)\s+to service_role/,
+  );
+  assert.match(
+    draftSql,
+    /on conflict \(lookup_key\) do update\s+set stripe_price_id = excluded\.stripe_price_id,\s+livemode = excluded\.livemode,\s+updated_at = pg_catalog\.now\(\);/,
+  );
+  assert.doesNotMatch(
+    draftSql,
+    /on conflict \(lookup_key\) do update[\s\S]{0,200}disabled_at = null/,
+  );
+  assert.match(draftSql, /create or replace function public\.api_claim_founding_team_slot\(\)/);
+  assert.match(draftSql, /and slots_used < 12/);
+  assert.match(draftSql, /the thirteenth founding slot is refused/);
+  assert.match(draftSql, /has_function_privilege\(\s+'authenticated'/);
+});
+
+test("example env keeps catalog flags off", () => {
+  const envExample = readFileSync(join(root, ".env.example"), "utf8");
+  assert.match(envExample, /^BILLING_TIER_CATALOG_ENABLED="false"$/m);
+  assert.match(envExample, /^VITE_BILLING_SELF_SERVICE_ENABLED="false"$/m);
+  assert.match(envExample, /^VITE_BILLING_TIER_CATALOG_ENABLED="false"$/m);
 });
 
 test("refuses TBD amounts even when a live key is not used", async () => {
@@ -150,7 +212,7 @@ test("runStripeCatalogSetup uses the injected mock and never a live key", async 
   let createdWith;
   const result = await runStripeCatalogSetup(
     ["--apply", "--placeholder"],
-    { STRIPE_SECRET_KEY: "sk_test_ovd725" },
+    { STRIPE_SECRET_KEY: '  "sk_test_ovd725"  ' },
     {
       createClient: (secret) => {
         createdWith = secret;

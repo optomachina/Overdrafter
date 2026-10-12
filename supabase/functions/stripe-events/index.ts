@@ -199,18 +199,18 @@ export function createStripeEventHandler(
           p_stripe_event_id: event.id,
         },
       );
-      if (
-        disableError &&
-        isBillingFlagEnabled(getEnvironmentVariable(BILLING_TIER_CATALOG_FLAG))
-      ) {
-        console.error("stripe-events: catalog price disable failed");
-        return json(500, { error: "Catalog price disable failed." });
+      if (disableError) {
+        if (isBillingFlagEnabled(getEnvironmentVariable(BILLING_TIER_CATALOG_FLAG))) {
+          console.error("stripe-events: catalog price disable failed");
+          return json(500, { error: "Catalog price disable failed." });
+        }
+      } else {
+        console.error(
+          "stripe-events: catalog price disabled",
+          catalogDecision.lookupKey,
+          catalogDecision.reason,
+        );
       }
-      console.error(
-        "stripe-events: catalog price disabled",
-        catalogDecision.lookupKey,
-        catalogDecision.reason,
-      );
     }
 
     return json(200, {

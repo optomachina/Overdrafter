@@ -69,6 +69,8 @@ Deno.test("live Stripe secrets are refused", () => {
   assertEquals(isLiveStripeSecret("sk_test_123"), false);
   assertEquals(isLiveStripeSecret("sk_live_123"), true);
   assertEquals(isLiveStripeSecret("rk_live_123"), true);
+  assertEquals(isLiveStripeSecret('  "SK_LIVE_123"  '), true);
+  assertEquals(isLiveStripeSecret("  'RK_LIVE_123'  "), true);
 });
 
 Deno.test("maps each paid tier and leaves free on the existing meter", () => {
