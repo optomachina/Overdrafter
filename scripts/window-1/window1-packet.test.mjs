@@ -155,3 +155,68 @@ describe("window 1 restore check", async () => {
     }
   });
 });
+
+describe("window 1 run sheet consistency", () => {
+  const manifest = JSON.parse(read("docs/release/window-1/manifest.json"));
+  const readme = read("docs/release/window-1/README.md");
+  const summary = JSON.parse(read("docs/release/window-1/rehearsal/recommended/summary.json"));
+
+  it("names every pinned PR head and the base in the README", () => {
+    expect(readme).toContain(`\`${manifest.base.sha.slice(0, 8)}\``);
+    for (const m of manifest.migrations) expect(readme).toContain(`${m.sha.slice(0, 8)}`);
+  });
+
+  it("matches the rehearsed bytes: README sha256 values equal the summary", () => {
+    for (const m of manifest.migrations) {
+      const rehearsed = summary.migrations.find((x) => x.id === m.id);
+      expect(rehearsed.sha).toBe(m.sha);
+      expect(readme).toContain(rehearsed.forwardSha256);
+    }
+    expect(summary.base.sha).toBe(manifest.base.sha);
+    expect(summary.pass).toBe(true);
+  });
+
+  it("states the rollback sha256 values the summary recorded", () => {
+    for (const m of summary.migrations) expect(readme).toContain(m.rollbackSha256);
+  });
+
+  it("keeps the runnable 722 rollback equal to the hash in the README", async () => {
+    const { createHash } = await import("node:crypto");
+    const digest = createHash("sha256").update(read("docs/release/window-1/rollback/ovd-722.rollback.sql")).digest("hex");
+    expect(readme).toContain(digest);
+  });
+
+  it("has an expected 602 diff for every order the README names", () => {
+    for (const f of readme.matchAll(/ovd602-expected\/([a-z0-9+-]+\.json)/g)) {
+      expect(read(`docs/release/window-1/ovd602-expected/${f[1]}`).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("window 1 safeguards", async () => {
+  const { assertReplaceableOut, readmeReadbacks } = await import("./rehearse.mjs");
+  const { isLocalTarget } = await import("./restore-check.mjs");
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  it("refuses to wipe a directory that is not a rehearsal output", () => {
+    const dir = mkdtempSync(join(tmpdir(), "w1-out-"));
+    mkdirSync(join(dir, "evidence"));
+    writeFileSync(join(dir, "summary.json"), "{}");
+    expect(() => assertReplaceableOut(dir)).not.toThrow();
+    writeFileSync(join(dir, "REPORT.md"), "keep me");
+    expect(() => assertReplaceableOut(dir)).toThrow(/REPORT\.md/);
+    expect(() => assertReplaceableOut(join(dir, "missing"))).not.toThrow();
+  });
+
+  it("extracts each migration's readback SQL from the run sheet", () => {
+    const blocks = readmeReadbacks(read("docs/release/window-1/README.md"));
+    expect(Object.keys(blocks).sort()).toEqual(["ovd-462", "ovd-722", "ovd-723"]);
+    for (const sqls of Object.values(blocks)) expect(sqls.length).toBeGreaterThan(0);
+  });
+
+  it("rejects hostaddr and service parameters on a restore target", () => {
+    expect(isLocalTarget("postgresql://u@127.0.0.1/db?hostaddr=10.0.0.5")).toBe(false);
+    expect(isLocalTarget("postgresql://u@127.0.0.1/db?service=prod")).toBe(false);
+  });
+});

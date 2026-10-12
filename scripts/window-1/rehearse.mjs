@@ -19,7 +19,7 @@
  *      and reruns the draft suites.
  * Every psql child gets a scrubbed environment pointing at the socket.
  *
- *   node scripts/window-1/rehearse.mjs [--out docs/release/window-1/rehearsal]
+ *   node scripts/window-1/rehearse.mjs [--out <dir>]   (default: a scratch dir under the OS temp dir)
  *       [--write-pin] [--write-expected] [--skip-main-suites] [--keep]
  *       [--order ovd-462,ovd-723,ovd-722]   (default: manifest recommendedOrder; a subset is allowed)
  *
@@ -28,7 +28,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync, chownSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
+  chmodSync, chownSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
@@ -41,6 +41,8 @@ const SHIM = "scripts/window-1/supabase-shim.sql";
 const INVENTORY_SQL = "scripts/window-1/ovd602-inventory.sql";
 const SUITE_TIMEOUT_MS = 240_000;
 const RUN_LIMIT_MS = 30 * 60_000;
+// Absolute tool paths (no PATH lookup), as in scripts/migration-timestamp.mjs.
+const BIN = { git: "/usr/bin/git", tar: "/usr/bin/tar", id: "/usr/bin/id", chmod: "/usr/bin/chmod", runuser: "/usr/sbin/runuser" };
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
 
 // ------------------------------------------------------------------ helpers
@@ -99,6 +101,18 @@ export function packetBody(text) {
   return text.slice(at + marker.length);
 }
 
+/** The ```sql readback blocks of each "## Migration N: OVD-xxx" section of the run sheet, by migration id. */
+export function readmeReadbacks(text) {
+  const out = {};
+  const sections = text.split(/^## /m);
+  for (const sec of sections) {
+    const m = /^Migration \d+: OVD-(\d+)/.exec(sec);
+    if (!m) continue;
+    out[`ovd-${m[1]}`] = [...sec.matchAll(/```sql\n([\s\S]*?)```/g)].map((x) => x[1]);
+  }
+  return out;
+}
+
 /** Files with CONCURRENTLY or their own BEGIN/COMMIT cannot run inside psql --single-transaction. */
 export function needsOwnTransaction(sql) {
   return /\bconcurrently\b/i.test(sql) || /^\s*(begin|commit)\s*;/im.test(sql);
@@ -136,7 +150,7 @@ class Rehearsal {
   }
 
   git(args, { encoding = "utf8" } = {}) {
-    const r = spawnSync("git", args, { cwd: ROOT, encoding, maxBuffer: 256_000_000 });
+    const r = spawnSync(BIN.git, args, { cwd: ROOT, encoding, maxBuffer: 256_000_000 });
     if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
     return r.stdout;
   }
@@ -172,7 +186,7 @@ class Rehearsal {
   asOwner(cmd, args) {
     const full = join(this.bin, cmd);
     const r = this.root
-      ? spawnSync("runuser", ["-u", "postgres", "--", full, ...args], { encoding: "utf8", env: this.env, cwd: this.work })
+      ? spawnSync(BIN.runuser, ["-u", "postgres", "--", full, ...args], { encoding: "utf8", env: this.env, cwd: this.work })
       : spawnSync(full, args, { encoding: "utf8", env: this.env, cwd: this.work });
     if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr || r.stdout}`);
     return r.stdout;
@@ -184,8 +198,8 @@ class Rehearsal {
     this.work = mkdtempSync(join(tmpdir(), "ovd635-window1-"));
     chmodSync(this.work, 0o755);
     if (this.root) {
-      const pg = spawnSync("id", ["-u", "postgres"], { encoding: "utf8" });
-      const pgGid = spawnSync("id", ["-g", "postgres"], { encoding: "utf8" });
+      const pg = spawnSync(BIN.id, ["-u", "postgres"], { encoding: "utf8" });
+      const pgGid = spawnSync(BIN.id, ["-g", "postgres"], { encoding: "utf8" });
       if (pg.status !== 0) throw new Error("running as root needs a postgres OS user");
       chownSync(this.work, Number(pg.stdout), Number(pgGid.stdout));
     }
@@ -247,11 +261,11 @@ class Rehearsal {
   materializeTree(sha, paths, label) {
     const dir = join(this.work, `src-${label}`);
     mkdirSync(dir, { recursive: true });
-    const tar = spawnSync("git", ["archive", "--format=tar", sha, ...paths], { cwd: ROOT, maxBuffer: 512_000_000 });
+    const tar = spawnSync(BIN.git, ["archive", "--format=tar", sha, ...paths], { cwd: ROOT, maxBuffer: 512_000_000 });
     if (tar.status !== 0) throw new Error(`git archive ${sha} failed: ${tar.stderr}`);
-    const x = spawnSync("tar", ["-x", "-C", dir], { input: tar.stdout });
+    const x = spawnSync(BIN.tar, ["-x", "-C", dir], { input: tar.stdout });
     if (x.status !== 0) throw new Error(`tar failed: ${x.stderr}`);
-    if (this.root) spawnSync("chmod", ["-R", "a+rX", dir]);
+    if (this.root) spawnSync(BIN.chmod, ["-R", "a+rX", dir]);
     return dir;
   }
 
@@ -345,6 +359,7 @@ class Rehearsal {
   // ----- the rehearsal
   async run() {
     const m = this.manifest;
+    assertReplaceableOut(this.out);
     rmSync(this.out, { recursive: true, force: true });
     mkdirSync(this.logs, { recursive: true });
     const summary = { format: "ovd635.rehearsal.v1", base: m.base, order: m.order, startedAt: new Date().toISOString(), migrations: [] };
@@ -482,6 +497,12 @@ class Rehearsal {
             const after = await this.step(`pgTAP: main suites after ${mig.id}`, () => this.runSuites(suitesDir, mainSuites, `after-${mig.id}`));
             const regressed = mainSuites.filter((f) => suitePassed(summary.mainSuitesBaseline[f]) && !suitePassed(after[f]));
             rec(mig.id).mainSuiteRegressionsCumulative = regressed;
+            // Per step gate: a suite that passed before this migration and fails after it.
+            const before = summary.mainSuitesBeforeStep ?? summary.mainSuitesBaseline;
+            const stepRegressed = mainSuites.filter((f) => suitePassed(before[f]) && !suitePassed(after[f]));
+            rec(mig.id).mainSuiteRegressionsThisStep = stepRegressed;
+            this.gate(`main pgTAP suites: no regression caused by ${mig.id}`, stepRegressed.length === 0, stepRegressed.join(", "));
+            summary.mainSuitesBeforeStep = after;
             process.stdout.write(`INFO main suites regressed after ${mig.id} (cumulative): ${regressed.join(", ") || "none"}\n`);
             summary.mainSuitesAfterWindow = after;
           }
@@ -490,6 +511,7 @@ class Rehearsal {
       };
 
       const preWindow = await applyAll("apply");
+      delete summary.mainSuitesBeforeStep;
       const applied = this.inventory();
       await runDraftSuites("apply-composed");
       if (!this.options.skipMainSuites) {
@@ -498,6 +520,19 @@ class Rehearsal {
         this.gate("main pgTAP suites: no regression after window 1", regressions.length === 0, regressions.join(", "));
       }
 
+      // Every readback query Blaine runs must return only true on the rehearsed database.
+      const readbacks = readmeReadbacks(readFileSync(join(ROOT, "docs/release/window-1/README.md"), "utf8"));
+      for (const mig of m.migrations) {
+        const blocks = readbacks[mig.id] ?? [];
+        const values = [];
+        for (const sql of blocks) {
+          const r = this.psql(["-A", "-t", "-F", ",", "-c", sql], { check: false });
+          values.push(...(r.rc === 0 ? r.stdout.trim().split(/[\n,]/) : [`error: ${r.stderr.trim()}`]));
+        }
+        rec(mig.id).readback = values;
+        this.gate(`${mig.id}: README readback queries return only true`, blocks.length > 0 && values.length > 0 && values.every((v) => v === "t"),
+          values.join(" "));
+      }
       const windowDiff = diffInventories(pin, applied);
       this.log("ovd602-window1-vs-pin.txt", renderDiff(windowDiff));
       // The expected diff depends on which drafts are applied and in what order.
@@ -562,8 +597,16 @@ class Rehearsal {
   }
 }
 
+/** Refuses to wipe a directory that holds anything but a previous run's own output. */
+export function assertReplaceableOut(dir) {
+  if (!existsSync(dir)) return;
+  const extra = readdirSync(dir).filter((f) => !["summary.json", "evidence"].includes(f));
+  if (extra.length) throw new Error(`refusing to replace ${dir}: it contains ${extra.join(", ")} (not a rehearsal output directory)`);
+}
+
 export function parseArgs(argv) {
-  const options = { out: "docs/release/window-1/rehearsal", writePin: false, writeExpected: false, skipMainSuites: false, keep: false };
+  // Default output is a scratch directory; evidence in the repo is written only with an explicit --out.
+  const options = { out: join(tmpdir(), "ovd635-rehearsal-out"), writePin: false, writeExpected: false, skipMainSuites: false, keep: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--out") options.out = argv[(i += 1)];

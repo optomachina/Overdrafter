@@ -109,5 +109,15 @@
         "sha": "414bc4418117849792039e84f6f0b99be29714fd"
       }
     }
+  ],
+  "laterWork": [
+    {
+      "id": "ovd-725",
+      "title": "Stripe catalog (expand only)",
+      "pr": 671,
+      "window": 2,
+      "draft": "docs/migration-drafts/ovd-725-stripe-catalog.sql",
+      "notInWindow1": true
+    }
   ]
 }
