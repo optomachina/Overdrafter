@@ -419,7 +419,7 @@ const ClientQuoteDetail = () => {
       <ClientQuoteDecisionPanel
         className="mt-6 rounded-[4px] bg-transparent"
         title="Supplier responses"
-        description="Lead time runs left to right. Quoted manufacturing total runs bottom to top. Supplier identities remain private to this buyer workspace."
+        description="Delivered date runs left to right. Expected delivered cost runs bottom to top. Supplier identities remain private to this buyer workspace."
         options={controller.rankedQuoteOptions}
         selectedOption={controller.selectedQuoteOption}
         previousSelectionUnavailable={controller.previousQuoteSelectionUnavailable}
