@@ -895,13 +895,12 @@ export function ClientQuoteDecisionPanel({
         onPresetSelect={onPresetSelect}
       />
       {previousSelectionUnavailable && !selectedOption ? (
-        <p
-          role="status"
-          className="mt-4 border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
+        <output
+          className="mt-4 block border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
           data-testid="previous-selection-unavailable"
         >
           Your previous quote choice is no longer available. Choose a quote to continue.
-        </p>
+        </output>
       ) : null}
       {renderDecisionPanelContent({
         options: visibleOptions,

@@ -142,7 +142,7 @@ describe("ClientQuoteDecisionPanel when the previous choice is gone", () => {
     await waitFor(() => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("previous-selection-unavailable")).toHaveTextContent(
+    expect(screen.getByRole("status")).toHaveTextContent(
       "Your previous quote choice is no longer available. Choose a quote to continue.",
     );
     expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
