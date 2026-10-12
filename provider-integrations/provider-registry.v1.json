@@ -1,0 +1,139 @@
+{
+  "$schema": "./provider-registry.v1.schema.json",
+  "schemaVersion": 1,
+  "stableEgressRequiredKey": "xometry",
+  "providers": [
+    {
+      "key": "devzmanufacturing",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "emachineshop",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "fabworks",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "fastdms",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "fictiv",
+      "liveAdapter": true,
+      "sessionSecrets": [
+        {
+          "secretNameEnv": "FICTIV_STORAGE_STATE_SECRET_NAME",
+          "mountEnv": "FICTIV_STORAGE_STATE_JSON",
+          "requiredWhenListed": true
+        }
+      ],
+      "egress": "stable_nat"
+    },
+    {
+      "key": "geomiq",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "infraredlaboratories",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "oshcut",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "partsbadger",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "ponoko",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "protolabs",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "protolabsnetwork",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "quickparts",
+      "liveAdapter": true,
+      "sessionSecrets": [
+        {
+          "secretNameEnv": "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+          "mountPath": "/var/secrets/quickparts-storage-state/storage-state.json",
+          "requiredWhenListed": true
+        }
+      ],
+      "egress": "stable_nat"
+    },
+    {
+      "key": "rapiddirect",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "rmfg",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "sendcutsend",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "weerg",
+      "liveAdapter": true,
+      "sessionSecrets": [
+        {
+          "secretNameEnv": "WEERG_STORAGE_STATE_SECRET_NAME",
+          "mountPath": "/var/secrets/weerg-storage-state/storage-state.json",
+          "requiredWhenListed": true
+        }
+      ],
+      "egress": "stable_nat"
+    },
+    {
+      "key": "xometry",
+      "liveAdapter": true,
+      "sessionSecrets": [
+        {
+          "secretNameEnv": "XOMETRY_STORAGE_STATE_SECRET_NAME",
+          "mountEnv": "XOMETRY_STORAGE_STATE_JSON",
+          "requiredWhenListed": false
+        }
+      ],
+      "egress": "stable_nat"
+    }
+  ]
+}

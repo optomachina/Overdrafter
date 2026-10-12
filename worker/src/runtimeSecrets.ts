@@ -13,6 +13,9 @@ import {
   restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
 } from "./xometryProfileSnapshot.js";
+import { PRODUCTION_LIVE_ADAPTERS } from "./generated/providerRegistry.js";
+
+export { PRODUCTION_LIVE_ADAPTERS };
 
 function parseStorageStateJson(input: string, source: string) {
   let parsedStorageState: unknown;
@@ -284,13 +287,11 @@ export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> 
 }
 
 /**
- * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
- * preflight and the generic provider preflight for Fictiv (OVD-673),
- * Quickparts (OVD-674) and Weerg (OVD-675). Listing a generic provider here
- * never admits it; the database admission, reviewed envelope, and rollout
+ * Adapters with a reviewed production dispatch path. The list is generated from
+ * provider-integrations/provider-registry.v1.json. Listing a generic provider
+ * here never admits it; the database policy, reviewed envelope, and rollout
  * still decide every dispatch.
  */
-export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts", "weerg"] as const;
 
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {

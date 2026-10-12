@@ -15,5 +15,5 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["api/**/*.ts", "server/**/*.ts"]
+  "include": ["api/**/*.ts", "server/**/*.ts", "shared/**/*.ts"]
 }

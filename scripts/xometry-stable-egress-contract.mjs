@@ -2,6 +2,14 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  deriveStableEgressOptionalAdapters,
+  readProviderRegistrySync,
+} from "./provider-registry.mjs";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PROVIDER_REGISTRY = readProviderRegistrySync(REPO_ROOT);
+
 const NAME_PATTERN = /^[a-z](?:[-a-z0-9]*[a-z0-9])?$/;
 const PROJECT_PATTERN = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const REGION_PATTERN = /^[a-z]+-[a-z]+\d$/;
@@ -31,11 +39,12 @@ export const OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS = 1200;
 
 /**
  * Generic-dispatch adapters that may share the governed egress, only alongside
- * Xometry and in this canonical order: Fictiv (OVD-673), Quickparts (OVD-674)
- * and Weerg (OVD-675). Their dispatch stays default-deny in the database until
- * each is admitted.
+ * the registry's required stable-NAT adapter and in this canonical order.
+ * Their dispatch stays default-deny in the database until each is admitted.
  */
-export const STABLE_EGRESS_OPTIONAL_ADAPTERS = Object.freeze(["fictiv", "quickparts", "weerg"]);
+export const STABLE_EGRESS_OPTIONAL_ADAPTERS = Object.freeze(
+  deriveStableEgressOptionalAdapters(PROVIDER_REGISTRY),
+);
 
 /**
  * Exact WORKER_LIVE_ADAPTERS values the stable-egress worker may carry:
