@@ -217,6 +217,24 @@ describe("checked-in provider manifests and projections", () => {
     })).rejects.toThrow("generated provider catalog output must be a regular file");
   });
 
+  it("fails provider:check when rmfg displayName looks like a secret", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const manifestPath = path.join(rootDir, "provider-integrations/rmfg/manifest.v1.json");
+    const catalogPath = path.join(rootDir, "src/features/quotes/generated/provider-catalog.ts");
+    const catalogBefore = await fs.readFile(catalogPath, "utf8");
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    manifest.displayName = "eyJhbGciOiJIUzI1NiJ9xx";
+    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(checkProviderIntegrations({
+      rootDir,
+      today: "2026-09-28",
+      checkConsumers: false,
+    })).rejects.toThrow("secret-value-like string");
+    expect(await fs.readFile(catalogPath, "utf8")).toBe(catalogBefore);
+    expect(catalogBefore).not.toContain("eyJhbGciOiJIUzI1NiJ9xx");
+  });
+
   it("fails provider:check when a manifest has no registry entry", async () => {
     const { rootDir } = await createCheckedFixture();
     const registryPath = path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH);
