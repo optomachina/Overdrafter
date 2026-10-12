@@ -4,7 +4,9 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Environment and isolation
 
-* Disposable PostgreSQL 16.15 cluster created by `initdb` in a fresh temp directory, started with `listen_addresses=''`: it has a Unix socket and **no TCP listener**, and the runner refuses to continue if `show listen_addresses` is not empty. Every `psql` child gets a scrubbed environment (`PGHOST` is the socket directory; inherited `DATABASE_URL`, `PGHOSTADDR`, passwords and service files are dropped). The cluster and its directory are removed at the end (gate "cleanup removed the disposable cluster").
+* **PostgreSQL 17.11**, matching production's major version (`manifest.json` `postgresMajor: 17`; the runner refuses any other). Earlier runs used 16.15; on Oct 12 the lead's read only production baseline showed the only difference to be PostgreSQL 17's `MAINTAIN` privilege on 56 relations. Regenerated on 17, the pin minus `MAINTAIN` equals the 16 pin byte for byte, and all five expected window diffs are unchanged (the window's new tables carry no API grants). PostgreSQL 17 and pgTAP 1.3.4 came from the official PostgreSQL apt repository.
+
+* Disposable PostgreSQL cluster created by `initdb` in a fresh temp directory, started with `listen_addresses=''`: it has a Unix socket and **no TCP listener**, and the runner refuses to continue if `show listen_addresses` is not empty. Every `psql` child gets a scrubbed environment (`PGHOST` is the socket directory; inherited `DATABASE_URL`, `PGHOSTADDR`, passwords and service files are dropped). The cluster and its directory are removed at the end (gate "cleanup removed the disposable cluster").
 * No Docker daemon was available in this container, so the local Supabase stack was not used. `scripts/window-1/supabase-shim.sql` stands in for the platform: `anon`, `authenticated`, `service_role` (BYPASSRLS), `auth.users`, `auth.sessions`, `auth.uid()/role()/jwt()`, `storage.buckets/objects/foldername()`, `extensions` with pgcrypto, and Supabase's default privileges on `public`. Toolchain provisioning (pgTAP 1.3.2 from the Ubuntu archive, `npm ci`) happened before the runs; no rehearsal step touches a network host.
 * Main migrations run one file per `psql --single-transaction`, except files with `CONCURRENTLY` or their own `BEGIN`/`COMMIT` (9 on main, plus the 722 draft), which run statement by statement. All 148 apply in about 2 s.
 * Each pgTAP suite runs in its own `CREATE DATABASE ... TEMPLATE` clone, with pgTAP installed the way `supabase test db` does, and `ovd.test_conninfo` pointed at the socket for the dblink suites.
@@ -19,16 +21,16 @@ Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254` and to t
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 144 s |
-| `recommended/` | 462, 723, 722 | **PASS, every gate** | 286 s |
+| `ovd-462-only/` | 462 | **PASS, every gate** | 154 s |
+| `recommended/` | 462, 723, 722 | **PASS, every gate** | 303 s |
 
 Per migration (recommended run; first apply / reapply):
 
 | | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 30/29 ms | 128/128 | 128/128 | ok 20 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
-| OVD-723 EXPAND | ok, 34/34 ms | 94/94 | 94/94 | ok 17 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 94/94 |
-| OVD-722 (expand only) | ok, 19/24 ms | 53/53 | 53/53 | ok 28 ms with the packet rollback, which byte matches the draft's guarded rollback section | ok; 53/53 |
+| OVD-462 | ok, 22/21 ms | 128/128 | 128/128 | ok 14 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
+| OVD-723 EXPAND | ok, 41/26 ms | 94/94 | 94/94 | ok 20 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 94/94 |
+| OVD-722 (expand only) | ok, 20/19 ms | 53/53 | 53/53 | ok 24 ms with the packet rollback, which byte matches the draft's guarded rollback section | ok; 53/53 |
 
 Main suites: none regresses, gated both per step (against the suites' results just before that migration) and cumulatively. A main suite that a PR edits lands with its migration, so after each migration the runner uses that PR's version: #675 adds `provider_session_leases.sql`, #677 edits 5 suites (`free_confirmed_quote_access` is now the window 2 contract's seed patch), #676 edits none.
 

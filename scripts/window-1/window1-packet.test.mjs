@@ -232,3 +232,31 @@ describe("window 1 psql resolution", async () => {
     for (const p of PSQL_CANDIDATES) expect(p.startsWith("/")).toBe(true);
   });
 });
+
+describe("window 1 PostgreSQL major version", async () => {
+  const { maintainOnlyOnOneSide } = await import("./ovd602-diff.mjs");
+  const manifest = JSON.parse(read("docs/release/window-1/manifest.json"));
+  const pin = parseInventory(read(manifest.pin));
+
+  it("pins production's major version, PostgreSQL 17", () => {
+    expect(manifest.postgresMajor).toBe(17);
+  });
+
+  it("has a PostgreSQL 17 pin: MAINTAIN is granted where the other table privileges are", () => {
+    const withMaintain = pin.relations.filter((r) => Object.values(r.grants).some((p) => p.includes("MAINTAIN")));
+    expect(withMaintain.length).toBe(56);
+  });
+
+  it("diffs a PostgreSQL 17 style inventory (MAINTAIN present) clean against the pin", () => {
+    const pg17 = JSON.parse(JSON.stringify(pin));
+    expect(isEmptyDiff(diffInventories(pin, pg17))).toBe(true);
+    expect(maintainOnlyOnOneSide(pin, pg17)).toBe(false);
+  });
+
+  it("flags a PostgreSQL 16 style inventory (no MAINTAIN) as a major version mismatch", () => {
+    const pg16 = JSON.parse(JSON.stringify(pin));
+    for (const r of pg16.relations) for (const k of Object.keys(r.grants)) r.grants[k] = r.grants[k].filter((p) => p !== "MAINTAIN");
+    expect(isEmptyDiff(diffInventories(pin, pg16))).toBe(false);
+    expect(maintainOnlyOnOneSide(pin, pg16)).toBe(true);
+  });
+});

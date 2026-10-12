@@ -21,7 +21,7 @@ Evidence: `rehearsal/ovd-462-only/summary.json` and `rehearsal/recommended/summa
 
 ## What you need
 
-* This packet merged to `main` (it carries `scripts/window-1/`), Node 20, the Supabase CLI, Docker (for the local restore), and `psql` 16 or newer. The local rehearsal also needs PostgreSQL 16 server binaries and pgTAP; on macOS point `OVD_PG_BIN` at them. `restore-check.mjs` finds `psql` in the standard install locations (apt, Homebrew, libpq, Postgres.app); anywhere else, set `OVD_PSQL` to its absolute path.
+* This packet merged to `main` (it carries `scripts/window-1/`), Node 20, the Supabase CLI, Docker (for the local restore), and `psql` 17 or newer. **The hosted project runs PostgreSQL 17**, and the rehearsal must use the same major version: PostgreSQL 17 grants the new `MAINTAIN` table privilege, so an inventory taken on 16 differs from production on 56 relations. `rehearse.mjs` refuses any cluster whose major version differs from `manifest.json` (`postgresMajor: 17`); it needs PostgreSQL 17 server binaries and pgTAP (on macOS point `OVD_PG_BIN` at them). `restore-check.mjs` finds `psql` in the standard install locations (apt, Homebrew, libpq, Postgres.app); anywhere else, set `OVD_PSQL` to its absolute path.
 * `DB_URL`: Dashboard, **Connect > Session pooler**, copy the URI. In your shell only: `export DB_URL='postgresql://...'`. Never paste it anywhere else, never commit it.
 
 ## Pre-window dry run (Oct 19 or 20, read only)
@@ -33,6 +33,8 @@ node scripts/window-1/ovd602-diff.mjs docs/release/window-1/ovd602-pin.main.json
 psql "$DB_URL" -X -At -c "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"
 ```
 Expected: `ovd602: no difference from the pin`, then `t`. Then run the full dump and restore check below once, end to end, and expect `restore check PASS`.
+
+**Oct 12 baseline.** The lead ran exactly the inventory and diff commands above, read only, against production with `scripts/window-1/ovd602-inventory.sql` at `46d07c03` (sha256 `33d63f00…`). Production matched the pin in every schema, all 290 functions, all 123 relations and all 132 policies, except that the then PostgreSQL 16 pin lacked `MAINTAIN` on 56 relations. The pin is now regenerated on PostgreSQL 17 (the 17 pin minus `MAINTAIN` equals the old pin byte for byte), so the same commands should print `ovd602: no difference from the pin`. If the diff tool prints "only one side grants MAINTAIN", the two inventories come from different major versions.
 
 On a mismatch: do not change anything. Send the diff output (it names objects and grants, never data). A drift between production and `main` must be explained before the window; a `restore check FAIL` means the backup path is not proven and the window does not start.
 

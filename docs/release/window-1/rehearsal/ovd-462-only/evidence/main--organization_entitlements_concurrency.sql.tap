@@ -3,5 +3,5 @@
  1..9
 (1 row)
 
-psql:/tmp/ovd635-window1-yj5aIL/src-main/supabase/tests/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database
+psql:/tmp/ovd635-window1-ixi8yq/src-main/supabase/tests/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database
 CONTEXT:  PL/pgSQL function inline_code_block line 28 at RAISE

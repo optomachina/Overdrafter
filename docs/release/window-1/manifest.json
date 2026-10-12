@@ -5,6 +5,7 @@
     "ref": "origin/main",
     "sha": "cc9a5fe812bf83cafc9b94fc873d35ee74809260"
   },
+  "postgresMajor": 17,
   "pin": "docs/release/window-1/ovd602-pin.main.json",
   "expectedDiffDir": "docs/release/window-1/ovd602-expected",
   "recommendedOrder": [

@@ -124,6 +124,12 @@ export function isEmptyDiff(diff) {
   return ["added", "removed", "changed"].every((k) => Object.keys(diff[k]).length === 0);
 }
 
+/** True when only one side's grants carry MAINTAIN (a PostgreSQL 17 privilege): a major version mismatch. */
+export function maintainOnlyOnOneSide(pin, current) {
+  const has = (inv) => inv.relations.some((r) => Object.values(r.grants).some((p) => p.includes("MAINTAIN")));
+  return has(pin) !== has(current);
+}
+
 export function renderDiff(diff) {
   if (isEmptyDiff(diff)) return "ovd602: no difference from the pin\n";
   const out = [];
@@ -165,10 +171,12 @@ export function main(argv = process.argv.slice(2)) {
     else positional.push(arg);
   }
   if (positional.length !== 2) throw new UsageError("<pin.json> <current.json> are required");
-  const diff = diffInventories(
-    parseInventory(read(positional[0]), positional[0]),
-    parseInventory(read(positional[1]), positional[1]),
-  );
+  const pinInventory = parseInventory(read(positional[0]), positional[0]);
+  const currentInventory = parseInventory(read(positional[1]), positional[1]);
+  const diff = diffInventories(pinInventory, currentInventory);
+  if (maintainOnlyOnOneSide(pinInventory, currentInventory)) {
+    process.stderr.write("ovd602: only one side grants MAINTAIN (PostgreSQL 17). The two inventories come from different major versions; compare like with like.\n");
+  }
   if (options["write-diff"]) writeFileSync(resolve(options["write-diff"]), `${JSON.stringify(diff, null, 2)}\n`);
   process.stdout.write(options.json ? `${JSON.stringify(diff, null, 2)}\n` : renderDiff(diff));
   if (options.expect) {

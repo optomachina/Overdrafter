@@ -177,10 +177,11 @@ class Rehearsal {
   // ----- cluster lifecycle (socket only)
   pgBin() {
     if (process.env.OVD_PG_BIN) return process.env.OVD_PG_BIN;
-    const base = "/usr/lib/postgresql";
-    const versions = existsSync(base) ? readdirSync(base).filter((v) => /^\d+$/.test(v)).sort((a, b) => b - a) : [];
-    if (!versions.length) throw new Error("no local PostgreSQL server binaries; set OVD_PG_BIN");
-    return join(base, versions[0], "bin");
+    // Production's major version (manifest postgresMajor); the inventory differs across majors (PG17 adds MAINTAIN).
+    const major = String(this.manifest.postgresMajor);
+    const dir = join("/usr/lib/postgresql", major, "bin");
+    if (!existsSync(dir)) throw new Error(`PostgreSQL ${major} server binaries not found at ${dir}; set OVD_PG_BIN`);
+    return dir;
   }
 
   asOwner(cmd, args) {
@@ -220,6 +221,10 @@ class Rehearsal {
     const listen = this.psql(["-At", "-c", "show listen_addresses"]).stdout.trim();
     if (listen !== "") throw new Error(`cluster must not listen on TCP, got listen_addresses=${listen}`);
     const version = this.psql(["-At", "-c", "show server_version"]).stdout.trim();
+    const major = Number(this.psql(["-At", "-c", "show server_version_num"]).stdout.trim().slice(0, -4));
+    if (major !== this.manifest.postgresMajor) {
+      throw new Error(`rehearsal cluster is PostgreSQL ${major}; production (manifest postgresMajor) is ${this.manifest.postgresMajor}`);
+    }
     return { work: this.work, version, listen_addresses: "(none, Unix socket only)" };
   }
 
