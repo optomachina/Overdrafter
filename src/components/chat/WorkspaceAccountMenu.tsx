@@ -75,6 +75,8 @@ import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
+import { BillingTierCatalog } from "@/components/billing/BillingTierCatalog";
+import { isBillingTierCatalogUiEnabled } from "@/lib/billing-flags";
 import { openBillingPortal } from "@/features/quotes/billing-sessions";
 import {
   FOUNDING_BETA_POLICY_EFFECTIVE_DATE,
@@ -1155,6 +1157,11 @@ export function WorkspaceAccountMenu({
                 <p className="mt-3 text-sm leading-5 text-red-300" role="alert">
                   {billingError}
                 </p>
+              ) : null}
+              {isBillingTierCatalogUiEnabled() ? (
+                <div className="mt-4">
+                  <BillingTierCatalog />
+                </div>
               ) : null}
             </div>
 

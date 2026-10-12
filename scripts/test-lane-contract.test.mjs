@@ -16,6 +16,7 @@ const portableSuites = [
   "scripts/prepare-sourcing-schema-restore.node-test.mjs",
   "scripts/native/runner-containment/closed-journal.node-test.mjs",
   "scripts/migration-timestamp.node-test.mjs",
+  "scripts/stripe-catalog-setup.node-test.mjs",
   "scripts/verify-migration-lineage.node-test.mjs",
   "scripts/provider-permissions-verify.node-test.mjs",
 ];
