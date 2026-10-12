@@ -2,14 +2,14 @@
   "format": "ovd635.rehearsal.v1",
   "base": {
     "ref": "origin/main",
-    "sha": "cc9a5fe812bf83cafc9b94fc873d35ee74809260"
+    "sha": "e254d032842523a59c53128a072611c1b7985079"
   },
   "order": [
     "ovd-462",
     "ovd-723",
     "ovd-722"
   ],
-  "startedAt": "2026-10-12T13:16:41.016Z",
+  "startedAt": "2026-10-12T13:58:48.230Z",
   "migrations": [
     {
       "id": "ovd-462",
@@ -29,7 +29,7 @@
           "round": "apply",
           "apply": {
             "rc": 0,
-            "ms": 24,
+            "ms": 31,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/apply--ovd-462--apply.txt",
             "warnings": []
           },
@@ -41,7 +41,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 144,
+            "ms": 126,
             "timedOut": false
           },
           "pgtap_apply-composed_window": {
@@ -51,7 +51,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 144,
+            "ms": 116,
             "timedOut": false
           }
         },
@@ -59,7 +59,7 @@
           "round": "reapply",
           "apply": {
             "rc": 0,
-            "ms": 25,
+            "ms": 34,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/reapply--ovd-462--apply.txt",
             "warnings": []
           },
@@ -71,7 +71,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 154,
+            "ms": 152,
             "timedOut": false
           },
           "pgtap_reapply-composed_window": {
@@ -81,7 +81,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 142,
+            "ms": 153,
             "timedOut": false
           }
         }
@@ -100,7 +100,7 @@
         "writerCode": 0,
         "writerOut": "                                        acquire_provider_session_lease                                         \n---------------------------------------------------------------------------------------------------------------\n {\"status\": \"acquired\", \"generation\": 1, \"idempotent\": false, \"expires_in_ms\": 60000, \"renewals_remaining\": 2}\n(1 row)\n\n pg_sleep \n----------\n \n(1 row)\n\n",
         "rollbackRc": 3,
-        "rollbackMs": 2897,
+        "rollbackMs": 3002,
         "rollbackError": "ERROR:  OVD-462 rollback refused: provider_session_leases has active or blocked occupants",
         "verify": "true:1"
       },
@@ -138,7 +138,7 @@
           "round": "apply",
           "apply": {
             "rc": 0,
-            "ms": 44,
+            "ms": 58,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/apply--ovd-723--apply.txt",
             "warnings": []
           },
@@ -157,7 +157,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 232,
+            "ms": 211,
             "timedOut": false
           },
           "pgtap_apply-composed_window": {
@@ -167,7 +167,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 267,
+            "ms": 212,
             "timedOut": false
           }
         },
@@ -175,7 +175,7 @@
           "round": "reapply",
           "apply": {
             "rc": 0,
-            "ms": 41,
+            "ms": 38,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/reapply--ovd-723--apply.txt",
             "warnings": []
           },
@@ -194,7 +194,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 217,
+            "ms": 191,
             "timedOut": false
           },
           "pgtap_reapply-composed_window": {
@@ -204,7 +204,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 260,
+            "ms": 203,
             "timedOut": false
           }
         }
@@ -244,7 +244,7 @@
     {
       "id": "ovd-722",
       "pr": 676,
-      "sha": "a8e0bfd7a347759a6ddcc4e88d70194c825b88bd",
+      "sha": "8c3fc133aae7fa67d8efca009bab7dde468271ef",
       "slug": "ovd722_provider_kill_switch",
       "draft": "docs/migration-drafts/ovd-722.sql",
       "forwardSha256": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13",
@@ -259,7 +259,7 @@
           "round": "apply",
           "apply": {
             "rc": 0,
-            "ms": 39,
+            "ms": 31,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/apply--ovd-722--apply.txt",
             "warnings": []
           },
@@ -275,7 +275,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 199,
+            "ms": 179,
             "timedOut": false
           },
           "pgtap_apply-composed_window": {
@@ -285,7 +285,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 248,
+            "ms": 199,
             "timedOut": false
           }
         },
@@ -293,7 +293,7 @@
           "round": "reapply",
           "apply": {
             "rc": 0,
-            "ms": 30,
+            "ms": 25,
             "log": "docs/release/window-1/rehearsal/recommended/evidence/reapply--ovd-722--apply.txt",
             "warnings": []
           },
@@ -309,7 +309,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 226,
+            "ms": 220,
             "timedOut": false
           },
           "pgtap_reapply-composed_window": {
@@ -319,7 +319,7 @@
             "notOk": 0,
             "failures": [],
             "error": "",
-            "ms": 207,
+            "ms": 195,
             "timedOut": false
           }
         }
@@ -333,45 +333,45 @@
       ],
       "rollback": {
         "rc": 0,
-        "ms": 29,
+        "ms": 33,
         "log": "docs/release/window-1/rehearsal/recommended/evidence/rollback--ovd-722.txt",
         "residual": []
       }
     }
   ],
-  "packetSourceHead": "7438c5693dae46b50d9450f6cf52706d4e3ff2e5",
+  "packetSourceHead": "d4197c732cc3e7e293e83c65fc744184ce0d0868",
   "cluster": {
-    "work": "/tmp/ovd635-window1-US7SYk",
+    "work": "/tmp/ovd635-window1-WU1YMF",
     "version": "17.11 (Ubuntu 17.11-1.pgdg24.04+2)",
     "listen_addresses": "(none, Unix socket only)"
   },
   "mainMigrations": {
     "count": 148,
-    "totalMs": 2707,
+    "totalMs": 3211,
     "slowest": [
       {
         "file": "20260303101500_curated_cnc_quote_platform.sql",
-        "ms": 115,
+        "ms": 130,
         "rc": 0
       },
       {
-        "file": "20260725090000_add_supplier_directory_foundation.sql",
-        "ms": 54,
+        "file": "20261002090339_add_atomic_capability_window_attention_persistence.sql",
+        "ms": 112,
         "rc": 0
       },
       {
         "file": "20260910104500_engineering_native_ownership.sql",
-        "ms": 51,
+        "ms": 92,
         "rc": 0
       },
       {
-        "file": "20260304010000_add_shared_projects_and_client_home.sql",
-        "ms": 46,
+        "file": "20260725090000_add_supplier_directory_foundation.sql",
+        "ms": 80,
         "rc": 0
       },
       {
-        "file": "20260728190000_mobile_auth_bridge.sql",
-        "ms": 43,
+        "file": "20260910055556_engineering_ordered_changes.sql",
+        "ms": 60,
         "rc": 0
       }
     ]
@@ -391,8 +391,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/src-main/supabase/tests/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database",
-      "ms": 25,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/src-main/supabase/tests/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database",
+      "ms": 26,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--automatic_quote_rollout_concurrency.sql.tap"
     },
@@ -403,7 +403,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 30,
+      "ms": 27,
       "timedOut": false
     },
     "billing_sessions.sql": {
@@ -413,7 +413,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 66,
+      "ms": 72,
       "timedOut": false
     },
     "cad_preview_storage_policy.sql": {
@@ -423,7 +423,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 47,
+      "ms": 50,
       "timedOut": false
     },
     "canonical_part_identity.sql": {
@@ -433,7 +433,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 68,
+      "ms": 71,
       "timedOut": false
     },
     "capability_observation_ledger.sql": {
@@ -443,7 +443,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 66,
+      "ms": 58,
       "timedOut": false
     },
     "capability_observation_ledger_concurrency.sql": {
@@ -456,7 +456,7 @@
         "not ok 4 - conflicting replays both wait on the ordered lock        +"
       ],
       "error": "",
-      "ms": 6182,
+      "ms": 6167,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--capability_observation_ledger_concurrency.sql.tap"
     },
@@ -467,7 +467,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 77,
+      "ms": 65,
       "timedOut": false
     },
     "capability_preparation_persistence.sql": {
@@ -477,7 +477,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 579,
+      "ms": 598,
       "timedOut": false
     },
     "capability_runtime_persistence.sql": {
@@ -487,7 +487,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 4572,
+      "ms": 4566,
       "timedOut": false
     },
     "capability_runtime_persistence_concurrency.sql": {
@@ -496,8 +496,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/src-main/supabase/tests/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter \"ovd591.fixture_password_b64\"",
-      "ms": 39,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/src-main/supabase/tests/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter \"ovd591.fixture_password_b64\"",
+      "ms": 30,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--capability_runtime_persistence_concurrency.sql.tap"
     },
@@ -508,7 +508,17 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 48,
+      "ms": 55,
+      "timedOut": false
+    },
+    "client_rpc_least_privilege.sql": {
+      "rc": 0,
+      "planned": 67,
+      "ok": 67,
+      "notOk": 0,
+      "failures": [],
+      "error": "",
+      "ms": 146,
       "timedOut": false
     },
     "commercial_account_admin_api.sql": {
@@ -518,7 +528,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 132,
+      "ms": 117,
       "timedOut": false
     },
     "commercial_admin_security.sql": {
@@ -528,7 +538,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 67,
+      "ms": 62,
       "timedOut": false
     },
     "commercial_audit_uuid_scopes.sql": {
@@ -538,7 +548,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 93,
+      "ms": 65,
       "timedOut": false
     },
     "commercial_rollout_controls.sql": {
@@ -548,7 +558,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 41,
+      "ms": 33,
       "timedOut": false
     },
     "commercial_rollout_controls_concurrency.sql": {
@@ -557,8 +567,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/src-main/supabase/tests/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database",
-      "ms": 23,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/src-main/supabase/tests/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database",
+      "ms": 25,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--commercial_rollout_controls_concurrency.sql.tap"
     },
@@ -569,7 +579,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 45,
+      "ms": 53,
       "timedOut": false
     },
     "drawing_preview_storage_policy.sql": {
@@ -579,7 +589,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 50,
+      "ms": 43,
       "timedOut": false
     },
     "empty_file_upload_rejection.sql": {
@@ -589,7 +599,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 57,
+      "ms": 50,
       "timedOut": false
     },
     "engineering_inbox.sql": {
@@ -609,7 +619,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 276,
+      "ms": 255,
       "timedOut": false
     },
     "engineering_native_ownership.sql": {
@@ -619,7 +629,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 350,
+      "ms": 383,
       "timedOut": false
     },
     "engineering_ordered_changes.sql": {
@@ -629,7 +639,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 162,
+      "ms": 213,
       "timedOut": false
     },
     "engineering_worker_sessions.sql": {
@@ -639,7 +649,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 110,
+      "ms": 115,
       "timedOut": false
     },
     "extraction_quality_summary_security.sql": {
@@ -649,7 +659,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 68,
+      "ms": 44,
       "timedOut": false
     },
     "founding_beta_enrollment.sql": {
@@ -659,7 +669,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 62,
+      "ms": 53,
       "timedOut": false
     },
     "founding_beta_file_boundaries.sql": {
@@ -669,7 +679,17 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 637,
+      "ms": 595,
+      "timedOut": false
+    },
+    "founding_beta_subscription_bypass.sql": {
+      "rc": 0,
+      "planned": 74,
+      "ok": 74,
+      "notOk": 0,
+      "failures": [],
+      "error": "",
+      "ms": 169,
       "timedOut": false
     },
     "free_confirmed_quote_access.sql": {
@@ -679,7 +699,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 15134,
+      "ms": 15116,
       "timedOut": false
     },
     "free_quote_job_meter.sql": {
@@ -689,7 +709,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 617,
+      "ms": 473,
       "timedOut": false
     },
     "free_quote_terminal_lifecycle.sql": {
@@ -699,7 +719,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 482,
+      "ms": 379,
       "timedOut": false
     },
     "job_service_detail_privileges.sql": {
@@ -709,7 +729,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 113,
+      "ms": 118,
       "timedOut": false
     },
     "manual_quote_admin_inbox.sql": {
@@ -721,7 +741,7 @@
         "not ok 63 - a registered evidence delete attempt is rejected        +"
       ],
       "error": "",
-      "ms": 175,
+      "ms": 131,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--manual_quote_admin_inbox.sql.tap"
     },
@@ -732,7 +752,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 33,
+      "ms": 34,
       "timedOut": false
     },
     "mobile_auth_bridge.sql": {
@@ -742,7 +762,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 96,
+      "ms": 99,
       "timedOut": false
     },
     "organization_entitlements.sql": {
@@ -752,7 +772,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 100,
+      "ms": 101,
       "timedOut": false
     },
     "organization_entitlements_concurrency.sql": {
@@ -761,8 +781,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/src-main/supabase/tests/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database",
-      "ms": 27,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/src-main/supabase/tests/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database",
+      "ms": 35,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--organization_entitlements_concurrency.sql.tap"
     },
@@ -773,7 +793,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 53,
+      "ms": 49,
       "timedOut": false
     },
     "ovd536_audit_writer_privileges.sql": {
@@ -783,7 +803,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 61,
+      "ms": 63,
       "timedOut": false
     },
     "ovd537_internal_reader_privileges.sql": {
@@ -793,7 +813,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 144,
+      "ms": 155,
       "timedOut": false
     },
     "ovd538_platform_spend_summary.sql": {
@@ -803,7 +823,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 38,
+      "ms": 40,
       "timedOut": false
     },
     "ovd539_quote_status_helper_privileges.sql": {
@@ -813,7 +833,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 71,
+      "ms": 55,
       "timedOut": false
     },
     "ovd631_archived_job_delete_canonical_blob_constraint.sql": {
@@ -823,7 +843,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 66,
+      "ms": 53,
       "timedOut": false
     },
     "ovd684_backfill_object_finish.sql": {
@@ -833,7 +853,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 51,
+      "ms": 57,
       "timedOut": false
     },
     "ovd685_archived_job_delete_privileges.sql": {
@@ -843,7 +863,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 30,
+      "ms": 19,
       "timedOut": false
     },
     "private_part_fingerprint_analytics.sql": {
@@ -853,7 +873,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 56,
+      "ms": 44,
       "timedOut": false
     },
     "provider_dispatch_admission_serialization.sql": {
@@ -863,7 +883,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 1933,
+      "ms": 1753,
       "timedOut": false
     },
     "provider_dispatch_permits.sql": {
@@ -873,7 +893,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 516,
+      "ms": 458,
       "timedOut": false
     },
     "provider_dispatch_permits_concurrency.sql": {
@@ -883,7 +903,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 512,
+      "ms": 451,
       "timedOut": false
     },
     "provider_dispatch_preflight.sql": {
@@ -893,7 +913,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 619,
+      "ms": 590,
       "timedOut": false
     },
     "provider_dispatch_preflight_concurrency.sql": {
@@ -903,7 +923,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 3747,
+      "ms": 3790,
       "timedOut": false
     },
     "quote_lane_eligibility.sql": {
@@ -913,7 +933,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 168,
+      "ms": 171,
       "timedOut": false
     },
     "quote_provider_admission_registry.sql": {
@@ -923,7 +943,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 96,
+      "ms": 107,
       "timedOut": false
     },
     "quote_publication_helper_privileges.sql": {
@@ -933,7 +953,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 65,
+      "ms": 55,
       "timedOut": false
     },
     "quote_scope_and_validity.sql": {
@@ -943,7 +963,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 62,
+      "ms": 54,
       "timedOut": false
     },
     "quote_selection_expiry.sql": {
@@ -953,7 +973,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 96,
+      "ms": 85,
       "timedOut": false
     },
     "quote_selection_publication_contract.sql": {
@@ -963,7 +983,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 107,
+      "ms": 98,
       "timedOut": false
     },
     "sourcing_destination_members.sql": {
@@ -973,7 +993,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 53,
+      "ms": 84,
       "timedOut": false
     },
     "sourcing_intent.sql": {
@@ -983,7 +1003,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 80,
+      "ms": 69,
       "timedOut": false
     },
     "sourcing_intent_concurrency.sql": {
@@ -993,7 +1013,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 167,
+      "ms": 183,
       "timedOut": false
     },
     "stripe_event_sync.sql": {
@@ -1003,7 +1023,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 59,
+      "ms": 78,
       "timedOut": false
     },
     "stripe_event_sync_concurrency.sql": {
@@ -1012,8 +1032,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/src-main/supabase/tests/stripe_event_sync_concurrency.sql:19: ERROR:  OVD-235 concurrency tests require the disposable local test database",
-      "ms": 24,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/src-main/supabase/tests/stripe_event_sync_concurrency.sql:19: ERROR:  OVD-235 concurrency tests require the disposable local test database",
+      "ms": 20,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/main--stripe_event_sync_concurrency.sql.tap"
     },
@@ -1034,7 +1054,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 39,
+      "ms": 41,
       "timedOut": false
     },
     "worker_rpc_privileges.sql": {
@@ -1044,7 +1064,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 66,
+      "ms": 49,
       "timedOut": false
     },
     "xometry_beta_dispatch_admission_serialization.sql": {
@@ -1054,7 +1074,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 1872,
+      "ms": 1842,
       "timedOut": false
     },
     "xometry_beta_dispatch_permits.sql": {
@@ -1064,7 +1084,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 383,
+      "ms": 350,
       "timedOut": false
     },
     "xometry_beta_dispatch_permits_concurrency.sql": {
@@ -1074,7 +1094,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 169,
+      "ms": 172,
       "timedOut": false
     }
   },
@@ -1085,8 +1105,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/suites-ovd-462+ovd-723+ovd-722/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database",
-      "ms": 25,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723+ovd-722/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database",
+      "ms": 23,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--automatic_quote_rollout_concurrency.sql.tap"
     },
@@ -1097,7 +1117,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 30,
+      "ms": 27,
       "timedOut": false
     },
     "billing_sessions.sql": {
@@ -1107,7 +1127,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 61,
+      "ms": 56,
       "timedOut": false
     },
     "cad_preview_storage_policy.sql": {
@@ -1117,7 +1137,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 40,
+      "ms": 49,
       "timedOut": false
     },
     "canonical_part_identity.sql": {
@@ -1127,7 +1147,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 52,
+      "ms": 62,
       "timedOut": false
     },
     "capability_observation_ledger.sql": {
@@ -1137,7 +1157,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 60,
+      "ms": 58,
       "timedOut": false
     },
     "capability_observation_ledger_concurrency.sql": {
@@ -1150,7 +1170,7 @@
         "not ok 4 - conflicting replays both wait on the ordered lock        +"
       ],
       "error": "",
-      "ms": 6157,
+      "ms": 6167,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--capability_observation_ledger_concurrency.sql.tap"
     },
@@ -1161,7 +1181,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 61,
+      "ms": 78,
       "timedOut": false
     },
     "capability_preparation_persistence.sql": {
@@ -1171,7 +1191,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 498,
+      "ms": 454,
       "timedOut": false
     },
     "capability_runtime_persistence.sql": {
@@ -1181,7 +1201,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 4555,
+      "ms": 4552,
       "timedOut": false
     },
     "capability_runtime_persistence_concurrency.sql": {
@@ -1190,8 +1210,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/suites-ovd-462+ovd-723+ovd-722/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter \"ovd591.fixture_password_b64\"",
-      "ms": 23,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723+ovd-722/capability_runtime_persistence_concurrency.sql:71: ERROR:  unrecognized configuration parameter \"ovd591.fixture_password_b64\"",
+      "ms": 30,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--capability_runtime_persistence_concurrency.sql.tap"
     },
@@ -1202,7 +1222,17 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 59,
+      "ms": 47,
+      "timedOut": false
+    },
+    "client_rpc_least_privilege.sql": {
+      "rc": 0,
+      "planned": 67,
+      "ok": 67,
+      "notOk": 0,
+      "failures": [],
+      "error": "",
+      "ms": 164,
       "timedOut": false
     },
     "commercial_account_admin_api.sql": {
@@ -1212,7 +1242,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 120,
+      "ms": 110,
       "timedOut": false
     },
     "commercial_admin_security.sql": {
@@ -1222,7 +1252,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 61,
+      "ms": 66,
       "timedOut": false
     },
     "commercial_audit_uuid_scopes.sql": {
@@ -1232,7 +1262,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 71,
+      "ms": 78,
       "timedOut": false
     },
     "commercial_rollout_controls.sql": {
@@ -1242,7 +1272,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 34,
+      "ms": 36,
       "timedOut": false
     },
     "commercial_rollout_controls_concurrency.sql": {
@@ -1251,8 +1281,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/suites-ovd-462+ovd-723+ovd-722/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database",
-      "ms": 22,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723+ovd-722/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database",
+      "ms": 21,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--commercial_rollout_controls_concurrency.sql.tap"
     },
@@ -1263,7 +1293,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 52,
+      "ms": 46,
       "timedOut": false
     },
     "drawing_preview_storage_policy.sql": {
@@ -1273,7 +1303,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 55,
+      "ms": 41,
       "timedOut": false
     },
     "empty_file_upload_rejection.sql": {
@@ -1283,7 +1313,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 91,
+      "ms": 66,
       "timedOut": false
     },
     "engineering_inbox.sql": {
@@ -1293,7 +1323,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 94,
+      "ms": 69,
       "timedOut": false
     },
     "engineering_interpretation_reservations.sql": {
@@ -1303,7 +1333,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 274,
+      "ms": 235,
       "timedOut": false
     },
     "engineering_native_ownership.sql": {
@@ -1313,7 +1343,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 434,
+      "ms": 359,
       "timedOut": false
     },
     "engineering_ordered_changes.sql": {
@@ -1323,7 +1353,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 210,
+      "ms": 156,
       "timedOut": false
     },
     "engineering_worker_sessions.sql": {
@@ -1333,7 +1363,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 102,
+      "ms": 145,
       "timedOut": false
     },
     "extraction_quality_summary_security.sql": {
@@ -1343,7 +1373,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 45,
+      "ms": 52,
       "timedOut": false
     },
     "founding_beta_enrollment.sql": {
@@ -1353,7 +1383,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 56,
+      "ms": 59,
       "timedOut": false
     },
     "founding_beta_file_boundaries.sql": {
@@ -1363,7 +1393,17 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 585,
+      "ms": 587,
+      "timedOut": false
+    },
+    "founding_beta_subscription_bypass.sql": {
+      "rc": 0,
+      "planned": 74,
+      "ok": 74,
+      "notOk": 0,
+      "failures": [],
+      "error": "",
+      "ms": 208,
       "timedOut": false
     },
     "free_confirmed_quote_access.sql": {
@@ -1373,7 +1413,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 15122,
+      "ms": 15128,
       "timedOut": false
     },
     "free_quote_job_meter.sql": {
@@ -1383,7 +1423,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 539,
+      "ms": 554,
       "timedOut": false
     },
     "free_quote_terminal_lifecycle.sql": {
@@ -1393,7 +1433,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 446,
+      "ms": 451,
       "timedOut": false
     },
     "job_service_detail_privileges.sql": {
@@ -1403,7 +1443,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 92,
+      "ms": 134,
       "timedOut": false
     },
     "manual_quote_admin_inbox.sql": {
@@ -1415,7 +1455,7 @@
         "not ok 63 - a registered evidence delete attempt is rejected        +"
       ],
       "error": "",
-      "ms": 136,
+      "ms": 161,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--manual_quote_admin_inbox.sql.tap"
     },
@@ -1426,7 +1466,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 29,
+      "ms": 42,
       "timedOut": false
     },
     "mobile_auth_bridge.sql": {
@@ -1436,7 +1476,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 96,
+      "ms": 70,
       "timedOut": false
     },
     "organization_entitlements.sql": {
@@ -1446,7 +1486,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 89,
+      "ms": 82,
       "timedOut": false
     },
     "organization_entitlements_concurrency.sql": {
@@ -1455,8 +1495,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/suites-ovd-462+ovd-723+ovd-722/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database",
-      "ms": 29,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723+ovd-722/organization_entitlements_concurrency.sql:72: ERROR:  OVD-229 concurrency tests require a freshly reset disposable local database",
+      "ms": 20,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--organization_entitlements_concurrency.sql.tap"
     },
@@ -1467,7 +1507,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 48,
+      "ms": 42,
       "timedOut": false
     },
     "ovd536_audit_writer_privileges.sql": {
@@ -1477,7 +1517,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 67,
+      "ms": 54,
       "timedOut": false
     },
     "ovd537_internal_reader_privileges.sql": {
@@ -1487,7 +1527,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 170,
+      "ms": 133,
       "timedOut": false
     },
     "ovd538_platform_spend_summary.sql": {
@@ -1497,7 +1537,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 55,
+      "ms": 38,
       "timedOut": false
     },
     "ovd539_quote_status_helper_privileges.sql": {
@@ -1507,7 +1547,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 107,
+      "ms": 66,
       "timedOut": false
     },
     "ovd631_archived_job_delete_canonical_blob_constraint.sql": {
@@ -1517,7 +1557,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 59,
+      "ms": 64,
       "timedOut": false
     },
     "ovd684_backfill_object_finish.sql": {
@@ -1527,7 +1567,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 43,
+      "ms": 52,
       "timedOut": false
     },
     "ovd685_archived_job_delete_privileges.sql": {
@@ -1537,7 +1577,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 22,
+      "ms": 27,
       "timedOut": false
     },
     "private_part_fingerprint_analytics.sql": {
@@ -1547,7 +1587,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 43,
+      "ms": 58,
       "timedOut": false
     },
     "provider_dispatch_admission_serialization.sql": {
@@ -1557,7 +1597,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 1842,
+      "ms": 1812,
       "timedOut": false
     },
     "provider_dispatch_permits.sql": {
@@ -1567,7 +1607,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 491,
+      "ms": 468,
       "timedOut": false
     },
     "provider_dispatch_permits_concurrency.sql": {
@@ -1577,7 +1617,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 516,
+      "ms": 509,
       "timedOut": false
     },
     "provider_dispatch_preflight.sql": {
@@ -1587,7 +1627,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 552,
+      "ms": 522,
       "timedOut": false
     },
     "provider_dispatch_preflight_concurrency.sql": {
@@ -1597,7 +1637,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 3782,
+      "ms": 3807,
       "timedOut": false
     },
     "quote_lane_eligibility.sql": {
@@ -1607,7 +1647,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 138,
+      "ms": 165,
       "timedOut": false
     },
     "quote_provider_admission_registry.sql": {
@@ -1617,7 +1657,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 93,
+      "ms": 96,
       "timedOut": false
     },
     "quote_publication_helper_privileges.sql": {
@@ -1627,7 +1667,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 47,
+      "ms": 58,
       "timedOut": false
     },
     "quote_scope_and_validity.sql": {
@@ -1637,7 +1677,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 44,
+      "ms": 59,
       "timedOut": false
     },
     "quote_selection_expiry.sql": {
@@ -1647,7 +1687,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 79,
+      "ms": 77,
       "timedOut": false
     },
     "quote_selection_publication_contract.sql": {
@@ -1657,7 +1697,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 114,
+      "ms": 102,
       "timedOut": false
     },
     "sourcing_destination_members.sql": {
@@ -1667,7 +1707,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 77,
+      "ms": 64,
       "timedOut": false
     },
     "sourcing_intent.sql": {
@@ -1677,7 +1717,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 69,
+      "ms": 73,
       "timedOut": false
     },
     "sourcing_intent_concurrency.sql": {
@@ -1687,7 +1727,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 190,
+      "ms": 181,
       "timedOut": false
     },
     "stripe_event_sync.sql": {
@@ -1697,7 +1737,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 94,
+      "ms": 84,
       "timedOut": false
     },
     "stripe_event_sync_concurrency.sql": {
@@ -1706,8 +1746,8 @@
       "ok": 0,
       "notOk": 0,
       "failures": [],
-      "error": "psql:/tmp/ovd635-window1-US7SYk/suites-ovd-462+ovd-723+ovd-722/stripe_event_sync_concurrency.sql:19: ERROR:  OVD-235 concurrency tests require the disposable local test database",
-      "ms": 22,
+      "error": "psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723+ovd-722/stripe_event_sync_concurrency.sql:19: ERROR:  OVD-235 concurrency tests require the disposable local test database",
+      "ms": 20,
       "timedOut": false,
       "log": "docs/release/window-1/rehearsal/recommended/evidence/after-ovd-722--stripe_event_sync_concurrency.sql.tap"
     },
@@ -1718,7 +1758,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 35,
+      "ms": 41,
       "timedOut": false
     },
     "vendor_quote_offer_geographic_origin.sql": {
@@ -1728,7 +1768,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 27,
+      "ms": 32,
       "timedOut": false
     },
     "worker_rpc_privileges.sql": {
@@ -1738,7 +1778,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 52,
+      "ms": 57,
       "timedOut": false
     },
     "xometry_beta_dispatch_admission_serialization.sql": {
@@ -1748,7 +1788,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 1849,
+      "ms": 1804,
       "timedOut": false
     },
     "xometry_beta_dispatch_permits.sql": {
@@ -1758,7 +1798,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 296,
+      "ms": 301,
       "timedOut": false
     },
     "xometry_beta_dispatch_permits_concurrency.sql": {
@@ -1768,7 +1808,7 @@
       "notOk": 0,
       "failures": [],
       "error": "",
-      "ms": 176,
+      "ms": 225,
       "timedOut": false
     }
   },
@@ -1804,102 +1844,102 @@
     "+relations:private.job_export_marking_blocks",
     "+relations:private.job_file_export_scans"
   ],
-  "finishedAt": "2026-10-12T13:22:15.107Z",
-  "totalMs": 334110,
+  "finishedAt": "2026-10-12T14:04:01.541Z",
+  "totalMs": 313329,
   "steps": [
     {
       "name": "cluster: initdb and start (socket only)",
-      "ms": 934,
+      "ms": 717,
       "ok": true
     },
     {
       "name": "platform shim",
-      "ms": 51,
+      "ms": 48,
       "ok": true
     },
     {
       "name": "main migrations (148)",
-      "ms": 2814,
+      "ms": 3307,
       "ok": true
     },
     {
       "name": "ovd602: inventory of main",
-      "ms": 42,
+      "ms": 34,
       "ok": true
     },
     {
-      "name": "pgTAP: main suites on main (68)",
-      "ms": 81945,
+      "name": "pgTAP: main suites on main (70)",
+      "ms": 75765,
       "ok": true
     },
     {
       "name": "apply: apply ovd-462",
-      "ms": 24,
+      "ms": 32,
       "ok": true
     },
     {
       "name": "apply-own: pgTAP ovd-462 supabase/tests/provider_session_leases.sql [window]",
-      "ms": 771,
+      "ms": 527,
       "ok": true
     },
     {
       "name": "pgTAP: main suites after ovd-462",
-      "ms": 80730,
+      "ms": 74305,
       "ok": true
     },
     {
       "name": "apply: apply ovd-723",
-      "ms": 45,
+      "ms": 58,
       "ok": true
     },
     {
       "name": "apply-own: pgTAP ovd-723 supabase/tests/pending/ovd723_export_control_upload_block.sql.pending [window]",
-      "ms": 835,
+      "ms": 756,
       "ok": true
     },
     {
       "name": "pgTAP: main suites after ovd-723",
-      "ms": 77111,
+      "ms": 76353,
       "ok": true
     },
     {
       "name": "apply: apply ovd-722",
-      "ms": 39,
+      "ms": 31,
       "ok": true
     },
     {
       "name": "apply-own: pgTAP ovd-722 supabase/tests/pending/ovd722_provider_kill_switch.sql.pending [window]",
-      "ms": 785,
+      "ms": 680,
       "ok": true
     },
     {
       "name": "pgTAP: main suites after ovd-722",
-      "ms": 73732,
+      "ms": 69753,
       "ok": true
     },
     {
       "name": "apply-composed: pgTAP ovd-462 supabase/tests/provider_session_leases.sql [window]",
-      "ms": 822,
+      "ms": 486,
       "ok": true
     },
     {
       "name": "apply-composed: pgTAP ovd-723 supabase/tests/pending/ovd723_export_control_upload_block.sql.pending [window]",
-      "ms": 853,
+      "ms": 701,
       "ok": true
     },
     {
       "name": "apply-composed: pgTAP ovd-722 supabase/tests/pending/ovd722_provider_kill_switch.sql.pending [window]",
-      "ms": 909,
+      "ms": 585,
       "ok": true
     },
     {
       "name": "rollback guard race ovd-462",
-      "ms": 3626,
+      "ms": 3449,
       "ok": true
     },
     {
       "name": "rollback ovd-722",
-      "ms": 29,
+      "ms": 33,
       "ok": true
     },
     {
@@ -1914,52 +1954,52 @@
     },
     {
       "name": "reapply: apply ovd-462",
-      "ms": 25,
+      "ms": 34,
       "ok": true
     },
     {
       "name": "reapply-own: pgTAP ovd-462 supabase/tests/provider_session_leases.sql [window]",
-      "ms": 1465,
+      "ms": 553,
       "ok": true
     },
     {
       "name": "reapply: apply ovd-723",
-      "ms": 41,
+      "ms": 38,
       "ok": true
     },
     {
       "name": "reapply-own: pgTAP ovd-723 supabase/tests/pending/ovd723_export_control_upload_block.sql.pending [window]",
-      "ms": 932,
+      "ms": 573,
       "ok": true
     },
     {
       "name": "reapply: apply ovd-722",
-      "ms": 31,
+      "ms": 25,
       "ok": true
     },
     {
       "name": "reapply-own: pgTAP ovd-722 supabase/tests/pending/ovd722_provider_kill_switch.sql.pending [window]",
-      "ms": 826,
+      "ms": 610,
       "ok": true
     },
     {
       "name": "reapply-composed: pgTAP ovd-462 supabase/tests/provider_session_leases.sql [window]",
-      "ms": 711,
+      "ms": 657,
       "ok": true
     },
     {
       "name": "reapply-composed: pgTAP ovd-723 supabase/tests/pending/ovd723_export_control_upload_block.sql.pending [window]",
-      "ms": 832,
+      "ms": 629,
       "ok": true
     },
     {
       "name": "reapply-composed: pgTAP ovd-722 supabase/tests/pending/ovd722_provider_kill_switch.sql.pending [window]",
-      "ms": 734,
+      "ms": 618,
       "ok": true
     },
     {
       "name": "cleanup: stop cluster and remove work dir",
-      "ms": 678,
+      "ms": 715,
       "ok": true
     }
   ],
@@ -1982,7 +2022,7 @@
     {
       "name": "apply: ovd-462 applies",
       "pass": true,
-      "detail": "24 ms"
+      "detail": "31 ms"
     },
     {
       "name": "apply-own: ovd-462 pgTAP window",
@@ -1997,7 +2037,7 @@
     {
       "name": "apply: ovd-723 applies",
       "pass": true,
-      "detail": "44 ms"
+      "detail": "58 ms"
     },
     {
       "name": "apply-own: ovd-723 pgTAP window",
@@ -2012,7 +2052,7 @@
     {
       "name": "apply: ovd-722 applies",
       "pass": true,
-      "detail": "39 ms"
+      "detail": "31 ms"
     },
     {
       "name": "apply-own: ovd-722 pgTAP window",
@@ -2067,12 +2107,12 @@
     {
       "name": "ovd-462: rollback waits for a concurrent writer and then refuses",
       "pass": true,
-      "detail": "rollback 2897 ms, ERROR:  OVD-462 rollback refused: provider_session_leases has active or blocked occupants, verify=true:1"
+      "detail": "rollback 3002 ms, ERROR:  OVD-462 rollback refused: provider_session_leases has active or blocked occupants, verify=true:1"
     },
     {
       "name": "rollback ovd-722 runs",
       "pass": true,
-      "detail": "29 ms"
+      "detail": "33 ms"
     },
     {
       "name": "rollback ovd-722 restores the prior inventory (except declared residuals)",
@@ -2102,7 +2142,7 @@
     {
       "name": "reapply: ovd-462 applies",
       "pass": true,
-      "detail": "25 ms"
+      "detail": "34 ms"
     },
     {
       "name": "reapply-own: ovd-462 pgTAP window",
@@ -2112,7 +2152,7 @@
     {
       "name": "reapply: ovd-723 applies",
       "pass": true,
-      "detail": "41 ms"
+      "detail": "38 ms"
     },
     {
       "name": "reapply-own: ovd-723 pgTAP window",
@@ -2122,7 +2162,7 @@
     {
       "name": "reapply: ovd-722 applies",
       "pass": true,
-      "detail": "30 ms"
+      "detail": "25 ms"
     },
     {
       "name": "reapply-own: ovd-722 pgTAP window",

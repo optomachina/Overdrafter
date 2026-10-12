@@ -17,20 +17,20 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `cc9a5fe8` (its `supabase/migrations` tree is identical to the current `main` `0c089ad2`, which only adds the pgTAP suites `client_rpc_least_privilege` and `founding_beta_subscription_bypass`), #675 `42d5cc61`, #677 `161329de` (723 EXPAND, a placeholder: #677 round 4 may change `ovd-723.sql`, and the packet will be repinned once more), #676 `a8e0bfd7` (722 expand only; its SQL is final). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `e254d032` (its `supabase/migrations` tree is identical to `cc9a5fe8`; since then `main` only added the pgTAP suites `client_rpc_least_privilege` and `founding_beta_subscription_bypass`, which now run in every main suite gate), #675 `42d5cc61`, #677 `161329de` (723 EXPAND, a placeholder: #677 round 4 may change `ovd-723.sql`, and the packet will be repinned once more), #676 `8c3fc133` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 153 s |
-| `recommended/` | 462, 723, 722 | **PASS, every gate** | 334 s |
+| `ovd-462-only/` | 462 | **PASS, every gate** | 152 s |
+| `recommended/` | 462, 723, 722 | **PASS, every gate** | 313 s |
 
 Per migration (recommended run; first apply / reapply):
 
 | | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 24/25 ms | 128/128 | 128/128 | ok 21 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
-| OVD-723 EXPAND | ok, 44/41 ms | 128/128 | 128/128 | ok 20 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 128/128 |
-| OVD-722 (expand only) | ok, 39/30 ms | 66/66 | 66/66 | ok 29 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
+| OVD-462 | ok, 31/34 ms | 128/128 | 128/128 | ok 21 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
+| OVD-723 EXPAND | ok, 58/38 ms | 128/128 | 128/128 | ok 20 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 128/128 |
+| OVD-722 (expand only) | ok, 31/25 ms | 66/66 | 66/66 | ok 33 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
 
 Main suites: none regresses, gated both per step (against the suites' results just before that migration) and cumulatively. A main suite that a PR edits lands with its migration, so after each migration the runner uses that PR's version: #675 adds `provider_session_leases.sql`, #677 edits 6 suites (`job_service_detail_privileges` joined at `161329de`) (`free_confirmed_quote_access` is now the window 2 contract's seed patch), #676 edits none.
 
