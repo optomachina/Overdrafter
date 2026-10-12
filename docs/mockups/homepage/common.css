@@ -1,0 +1,65 @@
+/* Shared tokens — mirrors docs/DESIGN.md. No gradients, no shadows, radius <= 4. */
+:root {
+  --bg: #F2EFE8; --surface: #FBF9F4; --surface-2: #E7E0D4; --text: #1C1B19;
+  --muted: #6B665C; --hairline: #D8D2C4; --accent-red: #C2410C; --ink-data: #1F2E3A;
+  /* four face tones for the machine */
+  --t-top: #FBF9F4; --t-left: #E7E0D4; --t-right: #CFC7B6; --t-dark: #1F2E3A;
+  --display: "Barlow Condensed", "Archivo Narrow", "Arial Narrow", sans-serif;
+  --mono-display: "Space Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --body: "IBM Plex Sans", Georgia, serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 400 14px/1.5 var(--body);
+  font-variant-numeric: tabular-nums lining-nums; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+.mono { font-family: var(--mono); }
+.micro { font: 500 11px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.strip { height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 0 24px; border-bottom: 1px solid var(--hairline); font: 500 11px var(--mono);
+  letter-spacing: .1em; text-transform: uppercase; }
+.strip nav { display: flex; gap: 24px; color: var(--muted); }
+.strip nav a { text-decoration: none; }
+.strip nav a:hover { background: var(--surface-2); }
+.brand { font: 700 18px var(--display); letter-spacing: .02em; color: var(--text); }
+.btn { display: inline-block; font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent-red); border: 1px solid var(--accent-red); background: transparent;
+  padding: 12px 16px; border-radius: 2px; text-decoration: none; cursor: pointer; }
+.btn:hover { background: var(--surface-2); }
+.btn.plain { color: var(--text); border-color: var(--hairline); }
+.h-display { font: 700 28px/1.1 var(--display); letter-spacing: -.005em; text-transform: uppercase; }
+.cell { border: 1px solid var(--hairline); background: var(--surface); position: relative; padding: 28px 16px 14px; }
+.cell > .micro { position: absolute; top: 8px; left: 12px; font-size: 10px; }
+.val { font: 400 13px var(--mono); }
+table { border-collapse: collapse; width: 100%; font: 400 12px var(--mono); }
+th { text-align: left; font: 500 10px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); padding: 10px 16px; border-bottom: 1px solid var(--hairline); }
+td { padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
+td.r, th.r { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr.sel td:first-child { color: var(--accent-red); }
+tbody tr.sel { background: var(--surface); }
+:focus-visible { outline: 1px solid var(--accent-red); outline-offset: 2px; }
+
+/* machine */
+.machine { display: block; width: 100%; height: auto; }
+.machine .face-top { fill: var(--t-top); } .machine .face-l { fill: var(--t-left); }
+.machine .face-r { fill: var(--t-right); } .machine .face-d { fill: var(--t-dark); }
+.machine .face-red { fill: var(--accent-red); }
+.machine polygon, .machine ellipse, .machine rect, .machine path { stroke: var(--text); stroke-width: .9; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.machine .grid { fill: none; stroke: var(--hairline); stroke-width: 1; }
+.machine .beam { fill: none; stroke: var(--ink-data); stroke-width: 1; stroke-dasharray: 3 3; }
+.machine .dot { cursor: pointer; }
+.machine .dot ellipse { fill: var(--t-top); }
+.machine .dot.sel ellipse { fill: var(--accent-red); }
+.machine .dot:focus-visible { outline: none; }
+.machine .dot:focus-visible ellipse.top { stroke: var(--accent-red); stroke-width: 2; }
+.machine .dot ellipse.hit { fill: transparent; stroke: none; }
+@media (prefers-reduced-motion: reduce) { .machine * { animation: none !important; } }
+.readout { font: 400 12px var(--mono); border: 1px solid var(--hairline); background: var(--surface); }
+.readout div { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--hairline); }
+.readout div:last-child { border-bottom: 0; }
+.readout b { font-weight: 400; color: var(--muted); letter-spacing: .1em; font-size: 10px; text-transform: uppercase; }
+.readout .sel-v { color: var(--accent-red); }
+@media (max-width: 860px) { .strip nav { display: none; } }

@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Homepage B: Cockpit</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+.wrap{display:grid;grid-template-columns:220px minmax(0,1fr) 240px;min-height:calc(100vh - 44px)}
+.rail{padding:16px;border-right:1px solid var(--hairline);display:flex;flex-direction:column;gap:8px}
+.rail.r{border-right:0;border-left:1px solid var(--hairline)}
+.rail a{display:flex;justify-content:space-between;padding:8px;font:400 12px var(--mono);text-decoration:none;border:1px solid transparent}
+.rail a:hover{background:var(--surface-2)}.rail a.on{color:var(--accent-red);border-color:var(--hairline);background:var(--surface)}
+.mid{padding:24px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.file{font:700 clamp(32px,4.4vw,48px)/1 var(--display);text-transform:uppercase;letter-spacing:-.01em}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr)}.grid3 .cell{margin:0 -1px -1px 0}
+.fig{border:1px solid var(--hairline);background:var(--surface);padding:12px;position:relative}
+.fig .micro{position:absolute;top:8px;left:12px}
+.dec{font:400 12px var(--mono);display:flex;flex-direction:column;gap:12px}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}.rail{border:0;border-bottom:1px solid var(--hairline)}.rail.r{border:0;border-top:1px solid var(--hairline)}.grid3{grid-template-columns:1fr}}
+</style></head><body>
+<header class="strip"><span><span class="brand">OVERDRAFTER</span> &nbsp; / HOME</span><span style="color:var(--muted)">Invited beta · Sample workspace</span><a class="btn" href="#">Sign in</a></header>
+<div class="wrap">
+ <aside class="rail"><span class="micro">Parts</span>
+  <a class="on" href="#">BRACKET-A07 <span>$124</span></a><a href="#">HINGE-PLATE-02 <span>$38</span></a><a href="#">SHAFT-COLLAR <span>$21</span></a><a href="#">MOUNT-RH-4 <span>$87</span></a>
+  <span class="micro" style="margin-top:16px">Status</span><span class="val">READY · 1<br>QUEUE · 2<br>REVIEW · 1</span></aside>
+ <main class="mid">
+  <span class="micro">Home / Sample part</span>
+  <h1 class="file">BRACKET-A07.STEP</h1>
+  <div class="grid3"><div class="cell"><span class="micro">Material</span><span class="val">6061-T6 AL</span></div><div class="cell"><span class="micro">Tolerance</span><span class="val">±0.005 IN</span></div><div class="cell"><span class="micro">Finish</span><span class="val">ANODIZE II</span></div>
+  <div class="cell"><span class="micro">Quantity</span><span class="val">25</span></div><div class="cell"><span class="micro">Lead target</span><span class="val">≤ 10 DAYS</span></div><div class="cell"><span class="micro">Certs</span><span class="val">NONE</span></div></div>
+  <div class="fig"><span class="micro">Fig. 1 — Quote press · sample data</span><div id="m"></div></div>
+  <div class="fig" style="padding:0"><table id="offers"><thead><tr><th>Supplier</th><th class="r">Working days</th><th class="r">Total</th><th>Origin</th></tr></thead><tbody></tbody></table></div>
+ </main>
+ <aside class="rail r"><span class="micro">Decision ledger</span>
+  <div class="readout"><div><b>Supplier</b><span class="sel-v" data-r="v"></span></div><div><b>Lead</b><span data-r="d"></span></div><div><b>Total</b><span data-r="p"></span></div><div><b>Origin</b><span data-r="o"></span></div></div>
+  <div class="dec" style="margin-top:16px"><span class="micro">What this is</span><span style="font-family:var(--body);font-size:14px">The product, running. Every number on this page is sample data. Upload a STEP file to replace it with yours.</span><a class="btn" href="#">Upload a STEP file</a></div>
+ </aside>
+</div>
+<script src="machine.js"></script><script>
+const m=OverdrafterMachine(document.getElementById("m"));
+const tb=document.querySelector("#offers tbody");
+m.offers.slice().sort((a,b)=>a.price-b.price).forEach(o=>{const tr=document.createElement("tr");tr.dataset.id=o.id;
+tr.innerHTML=`<td>${o.vendor}</td><td class="r">${o.days}</td><td class="r">$${o.price}</td><td>${o.origin==="UNKNOWN"?"Unknown":o.origin}</td>`;
+tr.onclick=()=>m.select(o.id);tb.appendChild(tr);});
+m.onSelect(o=>{document.querySelectorAll("#offers tr").forEach(r=>r.classList.toggle("sel",r.dataset.id==o.id));
+document.querySelectorAll("[data-r]").forEach(e=>{e.textContent={v:o.vendor,d:o.days+" DAYS",p:"$"+o.price,o:o.origin==="UNKNOWN"?"Unknown":o.origin}[e.dataset.r]});});
+</script></body></html>

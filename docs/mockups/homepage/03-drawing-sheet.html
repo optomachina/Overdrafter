@@ -1,0 +1,51 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Homepage C: Drawing Sheet</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+body{padding:16px}
+.sheet{border:2px solid var(--text);min-height:calc(100vh - 32px);display:grid;grid-template-rows:auto 1fr auto;background:var(--bg)}
+.top{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--text)}
+.body{display:grid;grid-template-columns:minmax(0,1fr) 300px}
+.draw{padding:24px 16px 16px;border-right:1px solid var(--text);position:relative}
+.draw h1{font:700 clamp(40px,6vw,72px)/.95 var(--display);text-transform:uppercase;letter-spacing:-.01em;max-width:14ch}
+.draw p{max-width:52ch;margin:16px 0;font-size:16px}.draw #m{max-width:640px;margin-left:auto}
+.notes{display:flex;flex-direction:column}
+.notes>div{padding:16px;border-bottom:1px solid var(--hairline)}
+.notes ol{padding-left:0;list-style:none;font:400 12px var(--mono);display:flex;flex-direction:column;gap:12px;margin-top:8px}
+.notes li b{color:var(--accent-red);font-weight:500;margin-right:8px}
+.tb{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;border-top:1px solid var(--text)}
+.tb div{padding:8px 12px;border-right:1px solid var(--hairline)}.tb div:last-child{border-right:0}
+.tb .v{font:400 13px var(--mono);margin-top:2px}
+.tbl{border-top:1px solid var(--text)}
+@media(max-width:900px){.body{grid-template-columns:1fr}.draw{border-right:0;border-bottom:1px solid var(--text)}.tb{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<div class="sheet">
+ <div class="top"><span class="brand">OVERDRAFTER</span><span class="micro">Sheet 1 of 1 · Rev A · Invited beta</span><a class="btn" href="#">Sign in</a></div>
+ <div class="body">
+  <div class="draw"><span class="micro">View A — Isometric · Not to scale</span>
+   <h1>From STEP file to quote decision.</h1>
+   <p>OverDrafter reads a CAD package, requests offers, and shows each response as one fixed point. Choose from the chart or the table; both follow the same selection.</p>
+   <div id="m"></div>
+  </div>
+  <aside class="notes">
+   <div><span class="micro">General notes</span><ol>
+    <li><b>1</b>Part enters on the conveyor. STEP is the artifact.</li>
+    <li><b>2</b>Gantry reads geometry and stated requirements.</li>
+    <li><b>3</b>Supplier cassettes return independent offers.</li>
+    <li><b>4</b>Plate: X working days, Y quoted total. No lines.</li>
+    <li><b>5</b>One selection. Chart and table agree.</li></ol></div>
+   <div><span class="micro">Selected offer</span><div class="readout" style="margin-top:8px"><div><b>Supplier</b><span class="sel-v" data-r="v"></span></div><div><b>Lead</b><span data-r="d"></span></div><div><b>Total</b><span data-r="p"></span></div><div><b>Origin</b><span data-r="o"></span></div></div></div>
+   <div style="border:0"><a class="btn" href="#">Upload a STEP file</a></div>
+  </aside>
+ </div>
+ <div><div class="tbl"><table id="offers"><thead><tr><th>Supplier</th><th class="r">Working days</th><th class="r">Total</th><th>Origin</th></tr></thead><tbody></tbody></table></div>
+ <div class="tb micro"><div>Title<div class="v" style="color:var(--text)">QUOTE PRESS — SAMPLE DATA</div></div><div>Drawn<div class="v">OVD</div></div><div>Scale<div class="v">1:1</div></div><div>Rev<div class="v">A</div></div><div>Sheet<div class="v">1/1</div></div></div></div>
+</div>
+<script src="machine.js"></script><script>
+const m=OverdrafterMachine(document.getElementById("m"));
+const tb=document.querySelector("#offers tbody");
+m.offers.slice().sort((a,b)=>a.price-b.price).forEach(o=>{const tr=document.createElement("tr");tr.dataset.id=o.id;
+tr.innerHTML=`<td>${o.vendor}</td><td class="r">${o.days}</td><td class="r">$${o.price}</td><td>${o.origin==="UNKNOWN"?"Unknown":o.origin}</td>`;
+tr.onclick=()=>m.select(o.id);tb.appendChild(tr);});
+m.onSelect(o=>{document.querySelectorAll("#offers tr").forEach(r=>r.classList.toggle("sel",r.dataset.id==o.id));
+document.querySelectorAll("[data-r]").forEach(e=>{e.textContent={v:o.vendor,d:o.days+" DAYS",p:"$"+o.price,o:o.origin==="UNKNOWN"?"Unknown":o.origin}[e.dataset.r]});});
+</script></body></html>

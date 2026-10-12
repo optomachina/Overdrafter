@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Homepage A: Title Block</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+.hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);border-bottom:1px solid var(--hairline)}
+.copy{padding:48px 32px 32px 24px;border-right:1px solid var(--hairline);display:flex;flex-direction:column;gap:24px}
+.file{font:700 clamp(36px,4.4vw,48px)/1 var(--mono-display);letter-spacing:-.01em;word-break:break-all}
+.sub{font:700 clamp(30px,3.4vw,44px)/1 var(--display);text-transform:uppercase}
+.copy p{max-width:44ch;font-size:16px}
+.cta{display:flex;gap:16px;flex-wrap:wrap}
+.fig{padding:16px 24px;position:relative}.fig .micro{position:absolute;left:24px;bottom:12px}.fig{padding-bottom:40px}
+.fig .readout{position:absolute;right:24px;top:16px;min-width:240px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr)}
+.steps div{padding:24px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.steps div:last-child{border-right:0}.steps h3{font:700 18px var(--display);text-transform:uppercase;margin:8px 0}
+.table{padding:32px 24px;display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:32px}
+footer{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;border-top:1px solid var(--hairline)}
+footer div{padding:12px 16px;border-right:1px solid var(--hairline)}footer div:last-child{border-right:0}
+@media(max-width:860px){.hero,.table{grid-template-columns:1fr}.copy{border-right:0}.steps{grid-template-columns:1fr}.fig .readout{position:static;margin-top:12px}.fig .micro{display:none}footer{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<header class="strip"><span class="brand">OVERDRAFTER</span><nav><a href="#how">How it works</a><a href="#offers">Sample quote</a><a href="#">Docs</a></nav><a class="btn" href="#">Sign in</a></header>
+<section class="hero">
+ <div class="copy">
+  <span class="micro">Quote intelligence · Invited beta</span>
+  <div class="file">BRACKET-A07.STEP</div>
+  <h1 class="sub">Your part is the subject.<br>The quote is the decision.</h1>
+  <p>Upload a supported CAD package. OverDrafter reads it, requests offers, and lays every response out as a point on one price-versus-lead-time plate. Select one. The table agrees with the chart.</p>
+  <div class="cta"><a class="btn" href="#">Upload a STEP file</a><a class="btn plain" href="#how">See the mechanism</a></div>
+ </div>
+ <div class="fig"><div id="m"></div>
+  <span class="micro">Fig. 1 — Quote press · sample data</span>
+  <div class="readout"><div><b>Supplier</b><span class="sel-v" data-r="v"></span></div><div><b>Lead</b><span data-r="d"></span></div><div><b>Total</b><span data-r="p"></span></div><div><b>Origin</b><span data-r="o"></span></div></div>
+ </div>
+</section>
+<section class="steps" id="how">
+ <div><span class="micro">01 · Conveyor</span><h3>Upload</h3><p>STEP in, drawing PDF optional. Filenames stay the largest type on the page.</p></div>
+ <div><span class="micro">02 · Gantry</span><h3>Read</h3><p>Geometry and stated requirements are extracted once and shown inline for edit.</p></div>
+ <div><span class="micro">03 · Plate</span><h3>Decide</h3><p>Independent dots. X is working days, Y is quoted total. No curves, no trend line.</p></div>
+</section>
+<section class="table"><div><h2 class="h-display">Offers, sortable</h2><p class="micro" style="margin-top:8px">Hover a dot or a row. One selection state.</p></div><table id="offers"><thead><tr><th>Supplier</th><th class="r">Working days</th><th class="r">Total</th><th>Origin</th></tr></thead><tbody></tbody></table></section>
+<footer class="micro"><div>OverDrafter · Drawing HP-01 · Rev A</div><div>Scale 1:1</div><div>Sheet 1 of 1</div><div>Sample data</div></footer>
+<script src="machine.js"></script><script>
+const m=OverdrafterMachine(document.getElementById("m"));
+const tb=document.querySelector("#offers tbody");
+m.offers.slice().sort((a,b)=>a.price-b.price).forEach(o=>{const tr=document.createElement("tr");tr.dataset.id=o.id;
+tr.innerHTML=`<td>${o.vendor}</td><td class="r">${o.days}</td><td class="r">$${o.price}</td><td>${o.origin==="UNKNOWN"?"Unknown":o.origin}</td>`;
+tr.onclick=()=>m.select(o.id);tb.appendChild(tr);});
+m.onSelect(o=>{document.querySelectorAll("#offers tr").forEach(r=>r.classList.toggle("sel",r.dataset.id==o.id));
+document.querySelectorAll("[data-r]").forEach(e=>{e.textContent={v:o.vendor,d:o.days+" DAYS",p:"$"+o.price,o:o.origin==="UNKNOWN"?"Unknown":o.origin}[e.dataset.r]});});
+</script></body></html>
