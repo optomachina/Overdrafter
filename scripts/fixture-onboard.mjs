@@ -3,6 +3,8 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import ts from "typescript";
+
 import { scaffoldProvider } from "./provider-add.mjs";
 import {
   PROVIDER_MANIFEST_FILE,
@@ -223,8 +225,79 @@ async function assertNoSymlinkedAncestor(rootDir, relativePath) {
   }
 }
 
+const TS_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts"]);
+
+function visiblePlainLines(contents) {
+  const withoutHtmlComments = String(contents).replace(/<!--[\s\S]*?-->/g, "");
+  const lines = [];
+  let inFence = false;
+  for (const line of withoutHtmlComments.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) {
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+function markRange(skip, start, end) {
+  for (let index = start; index < end && index < skip.length; index += 1) {
+    skip[index] = true;
+  }
+}
+
+function typescriptVisibleLines(contents, filePath) {
+  const sourceFile = ts.createSourceFile(filePath, contents, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const skip = new Array(contents.length).fill(false);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, contents);
+  for (;;) {
+    const kind = scanner.scan();
+    if (kind === ts.SyntaxKind.EndOfFileToken) {
+      break;
+    }
+    if (
+      kind === ts.SyntaxKind.SingleLineCommentTrivia
+      || kind === ts.SyntaxKind.MultiLineCommentTrivia
+      || kind === ts.SyntaxKind.StringLiteral
+      || kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+    ) {
+      markRange(skip, scanner.getTokenPos(), scanner.getTokenEnd());
+    }
+  }
+  const visit = (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isRegularExpressionLiteral(node)) {
+      markRange(skip, node.getStart(sourceFile), node.end);
+    }
+    if (ts.isTemplateExpression(node)) {
+      markRange(skip, node.head.getStart(sourceFile), node.head.end);
+      for (const span of node.templateSpans) {
+        markRange(skip, span.literal.getStart(sourceFile), span.literal.end);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  const visible = [...contents].map((character, index) => (skip[index] ? " " : character)).join("");
+  return visible.split(/\r?\n/);
+}
+
+/** True only when the marker is an exact whole line outside comments, strings, and fences. */
+export function containsSessionSecretMarker(contents, marker, filePath = "") {
+  if (typeof contents !== "string" || typeof marker !== "string" || marker.length === 0) {
+    return false;
+  }
+  const extension = path.extname(filePath).toLowerCase();
+  const lines = TS_EXTENSIONS.has(extension)
+    ? typescriptVisibleLines(contents, filePath)
+    : visiblePlainLines(contents);
+  return lines.some((line) => line.trim() === marker);
+}
+
 /** Classifies each planned file without writing: create, append, unchanged, or kept (edited by a human). */
-async function classify(rootDir, file) {
+export async function classify(rootDir, file) {
   await assertNoSymlinkedAncestor(rootDir, file.path);
   const target = path.join(rootDir, file.path);
   let current;
@@ -239,7 +312,7 @@ async function classify(rootDir, file) {
     return file.append ? "append" : "create";
   }
   if (file.append) {
-    return current.includes(file.marker) ? "unchanged" : "append";
+    return containsSessionSecretMarker(current, file.marker, file.path) ? "unchanged" : "append";
   }
   return current === file.contents ? "unchanged" : "kept";
 }
