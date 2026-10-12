@@ -534,12 +534,15 @@ begin
   end if;
 
   -- OVD-722: kill switch first. Both the claimed snapshot vendor and the
-  -- stored result vendor are checked; either engaged denies.
+  -- stored result vendor are checked; either engaged denies. A snapshot with
+  -- no vendor (not an object, or no key) is malformed, not a provider: the
+  -- original preflight below denies it as scope_mismatch, still fail closed.
   select r.vendor::text into v_result_vendor
   from public.vendor_quote_results r
   where r.id = p_vendor_quote_result_id;
 
-  if private.provider_kill_switch_engaged_text(p_scope_snapshot ->> 'vendor')
+  if (p_scope_snapshot ->> 'vendor' is not null
+      and private.provider_kill_switch_engaged_text(p_scope_snapshot ->> 'vendor'))
     or (v_result_vendor is not null and private.provider_kill_switch_engaged_text(v_result_vendor)) then
     return private.provider_dispatch_authorization_denial('provider_kill_switch_engaged');
   end if;
