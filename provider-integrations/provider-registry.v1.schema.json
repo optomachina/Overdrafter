@@ -18,6 +18,13 @@
       "pattern": "^[a-z][a-z0-9]{1,49}$",
       "description": "Live adapter that must remain on the governed stable-NAT worker. Not a production-authorization flag."
     },
+    "oneDotZero": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9]{1,49}$" },
+      "description": "Reviewed list of provider keys in the 1.0 scope, sorted, each present in providers. The provider permissions lint derives its required 1.0 coverage from this list."
+    },
     "providers": {
       "type": "array",
       "minItems": 1,

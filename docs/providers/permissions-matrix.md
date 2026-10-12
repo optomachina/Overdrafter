@@ -36,6 +36,8 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 
 ## Provider rows
 
+Each row's `- replies: N` line must equal the length of that row's `replies` array in the JSON. A reply may only be logged once the row has moved past `draft_outreach_prepared` (for example to `replied`).
+
 ### xometry
 
 - displayName: Xometry
@@ -48,6 +50,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for xometry
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Xometry Customer Service Agreement §7.1.2](https://www.xometry.com/service-agreement/) — You shall not or permit any third party to: use any manual or automated software devices or other processes (including but not limited to spiders, robots, scrapers, crawlers, avatars, data mining tools or the like) to “scrape” or download data from any web pages contained in the Website.
+- replies: 0
 - notes: Legacy controlled-beta admission is not a matrix clearance. Partner API access is supplier/job-board scoped; ask only if useful.
 
 ### fictiv
@@ -62,6 +65,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for fictiv
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Fictiv Terms](https://www.fictiv.com/terms) — You will not or permit any third party to: ... develop or use any applications that interact with our Services without our prior written consent.
+- replies: 0
 - notes: Stays false until written permission is recorded.
 
 ### quickparts
@@ -76,6 +80,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for quickparts
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Quickparts Website Terms of Use](https://quickparts.com/terms-conditions/) — none of the material may be copied, reproduced, distributed, republished, downloaded ... without the prior written permission of Quickparts. No express automation clause.
+- replies: 0
 - notes: Outreach is optional but useful.
 
 ### weerg
@@ -90,6 +95,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for weerg
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Weerg General Terms of Use and Delivery](https://www.weerg.com/faq/general-terms-and-conditions-for-the-purchase-of-services-and-supplies-supplier) — no published robots, scraper, or partner-API clause.
+- replies: 0
 - notes: Ask for partner API access and written permission.
 
 ### geomiq
@@ -104,6 +110,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for geomiq
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Geomiq User Terms](https://geomiq.com/user-terms-conditions/) — Users must not introduce harmful software or misuse the platform. No grant of customer automation rights.
+- replies: 0
 - notes: Ask for partner API access and written permission.
 
 ### rmfg
@@ -119,7 +126,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - enabled_for_paid_automation: true
 - tos_automation_clause: [RMFG API & AI Agents](https://www.rmfg.com/docs/api) — Your agent can upload STEP files, inspect parts, configure manufacturing, and prepare checkout.
 - notes: Oct 23 checkpoint asks already cover RMFG API access. Do not duplicate them. Runtime admission and OVD-678 live wiring remain separate. Cart, checkout, and payment stay unreachable.
-- replies: none logged
+- replies: 0
 
 ### oshcut
 
@@ -133,6 +140,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for oshcut
 - enabled_for_paid_automation: false
 - tos_automation_clause: [OSH Cut Terms of Service](https://www.oshcut.com/terms-of-service) — no published clause addresses automated access, robots, or a customer quote API.
+- replies: 0
 - notes: Ask for partner API access and written permission.
 
 ### sendcutsend
@@ -147,6 +155,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for sendcutsend
 - enabled_for_paid_automation: false
 - tos_automation_clause: [SendCutSend Terms](https://sendcutsend.com/terms-of-service/) — no published clause addresses automated access, robots, scrapers, or a public developer API.
+- replies: 0
 - notes: Named in OVD-724. Not in the current outreach ask list.
 
 ### protolabs
@@ -161,6 +170,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for protolabs
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Protolabs Legal Notices](https://www.protolabs.com/legal-notices/) — do not use software or automated agents or scripts ... to generate automated searches, requests, or queries to (or to strip, scrape, or mine data from) the Site.
+- replies: 0
 - notes: Kept in the matrix and marked **not in 1.0**.
 
 ## Related records
