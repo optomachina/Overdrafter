@@ -5,7 +5,7 @@ lead engineer uses to size review, one JSON object per line: PR, head SHA,
 deterministic tier from the sensitive path list in `AGENTS.md`, Jev's tier,
 confidence and incident probability, the final tier, and latency.
 
-Rules the log encodes:
+Rules the log encodes, and the review each tier gets:
 
 * Jev can only raise risk. The final tier is the higher of the deterministic
   tier and Jev's tier.
