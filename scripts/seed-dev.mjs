@@ -12,6 +12,8 @@ import {
 
 const PASSWORD = "Overdrafter123!";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
+const BETA_ACCESS_FIXTURE = "e2e/fixtures/beta-access.sql";
+const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -142,8 +144,19 @@ const legacyFixtureStoragePaths = [
 
 async function main() {
   const allowRemote = process.argv.includes("--allow-remote");
-  const { supabaseUrl, serviceRoleKey, anonKey } = resolveCredentials();
+  const { supabaseUrl, serviceRoleKey, anonKey, dbUrl } = resolveCredentials();
   ensureLocalProject(supabaseUrl, allowRemote);
+
+  // Decide before any write: the private fixture needs a local database and psql.
+  const betaAccessPlan = planBetaAccessFixture({
+    supabaseUrl,
+    dbUrl: dbUrl ?? (allowRemote ? undefined : readSupabaseStatus().DB_URL),
+    allowRemote,
+  });
+
+  if (betaAccessPlan.apply) {
+    ensurePsqlAvailable();
+  }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -166,6 +179,13 @@ async function main() {
   const selectOffers = (selections) => selectOffersAsClient(supabaseUrl, anonKey, userSpecs[0].email, selections);
   await insertSeedData(admin, users, assetFiles, selectOffers);
 
+  if (betaAccessPlan.apply) {
+    applyBetaAccessFixture(betaAccessPlan.dbUrl);
+    console.log(`Applied ${BETA_ACCESS_FIXTURE} to the local database.`);
+  } else {
+    console.log(`Skipped ${BETA_ACCESS_FIXTURE}: ${betaAccessPlan.reason}`);
+  }
+
   console.log("Seeded local debug data.");
   console.log(`Client: ${userSpecs[0].email}`);
   console.log(`Estimator: ${userSpecs[1].email}`);
@@ -181,11 +201,31 @@ function resolveCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY;
   const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY;
+  const dbUrl = process.env.SUPABASE_DB_URL ?? process.env.DB_URL;
 
   if (supabaseUrl && serviceRoleKey && anonKey) {
-    return { supabaseUrl, serviceRoleKey, anonKey };
+    return { supabaseUrl, serviceRoleKey, anonKey, dbUrl };
   }
 
+  const parsed = readSupabaseStatus();
+  const resolvedUrl = parsed.API_URL ?? parsed.SUPABASE_URL;
+  const resolvedServiceRoleKey = parsed.SERVICE_ROLE_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
+  const resolvedAnonKey = parsed.ANON_KEY ?? parsed.SUPABASE_ANON_KEY;
+
+  if (!resolvedUrl || !resolvedServiceRoleKey || !resolvedAnonKey) {
+    throw new Error("Supabase status did not include API_URL, SERVICE_ROLE_KEY and ANON_KEY.");
+  }
+
+  return {
+    supabaseUrl: resolvedUrl,
+    serviceRoleKey: resolvedServiceRoleKey,
+    anonKey: resolvedAnonKey,
+    dbUrl: parsed.DB_URL ?? parsed.SUPABASE_DB_URL,
+  };
+}
+
+/** Reads `supabase status -o env` for the local stack as a key/value map. */
+function readSupabaseStatus() {
   let output;
 
   try {
@@ -195,7 +235,7 @@ function resolveCredentials() {
     });
   } catch (error) {
     throw new Error(
-      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY.",
+      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY and SUPABASE_DB_URL.",
       { cause: error },
     );
   }
@@ -217,25 +257,74 @@ function resolveCredentials() {
       parsed[rawKey.trim()] = rawValue.replace(/^['"]|['"]$/g, "");
     });
 
-  const resolvedUrl = parsed.API_URL ?? parsed.SUPABASE_URL;
-  const resolvedServiceRoleKey = parsed.SERVICE_ROLE_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
-  const resolvedAnonKey = parsed.ANON_KEY ?? parsed.SUPABASE_ANON_KEY;
+  return parsed;
+}
 
-  if (!resolvedUrl || !resolvedServiceRoleKey || !resolvedAnonKey) {
-    throw new Error("Supabase status did not include API_URL, SERVICE_ROLE_KEY and ANON_KEY.");
+/**
+ * Decides whether the private Founding Beta fixture may be written. Its rows
+ * bypass the admin RPC, so they are only ever written to a local stack: never
+ * under --allow-remote, and never to a non-local database URL.
+ */
+function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
+  if (allowRemote) {
+    return {
+      apply: false,
+      reason: `--allow-remote is set; ${BETA_ACCESS_FIXTURE} writes private rows only to a local stack.`,
+    };
   }
 
-  return {
-    supabaseUrl: resolvedUrl,
-    serviceRoleKey: resolvedServiceRoleKey,
-    anonKey: resolvedAnonKey,
-  };
+  ensureLocalProject(supabaseUrl, false);
+
+  if (!dbUrl) {
+    throw new Error(
+      `Unable to resolve the local database URL for ${BETA_ACCESS_FIXTURE}. Run \`npm run db:start\` or set SUPABASE_DB_URL (or DB_URL).`,
+    );
+  }
+
+  let hostname;
+
+  try {
+    hostname = new URL(dbUrl).hostname;
+  } catch (error) {
+    throw new Error(`The database URL for ${BETA_ACCESS_FIXTURE} is not a valid PostgreSQL URL.`, { cause: error });
+  }
+
+  if (!LOCAL_HOSTNAMES.has(hostname)) {
+    throw new Error(`Refusing to write Founding Beta fixture rows to non-local database ${hostname}.`);
+  }
+
+  return { apply: true, dbUrl };
+}
+
+function ensurePsqlAvailable() {
+  try {
+    execFileSync("psql", ["--version"], { stdio: "ignore" });
+  } catch (error) {
+    throw new Error(
+      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
+      { cause: error },
+    );
+  }
+}
+
+/** Writes the Founding Beta rows as postgres; service_role cannot reach those tables. */
+function applyBetaAccessFixture(dbUrl) {
+  try {
+    execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
+      cwd: repoRoot,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  } catch (error) {
+    throw new Error(`psql failed to apply ${BETA_ACCESS_FIXTURE} (exit ${error.status ?? error.code}).`, {
+      cause: error,
+    });
+  }
 }
 
 function ensureLocalProject(supabaseUrl, allowRemote) {
   const hostname = new URL(supabaseUrl).hostname;
 
-  if (!allowRemote && hostname !== "127.0.0.1" && hostname !== "localhost") {
+  if (!allowRemote && !LOCAL_HOSTNAMES.has(hostname)) {
     throw new Error(
       `Refusing to seed non-local Supabase project ${supabaseUrl}. Re-run with --allow-remote to override.`,
     );
