@@ -17,6 +17,8 @@ import {
   linearKeyFromBranch,
   mentionsSupabaseOrMigration,
   migrationWriteTargets,
+  pipesIntoShell,
+  stripQuotes,
 } from "./guard-migrations.mjs";
 
 const hook = fileURLToPath(new URL("./guard-migrations.mjs", import.meta.url));
@@ -210,6 +212,80 @@ test("MCP writes into supabase/migrations are blocked", () => {
   const payload = mcp("mcp__filesystem__write_file", { path: "supabase/migrations/x.sql", contents: "x" });
   assert.equal(blocked(payload).allow, false);
   assert.equal(migrationWriteTargets(payload).length, 1);
+});
+
+test("quoted glob cd into migrations followed by a write is blocked", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "guard-quote-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
+  assert.equal(stripQuotes('cd supa"base"/mig*'), "cd supabase/mig*");
+  const command = 'cd supa"base"/mig*; echo x > x.sql';
+  assert.equal(mentionsSupabaseOrMigration(command), true);
+  assert.equal(blocked({ tool_name: "Bash", cwd: dir, tool_input: { command } }).allow, false);
+});
+
+test("write-ish globs that resolve under supabase are blocked", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "guard-glob-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
+  for (const command of ["touch s*/m*/x.sql", "cp /tmp/a.sql s*base/mig*/"]) {
+    assert.equal(blocked({ tool_name: "Bash", cwd: dir, tool_input: { command } }).allow, false, command);
+  }
+});
+
+test("piping into sh, bash, zsh, or eval is blocked", () => {
+  for (const command of [
+    "echo YmxhaW5lLXdpbmRvdw== | base64 -d | sh",
+    "base64 -d | bash",
+    "openssl enc -d | zsh",
+    "echo hi | eval",
+  ]) {
+    assert.equal(pipesIntoShell(command), true, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("encoded --add-label values are blocked unless they are a safe label", () => {
+  const encoded = 'gh pr edit --add-label "$(echo YmxhaW5lLXdpbmRvdw== | base64 -d)"';
+  assert.equal(isLabelMutation(encoded), true);
+  assert.equal(blocked(bash(encoded)).allow, false);
+  assert.equal(isLabelMutation("gh pr edit --add-label bug"), false);
+  assert.equal(blocked(bash("gh pr edit --add-label bug")).allow, true);
+  assert.equal(isLabelMutation("gh pr edit --add-label blaine-window"), true);
+});
+
+test("mcp__github__issue_write with labels is blocked unless every label is safe", () => {
+  const grant = mcp("mcp__github__issue_write", { labels: ["blaine-window"], title: "x" });
+  assert.equal(isMcpLabelSelfGrant(grant.tool_name, grant.tool_input), true);
+  assert.equal(blocked(grant).allow, false);
+  const safe = mcp("mcp__github__issue_write", { labels: ["bug"], title: "x" });
+  assert.equal(isMcpLabelSelfGrant(safe.tool_name, safe.tool_input), false);
+  assert.deepEqual(blocked(safe), { allow: true });
+});
+
+test("mcp__supabase__apply_migration is treated as a write", () => {
+  const payload = mcp("mcp__supabase__apply_migration", { name: "x" });
+  assert.equal(migrationWriteTargets(payload).length, 1);
+  assert.equal(blocked(payload).allow, false);
+  assert.equal(blocked(mcp("mcp__supabase__execute_sql", { query: "select 1" })).allow, false);
+});
+
+test("git commit message text mentioning migration is allowed", () => {
+  const command = "git commit -m 'docs: explain migration policy'";
+  assert.equal(mentionsSupabaseOrMigration(command), false);
+  assert.deepEqual(blocked(bash(command)), { allow: true });
+});
+
+test("npx vitest on a migration test file is allowed", () => {
+  const command = "npx vitest run src/migration.test.ts";
+  assert.equal(isReadOnlyAllowlisted(command), true);
+  assert.deepEqual(blocked(bash(command)), { allow: true });
+});
+
+test("accepted residuals: bare apply/patch/tar and an indirect script stay unblocked", () => {
+  for (const command of ["git apply /tmp/x.patch", "git am /tmp/x.patch", "patch < /tmp/x.patch", "tar -x -f /tmp/x.tar", "unzip /tmp/x.zip", "bash /tmp/created-elsewhere.sh"]) {
+    assert.deepEqual(blocked(bash(command)), { allow: true }, command);
+  }
 });
 
 test("settings.json matches Edit/Write, Bash, and mcp__.*", () => {

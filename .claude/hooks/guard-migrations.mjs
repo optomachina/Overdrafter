@@ -12,10 +12,14 @@
  * without performed_via_github_app. Anything else fails closed.
  * Reads are never blocked. Exit 2 + stderr blocks the tool call.
  *
+ * Accepted residuals: bare git apply/am/patch/tar/unzip whose command does
+ * not mention supabase, and a script created in one call then run later
+ * with no supabase/migration path in the command text.
+ *
  * Tests inject a fake gh via OVD_GUARD_GH_BIN.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,13 +27,45 @@ export const WINDOW_LABEL = "blaine-window";
 export const OVERRIDE_ENV = "OVD_BLAINE_WINDOW";
 export const GH_BIN_ENV = "OVD_GUARD_GH_BIN";
 export const WINDOW_ACTOR_LOGIN = "optomachina";
+export const SAFE_LABELS = new Set([
+  "bug",
+  "documentation",
+  "duplicate",
+  "enhancement",
+  "good first issue",
+  "help wanted",
+  "invalid",
+  "question",
+  "wontfix",
+  "codex",
+  "qa-ready",
+]);
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const MIGRATIONS_RE = /(^|\/)supabase\/migrations(\/|$)/;
+const SUPABASE_TREE_RE = /(^|\/)supabase(\/|$)/;
 const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep"]);
 const GIT_READERS = new Set(["diff", "log", "show", "status"]);
+const TEST_RUNNERS = new Set(["vitest", "jest", "mocha", "ava", "tap"]);
+const WRITERS = new Set([
+  "touch",
+  "cp",
+  "mv",
+  "tee",
+  "install",
+  "rsync",
+  "rm",
+  "truncate",
+  "dd",
+  "mkdir",
+  "ln",
+  "chmod",
+  "chown",
+]);
+const SHELLS = new Set(["sh", "bash", "zsh", "eval"]);
 const MCP_READ = /(?:^|__)(read|get|list|search|grep|glob|stat|fetch|show|query)(?:_|$)/i;
+const MCP_APPLY = /(?:^|__)(apply|execute|exec|run_sql|rpc)(?:_|$)/i;
 
 /** Resolve existing prefix via realpath, then append the missing tail. */
 export function resolvePath(path, cwd = process.cwd()) {
@@ -60,6 +96,10 @@ export function isMigrationPath(path, cwd = process.cwd()) {
   return MIGRATIONS_RE.test(`${folded(path, cwd)}/`);
 }
 
+export function isSupabaseTreePath(path, cwd = process.cwd()) {
+  return SUPABASE_TREE_RE.test(`${folded(path, cwd)}/`);
+}
+
 /** Replace $NAME and ${NAME} from simple NAME=value assignments in the line. */
 export function expandSimpleVars(command) {
   if (typeof command !== "string") return "";
@@ -83,17 +123,99 @@ export function expandSimpleVars(command) {
   return expanded;
 }
 
+/** Remove shell quoting so supa"base" becomes supabase. */
+export function stripQuotes(command) {
+  if (typeof command !== "string") return "";
+  let out = "";
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (c === "'") {
+      const end = command.indexOf("'", i + 1);
+      const stop = end === -1 ? command.length : end;
+      out += command.slice(i + 1, stop);
+      i = stop;
+    } else if (c === '"') {
+      i++;
+      while (i < command.length && command[i] !== '"') {
+        if (command[i] === "\\" && i + 1 < command.length) i++;
+        out += command[i++];
+      }
+    } else if (c === "\\" && i + 1 < command.length) {
+      out += command[++i];
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+function normalizeCommand(command) {
+  return stripQuotes(expandSimpleVars(command));
+}
+
+function stripCommitMessages(command) {
+  return command
+    .replace(/(?:^|\s)(?:--message|--file)(?:=|\s+)'(?:\\'|[^'])*'/g, " ")
+    .replace(/(?:^|\s)(?:--message|--file)(?:=|\s+)"(?:\\"|[^"])*"/g, " ")
+    .replace(/(?:^|\s)-[A-Za-z]*m(?:=|\s+)'(?:\\'|[^'])*'/g, " ")
+    .replace(/(?:^|\s)-[A-Za-z]*m(?:=|\s+)"(?:\\"|[^"])*"/g, " ");
+}
+
+/** Command text used for supabase/migration mention checks. */
+export function mentionHaystack(command) {
+  const prepared = stripQuotes(stripCommitMessages(expandSimpleVars(command)));
+  const parts = [];
+  for (const segment of splitSegments(tokenize(prepared))) {
+    const { argv, redirects } = argvFromSegment(segment);
+    parts.push(...argv, ...redirects);
+  }
+  return parts.join(" ");
+}
+
 export function mentionsSupabaseOrMigration(command) {
-  const text = expandSimpleVars(command).toLowerCase();
+  const text = mentionHaystack(command).toLowerCase();
   return /(?<![a-z0-9])supabase(?![a-z0-9])/.test(text) || /(?<![a-z0-9])migration(?![a-z0-9])/.test(text);
 }
 
+function isSafeLabel(name) {
+  return typeof name === "string" && SAFE_LABELS.has(name.trim().toLowerCase());
+}
+
+function addLabelValues(command) {
+  const values = [];
+  const flagRe = /--add-labels?(=|\s+)([^\s;|&]+)/gi;
+  let match;
+  while ((match = flagRe.exec(command))) {
+    values.push(...match[2].split(",").map((value) => value.replace(/^['"]|['"]$/g, "")));
+  }
+  return values;
+}
+
+function labelsInCommandAreAllSafe(command) {
+  const fromFlags = addLabelValues(command);
+  const fromName = [];
+  const nameRe = /(?:^|[\s&])(?:-f|--raw-field|name=)name=([^\s;|&]+)/gi;
+  const shortRe = /(?:^|[\s&])-f\s+name=([^\s;|&]+)/gi;
+  let match;
+  while ((match = nameRe.exec(command))) fromName.push(match[1]);
+  while ((match = shortRe.exec(command))) fromName.push(match[1]);
+  const jsonNames = [];
+  const jsonRe = /"labels"\s*:\s*\[([^\]]*)\]/gi;
+  while ((match = jsonRe.exec(command))) {
+    jsonNames.push(...[...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]));
+  }
+  const values = [...fromFlags, ...fromName, ...jsonNames];
+  if (values.length === 0) return false;
+  return values.every(isSafeLabel);
+}
+
 export function isLabelMutation(command) {
-  const text = expandSimpleVars(command);
+  const text = normalizeCommand(command);
   if (new RegExp(WINDOW_LABEL, "i").test(text)) return true;
-  if (/addlabelstolabelable|addlabels\b/i.test(text)) return true;
-  if (/\/(?:issues|pulls)\/[^/\s]+\/labels\b/i.test(text)) return true;
-  if (/\b(curl|wget|httpie|gh)\b/i.test(text) && /\/labels\b/i.test(text)) return true;
+  if (/--add-labels?\b/i.test(text)) return !labelsInCommandAreAllSafe(text);
+  if (/addlabelstolabelable|addlabels\b/i.test(text)) return !labelsInCommandAreAllSafe(text);
+  if (/\/(?:issues|pulls)\/[^/\s]+\/labels\b/i.test(text)) return !labelsInCommandAreAllSafe(text);
+  if (/\b(curl|wget|httpie|gh)\b/i.test(text) && /\/labels\b/i.test(text)) return !labelsInCommandAreAllSafe(text);
   return false;
 }
 
@@ -139,8 +261,9 @@ export function tokenize(command) {
       inWord = true;
     } else if (c === ";" || c === "\n" || c === "|" || c === "&" || c === "(" || c === ")") {
       flush();
-      if ((c === "|" || c === "&") && command[i + 1] === c) i++;
-      tokens.push({ type: "op" });
+      let value = c === "\n" ? ";" : c;
+      if ((c === "|" || c === "&") && command[i + 1] === c) value += command[++i];
+      tokens.push({ type: "op", value });
     } else if (/\s/.test(c)) {
       flush();
     } else {
@@ -159,6 +282,15 @@ function splitSegments(tokens) {
     else segments[segments.length - 1].push(token);
   }
   return segments.filter((segment) => segment.length > 0);
+}
+
+function splitSegmentsWithOps(tokens) {
+  const parts = [{ tokens: [], opBefore: null }];
+  for (const token of tokens) {
+    if (token.type === "op") parts.push({ tokens: [], opBefore: token.value });
+    else parts[parts.length - 1].tokens.push(token);
+  }
+  return parts.filter((part) => part.tokens.length > 0);
 }
 
 function baseCmd(name) {
@@ -239,6 +371,103 @@ function stripWrappers(argv) {
   return next;
 }
 
+function globToRe(pattern) {
+  let source = "^";
+  for (const char of pattern) {
+    if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else if ("\\^$+()[]{}|.".includes(char)) source += `\\${char}`;
+    else source += char;
+  }
+  return new RegExp(`${source}$`, "i");
+}
+
+/** Expand a pathname glob against cwd. Final missing segments are kept. */
+export function expandGlobs(pattern, cwd = process.cwd()) {
+  if (typeof pattern !== "string" || pattern === "") return [];
+  const normalized = pattern.replace(/\\/g, "/");
+  const absolute = isAbsolute(normalized);
+  const parts = normalized.split("/").filter((part, index) => part !== "" || index === 0);
+  let currents = [absolute ? "/" : cwd];
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      currents = currents.map((current) => dirname(current));
+      continue;
+    }
+    const next = [];
+    for (const current of currents) {
+      if (/[*?]/.test(part)) {
+        let entries = [];
+        try {
+          entries = readdirSync(current);
+        } catch {
+          continue;
+        }
+        const matcher = globToRe(part);
+        for (const entry of entries) {
+          if (matcher.test(entry)) next.push(resolve(current, entry));
+        }
+      } else {
+        next.push(resolve(current, part));
+      }
+    }
+    currents = next;
+    if (currents.length === 0) return [];
+  }
+  return currents;
+}
+
+function isWriteishArgv(argv) {
+  if (argv.length === 0) return false;
+  const cmd = baseCmd(argv[0]);
+  if (cmd === "sed") return argv.some((arg) => arg === "-i" || arg.startsWith("-i"));
+  if (WRITERS.has(cmd)) return true;
+  if (cmd === "git" && ["mv", "checkout", "restore", "apply", "am", "rm"].includes(argv[1])) return true;
+  return false;
+}
+
+function pathishArgs(argv) {
+  return argv.slice(1).filter((arg) => arg !== "--" && !arg.startsWith("-"));
+}
+
+function pathsTouchSupabase(paths, cwd) {
+  for (const path of paths) {
+    if (typeof path !== "string" || path === "") continue;
+    const expanded = /[*?]/.test(path) ? expandGlobs(path, cwd) : [resolvePath(path, cwd)];
+    if (expanded.some((candidate) => isSupabaseTreePath(candidate, cwd))) return true;
+    if (isSupabaseTreePath(path, cwd) || isMigrationPath(path, cwd)) return true;
+  }
+  return false;
+}
+
+export function writeishTouchesSupabase(command, cwd = process.cwd()) {
+  let current = cwd;
+  for (const segment of splitSegments(tokenize(normalizeCommand(command)))) {
+    const { argv: rawArgv, redirects } = argvFromSegment(segment);
+    const argv = stripWrappers(rawArgv);
+    const cmd = baseCmd(argv[0]);
+    if (cmd === "cd" && argv[1]) {
+      const dests = /[*?]/.test(argv[1]) ? expandGlobs(argv[1], current) : [resolvePath(argv[1], current)];
+      if (dests.some((dest) => isSupabaseTreePath(dest, current))) current = dests.find((dest) => isSupabaseTreePath(dest, current)) ?? dests[0] ?? current;
+      else current = dests[0] ?? resolvePath(argv[1], current);
+      continue;
+    }
+    if (pathsTouchSupabase([...redirects, ...pathishArgs(argv)], current)) return true;
+    if ((isWriteishArgv(argv) || redirects.length > 0) && isSupabaseTreePath(current, cwd)) return true;
+  }
+  return false;
+}
+
+export function pipesIntoShell(command) {
+  for (const part of splitSegmentsWithOps(tokenize(normalizeCommand(command)))) {
+    if (part.opBefore !== "|") continue;
+    const { argv } = argvFromSegment(part.tokens);
+    if (SHELLS.has(baseCmd(stripWrappers(argv)[0]))) return true;
+  }
+  return false;
+}
+
 function isNpmTestOrVerify(argv) {
   const unwrapped = unwrapLaunchers(argv);
   const cmd = baseCmd(unwrapped[0]);
@@ -249,6 +478,16 @@ function isNpmTestOrVerify(argv) {
   else if (cmd === "npm" && rest[0] === "test") script = "test";
   else if ((cmd === "yarn" || cmd === "pnpm") && rest[0]) script = rest[0];
   return typeof script === "string" && /^(test|verify)(:|$)/i.test(script);
+}
+
+function isTestRunner(argv) {
+  if (isNpmTestOrVerify(argv)) return true;
+  const unwrapped = unwrapLaunchers(argv);
+  const cmd = baseCmd(unwrapped[0]);
+  if (TEST_RUNNERS.has(cmd)) return true;
+  if (cmd === "node" && unwrapped.some((arg) => arg === "--test" || arg.startsWith("--test="))) return true;
+  if (cmd === "playwright" && unwrapped[1] === "test") return true;
+  return false;
 }
 
 function isAllowlistedArgv(argv, cwd = process.cwd()) {
@@ -262,14 +501,15 @@ function isAllowlistedArgv(argv, cwd = process.cwd()) {
   if (READER_CMDS.has(cmd)) return true;
   if (cmd === "git" && GIT_READERS.has(unwrapped[1])) return true;
   if (cmd === "supabase" && ["--version", "-v", "version"].includes(unwrapped[1])) return true;
-  if (isNpmTestOrVerify(argv)) return true;
+  if (isTestRunner(argv)) return true;
   return false;
 }
 
 export function isReadOnlyAllowlisted(command, cwd = process.cwd()) {
   if (typeof command !== "string" || command === "") return false;
   if (isLabelMutation(command)) return false;
-  const expanded = expandSimpleVars(command);
+  if (pipesIntoShell(command)) return false;
+  const expanded = normalizeCommand(command);
   for (const segment of splitSegments(tokenize(expanded))) {
     const { argv: rawArgv, redirects } = argvFromSegment(segment);
     if (redirects.some((target) => mentionsSupabaseOrMigration(target) || isMigrationPath(target, cwd))) {
@@ -281,9 +521,12 @@ export function isReadOnlyAllowlisted(command, cwd = process.cwd()) {
 }
 
 function tokensTouchMigrationPath(command, cwd) {
-  const expanded = expandSimpleVars(command);
+  const expanded = normalizeCommand(command);
   for (const segment of splitSegments(tokenize(expanded))) {
     const { argv, redirects } = argvFromSegment(segment);
+    if (pathsTouchSupabase([...redirects, ...argv], cwd) && argv.some((arg) => isMigrationPath(arg, cwd) || /[*?]/.test(arg))) {
+      return true;
+    }
     if (redirects.some((target) => isMigrationPath(target, cwd))) return true;
     if (argv.some((arg) => isMigrationPath(arg, cwd))) return true;
   }
@@ -293,8 +536,9 @@ function tokensTouchMigrationPath(command, cwd) {
 export function bashNeedsWindow(command, cwd = process.cwd()) {
   if (typeof command !== "string") return false;
   if (isLabelMutation(command)) return false;
+  if (pipesIntoShell(command)) return true;
   if (isReadOnlyAllowlisted(command, cwd)) return false;
-  return mentionsSupabaseOrMigration(command) || tokensTouchMigrationPath(command, cwd);
+  return mentionsSupabaseOrMigration(command) || writeishTouchesSupabase(command, cwd) || tokensTouchMigrationPath(command, cwd);
 }
 
 function collectStringPaths(value, depth = 0, found = []) {
@@ -313,17 +557,46 @@ function collectStringPaths(value, depth = 0, found = []) {
   return found;
 }
 
+function collectLabelValues(value, key = "", found = []) {
+  if (value == null) return found;
+  if (typeof value === "string") {
+    if (/label/i.test(key)) found.push(value);
+    return found;
+  }
+  if (Array.isArray(value)) {
+    if (/label/i.test(key)) {
+      for (const entry of value) {
+        if (typeof entry === "string") found.push(entry);
+        else collectLabelValues(entry, key, found);
+      }
+    } else {
+      for (const entry of value) collectLabelValues(entry, key, found);
+    }
+    return found;
+  }
+  if (typeof value === "object") {
+    for (const [nextKey, entry] of Object.entries(value)) collectLabelValues(entry, nextKey, found);
+  }
+  return found;
+}
+
 export function isMcpLabelSelfGrant(toolName, input) {
   if (typeof toolName !== "string" || !toolName.startsWith("mcp__")) return false;
-  const name = toolName.toLowerCase();
-  const text = JSON.stringify(input ?? {}).toLowerCase();
-  const labelTool = /label|update_issue|update_pull|update_pr|add_labels|set_labels/.test(name);
-  return labelTool && text.includes(WINDOW_LABEL);
+  const text = JSON.stringify(input ?? {});
+  if (text.toLowerCase().includes(WINDOW_LABEL)) return true;
+  const labels = collectLabelValues(input);
+  if (labels.length === 0) return /labels/i.test(text);
+  return labels.some((label) => !isSafeLabel(label));
+}
+
+function isMcpApplyOrExecute(toolName) {
+  return MCP_APPLY.test(toolName) || /apply_migration|execute_sql/i.test(toolName);
 }
 
 export function mcpWriteTargets(payload) {
   const { tool_name: toolName, tool_input: input, cwd = process.cwd() } = payload ?? {};
   if (typeof toolName !== "string" || !toolName.startsWith("mcp__")) return [];
+  if (isMcpApplyOrExecute(toolName)) return [resolve(cwd, "supabase/migrations")];
   if (MCP_READ.test(toolName)) return [];
   return collectStringPaths(input).filter((path) => isMigrationPath(path, cwd));
 }
