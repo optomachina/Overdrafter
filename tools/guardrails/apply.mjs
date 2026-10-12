@@ -42,9 +42,9 @@ for (const rule of ["Edit(/supabase/migrations/**)", "Edit(//**/supabase/migrati
 }
 const tooBroad = deny.filter((rule) => /execute_sql|merge_pull_request|enable_pr_auto_merge/.test(rule));
 if (tooBroad.length > 0) fail(`proposed permissions.deny must not deny ${tooBroad.join(", ")}; the hook decides those`);
-const matchers = (settings.hooks?.PreToolUse ?? []).map((entry) => entry.matcher);
+const matchers = new Set((settings.hooks?.PreToolUse ?? []).map((entry) => entry.matcher));
 for (const matcher of ["Bash", "Edit|Write|MultiEdit|NotebookEdit", "mcp__.*"]) {
-  if (!matchers.includes(matcher)) fail(`proposed settings.json has no PreToolUse hook for ${matcher}`);
+  if (!matchers.has(matcher)) fail(`proposed settings.json has no PreToolUse hook for ${matcher}`);
 }
 
 const section = readFileSync(proposed("AGENTS-section.md"), "utf8");

@@ -32,7 +32,7 @@ const ROOT = repoRoot();
 // A fake PR file lookup: PR 1 changes a migration, PR 2 does not, PR 3 cannot be listed.
 const PR_FILES = { 1: ["src/a.ts", "supabase/migrations/20261012000000_x.sql"], 2: ["src/a.ts", "docs/supabase-migrations.md"] };
 function fakePrFiles(target) {
-  const number = String(target.number ?? (target.selector === undefined ? "2" : target.selector.replace(/.*\/pull\//, "")));
+  const number = String(target.number ?? (target.selector === undefined ? "2" : target.selector.split("/pull/").pop()));
   if (!(number in PR_FILES)) throw new Error("HTTP 404");
   return PR_FILES[number];
 }
@@ -286,7 +286,7 @@ const PROBES = [
   [10, { tool_name: "NotebookEdit", tool_input: { notebook_path: WORKTREE_MIG } }, HOOK_BLOCKS],
   [10, { tool_name: "Write", tool_input: { file_path: MIG } }, HOOK_BLOCKS],
   [10, { tool_name: "Edit", tool_input: { file_path: "supabase/migrations/x.sql" } }, HOOK_BLOCKS],
-  [10, { tool_name: "Edit", tool_input: { file_path: "/tmp/other/Supabase/Migrations/x.sql" } }, HOOK_BLOCKS],
+  [10, { tool_name: "Edit", tool_input: { file_path: "/home/u/other/Supabase/Migrations/x.sql" } }, HOOK_BLOCKS],
   [10, { tool_name: "Edit", tool_input: { file_path: "/repo/src/lib/supabase/client.ts" } }, PASSES],
   [10, { tool_name: "Write", tool_input: { file_path: "/repo/docs/supabase-migrations.md" } }, PASSES],
   [10, { tool_name: "Edit", tool_input: { file_path: "/repo/supabase/functions/x/index.ts" } }, PASSES],

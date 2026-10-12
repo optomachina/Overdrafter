@@ -54,6 +54,8 @@ const SQL_SIDE_EFFECTS =
   /\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_notify|pg_advisory\w*|pg_create_\w+|pg_drop_\w+|pg_replication_\w+|lo_\w+|dblink\w*)\s*\(/i;
 const MIGRATION_FILE = /(^|[\\/])supabase[\\/]+migrations([\\/]|$)/i;
 const GH_TIMEOUT_MS = 8000;
+// gh is run from a fixed install location rather than looked up on PATH.
+const GH_CANDIDATES = ["/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh", "/home/linuxbrew/.linuxbrew/bin/gh"];
 
 function indexOrEnd(src, text, from) {
   const at = src.indexOf(text, from);
@@ -270,7 +272,7 @@ function commitArgs(argv) {
   for (let i = 2; i < argv.length && argv[i] !== "--"; i++) {
     const w = argv[i];
     if (w === "--message" || /^-[a-zA-Z]*m$/.test(w)) i++;
-    else if (!/^--message=/.test(w) && !/^-[a-zA-Z]*m./.test(w)) out.push(w);
+    else if (!w.startsWith("--message=") && !/^-[a-zA-Z]*m./.test(w)) out.push(w);
   }
   return out;
 }
@@ -319,7 +321,7 @@ function supabaseReason(args) {
   };
   if (writesFiles[group]?.includes(action)) return `supabase ${group} ${action} would create a migration or change a hosted project`;
   if (group === "db" && action === "diff" && args.some((w) => /^(-f|--file)/.test(w))) return "supabase db diff -f would write a migration file";
-  if (hosted && (group === "db" || group === "migration")) return `supabase ${group} ${action ?? ""} targets a hosted database`.replace(/ +$/, "");
+  if (hosted && (group === "db" || group === "migration")) return `${["supabase", group, action].filter(Boolean).join(" ")} targets a hosted database`;
   return null;
 }
 
@@ -422,7 +424,9 @@ function mergeTarget(argv) {
 }
 
 function runGh(args, cwd) {
-  const result = spawnSync("gh", args, { cwd, encoding: "utf8", timeout: GH_TIMEOUT_MS });
+  const gh = GH_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (!gh) throw new Error(`gh not found in ${GH_CANDIDATES.join(", ")}`);
+  const result = spawnSync(gh, args, { cwd, encoding: "utf8", timeout: GH_TIMEOUT_MS });
   if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "gh timed out" : `gh failed: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`gh exited ${String(result.status)}: ${(result.stderr || "").trim().split("\n")[0]}`);
   return result.stdout;
