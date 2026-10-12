@@ -45,8 +45,8 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const MIGRATIONS_RE = /(^|\/)supabase\/migrations(\/|$)/;
 const SUPABASE_TREE_RE = /(^|\/)supabase(\/|$)/;
-const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "less", "file", "stat"]);
-const GIT_READERS = new Set(["diff", "log", "show", "status"]);
+const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "less", "file", "stat", "find", "sort", "uniq"]);
+const GIT_READERS = new Set(["diff", "log", "show", "status", "blame"]);
 const TEST_RUNNERS = new Set(["vitest", "jest", "mocha", "ava", "tap"]);
 const WRITERS = new Set([
   "touch",
@@ -63,7 +63,7 @@ const WRITERS = new Set([
   "chmod",
   "chown",
 ]);
-const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "eval"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "tcsh", "csh", "fish", "eval"]);
 const MCP_READ = /(?:^|__)(read|get|list|search|grep|glob|stat|fetch|show|query)(?:_|$)/i;
 const MCP_APPLY = /(?:^|__)(apply|execute|exec|run_sql|rpc)(?:_|$)/i;
 
@@ -551,12 +551,21 @@ function pathsTouchSupabase(paths, cwd) {
   return false;
 }
 
+function commandForWriteScan(command) {
+  return stripQuotes(stripCommitMessages(expandSimpleVars(command)));
+}
+
 export function writeishTouchesSupabase(command, cwd = process.cwd()) {
   let current = cwd;
-  for (const segment of splitSegments(tokenize(normalizeCommand(command)))) {
+  for (const segment of splitSegments(tokenize(commandForWriteScan(command)))) {
     const { argv: rawArgv, redirects } = argvFromSegment(segment);
     const argv = stripWrappers(rawArgv);
     const cmd = baseCmd(argv[0]);
+    if (cmd === "git" && argv[1] === "commit") {
+      const scanned = skipCommitMessageArgs(argv);
+      if (pathsTouchSupabase([...redirects, ...pathishArgs(scanned).filter((arg) => arg !== "commit")], current)) return true;
+      continue;
+    }
     if (cmd === "cd" && argv[1]) {
       const dests = expandBraces(argv[1]).flatMap((braced) => (isGlobby(braced) ? expandGlobs(braced, current) : [resolvePath(braced, current)]));
       if (dests.some((dest) => isSupabaseTreePath(dest, current))) current = dests.find((dest) => isSupabaseTreePath(dest, current)) ?? dests[0] ?? current;
@@ -638,7 +647,7 @@ export function isReadOnlyAllowlisted(command, cwd = process.cwd()) {
 }
 
 function tokensTouchMigrationPath(command, cwd) {
-  const expanded = normalizeCommand(command);
+  const expanded = commandForWriteScan(command);
   for (const segment of splitSegments(tokenize(expanded))) {
     const { argv, redirects } = argvFromSegment(segment);
     if (pathsTouchSupabase([...redirects, ...argv], cwd) && argv.some((arg) => isMigrationPath(arg, cwd) || /[*?]/.test(arg))) {

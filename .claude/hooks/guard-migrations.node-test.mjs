@@ -318,6 +318,46 @@ test("git commit message text mentioning migration is allowed", () => {
   assert.deepEqual(blocked(bash(command)), { allow: true });
 });
 
+test("git commit messages containing supabase or migrations are allowed", () => {
+  for (const command of [
+    "git commit -m 'chore: update supabase types'",
+    "git commit --message 'docs: mention migrations'",
+    "git commit -am 'fix supabase client'",
+    "git commit -m 'rebuild supabase/migrations types'",
+  ]) {
+    assert.equal(mentionsSupabaseOrMigration(command), false, command);
+    assert.deepEqual(blocked(bash(command)), { allow: true }, command);
+  }
+});
+
+test("git blame and diff on migrations are allowed", () => {
+  const viewPr = () => assert.fail("gh should not be called");
+  for (const command of ["git blame -- supabase/migrations/x.sql", "git diff -- supabase/migrations"]) {
+    assert.equal(isReadOnlyAllowlisted(command), true, command);
+    assert.deepEqual(decide(bash(command), { env: {}, viewPr }), { allow: true }, command);
+  }
+});
+
+test("find -name and sort/uniq on migrations are allowed", () => {
+  const viewPr = () => assert.fail("gh should not be called");
+  for (const command of [
+    "find supabase/migrations -name '*.sql'",
+    "sort supabase/migrations/x.sql",
+    "uniq supabase/migrations/x.sql",
+    "cat supabase/migrations/x.sql | sort | uniq",
+  ]) {
+    assert.equal(isReadOnlyAllowlisted(command), true, command);
+    assert.deepEqual(decide(bash(command), { env: {}, viewPr }), { allow: true }, command);
+  }
+});
+
+test("piping into tcsh, csh, or fish is blocked", () => {
+  for (const command of ["echo hi | tcsh", "base64 -d | csh", "cat x | fish"]) {
+    assert.equal(pipesIntoShell(command), true, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
 test("npx vitest on a migration test file is allowed", () => {
   const command = "npx vitest run src/migration.test.ts";
   assert.equal(isReadOnlyAllowlisted(command), true);
