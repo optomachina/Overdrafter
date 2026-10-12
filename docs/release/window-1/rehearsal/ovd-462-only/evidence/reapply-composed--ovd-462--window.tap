@@ -577,4 +577,4 @@
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-q5NuhK/src-ovd-462/supabase/tests/provider_session_leases.sql:3: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-UKES6T/src-ovd-462/supabase/tests/provider_session_leases.sql:3: NOTICE:  extension "pgtap" already exists, skipping

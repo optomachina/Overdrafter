@@ -3,22 +3,45 @@
   "window": "Migration window 1 (target Wed Oct 21, 2026)",
   "base": {
     "ref": "origin/main",
-    "sha": "efbe516f1b07462440f78330499b7dc5a6f58b3a"
+    "sha": "57b2647c5bcc86ddfe4e5e9722a59101dd1dc1f2"
   },
   "pin": "docs/release/window-1/ovd602-pin.main.json",
   "expectedDiffDir": "docs/release/window-1/ovd602-expected",
-  "recommendedOrder": ["ovd-462", "ovd-723", "ovd-722"],
+  "recommendedOrder": [
+    "ovd-462",
+    "ovd-723",
+    "ovd-722"
+  ],
   "migrations": [
     {
       "id": "ovd-462",
       "title": "Provider session lease (expand)",
       "pr": 675,
-      "sha": "a9923e6d9c80d2e33e3c5766b9360880148f7190",
+      "sha": "790466d14bea4dfc9f69f844b51a065c5b562d2d",
       "slug": "ovd462_provider_session_lease",
-      "draft": { "path": "docs/migration-drafts/ovd-462.sql" },
-      "rollback": { "sha": "a9923e6d9c80d2e33e3c5766b9360880148f7190", "path": "docs/migration-drafts/ovd-462.rollback.sql", "singleTransaction": true },
-      "suites": [{ "path": "supabase/tests/provider_session_leases.sql", "phase": "window" }],
-      "rollbackResidual": []
+      "draft": {
+        "path": "docs/migration-drafts/ovd-462.sql"
+      },
+      "rollback": {
+        "sha": "790466d14bea4dfc9f69f844b51a065c5b562d2d",
+        "path": "docs/migration-drafts/ovd-462.rollback.sql",
+        "singleTransaction": true
+      },
+      "suites": [
+        {
+          "path": "supabase/tests/provider_session_leases.sql",
+          "phase": "window"
+        }
+      ],
+      "rollbackResidual": [],
+      "rollbackRace": {
+        "table": "public.provider_session_leases",
+        "writerSql": "select public.acquire_provider_session_lease('xometry', 'acct_' || md5('ovd635-race'), 'test', 'sb_' || md5('ovd635-race'), 'race-task', '63500000-0000-4000-8000-000000000001', 60, 2, 600);",
+        "holdSeconds": 3,
+        "expectError": "OVD-462 rollback refused: provider_session_leases has active or blocked occupants",
+        "verifySql": "select (to_regclass('public.provider_session_leases') is not null)::text || ':' || (select count(*) from public.provider_session_leases where state = 'active')",
+        "expectVerify": "true:1"
+      }
     },
     {
       "id": "ovd-722",
@@ -26,27 +49,44 @@
       "pr": 676,
       "sha": "f3ce78b3fe70c49ad7738e3b4930e9addd7dada4",
       "slug": "ovd722_provider_kill_switch",
-      "draft": { "path": "docs/migration-drafts/ovd-722.sql" },
+      "draft": {
+        "path": "docs/migration-drafts/ovd-722.sql"
+      },
       "rollback": {
         "packet": "docs/release/window-1/rollback/ovd-722.rollback.sql",
-        "derivedFromDraft": { "start": "-- begin;", "end": "-- commit;" },
+        "derivedFromDraft": {
+          "start": "-- begin;",
+          "end": "-- commit;"
+        },
         "singleTransaction": false
       },
-      "suites": [{ "path": "supabase/tests/pending/ovd722_provider_kill_switch.sql.pending", "phase": "window" }],
+      "suites": [
+        {
+          "path": "supabase/tests/pending/ovd722_provider_kill_switch.sql.pending",
+          "phase": "window"
+        }
+      ],
       "rollbackResidual": []
     },
     {
       "id": "ovd-723",
-      "title": "ITAR/EAR export control, PHASE 1 only (dispatch gate)",
+      "title": "ITAR/EAR export control: upload block, dispatch gate, backfill (one migration)",
       "pr": 677,
-      "sha": "96d8b7adb3db1029ed0e8217b1b0573a181f41a3",
-      "slug": "ovd723_export_control_phase1",
-      "draft": { "path": "docs/migration-drafts/ovd-723.sql", "endBeforeLineMatching": "^-- PHASE 2 - CONTRACT", "trimTrailingBanner": true },
-      "phase2": { "path": "docs/migration-drafts/ovd-723.sql", "startAtBannerBefore": "^-- PHASE 2 - CONTRACT", "endBeforeLineMatching": "^-- ROLLBACK$" },
-      "rollback": { "packet": "docs/release/window-1/rollback/ovd-723-phase1.rollback.sql", "singleTransaction": true },
+      "sha": "673fbe33e4ef4e4269c5cabca70a09420a2fca33",
+      "slug": "ovd723_export_control_upload_block",
+      "draft": {
+        "path": "docs/migration-drafts/ovd-723.sql",
+        "endBeforeLineMatching": "^-- ROLLBACK$"
+      },
+      "rollback": {
+        "packet": "docs/release/window-1/rollback/ovd-723.rollback.sql",
+        "singleTransaction": true
+      },
       "suites": [
-        { "path": "supabase/tests/pending/ovd723_export_control_upload_block.sql.pending", "phase": "window" },
-        { "path": "supabase/tests/pending/ovd723_export_control_upload_block.sql.pending", "phase": "phase2-informational" }
+        {
+          "path": "supabase/tests/pending/ovd723_export_control_upload_block.sql.pending",
+          "phase": "window"
+        }
       ],
       "rollbackResidual": [
         "relations:private.job_export_declarations",

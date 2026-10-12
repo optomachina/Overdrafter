@@ -149,4 +149,4 @@
  # Looks like you failed 1 test of 27
 (1 row)
 
-psql:/tmp/ovd635-window1-Mpt3V1/src-main/supabase/tests/job_service_detail_privileges.sql:3: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-CRzWBw/src-main/supabase/tests/job_service_detail_privileges.sql:3: NOTICE:  extension "pgtap" already exists, skipping

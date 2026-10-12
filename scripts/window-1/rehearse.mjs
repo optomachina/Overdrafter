@@ -25,7 +25,7 @@
  *
  * Exit 0 only when every gate passes. Never connects to a hosted database.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync, chownSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
@@ -307,6 +307,41 @@ class Rehearsal {
     return results;
   }
 
+  /**
+   * Rollback guard under a concurrent writer: session A commits an occupant
+   * while the rollback (session B) is already running. B must wait for A and
+   * then refuse, leaving every object in place.
+   */
+  async rollbackRace(mig, rollbackPath) {
+    const race = mig.rollbackRace;
+    const db = `race_${mig.id.replace(/[^a-z0-9]/g, "_")}`;
+    this.cloneDb(db);
+    try {
+      const writer = spawn(join(this.bin, "psql"), ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", db], { env: this.env, cwd: this.work });
+      let writerOut = "";
+      writer.stdout.on("data", (d) => { writerOut += d; });
+      writer.stderr.on("data", (d) => { writerOut += d; });
+      const writerDone = new Promise((done) => writer.on("close", (code) => done(code)));
+      writer.stdin.end(`begin;\n${race.writerSql}\nselect pg_sleep(${race.holdSeconds});\ncommit;\n`);
+      const deadline = Date.now() + 10_000;
+      let holding = false;
+      while (!holding && Date.now() < deadline) {
+        const q = this.psql(["-At", "-c", `select count(*) from pg_locks l join pg_stat_activity a using (pid)
+          where l.relation = '${race.table}'::regclass and l.granted and a.datname = '${db}' and a.state = 'active'`], { db });
+        holding = Number(q.stdout.trim()) > 0;
+        if (!holding) await new Promise((r) => setTimeout(r, 100));
+      }
+      if (!holding) throw new Error("writer never took its lock");
+      const rb = this.psql(["--single-transaction", "-q", "-f", rollbackPath], { db, check: false });
+      const writerCode = await writerDone;
+      const left = this.psql(["-At", "-c", race.verifySql], { db }).stdout.trim();
+      return { writerCode, writerOut: writerOut.slice(-500), rollbackRc: rb.rc, rollbackMs: rb.ms,
+        rollbackError: (rb.stderr.match(/ERROR:.*$/m) ?? [""])[0], verify: left };
+    } finally {
+      this.dropDb(db);
+    }
+  }
+
   // ----- the rehearsal
   async run() {
     const m = this.manifest;
@@ -458,6 +493,16 @@ class Rehearsal {
         changed: Object.fromEntries(Object.entries(windowDiff.changed).map(([k, v]) => [k, v.length])),
         removed: Object.fromEntries(Object.entries(windowDiff.removed).map(([k, v]) => [k, v.length])) };
 
+      for (const mig of m.migrations.filter((x) => x.rollbackRace)) {
+        const r = await this.step(`rollback guard race ${mig.id}`, () => this.rollbackRace(mig, sources[mig.id].rollbackPath));
+        rec(mig.id).rollbackRace = r;
+        this.log(`rollback-race--${mig.id}.json`, `${JSON.stringify(r, null, 2)}\n`);
+        const race = mig.rollbackRace;
+        this.gate(`${mig.id}: rollback waits for a concurrent writer and then refuses`,
+          r.writerCode === 0 && r.rollbackRc !== 0 && r.rollbackError.includes(race.expectError)
+            && r.rollbackMs >= race.holdSeconds * 500 && r.verify === race.expectVerify,
+          `rollback ${r.rollbackMs} ms, ${r.rollbackError || "no error"}, verify=${r.verify}`);
+      }
       const expectedResidual = [];
       for (const mig of [...m.migrations].reverse()) {
         // Retained objects of every migration rolled back so far show up as additions.

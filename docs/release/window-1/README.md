@@ -1,17 +1,17 @@
 # Migration window 1: Blaine's run sheet
 
-Target: Wed Oct 21, 2026. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `efbe516f` (production ledger has the same 148 versions, read on Oct 12).
+Target: Wed Oct 21, 2026. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `57b2647c` (production ledger has the same 148 versions, read on Oct 12).
 
 ## Status at packet time
 
 | Migration | PR | Rehearsal | Verdict |
 | --- | --- | --- | --- |
-| OVD-462 provider session lease | #675 @ `a9923e6d` | apply, pgTAP 122/122, 602 diff exact, rollback, reapply: all pass; no main suite regresses | **GO** |
-| OVD-722 provider kill switch | #676 @ `f3ce78b3` | applies, own suite 53/53, rollback and reapply pass; **4 more main suites regress after it** (5 when applied without 723) | **NO GO until #676 is fixed** |
-| OVD-723 export control, PHASE 1 | #677 @ `96d8b7ad` | applies, rollback and reapply pass; own suite 58/64 (6 need PHASE 2); **4 main suites regress**; blocks dispatch for every existing job | **NO GO for window 1** |
+| OVD-462 provider session lease | #675 @ `790466d1` | apply, pgTAP 122/122, 602 diff exact, rollback refuses under a concurrent writer then succeeds, reapply: all pass; no main suite regresses | **GO** |
+| OVD-723 export control (one migration: upload block, dispatch gate, backfill) | #677 @ `673fbe33` | applies, own suite 91/91, rollback (packet file) and reapply pass; **6 main suites regress** | **NO GO until #677 retargets those suites and Blaine accepts the dispatch outage below** |
+| OVD-722 provider kill switch | #676 @ `f3ce78b3` | applies, own suite 53/53, rollback and reapply pass; **4 more main suites regress** | **NO GO until #676 retargets those suites** |
 | OVD-725 Stripe catalog | #671 | no migration draft (only a test file) | not in window 1 |
 
-Evidence: `rehearsal/ovd-462-only/summary.json` (the GO path) and `rehearsal/recommended/summary.json` (all three, order 462, 723, 722). Findings: [review-722-723.md](review-722-723.md) and [rehearsal/REPORT.md](rehearsal/REPORT.md). If any PR head moves, update the SHA in `manifest.json` and rerun `node scripts/window-1/rehearse.mjs --order ovd-462` (about 2 minutes, local only).
+Evidence: `rehearsal/ovd-462-only/summary.json` (the GO path) and `rehearsal/recommended/summary.json` (all three, order 462, 723, 722, kill switch outermost). Findings: [review-722-723.md](review-722-723.md) and [rehearsal/REPORT.md](rehearsal/REPORT.md). If any PR head moves, update the SHA in `manifest.json` and rerun `node scripts/window-1/rehearse.mjs --order ovd-462` (about 2 minutes, local only).
 
 ## Before the window (any day, read only)
 
@@ -23,6 +23,7 @@ Evidence: `rehearsal/ovd-462-only/summary.json` (the GO path) and `rehearsal/rec
    node scripts/window-1/ovd602-diff.mjs docs/release/window-1/ovd602-pin.main.json /tmp/w1-before.json
    ```
    Expected: `ovd602: no difference from the pin`. Any other line is drift between production and `main`: stop and send me the output.
+4. **Rollback role.** `psql "$DB_URL" -X -At -c "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"` must print `t`. The 462 rollback refuses otherwise (it could not see occupants through forced RLS).
 
 ## Go/no go (all must hold at the start)
 
@@ -34,8 +35,8 @@ PITR shows a window; baseline diff is empty; `supabase db push --db-url "$DB_URL
 ```
 git switch -c window-1/ovd462 origin/main
 F=supabase/migrations/$(npm run --silent migration:next -- ovd462_provider_session_lease)
-git show a9923e6d:docs/migration-drafts/ovd-462.sql > "$F"
-sha256sum "$F"   # must print 1c152860e106674a3670ef4507a5b5ff9112eb5ff059f3e6e520eeffa1252990
+git show 790466d1:docs/migration-drafts/ovd-462.sql > "$F"
+sha256sum "$F"   # must print 757fcd6b419d3ae46eaab1b5a09989a9ceabc1fef9a2b645e622d716b4971418
 ```
 Commit, push, open a PR labeled `blaine-window`. Wait for green CI.
 
@@ -74,21 +75,19 @@ Expected last line: `ovd602: difference matches ... exactly` (6 functions added,
 psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f docs/migration-drafts/ovd-462.rollback.sql
 supabase migration repair --db-url "$DB_URL" --status reverted <timestamp>
 ```
-Then close the PR unmerged. The rollback refuses if a lease row is active or blocked; there are none before the worker ships. Rehearsed: rollback about 20 ms, inventory returns exactly to the pin, reapply passes.
+Then close the PR unmerged. The rollback locks both lease tables and refuses if a lease row is active or blocked; there are none before the worker ships. Rehearsed: rollback about 20 ms, inventory returns exactly to the pin, reapply passes; with a writer holding an uncommitted lease, the rollback waited about 3 s for it and then refused, leaving everything in place.
 
-## Migration 2: OVD-722 (NO GO until these land on #676, then rerun the rehearsal)
+## Migration 2: OVD-723 (NO GO until #677 is fixed and Blaine decides)
 
-Blocking: main suites `job_service_detail_privileges`, `provider_dispatch_admission_serialization`, `provider_dispatch_permits`, `provider_dispatch_preflight` and `xometry_beta_dispatch_admission_serialization` fail after it; the draft lists only 3 retargets (R722-1). Also: remove the nested `begin;`/`commit;` (R722-2) and add the "outermost wrapper" guard to the rollback (RX-1). RLS on its private tables (R722-3) is fixed at `f3ce78b3`.
+Now one migration: upload block (legacy upload RPCs refuse, Storage INSERT needs an exact grant), dispatch gate, and a backfill of a `missing` declaration for every job with files. Blocking: main suites `empty_file_upload_rejection`, `founding_beta_file_boundaries`, `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency` and `xometry_beta_dispatch_permits` fail after it. **Blaine decides:** every existing job is refused dispatch until its owner declares (R723-1), and old browser clients cannot upload until the new client ships. Ask #677 to add `set local lock_timeout = '3s';` before the `storage.objects` policy swap (R723-5). When ready, the steps match migration 1 with slug `ovd723_export_control_upload_block`, the draft up to its `-- ROLLBACK` line, deploy order migration, then client, then worker, and rollback `docs/release/window-1/rollback/ovd-723.rollback.sql` (rehearsed; keeps the audit tables).
 
-When fixed, the steps match migration 1 with: slug `ovd722_provider_kill_switch`, the draft `docs/migration-drafts/ovd-722.sql` at the new SHA, the expected diff file for the new order, and rollback `docs/release/window-1/rollback/ovd-722.rollback.sql` (run with `psql -f`, it carries its own transaction). Readback: `select * from api_admin_list_provider_kill_switches()` as an admin shows one row per provider, all `engaged = false`, plus the global row `false`. Deploy order: migration first, then the worker build.
+## Migration 3: OVD-722 (NO GO until #676 is fixed)
 
-## Migration 3: OVD-723 PHASE 1 (NO GO for window 1)
-
-As drafted, PHASE 1 backfills a `missing` declaration for every job with files and installs the dispatch gate, so every existing job is refused dispatch until a new upload (R723-1, Blocker). It also breaks 4 main suites (R723-2). The reviewer's fix is to split it: an expand only part (tables, RPCs, upload overloads) that could join a later window, and the dispatch gate plus backfill after scans exist. PHASE 2 locks `storage.objects` and is out of window 1 regardless. A runnable PHASE 1 rollback is ready in `rollback/ovd-723-phase1.rollback.sql` and was rehearsed.
+Blocking: main suites `job_service_detail_privileges`, `provider_dispatch_admission_serialization`, `provider_dispatch_permits` and `xometry_beta_dispatch_admission_serialization` fail after it (`provider_dispatch_preflight` too when it runs without 723); the draft lists only 3 retargets (R722-1). Also: remove the nested `begin;`/`commit;` (R722-2) and add the order guard to the rollback (RX-1). When fixed, the steps match migration 1 with slug `ovd722_provider_kill_switch`, the draft at the new SHA, and rollback `docs/release/window-1/rollback/ovd-722.rollback.sql` (run with `psql -f`; it carries its own transaction). Readback: as an admin, `select * from api_admin_list_provider_kill_switches()` shows one row per provider, all `engaged = false`, plus the global row. Deploy order: migration first, then the worker build.
 
 ## If both 722 and 723 ship together later
 
-Apply 723 before 722 so the kill switch wraps outermost (then a switched off provider reports `provider_kill_switch_engaged`; in the other order the 722 suite fails 2 assertions). Roll back strictly in reverse order of apply; rolling back the inner one first silently removes the outer gate.
+Apply 723 before 722 (as above) so the kill switch wraps outermost (then a switched off provider reports `provider_kill_switch_engaged`; in the other order the 722 suite failed 2 assertions at the earlier heads). Roll back strictly in reverse order of apply; rolling back the inner one first silently removes the outer gate.
 
 ## After the window
 

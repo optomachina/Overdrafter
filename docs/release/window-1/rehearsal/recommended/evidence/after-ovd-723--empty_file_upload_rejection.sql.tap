@@ -1,0 +1,67 @@
+ plan  
+-------
+ 1..19
+(1 row)
+
+ set_ovd601_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                       lives_ok                        
+-------------------------------------------------------
+ ok 1 - an administrator enrolls the test organization
+(1 row)
+
+ set_ovd601_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                     is                                      
+-----------------------------------------------------------------------------
+ ok 2 - the member is eligible, so no denial below is a Founding Beta denial
+(1 row)
+
+                     throws_ok                     
+---------------------------------------------------
+ not ok 3 - prepare rejects a zero size           +
+ # Failed test 3: "prepare rejects a zero size"   +
+ #       caught: P0001: export_declaration_missing+
+ #       wanted: P0001: file_upload_empty
+(1 row)
+
+                     throws_ok                     
+---------------------------------------------------
+ not ok 4 - prepare rejects a missing size        +
+ # Failed test 4: "prepare rejects a missing size"+
+ #       caught: P0001: export_declaration_missing+
+ #       wanted: P0001: file_upload_empty
+(1 row)
+
+                     throws_ok                      
+----------------------------------------------------
+ not ok 5 - prepare rejects a negative size        +
+ # Failed test 5: "prepare rejects a negative size"+
+ #       caught: P0001: export_declaration_missing +
+ #       wanted: P0001: file_upload_empty
+(1 row)
+
+                                                    throws_ok                                                    
+-----------------------------------------------------------------------------------------------------------------
+ not ok 6 - prepare rejects the empty-content hash with a positive size, before reusing an existing blob        +
+ # Failed test 6: "prepare rejects the empty-content hash with a positive size, before reusing an existing blob"+
+ #       caught: P0001: export_declaration_missing                                                              +
+ #       wanted: P0001: file_upload_empty
+(1 row)
+
+                                             throws_ok                                             
+---------------------------------------------------------------------------------------------------
+ not ok 7 - prepare rejects the empty-content hash after case and whitespace normalization        +
+ # Failed test 7: "prepare rejects the empty-content hash after case and whitespace normalization"+
+ #       caught: P0001: export_declaration_missing                                                +
+ #       wanted: P0001: file_upload_empty
+(1 row)
+
+psql:/tmp/ovd635-window1-CRzWBw/src-main/supabase/tests/empty_file_upload_rejection.sql:210: ERROR:  export_declaration_missing
+CONTEXT:  PL/pgSQL function public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text) line 3 at RAISE

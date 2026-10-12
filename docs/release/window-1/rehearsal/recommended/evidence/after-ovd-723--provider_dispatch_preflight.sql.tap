@@ -258,9 +258,9 @@
  #         want: {"denial": "permit_not_yet_valid", "schema": "provider-dispatch-authorization.v1", "retryable": false, "authorized": false}
 (1 row)
 
-                                                               revoke_provider_dispatch_permit                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"reason": "operator_revoked", "permitId": "a1d226e0-e7f9-46f1-b472-181c6e776f3e", "revokedAt": "2026-10-12T03:29:35.32536+00:00", "permitState": "revoked"}
+                                                                revoke_provider_dispatch_permit                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"reason": "operator_revoked", "permitId": "369e44fa-730e-472f-b9ea-f18dc5f93f4b", "revokedAt": "2026-10-12T03:44:23.494311+00:00", "permitState": "revoked"}
 (1 row)
 
                                                                         is                                                                         
@@ -511,4 +511,4 @@
  # Looks like you failed 17 tests of 64
 (1 row)
 
-psql:/tmp/ovd635-window1-Mpt3V1/src-main/supabase/tests/provider_dispatch_preflight.sql:188: NOTICE:  relation "requestable_quote_lanes" already exists, skipping
+psql:/tmp/ovd635-window1-CRzWBw/src-main/supabase/tests/provider_dispatch_preflight.sql:188: NOTICE:  relation "requestable_quote_lanes" already exists, skipping
