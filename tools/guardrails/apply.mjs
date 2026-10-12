@@ -37,10 +37,12 @@ const deny = settings.permissions?.deny;
 if (!Array.isArray(deny) || deny.length === 0 || !deny.every((rule) => typeof rule === "string" && rule.trim() === rule && rule !== "")) {
   fail("proposed settings.json permissions.deny must be a non empty list of rule strings");
 }
-for (const rule of ["Edit(/supabase/migrations/**)", "Edit(//**/supabase/migrations/**)", "mcp__*__apply_migration"]) {
+for (const rule of ["Edit(/supabase/migrations/**)", "Edit(//**/supabase/migrations/**)", "Edit(/.claude/hooks/**)", "Edit(/.claude/settings.json)", "mcp__*__apply_migration"]) {
   if (!deny.includes(rule)) fail(`proposed permissions.deny is missing ${rule}`);
 }
-const tooBroad = deny.filter((rule) => /execute_sql|merge_pull_request|enable_pr_auto_merge/.test(rule));
+// Rules the hook now decides. They are dropped from an existing settings.json too, so old blanket blocks do not persist.
+const RETIRED = /execute_sql|merge_pull_request|enable_pr_auto_merge/;
+const tooBroad = deny.filter((rule) => RETIRED.test(rule));
 if (tooBroad.length > 0) fail(`proposed permissions.deny must not deny ${tooBroad.join(", ")}; the hook decides those`);
 const matchers = new Set((settings.hooks?.PreToolUse ?? []).map((entry) => entry.matcher));
 for (const matcher of ["Bash", "Edit|Write|MultiEdit|NotebookEdit", "mcp__.*"]) {
@@ -68,7 +70,11 @@ if (start >= 0) {
   end = start;
 }
 
-const testOutput = execFileSync(process.execPath, ["--test", proposed("guard-migrations.node-test.mjs")], { encoding: "utf8" });
+// The drift test compares .claude/hooks with the proposed copy, which is exactly what this run is about to update, so it is skipped here.
+const testOutput = execFileSync(process.execPath, ["--test", proposed("guard-migrations.node-test.mjs")], {
+  encoding: "utf8",
+  env: { ...process.env, OVD_GUARDRAIL_APPLYING: "1" },
+});
 const passed = /# pass (\d+)/.exec(testOutput)?.[1] ?? "?";
 
 let merged = settings;
@@ -78,7 +84,7 @@ if (existsSync(settingsPath)) {
   const keep = (current.hooks?.PreToolUse ?? []).filter((entry) => !(entry.hooks ?? []).some((h) => String(h.command ?? "").includes(HOOK_COMMAND)));
   merged = {
     ...current,
-    permissions: { ...current.permissions, deny: [...new Set([...(current.permissions?.deny ?? []), ...deny])] },
+    permissions: { ...current.permissions, deny: [...new Set([...(current.permissions?.deny ?? []).filter((rule) => !RETIRED.test(rule)), ...deny])] },
     hooks: { ...current.hooks, PreToolUse: [...keep, ...settings.hooks.PreToolUse] },
   };
 }

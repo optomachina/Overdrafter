@@ -3,6 +3,10 @@
     "deny": [
       "Edit(/supabase/migrations/**)",
       "Edit(//**/supabase/migrations/**)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Edit(~/.claude/settings.json)",
       "mcp__*__apply_migration",
       "mcp__*upabase*__create_branch",
       "mcp__*upabase*__merge_branch",
