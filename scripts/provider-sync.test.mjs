@@ -98,4 +98,19 @@ describe("provider catalog authority boundary", () => {
 
     expect(second.rendered).toEqual(first.rendered);
   });
+
+  it("refuses to sync a secret-shaped rmfg displayName into provider-catalog.ts", async () => {
+    const { rootDir } = await createFixture();
+    const manifestPath = path.join(rootDir, "provider-integrations/rmfg/manifest.v1.json");
+    const catalogPath = path.join(rootDir, WEB_CATALOG_RELATIVE_PATH);
+    const planted = "eyJhbGciOiJIUzI1NiJ9xx";
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    manifest.displayName = planted;
+    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(syncProviderCatalogs({ rootDir, today: "2026-09-28" })).rejects.toThrow(
+      "secret-value-like string",
+    );
+    await expect(fs.access(catalogPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });

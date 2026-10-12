@@ -39,7 +39,18 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-const XOMETRY_ENTRY = { key: "xometry", liveAdapter: true, sessionSecrets: [], egress: "stable_nat" };
+const XOMETRY_ENTRY = {
+  key: "xometry",
+  liveAdapter: true,
+  sessionSecrets: [{
+    secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
+    mountEnv: "XOMETRY_STORAGE_STATE_JSON",
+    requiredWhenListed: false,
+    manualDeploy: true,
+  }],
+  egress: "stable_nat",
+  sessionlessJustification: "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper.",
+};
 const SYNCED_OUTPUTS = [
   WEB_CATALOG_RELATIVE_PATH,
   WORKER_CATALOG_RELATIVE_PATH,
