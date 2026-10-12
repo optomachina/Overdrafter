@@ -2,8 +2,14 @@ import { readFile } from "node:fs/promises";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authorizeProviderDispatch, type ProviderDispatchClaim } from "./providerDispatchPreflight.js";
 import type { ProviderDispatchFileRole } from "./providerDispatchTypes.js";
-import type { ProviderExecutionCapturedFile, ProviderExecutionEnvironment } from "./providerExecutionSeam.js";
+import type {
+  ProviderAuthorizationConsumer,
+  ProviderExecutionCapturedFile,
+  ProviderExecutionEnvironment,
+} from "./providerExecutionSeam.js";
 import {
+  PROVIDER_RESULT_VALID_UNTIL_DERIVED,
+  PROVIDER_TASK_MAX_CLAIMS,
   runProviderTaskPipeline,
   type ProviderDaySwitch,
   type ProviderSessionLeaseSetting,
@@ -12,7 +18,7 @@ import {
   type ProviderTaskOutcome,
   type ProviderTaskPipelineDeps,
 } from "./providerTaskPipeline.js";
-import type { StagedFile, VendorName, VendorQuoteAdapterInput } from "./types.js";
+import type { StagedFile, VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types.js";
 
 /**
  * OVD-464 database wiring for the generic provider route. Builds the pipeline's
@@ -37,7 +43,7 @@ export type ProviderTaskRouteInput = {
   persist: ProviderTaskPipelineDeps["persist"];
   daySwitch: ProviderDaySwitch;
   lease?: ProviderTaskLeasePort;
-  consumer?: ProviderTaskPipelineDeps["consumer"];
+  consumer?: ProviderAuthorizationConsumer;
   onAdapterStart?: () => void;
 };
 
@@ -109,8 +115,27 @@ export function runGenericProviderTask(input: ProviderTaskRouteInput): Promise<P
   );
 }
 
+/**
+ * Offer rows for a validated result whose expiry the pipeline derived from a
+ * vendor duration. The row keeps the derived `valid_until` but an empty raw
+ * `validUntil`, so `normalize_quote_offer_validity` keeps `vendor_duration`
+ * instead of relabeling it `vendor_date`. Any other result passes unchanged.
+ */
+export function preserveDerivedValiditySource<T extends { raw_payload: Record<string, unknown> }>(
+  output: Pick<VendorQuoteAdapterOutput, "rawPayload">,
+  payloads: T[],
+): T[] {
+  if (output.rawPayload?.[PROVIDER_RESULT_VALID_UNTIL_DERIVED] !== true) return payloads;
+  return payloads.map((payload) => ({ ...payload, raw_payload: { ...payload.raw_payload, validUntil: null } }));
+}
+
 /** Operator facing note for an outcome. Stable codes only; never adapter text. */
 export function providerTaskOutcomeNote(vendor: VendorName, outcome: ProviderTaskOutcome): string {
+  if (outcome.code === "attempts_exhausted") {
+    // The claim counter also counts requeues made before this pipeline ran
+    // (spend cap or staging retries), so exhaustion does not imply adapter runs.
+    return `${vendor} task passed its ${PROVIDER_TASK_MAX_CLAIMS} claim limit; earlier claims may have been requeued before the provider pipeline ran, and no adapter was started on this claim. It will not be retried.`;
+  }
   switch (outcome.disposition) {
     case "persisted":
       return `${vendor} quote collected and validated.`;
@@ -129,7 +154,7 @@ export function providerTaskOutcomeNote(vendor: VendorName, outcome: ProviderTas
 export function providerTaskFailureRecord(
   vendor: VendorName,
   outcome: ProviderTaskOutcome,
-  context: { retryCount: number; requestedQuantity: number },
+  context: { retryCount: number; requestedQuantity: number; artifactStoragePaths?: string[] },
 ): { status: "queued" | "manual_vendor_followup" | "failed"; notes: string[]; raw_payload: Record<string, unknown> } {
   let status: "queued" | "manual_vendor_followup" | "failed" = "failed";
   if (outcome.disposition === "requeue") status = "queued";
@@ -150,6 +175,7 @@ export function providerTaskFailureRecord(
       manualFollowUpReason: status === "manual_vendor_followup" ? outcome.code : null,
       providerDisabledForDay: outcome.providerDisabledForDay,
       providerResultRejection: outcome.rejection,
+      artifactStoragePaths: context.artifactStoragePaths ?? [],
       requestedQuantity: context.requestedQuantity,
     },
   };

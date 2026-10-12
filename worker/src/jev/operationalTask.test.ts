@@ -13,6 +13,8 @@ import { markProviderMutationStarted } from "../providerMutationPhase";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
 import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import type { ProviderTaskRouteInput } from "../providerTaskRoute";
+import type { ProviderTaskOutcome } from "../providerTaskPipeline";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -21,6 +23,12 @@ vi.mock("../files.js", async (original) => ({
   cleanupPaths: vi.fn(async () => undefined),
 }));
 vi.mock("../scoringIntegration.js", () => ({ computeAndStoreRoutingScores: vi.fn(async () => undefined) }));
+// Lets one test drive the generic route's persist callback without a full permit fixture; every other test runs the real route.
+const genericRoute = vi.hoisted(() => ({ run: null as null | ((input: ProviderTaskRouteInput) => Promise<ProviderTaskOutcome>) }));
+vi.mock("../providerTaskRoute.js", async (original) => {
+  const actual = await original<typeof import("../providerTaskRoute.js")>();
+  return { ...actual, runGenericProviderTask: (input: ProviderTaskRouteInput) => (genericRoute.run ?? actual.runGenericProviderTask)(input) };
+});
 
 const scope: OperationalJevScope = { organizationId: "secret-org", taskId: "secret-task", quoteRunId: "secret-run",
   provider: "xometry", sourceRevision: "f9195d2f071159bd46873b0ad402b1b12de75601" };
@@ -53,12 +61,15 @@ function sessionFixture() {
 
 /** In-memory DB/storage boundaries only: actual handler, preflight, registry, Xometry simulation,
  * spend guard, lane snapshot, offer projection, finalization and queue helpers remain real. */
-function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement) {
+function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement,
+  failStatusReadAfterPersist = false) {
   const writes: unknown[] = [];
+  const persisted = () => writes.some((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
   const from = (table: string) => {
     let columns = ""; let mutation = false;
     const response = () => {
       if (mutation) return { data: null, error: null };
+      if (failStatusReadAfterPersist && table === "quote_runs" && persisted()) return { data: null, error: { message: "status read failed" } };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? approved
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "instant_quote_received" }] : { id: "result", requested_quantity: 2 })
@@ -91,7 +102,14 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
   };
   return { client: { from, rpc } as unknown as SupabaseClient, writes };
 }
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); genericRoute.run = null; });
+
+/** Every write that came after the atomic result and offer write. */
+function writesAfterPersist(writes: unknown[]) {
+  const index = writes.findIndex((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  expect(index).toBeGreaterThanOrEqual(0);
+  return writes.slice(index + 1);
+}
 
 describe("actual worker operational advisory seam", () => {
   it("preserves all persistence/offer/task writes through actual registry and custom Xometry", async () => {
@@ -270,6 +288,36 @@ describe("actual worker operational advisory seam", () => {
         raw_payload: expect.objectContaining({ failureCode: "attempts_exhausted", adapterStarted: false }) }) },
       { table: "work_queue", update: expect.objectContaining({ status: "failed" }) },
     ]));
+  });
+
+  it("keeps a persisted generic result when the status read after persistence fails (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    genericRoute.run = async (route) => {
+      const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
+        leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { source: "fictiv-live-adapter" } };
+      const { artifactCount } = await route.persist(output);
+      return { disposition: "persisted", code: "persisted", stage: "persist", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: { status: output.status, offerCount: 1, artifactCount },
+        evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, true);
+    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+  });
+
+  it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
+    const db = database(false, false, undefined, requirement, true);
+    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {

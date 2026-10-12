@@ -497,13 +497,33 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
   `work_queue.attempts` as returned by `api_claim_next_task` (incremented
   atomically at claim, so a start that crashes still counts): only the first
   claim may requeue, for a pre dispatch transient (`preflight_unavailable`,
-  lease contended or unavailable), an adapter failure or a validator
-  `bounded` code; a claim past `PROVIDER_TASK_MAX_CLAIMS` (2) settles to
-  `attempts_exhausted` before the preflight, so at most two adapter starts
-  ever happen; the claim RPC refusing such tasks itself is OVD-734 (window
-  2); terminal outcomes never requeue, and
+  lease contended or unavailable) or an adapter failure that
+  `isRetryableVendorTaskError` accepts before any provider mutation. The
+  pipeline runs the adapter in its own mutation phase and keeps the thrown
+  error; any mutation evidence (the phase started or
+  `providerMutationPossible`) settles to manual follow up as
+  `adapter_failed_after_mutation`, deterministic codes and `unsupported` or
+  `selector_drift` terminal states never requeue, and a validator refusal
+  after a completed adapter run never requeues (the provider already holds
+  the quote), whatever its `bounded` budget; a claim past
+  `PROVIDER_TASK_MAX_CLAIMS` (2) settles to `attempts_exhausted` before the
+  preflight, so at most two adapter starts ever happen (the claim counter
+  also counts requeues made before the pipeline, such as spend cap or
+  staging retries, and the note says so); the claim RPC refusing such tasks
+  itself is OVD-734 (window 2); terminal outcomes never requeue, and
   `provider_blocked` or `account_banned` also turn the provider off in that
-  worker until the next UTC midnight
+  worker until the next UTC midnight. Today that day switch is reachable
+  only through a `ProviderExecutionTerminalError` (`blocked` or `banned`)
+  or a lease outcome; no `VendorAutomationError` code maps to a block or ban
+- the replay key is the permit and envelope fingerprint alone, so a second
+  dispatch on one permit in the same worker process (a requeue included) is
+  refused `authorization_replayed`; durable per permit dispatch tracking
+  across processes is OVD-734 (window 2)
+- once the result and offers are written atomically, a later bookkeeping
+  failure (request status read, job status sync, task completion) never
+  overwrites `vendor_quote_results`: the task is marked failed with
+  `post_persist_bookkeeping_failed`, best effort. The legacy Xometry path
+  shares that guard; its success writes are unchanged
 - any other live non-Xometry task stays on the specialized path and is
   refused with `dispatch_live_provider_not_permitted` before launch
 - generic denials are recorded with their OVD-457 code as `failureCode` and

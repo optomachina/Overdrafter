@@ -13,13 +13,19 @@ import {
   type ProviderExecutionTerminalOutcome,
 } from "./providerExecutionSeam";
 import { validateProviderResult } from "./providerResultValidation";
-import { providerTaskFailureRecord } from "./providerTaskRoute";
+import { preserveDerivedValiditySource, providerTaskFailureRecord, providerTaskOutcomeNote } from "./providerTaskRoute";
+import {
+  createProviderMutationPhase,
+  markProviderMutationStarted,
+  runInProviderMutationPhase,
+} from "./providerMutationPhase";
 import {
   createProviderDaySwitch,
   decideProviderTaskRetry,
   deriveProviderResultValidUntil,
   isPersistableSortRank,
   MAX_PERSISTED_SORT_RANK,
+  PROVIDER_RESULT_VALID_UNTIL_DERIVED,
   PROVIDER_TASK_MAX_CLAIMS,
   PROVIDER_TASK_MAX_ADAPTER_REQUEUES,
   runProviderTaskPipeline,
@@ -32,6 +38,7 @@ import {
 } from "./providerTaskPipeline";
 import {
   VendorAutomationError,
+  type VendorAutomationErrorCode,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
@@ -309,7 +316,10 @@ describe("ordered pipeline", () => {
     });
     const h = harness({ authorize: async () => authorizationFor(envelope), files: [{ role: "cad", bytes: Uint8Array.from(CAD) }] });
     const outcome = await runProviderTaskPipeline(
-      input((v) => (v.claim.envelopeFingerprint = fingerprintProviderDispatchEnvelope(envelope))),
+      input((v) => {
+        v.claim.envelopeFingerprint = fingerprintProviderDispatchEnvelope(envelope);
+        v.quoteInput = { ...v.quoteInput, cadFile: { id: "cad" }, drawingFile: { id: "drawing" } } as unknown as VendorQuoteAdapterInput;
+      }),
       h.deps,
     );
     // Package identity differs from ENVELOPE, but the binding is to this envelope.
@@ -317,6 +327,9 @@ describe("ordered pipeline", () => {
     expect(h.deps.readCapturedFiles).toHaveBeenCalledWith(["cad"]);
     expect(h.quote.mock.calls[0][0].stagedDrawingFile).toBeNull();
     expect(h.quote.mock.calls[0][0].stagedCadFile).not.toBeNull();
+    // Metadata follows the same roles, so a kernel never sees a drawing it may not upload.
+    expect(h.quote.mock.calls[0][0].drawingFile).toBeNull();
+    expect(h.quote.mock.calls[0][0].cadFile).toEqual({ id: "cad" });
   });
 });
 
@@ -439,24 +452,157 @@ describe("retry authority", () => {
     expect(decideProviderTaskRetry({ failureClass: "failed", attempts: 1, now })).toEqual({ action: "fail" });
   });
 
-  it("requeues an adapter failure once and then stops (retry exhaustion)", async () => {
-    const consumer = createProviderAuthorizationConsumer();
+  it("requeues a pre mutation transient adapter failure once and then stops (retry exhaustion)", async () => {
     const failing = async () => {
       throw new VendorAutomationError("nav", "navigation_failure");
     };
-    const first = harness({ consumer, quote: failing });
+    const first = harness({ quote: failing });
     const one = await runProviderTaskPipeline(input(), first.deps);
     expect(one).toMatchObject({ disposition: "requeue", code: "adapter_failed", adapterStarted: true });
-    // The requeued task is a new database claim (attempts 2): it may start once more, then it is final.
-    const second = harness({ consumer, quote: failing });
+    // The requeued task is a new database claim (attempts 2), here in another
+    // process with its own replay record: it may start once more, then it is final.
+    const second = harness({ quote: failing });
     const two = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), second.deps);
     expect(two).toMatchObject({ disposition: "failed", code: "adapter_failed", retryAt: null });
     expect(first.quote).toHaveBeenCalledTimes(1);
     expect(second.quote).toHaveBeenCalledTimes(1);
   });
 
+  it("never dispatches a requeued claim twice on one permit in the same process", async () => {
+    const consumer = createProviderAuthorizationConsumer();
+    const failing = async () => {
+      throw new VendorAutomationError("nav", "navigation_failure");
+    };
+    const first = harness({ consumer, quote: failing });
+    expect((await runProviderTaskPipeline(input(), first.deps)).disposition).toBe("requeue");
+    const second = harness({ consumer, quote: failing });
+    const two = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), second.deps);
+    expectNoAdapter(two, second.quote);
+    expect(two).toMatchObject({ disposition: "manual_follow_up", code: "authorization_replayed" });
+    expect(first.quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls the adapter exactly once across two claims when the first failure follows a provider mutation", async () => {
+    const consumer = createProviderAuthorizationConsumer();
+    const quote = vi.fn(async () => {
+      markProviderMutationStarted();
+      throw new VendorAutomationError("nav", "navigation_failure");
+    });
+    const first = harness({ consumer, quote });
+    const one = await runProviderTaskPipeline(input(), first.deps);
+    expect(one).toMatchObject({ disposition: "manual_follow_up", code: "adapter_failed_after_mutation", retryAt: null });
+    // Even if the task were claimed again, the permit cannot dispatch a second time here.
+    const second = harness({ consumer, quote });
+    const two = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), second.deps);
+    expect(two).toMatchObject({ disposition: "manual_follow_up", code: "authorization_replayed", adapterStarted: false });
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  describe("adapter failure disposition for every VendorAutomationErrorCode", () => {
+    // Exhaustive by type: adding a code without a row fails the typecheck.
+    const PRE_MUTATION: Record<VendorAutomationErrorCode, { disposition: ProviderTaskOutcome["disposition"]; code: string }> = {
+      login_required: { disposition: "manual_follow_up", code: "login_required" },
+      captcha: { disposition: "manual_follow_up", code: "challenge_required" },
+      anti_detection_block: { disposition: "manual_follow_up", code: "challenge_required" },
+      selector_failure: { disposition: "manual_follow_up", code: "adapter_selector_failure" },
+      unexpected_ui_state: { disposition: "manual_follow_up", code: "adapter_unexpected_ui_state" },
+      profile_in_use: { disposition: "manual_follow_up", code: "adapter_profile_in_use" },
+      not_implemented: { disposition: "manual_follow_up", code: "adapter_not_implemented" },
+      upload_failure: { disposition: "requeue", code: "adapter_failed" },
+      navigation_failure: { disposition: "requeue", code: "adapter_failed" },
+      persistence_failure: { disposition: "requeue", code: "adapter_failed" },
+    };
+    const TERMINAL = new Set<VendorAutomationErrorCode>(["login_required", "captcha", "anti_detection_block"]);
+    const cases = (Object.keys(PRE_MUTATION) as VendorAutomationErrorCode[]).flatMap((code) =>
+      [false, true].flatMap((mutationPossible) => [false, true].map((phaseStarted) => ({ code, mutationPossible, phaseStarted }))),
+    );
+
+    it.each(cases)("$code, providerMutationPossible $mutationPossible, phase started $phaseStarted", async ({ code, mutationPossible, phaseStarted }) => {
+      const h = harness({
+        quote: async () => {
+          if (phaseStarted) markProviderMutationStarted();
+          throw new VendorAutomationError("adapter text", code, mutationPossible ? { providerMutationPossible: true } : {});
+        },
+      });
+      const outcome = await runProviderTaskPipeline(input(), h.deps);
+      let expected = PRE_MUTATION[code];
+      if (!TERMINAL.has(code) && (mutationPossible || phaseStarted)) {
+        expected = { disposition: "manual_follow_up", code: "adapter_failed_after_mutation" };
+      }
+      expect(outcome).toMatchObject({ ...expected, stage: "adapter", adapterStarted: true });
+      expect(outcome.retryAt === null).toBe(expected.disposition !== "requeue");
+      expect(h.quote).toHaveBeenCalledTimes(1);
+    });
+
+    it("never requeues an upload failure for missing or unsupported input", async () => {
+      for (const reason of ["missing_cad_file", "unsupported_file_type"]) {
+        const h = harness({ quote: async () => { throw new VendorAutomationError("upload", "upload_failure", { reason }); } });
+        expect(await runProviderTaskPipeline(input(), h.deps)).toMatchObject({ disposition: "manual_follow_up", code: "adapter_upload_failure" });
+      }
+    });
+
+    it.each(["unsupported", "selector_drift"])("never requeues the deterministic terminal state %s", async (terminalState) => {
+      const h = harness({ quote: async () => { throw new VendorAutomationError("stop", "navigation_failure", { terminalState }); } });
+      expect(await runProviderTaskPipeline(input(), h.deps)).toMatchObject({
+        disposition: "manual_follow_up",
+        code: `adapter_${terminalState}`,
+        retryAt: null,
+      });
+    });
+
+    it("never requeues the portal kernel's ambiguous post upload mutation", async () => {
+      const h = harness({
+        quote: async () => {
+          throw new VendorAutomationError("stop", "selector_failure", {
+            terminalState: "selector_drift",
+            reason: "ambiguous_provider_mutation",
+            providerMutationPossible: true,
+          });
+        },
+      });
+      expect(await runProviderTaskPipeline(input(), h.deps)).toMatchObject({ disposition: "manual_follow_up", code: "adapter_failed_after_mutation" });
+    });
+
+    it.each([
+      { name: "a plain crash", error: () => new Error("crash"), phaseStarted: false, expected: { disposition: "failed", code: "adapter_failed" } },
+      { name: "a plain transient error", error: () => new Error("ECONNRESET"), phaseStarted: false, expected: { disposition: "requeue", code: "adapter_failed" } },
+      { name: "a plain transient error after a mutation", error: () => new Error("ECONNRESET"), phaseStarted: true, expected: { disposition: "manual_follow_up", code: "adapter_failed_after_mutation" } },
+      { name: "a non error value", error: () => "boom", phaseStarted: false, expected: { disposition: "failed", code: "adapter_failed" } },
+    ])("classes $name", async ({ error, phaseStarted, expected }) => {
+      const h = harness({
+        quote: async () => {
+          if (phaseStarted) markProviderMutationStarted();
+          throw error();
+        },
+      });
+      expect(await runProviderTaskPipeline(input(), h.deps)).toMatchObject(expected);
+    });
+
+    it("keeps the mutation phase to the adapter: onAdapterStart and the caller's phase never see it", async () => {
+      const outer = createProviderMutationPhase();
+      const h = harness({
+        quote: async () => {
+          markProviderMutationStarted();
+          throw new VendorAutomationError("nav", "navigation_failure");
+        },
+      });
+      const outcome = await runInProviderMutationPhase(outer, () => runProviderTaskPipeline(input(), h.deps));
+      expect(outcome.code).toBe("adapter_failed_after_mutation");
+      expect(outer.started).toBe(false);
+    });
+
+    it("keeps the adapter error and every failure artifact as evidence", async () => {
+      const artifact = { kind: "json" as const, label: "state", localPath: "/tmp/evidence/a/state.json", contentType: "application/json" };
+      const error = new VendorAutomationError("selector", "selector_failure", {}, [artifact]);
+      const h = harness({ quote: async () => { throw error; } });
+      const outcome = await runProviderTaskPipeline(input(), h.deps);
+      expect(outcome.evidence.adapterError).toBe(error);
+      expect(outcome.evidence.artifacts).toEqual([artifact]);
+    });
+  });
+
   it("never requeues an adapter failure on a claim that followed a pre dispatch requeue", async () => {
-    const h = harness({ quote: async () => { throw new Error("crash"); } });
+    const h = harness({ quote: async () => { throw new Error("ECONNRESET"); } });
     const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), h.deps);
     expect(outcome).toMatchObject({ disposition: "failed", code: "adapter_failed" });
   });
@@ -493,17 +639,17 @@ describe("retry authority", () => {
     expect(daySwitch.isDisabled("fictiv", Date.parse("2026-10-04T00:00:00.000Z"))).toBe(false);
   });
 
-  it("applies the validator per code budget: bounded codes requeue once, others never", async () => {
-    const empty = async () => quoteOutput({ status: "instant_quote_received", unitPriceUsd: null, totalPriceUsd: null, offers: [] });
+  it("never requeues a validate stage stop after a completed adapter run, even a validator bounded code", async () => {
+    const artifact = { kind: "json" as const, label: "page", localPath: "/tmp/evidence/b/page.json", contentType: "application/json" };
+    const empty = async () =>
+      quoteOutput({ status: "instant_quote_received", unitPriceUsd: null, totalPriceUsd: null, offers: [], artifacts: [artifact] });
     const first = harness({ quote: empty });
     const bounded = await runProviderTaskPipeline(input(), first.deps);
-    expect(bounded).toMatchObject({ disposition: "requeue", stage: "validate" });
+    // The provider already holds a quote, so an operator looks instead of a rerun.
+    expect(bounded).toMatchObject({ disposition: "manual_follow_up", stage: "validate", retryAt: null, adapterStarted: true });
     expect(bounded.rejection?.retry).toBe("bounded");
+    expect(bounded.evidence.artifacts).toEqual([artifact]);
     expect(first.persist).not.toHaveBeenCalled();
-
-    const again = harness({ quote: empty });
-    const exhausted = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), again.deps);
-    expect(exhausted).toMatchObject({ disposition: "failed", stage: "validate" });
 
     const offDomain = harness({ quote: async () => quoteOutput({ quoteUrl: "https://evil.example.com/q" }) });
     const refused = await runProviderTaskPipeline(input(), offDomain.deps);
@@ -569,7 +715,7 @@ describe("persistence and cleanup", () => {
     const lease = fakeLease(calls);
     const h = harness({ calls, lease: lease.port, quote: async () => { throw new Error("crash"); } });
     const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
-    expect(outcome).toMatchObject({ disposition: "requeue", code: "adapter_failed" });
+    expect(outcome).toMatchObject({ disposition: "failed", code: "adapter_failed" });
     expect(lease.released).toHaveBeenCalledTimes(1);
   });
 
@@ -700,6 +846,21 @@ describe("persistence boundary (lead review of #698)", () => {
     expect(persisted.validUntil).toBe("2026-11-02T12:00:00.000Z");
     expect(persisted.validitySource).toBe("vendor_duration");
     expect(persisted.validityDurationDays).toBe(30);
+    expect(persisted.rawPayload[PROVIDER_RESULT_VALID_UNTIL_DERIVED]).toBe(true);
+    // The offer rows keep the derived column but no raw vendor date, so the
+    // database trigger keeps vendor_duration instead of relabeling it vendor_date.
+    const rows = preserveDerivedValiditySource(persisted, [{ valid_until: persisted.validUntil, raw_payload: { validUntil: persisted.validUntil, x: 1 } }]);
+    expect(rows).toEqual([{ valid_until: "2026-11-02T12:00:00.000Z", raw_payload: { validUntil: null, x: 1 } }]);
+  });
+
+  it("leaves a vendor stated date untouched in the offer rows", async () => {
+    const h = harness({ quote: async () => quoteOutput({ validUntil: "2026-11-30T00:00:00.000Z", validitySource: "vendor_date" }) });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome.disposition).toBe("persisted");
+    const persisted = h.persist.mock.calls[0][0];
+    expect(persisted.rawPayload[PROVIDER_RESULT_VALID_UNTIL_DERIVED]).toBeUndefined();
+    const rows = [{ raw_payload: { validUntil: persisted.validUntil } }];
+    expect(preserveDerivedValiditySource(persisted, rows)).toBe(rows);
   });
 
   it("never persists a duration that has already run out", async () => {
@@ -708,7 +869,7 @@ describe("persistence boundary (lead review of #698)", () => {
         quoteOutput({ quotedAt: "2026-09-01T12:00:00.000Z", validitySource: "vendor_duration", validityDurationDays: 7 }),
     });
     const outcome = await runProviderTaskPipeline(input(), h.deps);
-    expect(outcome.disposition).not.toBe("persisted");
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "expired_validity", stage: "validate", retryAt: null });
     expect(h.persist).not.toHaveBeenCalled();
   });
 
@@ -744,6 +905,8 @@ describe("database claim cap (lead decision)", () => {
     expect(h.deps.readLane).not.toHaveBeenCalled();
     expect(h.deps.authorize).not.toHaveBeenCalled();
     expect(h.persist).not.toHaveBeenCalled();
+    // Claims spent before the pipeline (spend cap or staging retries) count too; the note says so.
+    expect(providerTaskOutcomeNote("fictiv", outcome)).toContain("requeued before the provider pipeline ran");
   });
 
   it.each([0, -1, 1.5, Number.NaN])("fails closed on a malformed claim counter %s", async (attempts) => {
@@ -753,15 +916,15 @@ describe("database claim cap (lead decision)", () => {
     expect(outcome).toMatchObject({ disposition: "failed", code: "execution_request_malformed" });
   });
 
-  it("caps total adapter starts at two across requeues, including a pre dispatch requeue in between", async () => {
-    const consumer = createProviderAuthorizationConsumer();
+  it("caps total adapter starts at two across requeues, even when each claim runs in a fresh process", async () => {
     const failing = async () => {
-      throw new Error("crash");
+      throw new Error("ECONNRESET");
     };
     const starts = vi.fn();
     const outcomes: ProviderTaskOutcome[] = [];
     for (let attempts = 1; attempts <= 4; attempts += 1) {
-      const h = harness({ consumer, quote: failing });
+      // A fresh replay record per claim is the cross process case durable permit tracking (OVD-734) will close.
+      const h = harness({ quote: failing });
       h.deps.onAdapterStart = starts;
       const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = attempts)), h.deps);
       outcomes.push(outcome);

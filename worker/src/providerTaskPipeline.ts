@@ -33,13 +33,20 @@ import {
   type ProviderResultValidation,
   type ValidatedProviderResult,
 } from "./providerResultValidation.js";
-import type {
-  VendorName,
-  VendorQuoteAdapterInput,
-  VendorQuoteAdapterOffer,
-  VendorQuoteAdapterOutput,
+import {
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+  type ProviderMutationPhase,
+} from "./providerMutationPhase.js";
+import {
+  VendorAutomationError,
+  type VendorArtifact,
+  type VendorName,
+  type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOffer,
+  type VendorQuoteAdapterOutput,
 } from "./types.js";
-import { nextRetryAt } from "./vendorTaskRetry.js";
+import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
 
 /**
  * OVD-464: the single provider neutral launch boundary for a claimed
@@ -62,7 +69,9 @@ import { nextRetryAt } from "./vendorTaskRetry.js";
  *
  * Retry authority: `decideProviderTaskRetry` is the only place this route
  * decides to requeue. The caller writes the outcome and must not rethrow it
- * into the worker's generic task retry.
+ * into the worker's generic task retry. Only an adapter failure with no
+ * mutation evidence that the shared vendor policy calls transient may requeue,
+ * once; a refused result after a completed adapter run never requeues.
  */
 
 export const PROVIDER_SESSION_LEASE_SETTINGS = ["off", "on"] as const;
@@ -168,7 +177,7 @@ export type ProviderTaskRetryDecision =
 export function decideProviderTaskRetry(input: {
   failureClass: ProviderTaskFailureClass;
   attempts: number;
-  /** Per code cap from the validator; 0 forbids a retry. Defaults to 1. */
+  /** Optional per code cap; 0 forbids a retry. Defaults to 1. */
   retryBudget?: number;
   now?: Date;
 }): ProviderTaskRetryDecision {
@@ -192,6 +201,36 @@ export function decideProviderTaskRetry(input: {
   }
 }
 
+// --------------------------------------------------------------------------- adapter failure class
+
+/** Terminal portal states that never change on a rerun. */
+const DETERMINISTIC_TERMINAL_STATES: ReadonlySet<unknown> = new Set(["unsupported", "selector_drift"]);
+
+/**
+ * Classes an error thrown by the adapter, given the mutation phase the
+ * pipeline ran the adapter in. Only a failure the shared vendor retry policy
+ * accepts before any provider mutation (a transient navigation, network or
+ * persistence failure) may requeue, and then at most once. Any mutation
+ * evidence, from the phase or the error's own `providerMutationPossible`, means
+ * the provider may hold an upload or a quote: never requeue, an operator looks.
+ */
+export function classifyProviderAdapterFailure(
+  error: unknown,
+  phase: ProviderMutationPhase,
+): { failureClass: ProviderTaskFailureClass; code: string } {
+  const vendorError = error instanceof VendorAutomationError ? error : null;
+  if (phase.started || vendorError?.payload.providerMutationPossible === true) {
+    return { failureClass: "manual_follow_up", code: "adapter_failed_after_mutation" };
+  }
+  const terminalState = vendorError?.payload.terminalState;
+  if (DETERMINISTIC_TERMINAL_STATES.has(terminalState)) {
+    return { failureClass: "manual_follow_up", code: `adapter_${String(terminalState)}` };
+  }
+  if (isRetryableVendorTaskError(error, phase)) return { failureClass: "post_start_bounded", code: "adapter_failed" };
+  if (vendorError) return { failureClass: "manual_follow_up", code: `adapter_${vendorError.code}` };
+  return { failureClass: "failed", code: "adapter_failed" };
+}
+
 // --------------------------------------------------------------------------- outcome
 
 export type ProviderTaskStage = "authorize" | "verify_bytes" | "lease" | "adapter" | "validate" | "persist";
@@ -210,6 +249,12 @@ export type ProviderTaskOutcome = {
   rejection: ReturnType<typeof toAdminRejectionDiagnostic> | null;
   /** Set only when persisted. */
   persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number } | null;
+  /**
+   * Failure evidence for the worker to keep and clean up: the adapter's own
+   * error (for repair candidates) and the artifacts of a failed or refused
+   * run. Empty when persisted. Never written to the lane as text.
+   */
+  evidence: { adapterError: VendorAutomationError | null; artifacts: VendorArtifact[] };
 };
 
 // --------------------------------------------------------------------------- inputs
@@ -249,13 +294,17 @@ export type ProviderTaskPipelineDeps = {
   persist(output: VendorQuoteAdapterOutput): Promise<{ artifactCount: number }>;
   lease?: ProviderTaskLeasePort | null;
   daySwitch: ProviderDaySwitch;
-  /** Replay record for the seam; the pipeline scopes keys to the claim. */
+  /** Replay record for the seam, keyed by permit and fingerprint, so one permit dispatches at most once per process. */
   consumer?: ProviderAuthorizationConsumer;
   guards?: readonly ProviderExecutionGuard[];
   validate?: (candidate: ProviderResultCandidate, expectation: ProviderResultExpectation) => ProviderResultValidation;
   now?: () => number;
   log?: ProviderExecutionLogger;
-  /** Called once, immediately before the adapter is invoked. */
+  /**
+   * Called once, immediately before the adapter is invoked, outside the
+   * adapter's mutation phase. It must not mark a provider mutation: only the
+   * adapter knows when its first upload or configuration starts.
+   */
   onAdapterStart?: () => void;
 };
 
@@ -305,7 +354,7 @@ function capturedFilesMatch(envelope: ProviderDispatchEnvelope, files: readonly 
     roles.add(file.role);
     const authorized = envelope.outboundFiles.find((outbound) => outbound.role === file.role);
     const digest = sha256Hex(file.bytes);
-    if (!authorized || authorized.sha256 !== digest || authorized.sourceSha256 !== digest) return false;
+    if (authorized?.sha256 !== digest || authorized.sourceSha256 !== digest) return false;
   }
   return true;
 }
@@ -335,11 +384,20 @@ export function deriveProviderResultValidUntil(
   return new Date(anchorMs + (days as number) * DAY_MS).toISOString();
 }
 
+/**
+ * Raw payload marker for an expiry the worker derived from a vendor duration.
+ * The persistence layer must then keep the raw `validUntil` empty, so the
+ * database validity trigger keeps `validity_source = vendor_duration` instead
+ * of relabeling a derived date as a vendor date.
+ */
+export const PROVIDER_RESULT_VALID_UNTIL_DERIVED = "providerResultValidUntilDerived";
+
 function toAdapterOutput(
   output: VendorQuoteAdapterOutput,
   validated: ValidatedProviderResult,
   validUntil: string | null,
 ): VendorQuoteAdapterOutput {
+  const validUntilDerived = !validated.validUntil && validUntil !== null;
   const derivedOnly = validated.offers.every((offer) => offer.derivedFromSummary);
   const offers: VendorQuoteAdapterOffer[] = validated.offers.map((offer) => ({
     providerOptionId: offer.providerOptionId,
@@ -368,6 +426,7 @@ function toAdapterOutput(
       ...sanitizeRawPayload(output.rawPayload ?? {}),
       providerResultContract: validated.contractVersion,
       providerResultProvenance: validated.provenance,
+      ...(validUntilDerived ? { [PROVIDER_RESULT_VALID_UNTIL_DERIVED]: true } : {}),
     },
   };
 }
@@ -380,7 +439,6 @@ type Stop = {
   failureClass: ProviderTaskFailureClass;
   code: string;
   stage: ProviderTaskStage;
-  retryBudget?: number;
   rejection?: ProviderTaskOutcome["rejection"];
 };
 
@@ -395,7 +453,16 @@ function isStop(value: unknown): value is Stop {
 type Persisted = { persisted: true; status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number };
 
 /** Mutable facts gathered while the pipeline runs; read when the outcome is built. */
-type RunState = { adapterStarted: boolean; providerDisabledForDay: boolean };
+type RunState = {
+  adapterStarted: boolean;
+  providerDisabledForDay: boolean;
+  /** The pipeline owned phase the adapter runs in; adapters mark it before their first provider mutation. */
+  mutationPhase: ProviderMutationPhase;
+  /** What the adapter threw, kept because the seam returns `adapter_failed` without it. */
+  adapterError: { error: unknown } | null;
+  /** The adapter's output once it completed, kept for its evidence if it is refused. */
+  output: VendorQuoteAdapterOutput | null;
+};
 
 type Route = {
   reviewed: ReviewedProviderDispatchEnvelope;
@@ -561,15 +628,20 @@ function buildResultCheck(
 }
 
 /** Classes a non completed seam result, applying the day switch for a block or ban. */
-function seamStop(result: ProviderExecutionResult<unknown>, onBlock: (outcome: string) => void): Stop {
+function seamStop(result: ProviderExecutionResult<unknown>, state: RunState, onBlock: (outcome: string) => void): Stop {
   switch (result.kind) {
     case "denied":
       return stop(result.retryable ? "pre_dispatch_transient" : "manual_follow_up", result.denial, "adapter");
     case "terminal":
       onBlock(result.outcome);
       return stop("manual_follow_up", TERMINAL_CODES[result.outcome] ?? "terminal", "adapter");
-    case "adapter_failed":
-      return stop("post_start_bounded", "adapter_failed", "adapter");
+    case "adapter_failed": {
+      // No captured error means the failure came from inside the seam; class it as a mutation, never a retry.
+      const classed = state.adapterError
+        ? classifyProviderAdapterFailure(state.adapterError.error, state.mutationPhase)
+        : { failureClass: "manual_follow_up" as const, code: "adapter_failed_after_mutation" };
+      return stop(classed.failureClass, classed.code, "adapter");
+    }
     default:
       return stop("failed", "seam_result_malformed", "adapter");
   }
@@ -581,12 +653,10 @@ function validationStop(validation: ProviderResultValidation): Stop | null {
   }
   if (validation.ok) return null;
   const rejection = validation.rejection;
-  const diagnostic = toAdminRejectionDiagnostic(rejection);
-  if (rejection.retry === "bounded") {
-    return stop("post_start_bounded", rejection.code, "validate", { retryBudget: rejection.retryBudget, rejection: diagnostic });
-  }
-  return stop(rejection.retry === "manual_follow_up" ? "manual_follow_up" : "failed", rejection.code, "validate", {
-    rejection: diagnostic,
+  // The adapter completed, so the provider already holds a quote: a refused
+  // result is never requeued, even when the validator would allow a bounded retry.
+  return stop(rejection.retry === "none" ? "failed" : "manual_follow_up", rejection.code, "validate", {
+    rejection: toAdminRejectionDiagnostic(rejection),
   });
 }
 
@@ -611,11 +681,30 @@ function leaseStop(run: ProviderTaskLeaseRunResult<unknown>, state: RunState, on
   }
 }
 
+function failureEvidence(state: RunState): ProviderTaskOutcome["evidence"] {
+  const thrown = state.adapterError?.error;
+  const adapterError = thrown instanceof VendorAutomationError ? thrown : null;
+  const outputArtifacts = Array.isArray(state.output?.artifacts) ? state.output.artifacts : [];
+  return { adapterError, artifacts: [...(adapterError?.artifacts ?? []), ...outputArtifacts] };
+}
+
+/**
+ * Only an adapter stage failure without mutation evidence may requeue; every
+ * other stop with a bounded class is settled for an operator instead.
+ */
+function effectiveFailureClass(result: Stop, state: RunState): ProviderTaskFailureClass {
+  // Nothing that reached the provider is ever classed as pre dispatch.
+  if (state.adapterStarted && result.failureClass === "pre_dispatch_transient") return "failed";
+  if (result.failureClass === "post_start_bounded" && result.stage !== "adapter") return "manual_follow_up";
+  return result.failureClass;
+}
+
 function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, nowMs: number): ProviderTaskOutcome {
   const base = { adapterStarted: state.adapterStarted, providerDisabledForDay: state.providerDisabledForDay };
   if (!isStop(result)) {
     return {
       ...base,
+      evidence: { adapterError: null, artifacts: [] },
       disposition: "persisted",
       code: "persisted",
       stage: "persist",
@@ -624,9 +713,8 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
       persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount },
     };
   }
-  // Nothing that reached the provider is ever classed as pre dispatch.
-  const failureClass = state.adapterStarted && result.failureClass === "pre_dispatch_transient" ? "failed" : result.failureClass;
-  const decision = decideProviderTaskRetry({ failureClass, attempts, retryBudget: result.retryBudget, now: new Date(nowMs) });
+  const failureClass = effectiveFailureClass(result, state);
+  const decision = decideProviderTaskRetry({ failureClass, attempts, now: new Date(nowMs) });
   let disposition: ProviderTaskOutcome["disposition"] = "failed";
   if (decision.action === "requeue") disposition = "requeue";
   else if (decision.action === "manual_follow_up") disposition = "manual_follow_up";
@@ -638,6 +726,7 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
     retryAt: decision.action === "requeue" ? decision.retryAt : null,
     rejection: result.rejection ?? null,
     persisted: null,
+    evidence: failureEvidence(state),
   };
 }
 
@@ -656,7 +745,7 @@ function persistableOutput(
   }
   const validUntil = deriveProviderResultValidUntil(output, validated);
   if (validUntil !== null && Date.parse(validUntil) < nowMs) {
-    return stop("post_start_bounded", "expired_validity", "validate", { retryBudget: 1 });
+    return stop("manual_follow_up", "expired_validity", "validate");
   }
   return toAdapterOutput(output, validated, validUntil);
 }
@@ -683,8 +772,19 @@ async function executeValidateAndPersist(
   leaseContext: ProviderTaskLeaseContext | null,
 ): Promise<Stop | Persisted> {
   const { input, deps, state, now, route, authorization } = step;
-  const authorizedRoles = authorization.envelope.outboundFiles.map((file) => file.role);
+  const authorizedRoles = new Set(authorization.envelope.outboundFiles.map((file) => file.role));
   const lease = route.lease;
+  // The adapter sees file metadata only for authorized roles; a drawing it may not upload is absent, not hidden.
+  const cadAuthorized = authorizedRoles.has("cad");
+  const drawingAuthorized = authorizedRoles.has("drawing");
+  const quoteInput: VendorQuoteAdapterInput = {
+    ...input.quoteInput,
+    cadFile: cadAuthorized ? input.quoteInput.cadFile : null,
+    drawingFile: drawingAuthorized ? input.quoteInput.drawingFile : null,
+    stagedCadFile: cadAuthorized ? input.quoteInput.stagedCadFile : null,
+    stagedDrawingFile: drawingAuthorized ? input.quoteInput.stagedDrawingFile : null,
+    providerDispatchAuthorization: authorization,
+  };
   let collectedAt = "";
   let packageId = "";
   const seamResult = await executeWithProviderAuthorization(
@@ -692,18 +792,19 @@ async function executeValidateAndPersist(
     {
       provider: input.claim.provider,
       execute: async (context: ProviderExecutionContext) => {
-        leaseContext?.assertHeld();
-        packageId = providerPackageId(context.files);
-        state.adapterStarted = true;
-        deps.onAdapterStart?.();
-        const output = await route.adapter.quote({
-          ...input.quoteInput,
-          stagedCadFile: authorizedRoles.includes("cad") ? input.quoteInput.stagedCadFile : null,
-          stagedDrawingFile: authorizedRoles.includes("drawing") ? input.quoteInput.stagedDrawingFile : null,
-          providerDispatchAuthorization: authorization,
-        });
-        collectedAt = new Date(now()).toISOString();
-        return output;
+        try {
+          leaseContext?.assertHeld();
+          packageId = providerPackageId(context.files);
+          state.adapterStarted = true;
+          deps.onAdapterStart?.();
+          // Adapters mark this phase right before their first upload or quote configuration.
+          const output = await runInProviderMutationPhase(state.mutationPhase, () => route.adapter.quote(quoteInput));
+          collectedAt = new Date(now()).toISOString();
+          return output;
+        } catch (error) {
+          state.adapterError = { error };
+          throw error;
+        }
       },
     },
     {
@@ -713,10 +814,11 @@ async function executeValidateAndPersist(
       toLeaseError: lease ? (outcome) => lease.toLeaseError(outcome) : undefined,
     },
   );
-  if (seamResult?.kind !== "completed") return seamStop(seamResult, step.onBlock);
+  if (seamResult?.kind !== "completed") return seamStop(seamResult, state, step.onBlock);
 
   // 6. Validate the complete normalized result.
   const output = seamResult.value as VendorQuoteAdapterOutput;
+  state.output = output;
   const check = buildResultCheck(input, route, step.lane, authorization.envelope, { output, collectedAt, packageId }, now());
   let validation: ProviderResultValidation;
   try {
@@ -759,7 +861,13 @@ export async function runProviderTaskPipeline(
   deps: ProviderTaskPipelineDeps,
 ): Promise<ProviderTaskOutcome> {
   const now = deps.now ?? (() => Date.now());
-  const state: RunState = { adapterStarted: false, providerDisabledForDay: false };
+  const state: RunState = {
+    adapterStarted: false,
+    providerDisabledForDay: false,
+    mutationPhase: createProviderMutationPhase(),
+    adapterError: null,
+    output: null,
+  };
   const result = await runSteps(input, deps, state, now);
   return toOutcome(result, state, input.task.attempts, now());
 }
@@ -793,7 +901,6 @@ async function runSteps(
   if (isStop(session)) return session;
 
   const lease = route.lease;
-  const sharedConsumer = deps.consumer;
   const step: AdmittedStep = {
     input,
     deps,
@@ -806,9 +913,10 @@ async function runSteps(
     files,
     onBlock,
     expected: buildExecutionExpectation(input, route, lane, session, authorization),
-    consumer: sharedConsumer
-      ? { consume: (key, expiresAtMs, nowMs) => sharedConsumer.consume(`${key}:${input.task.attempts}`, expiresAtMs, nowMs) }
-      : undefined,
+    // The replay key is the permit and fingerprint alone: a second dispatch on
+    // the same permit in this process, from a requeue or otherwise, is denied
+    // authorization_replayed. Durable per permit tracking is OVD-734.
+    consumer: deps.consumer,
   };
   const operation = (leaseContext: ProviderTaskLeaseContext | null) => executeValidateAndPersist(step, leaseContext);
 
