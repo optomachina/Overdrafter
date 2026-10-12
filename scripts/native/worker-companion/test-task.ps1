@@ -10,6 +10,7 @@ function Must-Fail([scriptblock]$Action,[string]$Label) {
 }
 function U([int]$N) { return '56200000-0000-4000-8000-'+$N.ToString('000000000000') }
 foreach ($file in @('CompanionTask.ps1','CompanionTaskHttp.ps1','run-task.ps1','reconcile-task.ps1',
+    'CompanionOutputReplay.ps1','replay-output.ps1','test-output-replay.ps1',
     'CompanionAuthorityPipe.ps1','CompanionRuntime.ps1','prepare-runtime.ps1','PreparedRunnerBootstrap.ps1','test-runtime.ps1','test-anonymous-pipe.ps1','test-effect-authority.ps1','test-runner-effect-gate.ps1',
     '../prepared-dimension/run.ps1','../attempt-journal/JournalRunner.ps1','../file-admission/OwnedProcess.ps1')) {
     $errors=$null; $tokens=$null
@@ -90,9 +91,6 @@ $task.phase='recovery_required'; & $persist $task
 $renewed=Invoke-CompanionTaskHeartbeat $task $state $beat $persist
 Check ($renewed.outcome -ceq 'renewed' -and $null -eq $task.heartbeat -and
     $task.receipt.attemptRevision -eq 1 -and $task.phase -ceq 'recovery_required') 'same heartbeat replay cannot resume launch'
-[pscustomobject]@{schema='overdrafter.companion-task-test.v1';assertions=$script:checks;passed=$true;
-    network=$false;disk=$false;nativeActions=0;powershell=$PSVersionTable.PSVersion.ToString()} | ConvertTo-Json
-
 Check ((ConvertTo-CompanionObserverDeadline '2026-09-27T11:10:00.123456+02:00') -ceq
     '2026-09-27T09:10:00.123Z') 'observer deadline normalizes offset and floors microseconds'
 Must-Fail { ConvertTo-CompanionObserverDeadline 'not-a-time' } 'observer malformed deadline denied'
@@ -112,4 +110,74 @@ Must-Fail { Invoke-CompanionAuthorityReplacement {
     $script:replaceCalls++; throw [UnauthorizedAccessException]::new('synthetic ACL failure')
 } } 'non-sharing failures are not retried'
 Check ($script:replaceCalls -eq 1) 'ACL failure receives one attempt'
-Write-Output ('Review regressions passed; total task checks: '+$script:checks)
+
+# Fresh boots lose old enablement. Only a later authenticated exact-boot grant
+# may end this bounded wait; the synthetic transport refuses every mutation.
+$script:waitMs=0; $script:sessionReads=0; $script:waitingNotices=0
+$script:sessionReason='owner_enablement_required'; $script:enableAfter=2; $script:responseDelay=0
+$sessionTransport={param($request,$token,$url)
+    Check ($request.action -ceq 'session' -and $request.bootId -ceq $state.bootId -and
+        $token -ceq $state.token -and $url -ceq $state.gatewayUrl) 'wait uses only exact-boot session read'
+    $script:sessionReads++; $script:waitMs+=$script:responseDelay
+    $reason=$script:sessionReason
+    if ($script:enableAfter -gt 0 -and $script:sessionReads -ge $script:enableAfter) { $reason='enabled' }
+    $sessionId=$null; $expiresAt=$null; $bootId=$state.bootId
+    if ($reason -cin @('enabled','paused','expired')) { $sessionId=U 11; $expiresAt=$receipt.deadlineAt }
+    if ($reason -ceq 'boot_mismatch') { $bootId=U 99 }
+    return [pscustomobject]@{status=200;body=[pscustomobject]@{schema='overdrafter.worker-gateway.v1';action='session';
+        receipt=[pscustomobject]@{workerId=$state.workerId;installationId=$state.installationId;
+            revision=4;bootId=$bootId;sessionId=$sessionId;expiresAt=$expiresAt;
+            sessionEligible=($reason -ceq 'enabled');reason=$reason}}}
+}
+$elapsed={ $script:waitMs }; $delay={param($ms) $script:waitMs+=$ms}
+$notice={param($pending) Check (-not $pending.sessionEligible) 'waiting notice cannot grant authority'; $script:waitingNotices++}
+$enabled=Wait-CompanionTaskSession $state $state.bootId $sessionTransport 10 $notice $elapsed $delay
+Check ($enabled.sessionEligible -and $script:sessionReads -eq 2 -and $script:waitMs -eq 5000 -and
+    $script:waitingNotices -eq 1) 'fresh boot waits for explicit later enablement'
+$script:waitMs=0; $script:sessionReads=0; $script:enableAfter=0
+Check ($null -eq (Wait-CompanionTaskSession $state $state.bootId $sessionTransport 3 $notice $elapsed $delay)) 'unenabled boot times out without authority'
+Check ($script:sessionReads -eq 1 -and $script:waitMs -eq 3000) 'timeout caps delay and prohibits another read'
+foreach ($reason in @('paused','expired','boot_mismatch')) {
+    $script:waitMs=0; $script:sessionReads=0; $script:sessionReason=$reason
+    $denied=Wait-CompanionTaskSession $state $state.bootId $sessionTransport 10 $notice $elapsed $delay
+    Check (-not $denied.sessionEligible -and $script:sessionReads -eq 1 -and $script:waitMs -eq 0) ('terminal denial does not wait '+$reason)
+}
+$script:sessionReason='owner_enablement_required'; $script:sessionReads=0
+$immediate=Wait-CompanionTaskSession $state $state.bootId $sessionTransport 0 $notice $elapsed $delay
+Check (-not $immediate.sessionEligible -and $script:sessionReads -eq 1) 'zero wait keeps immediate probe behavior'
+$script:waitMs=0; $script:sessionReads=0; $script:enableAfter=1; $script:responseDelay=10000
+Check ($null -eq (Wait-CompanionTaskSession $state $state.bootId $sessionTransport 10 $notice $elapsed $delay)) 'late enabled reply cannot escape wait budget'
+Must-Fail { Wait-CompanionTaskSession $state (U 99) $sessionTransport 10 $notice $elapsed $delay } 'foreign boot cannot enter wait'
+Must-Fail { Wait-CompanionTaskSession $state $state.bootId { throw 'synthetic transport failure' } 10 $notice $elapsed $delay } 'transport failure cannot grant eligibility'
+
+# Compose real startup, wait and claim helpers. A boot invalidates the old
+# synthetic grant; only the separately simulated owner action restores it.
+$script:serverBoot=$state.bootId; $script:serverRevision=$state.revision
+$script:serverEnabled=$true; $script:bootWrites=0; $script:waitMs=0
+$startupTransport={param($request,$token,$url)
+    if ($request.action -ceq 'boot') {
+        Check ($request.expectedRevision -eq $script:serverRevision) 'fresh boot uses current revision'
+        $script:serverBoot=$request.bootId; $script:serverRevision++; $script:serverEnabled=$false; $script:bootWrites++
+        $reply=[pscustomobject]@{workerId=$state.workerId;revision=$script:serverRevision;bootId=$script:serverBoot;enabled=$false}
+    } else {
+        Check ($request.action -ceq 'session') 'startup admits no owner enablement action'
+        $reason='owner_enablement_required'; $session=$null; $expires=$null; $eligible=$false
+        if ($request.bootId -cne $script:serverBoot) { $reason='boot_mismatch' }
+        elseif ($script:serverEnabled) { $reason='enabled'; $eligible=$true; $session=U 11; $expires=$receipt.deadlineAt }
+        $reply=[pscustomobject]@{workerId=$state.workerId;revision=$script:serverRevision;
+            installationId=$state.installationId;bootId=$script:serverBoot;sessionId=$session;
+            sessionEligible=$eligible;reason=$reason;expiresAt=$expires}
+    }
+    return [pscustomobject]@{status=200;body=[pscustomobject]@{schema='overdrafter.worker-gateway.v1';action=$request.action;receipt=$reply}}
+}
+$state=Invoke-CompanionStartup $state (U 50) $startupTransport $persist
+Check (-not $script:serverEnabled -and $state.bootId -ceq (U 50)) 'fresh task boot cannot inherit old grant'
+$ownerDelay={param($ms) $script:waitMs+=$ms; $script:serverEnabled=$true}
+$status=Wait-CompanionTaskSession $state $state.bootId $startupTransport 10 $notice $elapsed $ownerDelay
+$receipt.bootId=$state.bootId; $claimsBefore=$script:claims
+$connectedTask=New-CompanionTask $state (U 4) (U 5) (U 6) 0
+$connectedTask=Invoke-CompanionTaskClaim $connectedTask $state $status $claimTransport $persist
+Check ($script:bootWrites -eq 1 -and $script:claims -eq ($claimsBefore+1) -and
+    $connectedTask.phase -ceq 'claimed' -and $connectedTask.bootId -ceq (U 50)) 'one exact-boot claim after explicit delayed owner enablement'
+[pscustomobject]@{schema='overdrafter.companion-task-test.v1';assertions=$script:checks;passed=$true;
+    network=$false;disk=$false;nativeActions=0;powershell=$PSVersionTable.PSVersion.ToString()} | ConvertTo-Json
