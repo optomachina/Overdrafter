@@ -1,30 +1,59 @@
 # Provider go-live checklist
 
-Last updated: October 11, 2026
+Last updated: October 12, 2026
 
 This is the human-gated go-live record for operational and production facts
 that CI cannot prove. It does not duplicate `provider:check` (OVD-691). A
 checked box grants no authority. Generated catalog, adapter, and registry
 output stays disabled by default. Admission happens only when a human applies
-reviewed SQL. Admit SQL never belongs in `supabase/migrations/`. Record Secret
+reviewed SQL; admit SQL is never committed by a generator. Record Secret
 Manager secret names only; never write secret values, cookies, tokens, or
 storage-state contents.
 
 Use this checklist with the **Provider go-live** section in
-`.github/pull_request_template.md`. CI requires that section only for PRs that
-touch `worker/src/providerDispatchEnvelope.ts`, generated registry/catalog/
-secret files, `worker/scripts/deploy-cloud-run.sh`,
-`supabase/migrations/*_reviewed_dispatch_envelope.sql`,
-`supabase/migrations/*admission*.sql`, or `provider-integrations/**`. Mark an
-item N/A only when it is checked `[x]` and has a real justification after links
-and evidence are removed (not placeholders such as `N/A: x`, `n/a`, `-`, `tbd`,
-`todo`, or `none`). Admission items cannot be N/A. Every item needs evidence: a
-GitHub PR/run/artifact or other https resource, a full SHA or short SHA with
-`commit`/`sha`, or a specific command plus its result.
+`.github/pull_request_template.md`.
+
+## When the section is required
+
+The `PR body gate` workflow requires the section only for a change that
+enables a provider for customers. It reads the diff content, not just file
+paths. A change enables a provider when it does any of the following:
+
+- flips a registry entry in `provider-integrations/provider-registry.v1.json`
+  to `"liveAdapter": true`, or adds production egress (`"egress":
+  "stable_nat"`);
+- adds a provider that was not present to `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`
+  in `worker/src/providerDispatchEnvelope.ts`;
+- adds or changes a migration that sets `generic_dispatch_enabled = true` or
+  `admission_state = 'approved'` (an `UPDATE` or an `INSERT`; comments are
+  ignored). A schema change whose name mentions admission does not count.
+
+Everything else does not need the section: stage 1 and 2 `fixture:onboard`
+output (`provider:add` is the alias of `--stage=envelope`), registry hardening,
+permissions docs, adding a reviewed envelope migration that stays disabled,
+the kill switch (OVD-722), the export block (OVD-723), and any disable change
+including a cease and desist disable. A change that only lowers an enabling
+signal never requires the section.
+
+## Evidence and N/A
+
+Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
+`optomachina/Overdrafter`, or a Linear OVD issue. Other URLs are not evidence.
+The gate also checks that GitHub links resolve.
+
+Worker secret, egress, admission, rollout, certification, and export control
+items may be marked N/A when they do not apply to the stage being enabled.
+Check the box `[x]` and write `N/A: <justification>` with a real sentence (not
+`n/a`, `tbd`, `todo`, `none`, or `-`). The envelope, rollback, kill switch, and
+legal stance items cannot be N/A.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those
 items appear here only as **provider:check green**.
+
+Commands: `npm run fixture:onboard -- <key> --stage=envelope|live|admit`
+generates the offline stages (`npm run provider:add` is the envelope stage
+alias). There is no `provider:onboard` command.
 
 ## Envelope
 
@@ -50,8 +79,8 @@ items appear here only as **provider:check green**.
 - [ ] **Approved admission revision reviewed and applied.** A human reviewed
       and applied a revision with `generic_dispatch_enabled=true`. The SQL
       stayed in a review-only stub until that human moved it; it was never
-      committed to `supabase/migrations/` by a generator. Record the policy
-      revision and an evidence link.
+      committed by a generator. Record the policy revision and an evidence
+      link.
 - [ ] **`automatic_quote_collection` rollout and org enablement.** Record the
       rollout revision, the organization enablement evidence, and that both
       remain independently disableable.
@@ -61,6 +90,27 @@ items appear here only as **provider:check green**.
       revision with `generic_dispatch_enabled=false`, rollout off, adapter
       removed from `WORKER_LIVE_ADAPTERS`, and permit revocation. Confirm the
       rehearsal did not enable customer traffic.
+
+## Legal stance
+
+These items record the provider legal stance. None can be N/A.
+
+- [ ] **Per provider kill switch rehearsal.** Run `npm run provider:kill` for
+      this provider on and off, following
+      `docs/runbooks/provider-cease-and-desist.md`, and record the run.
+- [ ] **Provider turned off the same day.** On a cease and desist, IP or bot
+      block, CAPTCHA wall, or account ban, the provider is switched off the
+      same day. Name the owner and the runbook step.
+- [ ] **About 20 quotes per provider per day.** Record the configured daily
+      ceiling and where it is enforced.
+- [ ] **Never evade a block.** Never rotate IPs, solve CAPTCHAs, mimic human
+      pacing, or retry around a block. Record that the adapter has no such
+      path.
+- [ ] **No stored customer passwords.** Only encrypted session tokens are
+      stored, and the customer can revoke with one click.
+- [ ] **ITAR/EAR controlled or uncertain uploads are blocked** to foreign
+      providers (Geomiq, Weerg) and to LLMs. Record the block (OVD-723) and its
+      test.
 
 ## Default-off reminder
 

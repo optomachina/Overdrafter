@@ -76,27 +76,29 @@ Baseline failures or exceptions:
 
 ## Provider go-live
 
-Required only when this PR touches `worker/src/providerDispatchEnvelope.ts`,
-generated registry/catalog/secret files, `worker/scripts/deploy-cloud-run.sh`,
-`supabase/migrations/*_reviewed_dispatch_envelope.sql`,
-`supabase/migrations/*admission*.sql`, or `provider-integrations/**`. Omit this
-section on unrelated PRs so the existing PR-body gate stays unchanged.
+Required only when this PR enables a provider for customers, and CI decides from
+the diff content: a registry entry gaining `liveAdapter: true` or production
+egress, a new provider added to `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, or a
+migration that sets `generic_dispatch_enabled = true` or `admission_state =
+'approved'`. Omit this section on every other PR, including generated
+stage 1 and 2 output, registry hardening, permissions docs, kill switch and
+disable changes, and cease and desist disables.
 
 A checked box grants no authority. Generated output stays disabled by default.
-Admission happens only when a human applies reviewed SQL; admit SQL never
-belongs in `supabase/migrations/`. Record Secret Manager secret names only.
+Admission happens only when a human applies reviewed SQL; admit SQL is never
+committed by a generator. Record Secret Manager secret names only.
 
-N/A must be checked `[x]` and include a real justification after links and
-evidence are removed (not placeholders such as `N/A: x`, `n/a`, `-`, `tbd`,
-`todo`, or `none`). Admission items cannot be N/A. Every item needs evidence: a
-GitHub PR/run/artifact or other https resource, a full SHA or short SHA with
-`commit`/`sha`, or a specific command plus its result
-(`npm run provider:check` -> pass).
+Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
+`optomachina/Overdrafter`, or a Linear OVD issue. Other URLs are not evidence.
+Worker secret, egress, admission, rollout, certification, and export control
+items may be marked `N/A: <written justification>` (checked `[x]`) when they do
+not apply to this stage. The envelope, rollback, kill switch, and legal stance
+items cannot be N/A.
 See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Envelope
 
-- [ ] provider:check green
+- [ ] provider:check green. Evidence:
 - [ ] Envelope reviewed by a named reviewer. Evidence:
 
 ### Live
@@ -106,10 +108,19 @@ See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Admit
 
-- [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL was not added to `supabase/migrations/`. Evidence:
+- [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL is never committed by a generator. Evidence:
 - [ ] `automatic_quote_collection` rollout and org enablement. Evidence:
 - [ ] Certification run evidence:
 - [ ] Rollback/disable steps rehearsed. Evidence:
+
+### Legal stance
+
+- [ ] Per provider kill switch rehearsal (`npm run provider:kill`, `docs/runbooks/provider-cease-and-desist.md`). Evidence:
+- [ ] Provider is turned off the same day on a C&D, IP or bot block, CAPTCHA wall, or account ban. Evidence:
+- [ ] Traffic stays at about 20 quotes per provider per day. Evidence:
+- [ ] Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:
+- [ ] No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:
+- [ ] ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:
 
 ## Screenshots or videos (if UI)
 

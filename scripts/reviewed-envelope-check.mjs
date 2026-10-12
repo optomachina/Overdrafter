@@ -75,7 +75,7 @@ export const REVIEWED_ENVELOPE_EXCEPTIONS = Object.freeze([
 ]);
 
 export function formatReviewedEnvelopeGap(key, artifact, expectedPath) {
-  return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run provider:onboard -- ${key} --stage=live`;
+  return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run fixture:onboard -- ${key} --stage=live`;
 }
 
 export function dispatchFixtureJsonPath(key, version) {

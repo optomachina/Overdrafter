@@ -1,0 +1,65 @@
+name: PR body gate
+
+# Separate from ci.yml on purpose: the `edited` trigger fires on every title or
+# body edit (review bots edit bodies), and it must not rerun the full CI suite
+# or cancel its runs. This workflow is small and has its own concurrency group.
+#
+# The Provider go-live section is required only when the diff enables a
+# provider for customers (see scripts/provider-enablement-detect.mjs). Every
+# other PR passes in seconds. To make this a required check, add the check name
+# "PR body gate / provider-go-live" to branch protection.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+
+concurrency:
+  group: pr-body-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  provider-go-live:
+    name: provider-go-live
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # pull_request checks out the merge commit of the PR head into the
+      # current base tip, so HEAD^1 is the base as merged. Diffing against it
+      # (not the PR base sha, which goes stale) cannot inherit files that landed on main
+      # after the PR branched.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate provider go-live PR section
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # --no-renames keeps a rename source as a deletion plus an addition.
+          git diff --name-status --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"
+          git diff --no-renames -U0 HEAD^1 HEAD > "$RUNNER_TEMP/pr.diff"
+          echo "Changed files:"
+          cat "$RUNNER_TEMP/changed-files.txt"
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          node scripts/validate-pr-body.mjs "$RUNNER_TEMP/pr-body.md" \
+            --changed-files-from "$RUNNER_TEMP/changed-files.txt" \
+            --diff-from "$RUNNER_TEMP/pr.diff" \
+            --skip-unless-enabling \
+            --verify-links

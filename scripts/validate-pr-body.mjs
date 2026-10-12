@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import { detectProviderEnablement } from "./provider-enablement-detect.mjs";
+
 export const REQUIRED_SECTIONS = [
   {
     heading: "Summary",
@@ -229,25 +231,10 @@ function validateVerificationSection(content, rule) {
   return errors;
 }
 
+
 export const PROVIDER_GO_LIVE_HEADING = "Provider go-live";
 
-export const PROVIDER_GO_LIVE_DISPATCH_ENVELOPE_FILE = "worker/src/providerDispatchEnvelope.ts";
-
-export const PROVIDER_GO_LIVE_INTEGRATIONS_PREFIX = "provider-integrations/";
-
-export const PROVIDER_GO_LIVE_EXACT_PATHS = Object.freeze([
-  PROVIDER_GO_LIVE_DISPATCH_ENVELOPE_FILE,
-  "worker/src/generated/providerRegistry.ts",
-  "worker/src/generated/provider-catalog.ts",
-  "src/features/quotes/generated/provider-catalog.ts",
-  "worker/scripts/generated/provider-secrets.sh",
-  "worker/scripts/deploy-cloud-run.sh",
-]);
-
-export const PROVIDER_GO_LIVE_REVIEWED_MIGRATION =
-  /^supabase\/migrations\/[^/]+_reviewed_dispatch_envelope\.sql$/;
-
-export const PROVIDER_GO_LIVE_ADMISSION_MIGRATION = /^supabase\/migrations\/[^/]*admission[^/]*\.sql$/;
+export const PROVIDER_GO_LIVE_REPO = "optomachina/Overdrafter";
 
 export const PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH = 12;
 
@@ -263,112 +250,140 @@ export const PROVIDER_GO_LIVE_NA_PLACEHOLDERS = new Set([
   "n.a",
 ]);
 
+/**
+ * `na: true` items may be marked N/A with a written justification when the
+ * item does not apply to the stage being enabled. Items with `na: false` are
+ * the legal stance and the proof of a rehearsed disable; they always need a
+ * real evidence link.
+ */
 export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
     id: "provider-check",
+    group: "Envelope",
+    text: "provider:check green. Evidence:",
     label: "provider:check green",
     match: /provider:check\s+green/i,
-    admission: false,
+    na: false,
   },
   {
     id: "envelope-reviewer",
+    group: "Envelope",
+    text: "Envelope reviewed by a named reviewer. Evidence:",
     label: "envelope reviewed by a named reviewer",
     match: /envelope reviewed by a named reviewer/i,
-    admission: false,
-  },
-  {
-    id: "admission-revision",
-    label: "approved admission revision (generic_dispatch_enabled=true)",
-    match: /approved admission revision/i,
-    admission: true,
-  },
-  {
-    id: "rollout",
-    label: "automatic_quote_collection rollout and org enablement",
-    match: /automatic_quote_collection/i,
-    admission: true,
+    na: false,
   },
   {
     id: "worker-secret",
+    group: "Live",
+    text: "Worker adapter deployed and Secret Manager secret created (name only). Evidence:",
     label: "worker adapter and Secret Manager secret",
     match: /secret manager secret/i,
-    admission: false,
+    na: true,
   },
   {
     id: "egress",
+    group: "Live",
+    text: "Stable egress verified (`verify:xometry-egress`-style). Evidence:",
     label: "stable egress verified",
     match: /stable egress verified/i,
-    admission: false,
+    na: true,
+  },
+  {
+    id: "admission-revision",
+    group: "Admit",
+    text: "Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL is never committed by a generator. Evidence:",
+    label: "approved admission revision (generic_dispatch_enabled=true)",
+    match: /approved admission revision/i,
+    na: true,
+  },
+  {
+    id: "rollout",
+    group: "Admit",
+    text: "`automatic_quote_collection` rollout and org enablement. Evidence:",
+    label: "automatic_quote_collection rollout and org enablement",
+    match: /automatic_quote_collection/i,
+    na: true,
   },
   {
     id: "certification",
+    group: "Admit",
+    text: "Certification run evidence:",
     label: "certification run evidence",
     match: /certification run evidence/i,
-    admission: true,
+    na: true,
   },
   {
     id: "rollback",
+    group: "Admit",
+    text: "Rollback/disable steps rehearsed. Evidence:",
     label: "rollback/disable steps rehearsed",
     match: /rollback\/disable steps rehearsed/i,
-    admission: true,
+    na: false,
+  },
+  {
+    id: "kill-switch",
+    group: "Legal stance",
+    text: "Per provider kill switch rehearsal (`npm run provider:kill`, `docs/runbooks/provider-cease-and-desist.md`). Evidence:",
+    label: "per provider kill switch rehearsal",
+    match: /kill switch rehearsal/i,
+    na: false,
+  },
+  {
+    id: "same-day-off",
+    group: "Legal stance",
+    text: "Provider is turned off the same day on a C&D, IP or bot block, CAPTCHA wall, or account ban. Evidence:",
+    label: "provider turned off the same day on a C&D, block, CAPTCHA wall, or ban",
+    match: /off the same day/i,
+    na: false,
+  },
+  {
+    id: "rate-limit",
+    group: "Legal stance",
+    text: "Traffic stays at about 20 quotes per provider per day. Evidence:",
+    label: "about 20 quotes per provider per day",
+    match: /about 20 quotes per provider per day/i,
+    na: false,
+  },
+  {
+    id: "no-evasion",
+    group: "Legal stance",
+    text: "Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:",
+    label: "never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block",
+    match: /never rotate IPs/i,
+    na: false,
+  },
+  {
+    id: "no-passwords",
+    group: "Legal stance",
+    text: "No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:",
+    label: "no stored customer passwords, encrypted session tokens, one click revoke",
+    match: /no stored customer passwords/i,
+    na: false,
+  },
+  {
+    id: "export-control",
+    group: "Legal stance",
+    text: "ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:",
+    label: "ITAR/EAR controlled or uncertain uploads blocked to foreign providers and LLMs",
+    match: /ITAR\/EAR/i,
+    na: true,
   },
 ];
 
+export const PROVIDER_GO_LIVE_GROUPS = ["Envelope", "Live", "Admit", "Legal stance"];
+
 const CHECKBOX_LINE = /^[ \t]*[-*][ \t]+\[([ xX])\][ \t]*(.*)$/;
-const GIT_NAME_STATUS_LINE = /^[A-Z](?:\d{1,3})?\t(.+)$/;
+
+export { detectProviderEnablement };
 
 /**
- * Expand `git diff --name-status` lines so rename sources and destinations
- * both appear as plain paths. Plain path lists are returned unchanged.
+ * Return whether the change enables a provider for customers. Path matches
+ * alone never count; the diff content must show enablement. A disable or kill
+ * switch change returns false.
  */
-export function normalizeChangedFiles(changedFiles = []) {
-  return changedFiles.flatMap((entry) => {
-    const raw = String(entry).replaceAll("\\", "/").trim();
-    if (!raw) {
-      return [];
-    }
-
-    const statusMatch = GIT_NAME_STATUS_LINE.exec(raw);
-    if (!statusMatch) {
-      return [raw];
-    }
-
-    return statusMatch[1]
-      .split("\t")
-      .map((part) => part.trim())
-      .filter(Boolean);
-  });
-}
-
-/**
- * Match a changed path by exact file, directory prefix, or glob — never by
- * substring. Protected go-live paths are:
- * - `worker/src/providerDispatchEnvelope.ts`
- * - generated registry/catalog/secret files listed in PROVIDER_GO_LIVE_EXACT_PATHS
- * - `worker/scripts/deploy-cloud-run.sh`
- * - `supabase/migrations/*_reviewed_dispatch_envelope.sql`
- * - `supabase/migrations/*admission*.sql`
- * - `provider-integrations/**`
- */
-export function isProviderGoLivePath(file) {
-  const normalized = String(file).replaceAll("\\", "/");
-  if (PROVIDER_GO_LIVE_EXACT_PATHS.includes(normalized)) {
-    return true;
-  }
-
-  if (normalized === "provider-integrations" || normalized.startsWith(PROVIDER_GO_LIVE_INTEGRATIONS_PREFIX)) {
-    return true;
-  }
-
-  return PROVIDER_GO_LIVE_REVIEWED_MIGRATION.test(normalized) || PROVIDER_GO_LIVE_ADMISSION_MIGRATION.test(normalized);
-}
-
-/**
- * Return whether any changed path (including rename sources) is a provider
- * go-live path.
- */
-export function touchesProviderGoLivePaths(changedFiles = []) {
-  return normalizeChangedFiles(changedFiles).some((file) => isProviderGoLivePath(file));
+export function enablesProvider(options = {}) {
+  return detectProviderEnablement(options).length > 0;
 }
 
 function parseCheckboxLines(content) {
@@ -390,27 +405,10 @@ function parseCheckboxLines(content) {
   return boxes;
 }
 
+const URL_PATTERN = /https:\/\/[^\s<>)\]]+/gi;
+
 function stripUrls(text) {
-  let result = "";
-  let index = 0;
-
-  while (index < text.length) {
-    const rest = text.slice(index).toLowerCase();
-    const schemeLength = rest.startsWith("https://") ? 8 : rest.startsWith("http://") ? 7 : 0;
-    if (schemeLength > 0) {
-      index += schemeLength;
-      while (index < text.length && !/[ \t\r\n]/.test(text[index])) {
-        index += 1;
-      }
-      result += " ";
-      continue;
-    }
-
-    result += text[index];
-    index += 1;
-  }
-
-  return result;
+  return text.replace(/\[([^\]]*)\]\(https:\/\/[^)\s]*\)/gi, "$1").replace(URL_PATTERN, " ");
 }
 
 function stripEvidenceFromJustification(text) {
@@ -437,162 +435,92 @@ function parseNaAnnotation(text) {
     rest = rest.slice(1).trimStart();
   }
 
-  const reason = rest.trim();
-  const stripped = stripEvidenceFromJustification(reason);
+  const stripped = stripEvidenceFromJustification(rest);
   const realTokens = stripped.split(/[ \t,;]+/).filter((token) => token && !isPlaceholderToken(token));
   const realText = realTokens.join(" ");
   if (realText.length < PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH) {
-    return { present: true, valid: false, reason };
+    return { valid: false };
   }
 
-  return { present: true, valid: true, reason: realText };
+  return { valid: true, reason: realText };
 }
 
-function takeHttpsUrl(text, start) {
-  let end = start + 8;
-  while (end < text.length && !/[ \t\r\n]/.test(text[end])) {
-    end += 1;
-  }
+const GITHUB_EVIDENCE = new RegExp(
+  `^https://github\\.com/${PROVIDER_GO_LIVE_REPO}/(pull/\\d+|actions/runs/\\d+|commit/[0-9a-f]{7,40})(?:[/?#].*)?$`,
+  "i",
+);
+const LINEAR_EVIDENCE = /^https:\/\/linear\.app\/[^/\s]+\/issue\/OVD-\d+(?:[/?#].*)?$/i;
 
-  return text.slice(start, end).replace(/[),.;]+$/g, "");
+function trimUrl(url) {
+  return url.replace(/[),.;]+$/g, "");
 }
 
-function isSpecificHttpsResource(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:") {
-      return false;
+/**
+ * Real evidence is a GitHub PR, Actions run, or commit URL in this repo, or a
+ * Linear OVD issue (URL or bare OVD-n). Any other https URL is not evidence.
+ */
+export function extractEvidenceLinks(text) {
+  const links = [];
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = trimUrl(match[0]);
+    if (GITHUB_EVIDENCE.test(url) || LINEAR_EVIDENCE.test(url)) {
+      links.push(url);
     }
-
-    if (!parsed.hostname.includes(".")) {
-      return false;
-    }
-
-    return parsed.pathname.length > 1 || parsed.search.length > 1 || parsed.hash.length > 1;
-  } catch {
-    return false;
-  }
-}
-
-function hasSpecificHttpsEvidence(text) {
-  const lower = text.toLowerCase();
-  let searchFrom = 0;
-
-  while (searchFrom < text.length) {
-    const start = lower.indexOf("https://", searchFrom);
-    if (start === -1) {
-      return false;
-    }
-
-    const url = takeHttpsUrl(text, start);
-    if (isSpecificHttpsResource(url)) {
-      return true;
-    }
-
-    searchFrom = start + 8;
   }
 
-  return false;
-}
-
-function hasShaEvidence(text) {
-  if (/\b[a-f0-9]{40}\b/i.test(text)) {
-    return true;
+  const withoutUrls = text.replace(URL_PATTERN, " ");
+  for (const match of withoutUrls.matchAll(/\bOVD-\d+\b/g)) {
+    links.push(match[0]);
   }
 
-  if (!/\b[a-f0-9]{7,39}\b/i.test(text)) {
-    return false;
-  }
-
-  return /\b(?:commit|sha)\b/i.test(text);
+  return links;
 }
 
-function hasCommandResultEvidence(text) {
-  const command = /(?:npm run|npx|pnpm|yarn) [a-z0-9:@/_-]+/i.exec(text);
-  if (!command) {
-    return false;
-  }
+const EVIDENCE_HINT =
+  "add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a Linear OVD issue)";
 
-  const after = text.slice(command.index + command[0].length);
-  return /(?:->|=>|:)\s*(?:pass|passed|ok|success|green)\b/i.test(after);
-}
-
-function hasEvidence(text) {
-  return hasSpecificHttpsEvidence(text) || hasShaEvidence(text) || hasCommandResultEvidence(text);
-}
-
-function checkboxResult(box, requiredItem) {
+function checkboxResult(box, label, naAllowed) {
   const na = parseNaAnnotation(box.text);
 
   if (na) {
-    if (requiredItem.admission) {
-      return { ok: false, error: `N/A is not allowed for admission item "${requiredItem.label}"` };
+    if (!naAllowed) {
+      return `N/A is not allowed for "${label}"`;
     }
-
     if (!box.checked) {
-      return { ok: false, error: `check N/A item "${requiredItem.label}"` };
+      return `check N/A item "${label}"`;
     }
-
     if (!na.valid) {
-      return { ok: false, error: `mark N/A with a real justification for "${requiredItem.label}"` };
+      return `mark N/A with a real written justification for "${label}"`;
     }
-
-    if (!hasEvidence(box.text)) {
-      return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${requiredItem.label}"` };
-    }
-
-    return { ok: true, error: null };
+    return null;
   }
 
   if (!box.checked) {
-    return { ok: false, error: `check "${requiredItem.label}"` };
+    return `check "${label}"`;
   }
 
-  if (!hasEvidence(box.text)) {
-    return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${requiredItem.label}"` };
+  if (extractEvidenceLinks(box.text).length === 0) {
+    return `${EVIDENCE_HINT} for "${label}"`;
   }
 
-  return { ok: true, error: null };
+  return null;
 }
 
-function extraCheckboxResult(box) {
-  const na = parseNaAnnotation(box.text);
-  const label = box.text.trim() || "an extra Provider go-live checkbox";
-
-  if (na) {
-    if (!box.checked) {
-      return { ok: false, error: `check N/A item "${label}"` };
-    }
-
-    if (!na.valid) {
-      return { ok: false, error: `mark N/A with a real justification for "${label}"` };
-    }
-
-    if (!hasEvidence(box.text)) {
-      return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${label}"` };
-    }
-
-    return { ok: true, error: null };
-  }
-
-  if (!box.checked) {
-    return { ok: false, error: `check "${label}"` };
-  }
-
-  if (!hasEvidence(box.text)) {
-    return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${label}"` };
-  }
-
-  return { ok: true, error: null };
+/**
+ * Check only the Provider go-live section of a body (for renderers).
+ */
+export function validateProviderGoLive(body) {
+  return validateProviderGoLiveSection(body, [{ file: "(rendered body)", reason: "provider go-live requested" }]);
 }
 
-function validateProviderGoLiveSection(body) {
+function validateProviderGoLiveSection(body, findings) {
   const sections = collectSections(body);
   const section = sections.get(normalizeHeading(PROVIDER_GO_LIVE_HEADING));
   const errors = [];
 
   if (!section) {
-    return [`missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches a provider go-live path`];
+    const why = findings.map((finding) => `${finding.file}: ${finding.reason}`).join("; ");
+    return [`missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that enables a provider (${why})`];
   }
 
   const boxes = parseCheckboxLines(section.content);
@@ -608,17 +536,68 @@ function validateProviderGoLiveSection(body) {
       continue;
     }
 
-    const match = unused.splice(index, 1)[0];
-    const result = checkboxResult(match, required);
-    if (!result.ok) {
-      errors.push(result.error);
+    const error = checkboxResult(unused.splice(index, 1)[0], required.label, required.na);
+    if (error) {
+      errors.push(error);
     }
   }
 
   for (const box of unused) {
-    const result = extraCheckboxResult(box);
-    if (!result.ok) {
-      errors.push(result.error);
+    const label = box.text.trim() || "an extra Provider go-live checkbox";
+    const error = checkboxResult(box, label, true);
+    if (error) {
+      errors.push(error);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Collect the evidence links in the Provider go-live section so a caller can
+ * check that they resolve.
+ */
+export function collectGoLiveEvidenceLinks(body) {
+  const section = collectSections(body).get(normalizeHeading(PROVIDER_GO_LIVE_HEADING));
+  if (!section) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      parseCheckboxLines(section.content)
+        .filter((box) => box.checked && !parseNaAnnotation(box.text))
+        .flatMap((box) => extractEvidenceLinks(box.text)),
+    ),
+  ];
+}
+
+/**
+ * Confirm GitHub evidence links exist, through the GitHub REST API. Linear
+ * issue references are accepted by shape only.
+ *
+ * @returns {Promise<string[]>} error messages, empty when every link resolves.
+ */
+export async function verifyEvidenceLinks(links, { fetchImpl = fetch, token } = {}) {
+  const errors = [];
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "overdrafter-pr-body-gate" };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  for (const link of links) {
+    const match = GITHUB_EVIDENCE.exec(link);
+    if (!match) continue;
+    const route = match[1]
+      .replace(/^pull\//, "pulls/")
+      .replace(/^commit\//, "commits/");
+    try {
+      const response = await fetchImpl(`https://api.github.com/repos/${PROVIDER_GO_LIVE_REPO}/${route}`, { headers });
+      if (!response.ok) {
+        errors.push(`evidence link does not resolve (HTTP ${response.status}): ${link}`);
+      }
+    } catch (error) {
+      errors.push(`could not verify evidence link ${link}: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -627,13 +606,11 @@ function validateProviderGoLiveSection(body) {
 
 /**
  * Validate that a PR body includes all required sections and obvious non-placeholder content.
- * The Provider go-live section is required only when `changedFiles` touch a
- * provider go-live path (reviewed envelope file, generated registry/catalog/
- * secrets, deploy script, reviewed-envelope or admission migrations, or
- * `provider-integrations/**`).
+ * The Provider go-live section is required only when the diff enables a
+ * provider for customers (see provider-enablement-detect.mjs).
  *
  * @param {string} body
- * @param {{ changedFiles?: string[] }} [options]
+ * @param {{ changedFiles?: string[], diffText?: string }} [options]
  */
 export function validatePrBody(body, options = {}) {
   const sections = collectSections(body);
@@ -657,8 +634,9 @@ export function validatePrBody(body, options = {}) {
     errors.push(...sectionErrors);
   }
 
-  if (touchesProviderGoLivePaths(options.changedFiles ?? [])) {
-    errors.push(...validateProviderGoLiveSection(body));
+  const findings = detectProviderEnablement(options);
+  if (findings.length > 0) {
+    errors.push(...validateProviderGoLiveSection(body, findings));
   }
 
   return {
@@ -681,6 +659,18 @@ async function readStdin() {
   return input;
 }
 
+const VALUE_FLAGS = new Map([
+  ["--changed-files-from", "changedFilesFrom"],
+  ["--diff-from", "diffFrom"],
+]);
+
+const BOOLEAN_FLAGS = new Map([
+  ["--stdin", "stdin"],
+  ["-", "stdin"],
+  ["--skip-unless-enabling", "skipUnlessEnabling"],
+  ["--verify-links", "verifyLinks"],
+]);
+
 function parseCliArgs(argv) {
   const flags = new Set();
   const values = {};
@@ -688,71 +678,83 @@ function parseCliArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--stdin" || arg === "-") {
-      flags.add("stdin");
-      continue;
-    }
-
-    if (arg === "--skip-unless-go-live") {
-      flags.add("skipUnlessGoLive");
-      continue;
-    }
-
-    if (arg === "--changed-files-from") {
-      values.changedFilesFrom = argv[index + 1];
+    if (BOOLEAN_FLAGS.has(arg)) {
+      flags.add(BOOLEAN_FLAGS.get(arg));
+    } else if (VALUE_FLAGS.has(arg)) {
+      values[VALUE_FLAGS.get(arg)] = argv[index + 1];
       index += 1;
-      continue;
+    } else {
+      positional.push(arg);
     }
-
-    positional.push(arg);
   }
 
   return { flags, values, positional };
 }
 
+async function readLines(filePath) {
+  return (await fs.readFile(filePath, "utf8"))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 /**
  * CLI entrypoint for validating pull request bodies from a file or stdin.
+ *
+ *   --changed-files-from <path>  git diff --name-status --no-renames output
+ *   --diff-from <path>           git diff --no-renames unified diff
+ *   --skip-unless-enabling       pass without checking when the diff does not
+ *                                enable a provider (the PR body gate uses this)
+ *   --verify-links               confirm GitHub evidence links resolve
  */
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), env = process.env) {
   const parsed = parseCliArgs(argv);
   const useStdin = parsed.flags.has("stdin");
   const filePath = useStdin ? null : parsed.positional[0];
 
   if (!useStdin && !filePath) {
     console.error(
-      "Usage: npm run validate:pr-body -- <path-to-markdown> | --stdin [--changed-files-from <path>] [--skip-unless-go-live]",
+      "Usage: npm run validate:pr-body -- <path-to-markdown> | --stdin [--changed-files-from <path>] [--diff-from <path>] [--skip-unless-enabling] [--verify-links]",
     );
     return 1;
   }
 
-  if (parsed.values.changedFilesFrom === undefined && argv.includes("--changed-files-from")) {
-    console.error("Usage: --changed-files-from requires a path");
-    return 1;
+  for (const flag of VALUE_FLAGS.keys()) {
+    if (argv.includes(flag) && parsed.values[VALUE_FLAGS.get(flag)] === undefined) {
+      console.error(`Usage: ${flag} requires a path`);
+      return 1;
+    }
   }
 
   const body = useStdin ? await readStdin() : await fs.readFile(filePath, "utf8");
-  const changedFiles = parsed.values.changedFilesFrom
-    ? (await fs.readFile(parsed.values.changedFilesFrom, "utf8"))
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    : undefined;
-  if (parsed.flags.has("skipUnlessGoLive") && !touchesProviderGoLivePaths(changedFiles ?? [])) {
-    console.log("No provider go-live paths changed; skipping Provider go-live validation.");
+  const changedFiles = parsed.values.changedFilesFrom ? await readLines(parsed.values.changedFilesFrom) : [];
+  const diffText = parsed.values.diffFrom ? await fs.readFile(parsed.values.diffFrom, "utf8") : "";
+  const findings = detectProviderEnablement({ changedFiles, diffText });
+
+  if (parsed.flags.has("skipUnlessEnabling") && findings.length === 0) {
+    console.log("No provider enablement in this diff; Provider go-live section not required.");
     return 0;
   }
 
-  const result = validatePrBody(body, changedFiles ? { changedFiles } : {});
+  const result = validatePrBody(body, { changedFiles, diffText });
+  const errors = [...result.errors];
 
-  if (!result.ok) {
+  if (errors.length === 0 && findings.length > 0 && parsed.flags.has("verifyLinks")) {
+    errors.push(...(await verifyEvidenceLinks(collectGoLiveEvidenceLinks(body), { token: env.GITHUB_TOKEN })));
+  }
+
+  if (errors.length > 0) {
     console.error("PR body validation failed:");
-    console.error(formatValidationErrors(result.errors));
+    console.error(formatValidationErrors(errors));
     return 1;
   }
 
   const sectionNames = REQUIRED_SECTIONS.map((section) => section.heading);
-  if (touchesProviderGoLivePaths(changedFiles ?? [])) {
+  if (findings.length > 0) {
     sectionNames.push(PROVIDER_GO_LIVE_HEADING);
+    for (const finding of findings) {
+      console.log(`Provider enablement detected: ${finding.file}: ${finding.reason}`);
+    }
   }
 
   console.log(`PR body validation passed for sections: ${sectionNames.join(", ")}`);
