@@ -11,6 +11,7 @@
  * authorization consumption (OVD-461, OVD-462, OVD-464). The caller supplies the
  * authorized execution as `ProviderResultExpectation`.
  */
+import type { LocalNativeCurrencyEvaluationResult } from "./adapters/localEvaluationResult.js";
 import type {
   GeographicOrigin,
   VendorAutomationErrorCode,
@@ -71,7 +72,20 @@ export type ProviderResultCandidate = {
   currency: string;
   collectedAt: string;
   simulated?: boolean;
-  result: VendorQuoteAdapterOutput;
+  /** A native currency local evidence result is accepted as input only to be rejected as non comparable. */
+  result: VendorQuoteAdapterOutput | LocalNativeCurrencyEvaluationResult;
+};
+
+/**
+ * One adapter offer as the portal kernel normalizes it (`ProviderPortalNormalizedOffer`):
+ * the base offer plus per offer validity and artifact references.
+ */
+export type AdapterOfferInput = VendorQuoteAdapterOffer & {
+  validUntil?: string | null;
+  validityDurationDays?: number | null;
+  validitySource?: "vendor_date" | "vendor_duration" | null;
+  validityTerms?: string | null;
+  artifactRefs?: string[];
 };
 
 export type ProviderResultRejectionCode =
@@ -123,9 +137,29 @@ export type ProviderResultRejection = {
   issueCount: number;
 };
 
-export type ValidatedProviderOffer = Omit<VendorQuoteAdapterOffer, "quantity" | "quoteUrl"> & {
-  quantity: number;
+/** Built field by field from an allowlist; adapter supplied extra keys never reach this type. */
+export type ValidatedProviderOffer = {
+  providerOptionId: string;
+  providerLabel: string;
+  quoteRef: string | null;
   quoteUrl: string;
+  quantity: number;
+  unitPriceUsd: number;
+  totalPriceUsd: number;
+  leadTimeBusinessDays: number | null;
+  shipReceiveBy: string | null;
+  tier: string | null;
+  sourcing: string | null;
+  geographicOrigin: GeographicOrigin;
+  sortRank: number;
+  provenance: VendorQuoteAdapterOffer["provenance"];
+  /** This offer's own vendor stated validity; never inherited from another offer. */
+  validUntil: string | null;
+  validityDurationDays: number | null;
+  validitySource: "vendor_date" | "vendor_duration" | null;
+  validityTerms: string | null;
+  artifactRefs: readonly string[];
+  rawPayload: Record<string, unknown>;
   currency: "USD";
   /** True when the offer was built from the singular compatibility summary. */
   derivedFromSummary: boolean;
@@ -201,10 +235,18 @@ const CODE_PRECEDENCE: ProviderResultRejectionCode[] = [
   "duplicate_offer_id",
 ];
 
-const ADMISSION_KEY = /admission|admitted|certif|permit_?granted|production_?ready|authorized_?by|bypass/i;
-const CREDENTIAL_KEY = /cookie|password|passwd|secret|authorization|bearer|api_?key|storage_?state|access_?token|refresh_?token|session_?(id|token|secret)|credential/i;
+/** Normalized (lowercase, no separators) key names that assert provider admission or certification. */
+const ADMISSION_KEY = /^(is)?(provider)?(admission|admitted|certified|productionready|productioncertified|permitgranted)(status|state)?$/;
+/** String values that read as an affirmative admission claim; descriptive values such as `required_unavailable` do not. */
+const ADMISSION_AFFIRMATIVE = new Set([
+  "true", "yes", "admitted", "admit", "approved", "certified", "granted", "enabled", "live", "production", "authorized", "active",
+]);
+const CREDENTIAL_KEY = /cookie|password|passwd|secret|authorization|api_?key|storage_?state|access_?token|refresh_?token|session_?(id|token|secret)|credential/i;
+/** Enum like words (`required_unavailable`, `none`) are descriptive, not secret material, even under a sensitive looking key. */
+const ENUM_LIKE_VALUE = /^[a-z][a-z_]{0,40}$/;
 const BULK_KEY = /^(html|dom|outerhtml|innerhtml|bodyexcerpt|body_excerpt|screenshot|pagecontent|fileBytes|cadBytes)$/i;
-const CREDENTIAL_VALUE = /(bearer\s+[a-z0-9._-]{16,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.|sk-[a-z0-9]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY)/i;
+const CREDENTIAL_VALUE = /(bearer\s+[a-z0-9._-]{16,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.|(?<![a-z0-9])sk-[a-z0-9]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY)/i;
+
 function hasControlChars(value: string) {
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i);
@@ -213,6 +255,12 @@ function hasControlChars(value: string) {
     }
   }
   return false;
+}
+
+function isNativeCurrencyResult(
+  result: ProviderResultCandidate["result"],
+): result is LocalNativeCurrencyEvaluationResult {
+  return (result as { kind?: unknown }).kind === "local_native_currency_evaluation";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -265,9 +313,21 @@ function validDestination(value: unknown, allowed: readonly string[]): value is 
   }
 }
 
-/** Walks a payload looking for credential shaped keys or values, bounded in depth and size. */
+const MAX_WALK_DEPTH = 8;
+
+function sensitiveKeyHoldsValue(item: unknown): boolean {
+  if (item === null || item === undefined || typeof item === "boolean" || typeof item === "number") {
+    return false;
+  }
+  if (typeof item === "string") {
+    return item.length > 0 && !ENUM_LIKE_VALUE.test(item);
+  }
+  return true;
+}
+
+/** Walks a payload looking for credential shaped keys or values. Fails closed past the depth limit. */
 function containsCredentialMaterial(value: unknown, depth = 0): boolean {
-  if (depth > 8) {
+  if (depth > MAX_WALK_DEPTH) {
     return true;
   }
   if (typeof value === "string") {
@@ -278,20 +338,43 @@ function containsCredentialMaterial(value: unknown, depth = 0): boolean {
   }
   if (isRecord(value)) {
     return Object.entries(value).some(
-      ([key, item]) => CREDENTIAL_KEY.test(key) || containsCredentialMaterial(item, depth + 1),
+      ([key, item]) => (CREDENTIAL_KEY.test(key) && sensitiveKeyHoldsValue(item))
+        || containsCredentialMaterial(item, depth + 1),
     );
   }
   return false;
 }
 
+function isAffirmativeAdmission(item: unknown): boolean {
+  if (item === true) {
+    return true;
+  }
+  if (typeof item === "string") {
+    return ADMISSION_AFFIRMATIVE.has(item.trim().toLowerCase());
+  }
+  return isRecord(item) || Array.isArray(item) ? Object.keys(item).length > 0 : false;
+}
+
+/** Detects adapter asserted admission, through objects and arrays. Fails closed past the depth limit. */
 function hasAdmissionClaim(value: unknown, depth = 0): boolean {
-  if (depth > 4 || !isRecord(value)) {
+  if (depth > MAX_WALK_DEPTH) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 200).some((item) => hasAdmissionClaim(item, depth + 1));
+  }
+  if (!isRecord(value)) {
     return false;
   }
-  return Object.entries(value).some(
-    ([key, item]) => (ADMISSION_KEY.test(key) && item !== false && item !== null && item !== undefined)
-      || hasAdmissionClaim(item, depth + 1),
-  );
+  return Object.entries(value).some(([key, item]) => {
+    const normalized = key.replace(/[_\-\s]/g, "").toLowerCase();
+    return (ADMISSION_KEY.test(normalized) && isAffirmativeAdmission(item)) || hasAdmissionClaim(item, depth + 1);
+  });
+}
+
+/** True when the text is bounded, printable and free of credential shaped values. */
+function isSafeText(value: unknown, max = MAX_TEXT_LENGTH): value is string {
+  return isBoundedText(value, max) && !CREDENTIAL_VALUE.test(value);
 }
 
 /** Drops bulk keys, bounds depth and string length, and caps total size. Credentials were rejected earlier. */
@@ -354,6 +437,12 @@ function reject(
   };
 }
 
+const ALLOWED_OFFER_KEYS: ReadonlySet<string> = new Set([
+  "providerOptionId", "providerLabel", "quoteRef", "quoteUrl", "quantity", "unitPriceUsd", "totalPriceUsd",
+  "leadTimeBusinessDays", "shipReceiveBy", "tier", "sourcing", "geographicOrigin", "sortRank", "provenance",
+  "validUntil", "validityDurationDays", "validitySource", "validityTerms", "artifactRefs", "rawPayload",
+]);
+
 const BINDING_FIELDS = [
   "provider",
   "taskId",
@@ -408,6 +497,11 @@ export function validateProviderResult(
   if (result.vendor !== expectation.provider) {
     add("binding_mismatch", "result.vendor");
   }
+  if (isNativeCurrencyResult(result)) {
+    // Native money (for example Weerg EUR) is local evidence only: never an offer, never converted.
+    add("invalid_currency", "result.kind");
+    return reject(expectation, issues);
+  }
 
   const raw = isRecord(result.rawPayload) ? result.rawPayload : {};
   if (
@@ -419,10 +513,15 @@ export function validateProviderResult(
   ) {
     add("simulated_result", "result.rawPayload");
   }
-  if (hasAdmissionClaim(raw, 0) || hasAdmissionClaim(candidate as unknown as Record<string, unknown>, 3)) {
-    add("adapter_admission_claim", "result.rawPayload");
+  if (hasAdmissionClaim(candidate)) {
+    add("adapter_admission_claim", "result");
   }
-  if (containsCredentialMaterial(raw) || containsCredentialMaterial(result.notes) || containsCredentialMaterial(result.dfmIssues)) {
+  if (
+    containsCredentialMaterial(raw)
+    || containsCredentialMaterial(result.notes)
+    || containsCredentialMaterial(result.dfmIssues)
+    || containsCredentialMaterial(result.validityTerms)
+  ) {
     add("forbidden_content", "result.rawPayload");
   }
   if (raw.requestedQuantity !== undefined && raw.requestedQuantity !== expectation.requestedQuantity) {
@@ -468,8 +567,8 @@ export function validateProviderResult(
 
   if (!Array.isArray(result.artifacts) || result.artifacts.length > MAX_ARTIFACTS_PER_RESULT
     || result.artifacts.some((artifact) => !isRecord(artifact)
-      || !isBoundedText(artifact.label, 120)
-      || !isBoundedText(artifact.localPath, 512)
+      || !isSafeText(artifact.label, 120)
+      || !isSafeText(artifact.localPath, 512)
       || !["screenshot", "html_snapshot", "trace", "json"].includes(String(artifact.kind)))) {
     add("invalid_artifacts", "result.artifacts");
   }
@@ -479,7 +578,7 @@ export function validateProviderResult(
     add("invalid_destination", "result.quoteUrl");
   }
 
-  let offers: VendorQuoteAdapterOffer[];
+  let offers: AdapterOfferInput[];
   let derived = false;
   if (Array.isArray(result.offers) && result.offers.length > 0) {
     offers = result.offers;
@@ -505,6 +604,11 @@ export function validateProviderResult(
         leadTimeSource: result.leadTimeBusinessDays === null ? "none" : "selector",
         geographicOriginSource: "none",
       },
+      // The summary has one validity, so only a derived offer may carry the result level fields.
+      validUntil: result.validUntil ?? null,
+      validityDurationDays: result.validityDurationDays ?? null,
+      validitySource: result.validitySource ?? null,
+      validityTerms: result.validityTerms ?? null,
       rawPayload: {},
     }];
   } else {
@@ -531,27 +635,39 @@ export function validateProviderResult(
       add("malformed_candidate", p);
       return;
     }
-    if (!isBoundedText(offer.providerOptionId, MAX_ID_LENGTH)) {
-      add("invalid_offer_id", `${p}.providerOptionId`);
-    } else {
+    // Anything outside the allowlist is rejected, so no adapter key rides into the validated output.
+    for (const key of Object.keys(offer)) {
+      if (!ALLOWED_OFFER_KEYS.has(key)) {
+        add("malformed_candidate", `${p}.${key}`);
+      }
+    }
+    const textIssue = (value: unknown, path: string, max: number, nullable: boolean) => {
+      if (nullable && (value === null || value === undefined)) {
+        return;
+      }
+      if (typeof value === "string" && CREDENTIAL_VALUE.test(value)) {
+        add("forbidden_content", path);
+      } else if (!isSafeText(value, max)) {
+        add("malformed_candidate", path);
+      }
+    };
+
+    textIssue(offer.providerOptionId, `${p}.providerOptionId`, MAX_ID_LENGTH, false);
+    if (isBoundedText(offer.providerOptionId, MAX_ID_LENGTH)) {
       const key = offer.providerOptionId.trim().toLowerCase();
       if (seen.has(key)) {
         add("duplicate_offer_id", `${p}.providerOptionId`);
       }
       seen.add(key);
+    } else {
+      add("invalid_offer_id", `${p}.providerOptionId`);
     }
-    if (!isBoundedText(offer.providerLabel, MAX_TEXT_LENGTH)) {
-      add("malformed_candidate", `${p}.providerLabel`);
-    }
-    if (offer.quoteRef !== null && !isBoundedText(offer.quoteRef, MAX_ID_LENGTH)) {
-      add("malformed_candidate", `${p}.quoteRef`);
-    }
-    for (const field of ["tier", "sourcing", "shipReceiveBy"] as const) {
-      const text = offer[field];
-      if (text !== null && !isBoundedText(text, MAX_TEXT_LENGTH)) {
-        add("malformed_candidate", `${p}.${field}`);
-      }
-    }
+    textIssue(offer.providerLabel, `${p}.providerLabel`, MAX_TEXT_LENGTH, false);
+    textIssue(offer.quoteRef, `${p}.quoteRef`, MAX_ID_LENGTH, true);
+    textIssue(offer.tier, `${p}.tier`, MAX_TEXT_LENGTH, true);
+    textIssue(offer.sourcing, `${p}.sourcing`, MAX_TEXT_LENGTH, true);
+    textIssue(offer.shipReceiveBy, `${p}.shipReceiveBy`, MAX_TEXT_LENGTH, true);
+    textIssue(offer.validityTerms, `${p}.validityTerms`, 1000, true);
 
     const quantity = offer.quantity ?? expectation.requestedQuantity;
     if (quantity !== expectation.requestedQuantity) {
@@ -585,23 +701,80 @@ export function validateProviderResult(
       add("invalid_origin", `${p}.provenance.geographicOriginSource`);
     }
 
+    // Each offer carries its own validity: an expired rush offer is rejected even when the first offer is live.
+    const offerValidUntil = offer.validUntil ?? null;
+    if (offerValidUntil !== null) {
+      const validMs = parseInstant(offerValidUntil);
+      if (validMs === null) {
+        add("invalid_timestamp", `${p}.validUntil`);
+      } else if (validMs <= nowMs) {
+        add("expired_validity", `${p}.validUntil`);
+      } else if (quotedMs !== null && validMs < quotedMs) {
+        add("invalid_timestamp", `${p}.validUntil`);
+      }
+    }
+    const duration = offer.validityDurationDays ?? null;
+    if (duration !== null && (!Number.isInteger(duration) || duration < 1 || duration > 365)) {
+      add("invalid_timestamp", `${p}.validityDurationDays`);
+    }
+    const validitySource = offer.validitySource ?? null;
+    if (
+      (validitySource !== null && validitySource !== "vendor_date" && validitySource !== "vendor_duration")
+      || (validitySource === "vendor_date" && offerValidUntil === null)
+      || (validitySource === "vendor_duration" && duration === null)
+    ) {
+      add("invalid_timestamp", `${p}.validitySource`);
+    }
+
+    const artifactRefs = offer.artifactRefs ?? [];
+    if (!Array.isArray(artifactRefs) || artifactRefs.length > MAX_ARTIFACTS_PER_RESULT
+      || artifactRefs.some((ref) => !isSafeText(ref, 256))) {
+      add("invalid_artifacts", `${p}.artifactRefs`);
+    }
+
     const offerUrl = offer.quoteUrl ?? result.quoteUrl;
     if (!validDestination(offerUrl, expectation.allowedDomains)) {
       add("invalid_destination", `${p}.quoteUrl`);
     }
-    if (containsCredentialMaterial(offer.rawPayload)) {
+    const offerRaw = isRecord(offer.rawPayload) ? offer.rawPayload : {};
+    if (containsCredentialMaterial(offerRaw)) {
       add("forbidden_content", `${p}.rawPayload`);
     }
+    if (hasAdmissionClaim(offerRaw)) {
+      add("adapter_admission_claim", `${p}.rawPayload`);
+    }
 
-    if (typeof offerUrl === "string") {
+    if (typeof offerUrl === "string" && isRecord(offer.provenance)) {
+      const provenance = offer.provenance;
       validated.push({
-        ...offer,
-        quantity: expectation.requestedQuantity,
+        providerOptionId: offer.providerOptionId,
+        providerLabel: offer.providerLabel,
+        quoteRef: offer.quoteRef ?? null,
         quoteUrl: offerUrl,
+        quantity: expectation.requestedQuantity,
+        unitPriceUsd: offer.unitPriceUsd,
+        totalPriceUsd: offer.totalPriceUsd,
+        leadTimeBusinessDays: offer.leadTimeBusinessDays,
+        shipReceiveBy: offer.shipReceiveBy ?? null,
+        tier: offer.tier ?? null,
+        sourcing: offer.sourcing ?? null,
+        geographicOrigin: origin as GeographicOrigin,
+        sortRank: offer.sortRank,
+        provenance: {
+          containerSelector: provenance.containerSelector,
+          providerOptionIdSource: provenance.providerOptionIdSource,
+          priceSource: provenance.priceSource,
+          leadTimeSource: provenance.leadTimeSource,
+          geographicOriginSource: provenance.geographicOriginSource,
+        },
+        validUntil: offerValidUntil,
+        validityDurationDays: duration,
+        validitySource,
+        validityTerms: offer.validityTerms ?? null,
+        artifactRefs: Object.freeze([...artifactRefs]),
+        rawPayload: sanitizeRawPayload(offerRaw),
         currency: "USD",
         derivedFromSummary: derived,
-        geographicOrigin: origin as GeographicOrigin,
-        rawPayload: sanitizeRawPayload(isRecord(offer.rawPayload) ? offer.rawPayload : {}),
       });
     }
   });
@@ -729,7 +902,7 @@ export type DeliveryObservationInput = {
  * shipping are unstated by the validated contract, so they stay null.
  */
 export function toDeliveryObservation(
-  result: ValidatedProviderResult,
+  result: Pick<ValidatedProviderResult, "provenance">,
   offer: ValidatedProviderOffer,
 ): DeliveryObservationInput {
   return {
@@ -743,7 +916,7 @@ export function toDeliveryObservation(
       ? { kind: "unknown" }
       : { kind: "business_days", businessDays: offer.leadTimeBusinessDays },
     orderCutoffLocalTime: null,
-    validUntil: result.validUntil,
+    validUntil: offer.validUntil,
     invalidatedAt: null,
   };
 }

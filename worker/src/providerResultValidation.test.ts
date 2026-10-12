@@ -9,7 +9,9 @@ import {
   type ProviderResultExpectation,
 } from "./providerResultValidation.js";
 import { projectDeliveredCostAndArrival } from "../../shared/delivered-cost-arrival.js";
-import type { VendorName, VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "./types.js";
+import type { AdapterOfferInput } from "./providerResultValidation.js";
+import type { LocalNativeCurrencyEvaluationResult } from "./adapters/localEvaluationResult.js";
+import type { VendorName, VendorQuoteAdapterOutput } from "./types.js";
 
 const NOW = "2026-10-12T12:00:00.000Z";
 const COLLECTED = "2026-10-12T11:55:00.000Z";
@@ -37,8 +39,15 @@ function expectation(provider: VendorName, quantity = 10): ProviderResultExpecta
   };
 }
 
-function offer(overrides: Partial<VendorQuoteAdapterOffer> = {}): VendorQuoteAdapterOffer {
+/** Shape of `ProviderPortalNormalizedOffer` from the portal kernel normalizer. */
+function offer(overrides: Partial<AdapterOfferInput> = {}): AdapterOfferInput {
   return {
+    quantity: 10,
+    validUntil: null,
+    validityDurationDays: null,
+    validitySource: null,
+    validityTerms: null,
+    artifactRefs: [],
     providerOptionId: "standard",
     providerLabel: "Standard",
     quoteRef: "Q-1",
@@ -58,7 +67,10 @@ function offer(overrides: Partial<VendorQuoteAdapterOffer> = {}): VendorQuoteAda
       leadTimeSource: "selector",
       geographicOriginSource: "none",
     },
-    rawPayload: {},
+    rawPayload: {
+      normalizationRevision: "provider-offer-evidence.v1",
+      anchoredFields: ["provider_option_id", "unit_price", "total_price"],
+    },
     ...overrides,
   };
 }
@@ -132,7 +144,7 @@ describe("synthetic live provider payloads", () => {
 
   it("accepts Fictiv total priced options", () => {
     const c = candidate("fictiv", {
-      offers: [offer({ providerOptionId: "fictiv-standard", rawPayload: { currency: "USD", priceBasis: "total", cookie_banner_dismissed: true } })],
+      offers: [offer({ providerOptionId: "fictiv-standard", rawPayload: { currency: "USD", priceBasis: "total", cookieJar: "a1b2c3d4e5f6g7h8" } })],
     });
     // A credential shaped key anywhere in an offer payload is rejected, not silently kept.
     expect(codes(c, expectation("fictiv"))).toContain("forbidden_content");
@@ -148,14 +160,76 @@ describe("synthetic live provider payloads", () => {
     expect(out.value.offers[0]).toMatchObject({ derivedFromSummary: true, geographicOrigin: "unknown", quantity: 10 });
   });
 
-  it("rejects Weerg native EUR as non comparable rather than converting it", () => {
+  it("rejects the Weerg native EUR result as the adapter produces it, without converting", () => {
+    const native: LocalNativeCurrencyEvaluationResult = {
+      kind: "local_native_currency_evaluation",
+      contractRevision: "local-native-currency-evidence.v1",
+      executionContext: "live_evaluation",
+      localOnly: true,
+      customerOfferPersistence: false,
+      providerAdmission: false,
+      providerMutationPossible: false,
+      vendor: "weerg",
+      status: "native_offers_extracted",
+      nativeOffers: [{
+        providerOptionId: "standard",
+        providerLabel: "Standard",
+        quantity: 10,
+        money: {
+          currency: "EUR",
+          unitAmount: 11,
+          totalAmount: 110,
+          provenance: {
+            unitAmount: { source: "selector", selector: "[data-weerg-quote-option-unit]" },
+            totalAmount: { source: "selector", selector: "[data-weerg-quote-option-total]" },
+            unitCurrency: { source: "selector", selector: "[data-weerg-quote-option-currency]" },
+            totalCurrency: { source: "selector", selector: "[data-weerg-quote-option-currency]" },
+          },
+        },
+        leadTimeBusinessDays: 6,
+        shipReceiveBy: null,
+        tier: null,
+        sourcing: null,
+        geographicOrigin: "unknown",
+        provenance: {
+          containerSelector: "[data-weerg-quote-option]",
+          providerOptionIdSource: "attribute",
+          leadTimeSource: "selector",
+          geographicOriginSource: "none",
+        },
+        validUntil: null,
+        validityDurationDays: null,
+        validitySource: null,
+        validityTerms: null,
+        artifactRefs: [],
+      }],
+      artifacts: [],
+      manifestRevision: "m-1",
+      envelopeRevision: "env-2026-10-01",
+      adapterRevision: "adapter-1",
+    };
     const c = candidate("weerg", {});
-    c.currency = "EUR";
+    c.result = native;
     const out = validateProviderResult(c, expectation("weerg"));
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.rejection.code).toBe("invalid_currency");
+    expect(out.rejection.issues).toEqual([{ code: "invalid_currency", path: "result.kind" }]);
     expect(out.rejection.adminVisible).toBe(true);
+  });
+
+  it("accepts a Quickparts shaped portal result whose offers each state their own validity", () => {
+    const c = candidate("quickparts", {
+      offers: [
+        offer({ providerOptionId: "standard", validUntil: "2026-10-20", validitySource: "vendor_date", validityTerms: "Valid until Oct 20" }),
+        offer({ providerOptionId: "rush", unitPriceUsd: 20, totalPriceUsd: 200, leadTimeBusinessDays: 3, validUntil: "2026-10-14", validitySource: "vendor_date" }),
+      ],
+      validUntil: "2026-10-20",
+    });
+    const out = validateProviderResult(c, expectation("quickparts"));
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.offers.map((o) => o.validUntil)).toEqual(["2026-10-20", "2026-10-14"]);
   });
 });
 
@@ -380,6 +454,120 @@ describe("fail closed matrix", () => {
   });
 });
 
+describe("review probes", () => {
+  const e = expectation("quickparts");
+
+  it("rejects an expired rush offer even when the first offer is live", () => {
+    const c = candidate("quickparts", {
+      offers: [
+        offer({ providerOptionId: "standard", validUntil: "2026-10-20", validitySource: "vendor_date" }),
+        offer({ providerOptionId: "rush", validUntil: "2026-10-11", validitySource: "vendor_date" }),
+      ],
+      validUntil: "2026-10-20",
+    });
+    const out = validateProviderResult(c, e);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.rejection.code).toBe("expired_validity");
+    expect(out.rejection.issues).toEqual([{ code: "expired_validity", path: "result.offers[1].validUntil" }]);
+  });
+
+  it("rejects inconsistent per offer validity declarations", () => {
+    const dateWithoutValue = candidate("quickparts", { offers: [offer({ validitySource: "vendor_date", validUntil: null })] });
+    expect(codes(dateWithoutValue, e)).toContain("invalid_timestamp");
+    const badDuration = candidate("quickparts", { offers: [offer({ validityDurationDays: 0, validitySource: "vendor_duration" })] });
+    expect(codes(badDuration, e)).toContain("invalid_timestamp");
+  });
+
+  it("does not let one offer inherit another offer's validity", () => {
+    const c = candidate("quickparts", {
+      offers: [
+        offer({ providerOptionId: "a", validUntil: "2026-10-20", validitySource: "vendor_date" }),
+        offer({ providerOptionId: "b" }),
+      ],
+      validUntil: "2026-10-20",
+    });
+    const out = validateProviderResult(c, e);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.offers[1]!.validUntil).toBeNull();
+    expect(toDeliveryObservation(out.value, out.value.offers[1]!).validUntil).toBeNull();
+    expect(toDeliveryObservation(out.value, out.value.offers[0]!).validUntil).toBe("2026-10-20");
+  });
+
+  it("rejects adapter supplied extra keys instead of carrying them into the output", () => {
+    const token = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
+    const c = candidate("quickparts", { offers: [{ ...offer(), sessionToken: token } as AdapterOfferInput] });
+    const out = validateProviderResult(c, e);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.rejection.issues).toEqual([{ code: "malformed_candidate", path: "result.offers[0].sessionToken" }]);
+    expect(JSON.stringify(out.rejection)).not.toContain("abcdefghijkl");
+  });
+
+  it.each(["providerLabel", "tier", "sourcing", "shipReceiveBy", "quoteRef", "validityTerms"] as const)(
+    "scans kept text field %s for credentials",
+    (field) => {
+      const c = candidate("quickparts", {
+        offers: [offer({ [field]: "Bearer abcdefghijklmnopqrstuvwxyz0123456789" })],
+      });
+      const out = validateProviderResult(c, e);
+      expect(out.ok).toBe(false);
+      if (out.ok) return;
+      expect(out.rejection.issues).toContainEqual({ code: "forbidden_content", path: `result.offers[0].${field}` });
+    },
+  );
+
+  it("only emits allowlisted offer keys", () => {
+    const out = validateProviderResult(candidate("quickparts", { offers: [offer()] }), e);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(Object.keys(out.value.offers[0]!).sort()).toEqual([
+      "artifactRefs", "currency", "derivedFromSummary", "geographicOrigin", "leadTimeBusinessDays", "provenance",
+      "providerLabel", "providerOptionId", "quantity", "quoteRef", "quoteUrl", "rawPayload", "shipReceiveBy",
+      "sortRank", "sourcing", "tier", "totalPriceUsd", "unitPriceUsd", "validUntil", "validityDurationDays",
+      "validitySource", "validityTerms",
+    ]);
+  });
+
+  it("does not treat a customer file name as an sk- credential", () => {
+    const c = candidate("quickparts", {
+      offers: [offer({ providerLabel: "bracket-housing-disk-0a1b2c3d4e5f6a7b8c9d.step" })],
+    });
+    expect(validateProviderResult(c, e).ok).toBe(true);
+    const real = candidate("quickparts", { offers: [offer({ providerLabel: "key sk-abcdefghijklmnop1234" })] });
+    expect(codes(real, e)).toContain("forbidden_content");
+  });
+
+  it("accepts descriptive admission and session words but rejects affirmative admission claims", () => {
+    const benign = candidate("quickparts", {
+      offers: [offer({ rawPayload: { providerAdmission: "required_unavailable", sessionPolicy: "required_unavailable", admitted: false } })],
+      rawPayload: { requestedQuantity: 10, providerAdmission: "required_unavailable" },
+    });
+    expect(validateProviderResult(benign, e).ok).toBe(true);
+    for (const claim of [{ admitted: true }, { providerAdmission: "admitted" }, { certified: "yes" }]) {
+      const c = candidate("quickparts", { offers: [offer({ rawPayload: claim })] });
+      expect(codes(c, e)).toContain("adapter_admission_claim");
+    }
+  });
+
+  it("finds admission claims inside arrays and fails closed past the depth limit", () => {
+    const inArray = candidate("quickparts", { offers: [offer()], rawPayload: { requestedQuantity: 10, lanes: [{ meta: { admitted: true } }] } });
+    expect(codes(inArray, e)).toContain("adapter_admission_claim");
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let i = 0; i < 12; i += 1) deep = { next: deep };
+    const tooDeep = candidate("quickparts", { offers: [offer()], rawPayload: { requestedQuantity: 10, deep } });
+    expect(codes(tooDeep, e)).toContain("adapter_admission_claim");
+  });
+
+  it("keeps a sensitive key that holds a real value as forbidden", () => {
+    const c = candidate("quickparts", { offers: [offer({ rawPayload: { sessionId: "9f8e7d6c5b4a3210" } })] });
+    expect(codes(c, e)).toContain("forbidden_content");
+    const empty = candidate("quickparts", { offers: [offer({ rawPayload: { sessionId: null } })] });
+    expect(validateProviderResult(empty, e).ok).toBe(true);
+  });
+});
+
 describe("failure classification", () => {
   it("maps each known code to a finite class with bounded retry", () => {
     expect(classifyProviderFailure("captcha")).toMatchObject({ failureClass: "challenge", retry: "manual_follow_up", retryBudget: 0 });
@@ -396,20 +584,40 @@ describe("failure classification", () => {
 });
 
 describe("OVD-569 delivered cost feed", () => {
-  it("projects a validated offer with unknown fees, tax and shipping", () => {
+  it("projects a validated offer with confirmed parts and unknown fees, tax and shipping", () => {
     const out = validateProviderResult(
-      candidate("xometry", { offers: [offer()], validUntil: "2026-10-30" }),
+      candidate("xometry", {
+        offers: [offer({ validUntil: "2026-10-30", validitySource: "vendor_date" })],
+      }),
       expectation("xometry"),
     );
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     const observation = toDeliveryObservation(out.value, out.value.offers[0]!);
-    expect(observation.offerId).toBe("xometry-standard");
+    expect(observation).toEqual({
+      offerId: "xometry-standard",
+      provider: "xometry",
+      partsSubtotalUsd: 120,
+      feesUsd: null,
+      taxUsd: null,
+      shippingOptions: [],
+      leadTime: { kind: "business_days", businessDays: 8 },
+      orderCutoffLocalTime: null,
+      validUntil: "2026-10-30",
+      invalidatedAt: null,
+    });
     const projection = projectDeliveredCostAndArrival(observation, {
       orderAt: NOW,
       calendar: { timeZone: "America/New_York" },
     });
-    expect(JSON.stringify(projection)).toContain("unknown");
-    expect(JSON.stringify(projection)).toContain("120");
+    expect(projection.validityAtOrder).toEqual({ status: "valid", validUntil: "2026-10-30" });
+    const { components, total } = projection.scenarios[0]!.cost;
+    expect(components.parts).toEqual({ provenance: "confirmed", amountUsd: 120 });
+    expect(components.fees).toEqual({ provenance: "unknown", amountUsd: null });
+    expect(components.tax).toEqual({ provenance: "unknown", amountUsd: null });
+    expect(components.shipping).toEqual({ provenance: "unknown", amountUsd: null });
+    expect(total.amountUsd).toBeNull();
+    expect(total.knownAmountUsd).toBe(120);
+    expect([...total.unknownComponents].sort()).toEqual(["fees", "shipping", "tax"]);
   });
 });
