@@ -13,7 +13,7 @@
 --   * each flip writes an audit row; UPDATE/DELETE/TRUNCATE on the audit fail
 --   * the worker state read is fresh after every flip (no caching)
 --   * global switch denies every provider; off restores each provider's state
---   * server preflight (generic + Xometry) denies provider_kill_switch_engaged
+--   * expand only: the worker preflights and request RPCs are untouched
 --   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged: a
 --     BEFORE INSERT trigger on both permit tables; the request RPCs are
 --     not renamed or wrapped
@@ -28,7 +28,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(56);
+select plan(53);
 
 create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
 returns void
@@ -106,13 +106,15 @@ select ok(not has_function_privilege('authenticated', 'public.api_worker_provide
 select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE')
     and has_function_privilege('service_role', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE'),
   'the sweep is service_role only');
-select ok(not has_function_privilege('service_role', 'private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
-    and not has_function_privilege('service_role', 'private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
-    and (select p.proconfig = array['search_path=pg_catalog'] from pg_catalog.pg_proc p
-         where p.oid = 'public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure)
-    and (select p.proconfig = array['search_path=pg_catalog'] from pg_catalog.pg_proc p
-         where p.oid = 'public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure),
-  'the preserved pre-OVD-722 preflights cannot be called directly; the wrappers keep search_path = pg_catalog');
+select ok(
+  (select pg_catalog.bool_and(p.prosrc not like '%kill\_switch%' and p.proconfig = array['search_path=pg_catalog'])
+   from pg_catalog.pg_proc p
+   where p.oid in (
+     'public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure,
+     'public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure))
+    and pg_catalog.to_regprocedure('private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null
+    and pg_catalog.to_regprocedure('private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null,
+  'expand only: the worker preflights are not renamed, wrapped or changed');
 select ok(
   pg_catalog.to_regprocedure('private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)') is null
     and pg_catalog.to_regprocedure('private.api_request_xometry_beta_dispatch_pre_ovd722(uuid, text, text, text, uuid, boolean, boolean, boolean)') is null
@@ -254,23 +256,8 @@ select throws_ok(
   '42501', 'provider_kill_switch_audit is append-only', 'TRUNCATE on the audit table fails');
 
 -- ---------------------------------------------------------------------
--- Enforcement: server preflight and enqueue
+-- Enforcement: enqueue (the worker enforces at claim and every checkpoint)
 -- ---------------------------------------------------------------------
-set local role service_role;
-select is(
-  public.api_authorize_provider_worker_dispatch(
-    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
-    '{"schema":"quote-lane-scope.v1","vendor":"fictiv"}'::jsonb, 'worker-1', pg_catalog.now()),
-  '{"schema":"provider-dispatch-authorization.v1","authorized":false,"denial":"provider_kill_switch_engaged","retryable":false}'::jsonb,
-  'generic preflight denies a switched-off provider with provider_kill_switch_engaged (terminal)');
-select isnt(
-  public.api_authorize_provider_worker_dispatch(
-    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
-    '{"schema":"quote-lane-scope.v1","vendor":"quickparts"}'::jsonb, 'worker-1', pg_catalog.now()) ->> 'denial',
-  'provider_kill_switch_engaged',
-  'another provider reaches its normal preflight checks');
-reset role;
-
 -- Every new dispatch request inserts exactly one permit row inside the
 -- request transaction. The guard fires before the NOT NULL and FK checks, so a
 -- bare insert shows which providers it refuses.
@@ -322,12 +309,6 @@ select ok(
   'with the global switch engaged every provider is denied');
 
 set local role service_role;
-select is(
-  public.api_authorize_xometry_beta_worker_dispatch(
-    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
-    '{"schema":"quote-lane-scope.v1","vendor":"xometry"}'::jsonb, 'worker-1', pg_catalog.now()),
-  '{"authorized":false,"reasonCode":"provider_kill_switch_engaged"}'::jsonb,
-  'the Xometry preflight denies under the global switch');
 select is(
   public.api_worker_provider_kill_switch_state('xometry') ->> 'globalEngaged', 'true',
   'the worker read reports the global switch');

@@ -15,9 +15,8 @@
 --
 -- Companion change in the same window/PR as the migration: promote
 -- supabase/tests/pending/ovd722_provider_kill_switch.sql.pending. No existing
--- suite needs retargeting: the request RPCs are untouched (the switch is a
--- trigger on the permit tables) and the preflight wrappers keep
--- search_path = pg_catalog, so every existing prosrc/proconfig pin holds.
+-- suite needs retargeting: no existing function is renamed, wrapped or
+-- replaced, so every existing prosrc/proconfig pin holds.
 --
 -- Deploy ordering: apply this migration BEFORE (or together with) the worker
 -- build containing OVD-722. That worker fails closed: without
@@ -42,13 +41,14 @@
 --
 -- Layout (expand -> enforce -> contract):
 --   PHASE 1 EXPAND   additive objects only; no existing behavior changes.
---   PHASE 2 ENFORCE  wraps the two worker preflights so the switch is
---                    checked first (their bodies move unchanged to
---                    private.*_pre_ovd722; if OVD-723 applied first, that is
---                    the 723 wrapper), and adds a permit insert trigger that
---                    refuses enqueue for a switched-off provider.
---   PHASE 3 CONTRACT nothing is dropped in this window (see notes at the end).
---   ROLLBACK         guarded reversal of PHASE 2 then PHASE 1, LIFO only.
+--   PHASE 2 ENFORCE  adds a BEFORE INSERT trigger on both permit tables
+--                    that refuses enqueue for a switched-off provider. This
+--                    is still expand only: it adds objects and alters no
+--                    existing function, signature, body or grant. While every
+--                    switch is disengaged (the seed) nothing behaves
+--                    differently.
+--   PHASE 3 CONTRACT not in this window (see the end of the file).
+--   ROLLBACK         guarded reversal of PHASE 2 then PHASE 1.
 -- =====================================================================
 
 -- =====================================================================
@@ -489,112 +489,20 @@ grant execute on function public.api_worker_cancel_provider_disabled_tasks()
   to service_role;
 
 -- =====================================================================
--- PHASE 2 ENFORCE
--- Preflights (2a, 2b): each keeps its exact body under a private *_pre_ovd722
--- name and a same-signature public wrapper checks the switch FIRST. The
--- wrappers pin search_path = pg_catalog like the RPCs they wrap, so the
--- existing proconfig postconditions hold. PL/pgSQL resolves callee names at
--- run time, so the generic preflight's Xometry delegation reaches the Xometry
--- wrapper too.
--- Enqueue (2c): the request RPCs are NOT renamed or wrapped; their bodies are
--- pinned byte for byte by existing pgTAP suites. Instead a BEFORE INSERT
--- trigger on each permit table refuses a new permit for a switched-off
--- provider, which aborts the whole request transaction (lane, task and
--- permit) with provider_kill_switch_engaged.
+-- PHASE 2 ENFORCE (expand only)
+-- No existing function is renamed, wrapped or replaced. The two worker
+-- preflights (api_authorize_provider_worker_dispatch,
+-- api_authorize_xometry_beta_worker_dispatch) and the two request RPCs keep
+-- their bodies, signatures and grants. The switch is enforced by:
+--   * the OVD-722 worker, which reads api_worker_provider_kill_switch_state
+--     at claim, before launch, and before every navigation, upload,
+--     configuration and save, and fails closed when it cannot;
+--   * the permit insert trigger below, which refuses enqueue;
+--   * the sweep above, which cancels queued tasks.
+-- A worker build without OVD-722 does not read the switch, so apply this
+-- migration and deploy the OVD-722 worker in the same window. Folding the
+-- check into the preflight bodies is a contract step for a later window.
 -- =====================================================================
-
--- 2a. Server preflight: generic providers.
-alter function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  rename to api_authorize_provider_worker_dispatch_pre_ovd722;
-alter function public.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
-  set schema private;
-revoke all on function private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
-  from public, anon, authenticated, service_role;
-
-create function public.api_authorize_provider_worker_dispatch(
-  p_work_queue_task_id uuid,
-  p_vendor_quote_result_id uuid,
-  p_scope_snapshot jsonb,
-  p_expected_worker_name text,
-  p_expected_claimed_at timestamptz
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = pg_catalog
-as $$
-declare
-  v_result_vendor text;
-begin
-  -- Xometry keeps its specialized response shape; its own wrapper checks the switch.
-  if p_scope_snapshot ->> 'vendor' = 'xometry' then
-    return public.api_authorize_xometry_beta_worker_dispatch(
-      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-      p_expected_worker_name, p_expected_claimed_at);
-  end if;
-
-  -- OVD-722: kill switch first. Both the claimed snapshot vendor and the
-  -- stored result vendor are checked; either engaged denies. A snapshot with
-  -- no vendor (not an object, or no key) is malformed, not a provider: the
-  -- original preflight below denies it as scope_mismatch, still fail closed.
-  select r.vendor::text into v_result_vendor
-  from public.vendor_quote_results r
-  where r.id = p_vendor_quote_result_id;
-
-  if (p_scope_snapshot ->> 'vendor' is not null
-      and private.provider_kill_switch_engaged_text(p_scope_snapshot ->> 'vendor'))
-    or (v_result_vendor is not null and private.provider_kill_switch_engaged_text(v_result_vendor)) then
-    return private.provider_dispatch_authorization_denial('provider_kill_switch_engaged');
-  end if;
-
-  return private.api_authorize_provider_worker_dispatch_pre_ovd722(
-    p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-    p_expected_worker_name, p_expected_claimed_at);
-end;
-$$;
-
-revoke all on function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  from public, anon, authenticated, service_role;
-grant execute on function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  to service_role;
-
--- 2b. Server preflight: Xometry.
-alter function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  rename to api_authorize_xometry_beta_worker_dispatch_pre_ovd722;
-alter function public.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
-  set schema private;
-revoke all on function private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
-  from public, anon, authenticated, service_role;
-
-create function public.api_authorize_xometry_beta_worker_dispatch(
-  p_work_queue_task_id uuid,
-  p_vendor_quote_result_id uuid,
-  p_scope_snapshot jsonb,
-  p_expected_worker_name text,
-  p_expected_claimed_at timestamptz
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = pg_catalog
-as $$
-begin
-  if private.provider_kill_switch_engaged('xometry'::public.vendor_name) then
-    return pg_catalog.jsonb_build_object(
-      'authorized', false,
-      'reasonCode', 'provider_kill_switch_engaged');
-  end if;
-
-  return private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(
-    p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-    p_expected_worker_name, p_expected_claimed_at);
-end;
-$$;
-
-revoke all on function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  from public, anon, authenticated, service_role;
-grant execute on function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
-  to service_role;
 
 -- 2c. Enqueue: refuse a new permit for a switched-off provider. Both request
 -- RPCs insert exactly one permit row for every new dispatch, inside their own
@@ -634,19 +542,16 @@ create trigger provider_kill_switch_permit_guard
   for each row execute function private.provider_kill_switch_permit_guard();
 
 -- =====================================================================
--- PHASE 3 CONTRACT
--- Nothing is dropped in this window. The private *_pre_ovd722 functions are
--- the live implementation behind the wrappers. The contract step is a later,
--- separately reviewed migration that, the next time one of those bodies is
--- rewritten anyway, folds the kill-switch check into the body and drops the
--- matching wrapper/inner pair.
+-- PHASE 3 CONTRACT (later window, separately reviewed)
+-- The next time a preflight body is rewritten anyway, fold the switch check
+-- into it so a worker that skips its own checkpoints is still denied. That is
+-- an in-place body change and needs its own window and exception.
 -- =====================================================================
 
 -- =====================================================================
 -- ROLLBACK (run as one transaction, only in a Blaine-approved window)
--- Reverses PHASE 2 first (restores the original preflights under their public
--- names with their original grants and drops the permit triggers), then
--- PHASE 1. Audit rows are evidence: export private.provider_kill_switch_audit
+-- Reverses PHASE 2 first (drops the permit triggers), then PHASE 1. No
+-- existing function was changed, so nothing is restored. Audit rows are evidence: export private.provider_kill_switch_audit
 -- before running the final drop, or leave those statements out to keep it.
 --
 -- The guard at the top refuses, before anything is dropped, when:
@@ -657,8 +562,8 @@ create trigger provider_kill_switch_permit_guard
 --     as disengaged, silently lifting an emergency stop. Record the
 --     engagements out of band first, or set in the same transaction:
 --       set local ovd722.rollback_discard_engagements = 'confirmed';
---   * the public preflights are not OVD-722's wrappers (a later migration
---     wrapped them). Roll back strictly in reverse order of apply.
+--   * any function outside this migration references the switch (a later
+--     migration depends on it). Roll that migration back first.
 -- The guard takes ACCESS EXCLUSIVE on both switch tables (global first, the
 -- table order every switch reader uses) before it checks, so no flip can be
 -- committed between the check and the drops.
@@ -667,8 +572,7 @@ create trigger provider_kill_switch_permit_guard
 --
 -- do $$
 -- declare
---   v_generic text;
---   v_xometry text;
+--   v_dependents text;
 -- begin
 --   if pg_catalog.to_regclass('private.provider_kill_switches') is not null then
 --     if not exists (select 1 from pg_catalog.pg_roles r
@@ -685,15 +589,19 @@ create trigger provider_kill_switch_permit_guard
 --               hint = 'Record the engagements, or set local ovd722.rollback_discard_engagements = ''confirmed''.';
 --     end if;
 --   end if;
---   select p.prosrc into v_generic from pg_catalog.pg_proc p
---   where p.oid = pg_catalog.to_regprocedure('public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)');
---   select p.prosrc into v_xometry from pg_catalog.pg_proc p
---   where p.oid = pg_catalog.to_regprocedure('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)');
---   if pg_catalog.to_regprocedure('private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamptz)') is null
---      or pg_catalog.to_regprocedure('private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamptz)') is null
---      or coalesce(pg_catalog.strpos(v_generic, 'private.api_authorize_provider_worker_dispatch_pre_ovd722('), 0) = 0
---      or coalesce(pg_catalog.strpos(v_xometry, 'private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722('), 0) = 0 then
---     raise exception 'OVD-722 rollback refused: the public preflights are not the OVD-722 wrappers; roll back the later migration first'
+--   select pg_catalog.string_agg(n.nspname || '.' || p.proname, ', ' order by n.nspname, p.proname)
+--   into v_dependents
+--   from pg_catalog.pg_proc p
+--   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+--   where (p.prosrc like '%provider\_kill\_switch%' or p.prosrc like '%provider\_global\_kill\_switch%')
+--     and (n.nspname, p.proname) not in (
+--       ('private', 'provider_kill_switch_engaged'), ('private', 'provider_kill_switch_engaged_text'),
+--       ('private', 'provider_kill_switch_audit_immutable'), ('private', 'provider_kill_switch_permit_guard'),
+--       ('public', 'api_worker_provider_kill_switch_state'), ('public', 'api_admin_set_provider_kill_switch'),
+--       ('public', 'api_admin_set_global_kill_switch'), ('public', 'api_admin_list_provider_kill_switches'),
+--       ('public', 'api_worker_cancel_provider_disabled_tasks'));
+--   if v_dependents is not null then
+--     raise exception 'OVD-722 rollback refused: other functions depend on the kill switch (%); roll that migration back first', v_dependents
 --       using errcode = 'P0001';
 --   end if;
 -- end
@@ -702,26 +610,6 @@ create trigger provider_kill_switch_permit_guard
 -- drop trigger provider_kill_switch_permit_guard on private.xometry_beta_dispatch_permits;
 -- drop trigger provider_kill_switch_permit_guard on private.provider_dispatch_permits;
 -- drop function private.provider_kill_switch_permit_guard();
---
--- drop function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
--- alter function private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
---   set schema public;
--- alter function public.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
---   rename to api_authorize_xometry_beta_worker_dispatch;
--- revoke all on function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---   from public, anon, authenticated, service_role;
--- grant execute on function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---   to service_role;
---
--- drop function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
--- alter function private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
---   set schema public;
--- alter function public.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)
---   rename to api_authorize_provider_worker_dispatch;
--- revoke all on function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---   from public, anon, authenticated, service_role;
--- grant execute on function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---   to service_role;
 --
 -- drop function public.api_worker_cancel_provider_disabled_tasks();
 -- drop function public.api_admin_list_provider_kill_switches();

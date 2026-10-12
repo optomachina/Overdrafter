@@ -9,7 +9,8 @@ created or edited. No database, remote, or provider was touched.
 The switch is runtime data in `private.provider_kill_switches` and
 `private.provider_global_kill_switch`. Nothing caches it:
 
-- the server preflights and enqueue RPCs read the rows in the same transaction;
+- enqueue is refused by a trigger on the permit tables, in the request's own
+  transaction (the server preflights are unchanged in window 1, see item 6);
 - the worker reads `api_worker_provider_kill_switch_state` at claim, right
   before launch, and before navigation, upload and configuration;
 - a periodic sweep in the worker loop cancels queued tasks for a switched-off
@@ -62,21 +63,23 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
    denies `provider_kill_switch_engaged`. The routing seam converts that into
    the same terminal `ProviderKillSwitchError` (checkpoint `server_preflight`)
    so the task also ends `cancelled_provider_disabled` rather than `failed`.
-6. **"Each RPC edit" means wrapping the preflights and a trigger for enqueue.**
-   The existing preflight and enqueue RPCs are large, and existing main pgTAP
-   suites pin their `prosrc` and `proconfig`. The two worker preflights move
-   unchanged to `private.*_pre_ovd722`, with all grants revoked, behind a
-   public wrapper of the same signature. Each wrapper checks the switch first
-   and keeps `search_path = pg_catalog`, like the RPC it wraps, so the
-   `proconfig` pins hold. The two request (enqueue) RPCs are not touched at
-   all: both insert exactly one permit row for every new dispatch, inside
+   In window 1 the preflights do not emit this code (item 6); the handling is
+   kept, tested, for the later contract step.
+6. **No existing RPC is edited or wrapped (window 1 is expand only).** The
+   existing preflight and enqueue RPCs are large, and existing main pgTAP
+   suites pin their `prosrc` and `proconfig`. Window rules allow expand only,
+   so the two worker preflights are left as they are: the OVD-722 worker
+   enforces the switch at claim and before every provider step, and the
+   worker's handling of a server `provider_kill_switch_engaged` denial stays
+   in place for the later contract step that folds the check into the
+   preflight bodies. The two request (enqueue) RPCs are not touched at
+   all either: both insert exactly one permit row for every new dispatch, inside
    their own transaction and with no exception handler, so a BEFORE INSERT
    trigger on `private.provider_dispatch_permits` and
    `private.xometry_beta_dispatch_permits` refuses with
    `provider_kill_switch_engaged` and rolls back the lane and task created in
    the same call. An idempotent replay of an existing permit inserts nothing
-   and is not refused there; the claim check and the preflights still stop
-   it. No existing suite needs retargeting (window 1 rehearsal, see below).
+   and is not refused there; the worker claim check still stops it. No existing suite needs retargeting (window 1 rehearsal, see below).
 7. **"Enqueue" is two RPCs**: `api_request_provider_dispatch` and
    `api_request_xometry_beta_dispatch` (the legacy Xometry path). Both are
    wrapped.
@@ -161,17 +164,18 @@ suites broken (`job_service_detail_privileges`,
 `xometry_beta_dispatch_admission_serialization`), a nested `begin;`/`commit;`,
 and no rollback order guard.
 
-* The enqueue wrappers are replaced by the permit insert trigger (item 6), and
-  the preflight wrappers pin `search_path = pg_catalog`. All main suites keep
-  their original assertions.
+* All four wrappers are gone (expand only, item 6). Enqueue is refused by
+  the permit insert trigger. All main suites keep their original assertions.
+  A worker build without OVD-722 does not read the switch, so the migration
+  and the OVD-722 worker deploy go in the same window.
 * The file has no transaction control of its own; the runner owns the
   transaction. `begin;`/`commit;` remain only in the commented rollback.
 * The rollback starts with a guard modeled on OVD-462: it refuses a role that
   cannot bypass RLS, takes ACCESS EXCLUSIVE on both switch tables (global
   first) before checking, refuses while any switch is engaged unless
   `set local ovd722.rollback_discard_engagements = 'confirmed'`, and refuses
-  unless the public preflights are the OVD-722 wrappers (rollback in reverse
-  order of apply only).
+  while any function outside this migration references the switch (roll the
+  dependent migration back first).
 * The worker state read takes the global row before the provider row, the
   same order as the guard's lock, so the two cannot deadlock.
 * The sweep joins `vendor_quote_results` on its uuid key (indexable) and skips
@@ -181,7 +185,7 @@ and no rollback order guard.
 
 | Plan test | Where |
 | --- | --- |
-| 1 engaged: preflight denies, others authorize | pgTAP pending suite; `providerKillSwitch.test.ts` (checkpoint, server preflight) |
+| 1 engaged: dispatch refused, others continue | pgTAP pending suite (enqueue trigger); `providerKillSwitch.test.ts` (worker checkpoints) |
 | 2 engaged after authorization: refused before launch, no adapter call | `providerKillSwitch.test.ts` "worker re-check after authorization"; handler test "flipped after the server authorized" |
 | 3 read throws or times out: refuse | `providerKillSwitch.test.ts` fail-closed cases (throw, sync throw, >2 s, malformed, missing row, RPC error) |
 | 4 audit row per flip; UPDATE/DELETE fail | pgTAP pending suite |
