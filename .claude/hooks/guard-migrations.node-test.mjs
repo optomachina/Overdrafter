@@ -17,6 +17,8 @@ import {
   linearKeyFromBranch,
   mentionsSupabaseOrMigration,
   migrationWriteTargets,
+  expandBraces,
+  globMatchesMigrations,
   pipesIntoShell,
   stripQuotes,
 } from "./guard-migrations.mjs";
@@ -230,6 +232,46 @@ test("write-ish globs that resolve under supabase are blocked", (t) => {
   mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
   for (const command of ["touch s*/m*/x.sql", "cp /tmp/a.sql s*base/mig*/"]) {
     assert.equal(blocked({ tool_name: "Bash", cwd: dir, tool_input: { command } }).allow, false, command);
+  }
+});
+
+test("bracket globs into migrations are blocked", () => {
+  assert.equal(globMatchesMigrations("[s]upabase/[m]igrations/x.sql"), true);
+  assert.equal(globMatchesMigrations("s[u]pa*/mig*/x.sql"), true);
+  for (const command of ["touch [s]upabase/[m]igrations/x.sql", "touch s[u]pa*/mig*/x.sql"]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("brace expansion including an empty alternative is blocked", () => {
+  assert.deepEqual(expandBraces("supa{base,}/migrations/x.sql"), ["supabase/migrations/x.sql", "supa/migrations/x.sql"]);
+  assert.equal(blocked(bash("touch supa{base,}/migrations/x.sql")).allow, false);
+});
+
+test("piping into dash, ksh, ash, or busybox sh is blocked", () => {
+  for (const command of ["echo hi | dash", "base64 -d | ksh", "cat x | ash", "echo hi | busybox sh"]) {
+    assert.equal(pipesIntoShell(command), true, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("echo hi | sh stays blocked", () => {
+  assert.equal(pipesIntoShell("echo hi | sh"), true);
+  assert.equal(blocked(bash("echo hi | sh")).allow, false);
+});
+
+test("head tail wc less file and stat on migrations are allowed", () => {
+  const viewPr = () => assert.fail("gh should not be called");
+  for (const command of [
+    "head supabase/migrations/x.sql",
+    "tail -n 20 supabase/migrations/x.sql",
+    "wc -l supabase/migrations/x.sql",
+    "less supabase/migrations/x.sql",
+    "file supabase/migrations/x.sql",
+    "stat supabase/migrations/x.sql",
+  ]) {
+    assert.equal(isReadOnlyAllowlisted(command), true, command);
+    assert.deepEqual(decide(bash(command), { env: {}, viewPr }), { allow: true }, command);
   }
 });
 

@@ -45,7 +45,7 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const MIGRATIONS_RE = /(^|\/)supabase\/migrations(\/|$)/;
 const SUPABASE_TREE_RE = /(^|\/)supabase(\/|$)/;
-const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep"]);
+const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "less", "file", "stat"]);
 const GIT_READERS = new Set(["diff", "log", "show", "status"]);
 const TEST_RUNNERS = new Set(["vitest", "jest", "mocha", "ava", "tap"]);
 const WRITERS = new Set([
@@ -63,7 +63,7 @@ const WRITERS = new Set([
   "chmod",
   "chown",
 ]);
-const SHELLS = new Set(["sh", "bash", "zsh", "eval"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "eval"]);
 const MCP_READ = /(?:^|__)(read|get|list|search|grep|glob|stat|fetch|show|query)(?:_|$)/i;
 const MCP_APPLY = /(?:^|__)(apply|execute|exec|run_sql|rpc)(?:_|$)/i;
 
@@ -161,13 +161,28 @@ function stripCommitMessages(command) {
     .replace(/(?:^|\s)-[A-Za-z]*m(?:=|\s+)"(?:\\"|[^"])*"/g, " ");
 }
 
+function skipCommitMessageArgs(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--message" || arg === "-F" || arg === "--file" || /^-[A-Za-z]*m$/.test(arg)) {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--message=") || arg.startsWith("--file=")) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
 /** Command text used for supabase/migration mention checks. */
 export function mentionHaystack(command) {
   const prepared = stripQuotes(stripCommitMessages(expandSimpleVars(command)));
   const parts = [];
   for (const segment of splitSegments(tokenize(prepared))) {
     const { argv, redirects } = argvFromSegment(segment);
-    parts.push(...argv, ...redirects);
+    const words = baseCmd(argv[0]) === "git" && argv[1] === "commit" ? skipCommitMessageArgs(argv) : argv;
+    parts.push(...words, ...redirects);
   }
   return parts.join(" ");
 }
@@ -373,13 +388,103 @@ function stripWrappers(argv) {
 
 function globToRe(pattern) {
   let source = "^";
-  for (const char of pattern) {
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
     if (char === "*") source += "[^/]*";
     else if (char === "?") source += "[^/]";
-    else if ("\\^$+()[]{}|.".includes(char)) source += `\\${char}`;
+    else if (char === "[") {
+      const end = pattern.indexOf("]", i + 1);
+      if (end === -1) source += "\\[";
+      else {
+        source += pattern.slice(i, end + 1);
+        i = end;
+      }
+    } else if ("\\^$+(){}|.".includes(char)) source += `\\${char}`;
     else source += char;
   }
   return new RegExp(`${source}$`, "i");
+}
+
+function splitBraceOptions(inner) {
+  const options = [];
+  let current = "";
+  let depth = 0;
+  for (const char of inner) {
+    if (char === "{") depth++;
+    if (char === "}") depth--;
+    if (char === "," && depth === 0) {
+      options.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  options.push(current);
+  return options;
+}
+
+function firstBraceGroup(pattern) {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === "\\" ) {
+      i++;
+      continue;
+    }
+    if (pattern[i] === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (pattern[i] === "}" && depth > 0) {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        const inner = pattern.slice(start + 1, i);
+        if (inner.includes(",")) {
+          return { before: pattern.slice(0, start), options: splitBraceOptions(inner), after: pattern.slice(i + 1) };
+        }
+        start = -1;
+      }
+    }
+  }
+  return null;
+}
+
+/** Expand shell brace groups, including empty alternatives such as {base,}. */
+export function expandBraces(pattern) {
+  if (typeof pattern !== "string" || pattern === "") return [""];
+  const group = firstBraceGroup(pattern);
+  if (!group) return [pattern];
+  const out = [];
+  for (const option of group.options) {
+    out.push(...expandBraces(`${group.before}${option}${group.after}`));
+  }
+  return out;
+}
+
+function isGlobby(pattern) {
+  return /[*?\[]/.test(pattern);
+}
+
+function pathTail(pattern, count) {
+  return pattern
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .slice(-count)
+    .join("/");
+}
+
+/** True when a glob/brace path would match supabase/migrations/**. */
+export function globMatchesMigrations(pattern) {
+  const samples = ["supabase/migrations", "supabase/migrations/", "supabase/migrations/x.sql", "supabase/migrations/foo/bar.sql"];
+  const candidates = [pattern.replace(/\\/g, "/").replace(/^\.\//, ""), pathTail(pattern, 3), pathTail(pattern, 2)];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const matcher = globToRe(candidate.replace(/\/+$/, ""));
+    if (samples.some((sample) => matcher.test(sample.replace(/\/+$/, "")) || matcher.test(sample))) return true;
+    const prefixMatcher = globToRe(candidate);
+    if (samples.some((sample) => prefixMatcher.test(sample))) return true;
+  }
+  return false;
 }
 
 /** Expand a pathname glob against cwd. Final missing segments are kept. */
@@ -397,7 +502,7 @@ export function expandGlobs(pattern, cwd = process.cwd()) {
     }
     const next = [];
     for (const current of currents) {
-      if (/[*?]/.test(part)) {
+      if (isGlobby(part)) {
         let entries = [];
         try {
           entries = readdirSync(current);
@@ -434,9 +539,14 @@ function pathishArgs(argv) {
 function pathsTouchSupabase(paths, cwd) {
   for (const path of paths) {
     if (typeof path !== "string" || path === "") continue;
-    const expanded = /[*?]/.test(path) ? expandGlobs(path, cwd) : [resolvePath(path, cwd)];
-    if (expanded.some((candidate) => isSupabaseTreePath(candidate, cwd))) return true;
-    if (isSupabaseTreePath(path, cwd) || isMigrationPath(path, cwd)) return true;
+    for (const braced of expandBraces(path)) {
+      if (globMatchesMigrations(braced)) return true;
+      const expanded = isGlobby(braced) ? expandGlobs(braced, cwd) : [resolvePath(braced, cwd)];
+      if (expanded.some((candidate) => isSupabaseTreePath(candidate, cwd) || isMigrationPath(candidate, cwd))) {
+        return true;
+      }
+      if (isSupabaseTreePath(braced, cwd) || isMigrationPath(braced, cwd)) return true;
+    }
   }
   return false;
 }
@@ -448,7 +558,7 @@ export function writeishTouchesSupabase(command, cwd = process.cwd()) {
     const argv = stripWrappers(rawArgv);
     const cmd = baseCmd(argv[0]);
     if (cmd === "cd" && argv[1]) {
-      const dests = /[*?]/.test(argv[1]) ? expandGlobs(argv[1], current) : [resolvePath(argv[1], current)];
+      const dests = expandBraces(argv[1]).flatMap((braced) => (isGlobby(braced) ? expandGlobs(braced, current) : [resolvePath(braced, current)]));
       if (dests.some((dest) => isSupabaseTreePath(dest, current))) current = dests.find((dest) => isSupabaseTreePath(dest, current)) ?? dests[0] ?? current;
       else current = dests[0] ?? resolvePath(argv[1], current);
       continue;
@@ -459,11 +569,18 @@ export function writeishTouchesSupabase(command, cwd = process.cwd()) {
   return false;
 }
 
+function isShellArgv(argv) {
+  const cmd = baseCmd(argv[0]);
+  if (SHELLS.has(cmd)) return true;
+  if (cmd === "busybox" && (argv[1] === "sh" || SHELLS.has(baseCmd(argv[1])))) return true;
+  return false;
+}
+
 export function pipesIntoShell(command) {
   for (const part of splitSegmentsWithOps(tokenize(normalizeCommand(command)))) {
     if (part.opBefore !== "|") continue;
     const { argv } = argvFromSegment(part.tokens);
-    if (SHELLS.has(baseCmd(stripWrappers(argv)[0]))) return true;
+    if (isShellArgv(stripWrappers(argv))) return true;
   }
   return false;
 }
