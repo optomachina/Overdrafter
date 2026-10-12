@@ -8,7 +8,6 @@ import type { ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
   createProviderAuthorizationConsumer,
   executeWithProviderAuthorization,
-  PROVIDER_EXECUTION_LEASE_OUTCOME,
   PROVIDER_EXECUTION_TERMINAL_OUTCOMES,
   providerExecutionTerminalOutcomeForError,
   type ProviderExecutionGuard,
@@ -80,6 +79,41 @@ function build(change: (request: ProviderExecutionRequest) => void = () => {}): 
   };
   change(request);
   return request;
+}
+
+// Faithful copy of the OVD-462 contract this seam composes with (PR #675 at 42d5cc6): the lease
+// recognizes only its own outcome error class, and a recognized outcome blocks the binding.
+const LEASE_OUTCOMES: Record<string, string> = {
+  login_required: "login_required",
+  challenge_required: "challenge_required",
+  blocked: "provider_blocked",
+  banned: "account_banned",
+};
+
+class FakeSessionOutcomeError extends Error {
+  constructor(readonly outcome: string) {
+    super("Provider session requires manual follow-up.");
+    this.name = "ProviderSessionOutcomeError";
+  }
+}
+
+class FakeLease {
+  blocked: string | null = null;
+  reset() {
+    this.blocked = null;
+  }
+  async runWithLease<T>(operation: () => Promise<T>) {
+    if (this.blocked) return { kind: "manual_follow_up" as const, outcome: this.blocked };
+    try {
+      return { kind: "completed" as const, value: await operation() };
+    } catch (error) {
+      if (error instanceof FakeSessionOutcomeError) {
+        this.blocked = error.outcome;
+        return { kind: "manual_follow_up" as const, outcome: error.outcome };
+      }
+      throw error;
+    }
+  }
 }
 
 function spyAdapter<T>(impl: () => Promise<T>, provider: "fictiv" | "weerg" = "fictiv") {
@@ -231,7 +265,8 @@ describe("executeWithProviderAuthorization", () => {
       [() => new VendorAutomationError("x", "login_required"), "login_required"],
       [() => new VendorAutomationError("x", "captcha"), "challenge_required"],
       [() => new VendorAutomationError("x", "anti_detection_block"), "challenge_required"],
-      [() => Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "corrupt_state" }), "corrupt_state"],
+      [() => Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "provider_blocked" }), "blocked"],
+      [() => Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "account_banned" }), "banned"],
     ];
     for (const [make, outcome] of terminals) {
       const { adapter, execute } = spyAdapter<string>(async () => {
@@ -351,25 +386,79 @@ describe("replay, guards, lease composition and expiry", () => {
     expect(ok.result.kind).toBe("completed");
   });
 
-  it("rethrows terminal errors on request so a lease records them", async () => {
-    const error = new VendorAutomationError("x", "captcha");
+  it("throws the lease error for every terminal outcome so a lease can block the binding", async () => {
+    for (const outcome of PROVIDER_EXECUTION_TERMINAL_OUTCOMES) {
+      const { adapter, execute } = spyAdapter<string>(async () => {
+        throw new ProviderExecutionTerminalError(outcome);
+      });
+      const toLeaseError = vi.fn((o: string) => new FakeSessionOutcomeError(LEASE_OUTCOMES[o]));
+      await expect(run(build(), adapter, { toLeaseError })).rejects.toBeInstanceOf(FakeSessionOutcomeError);
+      expect(toLeaseError).toHaveBeenCalledWith(outcome);
+      expect(execute).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("rethrows an adapter's own session outcome error unchanged, including lease only outcomes", async () => {
+    const own = Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "corrupt_state" });
     const { adapter } = spyAdapter<string>(async () => {
-      throw error;
+      throw own;
     });
-    await expect(run(build(), adapter, { rethrowTerminal: true })).rejects.toBe(error);
-    const { adapter: other } = spyAdapter<string>(async () => {
-      throw new Error("plain");
-    });
-    const { result } = await run(build(), other, { rethrowTerminal: true });
+    await expect(run(build(), adapter, { toLeaseError: () => new Error("unused") })).rejects.toBe(own);
+    const { result } = await run(build(), adapter);
     expect(result).toEqual({ kind: "adapter_failed", retryable: false });
   });
 
-  it("maps every seam outcome to a lease blocking outcome", () => {
-    const lease = new Set(["missing_session", "login_required", "challenge_required", "owner_revoked", "corrupt_state"]);
+  it("blocks the binding through a lease and refuses the next task (end to end, faithful copy of the OVD-462 recognition)", async () => {
+    const lease = new FakeLease();
+    const toLeaseError = (o: string) => new FakeSessionOutcomeError(LEASE_OUTCOMES[o]);
     for (const outcome of PROVIDER_EXECUTION_TERMINAL_OUTCOMES) {
-      expect(lease.has(PROVIDER_EXECUTION_LEASE_OUTCOME[outcome])).toBe(true);
+      lease.reset();
+      const { adapter, execute } = spyAdapter<string>(async () => {
+        throw new ProviderExecutionTerminalError(outcome);
+      });
+      const first = await lease.runWithLease(() => run(build(), adapter, { toLeaseError }));
+      expect(first).toEqual({ kind: "manual_follow_up", outcome: LEASE_OUTCOMES[outcome] });
+      const second = await lease.runWithLease(() => run(build(), adapter, { toLeaseError }));
+      expect(second).toEqual({ kind: "manual_follow_up", outcome: LEASE_OUTCOMES[outcome] });
+      expect(execute).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it("would not block the binding if the terminal outcome were only returned as a value", async () => {
+    const lease = new FakeLease();
+    const { adapter, execute } = spyAdapter<string>(async () => {
+      throw new ProviderExecutionTerminalError("banned");
+    });
+    const first = await lease.runWithLease(() => run(build(), adapter));
+    expect(first.kind).toBe("completed");
+    expect(lease.blocked).toBeNull();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps the seam outcomes to exactly the OVD-462 adapter failure kinds", () => {
+    expect([...PROVIDER_EXECUTION_TERMINAL_OUTCOMES].sort()).toEqual(Object.keys(LEASE_OUTCOMES).sort());
     expect(providerExecutionTerminalOutcomeForError(Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "nope" }))).toBeNull();
+    expect(providerExecutionTerminalOutcomeForError(Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "owner_revoked" }))).toBeNull();
+  });
+
+  it("denies guard_failed when a guard does not answer in time", async () => {
+    const { adapter, execute } = spyAdapter(async () => "ok");
+    const hang: ProviderExecutionGuard = () => new Promise(() => {});
+    const { result } = await run(build(), adapter, { guards: [hang], guardTimeoutMs: 20 });
+    expect(result).toEqual({ kind: "denied", denial: "guard_failed", retryable: false });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("denies permit_expired when a slow guard runs past expiry", async () => {
+    const { adapter, execute } = spyAdapter(async () => "ok");
+    const slow: ProviderExecutionGuard = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return null;
+    };
+    const request = build((r) => (r.nowMs = Date.parse("2026-10-03T12:15:00.000Z") - 20));
+    const { result } = await run(request, adapter, { guards: [slow] });
+    expect(result).toEqual({ kind: "denied", denial: "permit_expired", retryable: false });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("gives the adapter the expiry and aborts its signal at expiry", async () => {

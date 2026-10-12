@@ -33,6 +33,13 @@ import { VendorAutomationError, type VendorName } from "./types.js";
  * second presentation is denied with `authorization_replayed`. That protects
  * one worker only; see the PR body for what covers other workers.
  *
+ * Lease composition: inside OVD-462's `runWithLease`, pass `toLeaseError` so a
+ * terminal outcome is thrown as the lease's own outcome error and blocks the
+ * binding; a returned value would make the lease release it unblocked. OVD-464
+ * must also cap requeue of `adapter_failed` at one per run in the database,
+ * never requeue a denial or a terminal outcome, and count every adapter start
+ * against the daily cap.
+ *
  * Not wired into the worker; OVD-464 owns routing. The session fields mirror
  * the OVD-462 lease identity (provider, account reference, environment,
  * session binding reference) without importing it, because that module is not
@@ -96,33 +103,14 @@ export function createProviderAuthorizationConsumer(): ProviderAuthorizationCons
 const defaultConsumer = createProviderAuthorizationConsumer();
 
 /**
- * Outcomes that need an operator. The first five are the OVD-462 lease blocking
- * outcomes; `blocked` and `banned` are provider side blocks and account bans.
- * Until the lease vocabulary has its own names for them, both map to
- * `challenge_required` (see PROVIDER_EXECUTION_LEASE_OUTCOME), which blocks the
- * binding the same way, so no later task retries around the wall.
+ * Terminal adapter failure kinds. These are exactly the keys of OVD-462's
+ * PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES (login_required, challenge_required,
+ * blocked to provider_blocked, banned to account_banned). Each needs an
+ * operator and is never retried. Revocation and corrupt state are lease side
+ * conditions, not adapter failures, so they are not seam outcomes.
  */
-export const PROVIDER_EXECUTION_TERMINAL_OUTCOMES = [
-  "missing_session",
-  "login_required",
-  "challenge_required",
-  "owner_revoked",
-  "corrupt_state",
-  "blocked",
-  "banned",
-] as const;
+export const PROVIDER_EXECUTION_TERMINAL_OUTCOMES = ["login_required", "challenge_required", "blocked", "banned"] as const;
 export type ProviderExecutionTerminalOutcome = (typeof PROVIDER_EXECUTION_TERMINAL_OUTCOMES)[number];
-
-/** Total mapping from a seam outcome to the lease blocking outcome that blocks the binding. */
-export const PROVIDER_EXECUTION_LEASE_OUTCOME: Readonly<Record<ProviderExecutionTerminalOutcome, string>> = Object.freeze({
-  missing_session: "missing_session",
-  login_required: "login_required",
-  challenge_required: "challenge_required",
-  owner_revoked: "owner_revoked",
-  corrupt_state: "corrupt_state",
-  blocked: "challenge_required",
-  banned: "challenge_required",
-});
 
 /** An adapter throws this to report a terminal provider condition. */
 export class ProviderExecutionTerminalError extends Error {
@@ -139,15 +127,24 @@ const VENDOR_ERROR_OUTCOMES: Partial<Record<VendorAutomationError["code"], Provi
   anti_detection_block: "challenge_required",
 };
 
-const TERMINAL_OUTCOME_SET: ReadonlySet<string> = new Set(PROVIDER_EXECUTION_TERMINAL_OUTCOMES);
+// OVD-462's ProviderSessionOutcomeError outcomes that name an adapter failure kind.
+const SESSION_OUTCOME_KINDS: Readonly<Record<string, ProviderExecutionTerminalOutcome>> = Object.freeze({
+  login_required: "login_required",
+  challenge_required: "challenge_required",
+  provider_blocked: "blocked",
+  account_banned: "banned",
+});
+
+function isSessionOutcomeError(error: unknown): error is Error & { outcome?: unknown } {
+  return error instanceof Error && error.name === "ProviderSessionOutcomeError";
+}
 
 export function providerExecutionTerminalOutcomeForError(error: unknown): ProviderExecutionTerminalOutcome | null {
   if (error instanceof ProviderExecutionTerminalError) return error.outcome;
   if (error instanceof VendorAutomationError) return VENDOR_ERROR_OUTCOMES[error.code] ?? null;
-  // OVD-462's ProviderSessionOutcomeError, recognized structurally until that module is on main.
-  if (error instanceof Error && error.name === "ProviderSessionOutcomeError") {
-    const outcome = (error as { outcome?: unknown }).outcome;
-    if (typeof outcome === "string" && TERMINAL_OUTCOME_SET.has(outcome)) return outcome as ProviderExecutionTerminalOutcome;
+  if (isSessionOutcomeError(error)) {
+    const outcome = error.outcome;
+    return typeof outcome === "string" && Object.hasOwn(SESSION_OUTCOME_KINDS, outcome) ? SESSION_OUTCOME_KINDS[outcome] : null;
   }
   return null;
 }
@@ -391,14 +388,33 @@ export type ProviderExecutionOptions = {
   log?: ProviderExecutionLogger;
   /** Checked after authorization and before bytes are captured or the adapter runs. */
   guards?: readonly ProviderExecutionGuard[];
+  /** Per guard time limit; a guard that does not answer in time denies `guard_failed`. Default 5000. */
+  guardTimeoutMs?: number;
   consumer?: ProviderAuthorizationConsumer;
   /**
-   * Rethrow the adapter's original error when it is a terminal outcome, so a
-   * surrounding `runWithLease` records it and blocks the binding. Without it
-   * the outcome is returned as a value and the lease would release unblocked.
+   * Required when the seam runs inside `runWithLease`: builds the error the
+   * lease recognizes (for example `new ProviderSessionOutcomeError(
+   * PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES[outcome])`). A terminal outcome
+   * is then thrown, so the lease blocks the binding. Without it the outcome
+   * is returned as a value and a surrounding lease would release unblocked.
+   * An adapter's own ProviderSessionOutcomeError is rethrown unchanged.
    */
-  rethrowTerminal?: boolean;
+  toLeaseError?: (outcome: ProviderExecutionTerminalOutcome) => Error;
 };
+
+const DEFAULT_GUARD_TIMEOUT_MS = 5_000;
+
+async function runGuard(guard: ProviderExecutionGuard, input: ProviderExecutionGuardInput, timeoutMs: number): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("guard timeout")), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve().then(() => guard(input)), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Validates the authorization and, only if every check passes, runs the adapter
@@ -418,8 +434,9 @@ export async function executeWithProviderAuthorization<T>(
   };
 
   if (!request) return deny("execution_request_malformed");
-  const nowMs = request.nowMs ?? Date.now();
-  const checked = authorizationDenial(request, nowMs);
+  const startedAt = performance.now();
+  const startNowMs = request.nowMs ?? Date.now();
+  const checked = authorizationDenial(request, startNowMs);
   if ("denial" in checked) return deny(checked.denial);
   const envelope = checked.envelope;
 
@@ -433,10 +450,11 @@ export async function executeWithProviderAuthorization<T>(
     organizationId: envelope.subject.organizationId,
     requestedQuantity: envelope.scope.requestedQuantity,
   });
+  const guardTimeoutMs = options.guardTimeoutMs ?? DEFAULT_GUARD_TIMEOUT_MS;
   for (const guard of options.guards ?? []) {
     let verdict: unknown;
     try {
-      verdict = await guard(guardInput);
+      verdict = await runGuard(guard, guardInput, guardTimeoutMs);
     } catch {
       return deny("guard_failed");
     }
@@ -451,7 +469,10 @@ export async function executeWithProviderAuthorization<T>(
   const files = captureFiles(envelope, request.files);
   if (!files) return deny("captured_file_mismatch");
 
+  // Awaited guards take time; measure it on the monotonic clock and recheck expiry.
+  const nowMs = startNowMs + (performance.now() - startedAt);
   const expiresAtMs = Date.parse(envelope.expiresAt);
+  if (nowMs >= expiresAtMs) return deny("permit_expired");
   const consumer = options.consumer ?? defaultConsumer;
   if (!consumer.consume(`${envelope.permit.permitId}:${request.expected.envelopeFingerprint}`, expiresAtMs, nowMs)) {
     return deny("authorization_replayed");
@@ -479,10 +500,12 @@ export async function executeWithProviderAuthorization<T>(
     const outcome = providerExecutionTerminalOutcomeForError(error);
     if (outcome) {
       log({ event: "provider_execution.terminal", provider: envelope.provider, outcome });
-      if (options.rethrowTerminal) throw error;
+      if (options.toLeaseError) throw isSessionOutcomeError(error) ? error : options.toLeaseError(outcome);
       return { kind: "terminal", outcome, disposition: "manual_follow_up", retryable: false };
     }
     log({ event: "provider_execution.failed", provider: envelope.provider });
+    // A lease side outcome with no adapter failure kind (for example corrupt_state) must still reach the lease.
+    if (options.toLeaseError && isSessionOutcomeError(error)) throw error;
     return { kind: "adapter_failed", retryable: false };
   } finally {
     clearTimeout(timer);
