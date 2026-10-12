@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { stagePolicyTests, admitCi, admitPgProve, LEGACY } from './run-supabase-policy-tests.mjs';
 import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, acceptRollbackRace, acceptRollbackGuards,
   acceptRevokeThenRollback, acceptRollbackBehindRevoke,
-  callResult, readDraft, readRollback, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
+  callResult, compareCodeUnits, readDraft, readRollback, resolveBinary, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
 const source = fileURLToPath(new URL('../supabase/tests', import.meta.url));
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'ovd-policy-selector-'));
@@ -98,12 +98,22 @@ test('OVD-462 rollback refuses to drop occupants before any drop runs', () => {
   assert(!/^\s*(?:begin|commit)\s*;/im.test(rollback), 'the runner owns the transaction');
 });
 
+test('OVD-462 race key order is UTF-16 code unit order, byte identical to the default sort', () => {
+  const input = ['b', 'B', 'a', '_x', 'elapsed_ms', 'Z', '\u00e9'];
+  assert.deepEqual([...input].sort(compareCodeUnits), ['B', 'Z', '_x', 'a', 'b', 'elapsed_ms', '\u00e9']);
+});
+
+test('OVD-462 race tools resolve to absolute executables or fail clearly', () => {
+  assert(isAbsolute(resolveBinary('node')));
+  assert.throws(() => resolveBinary('ovd462-no-such-binary'), /ovd462-no-such-binary not found on PATH/);
+});
+
 const ok = result => ({ result, sqlstate: null, elapsed_ms: 1 });
 const err = (sqlstate, elapsed_ms = 1) => ({ result: null, sqlstate, elapsed_ms });
 const acquired = (generation = 1) => ok({ status: 'acquired', generation, idempotent: false, expires_in_ms: 60000, renewals_remaining: 5 });
 test('OVD-462 race test runs every scenario at least 20 times against the byte-identical draft', () => {
   for (const count of Object.values(ITERATIONS)) assert(count >= MIN_ITERATIONS);
-  assert.deepEqual(Object.keys(ITERATIONS).sort(),
+  assert.deepEqual(Object.keys(ITERATIONS).sort(compareCodeUnits),
     ['binding', 'expiry', 'lockTimeout', 'revokeThenRollback', 'rollback', 'rollbackBehindRevoke', 'sameKey']);
   const root = fileURLToPath(new URL('..', import.meta.url));
   assert.match(readDraft(root), /create function public\.acquire_provider_session_lease/);

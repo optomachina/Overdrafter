@@ -17,8 +17,8 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { accessSync, constants, readFileSync } from 'node:fs';
+import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PsqlSession, oneJson } from './ovd591-psql-concurrency.mjs';
 
@@ -85,10 +85,16 @@ const tryCall = (sql, gate) => gate === undefined
   // The gate subquery runs first: both racers wait on the coordinator's lock and start together.
   : `select race.try_json(${quote(sql)}) from (select pg_catalog.pg_advisory_xact_lock_shared(${gate})) gate;`;
 
+/** UTF-16 code unit order: byte identical to the default sort on strings, never locale aware. */
+export function compareCodeUnits(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** One racer result: exactly one of a jsonb result or a SQLSTATE. */
 export function callResult(output) {
   const value = oneJson(output);
-  assert.deepEqual(Object.keys(value).sort(), ['elapsed_ms', 'result', 'sqlstate']);
+  assert.deepEqual(Object.keys(value).sort(compareCodeUnits), ['elapsed_ms', 'result', 'sqlstate']);
   assert(Number.isFinite(value.elapsed_ms) && value.elapsed_ms >= 0);
   if (value.sqlstate === null) assert(value.result && typeof value.result === 'object');
   else assert(/^[0-9A-Z]{5}$/.test(value.sqlstate) && value.result === null);
@@ -442,8 +448,21 @@ export async function runLeaseRaces(makeSession, draftSql, rollbackSql, { iterat
   }
 }
 
+const resolvedBinaries = new Map();
+/** Resolves a tool to an absolute path once, from the absolute entries of PATH, so spawns never search PATH. */
+export function resolveBinary(name) {
+  if (!resolvedBinaries.has(name)) {
+    const found = (process.env.PATH ?? '').split(delimiter).filter(dir => isAbsolute(dir)).map(dir => join(dir, name)).find(candidate => {
+      try { accessSync(candidate, constants.X_OK); return true; } catch { return false; }
+    });
+    assert(found, `${name} not found on PATH; install it or add its directory to PATH`);
+    resolvedBinaries.set(name, found);
+  }
+  return resolvedBinaries.get(name);
+}
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000, ...options });
+  const result = spawnSync(resolveBinary(command), args, { encoding: 'utf8', timeout: 120_000, ...options });
   assert(!result.error && result.status === 0, `${command} ${args[0]} failed: ${(result.stderr || result.error?.message || '').trim()}`);
   return result.stdout;
 }
@@ -454,7 +473,7 @@ function psqlFactory(container, database, password) {
     const args = ['exec', '-i', '-e', 'PGPASSWORD', '-e', 'PGOPTIONS=-cclient_min_messages=warning -ctimezone=UTC',
       '-e', `PGAPPNAME=ovd462-race-${name}`, container,
       'psql', '-h', '127.0.0.1', '-p', '5432', '-U', 'postgres', '-d', database, '-X', '-Atq', '-w', '-v', 'ON_ERROR_STOP=1'];
-    const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PGPASSWORD: password } });
+    const child = spawn(resolveBinary('docker'), args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PGPASSWORD: password } });
     return new PsqlSession(child, name, {}, { timeoutMs: 30_000 });
   };
 }
@@ -500,7 +519,7 @@ export async function runAgainstDocker(root, { log = console.log } = {}) {
     created.container = id;
     const ready = Date.now() + 60_000;
     // TCP only answers once the image's init server has stopped and the real one is up.
-    while (spawnSync('docker', ['exec', '-e', 'PGPASSWORD', id, 'psql', '-h', '127.0.0.1', '-U', 'postgres', '-Atqc', 'select 1'],
+    while (spawnSync(resolveBinary('docker'), ['exec', '-e', 'PGPASSWORD', id, 'psql', '-h', '127.0.0.1', '-U', 'postgres', '-Atqc', 'select 1'],
       { encoding: 'utf8', env: { ...process.env, PGPASSWORD: password } }).stdout?.trim() !== '1') {
       assert(Date.now() < ready, 'fixture database never became ready');
       await new Promise(done => setTimeout(done, 500));
@@ -514,8 +533,8 @@ export async function runAgainstDocker(root, { log = console.log } = {}) {
       return runLeaseRaces(factory, draft, rollback, { log });
     });
   } finally {
-    if (created.container) spawnSync('docker', ['rm', '-f', created.container], { encoding: 'utf8' });
-    if (created.network) spawnSync('docker', ['network', 'rm', created.network], { encoding: 'utf8' });
+    if (created.container) spawnSync(resolveBinary('docker'), ['rm', '-f', created.container], { encoding: 'utf8' });
+    if (created.network) spawnSync(resolveBinary('docker'), ['network', 'rm', created.network], { encoding: 'utf8' });
   }
 }
 

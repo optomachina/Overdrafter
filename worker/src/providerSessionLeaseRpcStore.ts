@@ -1,4 +1,5 @@
 import {
+  compareCodeUnits,
   isProviderSessionOperatorAudit,
   PROVIDER_SESSION_BLOCKING_OUTCOMES,
   type ProviderSessionBindingKey,
@@ -63,8 +64,8 @@ function malformed(): never {
 
 function exact(value: unknown, keys: string[]): Json {
   if (value === null || typeof value !== "object" || Array.isArray(value)) malformed();
-  const actual = Object.keys(value as Json).sort();
-  const expected = [...keys].sort();
+  const actual = Object.keys(value as Json).sort(compareCodeUnits);
+  const expected = [...keys].sort(compareCodeUnits);
   if (actual.length !== expected.length || actual.some((key, i) => key !== expected[i])) malformed();
   return value as Json;
 }

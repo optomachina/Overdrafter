@@ -101,6 +101,15 @@ const TASK_REF = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const HOLDER_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const IDENTITY_KEYS = ["accountRef", "environment", "provider", "sessionBindingRef"];
 
+/**
+ * UTF-16 code unit order, the same order as the default `Array.prototype.sort`
+ * on strings. Not locale aware on purpose: key order must stay byte stable.
+ */
+export function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
@@ -110,7 +119,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 /** Exact-key validation: extra keys (for example storage state) are rejected, not ignored. */
 export function isProviderSessionIdentity(value: unknown): value is ProviderSessionIdentity {
   if (!isPlainRecord(value)) return false;
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).sort(compareCodeUnits);
   if (keys.length !== IDENTITY_KEYS.length || keys.some((key, i) => key !== IDENTITY_KEYS[i])) return false;
   return (
     typeof value.provider === "string" && PROVIDER.test(value.provider) &&
@@ -274,7 +283,7 @@ export type ProviderSessionLeaseOperatorAudit = { actorRef: string; reasonRef: s
 
 export function isProviderSessionOperatorAudit(value: unknown): value is ProviderSessionLeaseOperatorAudit {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).sort(compareCodeUnits);
   if (keys.length !== 2 || keys[0] !== "actorRef" || keys[1] !== "reasonRef") return false;
   const audit = value as ProviderSessionLeaseOperatorAudit;
   return isProviderSessionTaskRef(audit.actorRef) && isProviderSessionTaskRef(audit.reasonRef);

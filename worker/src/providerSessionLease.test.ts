@@ -3,6 +3,7 @@
 import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  compareCodeUnits,
   createProviderSessionLeaseManager,
   deriveProviderAccountRef,
   deriveProviderSessionBindingRef,
@@ -225,6 +226,14 @@ describe("AC2: cross-provider/account/environment/task/generation/expired reuse 
     expect(await manager.acquire({ identity: valid, taskRef: "has/slash" })).toEqual({ kind: "rejected", reason: "invalid_identity" });
     expect(calls).toHaveLength(0);
     expect(isProviderSessionIdentity(valid)).toBe(true);
+  });
+
+  it("orders keys by UTF-16 code unit, byte identical to the default sort", () => {
+    const input = ["b", "B", "a", "_x", "accountRef", "Z", "é"];
+    expect([...input].sort(compareCodeUnits)).toEqual(["B", "Z", "_x", "a", "accountRef", "b", "é"]);
+    const valid = identityFor();
+    const { provider, ...rest } = valid;
+    expect(isProviderSessionIdentity({ ...rest, Provider: provider })).toBe(false);
   });
 });
 
