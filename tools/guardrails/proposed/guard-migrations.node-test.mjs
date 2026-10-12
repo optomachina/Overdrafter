@@ -93,6 +93,21 @@ writeFileSync(join(FIXTURE, "viewer.graphql"), "query { viewer { login } }");
 writeFileSync(join(FIXTURE, "run-args.sh"), '#!/bin/sh\n"$@"\n');
 writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1/jobs"\ndata = "{}"\n');
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
+// Two git repositories for the push and alias rows: gitmain has main checked out, gitfeat a feature branch and some aliases.
+const git = (sub, ...args) => {
+  const result = spawnSync("git", ["-C", join(FIXTURE, sub), ...args], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+};
+for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"]]) {
+  mkdirSync(join(FIXTURE, sub));
+  git(sub, "init", "-q");
+  git(sub, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
+}
+git("gitfeat", "config", "alias.shipit", "!git push origin HEAD:main");
+git("gitfeat", "config", "alias.pm", "push origin main");
+git("gitfeat", "config", "alias.hop", "pm");
+git("gitfeat", "config", "alias.st", "status");
+git("gitfeat", "config", "alias.lg", "log --oneline");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
 const mcp = (tool_name, tool_input) => ({ tool_name, tool_input });
@@ -349,8 +364,8 @@ deny (Bash(npm run db:push:*)) | npm run db:push
 # 13. Residuals that stay visible.
 residual (a symlink made earlier hides the target) | echo x > m/x.sql
 residual (a path generated from file contents at run time is not known) | touch "$(cat /tmp/name)"
-residual (git reset, stash, merge, pull and clean move many files at once and are not inspected) | git reset --hard origin/main
-residual (a push of the current branch is not resolved, so a checked out main is not seen) | git push origin HEAD
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+block | git push origin HEAD
 residual (a gh alias made before the guard is not expanded) | gh m 1
 residual (env -C changes directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
 residual (an interpreter script file is not inspected) | node /tmp/w.js
@@ -445,9 +460,9 @@ residual (inline interpreter code that builds a path by concatenation is not res
 residual (inline interpreter code that builds a path by concatenation is not resolved) | python3 -c "import os; open(os.path.join('supabase','migrations','x.sql'),'w')"
 residual (inline interpreter code that calls fetch or urllib is not inspected) | node -e "fetch('https://abc.supabase.co/rest/v1/jobs',{method:'POST',body:'{}'})"
 residual (inline interpreter code that calls fetch or urllib is not inspected) | python3 -c "import urllib.request as u; u.urlopen(u.Request('https://abc.supabase.co/rest/v1/jobs', data=b'{}'))"
-residual (a push refspec set in git config is not read) | git config remote.origin.push HEAD:main && git push
-residual sql (Supabase shipped functions that write are not on the side effect list) | select realtime.send('{}'::jsonb, 'e', 't', false)
-residual sql (Supabase shipped functions that write are not on the side effect list) | select pgsodium.create_key()
+residual fixture:gitfeat (a push refspec set in git config is not read) | git config remote.origin.push HEAD:main && git push
+block sql | select realtime.send('{}'::jsonb, 'e', 't', false)
+block sql | select pgsodium.create_key()
 residual (env -C and env --chdir change directory without a cd the hook can follow) | env --chdir=supabase/migrations touch x.sql
 residual (env -C and env --chdir change directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
 residual fixture (after a cd to a generated or unresolved directory, a script run by a relative path is read from the directory before that cd) | cd "$OTHER" && ./clean.sh
@@ -491,8 +506,8 @@ pass | cat ~/Overdrafter/tools/guardrails/apply.mjs
 block | printf 'mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }' | gh api graphql -F query=@/dev/stdin
 pass | gh api graphql -F query=@$FIXTURE/viewer.graphql
 # 6. Residuals that stay visible.
-residual (a git ! alias that places its arguments with $1 or "$@" inside its text is not resolved) | git -c alias.x='!git push origin "$1"; :' x HEAD:main
-residual (a git alias that expands to another -c alias is expanded only once) | git -c alias.a=b -c alias.b='push origin HEAD:main' a
+block | git -c alias.x='!git push origin "$1"; :' x HEAD:main
+block | git -c alias.a=b -c alias.b='push origin HEAD:main' a
 residual fixture (a script that runs its own arguments with "$@" is not resolved) | ./run-args.sh supabase db push
 residual (curl -K reads options from a config file that is not inspected) | curl -K $FIXTURE/curl.cfg
 residual (archive extraction writes the paths stored in the archive, which are not read) | tar -xf /tmp/m.tar
@@ -500,6 +515,122 @@ residual (archive extraction writes the paths stored in the archive, which are n
 residual (plain text piped into an interpreter other than a shell is not inspected) | echo "require('fs').writeFileSync('supabase/migrations/x.sql','')" | node
 residual (plain text piped into an interpreter other than a shell is not inspected) | printf 'open("supabase/migrations/x.sql","w")' | python3
 residual (a merge without a pinned head sha can race a push that adds a migration after the changed files were listed) | gh pr merge 2 --squash
+`;
+
+// Round 15: the second polish round before install. Every fix has a block row and every false positive fix an allow row.
+const ROUND_15 = String.raw`
+# 1. A push with no refspec, or of HEAD or @, updates the checked out branch; on main or master it blocks, and when the
+# branch cannot be resolved (no repository, detached HEAD) it fails closed unless the destination is named.
+block fixture:gitmain | git push
+block fixture:gitmain | git push origin
+block fixture:gitmain | git push origin HEAD
+block fixture:gitmain | git push -u origin HEAD
+block fixture:gitmain | git push origin @
+block fixture:gitmain | git push origin +HEAD
+block | git push
+block | git push -u origin HEAD
+block fixture:gitfeat | git push origin :
+pass fixture:gitfeat | git push
+pass fixture:gitfeat | git push origin HEAD
+pass fixture:gitfeat | git push -u origin HEAD
+pass fixture:gitfeat | git push --force-with-lease origin HEAD
+pass | git push origin HEAD:feature/x
+pass | git push -u origin feature/x
+pass | git -C $FIXTURE/gitfeat push -u origin HEAD
+block | git -C $FIXTURE/gitmain push -u origin HEAD
+# 2. --repo names the repository, so the first positional argument is a refspec.
+block | git push --repo origin HEAD:main
+block | git push --repo=origin HEAD:main
+block | git push --repo origin main
+pass | git push --repo origin HEAD:feature/x
+pass fixture:gitfeat | git push --repo=origin
+# 3. curl --expand-<option> is <option>: --expand-json and --expand-data send a body.
+block | curl --expand-json '{}' --expand-url https://abc.supabase.co/rest/v1/jobs
+block | curl --expand-data '{}' https://abc.supabase.co/rest/v1/jobs
+block | curl --expand-data-binary=@/tmp/x.json https://abc.supabase.co/rest/v1/jobs
+pass | curl --expand-url https://abc.supabase.co/rest/v1/jobs --expand-header 'apikey: x'
+pass | curl -G --expand-data select=id https://abc.supabase.co/rest/v1/jobs
+# 4. >&word writes both streams to a file unless word is a descriptor number or -.
+block | echo x >& supabase/migrations/x.sql
+block | echo x >&supabase/migrations/x.sql
+block | echo '{}' >& .claude/settings.json
+pass | ls supabase/migrations 2>&1 | tail
+pass | echo x >&2
+pass | echo x >&-
+pass | grep -rn "security definer" supabase/migrations >& /tmp/grep.log
+# 5. Aliases from git config, set earlier in the same command or in the repository config, are expanded a few levels deep.
+block | git config alias.x '!git push origin HEAD:main' && git x
+block | git config alias.p 'push origin HEAD:main'; git p
+block | git config --local alias.w 'checkout main -- supabase/migrations' && git w
+block | git config alias.a b && git config alias.b 'push origin HEAD:main' && git a
+block fixture:gitfeat | git shipit
+block fixture:gitfeat | git pm
+block fixture:gitfeat | git hop
+block | git -c alias.x='!git push origin "$2"; :' x "$(date)" HEAD:main
+block | git -c alias.x='!f() { git push origin "$1"; }; f' x HEAD:main
+block | git frobnicate
+pass fixture:gitfeat | git st
+pass fixture:gitfeat | git lg -- supabase/migrations
+pass fixture:gitfeat | git status --short -- supabase/migrations
+pass | git config alias.st status && git st -- supabase/migrations
+pass | git config --get alias.st
+pass | git -c alias.l='!git log "$1"' l -- supabase/migrations
+# 6. git read commands pass with a protected pathspec; reflog expire and reflog delete are not reads.
+pass | git rev-list HEAD -- supabase/migrations
+pass | git diff-tree -r --name-only HEAD -- supabase/migrations
+pass | git diff-index --cached HEAD -- supabase/migrations
+pass | git diff-files -- supabase/migrations
+pass | git whatchanged -- supabase/migrations
+pass | git check-ignore -v supabase/migrations/x.sql
+pass | git check-attr -a supabase/migrations/x.sql
+pass | git show-ref supabase/migrations
+pass | git for-each-ref refs/heads/tools/guardrails
+pass | git name-rev --name-only supabase/migrations
+pass | git range-diff origin/main...HEAD -- supabase/migrations
+pass | git reflog -- supabase/migrations
+pass | git reflog show HEAD -- tools/guardrails
+block | git reflog expire --expire=now supabase/migrations
+block | git reflog delete supabase/migrations
+# 7. Words after a shell's -c text are $0, $1 and so on; they are put into the text, which is checked.
+pass | bash --login -c 'cat "$1"' _ supabase/migrations/x.sql
+pass | sh -eu -c 'git diff -- "$1"' _ supabase/migrations
+pass | bash -c 'grep -n "$2" "$1"' _ supabase/migrations/x.sql 'create table'
+pass | sh -c 'for f in "$@"; do head -5 "$f"; done' _ supabase/migrations/a.sql supabase/migrations/b.sql
+block | bash -c 'cp /tmp/x "$1"' _ supabase/migrations/x.sql
+block | sh -c 'echo x > "$1"' _ .claude/settings.json
+block | bash -c 'rm -rf "$@"' _ /tmp/a tools/guardrails
+block | bash -c 'git push origin "$\{1}"' _ HEAD:main
+# 8. Saving a copy of a protected file is a read of it; text printed by echo or printf into a script file still blocks.
+pass | git show origin/main:tools/guardrails/proposed/guard-migrations.mjs > /tmp/old.mjs
+pass | cat tools/guardrails/proposed/guard-migrations.mjs > /tmp/copy.mjs
+block | printf 'cp /tmp/x tools/guardrails/apply.mjs\n' > /tmp/w.sh
+block | git show origin/main:tools/guardrails/apply.mjs > tools/guardrails/apply.mjs
+# 10. A lone - after -c ends the options like --.
+block | bash -c - 'supabase db push'
+block | sh -c - 'echo x > supabase/migrations/x.sql'
+pass | bash -c - 'git status'
+# 11. The value of --rcfile or --init-file is not the script; the script after it is read.
+pass | bash --rcfile /tmp/rc $FIXTURE/clean.sh
+block | bash --rcfile $FIXTURE/clean.sh $FIXTURE/bad.sh
+block | bash --init-file $FIXTURE/clean.sh $FIXTURE/bad.sh
+# 12. execute_sql fails closed on a schema qualified call into an app schema; system schema functions pass.
+block sql | select public.archive_old_jobs()
+block sql | select private.rotate_keys(1)
+block sql | select * from app.enqueue_job('x')
+block sql | select "public"."archive_old_jobs"()
+block sql | select auth.uid()
+pass sql | select pg_catalog.pg_get_functiondef('f'::regproc)
+pass sql | select pg_catalog.format_type(23, null)
+pass sql | select extensions.uuid_generate_v4()
+pass sql | select count(*) from public.jobs
+pass sql | select j.id, lower(j.status) from public.jobs j where j.id = 1
+pass sql | select column_name from information_schema.columns where table_name = 'jobs'
+residual sql (an unqualified call to a user defined function with side effects is not inspected) | select archive_old_jobs()
+# 14. Residuals that stay visible. A function form alias (f() { ...; }; f) and the $1 form both block above.
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git stash pop
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git pull origin main
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git clean -fdx
 `;
 
 function tableRows(round, table) {
@@ -898,7 +1029,7 @@ const PROBES = [
   [11, "git apply --check /tmp/nope.patch", PASSES],
   [11, "git am --abort", PASSES],
   [11, `patch -p1 < ${FIXTURE}/clean.patch`, PASSES],
-  [11, "git reset --hard origin/main", residual("git reset, stash, merge, pull and clean move many files at once and are not inspected")],
+  [11, "git reset --hard origin/main", residual("git reset, stash, pull and clean change local files only and are not inspected")],
   // Codex HIGH: merge evidence bound to the right repository and head.
   [11, "GH_REPO=other/repo gh pr merge 2", HOOK_BLOCKS],
   [11, "export GH_REPO=other/repo; gh pr merge 2 --squash", HOOK_BLOCKS],
@@ -958,6 +1089,7 @@ const PROBES = [
   ...tableRows(12, ROUND_12),
   ...tableRows(13, ROUND_13),
   ...tableRows(14, ROUND_14),
+  ...tableRows(15, ROUND_15),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -1110,7 +1242,9 @@ test("after apply, .claude/hooks and settings.json match the proposed copy", { s
   const staged = JSON.parse(readFileSync(join(ROOT, "tools/guardrails/proposed/settings.json"), "utf8"));
   for (const rule of staged.permissions.deny) assert.ok(applied.permissions?.deny?.includes(rule), `.claude/settings.json is missing ${rule}`);
   for (const entry of staged.hooks.PreToolUse) {
-    const expected = JSON.stringify(entry).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\{\\{NODE\\}\\}", '/[^"\\\\]+').replace("\\{\\{HOOK\\}\\}", join(ROOT, ".claude/hooks/guard-migrations.mjs"));
+    const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const hook = escape(JSON.stringify(join(ROOT, ".claude/hooks/guard-migrations.mjs")).slice(1, -1));
+    const expected = escape(JSON.stringify(entry)).replace("\\{\\{NODE\\}\\}", '/[^"\\\\]+').replace("\\{\\{HOOK\\}\\}", () => hook);
     assert.ok(applied.hooks?.PreToolUse?.some((e) => new RegExp(`^${expected}$`).test(JSON.stringify(e))), `.claude/settings.json is missing the ${entry.matcher} hook as apply.mjs writes it`);
   }
 });
@@ -1124,6 +1258,11 @@ test("the hook process exits 2 on block, 0 on pass, and fails closed without too
   assert.equal(run(JSON.stringify({ tool_name: "Bash" })).status, 2);
   assert.equal(run("not json").status, 2);
   assert.equal(run("").status, 2);
+  // Through a real pipe the hook has already read its stdin to the end, so a @/dev/stdin value reads as empty text there
+  // and only the device check blocks it. (node's own spawn hands the hook a socket, which cannot be reopened, so a shell pipe is used.)
+  const payload = JSON.stringify(payloadOf("printf x | gh api graphql -F query=@/dev/stdin"));
+  const piped = spawnSync("/bin/sh", ["-c", 'printf "%s" "$1" | "$2" "$3"', "sh", payload, process.execPath, HOOK], { encoding: "utf8" });
+  assert.equal(piped.status, 2, piped.stderr);
 });
 
 test("the staged hook command clears NODE_OPTIONS and exits 2 when the hook is missing or crashes", () => {

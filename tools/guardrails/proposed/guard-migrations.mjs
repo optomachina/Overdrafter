@@ -35,9 +35,12 @@
  *   whose target is not provably loopback, unless psql runs read only SQL,
  *   and HTTP writes to Supabase APIs (each curl --next transfer on its own);
  * - hosted Supabase write tools under any MCP server name, and execute_sql
- *   unless it is a single read only statement;
- * - git push to main (heads/main included, -c aliases expanded), the merges
- *   API and writes to the main ref;
+ *   unless it is a single read only statement that calls no function in an
+ *   app schema;
+ * - git push to main (heads/main included, and a push with no refspec or of
+ *   HEAD while main is checked out, failing closed when the branch cannot be
+ *   resolved), with aliases from -c, git config and the repository config
+ *   expanded, the merges API and writes to the main ref;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -67,7 +70,22 @@ const isReader = (cmd) => READERS.has(cmd) || /^(sha\d*sum|shasum|b2sum)$/.test(
 // Commands for which a bare "supabase", ".claude" or "tools" word (or a glob that could expand to it) means the directory.
 const FILE_WRITERS = new Set(["cp", "mv", "rm", "rmdir", "rsync", "ln", "install", "tar", "unzip", "touch", "mkdir", "chmod", "chown", "truncate", "dd", "tee", "shred", "git"]);
 const COPY_COMMANDS = new Set(["cp", "rsync", "install"]);
-const GIT_READERS = new Set(["log", "show", "status", "blame", "diff", "grep", "ls-files", "add", "fetch", "rev-parse", "branch", "remote", "config", "describe", "shortlog", "cat-file", "ls-tree", "merge-base"]);
+const GIT_READERS = new Set([
+  "log", "show", "status", "blame", "diff", "grep", "ls-files", "add", "fetch", "rev-parse", "branch", "remote", "config", "describe", "shortlog", "cat-file", "ls-tree",
+  "merge-base", "rev-list", "diff-tree", "diff-index", "diff-files", "whatchanged", "check-ignore", "check-attr", "show-ref", "for-each-ref", "name-rev", "range-diff", "reflog",
+]);
+// git commands an alias cannot replace, so their names are never looked up as aliases.
+const GIT_BUILTINS = new Set([
+  ...GIT_READERS, "am", "annotate", "apply", "archive", "backfill", "bisect", "bundle", "check-mailmap", "check-ref-format", "checkout", "checkout-index", "cherry",
+  "cherry-pick", "citool", "clean", "clone", "column", "commit", "commit-graph", "commit-tree", "count-objects", "credential", "difftool", "fetch-pack",
+  "filter-branch", "fmt-merge-msg", "for-each-repo", "format-patch", "fsck", "gc", "get-tar-commit-id", "gui", "hash-object", "help", "index-pack", "init",
+  "instaweb", "interpret-trailers", "ls-remote", "maintenance", "merge", "merge-file", "merge-index", "merge-tree", "mergetool", "mktag", "mktree",
+  "multi-pack-index", "mv", "notes", "pack-objects", "pack-refs", "prune", "prune-packed", "pull", "push", "read-tree", "rebase", "receive-pack", "refs", "repack",
+  "replace", "replay", "request-pull", "rerere", "reset", "restore", "revert", "rm", "send-email", "show-branch", "show-index", "sparse-checkout", "stash",
+  "stripspace", "submodule", "switch", "symbolic-ref", "tag", "unpack-file", "unpack-objects", "update-index", "update-ref", "update-server-info", "upload-archive",
+  "upload-pack", "var", "verify-commit", "verify-pack", "verify-tag", "version", "worktree", "write-tree",
+]);
+const GIT_CANDIDATES = ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"];
 const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
@@ -88,6 +106,7 @@ const SQL_WRITE_WORDS =
 // Built in and extension functions that write or change server state. User defined functions are a documented residual.
 const SQL_SIDE_EFFECTS =
   /\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_signal_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_notify|pg_advisory\w*|pg_try_advisory\w*|pg_create_\w+|pg_drop_\w+|pg_replication_\w+|pg_stat_reset\w*|pg_stat_statements_reset|pg_file_\w+|pg_logical_\w+|pg_import_system_collations|pg_backup_\w+|pg_start_backup|pg_stop_backup|pg_wal_replay_\w+|pg_log_backend_memory_contexts|lo_\w+|dblink\w*|http_\w+|resolve|create_secret|update_secret|schedule|unschedule|alter_job)\s*\(/i;
+const SQL_SYSTEM_SCHEMAS = new Set(["pg_catalog", "information_schema", "extensions"]);
 const PROTECTED_TEXT = /supabase\W+migrations|\.claude\W+(hooks|settings)|tools\W+guardrails/i;
 const SCRIPT_FILE = /\.(sh|bash|zsh|ksh|js|mjs|cjs|ts|py|rb|pl|php)$/i;
 const PG_CLIENTS = /^(psql|pgcli|pgbench|pg_restore|createdb|dropdb|createuser|dropuser|vacuumdb|reindexdb|clusterdb)$/;
@@ -169,7 +188,10 @@ function parse(src) {
   const add = (text) => (word = (word ?? "") + text);
   const flush = () => {
     if (word === null) return;
-    if (redirect === ">") seg().outs.push(word);
+    // >&word writes both streams to the file word, unless word is a descriptor number or - (2>&1, >&2, >&-).
+    if (redirect === ">&") {
+      if (!/^(\d+-?|-)$/.test(word)) seg().outs.push(word);
+    } else if (redirect === ">") seg().outs.push(word);
     else if (redirect === "<") seg().ins.push(word);
     else if (redirect === "<<<") seg().heredocs.push(word);
     else seg().words.push(word);
@@ -222,7 +244,8 @@ function parse(src) {
       flush();
       const m = /^(&>>?|>>|>\||>&|<>|<&|<<<|>|<)/.exec(src.slice(i));
       if (m[0] === "<<<") redirect = "<<<";
-      else redirect = m[0].includes(">") && m[0] !== ">&" ? ">" : "<";
+      else if (m[0] === ">&") redirect = ">&";
+      else redirect = m[0].includes(">") ? ">" : "<";
       i += m[0].length;
     } else if (c === "\n" && pendingDocs.length > 0) {
       flush();
@@ -504,10 +527,11 @@ function ghCall(argv) {
  * pathspec switches and so on) removed, the directory -C or --work-tree
  * names, and any -c value that names a protected path.
  */
-function gitCall(argv, dir) {
+function gitCall(argv, dir, ctx, known = {}) {
   let cwd = dir;
+  let gitDir;
   let config = null;
-  const aliases = {};
+  const aliases = { ...known };
   let i = 1;
   for (; i < argv.length && argv[i].startsWith("-"); i++) {
     const w = argv[i];
@@ -517,16 +541,60 @@ function gitCall(argv, dir) {
     if (/^-[Cc]./.test(w)) [flag, value] = [w.slice(0, 2), w.slice(2)];
     if (value === undefined && /^(-C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix|--attr-source|--list-cmds)$/.test(flag)) value = argv[++i] ?? "";
     if (flag === "-C" || flag === "--work-tree") cwd = changeDir(cwd, value);
+    if (flag === "--git-dir") gitDir = pathOf(cwd, value);
     const alias = flag === "-c" && /^alias\.([^=]+)=([\s\S]*)$/i.exec(value);
     if (alias) aliases[alias[1].toLowerCase()] = alias[2];
     else if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
   }
-  const rest = argv.slice(i);
-  // An alias given with -c is expanded: a ! alias is returned as shell text to check, any other becomes git arguments.
-  const alias = Object.hasOwn(aliases, rest[0]?.toLowerCase()) ? aliases[rest[0].toLowerCase()] : undefined;
-  if (alias?.startsWith("!")) return { argv: [argv[0]], dir: cwd, config, shell: alias.slice(1), shellArgs: rest.slice(1) };
-  const expanded = alias === undefined ? rest : [...parse(alias).segments.flatMap((s) => s.words), ...rest.slice(1)];
-  return { argv: [argv[0], ...expanded], dir: cwd, config };
+  let rest = argv.slice(i);
+  const call = { dir: cwd, gitDir, config };
+  // An alias is expanded, a few levels deep: a ! alias is returned as shell text to check, any other becomes git
+  // arguments. Aliases come from -c, from git config set earlier in the same command, or from the repository config.
+  for (let depth = 0; depth < 5 && rest[0] !== undefined && !GIT_BUILTINS.has(rest[0]); depth++) {
+    const name = rest[0].toLowerCase();
+    let alias = Object.hasOwn(aliases, name) ? aliases[name] : undefined;
+    if (alias === undefined && ctx) {
+      try {
+        alias = configAlias(name, call, ctx);
+      } catch (error) {
+        return { ...call, argv: [argv[0]], error: `git ${rest[0]} may be an alias, and git config could not be read to check it (${error.message}); failing closed` };
+      }
+    }
+    if (alias === undefined) break;
+    if (alias.startsWith("!")) return { ...call, argv: [argv[0]], shell: alias.slice(1), shellArgs: rest.slice(1) };
+    rest = [...parse(alias).segments.flatMap((s) => s.words), ...rest.slice(1)];
+  }
+  return { ...call, argv: [argv[0], ...rest] };
+}
+
+function runGit(args, call) {
+  const git = GIT_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (!git) throw new Error(`git not found in ${GIT_CANDIDATES.join(", ")}`);
+  const where = call.dir.some((part) => part.includes(SUB) || part.includes("$")) ? null : pathOf(call.dir, ".");
+  if (where === null) throw new Error("the directory cannot be resolved");
+  const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...args];
+  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS });
+  if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
+  return result;
+}
+
+/** The value of alias.<name> in the git config seen from the call's directory, or undefined. Throws when it cannot be read. */
+function configAlias(name, call, ctx) {
+  const key = `${call.dir.join("/")}#${call.gitDir ?? ""}#${name}`;
+  if (!ctx.gitAliases.has(key)) {
+    const result = runGit(["config", "--get", `alias.${name}`], call);
+    if (result.status !== 0 && result.status !== 1) throw new Error(`git config exited ${String(result.status)}`);
+    ctx.gitAliases.set(key, result.status === 0 ? result.stdout.replace(/\n$/, "") : undefined);
+  }
+  return ctx.gitAliases.get(key);
+}
+
+/** The branch checked out in the call's directory. Throws when it cannot be resolved (detached HEAD included). */
+function currentBranch(call) {
+  const result = runGit(["symbolic-ref", "--short", "HEAD"], call);
+  const branch = result.stdout.trim();
+  if (result.status !== 0 || !branch) throw new Error(`git symbolic-ref exited ${String(result.status)}`);
+  return branch;
 }
 
 /** Reads a file named in a command, resolved from dir; null when it cannot be read or is a device such as /dev/stdin. */
@@ -844,7 +912,7 @@ function ghApiCall(argv, dir) {
 
 // curl short options that take a value; any other letter in a bundle such as -sX is a switch.
 const CURL_SHORT_VALUE = "bcCdDeEFHKmoPQrtTuUwxXyYzA";
-const CURL_LONG_VALUE = /^--(request|data|data-ascii|data-binary|data-raw|data-urlencode|json|form|form-string|upload-file|url|header|user|output|user-agent|referer|cookie|cookie-jar|config|proxy|write-out|connect-timeout|max-time|retry|range|resolve|cacert|cert|key|dump-header|continue-at|quote|telnet-option|ftp-port|proxy-user|time-cond|speed-limit|speed-time|variable|expand-url|expand-data|expand-json)$/;
+const CURL_LONG_VALUE = /^--(?:expand-)?(request|data|data-ascii|data-binary|data-raw|data-urlencode|json|form|form-string|upload-file|url|header|user|output|user-agent|referer|cookie|cookie-jar|config|proxy|write-out|connect-timeout|max-time|retry|range|resolve|cacert|cert|key|dump-header|continue-at|quote|telnet-option|ftp-port|proxy-user|time-cond|speed-limit|speed-time|variable)$/;
 
 /** curl arguments as [option, value] pairs (value undefined for switches and URLs), with bundled short options split. */
 function curlOptions(args) {
@@ -852,8 +920,9 @@ function curlOptions(args) {
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
     const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
-    if (eq) out.push([eq[1], eq[2]]);
-    else if (w.startsWith("--")) out.push(CURL_LONG_VALUE.test(w) ? [w, args[++i] ?? ""] : [w, undefined]);
+    // --expand-<option> is <option> with {{variables}} expanded in its value.
+    if (eq) out.push([eq[1].replace(/^--expand-/, "--"), eq[2]]);
+    else if (w.startsWith("--")) out.push(CURL_LONG_VALUE.test(w) ? [w.replace(/^--expand-/, "--"), args[++i] ?? ""] : [w, undefined]);
     else if (/^-[^-]/.test(w)) {
       for (let k = 1; k < w.length; k++) {
         const flag = `-${w[k]}`;
@@ -892,7 +961,7 @@ function httpRequests(argv, dir) {
     const requests = [newRequest()];
     for (const [flag, value] of curlOptions(argv.slice(1))) {
       const req = requests.at(-1);
-      if (flag === null || flag === "--url" || flag === "--expand-url") req.urls.push(value);
+      if (flag === null || flag === "--url") req.urls.push(value);
       else if (flag === "--next" || flag === "-:") requests.push(newRequest());
       else if (flag === "-X" || flag === "--request") req.method = value;
       else if (CURL_BODY.test(flag)) addBody(req, flag, value);
@@ -1082,29 +1151,49 @@ function patchReason(files, dir, what) {
 }
 
 /** Block reason for a git push that would update main. */
-function pushReason(args) {
+function pushReason(args, call) {
   const positional = [];
+  let repo = false;
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
-    if (/^(--repo|-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
+    if (w === "--repo" || w.startsWith("--repo=")) {
+      repo = true;
+      if (w === "--repo") i++;
+    } else if (/^(-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
     else if (/^--(all|mirror|branches)$/.test(w)) return `git push ${w} would push main; agents never push to main`;
     else if (!w.startsWith("-")) positional.push(w);
   }
-  for (const spec of positional.slice(1)) {
-    const dest = spec.includes(":") ? spec.slice(spec.lastIndexOf(":") + 1) : spec.replace(/^\+/, "");
+  // --repo names the repository, so every positional argument is a refspec.
+  const specs = repo ? positional : positional.slice(1);
+  let current = specs.length === 0;
+  for (const spec of specs) {
+    const plain = spec.replace(/^\+/, "");
+    if (plain === ":") return `git push ${spec} pushes every matching branch, main included; agents never push to main`;
+    const dest = plain.includes(":") ? plain.slice(plain.lastIndexOf(":") + 1) : plain;
     if (MAIN_REF.test(dest)) return `git push ${spec} would update main; agents never push to main`;
+    if (/^(HEAD|@)$/.test(dest)) current = true;
   }
-  return null;
+  // A push with no refspec, or of HEAD, updates the branch that is checked out.
+  if (!current) return null;
+  let branch;
+  try {
+    branch = currentBranch(call);
+  } catch (error) {
+    return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, name the destination branch`;
+  }
+  return MAIN_REF.test(branch) ? `git push from ${branch} would update ${branch}; agents never push to main` : null;
 }
 
-function gitReason(argv, segment, dir) {
+function gitReason(argv, segment, call) {
+  const dir = call.dir;
   const sub = argv[1];
   const args = argv.slice(2);
   if (sub === "commit") return commitArgs(argv).some((w) => protectedName(w, dir, true)) ? "git commit reads or writes a protected file" : null;
-  if (sub === "push") return pushReason(args);
+  if (sub === "push") return pushReason(args, call);
   const output = args.find((w) => w.startsWith("--output"));
   if (output) return protectedName(output.replace(/^--output=?/, "") || args[args.indexOf(output) + 1] || "", dir, true) ? "git writes output to a protected path" : null;
-  if (GIT_READERS.has(sub)) return null;
+  // reflog expire and reflog delete change the reflog; its other forms read it.
+  if (GIT_READERS.has(sub) && !(sub === "reflog" && /^(expire|delete|drop)$/.test(args[0] ?? ""))) return null;
   if (sub === "apply" || sub === "am") {
     if (args.some((w) => /^--(abort|skip|quit|continue|show-current-patch)$/.test(w))) return null;
     if (sub === "apply" && args.some((w) => /^--(check|stat|numstat|summary)$/.test(w)) && !args.includes("--apply")) return null;
@@ -1256,22 +1345,25 @@ function copyReason(cmd, args, dir, segment, substs) {
   return null;
 }
 
-function protectedWrite(argv, segment, dir, substs) {
+function protectedWrite(argv, segment, dir, substs, ctx, state) {
   const cmd = base(argv[0]);
   if (NO_WRITE_WORDS.has(cmd) && segment.outs.length === 0) return null;
   for (const target of segment.outs) {
     const reason = writeTargetReason(target, dir, segment, substs);
     if (reason) return `redirects output ${reason}`;
-    if (SCRIPT_FILE.test(target) && (argv.slice(1).some((w) => PROTECTED_TEXT.test(w)) || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)))) {
+    // Only echo and printf print their arguments; any other command (git show, cat) prints file contents, so a copy is a read.
+    const printsArgs = /^(echo|printf)$/.test(cmd) && argv.slice(1).some((w) => PROTECTED_TEXT.test(w));
+    if (SCRIPT_FILE.test(target) && (printsArgs || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)))) {
       return `writes a script file ${target} whose text names a protected path; run those steps directly instead`;
     }
   }
   if (cmd === "git") {
-    const git = gitCall(argv, dir);
+    const git = gitCall(argv, dir, ctx, state.gitAliases);
+    if (git.error) return git.error;
     if (git.config) return `git -c ${git.config} names a protected path`;
     // Plain arguments were checked with the alias text (checkSegment); a generated one that names a protected path cannot be.
     if (git.shell !== undefined) return git.shellArgs.some((w) => w.includes(SUB) && protectedName(w, git.dir, true)) ? "git shell alias gets a generated protected path as an argument" : null;
-    return gitReason(git.argv, segment, git.dir);
+    return gitReason(git.argv, segment, git);
   }
   if (cmd === "gh") {
     const gh = ghCall(argv).argv;
@@ -1293,10 +1385,8 @@ function protectedWrite(argv, segment, dir, substs) {
   // A package runner's command and a shell's -c text are checked on their own (checkSegment); only what is left is checked here.
   if (runnerInner(argv)) return null;
   let args = argv.slice(1);
-  if (SCRIPT_SHELLS.has(cmd)) {
-    const texts = shellInline(argv) ?? [];
-    args = args.filter((w) => !texts.includes(w) && !/^[-+][^-]/.test(w));
-  }
+  // A shell's -c text was checked with its positional values put in (checkSegment); options and the values are not writes here.
+  if (SCRIPT_SHELLS.has(cmd)) args = shellInline(argv) ? [] : args.filter((w) => !/^[-+][^-]/.test(w));
   // psql reads the file it runs; its target host was checked by pgReason.
   if (cmd === "psql") args = args.filter((w, i) => !/^(-f|--file)$/.test(args[i - 1] ?? "") && !/^(-f.|--file=)/.test(w));
   // The file an interpreter runs is read, not written; inline code (-c, -e) stays checked. node --test runs every file it names.
@@ -1357,9 +1447,23 @@ function shellInline(argv) {
     if (/^[-+][a-zA-Z]*[oO]$/.test(w)) i++;
   }
   if (!inline) return null;
-  if (argv[i] === "--") i++;
+  // A lone - ends the options like --.
+  if (argv[i] === "--" || argv[i] === "-") i++;
   if (i < argv.length) texts.push(argv[i]);
-  return texts;
+  // The words after the text are $0, $1 and so on; they are values the text uses, so they are put into it.
+  return texts.map((text) => withPositional(text, argv.slice(i + 1)));
+}
+
+/** Shell text with $0, $1..$9, ${N}, "$@", $@ and $* replaced by the values a shell gives them. */
+function withPositional(text, values) {
+  if (values.length === 0) return text;
+  const quote = (w) => `'${w.replaceAll("'", "'\\''")}'`;
+  const escape = (w) => w.replace(/[\\"$`]/g, "\\$&");
+  const args = values.slice(1);
+  return text
+    .replace(/"\$(?:@|\{@\})"/g, () => args.map(quote).join(" "))
+    .replace(/\$(?:([0-9])|\{(\d+)\})/g, (_, a, b) => escape(values[Number(a ?? b)] ?? ""))
+    .replace(/\$(?:[@*]|\{[@*]\})/g, () => args.map(escape).join(" "));
 }
 
 const SHELL_SCRIPT_NAME = /\.(sh|bash|zsh)$/i;
@@ -1395,7 +1499,8 @@ function pathScript(argv, dir) {
 function shellScript(cmd, argv, segment, dir) {
   if (!SCRIPT_SHELLS.has(cmd) && cmd !== "source" && cmd !== ".") return pathScript(argv, dir);
   if (SCRIPT_SHELLS.has(cmd) && shellInline(argv)) return undefined;
-  const file = argv.slice(1).find((w, i) => !w.startsWith("-") && !w.startsWith("+") && !/^[-+][a-zA-Z]*[oO]$/.test(argv[i] ?? ""));
+  // --rcfile, --init-file and -o take a value, which is not the script.
+  const file = argv.slice(1).find((w, i) => !w.startsWith("-") && !w.startsWith("+") && !/^([-+][a-zA-Z]*[oO]|--rcfile|--init-file)$/.test(argv[i] ?? ""));
   if (file !== undefined) return readNamed(file, dir) ?? null;
   if (segment.ins.length > 0) return readNamed(segment.ins[0], dir) ?? null;
   return undefined;
@@ -1442,11 +1547,13 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   const { argv, wrappers, env } = unwrap(segment.words);
   const cmd = base(argv[0]);
   if (runsInstaller(argv, dir)) return "runs tools/guardrails/apply.mjs, which installs the guardrail; only the lead runs it, with Blaine's approval";
-  const shellAlias = cmd === "git" ? gitCall(argv, dir) : null;
+  const shellAlias = cmd === "git" ? gitCall(argv, dir, ctx, state.gitAliases) : null;
   if (shellAlias?.shell !== undefined) {
-    // git appends the alias arguments to its text, so they are checked as part of the command they reach.
-    const quoted = shellAlias.shellArgs.filter((w) => !w.includes(SUB)).map((w) => `'${w.replaceAll("'", "'\\''")}'`);
-    const reason = checkCommand([shellAlias.shell, ...quoted].join(" "), shellAlias.dir, ctx, depth + 1);
+    // git runs sh -c '<alias> "$@"' '<alias>' <arguments>, so the arguments are put where the text uses them. A generated
+    // argument becomes a placeholder word, so the later ones keep their positions.
+    const values = shellAlias.shellArgs.map((w) => (w.includes(SUB) ? "_generated_" : w));
+    const text = withPositional(`${shellAlias.shell} "$@"`, [shellAlias.shell, ...values]);
+    const reason = checkCommand(text, shellAlias.dir, ctx, depth + 1);
     if (reason) return `git shell alias: ${reason}`;
   }
   const piped = segment.op === "|" || segment.op === "|&";
@@ -1514,7 +1621,17 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   const merge = target && mergeReason(target, ctx);
   if (merge) return merge;
   const fullArgv = wrappers.has("xargs") && piped ? [...argv, ...state.prevArgs] : argv;
-  return protectedWrite(fullArgv, segment, dir, substs);
+  return protectedWrite(fullArgv, segment, dir, substs, ctx, state);
+}
+
+/** Records an alias that git config sets in this command, so a later git <alias> in it is expanded. */
+function recordGitAlias(argv, dir, state) {
+  if (base(argv[0]) !== "git") return;
+  const git = gitCall(argv, dir, null, state.gitAliases);
+  const args = git.argv.slice(2);
+  if (git.argv[1] !== "config" || args.some((w) => /^--(get|get-all|get-regexp|unset|unset-all|list)$|^-l$/.test(w))) return;
+  const at = args.findIndex((w) => /^alias\.[^=]+$/i.test(w));
+  if (at >= 0 && args[at + 1] !== undefined) state.gitAliases[args[at].slice(6).toLowerCase()] = args[at + 1];
 }
 
 function checkCommand(src, dir, ctx, depth = 0) {
@@ -1530,7 +1647,7 @@ function checkCommand(src, dir, ctx, depth = 0) {
     const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;
   }
-  const state = { decoded: false, env: {}, prevArgs: [], inTest: false };
+  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitAliases: {} };
   for (const segment of segments) {
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
@@ -1549,6 +1666,7 @@ function checkCommand(src, dir, ctx, depth = 0) {
     }
     const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
     if (reason) return reason;
+    recordGitAlias(argv, dir, state);
     state.prevArgs = argv.slice(1);
   }
   return null;
@@ -1607,7 +1725,12 @@ export function sqlReason(sql) {
   const first = /^[\s(]*([A-Za-z]+)/.exec(statement)?.[1]?.toLowerCase();
   if (!SQL_FIRST_WORDS.has(first)) return "execute_sql allows only read only statements (select, with, show, explain, table)";
   const write = SQL_WRITE_WORDS.exec(statement) ?? SQL_SIDE_EFFECTS.exec(statement);
-  return write ? `execute_sql query contains "${write[0].trim()}", which is not read only` : null;
+  if (write) return `execute_sql query contains "${write[0].trim()}", which is not read only`;
+  // A schema qualified call into an app schema may be a user defined function that writes; system schemas stay allowed.
+  for (const m of statement.matchAll(/(?:^|[^\w$.])([A-Za-z_][\w$]*)\s*\.\s*[A-Za-z_][\w$]*\s*\(/g)) {
+    if (!SQL_SYSTEM_SCHEMAS.has(m[1].toLowerCase())) return `execute_sql calls a function in the ${m[1]} schema, which may write; failing closed`;
+  }
+  return null;
 }
 
 function mcpMergeTarget(name, input) {
@@ -1661,7 +1784,7 @@ export function decide(payload, options = {}) {
   if (input == null || typeof input !== "object") return "tool_input is missing; failing closed";
   const tool = String(payload.tool_name ?? "");
   const cwdPath = resolve(payload.cwd || process.cwd());
-  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), collect: options.collect ? [] : null };
+  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
