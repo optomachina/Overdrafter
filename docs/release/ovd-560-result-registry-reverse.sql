@@ -15,11 +15,15 @@ end $isolation$;
 -- The shared window 2 reverse lock serializes every staged reverse, including
 -- the OVD-558 reverse, before any relation lock is requested.
 select pg_advisory_xact_lock(510, 2);
--- storage.objects before the registry, the order registration takes them
--- (FOR SHARE on the object, then the registry read), so a concurrent
--- registration waits instead of deadlocking. Dropping storage_object_id also
--- drops the foreign key to storage.objects, which needs that lock anyway.
-lock table storage.objects, engineering_private.native_verifier_registered_objects
+-- The window 2 relation order, the order registration takes them: the attempt
+-- (registration locks it FOR UPDATE first), its snapshot parent, then
+-- storage.objects (FOR SHARE on the object), then the registry. Dropping the
+-- registry columns drops their foreign keys, which takes ACCESS EXCLUSIVE on
+-- every referenced table; taking those locks here, first, means a live
+-- registration either finishes before the reverse (which then refuses) or
+-- waits behind it and fails, and the two never deadlock.
+lock table public.engineering_execution_attempts, public.engineering_snapshots,
+  storage.objects, engineering_private.native_verifier_registered_objects
   in access exclusive mode;
 do $preflight$
 begin

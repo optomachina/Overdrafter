@@ -33,7 +33,12 @@ export function buildRestoreSql(read = (path) => readFileSync(resolve(root, path
   const original = originalDefinition(read(migrationPath));
   const replacementStart = replacement.indexOf(header.replace("create function", "create or replace function"));
   if (replacementStart < 0) throw new Error("ovd649_replacement_shape_drift");
-  const replacementBody = body(replacement.slice(replacementStart).trimEnd());
+  // The replacement is one transaction; its definition ends at the first `$$;`.
+  const replacementEnd = replacement.indexOf("\n$$;\n", replacementStart);
+  if (replacementEnd < 0 || replacement.slice(replacementEnd + 5) !== "commit;\n") {
+    throw new Error("ovd649_replacement_transaction_shape_drift");
+  }
+  const replacementBody = body(replacement.slice(replacementStart, replacementEnd + 4));
   const originalBody = body(original);
   if (replacementBody === originalBody) throw new Error("ovd649_replacement_equals_original");
   const restoreTag = "$ovd649_restore_definition$";
@@ -48,8 +53,8 @@ export function buildRestoreSql(read = (path) => readFileSync(resolve(root, path
 -- with create or replace, which keeps the function OID, owner and grants. The
 -- prior body, signature, security definer and search_path are restored byte
 -- for byte, so the catalog digest returns to its value before the replacement.
--- Window 2 rollback runs this first, before any OVD-619 or OVD-558 reverse:
--- see docs/release/ovd-649-window-2-order.md.
+-- Window 2 rollback runs this first, before every other Jarvis reverse:
+-- see the run sheet, docs/release/window-2/README.md.
 -- READ COMMITTED, then the shared OVD-510 advisory lock, then the preflight.
 -- The preflight refuses unless the live body is exactly the staged replacement.
 begin;

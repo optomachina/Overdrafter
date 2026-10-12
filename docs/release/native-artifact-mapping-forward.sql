@@ -3,6 +3,15 @@
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='30s';
+-- READ COMMITTED, then the shared window 2 lock, before any relation is read
+-- or locked: no staged forward or reverse interleaves with another.
+do $window2_forward_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'native_mapping_forward_read_committed_required' using errcode = '0A000';
+  end if;
+end $window2_forward_isolation$;
+select pg_advisory_xact_lock(510, 2);
 create function engineering_private.prepare_native_artifact_inputs(
   p_input uuid, p_actor uuid, p_seed_manifest_text text)
 returns jsonb language plpgsql security invoker set search_path='' as $$
