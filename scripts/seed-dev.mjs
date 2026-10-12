@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,9 @@ import {
 const PASSWORD = "Overdrafter123!";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
 const BETA_ACCESS_FIXTURE = "e2e/fixtures/beta-access.sql";
+// psql is resolved only from these fixed system directories, never through PATH.
+const PSQL_DIRECTORIES = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin"];
+const PSQL_VERSIONED_ROOTS = ["/usr/lib/postgresql", "/usr/local/pgsql"];
 const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -296,9 +300,30 @@ function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
   return { apply: true, dbUrl };
 }
 
+function findPsql() {
+  const versioned = PSQL_VERSIONED_ROOTS.flatMap((root) => {
+    try {
+      return readdirSync(root)
+        .sort()
+        .reverse()
+        .map((version) => path.join(root, version, "bin"));
+    } catch {
+      return [];
+    }
+  });
+
+  return [...PSQL_DIRECTORIES, ...versioned].map((dir) => path.join(dir, "psql")).find((candidate) => existsSync(candidate));
+}
+
 function ensurePsqlAvailable() {
   try {
-    execFileSync("psql", ["--version"], { stdio: "ignore" });
+    const psql = findPsql();
+
+    if (!psql) {
+      throw new Error("psql was not found in a fixed system directory.");
+    }
+
+    execFileSync(psql, ["--version"], { stdio: "ignore" });
   } catch (error) {
     throw new Error(
       `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
@@ -310,7 +335,7 @@ function ensurePsqlAvailable() {
 /** Writes the Founding Beta rows as postgres; service_role cannot reach those tables. */
 function applyBetaAccessFixture(dbUrl) {
   try {
-    execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
+    execFileSync(findPsql(), [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
       cwd: repoRoot,
       stdio: ["ignore", "inherit", "inherit"],
     });
