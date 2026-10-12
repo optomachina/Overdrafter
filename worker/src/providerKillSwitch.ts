@@ -180,6 +180,41 @@ export async function cancelVendorTaskForDisabledProvider(
   });
 }
 
+/**
+ * Settles a lane when the claim check cannot read the switch and the queue's
+ * retries are spent. Nothing was sent, so the lane ends failed with a plain
+ * note. It is not routed to manual quoting: an unreadable switch may be an
+ * engaged one.
+ */
+export async function failVendorResultForUnavailableKillSwitch(
+  supabase: SupabaseClient,
+  input: {
+    vendorQuoteResultId: string;
+    error: ProviderKillSwitchError;
+    retryCount: number;
+    requestedQuantity: number;
+  },
+): Promise<void> {
+  const { error: resultError } = await supabase
+    .from("vendor_quote_results")
+    .update({
+      status: "failed",
+      notes: [PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE],
+      raw_payload: {
+        failureCode: PROVIDER_KILL_SWITCH_UNAVAILABLE,
+        killSwitchReasonCode: input.error.reasonCode,
+        killSwitchCheckpoint: input.error.checkpoint,
+        providerMutationPossible: false,
+        requestedQuantity: input.requestedQuantity,
+        retryCount: input.retryCount,
+        retryScheduledFor: null,
+        requiresManualVendorFollowUp: false,
+      },
+    })
+    .eq("id", input.vendorQuoteResultId);
+  if (resultError) throw resultError;
+}
+
 export const PROVIDER_KILL_SWITCH_SWEEP_RPC = "api_worker_cancel_provider_disabled_tasks";
 
 export type ProviderKillSwitchSweepResult = {

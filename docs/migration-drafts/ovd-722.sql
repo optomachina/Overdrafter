@@ -21,7 +21,9 @@
 -- Deploy ordering: apply this migration BEFORE (or together with) the worker
 -- build containing OVD-722. That worker fails closed: without
 -- api_worker_provider_kill_switch_state every live dispatch is refused with
--- provider_kill_switch_unavailable (retried, then manual follow-up).
+-- provider_kill_switch_unavailable. The queue retries three times; when the
+-- retries are spent the task fails and the lane ends failed with a visible
+-- note (it is not routed to manual quoting), so no lane stays queued forever.
 --
 -- Purpose: stop all automated traffic to one provider (or to every provider)
 -- with a data flip. No deploy, no worker restart, no caching: every server
@@ -419,6 +421,11 @@ grant execute on function public.api_admin_list_provider_kill_switches()
 -- Periodic sweep: queued run_vendor_quote tasks for a switched-off provider end
 -- truthfully as cancelled_provider_disabled instead of staying parked. Rows a
 -- worker already holds are skipped; the worker's own checkpoints stop those.
+-- Rows are handled one at a time, each in its own subtransaction: a row level
+-- trigger exception on one row (for example private.fence_free_quote_result
+-- raising free_quote_terminal_fenced for a canceled free beta request) rolls
+-- back only that row, which stays queued and is counted as skipped. One bad
+-- row can never stop the sweep for the other rows or the other providers.
 create or replace function public.api_worker_cancel_provider_disabled_tasks()
 returns jsonb
 language plpgsql
@@ -426,10 +433,19 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_cancelled jsonb;
+  v_row record;
+  v_rows integer;
+  v_cancelled integer := 0;
+  v_results integer := 0;
+  v_skipped integer := 0;
+  v_runs jsonb := '[]'::jsonb;
+  v_run jsonb;
 begin
-  with doomed as (
-    select q.id
+  for v_row in
+    select q.id, q.job_id, q.quote_run_id,
+      case when q.payload ->> 'vendorQuoteResultId'
+             ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (q.payload ->> 'vendorQuoteResultId')::uuid end as vendor_quote_result_id
     from public.work_queue q
     where q.status = 'queued'
       and q.task_type = 'run_vendor_quote'
@@ -437,49 +453,55 @@ begin
       and q.payload ? 'vendor'
       and private.provider_kill_switch_engaged_text(q.payload ->> 'vendor')
     for update skip locked
-  ),
-  tasks as (
-    update public.work_queue q
-    set status = 'cancelled',
-        locked_at = null,
-        locked_by = null,
-        last_error = 'cancelled_provider_disabled: provider kill switch engaged (sweep).',
-        payload = q.payload || pg_catalog.jsonb_build_object(
-          'cancellationReason', 'cancelled_provider_disabled',
-          'killSwitchCheckpoint', 'sweep')
-    from doomed
-    where q.id = doomed.id
-    returning q.job_id, q.quote_run_id,
-      case when q.payload ->> 'vendorQuoteResultId'
-             ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        then (q.payload ->> 'vendorQuoteResultId')::uuid end as vendor_quote_result_id
-  ),
-  results as (
-    update public.vendor_quote_results r
-    set status = 'failed',
-        notes = '["Provider temporarily unavailable."]'::jsonb,
-        raw_payload = pg_catalog.jsonb_build_object(
-          'failureCode', 'cancelled_provider_disabled',
-          'killSwitchReasonCode', 'provider_kill_switch_engaged',
-          'killSwitchCheckpoint', 'sweep',
-          'providerMutationPossible', false,
-          'retryScheduledFor', null)
-    from tasks
-    where r.id = tasks.vendor_quote_result_id
-      and r.status = 'queued'
-    returning r.id
-  )
-  select pg_catalog.jsonb_build_object(
-    'cancelled', (select pg_catalog.count(*) from tasks),
-    'quoteRuns', coalesce((
-      select pg_catalog.jsonb_agg(distinct pg_catalog.jsonb_build_object(
-        'jobId', t.job_id, 'quoteRunId', t.quote_run_id))
-      from tasks t where t.job_id is not null and t.quote_run_id is not null
-    ), '[]'::jsonb),
-    'resultsUpdated', (select pg_catalog.count(*) from results)
-  ) into v_cancelled;
+  loop
+    begin
+      update public.work_queue q
+      set status = 'cancelled',
+          locked_at = null,
+          locked_by = null,
+          last_error = 'cancelled_provider_disabled: provider kill switch engaged (sweep).',
+          payload = q.payload || pg_catalog.jsonb_build_object(
+            'cancellationReason', 'cancelled_provider_disabled',
+            'killSwitchCheckpoint', 'sweep')
+      where q.id = v_row.id;
 
-  return v_cancelled;
+      v_rows := 0;
+      if v_row.vendor_quote_result_id is not null then
+        update public.vendor_quote_results r
+        set status = 'failed',
+            notes = '["Provider temporarily unavailable."]'::jsonb,
+            raw_payload = pg_catalog.jsonb_build_object(
+              'failureCode', 'cancelled_provider_disabled',
+              'killSwitchReasonCode', 'provider_kill_switch_engaged',
+              'killSwitchCheckpoint', 'sweep',
+              'providerMutationPossible', false,
+              'retryScheduledFor', null)
+        where r.id = v_row.vendor_quote_result_id
+          and r.status = 'queued';
+        get diagnostics v_rows = row_count;
+      end if;
+
+      v_cancelled := v_cancelled + 1;
+      v_results := v_results + v_rows;
+      if v_row.job_id is not null and v_row.quote_run_id is not null then
+        v_run := pg_catalog.jsonb_build_object('jobId', v_row.job_id, 'quoteRunId', v_row.quote_run_id);
+        if not v_runs @> pg_catalog.jsonb_build_array(v_run) then
+          v_runs := v_runs || pg_catalog.jsonb_build_array(v_run);
+        end if;
+      end if;
+    exception when others then
+      -- Both updates above roll back with this subtransaction. The row stays
+      -- queued; the worker's claim check still cancels it when it is claimed.
+      v_skipped := v_skipped + 1;
+    end;
+  end loop;
+
+  return pg_catalog.jsonb_build_object(
+    'cancelled', v_cancelled,
+    'quoteRuns', v_runs,
+    'resultsUpdated', v_results,
+    'skipped', v_skipped
+  );
 end;
 $$;
 
@@ -504,12 +526,12 @@ grant execute on function public.api_worker_cancel_provider_disabled_tasks()
 -- check into the preflight bodies is a contract step for a later window.
 -- =====================================================================
 
--- 2c. Enqueue: refuse a new permit for a switched-off provider. Both request
+-- Enqueue: refuse a new permit for a switched-off provider. Both request
 -- RPCs insert exactly one permit row for every new dispatch, inside their own
 -- transaction and with no exception handler, so raising here rolls back the
 -- lane and queue task they created in the same call. An idempotent replay of
 -- an existing permit inserts nothing and is not refused here; the worker claim
--- check and the 2a/2b preflights still stop that dispatch.
+-- check still stops that dispatch.
 create or replace function private.provider_kill_switch_permit_guard()
 returns trigger
 language plpgsql

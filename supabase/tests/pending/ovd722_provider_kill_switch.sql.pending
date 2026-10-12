@@ -22,13 +22,18 @@
 --   * release is compare and set: a stale or versionless release is refused
 --     and never clears a newer engagement; engage needs no version
 --   * RLS is enabled and forced on the three switch tables
+--   * the real api_request_xometry_beta_dispatch is refused while engaged and
+--     the quote request, run, lane and work_queue task created in the same call
+--     roll back; the same call is accepted once released
+--   * the sweep handles rows one at a time: a row whose trigger raises is
+--     skipped (stays queued) and the other rows are still cancelled
 -- The concurrent (two session, row lock wait) form of the stale release race
 -- is in docs/migration-drafts/ovd-722-race-check.sh; pgTAP runs in one session.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(53);
+select plan(66);
 
 create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
 returns void
@@ -295,6 +300,199 @@ select ok(
 select is(
   (select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722212'),
   'queued', 'the quickparts task is untouched');
+
+-- ---------------------------------------------------------------------
+-- End to end enqueue while engaged, and a sweep that survives a bad row
+-- ---------------------------------------------------------------------
+-- The fixture follows supabase/tests/free_confirmed_quote_access.sql: a
+-- confirmed free beta Xometry dispatch for one part. Rows are rolled back with
+-- the suite.
+create function pg_temp.ovd722_member_as(p_user_id uuid)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', p_user_id::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+end;
+$$;
+grant execute on function pg_temp.ovd722_member_as(uuid) to authenticated;
+
+create temp table ovd722_e2e (
+  user_id uuid not null,
+  organization_id uuid not null,
+  job_id uuid not null,
+  part_id uuid not null,
+  approval_reference uuid not null,
+  scope_fingerprint text,
+  xometry_version bigint
+) on commit drop;
+insert into ovd722_e2e values (
+  '00000000-0000-4000-8000-000000722301', '00000000-0000-4000-8000-000000722302',
+  '00000000-0000-4000-8000-000000722303', '00000000-0000-4000-8000-000000722304',
+  '00000000-0000-4000-8000-000000722305', null, null);
+grant select, update on ovd722_e2e to authenticated;
+
+insert into auth.users (id, aud, role, email, email_confirmed_at)
+select user_id, 'authenticated', 'authenticated', 'ovd722-dispatch-member@example.test', timezone('utc', now())
+from ovd722_e2e;
+insert into public.organizations (id, name, slug)
+select organization_id, 'OVD 722 Dispatch', 'ovd-722-dispatch' from ovd722_e2e;
+insert into public.organization_memberships (organization_id, user_id, role)
+select organization_id, user_id, 'client' from ovd722_e2e;
+update public.organizations set shipping_same_as_billing = false, shipping_street = '123 Fixture Ave',
+  shipping_city = 'Tucson', shipping_state = 'AZ', shipping_zip = '85701', shipping_country = 'US'
+where id = (select organization_id from ovd722_e2e);
+insert into private.sourcing_destination_history (organization_id, state, address)
+select organization_id, 'confirmed', private.effective_sourcing_address(organization_id) from ovd722_e2e;
+update private.commercial_rollout_controls
+set enabled = true, revision = revision + 1, change_reason = 'OVD-722 local pgTAP fixture'
+where capability = 'automatic_quote_collection';
+insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind)
+select job_id, organization_id, user_id, 'OVD-722 dispatch part', 'ready_to_quote',
+  array['manufacturing_quote'], 'manufacturing_quote'
+from ovd722_e2e;
+insert into public.organization_file_blobs (id, organization_id, content_sha256, trusted_content_sha256,
+  storage_bucket, storage_path, size_bytes, mime_type)
+select '00000000-0000-4000-8000-000000722306', organization_id, repeat('a', 64), repeat('a', 64), 'job-files',
+  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step', 100, 'application/step'
+from ovd722_e2e;
+insert into public.job_files (id, job_id, organization_id, uploaded_by, blob_id, content_sha256,
+  trusted_content_sha256, storage_bucket, storage_path, original_name, normalized_name, file_kind, mime_type, size_bytes)
+select '00000000-0000-4000-8000-000000722307', job_id, organization_id, user_id,
+  '00000000-0000-4000-8000-000000722306', repeat('a', 64), repeat('a', 64), 'job-files',
+  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step', 'part.step', 'part', 'cad',
+  'application/step', 100
+from ovd722_e2e;
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, quantity)
+select part_id, job_id, organization_id, 'Validation part', 'validation-part',
+  '00000000-0000-4000-8000-000000722307', 1
+from ovd722_e2e;
+insert into public.approved_part_requirements (part_id, organization_id, approved_by, material, finish,
+  tightest_tolerance_inch, quantity, quote_quantities, applicable_vendors, spec_snapshot)
+select part_id, organization_id, user_id, '6061-T6 Aluminum', 'As machined', 0.0050, 1, array[1],
+  array['xometry']::public.vendor_name[], '{"process":"CNC milling","tightestToleranceInch":0.0050}'::jsonb
+from ovd722_e2e;
+insert into private.founding_beta_enrollment_events (organization_id, actor_user_id, action, reason,
+  policy_revision, terms_path, privacy_path, idempotency_key)
+select organization_id, user_id, 'grant', 'ovd722 fixture', 'founding-beta-2026-08-15', '/legal/beta-terms',
+  '/legal/privacy', 'ovd722-grant' from ovd722_e2e;
+insert into private.founding_beta_notice_acceptances (organization_id, user_id, policy_revision, terms_path, privacy_path)
+select organization_id, user_id, 'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy' from ovd722_e2e;
+insert into public.org_vendor_configs (organization_id, vendor, enabled_for_client_quote_requests)
+select organization_id, 'xometry', true from ovd722_e2e;
+insert into private.free_quote_policies (revision, enabled, subject_kind, completed_limit, window_start, window_end)
+values ('ovd722-kill-switch', true, 'organization', 5,
+  clock_timestamp() - interval '1 minute', clock_timestamp() + interval '5 minutes');
+
+set local role authenticated;
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+update ovd722_e2e
+set scope_fingerprint = public.api_get_xometry_beta_dispatch_scope(job_id, 'inch') ->> 'scopeFingerprint';
+reset role;
+
+-- Engage Xometry as the admin. The version is captured first because the
+-- authenticated role cannot read the private switch table.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: end to end enqueue drill');
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+select throws_ok(
+  pg_catalog.format($$select public.api_request_xometry_beta_dispatch(%L::uuid, 'inch', %L,
+    'founding-beta-2026-08-15', %L::uuid, true, true, true)$$,
+    (select job_id from ovd722_e2e), (select scope_fingerprint from ovd722_e2e),
+    (select approval_reference from ovd722_e2e)),
+  'P0001', 'provider_kill_switch_engaged',
+  'the real Xometry dispatch RPC is refused while the provider is engaged');
+reset role;
+
+-- The refused call inserted its quote request, run, lane and queue task before
+-- the permit insert raised; the whole statement rolled back, so none remain.
+select is((select pg_catalog.count(*)::int from public.quote_requests where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no quote request');
+select is((select pg_catalog.count(*)::int from public.quote_runs where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no quote run');
+select is((select pg_catalog.count(*)::int from public.vendor_quote_results where part_id = (select part_id from ovd722_e2e)),
+  0, 'the refused dispatch left no lane (vendor_quote_results row)');
+select is((select pg_catalog.count(*)::int from public.work_queue where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no work_queue task');
+
+-- Release Xometry: the same call now succeeds, so the refusal above was the switch.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', false, 'OVD-722 test: end to end enqueue released',
+  (select xometry_version from ovd722_e2e));
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+select is(
+  public.api_request_xometry_beta_dispatch(job_id, 'inch', scope_fingerprint, 'founding-beta-2026-08-15',
+    approval_reference, true, true, true) ->> 'accepted', 'true',
+  'with the switch released the same dispatch is accepted') from ovd722_e2e;
+reset role;
+select ok(
+  exists (select 1 from public.work_queue q where q.job_id = (select job_id from ovd722_e2e)
+      and q.status = 'queued' and q.payload ->> 'vendor' = 'xometry')
+  and exists (select 1 from public.vendor_quote_results r where r.part_id = (select part_id from ovd722_e2e)
+      and r.status = 'queued'),
+  'the accepted dispatch created its queued task and lane');
+
+-- Sweep: a row level trigger exception on one row (in production, for example,
+-- private.fence_free_quote_result raising free_quote_terminal_fenced for a
+-- canceled free beta request) must skip only that row. A test trigger raises
+-- the same way for the accepted dispatch's lane; a second queued task without a
+-- lane is cancelled normally.
+create function pg_temp.ovd722_fence_stub()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'free_quote_terminal_fenced' using errcode = 'P0001';
+end;
+$$;
+create trigger ovd722_fence_stub before update of status on public.vendor_quote_results
+  for each row when (old.part_id = '00000000-0000-4000-8000-000000722304'::uuid)
+  execute function pg_temp.ovd722_fence_stub();
+insert into public.work_queue (id, organization_id, task_type, status, payload)
+values ('00000000-0000-4000-8000-000000722213', '00000000-0000-4000-8000-000000722201',
+  'run_vendor_quote', 'queued', '{"vendor":"xometry"}');
+
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: sweep bad row drill');
+reset role;
+
+set local role service_role;
+create temp table ovd722_sweep_result on commit drop as
+  select public.api_worker_cancel_provider_disabled_tasks() as result;
+reset role;
+select is((select (result ->> 'cancelled')::int from ovd722_sweep_result), 1,
+  'the sweep cancels the task that can transition');
+select is((select (result ->> 'skipped')::int from ovd722_sweep_result), 1,
+  'the sweep skips the row whose trigger raises instead of aborting');
+select is((select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722213'),
+  'cancelled', 'the sweep cancelled the other row');
+select ok(
+  exists (select 1 from public.work_queue q where q.job_id = (select job_id from ovd722_e2e) and q.status = 'queued'),
+  'the skipped row stays queued (its changes rolled back with the subtransaction)');
+select is((select r.status::text from public.vendor_quote_results r where r.part_id = (select part_id from ovd722_e2e)),
+  'queued', 'the skipped row''s lane is untouched');
+
+drop trigger ovd722_fence_stub on public.vendor_quote_results;
+
+-- Leave Xometry released so the later global switch assertions see only fictiv engaged.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_provider_kill_switch('xometry', false, 'OVD-722 test: sweep drill released',
+    (select xometry_version from ovd722_e2e)) ->> 'engaged', 'false',
+  'Xometry is released again after the drills') from (select 1) as only_row;
+reset role;
 
 -- ---------------------------------------------------------------------
 -- Global switch

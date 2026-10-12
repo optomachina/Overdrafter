@@ -53,6 +53,12 @@ Confirm immediately:
 5. Other providers continue unless the global switch was used.
 6. Customers see "provider temporarily unavailable".
 
+Operator live tools do not read the switch. `npm --prefix worker run
+eval:live-provider`, `smoke:vendor-workflow`, `sweep:xometry-quantity` and
+`sweep:fictiv-quantity` open the provider directly and have no database client,
+so engaging the switch does not stop them. While a provider is engaged or under
+a C&D, do not run any of them for that provider, and stop any that are running.
+
 No deploy, no admission-policy edit, and no envelope withdrawal is required for
 the emergency stop. Envelope withdrawal remains the durable follow-up.
 

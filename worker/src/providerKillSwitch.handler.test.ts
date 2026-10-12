@@ -58,8 +58,14 @@ function database() {
   };
   let onPreflight = () => undefined as void;
   let preflight: unknown = xometryAuthorized;
+  let stateReads = 0;
+  let readableStateReads = Number.POSITIVE_INFINITY;
   const rpc = (name: string, args: Record<string, unknown>) => {
     writes.push({ rpc: name });
+    if (name === "api_worker_provider_kill_switch_state" && ++stateReads > readableStateReads) {
+      const failure = Promise.resolve({ data: null, error: { message: "rpc down" } });
+      return Object.assign(failure, { abortSignal: () => failure });
+    }
     if (name === "api_authorize_xometry_beta_worker_dispatch") onPreflight();
     const data = name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.xometry, globalEngaged: switches.global }
@@ -75,6 +81,7 @@ function database() {
     client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames,
     flipDuringPreflight: () => { onPreflight = () => { switches.xometry = true; }; },
     denyPreflight: (decision: unknown) => { preflight = decision; },
+    unreadableAfter: (reads: number) => { readableStateReads = reads; },
   };
 }
 
@@ -172,5 +179,46 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     db.switches.xometry = false;
     await handleVendorQuoteTask(db.client, task, live).catch(() => undefined);
     expect(quote).toHaveBeenCalledOnce();
+  });
+
+  const spentTask = { ...task, attempts: 4 } as QueueTaskRecord;
+  const resultWrites = (db: ReturnType<typeof database>) => db.writes.filter((write) => write.table === "vendor_quote_results");
+
+  it("an unreadable switch at claim with retries left rethrows and leaves the lane queued for the retry", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.unreadableAfter(0);
+    await expect(handleVendorQuoteTask(db.client, task, live)).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(quote).not.toHaveBeenCalled();
+    expect(resultWrites(db).filter((write) => "update" in write)).toEqual([]);
+  });
+
+  it("an unreadable switch at claim with retries spent settles the lane failed, not manual, and still rethrows", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.unreadableAfter(0);
+    await expect(handleVendorQuoteTask(db.client, spentTask, live)).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
+        status: "failed",
+        raw_payload: expect.objectContaining({
+          failureCode: "provider_kill_switch_unavailable", retryScheduledFor: null, requiresManualVendorFollowUp: false }),
+      }) }),
+    ]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup" }) }),
+    ]));
+  });
+
+  it("an unreadable switch before launch with retries spent: the note and the state agree (failed, no manual follow up)", async () => {
+    const db = database();
+    db.unreadableAfter(1);
+    await expect(handleVendorQuoteTask(db.client, spentTask, live)).rejects.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    const failed = resultWrites(db).map((write) => write.update as Record<string, unknown>)
+      .find((update) => update?.status === "failed");
+    expect(failed).toBeDefined();
+    expect(String((failed?.notes as string[])[0])).not.toMatch(/manual follow-up/i);
+    expect(failed?.raw_payload).toEqual(expect.objectContaining({ requiresManualVendorFollowUp: false, retryScheduledFor: null }));
   });
 });

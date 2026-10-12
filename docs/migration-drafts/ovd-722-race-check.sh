@@ -172,4 +172,44 @@ check "the list RPC still reads every row through security definer" \
   "set role authenticated; set test.uid = '00000000-0000-4000-8000-000000722001';
    select jsonb_array_length(public.api_admin_list_provider_kill_switches() -> 'providers')" "6"
 
+# 9. The sweep handles rows one at a time: a row level trigger exception on one
+#    row skips that row (it stays queued) and never stops the other rows.
+"${PSQL[@]}" <<'SQL'
+create table public.work_queue (
+  id uuid primary key, job_id uuid, quote_run_id uuid, task_type text, status text,
+  payload jsonb, locked_at timestamptz, locked_by text, last_error text);
+create table public.vendor_quote_results (id uuid primary key, status text, notes jsonb, raw_payload jsonb);
+grant all on public.work_queue, public.vendor_quote_results to migration_owner;
+create function public.ovd722_fence_stub() returns trigger language plpgsql as
+  $$ begin raise exception 'free_quote_terminal_fenced' using errcode = 'P0001'; end $$;
+create trigger ovd722_fence before update on public.vendor_quote_results
+  for each row when (old.id = '00000000-0000-4000-8000-0000007229ff') execute function public.ovd722_fence_stub();
+insert into public.work_queue (id, job_id, quote_run_id, task_type, status, payload) values
+  ('00000000-0000-4000-8000-0000007228a1', '00000000-0000-4000-8000-0000007227a1', '00000000-0000-4000-8000-0000007226a1',
+   'run_vendor_quote', 'queued', '{"vendor":"xometry","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229a1"}'),
+  ('00000000-0000-4000-8000-0000007228ff', '00000000-0000-4000-8000-0000007227a1', '00000000-0000-4000-8000-0000007226a1',
+   'run_vendor_quote', 'queued', '{"vendor":"fictiv","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229ff"}'),
+  ('00000000-0000-4000-8000-0000007228a2', '00000000-0000-4000-8000-0000007227a2', '00000000-0000-4000-8000-0000007226a2',
+   'run_vendor_quote', 'queued', '{"vendor":"weerg","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229a2"}');
+insert into public.vendor_quote_results (id, status) values
+  ('00000000-0000-4000-8000-0000007229a1', 'queued'),
+  ('00000000-0000-4000-8000-0000007229ff', 'queued'),
+  ('00000000-0000-4000-8000-0000007229a2', 'queued');
+SQL
+{
+  echo "set role migration_owner;"
+  awk '/^-- Periodic sweep/{on=1} /^-- PHASE 2 ENFORCE/{on=0} on' "$DRAFT"
+} | "${PSQL[@]}"
+SWEEP="$("${PSQL[@]}" -tA -c "set role service_role; select public.api_worker_cancel_provider_disabled_tasks()")"
+echo "$SWEEP" | grep -q '"cancelled": 2' || { echo "FAIL: sweep result: $SWEEP"; exit 1; }
+echo "$SWEEP" | grep -q '"skipped": 1' || { echo "FAIL: sweep result: $SWEEP"; exit 1; }
+echo "ok - one failing row is skipped and the other rows are cancelled ($SWEEP)"
+check "the skipped row stays queued, with its lane untouched" \
+  "select (select status from public.work_queue where id = '00000000-0000-4000-8000-0000007228ff')
+     || ':' || (select status from public.vendor_quote_results where id = '00000000-0000-4000-8000-0000007229ff')" "queued:queued"
+check "the other rows are cancelled and their lanes end failed" \
+  "select count(*) from public.work_queue q join public.vendor_quote_results r
+     on r.id = (q.payload ->> 'vendorQuoteResultId')::uuid
+   where q.status = 'cancelled' and r.status = 'failed'" "2"
+
 echo "ovd-722 race check: all passed"

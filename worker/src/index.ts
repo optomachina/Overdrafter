@@ -96,6 +96,8 @@ import {
 import {
   cancelVendorTaskForDisabledProvider,
   checkProviderKillSwitchAtClaim,
+  failVendorResultForUnavailableKillSwitch,
+  ProviderKillSwitchError,
   isProviderKillSwitchEngaged,
   sweepProviderDisabledTasks,
 } from "./providerKillSwitch.js";
@@ -1104,18 +1106,35 @@ export async function handleVendorQuoteTask(
 
   // OVD-722: a switched-off provider's queued task ends truthfully at claim,
   // before the lane is marked running or anything is staged.
-  if (
-    config.workerMode === "live" &&
-    (await checkProviderKillSwitchAtClaim({
-      supabase,
-      task,
-      vendor,
-      vendorQuoteResultId: currentResult.id,
-      requestedQuantity: currentResult.requested_quantity,
-    })) === "cancelled"
-  ) {
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    return;
+  if (config.workerMode === "live") {
+    let claimCheck: "proceed" | "cancelled";
+    try {
+      claimCheck = await checkProviderKillSwitchAtClaim({
+        supabase,
+        task,
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        requestedQuantity: currentResult.requested_quantity,
+      });
+    } catch (error) {
+      // An unreadable switch is retried by the queue loop. When its retries are
+      // spent the loop fails the task, so the lane must settle visibly too;
+      // otherwise it would stay queued with no task left to run it.
+      if (error instanceof ProviderKillSwitchError && nextRetryAt(task.attempts) === null) {
+        await failVendorResultForUnavailableKillSwitch(supabase, {
+          vendorQuoteResultId: currentResult.id,
+          error,
+          retryCount,
+          requestedQuantity: currentResult.requested_quantity,
+        });
+        await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      }
+      throw error;
+    }
+    if (claimCheck === "cancelled") {
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      return;
+    }
   }
 
   await supabase
@@ -1456,7 +1475,7 @@ export async function handleVendorQuoteTask(
     if (dispatchAuthorizationError?.boundary === "kill_switch") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`
-        : `${vendor} kill switch state could not be confirmed, so automation stopped; manual follow-up is required.`;
+        : `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
     } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`

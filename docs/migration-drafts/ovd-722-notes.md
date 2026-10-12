@@ -81,16 +81,17 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
    the same call. An idempotent replay of an existing permit inserts nothing
    and is not refused there; the worker claim check still stops it. No existing suite needs retargeting (window 1 rehearsal, see below).
 7. **"Enqueue" is two RPCs**: `api_request_provider_dispatch` and
-   `api_request_xometry_beta_dispatch` (the legacy Xometry path). Both are
-   wrapped.
+   `api_request_xometry_beta_dispatch` (the legacy Xometry path). Neither is
+   wrapped or edited; the permit insert trigger covers both (item 6).
 8. **Fail-closed seeding.** A provider with no kill-switch row, an unknown
    provider string, or a missing global row is treated as **engaged**, not
    disengaged. Seeds cover every current `vendor_name` value. A future
    `alter type public.vendor_name add value` must also insert a row (or that
    provider is switched off by default). The plan's "provider:check asserts a
    row per registry key" cannot be checked offline (`provider:check` has no DB
-   access); the seed-from-enum plus fail-closed default makes it unnecessary.
-   Not added.
+   access); the seed-from-enum plus fail-closed default makes it unnecessary for the database. `scripts/provider-check.mjs` does add
+   an offline assertion (`assertKillSwitchSeedCoversRegistry`) that the seed
+   covers the provider registry; it cannot see a live database.
 9. **The worker reader is a separate unavailable code.** An RPC error, a
    malformed payload or a read over 2 s refuses with
    `provider_kill_switch_unavailable`, which is retryable only before any
@@ -197,3 +198,40 @@ and no rollback order guard.
 | Engaged mid step: no later upload, save or navigation retry | `providerPortalKernel.test.ts` (OVD-722 block); `xometry.test.ts` "Save Configuration is never clicked" |
 | Stale release never clears a newer engagement | `ovd-722-race-check.sh` (two sessions); pgTAP pending suite; API, card and CLI tests |
 | CLI uses admin session only | `scripts/provider-kill.test.mjs` |
+
+## Review nit round (PR #676, repair round 2)
+
+* **Claim check, retries spent.** When `provider_kill_switch_unavailable` keeps
+  failing at claim, the queue loop retries three times and then fails the
+  task. The handler now also settles the lane: once `nextRetryAt` is null at a
+  failed claim read, `vendor_quote_results` is set to `failed` with a plain
+  note, `failureCode = provider_kill_switch_unavailable`, no retry and no
+  manual follow up, and the error is rethrown so the loop fails the task.
+  While retries remain the lane stays `queued` for the retry.
+* **Note and state agree.** After the later checkpoints, an unreadable switch
+  with retries spent ends `failed` and the note says so ("nothing was sent and
+  automation stopped. It will not retry automatically."). It does not claim
+  manual follow up. An engaged switch is never routed to the manual quote
+  queue.
+* **Sweep is per row.** `api_worker_cancel_provider_disabled_tasks` now loops
+  over the locked rows with one subtransaction each. A row level trigger
+  exception (for example `free_quote_terminal_fenced` on a canceled free beta
+  request) skips that row, which stays queued, and is counted in a new
+  `skipped` key. The other rows and providers are still cancelled. Covered by
+  `ovd-722-race-check.sh` step 9 (a real Postgres run) and the pgTAP suite.
+* **Customer copy.** `provider_kill_switch_engaged` from the permit trigger is
+  now a definite denial and shows "This provider is temporarily unavailable."
+  with no retry prompt (`getXometryBetaDispatchDenialMessage`).
+* **Operator live tools.** `vendorWorkflowSmoke.ts` and the quantity sweeps
+  have no database client, so a switch read is not small. The C&D runbook now
+  says to stop and not run them for an engaged provider.
+* **Add quote provider.** A vendor added later with `alter type ... add value`
+  has no switch row until a seed row is added, so it stays switched off.
+* **pgTAP.** New end to end case: the real `api_request_xometry_beta_dispatch`
+  is refused while engaged and the quote request, run, lane and work_queue task
+  rows roll back; the same call is accepted once released. The suite has not
+  been executed (no full schema Postgres here); it follows
+  `supabase/tests/free_confirmed_quote_access.sql`.
+* The draft creates 9 functions (not 8): the audit guard, two engaged helpers,
+  the worker state read, two admin setters, the admin list, the sweep, and the
+  permit guard.
