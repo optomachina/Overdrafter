@@ -17,7 +17,8 @@ const manifest = JSON.parse(manifestBytes);
 const plan = planExactGrants(manifest, manifestSha);
 // pg_get_functiondef/pg_get_expr render under the runner role, so this is the
 // supabase_admin view of the same reviewed catalog, not the postgres JSON hash.
-const baselineCanonicalSha = "ee81feb70d8a72cb1baa3c73109c311504b9079603b51954a3f6d50a8a763dc1";
+// Measured on the 148 migration baseline (docs/release/window-2/evidence/pin-refusal).
+const baselineCanonicalSha = "68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930";
 const catalogSelect = catalogSql.replace(/^begin read only;\n/, "").replace(/\ncommit;$/, "");
 if (!catalogSelect.startsWith("with selected_roles(role_name) as (")
     || !catalogSelect.endsWith(")::text;")) throw new Error("catalog_select_shape_drift");
@@ -77,9 +78,17 @@ function forwardSql(postCanonicalSha) {
 -- Pinned prechange manifest SHA-256: ${manifestSha}
 -- Pinned PostgreSQL jsonb catalog SHA-256: ${baselineCanonicalSha}
 -- Requires separately qualified source, fixture ownership, and runner identity.
+-- READ COMMITTED and the shared window 2 lock come first, as in every staged
+-- forward and reverse, so no two window 2 scripts interleave.
 begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
+do $ovd558_forward_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd558_forward_read_committed_required' using errcode = '0A000';
+  end if;
+end $ovd558_forward_isolation$;
 select pg_advisory_xact_lock(510, 2);
 do $ovd558_preflight$ declare actual text; normalized text;
 begin
