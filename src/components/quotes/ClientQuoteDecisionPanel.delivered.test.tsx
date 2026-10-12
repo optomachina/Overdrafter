@@ -116,7 +116,7 @@ describe("ClientQuoteDecisionPanel delivered-date comparison (OVD-571)", () => {
   it("shows no winner badge, recommendation, or default emphasis", () => {
     renderPanel();
     expect(screen.queryByText(/pick$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Recommended starting point/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("selected-option-summary")).not.toBeInTheDocument();
     expect(screen.queryByText(/leaders?$/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("mock-chart-selected").textContent).toBe("none");
     expect(screen.getByTestId("quote-vendor-table").querySelector("[aria-selected='true']")).toBeNull();
@@ -136,6 +136,21 @@ describe("ClientQuoteDecisionPanel delivered-date comparison (OVD-571)", () => {
     expect(rowKeys()).toEqual(["late-cheap", "on-mid", "on-pricey", "unknown"]);
     fireEvent.click(screen.getByRole("button", { name: /Reset to confirmed deadline/i }));
     expect(screen.getByTestId("mock-chart")).toHaveAttribute("data-deadline", "2026-10-22");
+  });
+
+  it("labels an expired confirmed deadline as expired", () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[ON_PRICEY]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        deadline={{ date: "2026-09-01", state: "expired" }}
+        now={NOW}
+        timeZone="UTC"
+      />,
+    );
+    expect(screen.getByTestId("deadline-summary")).toHaveTextContent(/expired/);
   });
 
   it("preserves selection, focus, table mode and deadline when new options arrive", async () => {

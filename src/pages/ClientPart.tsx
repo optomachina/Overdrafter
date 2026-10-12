@@ -67,6 +67,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { toPanelDeadline } from "@/features/quotes/api/part-deadline-api";
 import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
@@ -285,6 +286,10 @@ const ClientPart = () => {
     nextSearchParams.delete("quote");
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  const validSelectedQuoteOption =
+    rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
+    selectedQuoteOption;
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -937,10 +942,7 @@ const ClientPart = () => {
                     title="Quote comparison"
                     description="Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost."
                     options={rankedQuoteOptions}
-                    selectedOption={
-                      rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
-                      selectedQuoteOption
-                    }
+                    selectedOption={validSelectedQuoteOption}
                     previousSelectionUnavailable={previousQuoteSelectionUnavailable}
                     onSelect={handleWorkspaceOfferSelect}
                     requestedByDate={requestSummaryRequestedByDate}
@@ -949,7 +951,7 @@ const ClientPart = () => {
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
-                    deadline={partDeadline ? { date: partDeadline.activeDate, state: partDeadline.state } : null}
+                    deadline={toPanelDeadline(partDeadline)}
                     requestCompletion={{
                       request: partDetail.latestQuoteRequest
                         ? {
@@ -969,15 +971,30 @@ const ClientPart = () => {
                       })),
                     }}
                     headerActions={
+                      <>
                       <Button
                         type="button"
                         className="rounded-full shadow-sm"
                         onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                        disabled={rankedQuoteOptions.length === 0}
+                        disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
+                        title={
+                          rankedQuoteOptions.length > 0 && !validSelectedQuoteOption
+                            ? "Choose a quote to continue"
+                            : undefined
+                        }
+                        aria-describedby={
+                          rankedQuoteOptions.length > 0 && !validSelectedQuoteOption
+                            ? "review-order-disabled-reason"
+                            : undefined
+                        }
                       >
                         Review order
                         <MoveRight className="ml-2 h-4 w-4" />
                       </Button>
+                      <span id="review-order-disabled-reason" className="sr-only">
+                        Choose a quote to continue
+                      </span>
+                      </>
                     }
                     controls={
                       <QuoteSelectionFunctionBar
