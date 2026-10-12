@@ -34,7 +34,8 @@ const ROOT = repoRoot();
 const PR_FILES = { 1: ["src/a.ts", "supabase/migrations/20261012000000_x.sql"], 2: ["src/a.ts", "docs/supabase-migrations.md"], 5: { files: ["src/a.ts"], headSha: "abc123" } };
 function fakePrFiles(target) {
   if (target.repoFlag === "other/repo" || target.owner === "other") return PR_FILES[1];
-  const number = String(target.number ?? (target.selector === undefined ? "2" : target.selector.split("/pull/").pop()));
+  const fromNode = target.nodeId?.replace(/^PR_/, "");
+  const number = String(fromNode ?? target.number ?? (target.selector === undefined ? "2" : target.selector.split("/pull/").pop()));
   if (!(number in PR_FILES)) throw new Error("HTTP 404");
   return PR_FILES[number];
 }
@@ -64,8 +65,15 @@ writeFileSync(
       "loop-a": "npm run loop-b",
       "loop-b": "npm run loop-a",
     },
+    workspaces: ["packages/*"],
   }),
 );
+mkdirSync(join(FIXTURE, "packages/app"), { recursive: true });
+writeFileSync(join(FIXTURE, "packages/app/package.json"), JSON.stringify({ name: "app", scripts: { "db:push": "supabase db push", safe: "echo ok" } }));
+mkdirSync(join(FIXTURE, "tools/guardrails"), { recursive: true });
+writeFileSync(join(FIXTURE, "merge-pr1.json"), JSON.stringify({ query: "mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }" }));
+writeFileSync(join(FIXTURE, "merge-pr2.json"), JSON.stringify({ query: "mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }", variables: { id: "PR_2" } }));
+writeFileSync(join(FIXTURE, "ref-main.json"), JSON.stringify({ ref: "refs/heads/main", sha: "abc" }));
 mkdirSync(join(FIXTURE, "safe"));
 writeFileSync(join(FIXTURE, "safe/package.json"), JSON.stringify({ scripts: { "db:push": "echo local only" } }));
 writeFileSync(join(FIXTURE, "clean.sh"), "#!/bin/sh\necho hello\nnpm test\n");
@@ -506,7 +514,7 @@ const PROBES = [
   [11, sql("select \"update\", \"setval\" from t"), PASSES],
   [11, "echo x > m/x.sql", residual("a symlink made earlier hides the target")],
   [11, 'touch "$(cat /tmp/name)"', residual("a path generated from file contents at run time is not known")],
-  [11, "npm -w worker run db:push", residual("npm -w resolves a workspace name as a directory, so a named workspace is not found")],
+  [11, "npm -w worker run db:push", HOOK_BLOCKS], // residual closed in round 12: a workspace that cannot be resolved fails closed
   // False positives from the review.
   [11, "supabase migration list --linked", PASSES],
   [11, "supabase db dump --linked -f /tmp/schema.sql", PASSES],
@@ -518,6 +526,254 @@ const PROBES = [
   [11, "touch supabase/migrations/../../docs/x.md", PASSES],
   [11, "touch supabase/migrations/../migrations/x.sql", HOOK_BLOCKS],
   [11, "echo 'echo x > supabase/migrations/x.sql' > /tmp/w.sh", HOOK_BLOCKS],
+  // Round 12: the final bounded repair round. Every fix has a block row and every false positive fix an allow row.
+  // 1a. Readers outside the old READERS list pass on protected paths; their writing modes and interpreters still block.
+  [12, "sed -n 1,80p supabase/migrations/x.sql", PASSES],
+  [12, "sed -n '/create table/,/;/p' supabase/migrations/x.sql", PASSES],
+  [12, "awk '{print $1}' supabase/migrations/x.sql", PASSES],
+  [12, "awk -F, 'NR > 1 {print $2}' supabase/migrations/x.csv", PASSES],
+  [12, "jq . supabase/migrations/x.json", PASSES],
+  [12, "cut -c1-40 supabase/migrations/x.sql", PASSES],
+  [12, "xxd supabase/migrations/x.sql", PASSES],
+  [12, "xxd -l 64 supabase/migrations/x.sql", PASSES],
+  [12, "tail -n 20 supabase/migrations/x.sql", PASSES],
+  [12, "sha256sum supabase/migrations/x.sql", PASSES],
+  [12, "shasum -a 256 supabase/migrations/x.sql", PASSES],
+  [12, "sha1sum supabase/migrations/*.sql", PASSES],
+  [12, "cmp supabase/migrations/x.sql /tmp/y.sql", PASSES],
+  [12, "stat supabase/migrations/x.sql", PASSES],
+  [12, "sed -i s/a/b/ supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "sed -ni s/a/b/p supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "sed --in-place=.bak s/a/b/ supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "sed -n 'w supabase/migrations/y.sql' /tmp/x.sql", HOOK_BLOCKS],
+  [12, "sed 's/a/b/w supabase/migrations/y.sql' /tmp/x.sql", HOOK_BLOCKS],
+  [12, "sed -f /tmp/x.sed supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "awk -i inplace '{print}' supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "awk '{print > \"supabase/migrations/y.sql\"}' /tmp/x", HOOK_BLOCKS],
+  [12, "awk '{system(\"touch x\")}' supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "xxd -r /tmp/x.hex supabase/migrations/x.sql", HOOK_BLOCKS],
+  [12, "node scripts/x.mjs supabase/migrations/x.sql", HOOK_BLOCKS], // residual: interpreters with a protected path argument stay blocked; the message names the readers
+  [12, "python3 scripts/x.py .claude/settings.json", HOOK_BLOCKS],
+  [12, "node scripts/x.mjs docs/x.md", PASSES],
+  // 1b. Only a redirect whose target is protected (or generated or unresolved in a command naming a protected path) is a write.
+  [12, "ls supabase/migrations 2>/dev/null | tail", PASSES],
+  [12, 'grep -rn "security definer" supabase/migrations 2>/dev/null', PASSES],
+  [12, "cat supabase/migrations/x.sql > /tmp/x.sql", PASSES],
+  [12, "find supabase/migrations -name '*.sql' > /tmp/list.txt", PASSES],
+  [12, "cat .claude/settings.json 2>/dev/null", PASSES],
+  [12, "cat > /tmp/review.md <<'EOF'\nReview notes for supabase/migrations/x.sql\nEOF", PASSES],
+  [12, "printf '%s\\n' supabase/migrations/x.sql >> docs/notes.md", PASSES],
+  [12, "ls supabase/migrations > supabase/migrations/list.txt", HOOK_BLOCKS],
+  [12, 'cat supabase/migrations/x.sql > "$OUT"', HOOK_BLOCKS],
+  [12, 'cat docs/x.md > "$OUT"', PASSES],
+  [12, "cat > /tmp/w.sh <<'EOF'\necho x > supabase/migrations/x.sql\nEOF", HOOK_BLOCKS],
+  // 1c. git global options are normalized before the subcommand is checked.
+  [12, "git -C /tmp/wt log -- supabase/migrations", PASSES],
+  [12, "git -C /tmp/wt diff origin/main -- supabase/migrations", PASSES],
+  [12, "git -C /tmp/wt show origin/main:supabase/migrations/x.sql", PASSES],
+  [12, "git --no-pager diff -- supabase/migrations", PASSES],
+  [12, 'git -C /tmp/wt commit -m "note supabase/migrations/x.sql"', PASSES],
+  [12, "git -c core.quotepath=off --literal-pathspecs log -- supabase/migrations", PASSES],
+  [12, "git -C . restore --source=HEAD~5 -- .", HOOK_BLOCKS],
+  [12, "git -c x=y checkout main -- .", HOOK_BLOCKS],
+  [12, "git --no-pager apply /tmp/missing.patch", HOOK_BLOCKS],
+  [12, "git -C supabase checkout main -- migrations", HOOK_BLOCKS],
+  [12, "git --git-dir=.git --work-tree=. checkout main -- .", HOOK_BLOCKS],
+  [12, "git -c core.hooksPath=.claude/hooks commit -m x", HOOK_BLOCKS],
+  // 1d. A substitution or variable blocks only as the target of a write.
+  [12, 'node scripts/x.mjs "$(ls supabase/migrations | tail -1)"', PASSES],
+  [12, 'actual="$(shasum -a 256 "supabase/migrations/${OVD417_FILES[$index]}" | awk \'{print $1}\')"', PASSES],
+  [12, 'cp /tmp/x.sql "$(echo supabase/migrations)"', HOOK_BLOCKS],
+  [12, 'touch "$(echo supabase/migrations/x.sql)"', HOOK_BLOCKS],
+  [12, "sed -i s/a/b/ \"$(ls supabase/migrations/*.sql | tail -1)\"", HOOK_BLOCKS],
+  [12, 'echo x | tee "$(echo supabase/migrations/x.sql)"', HOOK_BLOCKS],
+  // 2. Package.json scripts through every runner form; npm reads directory flags anywhere before --.
+  [12, inFixture("npm run db:push --prefix ..", "safe"), HOOK_BLOCKS],
+  [12, inFixture("npm run db:push --prefix=..", "safe"), HOOK_BLOCKS],
+  [12, inFixture("npm run db:push -- --prefix ..", "safe"), PASSES],
+  [12, inFixture("node --run db:push"), HOOK_BLOCKS],
+  [12, inFixture("node --run test"), PASSES],
+  [12, inFixture("npx npm run db:push"), HOOK_BLOCKS],
+  [12, inFixture("npm exec -- npm run db:push"), HOOK_BLOCKS],
+  [12, inFixture("bun run db:push"), HOOK_BLOCKS],
+  [12, inFixture("bun db:push"), HOOK_BLOCKS],
+  [12, inFixture("bun test"), PASSES],
+  [12, inFixture("pnpm run db:push"), HOOK_BLOCKS],
+  [12, inFixture("yarn run db:push"), HOOK_BLOCKS],
+  [12, inFixture("yarn db:push --cwd safe"), HOOK_BLOCKS],
+  [12, inFixture("npm -w app run db:push"), HOOK_BLOCKS],
+  [12, inFixture("npm -w packages/app run db:push"), HOOK_BLOCKS],
+  [12, inFixture("npm run db:push -w app"), HOOK_BLOCKS],
+  [12, inFixture("npm --workspaces run db:push", "safe"), PASSES],
+  [12, inFixture("npm --workspaces run db:push"), HOOK_BLOCKS],
+  [12, inFixture("pnpm --filter app run db:push"), HOOK_BLOCKS],
+  [12, inFixture("yarn workspace app db:push"), HOOK_BLOCKS],
+  [12, inFixture("npm -w app run safe"), PASSES],
+  [12, inFixture("npm -w nope run safe"), HOOK_BLOCKS],
+  [12, inFixture("npx turbo run db:push"), HOOK_BLOCKS],
+  [12, inFixture("npx some-unknown-runner db:push"), HOOK_BLOCKS],
+  [12, inFixture("npx concurrently 'npm run db:push' 'npm test'"), HOOK_BLOCKS],
+  [12, inFixture("npx prettier --check src"), PASSES],
+  [12, inFixture("npx some-unknown-runner test"), PASSES],
+  // 3. Self protection, attached option values, and copy sources landing on protected paths.
+  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/guardrails/proposed/guard-migrations.mjs" } }, deny("Edit(/tools/guardrails/proposed/**)")],
+  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/guardrails/proposed/guard-migrations.mjs" } }, HOOK_BLOCKS],
+  [12, { tool_name: "Write", tool_input: { file_path: "/repo/tools/guardrails/apply.mjs" } }, deny("Edit(/tools/guardrails/apply.mjs)")],
+  [12, { tool_name: "Write", tool_input: { file_path: "/repo/tools/guardrails/apply.mjs" } }, HOOK_BLOCKS],
+  [12, { tool_name: "Edit", tool_input: { file_path: "/repo/tools/other/x.mjs" } }, PASSES],
+  [12, "echo x > tools/guardrails/apply.mjs", HOOK_BLOCKS],
+  [12, "cp /tmp/x.mjs tools/guardrails/proposed/guard-migrations.mjs", HOOK_BLOCKS],
+  [12, "sed -i s/2/0/ tools/guardrails/proposed/guard-migrations.mjs", HOOK_BLOCKS],
+  [12, "rm -rf tools/guardrails", HOOK_BLOCKS],
+  [12, inFixture("rm -rf tools"), HOOK_BLOCKS],
+  [12, inFixture("mkdir -p src/tools"), PASSES],
+  [12, "cat tools/guardrails/apply.mjs", PASSES],
+  [12, "node --test tools/guardrails/proposed/guard-migrations.node-test.mjs", PASSES],
+  [12, "node --test scripts/a.node-test.mjs tools/guardrails/proposed/guard-migrations.node-test.mjs", PASSES],
+  [12, "cp -t.claude/hooks /tmp/guard-migrations.mjs", HOOK_BLOCKS],
+  [12, "cp -tsupabase/migrations /tmp/x.sql", HOOK_BLOCKS],
+  [12, "cp -rt supabase/migrations /tmp/x.sql", HOOK_BLOCKS],
+  [12, "cp --target-directory=.claude/hooks /tmp/x.mjs", HOOK_BLOCKS],
+  [12, "install -m644 -t.claude/hooks /tmp/x.mjs", HOOK_BLOCKS],
+  [12, "rsync -a --backup-dir=supabase/migrations /tmp/x/ /tmp/y/", HOOK_BLOCKS],
+  [12, "cp -r /tmp/clone/supabase .", HOOK_BLOCKS],
+  [12, "rsync -a /tmp/stage/ ./", HOOK_BLOCKS],
+  [12, "cp -r /tmp/evil/.claude/ .", HOOK_BLOCKS],
+  [12, "cp -r /tmp/stage/. .", HOOK_BLOCKS],
+  [12, "cp -r /tmp/stage/* .", HOOK_BLOCKS],
+  [12, "rsync -a /tmp/clone/supabase ./", HOOK_BLOCKS],
+  [12, "cp -t /tmp/out supabase/migrations/x.sql", PASSES],
+  [12, "cp -r /tmp/clone/src .", PASSES],
+  [12, "rsync -a /tmp/stage/ /tmp/out/", PASSES],
+  [12, "cp -r /tmp/clone/supabase /tmp/out/", PASSES],
+  // 5. Merge bypasses: gh repo flags anywhere, GraphQL bodies, pushes and ref writes to main, the merges API.
+  [12, "gh -R o/r pr merge 1", HOOK_BLOCKS],
+  [12, "gh pr -R o/r merge 1", HOOK_BLOCKS],
+  [12, "gh pr --repo=o/r merge 1", HOOK_BLOCKS],
+  [12, "gh -Ro/r pr merge 1 --squash", HOOK_BLOCKS],
+  [12, "gh -R o/r pr merge 2 --squash", PASSES],
+  [12, "gh -R other/repo pr merge 2", HOOK_BLOCKS],
+  [12, `curl -X POST https://api.github.com/graphql -d @${FIXTURE}/merge-pr1.json`, HOOK_BLOCKS],
+  [12, `curl https://api.github.com/graphql --data-binary @${FIXTURE}/merge-pr2.json`, PASSES],
+  [12, "curl -X POST https://api.github.com/graphql -d @/tmp/does-not-exist.json", HOOK_BLOCKS],
+  [12, "curl -X POST https://api.github.com/graphql --json '{\"query\":\"mutation { enablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }\"}'", HOOK_BLOCKS],
+  [12, `curl -X POST https://api.github.com/graphql -d @${FIXTURE}/viewer.json`, PASSES],
+  [12, "gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_1", HOOK_BLOCKS],
+  [12, "gh api graphql -f query='mutation($id: ID!) { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }' -f id=PR_2", PASSES],
+  [12, "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: $id}) { clientMutationId } }'", HOOK_BLOCKS],
+  [12, "git push origin HEAD:main", HOOK_BLOCKS],
+  [12, "git push origin x:refs/heads/main", HOOK_BLOCKS],
+  [12, "git push upstream +feature:main", HOOK_BLOCKS],
+  [12, "git push origin :main", HOOK_BLOCKS],
+  [12, "git push origin main", HOOK_BLOCKS],
+  [12, "git push --all origin", HOOK_BLOCKS],
+  [12, "git -C /tmp/wt push origin HEAD:main", HOOK_BLOCKS],
+  [12, "git push -u origin chore/guardrail-staged", PASSES],
+  [12, "git push origin HEAD:refs/heads/feature/main-fix", PASSES],
+  [12, "gh api -X POST repos/o/r/merges -f base=main -f head=x", HOOK_BLOCKS],
+  [12, "gh api repos/o/r/merges -f base=feature -f head=x", HOOK_BLOCKS],
+  [12, "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc", HOOK_BLOCKS],
+  [12, "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc", HOOK_BLOCKS],
+  [12, `gh api -X POST repos/o/r/git/refs --input ${FIXTURE}/ref-main.json`, HOOK_BLOCKS],
+  [12, "gh api -X POST repos/o/r/git/refs --input /tmp/does-not-exist.json", HOOK_BLOCKS],
+  [12, "curl -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main -d '{\"sha\":\"abc\"}'", HOOK_BLOCKS],
+  [12, "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/feature -f sha=abc", PASSES],
+  [12, "gh api repos/o/r/git/refs/heads/main", PASSES],
+  // 6. Postgres client options are normalized; a target that is not provably loopback fails closed.
+  [12, "psql -hdb.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql -dpostgres://u@db.x.supabase.co/postgres -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql --dbname=postgres://u@db.x.supabase.co/postgres -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql --host=db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql 'hostaddr=10.0.0.1 dbname=x' -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql 'host=localhost hostaddr=10.0.0.1' -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql 'postgres://u@localhost/x?host=db.x.supabase.co' -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql 'postgres://u@localhost/x?hostaddr=10.0.0.1' -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql 'service=prod' -c 'delete from t'", HOOK_BLOCKS],
+  [12, "PGSERVICE=prod psql -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql -hdb.x.supabase.co -c 'select 1' -c'delete from t'", HOOK_BLOCKS],
+  [12, "psql -hdb.x.supabase.co -Atc 'delete from t'", HOOK_BLOCKS],
+  [12, "psql -hdb.x.supabase.co -fx.sql", HOOK_BLOCKS],
+  [12, "pgbench -h db.x.supabase.co -i postgres", HOOK_BLOCKS],
+  [12, "pgbench postgres://u@db.x.supabase.co/postgres", HOOK_BLOCKS],
+  [12, "docker run --rm --entrypoint psql img postgres://u@db.x.supabase.co/postgres", HOOK_BLOCKS],
+  [12, "docker run --rm -i --entrypoint=psql img \"$DATABASE_URL\" -c 'drop table t'", HOOK_BLOCKS],
+  [12, "docker run --rm -e PGHOST=db.x.supabase.co img psql -c 'drop table t'", HOOK_BLOCKS],
+  [12, "docker exec -i ctr psql -h db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
+  [12, "docker compose exec db psql -h db.x.supabase.co -c 'delete from t'", HOOK_BLOCKS],
+  [12, "psql -h localhost -c 'select 1' -c'delete from t'", PASSES],
+  [12, "psql 'postgres://postgres@[::1]:54322/postgres' -c 'drop table t'", PASSES],
+  [12, "psql -h 127.0.0.2 -c 'drop table t'", PASSES],
+  [12, "psql -hdb.x.supabase.co -Atc 'select count(*) from jobs'", PASSES],
+  [12, "pgbench -h localhost -c 10 postgres", PASSES],
+  [12, "docker exec -i supabase_db_overdrafter psql -U postgres -c 'drop table t'", PASSES],
+  [12, "docker run --rm --entrypoint pg_dump img postgres://u@db.x.supabase.co/postgres", PASSES],
+  // 7. supabase CLI against a hosted target: read allow list only; --local forms pass.
+  [12, "supabase db push --linked", HOOK_BLOCKS],
+  [12, "supabase db query --linked 'delete from t'", HOOK_BLOCKS],
+  [12, "supabase migration repair --status applied 1 --linked", HOOK_BLOCKS],
+  [12, "supabase migration repair --status applied 1", HOOK_BLOCKS],
+  [12, "supabase migration down --linked", HOOK_BLOCKS],
+  [12, "supabase seed buckets --linked", HOOK_BLOCKS],
+  [12, "supabase test db --db-url \"$DATABASE_URL\"", HOOK_BLOCKS],
+  [12, "supabase storage rm ss:///bucket/x", HOOK_BLOCKS],
+  [12, "supabase postgres-config update --config x=1", HOOK_BLOCKS],
+  [12, "supabase branches pause b", HOOK_BLOCKS],
+  [12, "supabase db schema declarative sync", HOOK_BLOCKS],
+  [12, "supabase migration list --linked", PASSES],
+  [12, "supabase db diff --linked", PASSES],
+  [12, "supabase db lint --linked", PASSES],
+  [12, "supabase inspect db locks --linked", PASSES],
+  [12, "supabase projects list", PASSES],
+  [12, "supabase branches list", PASSES],
+  [12, "supabase secrets list --project-ref abc", PASSES],
+  [12, "supabase gen types typescript --project-id abc", PASSES],
+  [12, "supabase migration repair --local --status applied 1", PASSES],
+  [12, "supabase db push --local", PASSES],
+  [12, "supabase db push --db-url postgres://postgres@127.0.0.1:54322/postgres", PASSES],
+  [12, "supabase migration up --local", PASSES],
+  [12, "supabase functions serve", PASSES],
+  // 8. HTTP methods normalized; unresolved SUPABASE variables fail closed; loopback includes [::1] and 127.0.0.0/8.
+  [12, "curl --json='{}' https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl --json @/tmp/x.json https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl --request=DELETE https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl -XDELETE https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl --data-raw '{}' https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl -dx=1 https://abc.supabase.co/rest/v1/jobs", HOOK_BLOCKS],
+  [12, "curl -T x.json https://abc.supabase.co/storage/v1/object/b/x", HOOK_BLOCKS],
+  [12, 'curl -X POST "$MY_SUPABASE_ENDPOINT/x"', HOOK_BLOCKS],
+  [12, 'curl -X POST "${NEXT_PUBLIC_SUPABASE_URL}/functions/v1/x"', HOOK_BLOCKS],
+  [12, "curl -X POST http://[::1]:54321/rest/v1/jobs -d '{}'", PASSES],
+  [12, "curl -X POST http://127.0.0.5:54321/rest/v1/jobs -d '{}'", PASSES],
+  [12, "curl -X POST http://localhost:54321/rest/v1/jobs -d '{}'", PASSES],
+  [12, "SUPABASE_URL=http://127.0.0.1:54321; curl -X POST \"$SUPABASE_URL/rest/v1/jobs\" -d '{}'", PASSES],
+  [12, "curl -G -d select=id https://abc.supabase.co/rest/v1/jobs", PASSES],
+  [12, "curl -I https://abc.supabase.co/rest/v1/jobs", PASSES],
+  // 9. execute_sql: U& escapes, pgmq, dblink and the known write function list fail closed.
+  [12, sql("select U&'\\0064rop'"), HOOK_BLOCKS],
+  [12, sql('select * from U&"\\0074able"'), HOOK_BLOCKS],
+  [12, sql("select pgmq.send('q', '{}')"), HOOK_BLOCKS],
+  [12, sql('select "pgmq"."delete"(\'q\', 1)'), HOOK_BLOCKS],
+  [12, sql("select pgmq.read('q', 30, 1)"), HOOK_BLOCKS],
+  [12, sql("select * from dblink('host=x', 'delete from t') as t(x int)"), HOOK_BLOCKS],
+  [12, sql("select pg_stat_reset()"), HOOK_BLOCKS],
+  [12, sql("select pg_try_advisory_lock(1)"), HOOK_BLOCKS],
+  [12, sql("select net.http_post('https://x', '{}')"), HOOK_BLOCKS],
+  [12, sql("select cron.alter_job(1, schedule := '* * * * *')"), HOOK_BLOCKS],
+  [12, sql("select msg_id from pgmq.q_jobs limit 5"), PASSES],
+  [12, sql("select 'U&' as label"), PASSES],
+  [12, sql("select my_function_that_writes()"), residual("a user defined function with side effects is not inspected")],
+  // 10. Bash deny rules as defense in depth; Blaine still runs these himself.
+  [12, "supabase db push", deny("Bash(supabase db push:*)")],
+  [12, "npx supabase db push", deny("Bash(npx supabase db push:*)")],
+  [12, "npm run db:push", deny("Bash(npm run db:push:*)")],
+  // 13. Residuals that stay visible.
+  [12, "echo x > m/x.sql", residual("a symlink made earlier hides the target")],
+  [12, 'touch "$(cat /tmp/name)"', residual("a path generated from file contents at run time is not known")],
+  [12, "git reset --hard origin/main", residual("git reset, stash, merge, pull and clean move many files at once and are not inspected")],
+  [12, "git push origin HEAD", residual("a push of the current branch is not resolved, so a checked out main is not seen")],
+  [12, "gh m 1", residual("a gh alias made before the guard is not expanded")],
+  [12, "env -C supabase/migrations touch x.sql", residual("env -C changes directory without a cd the hook can follow")],
+  [12, "node /tmp/w.js", residual("an interpreter script file is not inspected")],
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -588,18 +844,64 @@ test("sqlReason names the offending word", () => {
   assert.equal(sqlReason("select 1;"), null);
 });
 
-test("every real root and worker script: only db:push and qualify:ovd417 (which runs supabase db push --db-url) block", { skip: ROOT ? false : "repo root not found" }, () => {
+// The real scripts as of this PR and the verdict each should get. Only listed names are asserted, so a script added
+// later cannot turn CI red on an unrelated PR; unlisted scripts are reported as a warning in the test output.
+const REAL_SCRIPTS = {
+  "package.json": {
+    block: ["db:push", "qualify:ovd417"],
+    pass: [
+      "dev", "dev:login", "build", "build:sample-plate", "serve:sample-plate", "build:dev", "db:start", "db:reset", "db:types", "seed:dev",
+      "generate:favicon", "provider:add", "fixture:onboard", "provider:sync", "provider:check", "provider:permissions", "preflight", "lint",
+      "typecheck", "typecheck:worker", "preview", "e2e", "e2e:fixture", "e2e:authenticated", "e2e:quote-confirmation", "e2e:ui", "e2e:prepare",
+      "test", "test:functions", "test:integration:quote", "test:live:fictiv", "test:watch", "test:coverage", "validate:pr-body", "migration:next",
+      "verify:migration-lineage", "verify:ovd372-head", "verify:ovd417-head", "compare:ovd372-schema", "verify:public-assets",
+      "verify:removed-public-assets", "verify:xometry-egress", "verify:xometry-recovery-host", "render:pr-body", "verify:worker", "verify",
+      "test:engineering-inbox", "test:engineering-queue", "test:engineering-worker-sessions", "test:engineering-native-ownership",
+      "demo:engineering-evidence", "test:agent-control-plane", "test:portable-node"
+    ],
+  },
+  "worker/package.json": {
+    block: [],
+    pass: [
+      "build", "dev", "start", "start:prod", "typecheck", "check", "canary:capability", "verify", "auth:xometry", "probe:xometry-auth",
+      "export:xometry-profile", "auth:fictiv", "auth:vendor", "sweep:fictiv-quantity", "eval:gate", "sweep:xometry-quantity", "eval:live-provider",
+      "smoke:vendor-workflow", "validate:openclaw-gate", "cleanup:dmrifles-demo", "extract:smoke", "import:dmrifles-quotes", "import:quotes",
+      "install:browsers", "install:camoufox", "extract:eval", "compare:browser-recovery"
+    ],
+  },
+};
+
+test("the listed real root and worker scripts get their expected verdicts; unlisted scripts only warn", { skip: ROOT ? false : "repo root not found" }, (t) => {
   const run = (command) => decide({ tool_name: "Bash", tool_input: { command }, cwd: ROOT }, { prFiles: fakePrFiles });
-  const blocked = [];
-  for (const [prefix, file] of [["", "package.json"], ["--prefix worker ", "worker/package.json"]]) {
-    const scripts = Object.keys(JSON.parse(readFileSync(join(ROOT, file), "utf8")).scripts ?? {});
-    for (const name of scripts) if (run(`npm ${prefix}run ${name}`)) blocked.push(`${prefix}${name}`);
+  for (const [file, expected] of Object.entries(REAL_SCRIPTS)) {
+    const prefix = file === "package.json" ? "" : `--prefix ${dirname(file)} `;
+    const scripts = JSON.parse(readFileSync(join(ROOT, file), "utf8")).scripts ?? {};
+    const listed = new Set([...expected.block, ...expected.pass]);
+    for (const name of listed) {
+      if (!Object.hasOwn(scripts, name)) {
+        t.diagnostic(`warning: ${file} no longer has the listed script ${name}`);
+        continue;
+      }
+      const reason = run(`npm ${prefix}run ${name}`);
+      if (expected.block.includes(name)) assert.ok(reason, `npm ${prefix}run ${name} should block`);
+      else assert.equal(reason, null, `npm ${prefix}run ${name} should pass`);
+    }
+    for (const name of Object.keys(scripts).filter((n) => !listed.has(n))) {
+      const verdict = run(`npm ${prefix}run ${name}`) ? "blocks" : "passes";
+      t.diagnostic(`warning: ${file} script ${name} is not listed in REAL_SCRIPTS (today it ${verdict}); add it to the list`);
+    }
   }
-  assert.deepEqual(blocked.sort((a, b) => a.localeCompare(b)), ["db:push", "qualify:ovd417"]);
-  assert.equal(run("npm run verify"), null);
-  assert.equal(run("npm run verify:worker"), null);
-  assert.equal(run("npm run db:reset"), null);
-  assert.equal(run("npm run e2e:prepare"), null);
+});
+
+test("qualify:ovd417 stays blocked because it runs supabase db push --db-url (and supabase test db and psql) against env var URLs the hook cannot see", { skip: ROOT ? false : "repo root not found" }, () => {
+  const reasons = decide({ tool_name: "Bash", tool_input: { command: "npm run qualify:ovd417" }, cwd: ROOT }, { prFiles: fakePrFiles, collect: true });
+  assert.ok(reasons.some((r) => /supabase db push targets a hosted project/.test(r)), reasons.join("\n"));
+  // The other reasons are real too: supabase test db and psql run against the same unresolved URLs, and the script writes
+  // and removes an injected failure file under a temporary project's supabase/migrations/.
+  const real = /supabase (db push|test db) targets a hosted project|psql against a host that cannot be resolved|^rm would write to supabase\/migrations|^redirects output into supabase\/migrations/;
+  for (const reason of reasons) assert.match(reason, real);
+  // The round 12 false positives are gone: readers with redirects, generated arguments, keywords and assignment builtins.
+  for (const reason of reasons) assert.doesNotMatch(reason, /writes a file whose text|generated path|^(readonly|local|\[\[|!|shasum|cmp|awk|node) /);
 });
 
 const driftSkip = () => {
@@ -615,7 +917,10 @@ test("after apply, .claude/hooks and settings.json match the proposed copy", { s
   const applied = JSON.parse(readFileSync(join(ROOT, ".claude/settings.json"), "utf8"));
   const staged = JSON.parse(readFileSync(join(ROOT, "tools/guardrails/proposed/settings.json"), "utf8"));
   for (const rule of staged.permissions.deny) assert.ok(applied.permissions?.deny?.includes(rule), `.claude/settings.json is missing ${rule}`);
-  for (const entry of staged.hooks.PreToolUse) assert.ok(applied.hooks?.PreToolUse?.some((e) => JSON.stringify(e) === JSON.stringify(entry)), `.claude/settings.json is missing the ${entry.matcher} hook`);
+  for (const entry of staged.hooks.PreToolUse) {
+    const expected = JSON.stringify(entry).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\{\\{NODE\\}\\}", '/[^"\\\\]+').replace("\\{\\{HOOK\\}\\}", join(ROOT, ".claude/hooks/guard-migrations.mjs"));
+    assert.ok(applied.hooks?.PreToolUse?.some((e) => new RegExp(`^${expected}$`).test(JSON.stringify(e))), `.claude/settings.json is missing the ${entry.matcher} hook as apply.mjs writes it`);
+  }
 });
 
 test("the hook process exits 2 on block, 0 on pass, and fails closed without tool_input", () => {
@@ -627,4 +932,22 @@ test("the hook process exits 2 on block, 0 on pass, and fails closed without too
   assert.equal(run(JSON.stringify({ tool_name: "Bash" })).status, 2);
   assert.equal(run("not json").status, 2);
   assert.equal(run("").status, 2);
+});
+
+test("the staged hook command clears NODE_OPTIONS and exits 2 when the hook is missing or crashes", () => {
+  // The staged template, also when this test runs from the applied copy in .claude/hooks.
+  const staged = ROOT ? join(ROOT, "tools/guardrails/proposed/settings.json") : SETTINGS;
+  const settings = JSON.parse(readFileSync(staged, "utf8"));
+  for (const entry of settings.hooks.PreToolUse) {
+    for (const hook of entry.hooks) {
+      assert.match(hook.command, /^\/usr\/bin\/env -u NODE_OPTIONS -u NODE_PATH "\{\{NODE\}\}" "\{\{HOOK\}\}" \|\| exit 2$/);
+      assert.equal(hook.onFailure, "block");
+    }
+  }
+  const command = (hook) => settings.hooks.PreToolUse[0].hooks[0].command.replace("{{NODE}}", process.execPath).replace("{{HOOK}}", hook);
+  const sh = (cmd, input, env = {}) => spawnSync("/bin/sh", ["-c", cmd], { input, encoding: "utf8", env: { ...process.env, ...env } });
+  assert.equal(sh(command(HOOK), JSON.stringify(payloadOf("ls"))).status, 0);
+  assert.equal(sh(command(HOOK), JSON.stringify(payloadOf("echo x > supabase/migrations/x.sql"))).status, 2);
+  assert.equal(sh(command("/nonexistent/guard-migrations.mjs"), JSON.stringify(payloadOf("ls"))).status, 2);
+  assert.equal(sh(command(HOOK), JSON.stringify(payloadOf("ls")), { NODE_OPTIONS: "--require /nonexistent/preload.cjs" }).status, 0);
 });

@@ -8,6 +8,12 @@
  * apply copies the hook and its test byte for byte, and the staged test
  * fails if .claude/hooks drifts from the proposed copy.
  *
+ * The hook command is written with the absolute path of the node running
+ * this script (process.execPath) and the absolute hook path, with
+ * NODE_OPTIONS and NODE_PATH cleared, and ends in "|| exit 2" so a missing
+ * or crashing hook blocks instead of exiting 1 (which Claude Code treats as
+ * non blocking). onFailure "block" (Claude Code 2.1.295 or later) backs that up.
+ *
  * The CLAUDECODE check below is a speed bump, not a security boundary: an
  * agent can unset the variable. The real control is that the result is a
  * diff to .claude/ and AGENTS.md that Blaine commits and reviews in a PR.
@@ -37,7 +43,11 @@ const deny = settings.permissions?.deny;
 if (!Array.isArray(deny) || deny.length === 0 || !deny.every((rule) => typeof rule === "string" && rule.trim() === rule && rule !== "")) {
   fail("proposed settings.json permissions.deny must be a non empty list of rule strings");
 }
-for (const rule of ["Edit(/supabase/migrations/**)", "Edit(//**/supabase/migrations/**)", "Edit(/.claude/hooks/**)", "Edit(/.claude/settings.json)", "mcp__*__apply_migration"]) {
+const REQUIRED_DENY = [
+  "Edit(/supabase/migrations/**)", "Edit(//**/supabase/migrations/**)", "Edit(/.claude/hooks/**)", "Edit(/.claude/settings.json)", "Edit(/tools/guardrails/apply.mjs)",
+  "Edit(/tools/guardrails/proposed/**)", "mcp__*__apply_migration", "Bash(supabase db push:*)", "Bash(npx supabase db push:*)", "Bash(npm run db:push:*)",
+];
+for (const rule of REQUIRED_DENY) {
   if (!deny.includes(rule)) fail(`proposed permissions.deny is missing ${rule}`);
 }
 // Rules the hook now decides. They are dropped from an existing settings.json too, so old blanket blocks do not persist.
@@ -47,6 +57,18 @@ if (tooBroad.length > 0) fail(`proposed permissions.deny must not deny ${tooBroa
 const matchers = new Set((settings.hooks?.PreToolUse ?? []).map((entry) => entry.matcher));
 for (const matcher of ["Bash", "Edit|Write|MultiEdit|NotebookEdit", "mcp__.*"]) {
   if (!matchers.has(matcher)) fail(`proposed settings.json has no PreToolUse hook for ${matcher}`);
+}
+const nodePath = process.execPath;
+const hookPath = path(".claude/hooks/guard-migrations.mjs");
+for (const p of [nodePath, hookPath]) if (!p.startsWith("/") || /["$`\\\n]/.test(p)) fail(`${p} must be an absolute path without quotes, $, backticks or backslashes`);
+for (const entry of settings.hooks.PreToolUse) {
+  for (const hook of entry.hooks ?? []) {
+    const template = String(hook.command ?? "");
+    if (!template.includes('"{{NODE}}" "{{HOOK}}"') || !template.endsWith("|| exit 2") || !/-u NODE_OPTIONS -u NODE_PATH/.test(template)) {
+      fail(`the ${entry.matcher} hook command must run "{{NODE}}" "{{HOOK}}" with NODE_OPTIONS and NODE_PATH cleared and end in || exit 2`);
+    }
+    hook.command = template.replace("{{NODE}}", nodePath).replace("{{HOOK}}", hookPath);
+  }
 }
 
 const section = readFileSync(proposed("AGENTS-section.md"), "utf8");

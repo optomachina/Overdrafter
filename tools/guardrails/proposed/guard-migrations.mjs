@@ -4,37 +4,46 @@
  *
  * The real gates are elsewhere: the permission deny rules in
  * .claude/settings.json (Edit on supabase/migrations/** and on the guard
- * files themselves, and the hosted Supabase write tools), the rule that
- * workers never merge, and Blaine's explicit yes for anything under
- * supabase/migrations/. A determined agent can get past this hook.
+ * files themselves, the Bash db push rules, and the hosted Supabase write
+ * tools), the rule that workers never merge, and Blaine's explicit yes for
+ * anything under supabase/migrations/. A determined agent can get past this
+ * hook.
  *
  * It blocks:
  * - Edit, Write, MultiEdit and NotebookEdit on any path under
- *   supabase/migrations/ (worktrees included), .claude/hooks/ or
- *   .claude/settings*.json;
- * - obvious Bash writes to those paths (redirects, tee, cp and mv
- *   destinations, sed -i, git checkout/restore with a pathspec that could
- *   cover them, git apply of a patch that names them, and so on), any pipe
- *   into a shell, decoded or generated text run by an interpreter, and shell
- *   scripts whose text does any of that;
- * - supabase CLI commands that create migration files or change a hosted
- *   project, also when reached through npm, yarn or pnpm run <script>;
- * - psql and other Postgres clients against a host that is not local,
- *   unless they run read only SQL, and HTTP writes to Supabase APIs;
+ *   supabase/migrations/ (worktrees included), .claude/hooks/,
+ *   .claude/settings*.json or tools/guardrails/ (apply.mjs and proposed/);
+ * - Bash writes to those paths: a redirect, tee, sed -i, cp, mv, rsync or
+ *   install whose target is protected or cannot be resolved, a copy whose
+ *   source would land on a protected path, git checkout/restore with a
+ *   pathspec that could cover them (git global options such as -C are
+ *   normalized first), git apply of a patch that names them, any pipe into a
+ *   shell, decoded or generated text run by an interpreter, and shell scripts
+ *   whose text does any of that. Readers (cat, sed -n, awk, jq, grep, head and
+ *   so on) pass, also with a redirect to a path that is not protected;
+ * - supabase CLI commands that create migration files, or that target a
+ *   hosted project (--linked, --project-ref, a --db-url that is not loopback,
+ *   or a remote only command) unless they are on a read allow list, also when
+ *   reached through a package.json script (npm, yarn, pnpm, bun, node --run,
+ *   npx and npm exec forms, workspaces);
+ * - psql, pgbench and other Postgres clients (docker run and exec included)
+ *   whose target is not provably loopback, unless psql runs read only SQL,
+ *   and HTTP writes to Supabase APIs;
  * - hosted Supabase write tools under any MCP server name, and execute_sql
  *   unless it is a single read only statement;
+ * - git push to main, the merges API and writes to the main ref;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
- *   listed.
- * Reads pass. Commit messages, gh --body/--title text and gh api comment
- * fields are never scanned. Residuals are listed in
- * guard-migrations.node-test.mjs.
+ *   listed or the PR cannot be resolved.
+ * Text that only names a protected path is not a write. Commit messages,
+ * gh --body/--title text and gh api comment fields are never scanned.
+ * Residuals are listed in guard-migrations.node-test.mjs.
  *
  * Exit 2 with a reason on stderr blocks the call. Missing tool_input
  * fails closed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,13 +53,18 @@ const SHELLS = new Set([...SCRIPT_SHELLS, "tcsh", "csh", "fish", "busybox", "eva
 const INTERPRETERS = new Set([...SHELLS, "perl", "python", "python3", "node", "ruby", "php", "deno", "bun"]);
 const READERS = new Set([
   "ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "less", "more", "stat", "file", "diff", "find", "sort", "uniq", "nl",
-  "md5sum", "sha256sum", "shasum", "cmp", "echo", "printf", "realpath", "dirname", "basename", "test", "[", "true",
+  "md5sum", "cksum", "cmp", "echo", "printf", "realpath", "readlink", "dirname", "basename", "test", "[", "true",
+  "sed", "awk", "gawk", "mawk", "nawk", "jq", "cut", "xxd", "od", "hexdump", "tac", "rev", "comm", "column", "strings", "tr", "fold", "paste",
 ]);
-// Commands for which a bare "supabase" or ".claude" word (or a glob that could expand to it) means the directory.
+const isReader = (cmd) => READERS.has(cmd) || /^(sha\d*sum|shasum|b2sum)$/.test(cmd);
+// Commands for which a bare "supabase", ".claude" or "tools" word (or a glob that could expand to it) means the directory.
 const FILE_WRITERS = new Set(["cp", "mv", "rm", "rmdir", "rsync", "ln", "install", "tar", "unzip", "touch", "mkdir", "chmod", "chown", "truncate", "dd", "tee", "shred", "git"]);
 const COPY_COMMANDS = new Set(["cp", "rsync", "install"]);
 const GIT_READERS = new Set(["log", "show", "status", "blame", "diff", "grep", "ls-files", "add", "fetch", "rev-parse", "branch", "remote", "config", "describe", "shortlog", "cat-file", "ls-tree", "merge-base"]);
 const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
+// Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
+const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
+const NO_WRITE_WORDS = new Set(["for", "select", "case", "in", "done", "fi", "esac", "}", "[[", "]]", "readonly", "local", "declare", "typeset", "export", "return", "exit", "shift", "set", "unset", "trap"]);
 const VALUE_FLAGS = new Set(["-I", "-n", "-P", "-L", "-d", "-s", "-u", "-g"]);
 const GH_TEXT_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "--message", "-m"]);
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -64,12 +78,15 @@ const FILE_WRITE_TOOLS = /^(push_files|create_or_update_file|delete_file|create_
 const SQL_FIRST_WORDS = new Set(["select", "with", "show", "explain", "table"]);
 const SQL_WRITE_WORDS =
   /\b(insert|update|delete|merge|alter|create|drop|grant|revoke|truncate|copy|call|do|set|refresh|vacuum|lock|into|analy[sz]e|execute)\b|\bcomment\s+on\b|\bsecurity\s+label\b/i;
+// Built in and extension functions that write or change server state. User defined functions are a documented residual.
 const SQL_SIDE_EFFECTS =
-  /\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_notify|pg_advisory\w*|pg_create_\w+|pg_drop_\w+|pg_replication_\w+|lo_\w+|dblink\w*|http_\w+|resolve|create_secret|update_secret|schedule|unschedule)\s*\(/i;
-const PROTECTED_TEXT = /supabase\W+migrations|\.claude\W+(hooks|settings)/i;
-const PG_CLIENTS = /^(psql|pgcli|pg_restore|createdb|dropdb|createuser|dropuser|vacuumdb|reindexdb|clusterdb)$/;
-const SUPABASE_HTTP = /supabase\.(co|in|com)\b|\$\{?SUPABASE_\w*URL|\/(rest|auth|storage|graphql|pg)\/v1\b/i;
-const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|\[::1\]|host\.docker\.internal|\/.*)$/i;
+  /\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_signal_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_notify|pg_advisory\w*|pg_try_advisory\w*|pg_create_\w+|pg_drop_\w+|pg_replication_\w+|pg_stat_reset\w*|pg_stat_statements_reset|pg_file_\w+|pg_logical_\w+|pg_import_system_collations|pg_backup_\w+|pg_start_backup|pg_stop_backup|pg_wal_replay_\w+|pg_log_backend_memory_contexts|lo_\w+|dblink\w*|http_\w+|resolve|create_secret|update_secret|schedule|unschedule|alter_job)\s*\(/i;
+const PROTECTED_TEXT = /supabase\W+migrations|\.claude\W+(hooks|settings)|tools\W+guardrails/i;
+const SCRIPT_FILE = /\.(sh|bash|zsh|ksh|js|mjs|cjs|ts|py|rb|pl|php)$/i;
+const PG_CLIENTS = /^(psql|pgcli|pgbench|pg_restore|createdb|dropdb|createuser|dropuser|vacuumdb|reindexdb|clusterdb)$/;
+const SUPABASE_HTTP = /supabase\.(co|in|com|net)\b|\/(rest|auth|storage|graphql|pg)\/v1\b|\$\{?\w*SUPABASE\w*/i;
+const LOOPBACK = /^(localhost|[\w-]+\.localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|\[::1\]|host\.docker\.internal)$/i;
+const MAIN_REF = /^(refs\/heads\/)?(main|master)$/;
 const GH_TIMEOUT_MS = 6000;
 // gh is run from a fixed install location rather than looked up on PATH.
 const GH_CANDIDATES = ["/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh", "/home/linuxbrew/.linuxbrew/bin/gh"];
@@ -92,6 +109,8 @@ function matchClose(src, i, open, close) {
       const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
       if (m) docs.push(m[2]);
       i += m ? m[0].length - 1 : 1;
+    } else if (c === "#" && /\s/.test(src[i - 1] ?? "")) {
+      i = indexOrEnd(src, "\n", i) - 1;
     } else if (c === "\n" && docs.length > 0) {
       for (const delim of docs.splice(0)) {
         while (i < src.length) {
@@ -220,6 +239,8 @@ function parse(src) {
       const op = /^(&&|\|\||\|&|[;&|()\n])/.exec(src.slice(i))[0];
       segments.push(newSegment(op));
       i += op.length;
+    } else if (c === "#" && word === null) {
+      i = indexOrEnd(src, "\n", i);
     } else if (/\s/.test(c)) {
       flush();
       i++;
@@ -232,16 +253,23 @@ function parse(src) {
   return { segments: segments.filter((s) => s.words.length > 0 || s.outs.length > 0 || s.ins.length > 0), substs };
 }
 
-/** Expands $VAR and ${VAR} with the value assigned most recently before the reference. */
+/**
+ * Expands $VAR and ${VAR} with the value assigned most recently before the
+ * reference. Arrays, substitutions and quoted or escaped values are not
+ * recorded, so references to them stay unresolved.
+ */
 function expandVars(src) {
-  const vars = {};
-  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|)]*)|\$\{?([A-Za-z_]\w*)\}?/g;
-  return src.replace(assignOrRef, (all, lead, name, value, ref) => {
+  const vars = Object.create(null);
+  const ref = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|)]*)|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+  return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
     if (name !== undefined) {
-      vars[name] = value.replace(/^["']|["']$/g, "").replace(/\$\{?([A-Za-z_]\w*)\}?/g, (ref2, n) => vars[n] ?? ref2);
+      const raw = value.replace(/^["']|["']$/g, "");
+      if (/^\(|\$\(|`|["'\\]/.test(raw)) delete vars[name];
+      else vars[name] = raw.replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
       return all;
     }
-    return ref in vars ? vars[ref] : all;
+    return vars[braced ?? bare] ?? all;
   });
 }
 
@@ -261,6 +289,7 @@ function unwrap(words) {
     }
   };
   takeAssignments();
+  while (PREFIX_KEYWORDS.has(argv[0])) argv = argv.slice(1);
   while (WRAPPERS.has(base(argv[0]))) {
     const wrapper = base(argv[0]);
     wrappers.add(wrapper);
@@ -309,6 +338,7 @@ function globEq(pattern, name) {
 const pairAt = (segs, first, seconds) => segs.some((s, i) => globEq(s, first) && segs[i + 1] !== undefined && seconds.some((n) => globEq(segs[i + 1], n)));
 const inMigrations = (segs) => pairAt(segs, "supabase", ["migrations"]);
 const inGuardFiles = (segs) => pairAt(segs, ".claude", ["hooks", "settings.json", "settings.local.json"]);
+const inGuardrails = (segs) => pairAt(segs, "tools", ["guardrails"]);
 
 function changeDir(dir, target) {
   if (!target || target === "-" || target.startsWith("~")) return dir;
@@ -321,12 +351,22 @@ function changeDir(dir, target) {
 }
 
 const pathOf = (dir, word) => `/${changeDir(dir, word).join("/")}`;
+const within = (segs, dir) => segs.length >= dir.length && dir.every((s, i) => segs[i] === s);
+
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Names the protected area a word points at from dir, or null. Paths are
  * normalized first, so supabase/migrations/../../docs/x.md is not a hit.
- * With wholeDir a word naming the supabase or .claude directory itself
- * also counts, which matters only for commands that write files.
+ * With wholeDir a word naming the supabase, .claude or tools/guardrails
+ * directory itself (or a tools directory that holds guardrails) also counts,
+ * which matters only for commands that write files.
  */
 function protectedName(word, dir, wholeDir = false) {
   if (word.includes(SUB)) return null;
@@ -339,10 +379,45 @@ function protectedName(word, dir, wholeDir = false) {
   if (/\.claude\/(hooks\b|settings[\w.-]*\.json)/i.test(joined) || inGuardFiles(segs) || (wholeDir && named && globEq(last, ".claude"))) {
     return "the .claude guard files";
   }
+  const toolsDir = wholeDir && named && globEq(last, "tools") && (/[*?[{]/.test(last) || existsSync(`/${joined}/guardrails`));
+  if (/(^|\/)tools\/guardrails(\/|$)/i.test(joined) || inGuardrails(segs) || toolsDir || (wholeDir && named && globEq(last, "guardrails") && globEq(segs.at(-2) ?? "", "tools"))) {
+    return "the guardrail files";
+  }
   return null;
 }
 
+/** True when sed would write a file or run a command: -i, a script file, or a w, W or e command in its script. */
+function sedWrites(args) {
+  const scripts = [];
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "-e" || w === "--expression") scripts.push(args[++i] ?? "");
+    else if (w.startsWith("--expression=")) scripts.push(w.slice(13));
+    else if (/^--in-place|^-[nErsuz]*i/.test(w) || /^(-[nErsuz]*f|--file)/.test(w)) return true;
+    else if (/^-[nErsuz]*e./.test(w)) scripts.push(w.slice(w.indexOf("e") + 1));
+    else if (w === "-l" || w === "--line-length") i++;
+    else if (!w.startsWith("-")) positional.push(w);
+  }
+  if (scripts.length === 0) scripts.push(positional[0] ?? "");
+  return scripts.some((s) => /(^|[;{}\n/\d$!\s])[wWe](\s|$)/.test(s));
+}
+
+/** True when awk would write a file or run a command: in place editing, a program file, or output redirection, pipes or system() in its program. */
+function awkWrites(args) {
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (/^(-f|--file|-i|--include|--inplace|-E|--exec)/.test(w)) return true;
+    if (/^(-v|-F|--assign|--field-separator)$/.test(w)) i++;
+    else if (!w.startsWith("-")) return /\bsystem\s*\(|\bprintf?\b[^;}]*[>|]|\|\s*getline|\bclose\s*\(/.test(w);
+  }
+  return false;
+}
+
 function readerWrites(cmd, args) {
+  if (cmd === "sed") return sedWrites(args);
+  if (/^[gmn]?awk$/.test(cmd)) return awkWrites(args);
+  if (cmd === "xxd") return args.filter((w, i) => !w.startsWith("-") && !/^-(c|g|l|o|s|n|cols|groupsize|len|seek|name)$/.test(args[i - 1] ?? "")).length >= 2;
   if (cmd === "find") return args.some((w) => /^-(exec|execdir|ok|okdir|delete|fprint0?|fprintf|fls)$/.test(w));
   if (cmd === "sort" || cmd === "diff") return args.some((w) => /^--output|^-[a-zA-Z]*o/.test(w));
   if (cmd === "uniq") return args.filter((w) => w === "-" || !w.startsWith("-")).length >= 2;
@@ -374,6 +449,42 @@ function ghArgs(argv) {
   return out;
 }
 
+/** gh argv with -R/--repo removed wherever it appears, and the repository it named. */
+function ghCall(argv) {
+  const out = [argv[0]];
+  let repo;
+  for (let i = 1; i < argv.length; i++) {
+    const w = argv[i];
+    if (w === "-R" || w === "--repo") repo = argv[++i];
+    else if (w.startsWith("--repo=")) repo = w.slice(7);
+    else if (/^-R./.test(w)) repo = w.slice(2);
+    else out.push(w);
+  }
+  return { argv: out, repo };
+}
+
+/**
+ * git argv with global options (-C, -c, --git-dir, --work-tree, --no-pager,
+ * pathspec switches and so on) removed, the directory -C or --work-tree
+ * names, and any -c value that names a protected path.
+ */
+function gitCall(argv, dir) {
+  let cwd = dir;
+  let config = null;
+  let i = 1;
+  for (; i < argv.length && argv[i].startsWith("-"); i++) {
+    const w = argv[i];
+    const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+    let flag = eq ? eq[1] : w;
+    let value = eq ? eq[2] : undefined;
+    if (/^-[Cc]./.test(w)) [flag, value] = [w.slice(0, 2), w.slice(2)];
+    if (value === undefined && /^(-C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix|--attr-source|--list-cmds)$/.test(flag)) value = argv[++i] ?? "";
+    if (flag === "-C" || flag === "--work-tree") cwd = changeDir(cwd, value);
+    if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
+  }
+  return { argv: [argv[0], ...argv.slice(i)], dir: cwd, config };
+}
+
 /** Reads a file named in a command, resolved from dir; null when it cannot be read. */
 function readNamed(word, dir) {
   if (!word || word.includes(SUB) || word === "-") return null;
@@ -383,6 +494,34 @@ function readNamed(word, dir) {
     return null;
   }
 }
+
+/** Host names in a libpq connection string or URI; "$" marks one that cannot be resolved. */
+function connHosts(value) {
+  if (value.includes("$") || value.includes(SUB)) return ["$"];
+  const hosts = [];
+  const uri = /^postgres(?:ql)?:\/\/([^/?#]*)[^?#]*(?:\?([^#]*))?/i.exec(value);
+  if (uri) {
+    const authority = uri[1].slice(uri[1].lastIndexOf("@") + 1);
+    for (const part of authority.split(",")) hosts.push(decodeURIComponent(/^(\[[^\]]*\]|[^:]*)/.exec(part)[1]));
+    for (const pair of (uri[2] ?? "").split("&")) {
+      const [key, raw = ""] = pair.split("=");
+      if (/^(host|hostaddr)$/i.test(key)) hosts.push(...decodeURIComponent(raw).split(","));
+      if (/^service$/i.test(key)) hosts.push("$");
+    }
+    return hosts;
+  }
+  for (const m of value.matchAll(/\b(host|hostaddr|service)\s*=\s*('[^']*'|\S+)/gi)) {
+    if (m[1].toLowerCase() === "service") hosts.push("$");
+    else hosts.push(...m[2].replace(/^'|'$/g, "").split(","));
+  }
+  return hosts;
+}
+
+/** True when a host is loopback, a Unix socket path, or empty (the default socket). */
+const localHost = (host) => host === "" || host.startsWith("/") || LOOPBACK.test(host);
+
+/** Host of an http(s) URL, or null when the URL does not start with a scheme. */
+const urlHost = (url) => /^[a-z][\w+.-]*:\/\/(?:[^@/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(url)?.[1] ?? null;
 
 /** Arguments after the supabase CLI name, or null when the command is not the supabase CLI. */
 function supabaseCli(argv) {
@@ -401,80 +540,195 @@ function supabaseCli(argv) {
   return null;
 }
 
-const SUPABASE_WRITES = {
-  migration: ["new", "squash", "fetch", "repair"],
-  db: ["push", "pull"],
-  functions: ["deploy", "delete"],
-  secrets: ["set", "unset"],
-  branches: ["create", "delete", "update", "disable"],
-  projects: ["create", "delete"],
-  config: ["push"],
-};
-const SUPABASE_HOSTED_READS = { db: ["dump", "diff", "lint", "inspect"], migration: ["list"] };
+// Commands that write migration files, whatever database they target.
+const SUPABASE_FILE_WRITES = new Set(["migration new", "migration squash", "migration fetch", "db pull"]);
+// Commands that change the linked hosted project unless --local (or a loopback --db-url) is given.
+const SUPABASE_LINKED_BY_DEFAULT = new Set(["db push", "migration repair", "db query"]);
+// Command groups that only ever talk to the hosted platform.
+const SUPABASE_REMOTE_GROUPS = new Set([
+  "projects", "orgs", "branches", "secrets", "storage", "sso", "domains", "vanity-subdomains", "network-bans", "network-restrictions",
+  "ssl-enforcement", "postgres-config", "snippets", "config", "backups",
+]);
+const SUPABASE_REMOTE_COMMANDS = new Set(["functions deploy", "functions delete", "functions download", "functions list"]);
+// Read only commands allowed against a hosted project, from the command list in the Supabase CLI reference
+// (https://supabase.com/docs/reference/cli): list, get, show, dump, diff, lint, inspect and status forms, plus link.
+const SUPABASE_HOSTED_READS = new Set([
+  "migration list", "db diff", "db dump", "db lint", "db advisors", "inspect db", "inspect report", "projects list", "projects api-keys",
+  "orgs list", "branches list", "branches get", "functions list", "functions download", "secrets list", "status", "gen types", "gen",
+  "snippets list", "snippets download", "storage ls", "sso list", "sso info", "sso show", "domains get", "vanity-subdomains get",
+  "vanity-subdomains check-availability", "network-bans get", "network-restrictions get", "ssl-enforcement get", "postgres-config get",
+  "services", "link", "backups list",
+]);
+const SUPABASE_VALUE_FLAGS = /^(--workdir|--profile|--output|-o|--dns-resolver|--network-id|--db-url|--project-ref|-p|--password|-f|--file|-s|--schema|--status|--version)$/;
 
 /** Block reason for supabase CLI calls that write migration files or change a hosted project. */
 function supabaseReason(args) {
   const positional = [];
+  let dbUrl;
   for (let i = 0; i < args.length; i++) {
-    if (/^(--workdir|--profile|--output|-o|--dns-resolver|--network-id|--db-url|--project-ref|-p|--password)$/.test(args[i])) i++;
+    if (args[i] === "--db-url") dbUrl = args[i + 1] ?? "";
+    else if (args[i].startsWith("--db-url=")) dbUrl = args[i].slice(9);
+    if (SUPABASE_VALUE_FLAGS.test(args[i])) i++;
     else if (!args[i].startsWith("-")) positional.push(args[i]);
   }
   const [group, action] = positional;
-  const hosted = args.some((w) => /^--(linked|db-url|project-ref)(=|$)/.test(w));
-  if (SUPABASE_WRITES[group]?.includes(action)) return `supabase ${group} ${action} would create a migration or change a hosted project`;
-  if (group === "db" && action === "diff" && args.some((w) => /^(-f|--file)/.test(w))) return "supabase db diff -f would write a migration file";
-  if (hosted && (group === "db" || group === "migration") && !SUPABASE_HOSTED_READS[group].includes(action)) {
-    return `${["supabase", group, action].filter(Boolean).join(" ")} would change a hosted database`;
-  }
+  const key = `${group} ${action}`;
+  const name = ["supabase", group, action].filter(Boolean).join(" ");
+  if (SUPABASE_FILE_WRITES.has(key)) return `${name} would create a migration file`;
+  if (key === "db diff" && args.some((w) => /^(-f|--file)(=|$)/.test(w))) return "supabase db diff -f would write a migration file";
+  if (key === "db schema" && positional.includes("sync")) return `${name} declarative sync would write a migration file`;
+  const loopbackUrl = dbUrl !== undefined && connHosts(dbUrl).every(localHost);
+  const hosted =
+    args.some((w) => /^--(linked|project-ref)(=|$)/.test(w)) || (dbUrl !== undefined && !loopbackUrl) || SUPABASE_REMOTE_GROUPS.has(group) || SUPABASE_REMOTE_COMMANDS.has(key);
+  if (hosted) return SUPABASE_HOSTED_READS.has(key) || SUPABASE_HOSTED_READS.has(group) ? null : `${name} targets a hosted project and is not on the read only allow list`;
+  if (SUPABASE_LINKED_BY_DEFAULT.has(key) && !args.includes("--local") && !loopbackUrl) return `${name} targets the linked hosted project unless --local is given`;
   return null;
+}
+
+/** package.json contents in segs, or null. */
+function readPackage(segs) {
+  try {
+    return JSON.parse(readFileSync(`/${[...segs, "package.json"].join("/")}`, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function nearestPackage(dir) {
   for (let segs = [...dir]; ; segs.pop()) {
-    const file = `/${[...segs, "package.json"].join("/")}`;
-    if (existsSync(file)) {
-      try {
-        return { scripts: JSON.parse(readFileSync(file, "utf8")).scripts ?? {}, segs };
-      } catch {
-        return null;
-      }
+    if (existsSync(`/${[...segs, "package.json"].join("/")}`)) {
+      const pkg = readPackage(segs);
+      return pkg ? { pkg, scripts: pkg.scripts ?? {}, segs } : null;
     }
     if (segs.length === 0) return null;
   }
 }
 
+/** Directories of the workspaces declared by the nearest package.json (or pnpm-workspace.yaml) above dir. */
+function workspaceDirs(dir) {
+  const root = nearestPackage(dir);
+  if (!root) return [];
+  let patterns = root.pkg.workspaces?.packages ?? root.pkg.workspaces ?? [];
+  if (!Array.isArray(patterns)) patterns = [];
+  const yaml = readNamed("pnpm-workspace.yaml", root.segs);
+  if (yaml) patterns = [...patterns, ...[...yaml.matchAll(/^\s*-\s*['"]?([^'"\n#]+?)['"]?\s*$/gm)].map((m) => m[1])];
+  const dirs = [];
+  for (const pattern of patterns) {
+    const parts = pattern.split("/");
+    if (!/[*?[{]/.test(parts.at(-1))) dirs.push(changeDir(root.segs, pattern));
+    else {
+      const parent = changeDir(root.segs, parts.slice(0, -1).join("/"));
+      try {
+        for (const entry of readdirSync(`/${parent.join("/")}`)) if (globEq(parts.at(-1), entry.toLowerCase())) dirs.push([...parent, entry]);
+      } catch {
+        // A missing workspace directory has no scripts to check.
+      }
+    }
+  }
+  return dirs.filter((d) => readPackage(d));
+}
+
+/** The directory of a workspace named by path or package name, or null. */
+function workspaceDir(dir, workspace) {
+  const byPath = changeDir(dir, workspace);
+  if (readPackage(byPath)) return byPath;
+  return workspaceDirs(dir).find((d) => readPackage(d)?.name === workspace) ?? null;
+}
+
 const NPM_SCRIPT_ALIASES = { t: "test", tst: "test", test: "test", start: "start", stop: "stop", restart: "restart" };
+const RUN_WORDS = new Set(["run", "run-script", "rum", "urn"]);
 const YARN_PNPM_BUILTINS = new Set([
   "add", "install", "i", "remove", "rm", "upgrade", "update", "up", "why", "info", "init", "dlx", "exec", "workspace", "workspaces",
   "config", "cache", "bin", "create", "global", "link", "unlink", "pack", "publish", "version", "node", "set", "constraints", "plugin",
   "outdated", "list", "ls", "audit", "store", "import", "patch", "prune", "rebuild", "env", "setup", "licenses", "fetch", "deploy",
 ]);
-const DIR_FLAGS = /^(--prefix|-C|--dir|--cwd|-w|--workspace)$/;
+const BUN_BUILTINS = new Set(["install", "i", "add", "a", "remove", "rm", "update", "upgrade", "x", "exec", "create", "c", "init", "pm", "link", "unlink", "build", "test", "outdated", "patch", "publish", "audit", "info", "why", "repl", "completions", "help"]);
+const DIR_FLAGS = /^(--prefix|-C|--dir|--cwd)$/;
+const WORKSPACE_FLAGS = /^(-w|--workspace|--filter|-F)$/;
+const ALL_WORKSPACES = /^(--workspaces|-ws|-r|--recursive)$/;
+// Task runners that take package.json script names as arguments.
+const ORCHESTRATORS = /^(turbo|nx|lerna|ultra|wireit|nr|run-s|run-p|npm-run-all2?)$/;
+const PACKAGE_MANAGERS = /^(npm|yarn|pnpm|bun|node|npx|bunx|pnpx)$/;
 
-/** The script, its package directory and extra arguments for npm, yarn or pnpm running a package.json script, or null. */
-function scriptCall(argv, dir) {
+/**
+ * Script calls ({ name, dir, extra } or { error }) for npm, yarn, pnpm, bun or
+ * node --run. npm reads its directory and workspace flags anywhere before --;
+ * for the others, flags after the script name may belong to the script, so
+ * both readings are checked.
+ */
+function scriptCalls(argv, dir) {
   const cmd = base(argv[0]);
-  if (!/^(npm|yarn|pnpm)$/.test(cmd)) return null;
-  let pkgDir = dir;
-  let i = 1;
-  const nextPositional = () => {
-    while (i < argv.length && argv[i].startsWith("-")) {
-      const flag = /^(--[\w-]+)=(.*)$/.exec(argv[i]);
-      if (flag && DIR_FLAGS.test(flag[1])) pkgDir = changeDir(dir, flag[2]);
-      if (DIR_FLAGS.test(argv[i])) pkgDir = changeDir(dir, argv[++i] ?? "");
-      else if (argv[i] === "--filter") i++;
-      i++;
-    }
-    return argv[i++];
-  };
-  const sub = nextPositional();
-  if (sub === undefined) return null;
+  if (cmd === "node") {
+    const at = argv.findIndex((w) => w === "--run" || w.startsWith("--run="));
+    if (at < 0) return [];
+    const name = argv[at] === "--run" ? argv[at + 1] : argv[at].slice(6);
+    return name ? [{ name, dir, extra: argv.slice(at + (argv[at] === "--run" ? 2 : 1)) }] : [];
+  }
+  if (!/^(npm|yarn|pnpm|bun)$/.test(cmd)) return [];
+  const dash = argv.indexOf("--");
+  const end = dash < 0 ? argv.length : dash;
+  const positional = [];
+  const flags = [];
+  for (let i = 1; i < end; i++) {
+    const w = argv[i];
+    const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+    let [flag, value] = eq ? [eq[1], eq[2]] : [w, undefined];
+    if (/^-[Cw]./.test(w) && !w.startsWith("--") && w !== "-ws") [flag, value] = [w.slice(0, 2), w.slice(2)];
+    if (DIR_FLAGS.test(flag) || WORKSPACE_FLAGS.test(flag)) flags.push({ flag, value: value ?? argv[++i] ?? "", at: positional.length });
+    else if (ALL_WORKSPACES.test(flag)) flags.push({ flag, at: positional.length });
+    else if (!w.startsWith("-")) positional.push({ word: w, index: i });
+  }
+  const [p0, p1, p2] = positional.map((p) => p.word);
+  let nameAt;
   let name;
-  if (["run", "run-script", "rum", "urn"].includes(sub)) name = nextPositional();
-  else if (cmd === "npm") name = NPM_SCRIPT_ALIASES[sub];
-  else if (!YARN_PNPM_BUILTINS.has(sub)) name = sub;
-  if (!name) return null;
-  return { name, dir: pkgDir, extra: argv.slice(i).filter((w) => w !== "--") };
+  if (RUN_WORDS.has(p0)) nameAt = 1;
+  else if (cmd === "yarn" && p0 === "workspace") {
+    flags.push({ flag: "-w", value: p1 ?? "", at: 0 });
+    nameAt = RUN_WORDS.has(p2) ? 3 : 2;
+  } else if (cmd === "npm") {
+    nameAt = 0;
+    name = NPM_SCRIPT_ALIASES[p0];
+  } else if (p0 !== undefined && !(cmd === "bun" ? BUN_BUILTINS : YARN_PNPM_BUILTINS).has(p0)) nameAt = 0;
+  name ??= nameAt === undefined ? undefined : positional[nameAt]?.word;
+  if (!name) return [];
+  const extra = argv.slice(positional[nameAt].index + 1).filter((w) => w !== "--");
+  const placesFor = (chosen) => {
+    let base = dir;
+    let workspaces = [];
+    let all = false;
+    for (const f of chosen) {
+      if (DIR_FLAGS.test(f.flag)) base = changeDir(dir, f.value);
+      else if (WORKSPACE_FLAGS.test(f.flag)) workspaces.push(f.value);
+      else all = true;
+    }
+    if (all) return [base, ...workspaceDirs(base)].map((d) => ({ dir: d }));
+    if (workspaces.length === 0) return [{ dir: base }];
+    return workspaces.map((w) => {
+      const found = workspaceDir(base, w);
+      return found ? { dir: found } : { error: `${cmd} names workspace ${w}, which cannot be resolved to a package.json to check; failing closed` };
+    });
+  };
+  const readings = cmd === "npm" ? [flags] : [flags.filter((f) => f.at <= nameAt), flags];
+  return readings.flatMap(placesFor).map((place) => ({ ...place, name, extra }));
+}
+
+/** The command a package runner (npx, bunx, npm exec, pnpm dlx, yarn dlx, bun x) runs, or null. */
+function runnerInner(argv) {
+  const cmd = base(argv[0]);
+  let i = 1;
+  const skipOptions = () => {
+    while (i < argv.length && (argv[i].startsWith("-") || argv[i] === "--")) {
+      if (/^(-c|--call)$/.test(argv[i])) return false;
+      i += /^(-p|--package)$/.test(argv[i]) ? 2 : 1;
+    }
+    return true;
+  };
+  if (/^(npm|pnpm|yarn|bun)$/.test(cmd)) {
+    if (!skipOptions() || !/^(exec|x|dlx)$/.test(argv[i] ?? "")) return null;
+    i++;
+  } else if (!/^(npx|bunx|pnpx)$/.test(cmd)) return null;
+  if (!skipOptions() || i >= argv.length) return null;
+  return argv.slice(i).map((w, k) => (k === 0 ? w.replace(/(.)@[^/]*$/, "$1") : w));
 }
 
 function scriptBodies(call) {
@@ -486,10 +740,32 @@ function scriptBodies(call) {
   return { bodies, segs: pkg.segs };
 }
 
+/** Block reason from the package.json scripts a list of calls would run. */
+function scriptsReason(calls, ctx, depth) {
+  for (const call of calls) {
+    if (call.error) return call.error;
+    const { bodies, segs } = scriptBodies(call);
+    const key = `${segs.join("/")}#${call.name}`;
+    if (ctx.visited.has(key)) continue;
+    ctx.visited.add(key);
+    for (const body of bodies) {
+      const reason = checkCommand(body, segs, ctx, depth);
+      if (reason) return `${call.name} script: ${reason}`;
+    }
+  }
+  return null;
+}
+
+/** Script calls for every argument that names a package.json script (task runners and unknown package runners). */
+function namedScripts(argv, dir) {
+  const scripts = nearestPackage(dir)?.scripts ?? {};
+  return argv.slice(1).filter((w) => !w.startsWith("-") && Object.hasOwn(scripts, w)).map((name) => ({ name, dir, extra: [] }));
+}
+
 const MERGE_ROUTE = /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/pulls\/(\d+)\/(?:ccr\/)?(merge|auto[_-]?merge)\/?(?:[?#].*)?$/;
 
-/** Route, method, field words and --input file of a gh api call. */
-function ghApiCall(argv) {
+/** Route, method, field words and body text (null when an --input file cannot be read) of a gh api call. */
+function ghApiCall(argv, dir) {
   const call = { route: undefined, method: undefined, fields: [], input: undefined };
   for (let i = 2; i < argv.length; i++) {
     const w = argv[i];
@@ -497,13 +773,81 @@ function ghApiCall(argv) {
     else if (/^-X./.test(w)) call.method = w.slice(2);
     else if (w.startsWith("--method=")) call.method = w.slice(9);
     else if (w === "--input") call.input = argv[++i] ?? "-";
+    else if (w.startsWith("--input=")) call.input = w.slice(8);
     else if (/^(-f|-F|--field|--raw-field)$/.test(w)) call.fields.push(argv[++i] ?? "");
+    else if (/^(-f|-F)./.test(w)) call.fields.push(w.slice(2));
+    else if (/^--(field|raw-field)=/.test(w)) call.fields.push(w.slice(w.indexOf("=") + 1));
     else if (/^(-H|--header|-q|--jq|-t|--template|--hostname|-p|--preview|--cache)$/.test(w)) i++;
     else if (!w.startsWith("-") && call.route === undefined) call.route = w.replace(/^\//, "");
   }
   const hasBody = call.fields.length > 0 || call.input !== undefined;
   call.method = (call.method ?? (hasBody ? "POST" : "GET")).toUpperCase();
+  const input = call.input === undefined ? "" : readNamed(call.input, dir);
+  call.body = input === null ? null : [...call.fields, input].join("\n");
   return call;
+}
+
+/** Method, URLs and body text (null when it cannot be read) of a curl, wget or HTTPie request. */
+function httpRequest(argv, dir) {
+  const cmd = base(argv[0]);
+  const req = { method: undefined, urls: [], body: "" };
+  let hasBody = false;
+  const addBody = (flag, value = "") => {
+    hasBody = true;
+    if (req.body === null) return;
+    if (value.startsWith("@") && !/raw|string/.test(flag)) {
+      const text = readNamed(value.slice(1), dir);
+      req.body = text === null ? null : `${req.body}\n${text}`;
+    } else req.body += `\n${value}`;
+  };
+  if (cmd === "curl") {
+    let get = false;
+    let upload = false;
+    for (let i = 1; i < argv.length; i++) {
+      const w = argv[i];
+      const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+      if (w === "-X" || w === "--request") req.method = argv[++i];
+      else if (/^-X./.test(w)) req.method = w.slice(2);
+      else if (eq?.[1] === "--request") req.method = eq[2];
+      else if (/^(-d|--data|--data-ascii|--data-binary|--data-raw|--data-urlencode|--json|-F|--form|--form-string)$/.test(w)) addBody(w, argv[++i]);
+      else if (eq && /^(--data(-ascii|-binary|-raw|-urlencode)?|--json|--form(-string)?)$/.test(eq[1])) addBody(eq[1], eq[2]);
+      else if (/^-[dF]./.test(w)) addBody(w.slice(0, 2), w.slice(2));
+      else if (w === "-T" || w === "--upload-file") {
+        upload = true;
+        i++;
+      } else if (/^-T./.test(w)) upload = true;
+      else if (w === "-G" || w === "--get") get = true;
+      else if (w === "-I" || w === "--head") req.method ??= "HEAD";
+      else if (w === "--url") req.urls.push(argv[++i] ?? "");
+      else if (/^(-H|--header|-u|--user|-o|--output|-A|--user-agent|-e|--referer|-b|--cookie|-c|--cookie-jar|-K|--config|-x|--proxy|-w|--write-out|--connect-timeout|-m|--max-time|--retry|-r|--range|--resolve|--cacert|--cert|--key|-E)$/.test(w)) i++;
+      else if (!w.startsWith("-")) req.urls.push(w);
+    }
+    req.method ??= upload ? "PUT" : hasBody && !get ? "POST" : "GET";
+  } else if (cmd === "wget") {
+    for (const w of argv.slice(1)) {
+      const m = /^--(post-data|post-file|body-data|body-file)=(.*)$/s.exec(w);
+      if (m) addBody(m[1], m[1].endsWith("file") ? `@${m[2]}` : m[2]);
+      else if (w.startsWith("--method=")) req.method = w.slice(9);
+      else if (!w.startsWith("-")) req.urls.push(w);
+    }
+    req.method ??= hasBody ? "POST" : "GET";
+  } else {
+    req.method = argv.slice(1).find((w) => /^(GET|HEAD|POST|PUT|PATCH|DELETE)$/i.test(w)) ?? (argv.some((w) => /^[\w-]+:?=/.test(w)) ? "POST" : "GET");
+    req.urls = argv.slice(1).filter((w) => /:\/\/|^:\d|^\$/.test(w) || SUPABASE_HTTP.test(w));
+    req.body = argv.slice(1).join("\n");
+  }
+  req.method = String(req.method).toUpperCase();
+  return req;
+}
+
+/** A merge target from a GraphQL body holding a merge mutation, or null when it holds none. */
+function graphqlTarget(body) {
+  if (body === null) return { graphql: "a GraphQL request body that cannot be read" };
+  if (!/enablePullRequestAutoMerge|mergePullRequest/i.test(body)) return null;
+  // A literal id is used as written; a $variable is looked up among the values sent with it.
+  const m = /pullRequestId\s*:\s*(?:\\?"([^"\\]+)|\$\w+)/.exec(body);
+  const nodeId = m?.[1] ?? (m ? /\b(PR_[\w-]+)/.exec(body)?.[1] : undefined);
+  return nodeId ? { nodeId } : { graphql: "a GraphQL merge mutation whose PR cannot be resolved" };
 }
 
 const fillRepo = (owner, repo, env) => {
@@ -514,52 +858,70 @@ const fillRepo = (owner, repo, env) => {
 /** A merge or auto merge request in a Bash command, or null. */
 function mergeTarget(argv, env, dir) {
   const cmd = base(argv[0]);
-  if (cmd === "gh" && argv[1] === "pr" && argv[2] === "merge") {
-    if (argv.includes("--disable-auto")) return null;
-    const target = { selector: undefined, repoFlag: env.GH_REPO, sha: undefined };
-    for (let i = 3; i < argv.length; i++) {
-      const w = argv[i];
-      if (w === "-R" || w === "--repo") target.repoFlag = argv[++i];
-      else if (w.startsWith("--repo=")) target.repoFlag = w.slice(7);
-      else if (w === "--match-head-commit") target.sha = argv[++i];
-      else if (w.startsWith("--match-head-commit=")) target.sha = w.slice(20);
-      else if (/^(-b|--body|-F|--body-file|-t|--subject|-A|--author-email)$/.test(w)) i++;
-      else if (!w.startsWith("-") && target.selector === undefined) target.selector = w;
+  if (cmd === "gh") {
+    const { argv: gh, repo } = ghCall(argv);
+    if (gh[1] === "pr" && gh[2] === "merge") {
+      if (gh.includes("--disable-auto")) return null;
+      const target = { selector: undefined, repoFlag: repo ?? env.GH_REPO, sha: undefined };
+      for (let i = 3; i < gh.length; i++) {
+        const w = gh[i];
+        if (w === "--match-head-commit") target.sha = gh[++i];
+        else if (w.startsWith("--match-head-commit=")) target.sha = w.slice(20);
+        else if (/^(-b|--body|-F|--body-file|-t|--subject|-A|--author-email)$/.test(w)) i++;
+        else if (!w.startsWith("-") && target.selector === undefined) target.selector = w;
+      }
+      return target;
     }
-    return target;
-  }
-  if (cmd === "gh" && argv[1] === "api") {
-    const call = ghApiCall(argv);
-    if (call.route === "graphql") {
-      const text = [...call.fields, call.input === undefined ? "" : (readNamed(call.input, dir) ?? "\0unreadable")].join("\n");
-      if (text.includes("\0unreadable")) return { graphql: "a GraphQL --input file that cannot be read" };
-      return /enablePullRequestAutoMerge|mergePullRequest/i.test(text) ? { graphql: "a GraphQL merge mutation" } : null;
-    }
+    if (gh[1] !== "api") return null;
+    const call = ghApiCall(gh, dir);
+    if (call.route === "graphql") return graphqlTarget(call.body);
     const m = MERGE_ROUTE.exec(call.route ?? "");
     // DELETE on an auto merge route turns auto merge off.
     if (!m || call.method === "GET" || call.method === "DELETE") return null;
     return { ...fillRepo(m[1], m[2], env), number: m[3] };
   }
   if (/^(curl|wget|http|https)$/.test(cmd)) {
-    if (argv.some((w, i) => /^(-X|--request)$/.test(w) && /^(get|delete)$/i.test(argv[i + 1] ?? ""))) return null;
-    for (const w of argv) {
-      const m = MERGE_ROUTE.exec(w.replace(/^https?:\/\/[^/]+/, ""));
-      if (m) return { owner: m[1], repo: m[2], number: m[3] };
+    const req = httpRequest(argv, dir);
+    for (const url of req.urls) {
+      const path = url.replace(/^\w+:\/\/[^/]+/, "");
+      if (/\/graphql\/?(?:[?#].*)?$/.test(path) && req.method !== "GET") {
+        const target = graphqlTarget(req.body);
+        if (target) return target;
+      }
+      const m = MERGE_ROUTE.exec(path);
+      if (m && req.method !== "GET" && req.method !== "DELETE") return { owner: m[1], repo: m[2], number: m[3] };
     }
   }
   return null;
 }
 
-/** Block reason for gh api calls that write repository content under a protected path. Comment and review routes pass. */
+/** Block reason for a REST call that merges branches or writes the main ref. Agents never push to main. */
+function branchWriteReason(route, method, body) {
+  if (method === "GET" || method === "HEAD") return null;
+  const path = route.replace(/^\w+:\/\/[^/]+/, "").replace(/^\/+/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+  if (/^repos\/[^/]+\/[^/]+\/merges$/.test(path)) return "the merges API merges one branch into another; agents never merge";
+  const ref = /^repos\/[^/]+\/[^/]+\/git\/refs(?:\/(.*))?$/.exec(path);
+  if (!ref) return null;
+  if (/^(refs\/)?heads\/(main|master)$/.test(ref[1] ?? "")) return "writes the main branch ref; agents never push to main";
+  if (ref[1] === undefined) {
+    if (body === null) return "a git refs write whose body cannot be read; failing closed";
+    if (/refs\/heads\/(main|master)\b/.test(body)) return "creates the main branch ref; agents never push to main";
+  }
+  return null;
+}
+
+/** Block reason for gh api calls that write repository content under a protected path or write main. Comment and review routes pass. */
 function ghApiReason(argv, dir) {
-  const call = ghApiCall(argv);
+  const call = ghApiCall(argv, dir);
   if (call.method === "GET" || call.route === undefined) return null;
+  const branch = branchWriteReason(call.route, call.method, call.body);
+  if (branch) return `gh api: ${branch}`;
   const contents = /^repos\/[^/]+\/[^/]+\/contents\/(.+?)(?:[?#].*)?$/.exec(call.route);
-  if (contents && protectedName(decodeURIComponent(contents[1]), [], true)) return `gh api would write ${protectedName(decodeURIComponent(contents[1]), [], true)} through the contents API`;
+  const named = contents && protectedName(decodeURIComponent(contents[1]), [], true);
+  if (named) return `gh api would write ${named} through the contents API`;
   if (/^repos\/[^/]+\/[^/]+\/git\/(trees|blobs|commits)/.test(call.route)) {
-    const text = [...call.fields, call.input === undefined ? "" : (readNamed(call.input, dir) ?? "\0unreadable")].join("\n");
-    if (text.includes("\0unreadable")) return "gh api git data call reads an --input file that cannot be read; failing closed";
-    if (PROTECTED_TEXT.test(text)) return "gh api git data call names a protected path";
+    if (call.body === null) return "gh api git data call reads an --input file that cannot be read; failing closed";
+    if (PROTECTED_TEXT.test(call.body)) return "gh api git data call names a protected path";
   }
   return null;
 }
@@ -579,17 +941,23 @@ const PR_URL = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
 export function ghPrFiles(target, cwd) {
   let { owner, repo, number } = target;
   let host;
-  const url = PR_URL.exec(target.selector ?? "");
+  let selector = target.selector;
+  if (target.nodeId) {
+    const query = "query($id: ID!) { node(id: $id) { ... on PullRequest { url } } }";
+    selector = runGh(["api", "graphql", "-f", `query=${query}`, "-f", `id=${target.nodeId}`, "--jq", ".data.node.url"], cwd).trim();
+    if (!PR_URL.test(selector)) throw new Error(`GraphQL node ${target.nodeId} is not a pull request`);
+  }
+  const url = PR_URL.exec(selector ?? "");
   if (number === undefined && url) [, host, owner, repo, number] = url;
-  if (number === undefined && /^#?\d+$/.test(target.selector ?? "")) {
+  if (number === undefined && /^#?\d+$/.test(selector ?? "")) {
     // A bare number resolves over REST; gh pr view needs GraphQL, which some sessions cannot reach.
     const parts = (target.repoFlag ?? "{owner}/{repo}").split("/");
     [owner, repo] = parts.slice(-2);
     if (parts.length === 3) host = parts[0];
-    number = target.selector.replace("#", "");
+    number = selector.replace("#", "");
   }
   if (number === undefined) {
-    const args = ["pr", "view", ...(target.selector ? [target.selector] : []), ...(target.repoFlag ? ["-R", target.repoFlag] : []), "--json", "url", "--jq", ".url"];
+    const args = ["pr", "view", ...(selector ? [selector] : []), ...(target.repoFlag ? ["-R", target.repoFlag] : []), "--json", "url", "--jq", ".url"];
     const viewed = runGh(args, cwd).trim();
     const m = PR_URL.exec(viewed);
     if (!m) throw new Error(`gh pr view returned no PR URL (${viewed || "empty"})`);
@@ -603,7 +971,7 @@ export function ghPrFiles(target, cwd) {
 }
 
 function mergeReason(target, ctx) {
-  if (target.graphql) return `${target.graphql} hides which PR it merges, so its changed files cannot be checked; use gh pr merge`;
+  if (target.graphql) return `${target.graphql}, so its changed files cannot be checked; failing closed (use gh pr merge)`;
   let result;
   try {
     result = ctx.prFiles(target, ctx.cwd);
@@ -634,10 +1002,27 @@ function patchReason(files, dir, what) {
   return null;
 }
 
+/** Block reason for a git push that would update main. */
+function pushReason(args) {
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (/^(--repo|-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
+    else if (/^--(all|mirror|branches)$/.test(w)) return `git push ${w} would push main; agents never push to main`;
+    else if (!w.startsWith("-")) positional.push(w);
+  }
+  for (const spec of positional.slice(1)) {
+    const dest = spec.includes(":") ? spec.slice(spec.lastIndexOf(":") + 1) : spec.replace(/^\+/, "");
+    if (MAIN_REF.test(dest)) return `git push ${spec} would update main; agents never push to main`;
+  }
+  return null;
+}
+
 function gitReason(argv, segment, dir) {
   const sub = argv[1];
   const args = argv.slice(2);
   if (sub === "commit") return commitArgs(argv).some((w) => protectedName(w, dir, true)) ? "git commit reads or writes a protected file" : null;
+  if (sub === "push") return pushReason(args);
   const output = args.find((w) => w.startsWith("--output"));
   if (output) return protectedName(output.replace(/^--output=?/, "") || args[args.indexOf(output) + 1] || "", dir, true) ? "git writes output to a protected path" : null;
   if (GIT_READERS.has(sub)) return null;
@@ -661,104 +1046,193 @@ function gitReason(argv, segment, dir) {
   return args.some((w) => protectedName(w, dir, true)) ? `git ${sub} would write ${args.map((w) => protectedName(w, dir, true)).find(Boolean)}` : null;
 }
 
-/** The host a Postgres client connects to: a host name, "local", or "unknown". */
-function pgHost(argv, env) {
-  const hosts = [];
+// Short options that take a value, per Postgres client. pgbench uses -d for debug and -c for its client count.
+const PG_VALUE_LETTERS = { pgbench: "hpUcjtTfDsSPRLMbF" };
+const PG_DEFAULT_VALUE_LETTERS = "cdfhpUvPoLTFR";
+
+/** Hosts, SQL commands and whether a SQL file is read, for a Postgres client argv. */
+function pgTargets(argv, env) {
+  const cmd = base(argv[0]);
+  const letters = PG_VALUE_LETTERS[cmd] ?? PG_DEFAULT_VALUE_LETTERS;
+  const out = { hosts: [], sql: [], file: false };
+  let positional = 0;
+  const take = (key, value) => {
+    if (key === "h" || key === "host") out.hosts.push(value);
+    else if ((key === "d" || key === "dbname") && cmd !== "pgbench") out.hosts.push(...connHosts(value));
+    else if ((key === "c" || key === "command") && cmd !== "pgbench") out.sql.push(value);
+    else if (key === "f" || key === "file") out.file = true;
+  };
   for (let i = 1; i < argv.length; i++) {
     const w = argv[i];
-    if (w === "-h" || w === "--host") hosts.push(argv[++i] ?? "");
-    else if (w.startsWith("--host=")) hosts.push(w.slice(7));
-    else if (/^postgres(ql)?:\/\//i.test(w) || /\bhost=/.test(w) || /^\$/.test(w)) hosts.push(w);
-    else if ((w === "-d" || w === "--dbname") && /[:=/$]/.test(argv[i + 1] ?? "")) hosts.push(argv[++i]);
+    const long = /^--([\w-]+)(?:=(.*))?$/s.exec(w);
+    if (long) {
+      if (/^(host|dbname|command|file|port|username|set|variable|pset|output|log-file|table-attr|field-separator|record-separator)$/.test(long[1])) take(long[1], long[2] ?? argv[++i] ?? "");
+    } else if (/^-[^-]/.test(w)) {
+      for (let k = 1; k < w.length; k++) {
+        if (!letters.includes(w[k])) continue;
+        take(w[k], w.slice(k + 1) || argv[++i] || "");
+        break;
+      }
+    } else if (positional++ === 0) out.hosts.push(...connHosts(w));
   }
-  const fromEnv = env.PGHOST ?? process.env.PGHOST ?? (env.PGSERVICE ?? process.env.PGSERVICE ? "$PGSERVICE" : undefined);
-  if (hosts.length === 0 && fromEnv) hosts.push(fromEnv);
-  if (hosts.length === 0) return "local";
-  for (const raw of hosts) {
-    if (raw.includes("$") || raw.includes(SUB)) return "unknown";
-    const host = /^postgres(?:ql)?:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?]+)/i.exec(raw)?.[1] ?? /\bhost=(\S+)/.exec(raw)?.[1] ?? raw;
-    if (!LOCAL_HOST.test(host)) return host;
+  if (out.hosts.length === 0) {
+    const fromEnv = [env.PGHOST, env.PGHOSTADDR, process.env.PGHOST, process.env.PGHOSTADDR].find((h) => h !== undefined);
+    if (fromEnv !== undefined) out.hosts.push(...(fromEnv.includes("$") ? ["$"] : fromEnv.split(",")));
+    if (env.PGSERVICE ?? process.env.PGSERVICE) out.hosts.push("$");
   }
-  return "local";
+  return out;
 }
 
 function pgReason(argv, env) {
   const cmd = base(argv[0]);
-  const host = pgHost(argv, env);
-  if (host === "local") return null;
-  if (cmd !== "psql" && cmd !== "pgcli") return `${cmd} against ${host} would change a database that is not local`;
-  if (argv.some((w) => /^(-f|--file)(=|$)/.test(w))) return `psql -f against ${host} cannot be checked; failing closed`;
-  const commands = argv.flatMap((w, i) => (/^(-c|--command)$/.test(w) ? [argv[i + 1] ?? ""] : w.startsWith("--command=") ? [w.slice(10)] : []));
-  if (commands.length === 0) return `psql against ${host} without -c reads SQL that cannot be checked; failing closed`;
-  for (const sql of commands) {
+  const target = pgTargets(argv, env);
+  const remote = target.hosts.find((h) => !localHost(h));
+  if (remote === undefined) return null;
+  const host = remote === "$" ? "a host that cannot be resolved" : remote;
+  if (cmd !== "psql" && cmd !== "pgcli") return `${cmd} against ${host} would change a database that is not provably loopback`;
+  if (target.file) return `psql -f against ${host} cannot be checked; failing closed`;
+  if (target.sql.length === 0) return `psql against ${host} without -c reads SQL that cannot be checked; failing closed`;
+  for (const sql of target.sql) {
     const reason = sqlReason(sql);
     if (reason) return `psql against ${host}: ${reason.replace("execute_sql ", "")}`;
   }
   return null;
 }
 
-/** Block reason for HTTP writes (anything but GET or HEAD) to a Supabase API that is not local. */
-function supabaseHttpReason(argv) {
-  const cmd = base(argv[0]);
-  const urls = argv.filter((w) => SUPABASE_HTTP.test(w) && !/^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|host\.docker\.internal)\b/i.test(w));
-  if (urls.length === 0) return null;
-  let method = "GET";
-  if (cmd === "curl") {
-    const explicit = argv.find((w, i) => /^(-X|--request)$/.test(argv[i - 1] ?? "")) ?? argv.find((w) => /^-X\w/.test(w))?.slice(2);
-    if (argv.some((w) => /^(-d|--data.*|-F|--form.*|--json|-T|--upload-file)$/.test(w) || /^-d./.test(w))) method = "POST";
-    if (argv.includes("-I") || argv.includes("--head")) method = "HEAD";
-    method = (explicit ?? method).toUpperCase();
-  } else if (cmd === "wget") {
-    if (argv.some((w) => /^--(post-data|post-file|body-data|body-file)/.test(w))) method = "POST";
-    method = (argv.find((w) => w.startsWith("--method="))?.slice(9) ?? method).toUpperCase();
-  } else {
-    method = (argv.slice(1).find((w) => /^(GET|HEAD|POST|PUT|PATCH|DELETE)$/i.test(w)) ?? (argv.some((w) => /^[\w-]+:?=/.test(w)) ? "POST" : "GET")).toUpperCase();
+/** Block reason for HTTP writes (anything but GET or HEAD) to a Supabase API that is not loopback. */
+function supabaseHttpReason(argv, dir) {
+  const req = httpRequest(argv, dir);
+  if (req.method === "GET" || req.method === "HEAD") return null;
+  for (const url of req.urls) {
+    const host = urlHost(url);
+    if (host !== null && !host.includes("$") && localHost(host)) continue;
+    if (SUPABASE_HTTP.test(url)) return `${base(argv[0])} ${req.method} to a Supabase API that is not loopback would change hosted data`;
   }
-  return method === "GET" || method === "HEAD" ? null : `${cmd} ${method} to a Supabase API would change hosted data`;
+  return null;
 }
 
-/** Block reason for a cp, rsync or install whose destination is protected. Sources are reads. */
-function copyReason(cmd, args, dir) {
-  const targetFlag = args.findIndex((w) => w === "-t" || w === "--target-directory");
-  const attached = args.find((w) => w.startsWith("--target-directory="));
-  let dest;
-  if (targetFlag >= 0) dest = args[targetFlag + 1];
-  else if (attached) dest = attached.slice(19);
-  else dest = args.filter((w) => !w.startsWith("-")).at(-1);
-  const name = dest && protectedName(dest, dir, true);
-  return name ? `${cmd} would write to ${name}` : null;
+/** Block reason when the target of a write is protected, or is generated or unresolved in a command that names a protected path. */
+function writeTargetReason(target, dir, segment, substs) {
+  const name = protectedName(target, dir, true);
+  if (name) return `into ${name}`;
+  if (target.includes(SUB) && substs.some((s) => PROTECTED_TEXT.test(s))) return "to a generated path that names a protected path";
+  if (target.includes("$") && [...segment.words, ...segment.heredocs].some((w) => PROTECTED_TEXT.test(w))) return "to an unresolved variable path in a command that names a protected path; failing closed";
+  return null;
+}
+
+// Short options that take a value, and long options that write somewhere, per copy command.
+const COPY_VALUE_SHORT = { cp: "tS", install: "tmogS", rsync: "eTfBM" };
+const COPY_VALUE_LONG = /^(--target-directory|--suffix|--mode|--owner|--group|--strip-program|-e|--rsh|--rsync-path|--exclude|--include|--filter|--exclude-from|--include-from|--files-from|--chmod|--chown|--usermap|--groupmap|--timeout|--port|--password-file|--bwlimit|--max-size|--min-size|--out-format|--log-file-format|--info|--debug|--partial-dir|--temp-dir|--backup-dir|--compare-dest|--copy-dest|--link-dest|--log-file|--write-batch|--only-write-batch|--read-batch|--iconv|--max-delete|--block-size|--remote-option|--skip-compress|--compress-level|--modify-window)$/;
+const RSYNC_WRITE_OPTS = /^(--partial-dir|--temp-dir|--backup-dir|--log-file|--write-batch|--only-write-batch|-T)$/;
+
+/** Block reason for a cp, rsync or install whose destination is protected, or whose sources would land on a protected path. */
+function copyReason(cmd, args, dir, segment, substs) {
+  const writes = [];
+  const positional = [];
+  let targetDir;
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "--") {
+      positional.push(...args.slice(i + 1));
+      break;
+    }
+    const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+    if (eq || COPY_VALUE_LONG.test(w)) {
+      const [flag, value] = eq ? [eq[1], eq[2]] : [w, args[++i] ?? ""];
+      if (flag === "--target-directory") targetDir = value;
+      else if (cmd === "rsync" && RSYNC_WRITE_OPTS.test(flag)) writes.push(value);
+    } else if (/^-[^-]/.test(w)) {
+      for (let k = 1; k < w.length; k++) {
+        if (!COPY_VALUE_SHORT[cmd].includes(w[k])) continue;
+        const value = w.slice(k + 1) || args[++i] || "";
+        if (w[k] === "t" && cmd !== "rsync") targetDir = value;
+        if (w[k] === "T" && cmd === "rsync") writes.push(value);
+        break;
+      }
+    } else if (!w.startsWith("-")) positional.push(w);
+  }
+  const dest = targetDir ?? positional.at(-1);
+  const sources = targetDir === undefined ? positional.slice(0, -1) : positional;
+  for (const target of [dest, ...writes]) {
+    const reason = target === undefined ? null : writeTargetReason(target, dir, segment, substs);
+    if (reason) return `${cmd} would write ${reason}`;
+  }
+  if (dest === undefined || dest.includes(SUB) || dest.includes("$")) return null;
+  const destSegs = changeDir(dir, dest);
+  const destPath = `/${destSegs.join("/")}`;
+  const destIsDir = targetDir !== undefined || sources.length > 1 || /(^|\/)\.{0,2}\/?$/.test(dest) || isDirectory(destPath);
+  for (const source of sources) {
+    // rsync copies the contents of a source that ends in a slash, as cp does for src/. and src/*.
+    const contents = (cmd === "rsync" && source.endsWith("/")) || /(^|\/)\.\/?$/.test(source);
+    if (contents) {
+      const holds = ["supabase", ".claude", "tools/guardrails"].some((d) => existsSync(`${destPath}/${d}`));
+      if (holds || (destSegs.length <= dir.length && within(dir, destSegs))) return `${cmd} would copy the contents of ${source} over ${dest}, which holds protected paths`;
+    } else if (destIsDir) {
+      const landing = `${destPath}/${base(source.replace(/\/+$/, ""))}`;
+      const name = protectedName(landing, dir, within(changeDir(dir, landing), dir));
+      if (name) return `${cmd} would land ${source} on ${name}`;
+    }
+  }
+  return null;
 }
 
 function protectedWrite(argv, segment, dir, substs) {
-  for (const target of segment.outs) {
-    const name = protectedName(target, dir, true);
-    if (name) return `redirects output into ${name}`;
-    if (target.includes(SUB) && substs.some((s) => PROTECTED_TEXT.test(s))) return "redirects output to a generated path that names a protected path";
-  }
   const cmd = base(argv[0]);
-  if (cmd === "git") return gitReason(argv, segment, dir);
-  if (cmd === "gh") return argv[1] === "api" ? ghApiReason(argv, dir) : argsReason(cmd, ghArgs(argv), segment, dir, substs);
+  if (NO_WRITE_WORDS.has(cmd) && segment.outs.length === 0) return null;
+  for (const target of segment.outs) {
+    const reason = writeTargetReason(target, dir, segment, substs);
+    if (reason) return `redirects output ${reason}`;
+    if (SCRIPT_FILE.test(target) && (argv.slice(1).some((w) => PROTECTED_TEXT.test(w)) || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)))) {
+      return `writes a script file ${target} whose text names a protected path; run those steps directly instead`;
+    }
+  }
+  if (cmd === "git") {
+    const git = gitCall(argv, dir);
+    if (git.config) return `git -c ${git.config} names a protected path`;
+    return gitReason(git.argv, segment, git.dir);
+  }
+  if (cmd === "gh") {
+    const gh = ghCall(argv).argv;
+    return gh[1] === "api" ? ghApiReason(gh, dir) : argsReason(cmd, ghArgs(gh), segment, dir, substs);
+  }
+  if (/^(curl|wget|http|https)$/.test(cmd)) {
+    const req = httpRequest(argv, dir);
+    for (const url of req.urls) {
+      const reason = /api\.github\.com|\/api\/v3\//.test(url) && branchWriteReason(url.replace(/^.*?\/api\/v3/, ""), req.method, req.body);
+      if (reason) return `${cmd}: ${reason}`;
+    }
+  }
   if (cmd === "patch") {
     const files = argv.flatMap((w, i) => (w === "-i" || w === "--input" ? [argv[i + 1]] : w.startsWith("--input=") ? [w.slice(8)] : []));
     return patchReason([...files, ...segment.ins], dir, "patch") ?? argsReason(cmd, argv.slice(1), segment, dir, substs);
   }
-  if (COPY_COMMANDS.has(cmd)) return copyReason(cmd, argv.slice(1), dir);
+  if (COPY_COMMANDS.has(cmd)) return copyReason(cmd, argv.slice(1), dir, segment, substs);
   let args = argv.slice(1);
-  // The file an interpreter runs is read, not written; inline code (-c, -e) stays checked.
+  // The file an interpreter runs is read, not written; inline code (-c, -e) stays checked. node --test runs every file it names.
   if (INTERPRETERS.has(cmd) && !SHELLS.has(cmd) && !args.some((w) => /^(-[ceEpr]|--eval|--print)$/.test(w))) {
+    if (cmd === "node" && args.includes("--test")) args = args.filter((w) => w.startsWith("-"));
     const script = args.findIndex((w) => !w.startsWith("-"));
     if (script >= 0) args = args.filter((_, i) => i !== script);
   }
   return argsReason(cmd, args, segment, dir, substs);
 }
 
+/**
+ * Reads pass. A command that writes files (or a reader in a writing mode)
+ * blocks when an argument names a protected path, or when an argument it
+ * writes is generated from a substitution that names one. Any other command
+ * blocks when an argument names a protected path, since what it does with
+ * the path is unknown.
+ */
 function argsReason(cmd, args, segment, dir, substs) {
-  const writesScript = segment.outs.length > 0 && (args.some((w) => PROTECTED_TEXT.test(w)) || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)));
-  if (READERS.has(cmd) && writesScript) return `${cmd} writes a file whose text names a protected path`;
-  const generated = args.some((w) => w.includes(SUB)) && substs.some((s) => PROTECTED_TEXT.test(s));
+  if (isReader(cmd) && !readerWrites(cmd, args)) return null;
+  const writesArgs = FILE_WRITERS.has(cmd) || isReader(cmd);
+  const generated = writesArgs && args.some((w) => w.includes(SUB)) && substs.some((s) => PROTECTED_TEXT.test(s));
   const name = inMigrations(dir) ? "supabase/migrations" : args.map((w) => protectedName(w, dir, FILE_WRITERS.has(cmd))).find(Boolean);
   if (!name && !generated) return null;
-  if (READERS.has(cmd) && !readerWrites(cmd, args)) return null;
+  if (name && INTERPRETERS.has(cmd) && !SHELLS.has(cmd)) {
+    return `${cmd} gets a ${name} path as an argument and what it does with it cannot be checked; read it with cat, sed -n, head, grep or jq instead`;
+  }
   return `${cmd} would write to ${name ?? "a generated path that names a protected path"}`;
 }
 
@@ -770,6 +1244,36 @@ function shellScript(cmd, argv, segment, dir) {
   if (file !== undefined) return readNamed(file, dir) ?? null;
   if (segment.ins.length > 0) return readNamed(segment.ins[0], dir) ?? null;
   return undefined;
+}
+
+const DOCKER_VALUE_FLAGS =
+  /^(-e|--env|--env-file|-u|--user|-w|--workdir|-v|--volume|--mount|--name|--network|--net|-p|--publish|--add-host|-l|--label|--label-file|--platform|--entrypoint|--detach-keys|-h|--hostname|--cpus|-m|--memory|--pull|--restart|--dns|--cap-add|--cap-drop|--device|--gpus|--ipc|--pid|--security-opt|--tmpfs|--ulimit|--log-driver|--log-opt|--cidfile|--shm-size|--stop-signal|--stop-timeout|--userns|--runtime|--link|--expose|--group-add|--volumes-from|--ip|--network-alias|-a|--attach|-f|--file|--project-name|--profile|--project-directory|--index)$/;
+
+/** The command and environment a docker or podman run/exec (compose included) starts inside the container, or null. */
+function dockerInner(argv) {
+  if (!/^(docker|podman)$/.test(base(argv[0]))) return null;
+  let i = 1;
+  const env = {};
+  let entrypoint;
+  const options = () => {
+    for (; i < argv.length && argv[i].startsWith("-"); i++) {
+      const eq = /^(--[\w-]+)=(.*)$/s.exec(argv[i]);
+      const [flag, value] = eq ? [eq[1], eq[2]] : DOCKER_VALUE_FLAGS.test(argv[i]) ? [argv[i], argv[++i]] : [argv[i], undefined];
+      if (flag === "--entrypoint") entrypoint = value;
+      if ((flag === "-e" || flag === "--env") && value?.includes("=")) env[value.slice(0, value.indexOf("="))] = value.slice(value.indexOf("=") + 1);
+    }
+  };
+  options();
+  let sub = argv[i++];
+  if (sub === "container" || sub === "compose") {
+    options();
+    sub = argv[i++];
+  }
+  if (sub !== "run" && sub !== "exec") return null;
+  options();
+  const rest = argv.slice(i + 1);
+  const inner = entrypoint ? [entrypoint, ...rest] : rest;
+  return inner.length > 0 ? { argv: inner, env } : null;
 }
 
 function checkSegment(segment, state, dir, ctx, depth, substs) {
@@ -798,7 +1302,25 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
     const reason = checkCommand(inline, dir, ctx, depth + 1);
     if (reason) return reason;
   }
-  if (cmd === "gh" && argv[1] === "alias" && /^(set|import)$/.test(argv[2] ?? "")) return "gh alias set/import could hide a merge behind a new name; aliases are set by Blaine";
+  if (cmd === "trap" && argv[1]) {
+    const reason = checkCommand(argv[1], dir, ctx, depth + 1);
+    if (reason) return `trap: ${reason}`;
+  }
+  const docker = dockerInner(argv);
+  const inner = docker?.argv ?? runnerInner(argv);
+  if (inner) {
+    const innerState = { ...state, env: { ...state.env, ...env, ...docker?.env } };
+    const reason = checkSegment({ ...segment, words: inner, op: null }, innerState, dir, ctx, depth + 1, substs);
+    if (reason) return reason;
+  }
+  if (cmd === "concurrently") {
+    for (const command of argv.slice(1).filter((w) => !w.startsWith("-"))) {
+      const reason = checkCommand(command, dir, ctx, depth + 1);
+      if (reason) return reason;
+    }
+  }
+  const gh = cmd === "gh" ? ghCall(argv).argv : argv;
+  if (cmd === "gh" && gh[1] === "alias" && /^(set|import)$/.test(gh[2] ?? "")) return "gh alias set/import could hide a merge behind a new name; aliases are set by Blaine";
   const cli = supabaseCli(argv);
   const cliReason = cli && supabaseReason(cli);
   if (cliReason) return cliReason;
@@ -807,21 +1329,14 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
     if (reason) return reason;
   }
   if (/^(curl|wget|http|https)$/.test(cmd)) {
-    const reason = supabaseHttpReason(argv);
+    const reason = supabaseHttpReason(argv, dir);
     if (reason) return reason;
   }
-  const call = scriptCall(argv, dir);
-  if (call) {
-    const { bodies, segs } = scriptBodies(call);
-    const key = `${segs.join("/")}#${call.name}`;
-    if (!ctx.visited.has(key)) {
-      ctx.visited.add(key);
-      for (const body of bodies) {
-        const reason = checkCommand(body, segs, ctx, depth);
-        if (reason) return `${call.name} script: ${reason}`;
-      }
-    }
-  }
+  const calls = scriptCalls(argv, dir);
+  const unknownRunner = (inner && !PACKAGE_MANAGERS.test(base(inner[0]))) || ORCHESTRATORS.test(cmd);
+  const named = unknownRunner ? namedScripts(inner && !ORCHESTRATORS.test(cmd) ? inner : argv, dir) : [];
+  const scripts = scriptsReason([...calls, ...named], ctx, depth);
+  if (scripts) return scripts;
   const target = mergeTarget(argv, { ...state.env, ...env }, dir);
   const merge = target && mergeReason(target, ctx);
   if (merge) return merge;
@@ -831,12 +1346,18 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
 
 function checkCommand(src, dir, ctx, depth = 0) {
   if (depth > 6) return "command nests too deeply to check";
+  // In collect mode (used by the tests to list every reason) a reason is recorded and checking goes on.
+  const report = (reason) => {
+    if (!reason || !ctx.collect) return reason;
+    ctx.collect.push(reason);
+    return null;
+  };
   const { segments, substs } = parse(expandVars(src));
   for (const inner of substs) {
-    const reason = checkCommand(inner, dir, ctx, depth + 1);
+    const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;
   }
-  const state = { decoded: false, env: {}, prevArgs: [] };
+  const state = { decoded: false, env: {}, prevArgs: [], inTest: false };
   for (const segment of segments) {
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
@@ -844,11 +1365,16 @@ function checkCommand(src, dir, ctx, depth = 0) {
       Object.assign(state.env, env);
       for (const w of argv.slice(1)) if (isAssignment(w)) state.env[w.slice(0, w.indexOf("="))] = w.slice(w.indexOf("=") + 1);
     }
+    if (state.inTest) {
+      state.inTest = !segment.words.includes("]]");
+      continue;
+    }
+    if (cmd === "[[" && !segment.words.includes("]]")) state.inTest = true;
     if (cmd === "cd" || cmd === "pushd") {
       dir = changeDir(dir, argv.slice(1).find((w) => !w.startsWith("-")));
       continue;
     }
-    const reason = checkSegment(segment, state, dir, ctx, depth, substs);
+    const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
     if (reason) return reason;
     state.prevArgs = argv.slice(1);
   }
@@ -858,6 +1384,7 @@ function checkCommand(src, dir, ctx, depth = 0) {
 /** Block reason for an execute_sql query that is not a single read only statement. */
 export function sqlReason(sql) {
   if (typeof sql !== "string") return "execute_sql has no query string; failing closed";
+  if (/(^|[^\w$])"?pgmq"?\s*\.\s*"?[\w$]+"?\s*\(/i.test(sql)) return "execute_sql calls a pgmq function, which changes queue state";
   let text = "";
   for (let i = 0; i < sql.length; ) {
     const rest = sql.slice(i);
@@ -880,6 +1407,7 @@ export function sqlReason(sql) {
       i += 2;
       text += " ";
     } else if (sql[i] === "'" || sql[i] === '"') {
+      if (/(^|[^\w$])U&\s*$/i.test(sql.slice(0, i))) return "execute_sql has a U& escaped string or identifier, which cannot be checked; failing closed";
       const quote = sql[i];
       const start = i + 1;
       const backslashes = quote === "'" && /[eE]$/.test(sql.slice(0, i)) && !/\w[eE]$/.test(sql.slice(0, i));
@@ -952,20 +1480,22 @@ function checkEdit(input, cwd) {
 /**
  * Returns a block reason, or null to allow. options.prFiles(target, cwd)
  * returns a PR's changed files (or { files, headSha }) and throws when it
- * cannot; it defaults to gh.
+ * cannot; it defaults to gh. With options.collect, returns every reason
+ * found in a Bash command as an array instead (tests use it).
  */
 export function decide(payload, options = {}) {
   const input = payload?.tool_input;
   if (input == null || typeof input !== "object") return "tool_input is missing; failing closed";
   const tool = String(payload.tool_name ?? "");
   const cwdPath = resolve(payload.cwd || process.cwd());
-  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set() };
+  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
   if (tool !== "Bash") return null;
   if (typeof input.command !== "string") return "tool_input.command is missing; failing closed";
-  return checkCommand(input.command, cwd, ctx);
+  const reason = checkCommand(input.command, cwd, ctx);
+  return ctx.collect ?? reason;
 }
 
 async function main() {

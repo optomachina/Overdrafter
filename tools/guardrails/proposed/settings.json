@@ -7,6 +7,11 @@
       "Edit(/.claude/settings.json)",
       "Edit(/.claude/settings.local.json)",
       "Edit(~/.claude/settings.json)",
+      "Edit(/tools/guardrails/apply.mjs)",
+      "Edit(/tools/guardrails/proposed/**)",
+      "Bash(supabase db push:*)",
+      "Bash(npx supabase db push:*)",
+      "Bash(npm run db:push:*)",
       "mcp__*__apply_migration",
       "mcp__*upabase*__create_branch",
       "mcp__*upabase*__merge_branch",
@@ -82,7 +87,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "command": "/usr/bin/env -u NODE_OPTIONS -u NODE_PATH \"{{NODE}}\" \"{{HOOK}}\" || exit 2",
             "timeout": 30,
             "onFailure": "block"
           }
@@ -93,7 +98,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "command": "/usr/bin/env -u NODE_OPTIONS -u NODE_PATH \"{{NODE}}\" \"{{HOOK}}\" || exit 2",
             "timeout": 30,
             "onFailure": "block"
           }
@@ -104,7 +109,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "command": "/usr/bin/env -u NODE_OPTIONS -u NODE_PATH \"{{NODE}}\" \"{{HOOK}}\" || exit 2",
             "timeout": 30,
             "onFailure": "block"
           }
