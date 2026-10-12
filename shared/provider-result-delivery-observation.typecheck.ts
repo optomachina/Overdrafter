@@ -1,10 +1,11 @@
 /**
  * Compile time contract (OVD-463): the worker validator's delivery observation
  * must stay assignable to the OVD-569 `ProviderDeliveryObservation`. This file
- * lives under `shared/` because the worker build emits from `worker/src` and
+ * imports only the dependency free `deliveryObservationInput.ts` (the root typecheck runs without worker
+ * dependencies installed) and lives under `shared/` because the worker build emits from `worker/src` and
  * must not pull `shared/` into its output root. `npm run typecheck` covers it.
  */
-import type { DeliveryObservationInput } from "../worker/src/providerResultValidation";
+import type { DeliveryObservationInput } from "../worker/src/deliveryObservationInput";
 import type { ProviderDeliveryObservation } from "./delivered-cost-arrival";
 
 type Assert<T extends true> = T;

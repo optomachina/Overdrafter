@@ -11,6 +11,7 @@
  * authorization consumption (OVD-461, OVD-462, OVD-464). The caller supplies the
  * authorized execution as `ProviderResultExpectation`.
  */
+import type { DeliveryObservationInput } from "./deliveryObservationInput.js";
 import type { LocalNativeCurrencyEvaluationResult } from "./adapters/localEvaluationResult.js";
 import type {
   GeographicOrigin,
@@ -19,6 +20,8 @@ import type {
   VendorQuoteAdapterOffer,
   VendorQuoteAdapterOutput,
 } from "./types.js";
+
+export type { DeliveryObservationInput } from "./deliveryObservationInput.js";
 
 export const PROVIDER_RESULT_CONTRACT_VERSION = "ovd-463.provider-result.v1" as const;
 
@@ -878,24 +881,6 @@ export function classifyProviderFailure(code: string): ClassifiedProviderFailure
   }
   return { code: known, ...FAILURE_POLICY[known], adminVisible: true };
 }
-
-/**
- * Structural match for `ProviderDeliveryObservation` in
- * `shared/delivered-cost-arrival.ts` (OVD-569), kept local so the worker build
- * does not import across the repository root.
- */
-export type DeliveryObservationInput = {
-  offerId: string;
-  provider: string;
-  partsSubtotalUsd: number | null;
-  feesUsd: number | null;
-  taxUsd: number | null;
-  shippingOptions: readonly never[];
-  leadTime: { kind: "business_days"; businessDays: number } | { kind: "unknown" };
-  orderCutoffLocalTime: string | null;
-  validUntil: string | null;
-  invalidatedAt: string | null;
-};
 
 /**
  * Feeds one validated offer into the OVD-569 projection. Fees, tax and
