@@ -52,7 +52,7 @@ export function parseUnifiedDiff(diffText = "") {
   let hunk = null;
   let oldPath = null;
 
-  for (const line of String(diffText).replace(/\r\n/g, "\n").split("\n")) {
+  for (const line of String(diffText).replaceAll("\r\n", "\n").split("\n")) {
     if (line.startsWith("diff --git ")) {
       current = null;
       hunk = null;
@@ -237,11 +237,10 @@ function stripSqlComments(sql) {
 function maskQuoted(text) {
   let out = "";
   let quote = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
+  for (const ch of text) {
     if (quote) {
       if (ch === "'") quote = false;
-      out += ch === "'" ? ch : "_";
+      out += ch === "'" ? ch : "_".repeat(ch.length);
     } else {
       if (ch === "'") quote = true;
       out += ch;
@@ -292,7 +291,7 @@ const SET_END_KEYWORDS = new Set(["where", "from", "returning"]);
 function setClauses(statement) {
   const masked = maskQuoted(statement);
   const clauses = [];
-  const words = [...masked.matchAll(/[A-Za-z_][A-Za-z0-9_]*|\(|\)/g)];
+  const words = [...masked.matchAll(/[A-Za-z_]\w*|\(|\)/g)];
   let depth = 0;
   let open = null;
   for (const word of words) {
@@ -347,12 +346,12 @@ function valueTuples(text) {
 function insertValuesEnable(statement) {
   const match = /insert\s+into\s+[\w."]+\s*\(([^)]*)\)\s*values\s*([\s\S]*)$/i.exec(statement);
   if (!match) return false;
-  const columns = match[1].split(",").map((column) => column.trim().replace(/"/g, "").toLowerCase());
+  const columns = match[1].split(",").map((column) => column.trim().replaceAll('"', "").toLowerCase());
   const flag = columns.indexOf("generic_dispatch_enabled");
   const state = columns.indexOf("admission_state");
   const valuesText = match[2].split(/\bon\s+conflict\b/i)[0];
   for (const tuple of valueTuples(valuesText)) {
-    const values = splitTopLevel(tuple).map((value) => value.replace(/::[\w.\[\]]+\s*$/, "").trim().toLowerCase());
+    const values = splitTopLevel(tuple).map((value) => value.replace(/::[\w.[\]]+\s*$/, "").trim().toLowerCase());
     if (flag !== -1 && values[flag] === "true") return true;
     if (state !== -1 && values[state] === "'approved'") return true;
   }

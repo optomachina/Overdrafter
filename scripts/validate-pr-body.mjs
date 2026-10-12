@@ -746,11 +746,15 @@ async function readLines(filePath) {
  *   --head-ref <ref>             git ref of the head (default HEAD)
  *   --verify-links               confirm GitHub evidence links resolve
  */
+// An absolute path keeps a writable PATH entry from substituting git. Set
+// GIT_EXECUTABLE where git lives elsewhere (for example macOS).
+const GIT_EXECUTABLE = process.env.GIT_EXECUTABLE ?? "/usr/bin/git";
+
 function gitShowReader(baseRef, headRef) {
   return (side, filePath) => {
     const ref = side === "base" ? baseRef : headRef;
     try {
-      return execFileSync("git", ["show", `${ref}:${filePath}`], {
+      return execFileSync(GIT_EXECUTABLE, ["show", `${ref}:${filePath}`], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         maxBuffer: 64 * 1024 * 1024,
