@@ -2,6 +2,16 @@
   "$schema": "./provider-registry.v1.schema.json",
   "schemaVersion": 1,
   "stableEgressRequiredKey": "xometry",
+  "oneDotZero": [
+    "fictiv",
+    "geomiq",
+    "oshcut",
+    "quickparts",
+    "rmfg",
+    "sendcutsend",
+    "weerg",
+    "xometry"
+  ],
   "providers": [
     {
       "key": "devzmanufacturing",

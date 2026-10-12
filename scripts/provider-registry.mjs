@@ -224,9 +224,32 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
   };
 }
 
+/** Reviewed 1.0 scope list. The permissions lint derives its required providers from this. */
+function validateOneDotZero(list, providerKeys) {
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new Error("registry.oneDotZero must be a non-empty array");
+  }
+  list.forEach((key, index) => requireString(key, `registry.oneDotZero[${index}]`, KEY_PATTERN));
+  if (new Set(list).size !== list.length) {
+    throw new Error("registry.oneDotZero contains duplicate keys");
+  }
+  if (JSON.stringify(list) !== JSON.stringify([...list].sort(compareStrings))) {
+    throw new Error("registry.oneDotZero must be sorted");
+  }
+  const unknown = list.filter((key) => !providerKeys.includes(key));
+  if (unknown.length > 0) {
+    throw new Error(`registry.oneDotZero names keys missing from providers: ${unknown.join(", ")}`);
+  }
+  return [...list];
+}
+
 export function validateProviderRegistry(document) {
   const value = requireObject(document, "registry");
-  assertExactKeys(value, ["$schema", "schemaVersion", "stableEgressRequiredKey", "providers"], "registry");
+  assertExactKeys(
+    value,
+    ["$schema", "schemaVersion", "stableEgressRequiredKey", "providers", ...("oneDotZero" in value ? ["oneDotZero"] : [])],
+    "registry",
+  );
   if (value.$schema !== `./${PROVIDER_REGISTRY_SCHEMA_FILE}` || value.schemaVersion !== 1) {
     throw new Error("registry schema reference or version is invalid");
   }
@@ -255,10 +278,12 @@ export function validateProviderRegistry(document) {
   if (!required.liveAdapter || required.egress !== "stable_nat") {
     throw new Error(`stableEgressRequiredKey ${stableEgressRequiredKey} must be a live stable-NAT adapter`);
   }
+  const oneDotZero = "oneDotZero" in value ? validateOneDotZero(value.oneDotZero, keys) : undefined;
   return {
     $schema: value.$schema,
     schemaVersion: 1,
     stableEgressRequiredKey,
+    ...(oneDotZero ? { oneDotZero } : {}),
     providers,
   };
 }

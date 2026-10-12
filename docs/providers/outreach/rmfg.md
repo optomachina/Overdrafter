@@ -3,9 +3,14 @@ status: draft
 provider: rmfg
 audience: none — pointer only
 contact_route: Published support address support@rmfg.com
+sender: Blaine Wilson
+send_mode: manual_by_blaine
+auto_send: false
 ---
 
 # RMFG outreach is not duplicated here
+
+> DRAFT ONLY. Nothing is sent without Blaine's approval.
 
 RMFG API access is already part of the Oct 23 checkpoint asks. This file exists so
 the matrix can point at a draft record without rewriting that ask.
