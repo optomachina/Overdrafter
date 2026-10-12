@@ -1,6 +1,8 @@
 // @vitest-environment node
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -13,8 +15,10 @@ import {
   exportControlProviderJurisdiction,
   FOREIGN_JURISDICTION_PROVIDERS,
   isStepFileName,
+  readStagedStepHeaderPrefix,
   readStepHeaderText,
   scanDrawingTextForExportMarkings,
+  STEP_HEADER_SCAN_BYTES,
   scanStepHeaderForExportMarkings,
 } from "./exportControl";
 import { PROVIDER_DISPATCH_DENIAL_CODES, isRetryableProviderDispatchDenial } from "./providerDispatchEnvelope";
@@ -113,6 +117,20 @@ describe("export-control marking detection", () => {
 
   it("scans the whole prefix when the STEP header is malformed", () => {
     expect(scanStepHeaderForExportMarkings("no header here; ITAR")).toEqual({ source: "step_header", patterns: ["itar"] });
+  });
+
+  it("reads only the bounded prefix of a staged STEP file and fails on a missing file", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ovd723-step-"));
+    try {
+      const stepPath = path.join(dir, "large.step");
+      writeFileSync(stepPath, STEP_WITH_ITAR + "x".repeat(STEP_HEADER_SCAN_BYTES * 2));
+      const prefix = await readStagedStepHeaderPrefix(stepPath);
+      expect(prefix.byteLength).toBe(STEP_HEADER_SCAN_BYTES);
+      expect(scanStepHeaderForExportMarkings(prefix)?.patterns).toContain("itar");
+      await expect(readStagedStepHeaderPrefix(path.join(dir, "missing.step"))).rejects.toThrow(/ENOENT/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("recognizes STEP file names", () => {

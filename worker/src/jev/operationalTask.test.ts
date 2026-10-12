@@ -21,6 +21,11 @@ vi.mock("../files.js", async (original) => ({
   cleanupPaths: vi.fn(async () => undefined),
 }));
 vi.mock("../scoringIntegration.js", () => ({ computeAndStoreRoutingScores: vi.fn(async () => undefined) }));
+// OVD-723: the staged CAD path is fake, so supply an unmarked STEP header.
+vi.mock("../exportControl.js", async (original) => ({
+  ...await original<typeof import("../exportControl.js")>(),
+  readStagedStepHeaderPrefix: vi.fn(async () => new TextEncoder().encode("ISO-10303-21;\nHEADER;\nENDSEC;\n")),
+}));
 
 const scope: OperationalJevScope = { organizationId: "secret-org", taskId: "secret-task", quoteRunId: "secret-run",
   provider: "xometry", sourceRevision: "f9195d2f071159bd46873b0ad402b1b12de75601" };

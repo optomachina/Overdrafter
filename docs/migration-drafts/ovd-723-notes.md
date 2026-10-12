@@ -62,6 +62,8 @@
   the client fails closed, so uploads stop. PHASE 2 (old signatures raise
   `export_declaration_missing`, storage grant required, preflight wrappers)
   comes after the client is deployed.
+- The worker reads at most 256 KB of a staged STEP file for the header scan
+  (`readStagedStepHeaderPrefix`). If the read fails, the task fails.
 - Backfill: every existing job with files gets a `missing` declaration, so it is
   denied dispatch until the user declares.
 

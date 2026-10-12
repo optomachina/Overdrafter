@@ -1,3 +1,4 @@
+import { open } from "node:fs/promises";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VendorName } from "./types.js";
 
@@ -145,6 +146,21 @@ export function readStepHeaderText(content: Uint8Array | string): string {
   if (start < 0) return prefix;
   const end = prefix.slice(start).search(/\bENDSEC\s*;/i);
   return end < 0 ? prefix.slice(start) : prefix.slice(start, start + end);
+}
+
+/**
+ * Reads at most STEP_HEADER_SCAN_BYTES from a staged STEP file. A read error
+ * propagates, so a file that cannot be scanned fails the task.
+ */
+export async function readStagedStepHeaderPrefix(localPath: string): Promise<Uint8Array> {
+  const handle = await open(localPath, "r");
+  try {
+    const buffer = Buffer.alloc(STEP_HEADER_SCAN_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, STEP_HEADER_SCAN_BYTES, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
 }
 
 export function isStepFileName(name: string | null | undefined): boolean {

@@ -84,6 +84,7 @@ import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import {
   enforceExportControlMarkings,
   isStepFileName,
+  readStagedStepHeaderPrefix,
   scanDrawingTextForExportMarkings,
   scanStepHeaderForExportMarkings,
 } from "./exportControl.js";
@@ -1244,7 +1245,7 @@ export async function handleVendorQuoteTask(
         jobId: task.job_id,
         partId: context.part.id,
         jobFileId: context.cadFile?.id ?? null,
-        scan: scanStepHeaderForExportMarkings(await pathToBuffer(stagedCadFile.localPath)),
+        scan: scanStepHeaderForExportMarkings(await readStagedStepHeaderPrefix(stagedCadFile.localPath)),
       });
     }
     const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(
