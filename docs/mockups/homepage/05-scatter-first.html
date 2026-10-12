@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Homepage E: Scatter First</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+.hero{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);border-bottom:1px solid var(--hairline)}
+.chart{border-right:1px solid var(--hairline);padding:24px;position:relative}
+.chart svg{width:100%;height:auto;display:block}
+.chart text{font:400 10px var(--mono);fill:var(--muted);letter-spacing:.1em}
+.pt{fill:var(--surface);stroke:var(--text);stroke-width:1;cursor:pointer}.pt.sel{fill:var(--accent-red);stroke:var(--accent-red)}
+.side{padding:32px 24px;display:flex;flex-direction:column;gap:24px}
+.side h1{font:700 clamp(36px,4.4vw,56px)/1 var(--display);text-transform:uppercase}
+.files{font:400 12px var(--mono);border:1px solid var(--hairline)}
+.files div{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--hairline)}.files div:last-child{border:0}
+.files .on{color:var(--accent-red)}
+@media(max-width:860px){.hero{grid-template-columns:1fr}.chart{border-right:0}}
+</style></head><body>
+<header class="strip"><span class="brand">OVERDRAFTER</span><nav><a href="#">Parts</a><a href="#">Quotes</a><a href="#">Search</a></nav><a class="btn" href="#">Sign in</a></header>
+<section class="hero">
+ <div class="chart"><span class="micro">Quoted total (USD) vs working days · sample data</span><svg id="c" viewBox="0 0 640 420" role="img" aria-label="Scatter of fourteen supplier offers. Lead time in working days on X, quoted total on Y. One offer is selected."></svg></div>
+ <div class="side"><span class="micro">Quote intelligence · Invited beta</span><h1>Every offer.<br>One plate.<br>One decision.</h1>
+  <p style="font-size:16px;max-width:40ch">Upload a STEP file. Offers arrive as independent points. No trend line, no ranking you didn't ask for.</p>
+  <div class="files"><div class="on"><span>BRACKET-A07</span><span>READY</span></div><div><span>HINGE-PLATE-02</span><span>QUEUE</span></div><div><span>SHAFT-COLLAR</span><span>REVIEW</span></div></div>
+  <div class="readout"><div><b>Supplier</b><span class="sel-v" data-r="v"></span></div><div><b>Lead</b><span data-r="d"></span></div><div><b>Total</b><span data-r="p"></span></div><div><b>Origin</b><span data-r="o"></span></div></div>
+  <a class="btn" style="align-self:flex-start" href="#">Upload a STEP file</a></div>
+</section>
+<script src="machine.js"></script><script>
+const m=OverdrafterMachine(document.createElement("div"));const svg=document.getElementById("c"),NS="http://www.w3.org/2000/svg";
+const X=d=>60+(d-2)/20*540,Y=p=>370-(p-40)/190*320;
+const mk=(n,a)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);svg.appendChild(e);return e};
+for(let i=0;i<=5;i++){const x=60+i*108;mk("path",{d:`M${x} 50V370`,stroke:"var(--hairline)"});const t=mk("text",{x:x-8,y:394});t.textContent=2+i*4}
+for(let i=0;i<=4;i++){const y=50+i*80;mk("path",{d:`M60 ${y}H600`,stroke:"var(--hairline)"});const t=mk("text",{x:8,y:y+3});t.textContent="$"+Math.round(230-i*47.5)}
+const pts=m.offers.map(o=>{const c=mk("circle",{cx:X(o.days),cy:Y(o.price),r:7,class:"pt",tabindex:0});c.onpointerenter=c.onclick=()=>m.select(o.id);c.onkeydown=e=>{if(e.key==="Enter")m.select(o.id)};return[o.id,c]});
+m.onSelect(o=>{pts.forEach(([i,c])=>c.classList.toggle("sel",i===o.id));document.querySelectorAll("[data-r]").forEach(e=>{e.textContent={v:o.vendor,d:o.days+" DAYS",p:"$"+o.price,o:o.origin==="UNKNOWN"?"Unknown":o.origin}[e.dataset.r]})});
+</script></body></html>

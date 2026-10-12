@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Homepage F: Three Stations</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+.top{padding:48px 24px 24px;max-width:900px}.top h1{font:700 clamp(40px,6vw,72px)/.95 var(--display);text-transform:uppercase}
+.row{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.st{border-right:1px solid var(--hairline);padding:16px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}.st:last-child{border:0}
+.st .win{aspect-ratio:1/1;overflow:hidden;position:relative}.st .win svg{position:absolute;inset:0;width:100%;height:100%}
+.st h3{font:700 22px var(--display);text-transform:uppercase}
+.bar{display:flex;gap:16px;padding:24px;align-items:center;flex-wrap:wrap}
+@media(max-width:860px){.row{grid-template-columns:1fr}.st{border-right:0;border-bottom:1px solid var(--hairline)}}
+</style></head><body>
+<header class="strip"><span class="brand">OVERDRAFTER</span><span>Invited beta</span><a class="btn" href="#">Sign in</a></header>
+<section class="top"><span class="micro">Quote press · three stations</span><h1>Read it. Source it. Choose it.</h1><p style="font-size:16px;max-width:52ch;margin-top:16px">One machine, three jobs. Each station is a crop of the same figure, so what you see on the home page is what runs in the workspace.</p></section>
+<section class="row">
+ <div class="st"><span class="micro">Station 1 · Conveyor + gantry</span><div class="win" data-vb="40 60 380 380"></div><h3>Read the part</h3><p>STEP in. Geometry and stated requirements read once, editable inline.</p></div>
+ <div class="st"><span class="micro">Station 2 · Supplier cassettes</span><div class="win" data-vb="300 60 380 380"></div><h3>Collect offers</h3><p>Each supplier returns variants. Every one stays visible and selectable.</p></div>
+ <div class="st"><span class="micro">Station 3 · Quote plate</span><div class="win" data-vb="400 220 380 380"></div><h3>Choose one</h3><p>Fixed dots: working days against quoted total. Hover a dot to select.</p></div>
+</section>
+<div class="bar"><a class="btn" href="#">Upload a STEP file</a><span class="micro">Sample data · Hover the third station</span></div>
+<script src="machine.js"></script><script>
+document.querySelectorAll(".win").forEach((w,i)=>{const m=OverdrafterMachine(w);w.querySelector("svg").setAttribute("viewBox",w.dataset.vb);w.querySelector("svg").setAttribute("preserveAspectRatio","xMidYMid slice")});
+</script></body></html>
