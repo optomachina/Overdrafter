@@ -1,11 +1,28 @@
 -- OVD-558 separate source-only reverse migration.
--- Exact forward SQL SHA-256: a1e6b52443cd1888ff0e287e3564d0c6090d77c6a75d6bd6ded5708b008c383c
+-- Exact forward SQL SHA-256: 9a60a19f734da9e46384df9ab6e27911d10eafacc240c2993d3dc000ea75bb5f
 -- Pinned prechange manifest SHA-256: 718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac
 -- Only storage function raw proacl null-to-explicit normalization is permitted.
+-- READ COMMITTED and the registry lock come first so the emptiness check reads
+-- a snapshot taken after every concurrent registry writer has finished.
 begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
+do $ovd558_reverse_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd558_reverse_read_committed_required' using errcode = '0A000';
+  end if;
+end $ovd558_reverse_isolation$;
 select pg_advisory_xact_lock(510, 2);
+do $ovd558_reverse_lock$
+begin
+  if current_user <> 'supabase_admin'
+     or not (select rolsuper from pg_roles where rolname = current_user)
+     or to_regclass('engineering_private.native_verifier_registered_objects') is null then
+    raise exception 'ovd558_reverse_runner_or_registry_mismatch';
+  end if;
+  lock table engineering_private.native_verifier_registered_objects in access exclusive mode;
+end $ovd558_reverse_lock$;
 do $ovd558_reverse_preflight$ declare actual text;
 begin
   if current_user <> 'supabase_admin'

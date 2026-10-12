@@ -35,6 +35,18 @@ const digestQuery = (select, normalized = false) => {
        from jsonb_array_elements(catalog_value->'functions') with ordinality as f(item, ordinal)))::text,
     'UTF8')), 'hex') from ${source}`;
 };
+// The reverse cannot restore a null storage proacl; it leaves explicit
+// owner/PUBLIC EXECUTE entries. This is that exact expanded shape.
+const storageExpandedAclMismatch = `exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage' and not exists (
+      select 1 from aclexplode(p.proacl) a
+      where a.grantee = 0 and a.grantor = p.proowner
+        and a.privilege_type = 'EXECUTE' and not a.is_grantable))
+     or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       cross join lateral aclexplode(p.proacl) a
+       where n.nspname = 'storage' and
+         (a.grantor <> p.proowner or a.privilege_type <> 'EXECUTE'
+          or a.is_grantable or a.grantee not in (0, p.proowner)))`;
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const identity = (fn) => `${quote(fn.schema_name)}.${quote(fn.function_name)}(${fn.identity_arguments})`;
 const sqlSha = (value) => createHash("sha256").update(value).digest("hex");
@@ -69,7 +81,7 @@ begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
 select pg_advisory_xact_lock(510, 2);
-do $ovd558_preflight$ declare actual text;
+do $ovd558_preflight$ declare actual text; normalized text;
 begin
   if current_user <> 'supabase_admin'
      or not (select rolsuper from pg_roles where rolname = current_user)
@@ -80,7 +92,13 @@ begin
   end if;
   select digest_value into actual from (${digestQuery(catalogSelect)}) as digest(digest_value);
   if actual is distinct from '${baselineCanonicalSha}' then
-    raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
+    -- Otherwise accept only the exact catalog the reverse leaves behind.
+    select digest_value into normalized
+      from (${digestQuery(catalogJsonbSelect, true)}) as digest(digest_value);
+    if normalized is distinct from '${baselineCanonicalSha}'
+       or ${storageExpandedAclMismatch} then
+      raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
+    end if;
   end if;
 end $ovd558_preflight$;
 ${mutation}
@@ -140,10 +158,27 @@ function reverseSql(postCanonicalSha, forwardSha) {
 -- Exact forward SQL SHA-256: ${forwardSha}
 -- Pinned prechange manifest SHA-256: ${manifestSha}
 -- Only storage function raw proacl null-to-explicit normalization is permitted.
+-- READ COMMITTED and the registry lock come first so the emptiness check reads
+-- a snapshot taken after every concurrent registry writer has finished.
 begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
+do $ovd558_reverse_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd558_reverse_read_committed_required' using errcode = '0A000';
+  end if;
+end $ovd558_reverse_isolation$;
 select pg_advisory_xact_lock(510, 2);
+do $ovd558_reverse_lock$
+begin
+  if current_user <> 'supabase_admin'
+     or not (select rolsuper from pg_roles where rolname = current_user)
+     or to_regclass('engineering_private.native_verifier_registered_objects') is null then
+    raise exception 'ovd558_reverse_runner_or_registry_mismatch';
+  end if;
+  lock table engineering_private.native_verifier_registered_objects in access exclusive mode;
+end $ovd558_reverse_lock$;
 do $ovd558_reverse_preflight$ declare actual text;
 begin
   if current_user <> 'supabase_admin'
@@ -189,16 +224,7 @@ alter default privileges for role postgres grant execute on functions to public;
 alter default privileges for role supabase_storage_admin grant execute on functions to public;
 do $ovd558_reverse_postflight$ declare actual text;
 begin
-  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'storage' and not exists (
-      select 1 from aclexplode(p.proacl) a
-      where a.grantee = 0 and a.grantor = p.proowner
-        and a.privilege_type = 'EXECUTE' and not a.is_grantable))
-     or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       cross join lateral aclexplode(p.proacl) a
-       where n.nspname = 'storage' and
-         (a.grantor <> p.proowner or a.privilege_type <> 'EXECUTE'
-          or a.is_grantable or a.grantee not in (0, p.proowner))) then
+  if ${storageExpandedAclMismatch} then
     raise exception 'ovd558_storage_expanded_acl_mismatch';
   end if;
   select digest_value into actual from (${digestQuery(catalogJsonbSelect, true)}) as digest(digest_value);
