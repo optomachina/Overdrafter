@@ -1645,11 +1645,17 @@ export function useClientPartController(
   const sidebarJobs = navigationModel.parts;
   let quoteVendorScopeError: string | null = null;
   if (vendorPreferenceQuery.error instanceof Error) {
-    quoteVendorScopeError = vendorPreferenceQuery.error.message;
+    quoteVendorScopeError = getUserFacingErrorMessage(
+      vendorPreferenceQuery.error,
+      "Vendor scope could not be loaded.",
+    );
   } else if (vendorPreferenceQuery.error) {
     quoteVendorScopeError = "Vendor scope could not be loaded.";
   } else if (quoteLaneEligibilityQuery.error instanceof Error) {
-    quoteVendorScopeError = quoteLaneEligibilityQuery.error.message;
+    quoteVendorScopeError = getUserFacingErrorMessage(
+      quoteLaneEligibilityQuery.error,
+      "Quote eligibility could not be loaded.",
+    );
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
