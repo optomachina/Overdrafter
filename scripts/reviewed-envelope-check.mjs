@@ -5,9 +5,11 @@ import ts from "typescript";
 import { assertReadinessDoc } from "./provider-readiness-doc.mjs";
 
 /**
- * Residuals this check does not close: a shadowed `const describe` binding,
- * a literal `&nbsp;` entity as readiness-section body, and an early `return;`
- * before the default-deny registrar (vitest fails that suite).
+ * Static artifact checks for reviewed provider envelopes. The default-deny
+ * placement rules here are only a fast first signal: syntax cannot prove a
+ * test ran. Proof that the suite executed and passed comes from
+ * default-deny-execution.mjs, which provider:check runs on every reviewed
+ * provider's default-deny file.
  */
 
 export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope";
@@ -209,6 +211,19 @@ export async function assertReviewedEnvelopeCompleteness(options) {
   return { reviewedProviders: reviewed.map((envelope) => envelope.key) };
 }
 
+/**
+ * Default-deny test files that exist for reviewed providers. A provider under
+ * a dated exception may have none; any file that exists is still executed.
+ */
+export async function reviewedDefaultDenySuites(rootDir) {
+  const reviewed = await readReviewedEnvelopes(rootDir);
+  const suites = await Promise.all(reviewed.map(async ({ key }) => {
+    const file = REVIEWED_ENVELOPE_ARTIFACTS.defaultDenyTest.expectedPath(key);
+    return (await lstatIfPresent(path.join(rootDir, file))) ? { key, file } : null;
+  }));
+  return suites.filter(Boolean);
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -396,15 +411,18 @@ function gap(envelope, artifactId) {
   };
 }
 
+/** Every candidate readiness doc that exists must conform, not just the first. */
 async function hasReadinessDoc(rootDir, envelope) {
   const paths = readinessDocPaths(envelope.key, envelope.fixture);
   const contents = await Promise.all(paths.map((relative) => readTextIfPresent(path.join(rootDir, relative))));
-  const index = contents.findIndex((text) => text !== null && text.trim().length > 0);
-  if (index === -1) {
-    return false;
-  }
-  assertReadinessDoc(contents[index], paths[index]);
-  return true;
+  let found = false;
+  contents.forEach((text, index) => {
+    if (text !== null) {
+      assertReadinessDoc(text, paths[index]);
+      found = true;
+    }
+  });
+  return found;
 }
 
 /**
@@ -510,6 +528,11 @@ function unconditionalPlacementViolation(call) {
       || !isAllowedDescribeCallee(describeCall.expression)
     ) {
       return kindName(fn);
+    }
+    // `describe(name, fn)` only: an options object ({ skip: true }, { todo:
+    // true }) in either position can drop the suite.
+    if (describeCall.arguments.length !== 2 || describeCall.arguments[1] !== fn) {
+      return "describe options argument";
     }
     node = describeCall;
   }

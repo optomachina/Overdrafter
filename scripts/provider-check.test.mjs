@@ -11,7 +11,11 @@ import { assertCheckedInProviderIdentity, checkProviderIntegrations } from "./pr
 import { readProviderManifests } from "./provider-manifest.mjs";
 import { syncProviderCatalogs, syncProviderIntegrations } from "./provider-sync.mjs";
 import { PROVIDER_REGISTRY_RELATIVE_PATH, WORKER_REGISTRY_RELATIVE_PATH } from "./provider-registry.mjs";
-import { REQUIRED_READINESS_HEADINGS, validateReadinessDoc } from "./provider-readiness-doc.mjs";
+import {
+  NONE_ALLOWED_READINESS_HEADINGS,
+  REQUIRED_READINESS_HEADINGS,
+  validateReadinessDoc,
+} from "./provider-readiness-doc.mjs";
 import {
   REVIEWED_ENVELOPE_ARTIFACTS,
   assertReviewedEnvelopeCompleteness,
@@ -65,7 +69,7 @@ async function createCheckedFixture() {
 }
 
 describe("checked-in provider manifests and projections", () => {
-  it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", async () => {
+  it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", { timeout: 180_000 }, async () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-28" });
     const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
 
@@ -73,6 +77,10 @@ describe("checked-in provider manifests and projections", () => {
     expect(result.vendorKeys).toHaveLength(18);
     expect(result.vendorKeys).toContain("rmfg");
     expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
+    expect(result.defaultDenyExecuted).toEqual([
+      { key: "quickparts", file: "worker/src/adapters/quickpartsProductionPortal.test.ts", passed: 10 },
+      { key: "weerg", file: "worker/src/adapters/weergProductionPortal.test.ts", passed: 10 },
+    ]);
     for (const { manifest } of manifests) {
       expect(manifest.official.urls.length).toBeGreaterThan(0);
       expect(manifest.official.domains.length).toBeGreaterThan(0);
@@ -449,7 +457,7 @@ describe("reviewed envelope completeness", () => {
     ]);
   });
 
-  it("passes current main providers or keeps only dated tracking exceptions", async () => {
+  it("passes current main providers or keeps only dated tracking exceptions", { timeout: 180_000 }, async () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-10-11" });
     const gaps = await collectReviewedEnvelopeGaps({ rootDir: repoRoot, today: "2026-10-11" });
 
@@ -886,6 +894,10 @@ describe("default-deny registrar call placement", () => {
     ["describe.only", `describe.only("a", () => { ${call}; });`, "ArrowFunction"],
     ["describe.each with items", `describe.each([1])("a", () => { ${call}; });`, "ArrowFunction"],
     ["describe.each empty", `describe.each([])("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe { skip: true }", `describe("a", { skip: true }, () => { ${call}; });`, "describe options argument"],
+    ["describe { todo: true }", `describe("a", { todo: true }, () => { ${call}; });`, "describe options argument"],
+    ["describe third-argument options", `describe("a", () => { ${call}; }, { skip: true });`, "describe options argument"],
+    ["nested describe options", `describe("a", () => { describe("b", { skip: true }, () => { ${call}; }); });`, "describe options argument"],
   ])("rejects a call under %s and names %s", async (_name, body, kind) => {
     await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
   });
@@ -963,7 +975,10 @@ describe("readiness doc structure", () => {
     },
   );
 
-  it.each(["TBD - later", "Coming soon", "None", "TBD TODO", "WIP", "TBC"])(
+  it.each([
+    "TBD - later", "Coming soon", "TBD TODO", "WIP", "TBC",
+    "TBD: fill in later.", "To be determined.", "FIXME", "XXX", "Lorem ipsum.", "- TODO: list gaps", "&nbsp;",
+  ])(
     "treats a %s-only body as empty section content",
     async (placeholder) => {
       const doc = REQUIRED_READINESS_HEADINGS
@@ -975,6 +990,47 @@ describe("readiness doc structure", () => {
       await expect(checkWithDoc(doc)).rejects.toThrow("empty section:");
     },
   );
+
+  it("accepts an honest None. only where no gaps or inputs is a real answer", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n${NONE_ALLOWED_READINESS_HEADINGS.includes(heading) ? "None." : "Real content."}\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
+    const allNone = REQUIRED_READINESS_HEADINGS.map((heading) => `${heading}\n\nNone.\n`).join("");
+    expect(validateReadinessDoc(allNone)).toEqual(
+      REQUIRED_READINESS_HEADINGS
+        .filter((heading) => !NONE_ALLOWED_READINESS_HEADINGS.includes(heading))
+        .map((heading) => `empty section: ${heading}`),
+    );
+  });
+
+  it("treats a whole section wrapped in an HTML comment as missing", async () => {
+    const [, second] = REQUIRED_READINESS_HEADINGS;
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => {
+        const section = `${heading}\n\nacme content.\n`;
+        return heading === second ? `<!--\n${section}-->\n` : section;
+      })
+      .join("\n");
+    expect(validateReadinessDoc(doc)).toEqual([`missing heading: ${second}`]);
+    await expect(checkWithDoc(doc)).rejects.toThrow(`missing heading: ${second}`);
+  });
+
+  it("checks every readiness doc path that exists, not only the first", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "delta", { evidenceReference: "OVD-9001" });
+    await fs.writeFile(path.join(rootDir, "docs/workflows/delta-live-readiness.md"), "TBD\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow("readiness doc docs/workflows/delta-live-readiness.md is malformed");
+  });
+
+  it.each([
+    "docs/workflows/ovd673-fictiv-live-readiness.md",
+    "docs/workflows/ovd674-quickparts-live-readiness.md",
+    "docs/workflows/ovd675-weerg-live-readiness.md",
+  ])("passes the checked-in readiness doc %s", async (relative) => {
+    expect(validateReadinessDoc(await fs.readFile(path.join(repoRoot, relative), "utf8"))).toEqual([]);
+  });
 
   it("treats a ###-only body as empty section content", async () => {
     const headed = REQUIRED_READINESS_HEADINGS
