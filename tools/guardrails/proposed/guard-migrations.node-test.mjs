@@ -64,6 +64,7 @@ writeFileSync(
       "test": "vitest run",
       "loop-a": "npm run loop-b",
       "loop-b": "npm run loop-a",
+      "guard:apply": "node tools/guardrails/apply.mjs",
     },
     workspaces: ["packages/*"],
   }),
@@ -82,6 +83,13 @@ writeFileSync(join(FIXTURE, "clean.patch"), "--- a/src/a.ts\n+++ b/src/a.ts\n@@ 
 writeFileSync(join(FIXTURE, "mig.patch"), "--- /dev/null\n+++ b/supabase/migrations/20261012000000_x.sql\n@@ -0,0 +1 @@\n+create table t();\n");
 writeFileSync(join(FIXTURE, "merge.json"), JSON.stringify({ query: "mutation { mergePullRequest(input: {pullRequestId: \"X\"}) { clientMutationId } }" }));
 writeFileSync(join(FIXTURE, "viewer.json"), JSON.stringify({ query: "query { viewer { login } }" }));
+writeFileSync(join(FIXTURE, "push.sh"), "#!/usr/bin/env -S bash -e\nsupabase db push\n");
+writeFileSync(join(FIXTURE, "push-noshebang.sh"), "supabase db push\n");
+writeFileSync(join(FIXTURE, "push-tool"), "#!/bin/bash\nsupabase db push\n");
+writeFileSync(join(FIXTURE, "clean-tool"), "#!/bin/sh\necho hello\n");
+writeFileSync(join(FIXTURE, "push.py"), "#!/usr/bin/env python3\nimport subprocess\nsubprocess.run(['supabase', 'db', 'push'])\n");
+writeFileSync(join(FIXTURE, "merge-pr1.graphql"), "mutation { mergePullRequest(input: {pullRequestId: \"PR_1\"}) { clientMutationId } }");
+writeFileSync(join(FIXTURE, "viewer.graphql"), "query { viewer { login } }");
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
@@ -344,6 +352,103 @@ residual (a push of the current branch is not resolved, so a checked out main is
 residual (a gh alias made before the guard is not expanded) | gh m 1
 residual (env -C changes directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
 residual (an interpreter script file is not inspected) | node /tmp/w.js
+`;
+
+// Last round rows: the blocking findings from the independent review and the cross review, each with its allow rows.
+const ROUND_13 = String.raw`
+# 1. A generated file name inside a protected directory is still a write there; a word that is only a substitution stays a residual.
+block | cat > supabase/migrations/$(date -u +%Y%m%d%H%M%S)_add_x.sql <<'EOF'⏎create table t();⏎EOF
+block | cp /tmp/x.sql supabase/migrations/$(date +%Y%m%d%H%M%S)_x.sql
+block | touch "supabase/migrations/$(date +%s)_x.sql"
+block | mv /tmp/x.sql "supabase/migrations/$(date -u +%Y%m%d%H%M%S)_x.sql"
+block | cp /tmp/e.mjs .claude/hooks/$(echo guard-migrations).mjs
+block | echo x > "$(git rev-parse --show-toplevel)/supabase/migrations/x.sql"
+pass | cp /tmp/x.sql "supabase/functions/$(date +%s)_x.ts"
+pass | ls "$(git rev-parse --show-toplevel)/supabase/migrations"
+pass | echo "$(date +%s)" > /tmp/stamp
+# 2. A script run by path is read when its #! line names a shell, or it has no #! line and a shell name; a missing .sh fails closed.
+block | $FIXTURE/push.sh
+block | $FIXTURE/push-noshebang.sh
+block | $FIXTURE/push-tool
+block | chmod +x /tmp/p.sh && /tmp/p.sh
+block fixture | ./push.sh
+block fixture | ./bad.sh
+pass fixture | ./clean.sh
+pass | $FIXTURE/clean-tool
+pass | ./node_modules/.bin/vitest run
+residual (a script whose #! line names an interpreter other than a shell is not inspected) | $FIXTURE/push.py
+# 3. curl: --url and --url=, bundled short options, and each --next transfer on its own.
+block | curl --url=https://abc.supabase.co/rest/v1/jobs --json={}
+block | curl --url https://abc.supabase.co/rest/v1/jobs -d '{}'
+block | curl -sX DELETE https://abc.supabase.co/rest/v1/jobs
+block | curl -sSLX PATCH https://abc.supabase.co/rest/v1/jobs -d '{}'
+block | curl -sX PUT https://api.github.com/repos/o/r/pulls/1/merge
+block | curl -I https://example.com --next --json={} https://abc.supabase.co/rest/v1/jobs
+block | curl https://example.com -: -X DELETE https://abc.supabase.co/rest/v1/jobs
+pass | curl -sX PUT https://api.github.com/repos/o/r/pulls/2/merge
+pass | curl -sSL https://abc.supabase.co/rest/v1/jobs
+pass | curl -X POST https://example.com -d x --next https://abc.supabase.co/rest/v1/jobs
+pass | curl -sI https://abc.supabase.co/rest/v1/jobs
+# 4. Attached -c text is checked; an option cluster such as -ce takes the next argument as the text.
+block | bash -c'curl --json={} https://abc.supabase.co/rest/v1/jobs'
+block | sh -c'supabase db push'
+block | zsh -ce 'supabase db push'
+block | dash -ec 'echo x > supabase/migrations/x.sql'
+block | bash -o pipefail -c 'supabase db push'
+block | sh -c 'echo x > "$1"' _ supabase/migrations/x.sql
+pass | sh -ce 'git diff -- supabase/migrations'
+pass | bash -c 'cat supabase/migrations/x.sql'
+pass | bash -o pipefail -c 'git status'
+# 5. supabase db diff with an attached -f.
+block | supabase db diff -fx
+block | supabase db diff --file=x
+pass | supabase db diff
+# 6. Agents never run the installer, by any route.
+block | env -u CLAUDECODE node tools/guardrails/apply.mjs
+block | node --import tsx tools/guardrails/apply.mjs
+block | CLAUDECODE= node ./tools/guardrails/apply.mjs
+block | cd tools/guardrails && node apply.mjs
+block | ./tools/guardrails/apply.mjs
+block | npx node tools/guardrails/apply.mjs
+block fixture | npm run guard:apply
+pass | cat tools/guardrails/apply.mjs
+pass | node --test tools/guardrails/proposed/guard-migrations.node-test.mjs
+# 7. git push to heads/main.
+block | git push origin HEAD:heads/main
+block | git push origin HEAD:refs/heads/main
+pass | git push origin HEAD:heads/feature
+# 8. gh api -F and --field values read from a file.
+block | gh api graphql -F query=@$FIXTURE/merge-pr1.graphql
+block | gh api graphql --field query=@$FIXTURE/merge-pr1.graphql
+block | gh api graphql -F query=@/tmp/missing.graphql
+pass | gh api graphql -F query=@$FIXTURE/viewer.graphql
+pass | gh api graphql -f query=@literal-text
+# 9. Reads that must pass after apply; their writing forms still block.
+pass | psql -h 127.0.0.1 -p 54322 -U postgres -f supabase/migrations/x.sql
+pass | npx eslint tools/guardrails
+pass | npx prettier --check supabase/migrations
+pass | sort supabase/migrations/x.sql -o /tmp/y
+pass | sh -ce 'git diff -- supabase/migrations'
+pass | git -c alias.review='diff -- supabase/migrations' review
+block | psql -h 127.0.0.1 -o supabase/migrations/x.sql -c 'select 1'
+block | npx eslint --fix tools/guardrails
+block | npx prettier --write supabase/migrations
+block | sort -o supabase/migrations/x.sql /tmp/a
+block | git -c alias.p='push origin HEAD:main' p
+block | git -c alias.p='!supabase db push' p
+block | git -c alias.w='checkout main -- supabase/migrations' w
+pass | git -c alias.l='!git log --oneline' l
+# 10. Residuals that stay visible.
+residual (inline interpreter code that builds a path by concatenation is not resolved) | node -e "require('fs').writeFileSync('supabase/'+'migrations/x.sql','')"
+residual (inline interpreter code that builds a path by concatenation is not resolved) | python3 -c "import os; open(os.path.join('supabase','migrations','x.sql'),'w')"
+residual (inline interpreter code that calls fetch or urllib is not inspected) | node -e "fetch('https://abc.supabase.co/rest/v1/jobs',{method:'POST',body:'{}'})"
+residual (inline interpreter code that calls fetch or urllib is not inspected) | python3 -c "import urllib.request as u; u.urlopen(u.Request('https://abc.supabase.co/rest/v1/jobs', data=b'{}'))"
+residual (a push refspec set in git config is not read) | git config remote.origin.push HEAD:main && git push
+residual sql (Supabase shipped functions that write are not on the side effect list) | select realtime.send('{}'::jsonb, 'e', 't', false)
+residual sql (Supabase shipped functions that write are not on the side effect list) | select pgsodium.create_key()
+residual (env -C and env --chdir change directory without a cd the hook can follow) | env --chdir=supabase/migrations touch x.sql
+residual (env -C and env --chdir change directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
+residual fixture (after a cd to a generated or unresolved directory, a script run by a relative path is read from the directory before that cd) | cd "$OTHER" && ./clean.sh
 `;
 
 function tableRows(round, table) {
@@ -708,7 +813,7 @@ const PROBES = [
   [11, "python3 -c \"open('.claude/settings.json','w')\"", HOOK_BLOCKS],
   [11, "cat .claude/settings.json", PASSES],
   [11, "node --test .claude/hooks/guard-migrations.node-test.mjs", PASSES],
-  [11, "node tools/guardrails/apply.mjs", PASSES], // apply.mjs itself refuses inside Claude Code; Blaine runs it from a normal terminal
+  [11, "node tools/guardrails/apply.mjs", HOOK_BLOCKS], // closed in the last round: agents never run the installer, by any route
   // Codex HIGH: Postgres clients against hosts that are not local, and HTTP writes to Supabase APIs.
   [11, "psql \"$DATABASE_URL\" -c 'CREATE TABLE t (id int)'", HOOK_BLOCKS],
   [11, "psql \"$DATABASE_URL\" -c 'select count(*) from jobs'", PASSES],
@@ -800,6 +905,7 @@ const PROBES = [
   [11, "touch supabase/migrations/../migrations/x.sql", HOOK_BLOCKS],
   [11, "echo 'echo x > supabase/migrations/x.sql' > /tmp/w.sh", HOOK_BLOCKS],
   ...tableRows(12, ROUND_12),
+  ...tableRows(13, ROUND_13),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -928,6 +1034,14 @@ test("qualify:ovd417 stays blocked because it runs supabase db push --db-url (an
   for (const reason of reasons) assert.match(reason, real);
   // The round 12 false positives are gone: readers with redirects, generated arguments, keywords and assignment builtins.
   for (const reason of reasons) assert.doesNotMatch(reason, /writes a file whose text|generated path|^(readonly|local|\[\[|!|shasum|cmp|awk|node) /);
+});
+
+test("real scripts run by path are read: the production upgrade blocks, the Symphony scripts pass", { skip: ROOT ? false : "repo root not found" }, () => {
+  const run = (command) => decide({ tool_name: "Bash", tool_input: { command }, cwd: ROOT }, { prFiles: fakePrFiles });
+  assert.ok(run("./scripts/run-ovd373-production-upgrade.sh"), "./scripts/run-ovd373-production-upgrade.sh should block");
+  assert.ok(run("bash scripts/run-ovd373-production-upgrade.sh"), "bash scripts/run-ovd373-production-upgrade.sh should block");
+  assert.equal(run("./scripts/symphony-preflight.sh"), null);
+  assert.equal(run("./scripts/symphony-ensure-branch.sh ovd-1-x"), null);
 });
 
 const driftSkip = () => {

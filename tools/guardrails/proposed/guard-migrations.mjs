@@ -19,8 +19,12 @@
  *   pathspec that could cover them (git global options such as -C are
  *   normalized first), git apply of a patch that names them, any pipe into a
  *   shell, decoded or generated text run by an interpreter, and shell scripts
- *   whose text does any of that. Readers (cat, sed -n, awk, jq, grep, head and
- *   so on) pass, also with a redirect to a path that is not protected;
+ *   (run by a shell or by path, with -c text attached or not) whose text does
+ *   any of that. A generated file name inside a protected directory is still
+ *   a write there. Readers (cat, sed -n, awk, jq, grep, head, sort, eslint and
+ *   prettier without their writing flags, psql -f and so on) pass, also with a
+ *   redirect to a path that is not protected;
+ * - running tools/guardrails/apply.mjs by any route;
  * - supabase CLI commands that create migration files, or that target a
  *   hosted project (--linked, --project-ref, a --db-url that is not loopback,
  *   or a remote only command) unless they are on a read allow list, also when
@@ -28,10 +32,11 @@
  *   npx and npm exec forms, workspaces);
  * - psql, pgbench and other Postgres clients (docker run and exec included)
  *   whose target is not provably loopback, unless psql runs read only SQL,
- *   and HTTP writes to Supabase APIs;
+ *   and HTTP writes to Supabase APIs (each curl --next transfer on its own);
  * - hosted Supabase write tools under any MCP server name, and execute_sql
  *   unless it is a single read only statement;
- * - git push to main, the merges API and writes to the main ref;
+ * - git push to main (heads/main included, -c aliases expanded), the merges
+ *   API and writes to the main ref;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -55,6 +60,7 @@ const READERS = new Set([
   "ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "less", "more", "stat", "file", "diff", "find", "sort", "uniq", "nl",
   "md5sum", "cksum", "cmp", "echo", "printf", "realpath", "readlink", "dirname", "basename", "test", "[", "true",
   "sed", "awk", "gawk", "mawk", "nawk", "jq", "cut", "xxd", "od", "hexdump", "tac", "rev", "comm", "column", "strings", "tr", "fold", "paste",
+  "eslint", "prettier",
 ]);
 const isReader = (cmd) => READERS.has(cmd) || /^(sha\d*sum|shasum|b2sum)$/.test(cmd);
 // Commands for which a bare "supabase", ".claude" or "tools" word (or a glob that could expand to it) means the directory.
@@ -86,7 +92,7 @@ const SCRIPT_FILE = /\.(sh|bash|zsh|ksh|js|mjs|cjs|ts|py|rb|pl|php)$/i;
 const PG_CLIENTS = /^(psql|pgcli|pgbench|pg_restore|createdb|dropdb|createuser|dropuser|vacuumdb|reindexdb|clusterdb)$/;
 const SUPABASE_HTTP = /supabase\.(co|in|com|net)\b|\/(rest|auth|storage|graphql|pg)\/v1\b|\$\{?\w*SUPABASE\w*/i;
 const LOOPBACK = /^(localhost|[\w-]+\.localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|\[::1\]|host\.docker\.internal)$/i;
-const MAIN_REF = /^(refs\/heads\/)?(main|master)$/;
+const MAIN_REF = /^(refs\/)?(heads\/)?(main|master)$/;
 const GH_TIMEOUT_MS = 6000;
 // gh is run from a fixed install location rather than looked up on PATH.
 const GH_CANDIDATES = ["/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh", "/home/linuxbrew/.linuxbrew/bin/gh"];
@@ -369,7 +375,11 @@ function isDirectory(path) {
  * which matters only for commands that write files.
  */
 function protectedName(word, dir, wholeDir = false) {
-  if (word.includes(SUB)) return null;
+  if (word.includes(SUB)) {
+    // A word that is only substitutions is a generated path (see writeTargetReason); a fixed directory with a generated name is not.
+    if (word.split("/").every((part) => part.replaceAll(SUB, "") === "")) return null;
+    word = word.replaceAll(SUB, "_");
+  }
   const home = /^(~|\$\{?HOME\}?)\//.exec(word);
   const segs = home ? ["~", ...changeDir([], word.slice(home[0].length))] : changeDir(dir, word);
   const joined = segs.join("/");
@@ -384,6 +394,18 @@ function protectedName(word, dir, wholeDir = false) {
     return "the guardrail files";
   }
   return null;
+}
+
+/** The file sort -o (or --output) writes, or undefined. */
+function sortOutput(args) {
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "--output" || /^-[a-zA-Z]*o$/.test(w)) return args[i + 1] ?? "";
+    if (w.startsWith("--output=")) return w.slice(9);
+    const m = /^-[a-zA-Z]*o(.+)$/.exec(w);
+    if (m && !w.startsWith("--")) return m[1];
+  }
+  return undefined;
 }
 
 /** True when sed would write a file or run a command: -i, a script file, or a w, W or e command in its script. */
@@ -419,7 +441,10 @@ function readerWrites(cmd, args) {
   if (/^[gmn]?awk$/.test(cmd)) return awkWrites(args);
   if (cmd === "xxd") return args.filter((w, i) => !w.startsWith("-") && !/^-(c|g|l|o|s|n|cols|groupsize|len|seek|name)$/.test(args[i - 1] ?? "")).length >= 2;
   if (cmd === "find") return args.some((w) => /^-(exec|execdir|ok|okdir|delete|fprint0?|fprintf|fls)$/.test(w));
-  if (cmd === "sort" || cmd === "diff") return args.some((w) => /^--output|^-[a-zA-Z]*o/.test(w));
+  if (cmd === "diff") return args.some((w) => /^--output|^-[a-zA-Z]*o/.test(w));
+  if (cmd === "sort") return sortOutput(args) !== undefined;
+  if (cmd === "eslint") return args.some((w) => /^(--fix|--fix-type|--output-file|-o|--cache-location|--cache-file)(=|$)|^-o./.test(w));
+  if (cmd === "prettier") return args.some((w) => /^(--write|-w|--cache-location)(=|$)/.test(w));
   if (cmd === "uniq") return args.filter((w) => w === "-" || !w.startsWith("-")).length >= 2;
   if (cmd === "file") return args.some((w) => w === "-C" || w === "--compile");
   if (cmd === "less" || cmd === "more") return args.some((w) => w.startsWith("+"));
@@ -471,6 +496,7 @@ function ghCall(argv) {
 function gitCall(argv, dir) {
   let cwd = dir;
   let config = null;
+  const aliases = {};
   let i = 1;
   for (; i < argv.length && argv[i].startsWith("-"); i++) {
     const w = argv[i];
@@ -480,9 +506,16 @@ function gitCall(argv, dir) {
     if (/^-[Cc]./.test(w)) [flag, value] = [w.slice(0, 2), w.slice(2)];
     if (value === undefined && /^(-C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix|--attr-source|--list-cmds)$/.test(flag)) value = argv[++i] ?? "";
     if (flag === "-C" || flag === "--work-tree") cwd = changeDir(cwd, value);
-    if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
+    const alias = flag === "-c" && /^alias\.([^=]+)=([\s\S]*)$/i.exec(value);
+    if (alias) aliases[alias[1].toLowerCase()] = alias[2];
+    else if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
   }
-  return { argv: [argv[0], ...argv.slice(i)], dir: cwd, config };
+  const rest = argv.slice(i);
+  // An alias given with -c is expanded: a ! alias is returned as shell text to check, any other becomes git arguments.
+  const alias = Object.hasOwn(aliases, rest[0]?.toLowerCase()) ? aliases[rest[0].toLowerCase()] : undefined;
+  if (alias?.startsWith("!")) return { argv: [argv[0]], dir: cwd, config, shell: alias.slice(1), shellArgs: rest.slice(1) };
+  const expanded = alias === undefined ? rest : [...parse(alias).segments.flatMap((s) => s.words), ...rest.slice(1)];
+  return { argv: [argv[0], ...expanded], dir: cwd, config };
 }
 
 /** Reads a file named in a command, resolved from dir; null when it cannot be read. */
@@ -575,7 +608,7 @@ function supabaseReason(args) {
   const key = `${group} ${action}`;
   const name = ["supabase", group, action].filter(Boolean).join(" ");
   if (SUPABASE_FILE_WRITES.has(key)) return `${name} would create a migration file`;
-  if (key === "db diff" && args.some((w) => /^(-f|--file)(=|$)/.test(w))) return "supabase db diff -f would write a migration file";
+  if (key === "db diff" && args.some((w) => /^(-f|--file)(=|$)|^-f./.test(w))) return "supabase db diff -f would write a migration file";
   if (key === "db schema" && positional.includes("sync")) return `${name} declarative sync would write a migration file`;
   const loopbackUrl = dbUrl !== undefined && connHosts(dbUrl).every(localHost);
   const hosted =
@@ -766,7 +799,15 @@ const MERGE_ROUTE = /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/pulls\/(\d+)\/(?:ccr\/
 
 /** Route, method, field words and body text (null when an --input file cannot be read) of a gh api call. */
 function ghApiCall(argv, dir) {
-  const call = { route: undefined, method: undefined, fields: [], input: undefined };
+  const call = { route: undefined, method: undefined, fields: [], input: undefined, unread: false };
+  // -F key=@file and --field key=@file send the file's text, which is read so a merge mutation in it is seen.
+  const typed = (field) => {
+    const at = field.indexOf("=");
+    if (at < 0 || field[at + 1] !== "@") return field;
+    const text = readNamed(field.slice(at + 2), dir);
+    if (text === null) call.unread = true;
+    return `${field.slice(0, at)}=${text ?? ""}`;
+  };
   for (let i = 2; i < argv.length; i++) {
     const w = argv[i];
     if (w === "-X" || w === "--method") call.method = argv[++i];
@@ -774,70 +815,97 @@ function ghApiCall(argv, dir) {
     else if (w.startsWith("--method=")) call.method = w.slice(9);
     else if (w === "--input") call.input = argv[++i] ?? "-";
     else if (w.startsWith("--input=")) call.input = w.slice(8);
-    else if (/^(-f|-F|--field|--raw-field)$/.test(w)) call.fields.push(argv[++i] ?? "");
-    else if (/^(-f|-F)./.test(w)) call.fields.push(w.slice(2));
-    else if (/^--(field|raw-field)=/.test(w)) call.fields.push(w.slice(w.indexOf("=") + 1));
+    else if (/^(-f|--raw-field)$/.test(w)) call.fields.push(argv[++i] ?? "");
+    else if (/^(-F|--field)$/.test(w)) call.fields.push(typed(argv[++i] ?? ""));
+    else if (/^-f./.test(w)) call.fields.push(w.slice(2));
+    else if (/^-F./.test(w)) call.fields.push(typed(w.slice(2)));
+    else if (w.startsWith("--raw-field=")) call.fields.push(w.slice(12));
+    else if (w.startsWith("--field=")) call.fields.push(typed(w.slice(8)));
     else if (/^(-H|--header|-q|--jq|-t|--template|--hostname|-p|--preview|--cache)$/.test(w)) i++;
     else if (!w.startsWith("-") && call.route === undefined) call.route = w.replace(/^\//, "");
   }
   const hasBody = call.fields.length > 0 || call.input !== undefined;
   call.method = (call.method ?? (hasBody ? "POST" : "GET")).toUpperCase();
   const input = call.input === undefined ? "" : readNamed(call.input, dir);
-  call.body = input === null ? null : [...call.fields, input].join("\n");
+  call.body = input === null || call.unread ? null : [...call.fields, input].join("\n");
   return call;
 }
 
-/** Method, URLs and body text (null when it cannot be read) of a curl, wget or HTTPie request. */
-function httpRequest(argv, dir) {
+// curl short options that take a value; any other letter in a bundle such as -sX is a switch.
+const CURL_SHORT_VALUE = "bcCdDeEFHKmoPQrtTuUwxXyYzA";
+const CURL_LONG_VALUE = /^--(request|data|data-ascii|data-binary|data-raw|data-urlencode|json|form|form-string|upload-file|url|header|user|output|user-agent|referer|cookie|cookie-jar|config|proxy|write-out|connect-timeout|max-time|retry|range|resolve|cacert|cert|key|dump-header|continue-at|quote|telnet-option|ftp-port|proxy-user|time-cond|speed-limit|speed-time|variable|expand-url|expand-data|expand-json)$/;
+
+/** curl arguments as [option, value] pairs (value undefined for switches and URLs), with bundled short options split. */
+function curlOptions(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+    if (eq) out.push([eq[1], eq[2]]);
+    else if (w.startsWith("--")) out.push(CURL_LONG_VALUE.test(w) ? [w, args[++i] ?? ""] : [w, undefined]);
+    else if (/^-[^-]/.test(w)) {
+      for (let k = 1; k < w.length; k++) {
+        const flag = `-${w[k]}`;
+        if (!CURL_SHORT_VALUE.includes(w[k])) {
+          out.push([flag, undefined]);
+          continue;
+        }
+        out.push([flag, w.slice(k + 1) || (args[++i] ?? "")]);
+        break;
+      }
+    } else out.push([null, w]);
+  }
+  return out;
+}
+
+const CURL_BODY = /^(-d|-F|--data|--data-ascii|--data-binary|--data-raw|--data-urlencode|--json|--form|--form-string)$/;
+
+/**
+ * Requests ({ method, urls, body }, body null when it cannot be read) a
+ * curl, wget or HTTPie command sends. Each curl --next transfer is its own
+ * request, since curl resets the method and body there.
+ */
+function httpRequests(argv, dir) {
   const cmd = base(argv[0]);
-  const req = { method: undefined, urls: [], body: "" };
-  let hasBody = false;
-  const addBody = (flag, value = "") => {
-    hasBody = true;
+  const newRequest = () => ({ method: undefined, urls: [], body: "", hasBody: false, get: false, upload: false });
+  const addBody = (req, flag, value = "") => {
+    req.hasBody = true;
     if (req.body === null) return;
     if (value.startsWith("@") && !/raw|string/.test(flag)) {
       const text = readNamed(value.slice(1), dir);
       req.body = text === null ? null : `${req.body}\n${text}`;
     } else req.body += `\n${value}`;
   };
+  const finish = (req) => ({ method: String(req.method).toUpperCase(), urls: req.urls, body: req.body });
   if (cmd === "curl") {
-    let get = false;
-    let upload = false;
-    for (let i = 1; i < argv.length; i++) {
-      const w = argv[i];
-      const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
-      if (w === "-X" || w === "--request") req.method = argv[++i];
-      else if (/^-X./.test(w)) req.method = w.slice(2);
-      else if (eq?.[1] === "--request") req.method = eq[2];
-      else if (/^(-d|--data|--data-ascii|--data-binary|--data-raw|--data-urlencode|--json|-F|--form|--form-string)$/.test(w)) addBody(w, argv[++i]);
-      else if (eq && /^(--data(-ascii|-binary|-raw|-urlencode)?|--json|--form(-string)?)$/.test(eq[1])) addBody(eq[1], eq[2]);
-      else if (/^-[dF]./.test(w)) addBody(w.slice(0, 2), w.slice(2));
-      else if (w === "-T" || w === "--upload-file") {
-        upload = true;
-        i++;
-      } else if (/^-T./.test(w)) upload = true;
-      else if (w === "-G" || w === "--get") get = true;
-      else if (w === "-I" || w === "--head") req.method ??= "HEAD";
-      else if (w === "--url") req.urls.push(argv[++i] ?? "");
-      else if (/^(-H|--header|-u|--user|-o|--output|-A|--user-agent|-e|--referer|-b|--cookie|-c|--cookie-jar|-K|--config|-x|--proxy|-w|--write-out|--connect-timeout|-m|--max-time|--retry|-r|--range|--resolve|--cacert|--cert|--key|-E)$/.test(w)) i++;
-      else if (!w.startsWith("-")) req.urls.push(w);
+    const requests = [newRequest()];
+    for (const [flag, value] of curlOptions(argv.slice(1))) {
+      const req = requests.at(-1);
+      if (flag === null || flag === "--url") req.urls.push(value);
+      else if (flag === "--next" || flag === "-:") requests.push(newRequest());
+      else if (flag === "-X" || flag === "--request") req.method = value;
+      else if (CURL_BODY.test(flag)) addBody(req, flag, value);
+      else if (flag === "-T" || flag === "--upload-file") req.upload = true;
+      else if (flag === "-G" || flag === "--get") req.get = true;
+      else if (flag === "-I" || flag === "--head") req.method ??= "HEAD";
     }
-    req.method ??= upload ? "PUT" : hasBody && !get ? "POST" : "GET";
-  } else if (cmd === "wget") {
+    return requests.map((req) => finish({ ...req, method: req.method ?? (req.upload ? "PUT" : req.hasBody && !req.get ? "POST" : "GET") }));
+  }
+  const req = newRequest();
+  if (cmd === "wget") {
     for (const w of argv.slice(1)) {
       const m = /^--(post-data|post-file|body-data|body-file)=(.*)$/s.exec(w);
-      if (m) addBody(m[1], m[1].endsWith("file") ? `@${m[2]}` : m[2]);
+      if (m) addBody(req, m[1], m[1].endsWith("file") ? `@${m[2]}` : m[2]);
       else if (w.startsWith("--method=")) req.method = w.slice(9);
       else if (!w.startsWith("-")) req.urls.push(w);
     }
-    req.method ??= hasBody ? "POST" : "GET";
+    req.method ??= req.hasBody ? "POST" : "GET";
   } else {
     req.method = argv.slice(1).find((w) => /^(GET|HEAD|POST|PUT|PATCH|DELETE)$/i.test(w)) ?? (argv.some((w) => /^[\w-]+:?=/.test(w)) ? "POST" : "GET");
     req.urls = argv.slice(1).filter((w) => /(:\/\/)|(^:\d)|(^\$)/.test(w) || SUPABASE_HTTP.test(w));
     req.body = argv.slice(1).join("\n");
   }
-  req.method = String(req.method).toUpperCase();
-  return req;
+  return [finish(req)];
 }
 
 /** A merge target from a GraphQL body holding a merge mutation, or null when it holds none. */
@@ -880,8 +948,8 @@ function mergeTarget(argv, env, dir) {
     if (!m || call.method === "GET" || call.method === "DELETE") return null;
     return { ...fillRepo(m[1], m[2], env), number: m[3] };
   }
-  if (/^(curl|wget|http|https)$/.test(cmd)) {
-    const req = httpRequest(argv, dir);
+  if (!/^(curl|wget|http|https)$/.test(cmd)) return null;
+  for (const req of httpRequests(argv, dir)) {
     for (const url of req.urls) {
       const path = url.replace(/^\w+:\/\/[^/]+/, "");
       if (/\/graphql\/?(?:[?#].*)?$/.test(path) && req.method !== "GET") {
@@ -1101,12 +1169,13 @@ function pgReason(argv, env) {
 
 /** Block reason for HTTP writes (anything but GET or HEAD) to a Supabase API that is not loopback. */
 function supabaseHttpReason(argv, dir) {
-  const req = httpRequest(argv, dir);
-  if (req.method === "GET" || req.method === "HEAD") return null;
-  for (const url of req.urls) {
-    const host = urlHost(url);
-    if (host !== null && !host.includes("$") && localHost(host)) continue;
-    if (SUPABASE_HTTP.test(url)) return `${base(argv[0])} ${req.method} to a Supabase API that is not loopback would change hosted data`;
+  for (const req of httpRequests(argv, dir)) {
+    if (req.method === "GET" || req.method === "HEAD") continue;
+    for (const url of req.urls) {
+      const host = urlHost(url);
+      if (host !== null && !host.includes("$") && localHost(host)) continue;
+      if (SUPABASE_HTTP.test(url)) return `${base(argv[0])} ${req.method} to a Supabase API that is not loopback would change hosted data`;
+    }
   }
   return null;
 }
@@ -1189,6 +1258,7 @@ function protectedWrite(argv, segment, dir, substs) {
   if (cmd === "git") {
     const git = gitCall(argv, dir);
     if (git.config) return `git -c ${git.config} names a protected path`;
+    if (git.shell !== undefined) return git.shellArgs.some((w) => protectedName(w, git.dir, true)) ? "git shell alias gets a protected path as an argument" : null;
     return gitReason(git.argv, segment, git.dir);
   }
   if (cmd === "gh") {
@@ -1196,10 +1266,11 @@ function protectedWrite(argv, segment, dir, substs) {
     return gh[1] === "api" ? ghApiReason(gh, dir) : argsReason(cmd, ghArgs(gh), segment, dir, substs);
   }
   if (/^(curl|wget|http|https)$/.test(cmd)) {
-    const req = httpRequest(argv, dir);
-    for (const url of req.urls) {
-      const reason = /api\.github\.com|\/api\/v3\//.test(url) && branchWriteReason(url.replace(/^.*?\/api\/v3/, ""), req.method, req.body);
-      if (reason) return `${cmd}: ${reason}`;
+    for (const req of httpRequests(argv, dir)) {
+      for (const url of req.urls) {
+        const reason = /api\.github\.com|\/api\/v3\//.test(url) && branchWriteReason(url.replace(/^.*?\/api\/v3/, ""), req.method, req.body);
+        if (reason) return `${cmd}: ${reason}`;
+      }
     }
   }
   if (cmd === "patch") {
@@ -1207,7 +1278,15 @@ function protectedWrite(argv, segment, dir, substs) {
     return patchReason([...files, ...segment.ins], dir, "patch") ?? argsReason(cmd, argv.slice(1), segment, dir, substs);
   }
   if (COPY_COMMANDS.has(cmd)) return copyReason(cmd, argv.slice(1), dir, segment, substs);
+  // A package runner's command and a shell's -c text are checked on their own (checkSegment); only what is left is checked here.
+  if (runnerInner(argv)) return null;
   let args = argv.slice(1);
+  if (SCRIPT_SHELLS.has(cmd)) {
+    const texts = shellInline(argv) ?? [];
+    args = args.filter((w) => !texts.includes(w) && !/^[-+][^-]/.test(w));
+  }
+  // psql reads the file it runs; its target host was checked by pgReason.
+  if (cmd === "psql") args = args.filter((w, i) => !/^(-f|--file)$/.test(args[i - 1] ?? "") && !/^(-f.|--file=)/.test(w));
   // The file an interpreter runs is read, not written; inline code (-c, -e) stays checked. node --test runs every file it names.
   if (INTERPRETERS.has(cmd) && !SHELLS.has(cmd) && !args.some((w) => /^(-[ceEpr]|--eval|--print)$/.test(w))) {
     if (cmd === "node" && args.includes("--test")) args = args.filter((w) => w.startsWith("-"));
@@ -1226,6 +1305,11 @@ function protectedWrite(argv, segment, dir, substs) {
  */
 function argsReason(cmd, args, segment, dir, substs) {
   if (isReader(cmd) && !readerWrites(cmd, args)) return null;
+  // sort reads its inputs; only the -o file is written.
+  if (cmd === "sort") {
+    const reason = writeTargetReason(sortOutput(args), dir, segment, substs);
+    return reason ? `sort would write ${reason}` : null;
+  }
   const writesArgs = FILE_WRITERS.has(cmd) || isReader(cmd);
   const generated = writesArgs && args.some((w) => w.includes(SUB)) && substs.some((s) => PROTECTED_TEXT.test(s));
   const name = inMigrations(dir) ? "supabase/migrations" : args.map((w) => protectedName(w, dir, FILE_WRITERS.has(cmd))).find(Boolean);
@@ -1236,11 +1320,63 @@ function argsReason(cmd, args, segment, dir, substs) {
   return `${cmd} would write to ${name ?? "a generated path that names a protected path"}`;
 }
 
+/**
+ * Inline command texts a shell runs with -c, or null when it runs none. A
+ * word such as -ce is a cluster of options and the text is the next
+ * argument; -cTEXT is also read as the text itself, so both readings are checked.
+ */
+function shellInline(argv) {
+  const texts = [];
+  let inline = false;
+  let i = 1;
+  for (; i < argv.length && /^[-+][^-]/.test(argv[i]); i++) {
+    const w = argv[i];
+    const at = w.indexOf("c");
+    if (at > 0) {
+      inline = true;
+      if (w.length > at + 1) texts.push(w.slice(at + 1));
+    }
+    if (/^[-+][a-zA-Z]*[oO]$/.test(w)) i++;
+  }
+  if (!inline) return null;
+  if (i < argv.length) texts.push(argv[i]);
+  return texts;
+}
+
+const SHELL_SCRIPT_NAME = /\.(sh|bash|zsh)$/i;
+
+/** The shell a script's #! line names (directly or through env), or null. */
+function shebangShell(text) {
+  const m = /^#!\s*(\S+)([^\n]*)/.exec(text);
+  if (!m) return null;
+  let words = [m[1], ...m[2].trim().split(/\s+/).filter(Boolean)];
+  if (base(words[0]) === "env") {
+    words = words.slice(1);
+    while (words.length > 0 && (words[0].startsWith("-") || isAssignment(words[0]))) words = words.slice(/^(-u|--unset|-C|--chdir)$/.test(words[0]) ? 2 : 1);
+  }
+  return SCRIPT_SHELLS.has(base(words[0] ?? "")) ? base(words[0]) : null;
+}
+
+/**
+ * Text of a script run by path (./x.sh, /tmp/p.sh) when it is a shell
+ * script: its #! line names a shell, or it has none and a .sh, .bash or .zsh
+ * name. Null when a script with a shell name cannot be read; undefined otherwise.
+ */
+function pathScript(argv, dir) {
+  if (!argv[0]?.includes("/") || INTERPRETERS.has(base(argv[0]))) return undefined;
+  // After a cd to a generated or unresolved directory (cd "$root_dir"), the script is read from the directory before that cd.
+  const known = dir.filter((part) => !part.includes(SUB) && !part.includes("$"));
+  const text = readNamed(argv[0], dir) ?? (known.length === dir.length ? null : readNamed(argv[0], known));
+  if (text === null) return SHELL_SCRIPT_NAME.test(argv[0]) ? null : undefined;
+  if (text.startsWith("#!")) return shebangShell(text) ? text : undefined;
+  return SHELL_SCRIPT_NAME.test(argv[0]) ? text : undefined;
+}
+
 /** Text of a shell script the command runs from a file, or undefined when it runs none. */
 function shellScript(cmd, argv, segment, dir) {
-  if (!SCRIPT_SHELLS.has(cmd) && cmd !== "source" && cmd !== ".") return undefined;
-  if (argv.includes("-c")) return undefined;
-  const file = argv.slice(1).find((w) => !w.startsWith("-") && !w.startsWith("+"));
+  if (!SCRIPT_SHELLS.has(cmd) && cmd !== "source" && cmd !== ".") return pathScript(argv, dir);
+  if (SCRIPT_SHELLS.has(cmd) && shellInline(argv)) return undefined;
+  const file = argv.slice(1).find((w, i) => !w.startsWith("-") && !w.startsWith("+") && !/^[-+][a-zA-Z]*[oO]$/.test(argv[i] ?? ""));
   if (file !== undefined) return readNamed(file, dir) ?? null;
   if (segment.ins.length > 0) return readNamed(segment.ins[0], dir) ?? null;
   return undefined;
@@ -1276,9 +1412,22 @@ function dockerInner(argv) {
   return inner.length > 0 ? { argv: inner, env } : null;
 }
 
+/** True when argv runs tools/guardrails/apply.mjs, by path or through an interpreter. */
+function runsInstaller(argv, dir) {
+  const isInstaller = (w) => !w.includes(SUB) && /(^|\/)tools\/guardrails\/apply\.mjs$/i.test(changeDir(dir, w).join("/"));
+  if (isInstaller(argv[0] ?? "")) return true;
+  return INTERPRETERS.has(base(argv[0])) && !SHELLS.has(base(argv[0])) && argv.slice(1).some(isInstaller);
+}
+
 function checkSegment(segment, state, dir, ctx, depth, substs) {
   const { argv, wrappers, env } = unwrap(segment.words);
   const cmd = base(argv[0]);
+  if (runsInstaller(argv, dir)) return "runs tools/guardrails/apply.mjs, which installs the guardrail; only the lead runs it, with Blaine's approval";
+  const shellAlias = cmd === "git" ? gitCall(argv, dir) : null;
+  if (shellAlias?.shell !== undefined) {
+    const reason = checkCommand(shellAlias.shell, shellAlias.dir, ctx, depth + 1);
+    if (reason) return `git shell alias: ${reason}`;
+  }
   const piped = segment.op === "|" || segment.op === "|&";
   if (piped && SHELLS.has(cmd)) return "pipes into a shell interpreter";
   if (piped && state.decoded && INTERPRETERS.has(cmd)) return "runs decoded text with an interpreter";
@@ -1297,9 +1446,12 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
     const reason = checkCommand(script, dir, ctx, depth + 1);
     if (reason) return `${cmd} script: ${reason}`;
   }
-  const inline = cmd === "eval" ? argv.slice(1).join(" ") : (SHELLS.has(cmd) || /^(npx|npm)$/.test(cmd)) && argv.find((w, i) => /^(-c|--call)$/.test(argv[i - 1] ?? ""));
-  if (inline) {
-    const reason = checkCommand(inline, dir, ctx, depth + 1);
+  let inline = [];
+  if (cmd === "eval") inline = [argv.slice(1).join(" ")];
+  else if (SCRIPT_SHELLS.has(cmd)) inline = shellInline(argv) ?? [];
+  else if (SHELLS.has(cmd) || /^(npx|npm)$/.test(cmd)) inline = argv.filter((w, i) => /^(-c|--call)$/.test(argv[i - 1] ?? ""));
+  for (const text of inline) {
+    const reason = checkCommand(text, dir, ctx, depth + 1);
     if (reason) return reason;
   }
   if (cmd === "trap" && argv[1]) {
