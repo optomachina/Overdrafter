@@ -1,0 +1,818 @@
+{
+  "_comment": "OVD-736: every public-schema function that anon or authenticated may EXECUTE after docs/migration-drafts/ovd-736-revoke-anon-execute.sql is applied. Verified by supabase/tests/pending/ovd736_function_execute_allowlist.sql.pending (pgTAP, against pg_proc ACLs) and scripts/function-execute-allowlist.node-test.mjs. Adding a function here requires a reason and review.",
+  "anon": [],
+  "authenticated": [
+    {
+      "signature": "api_accept_founding_beta_notice(uuid, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_accept_project_invite(text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_admin_complete_manual_quote_request(uuid, uuid, uuid, uuid, vendor_name, text, text, vendor_status, text, text, text, jsonb, jsonb)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_get_commercial_account(uuid)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_get_founding_beta_enrollment(uuid)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_get_organization_entitlement_state(uuid)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_grant_organization_entitlement(uuid, text, timestamp with time zone, timestamp with time zone, timestamp with time zone, text, text)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_invalidate_vendor_quote_offer(uuid, text, text)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_all_jobs()",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_all_projects()",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_all_users()",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_commercial_account_audit(uuid, text, integer)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_manual_quote_requests(text, integer)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_organizations()",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_list_platform_notifications(integer)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_revoke_organization_entitlement(uuid, text, text)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_search_commercial_accounts(text, text, integer)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_admin_set_founding_beta_enrollment(uuid, boolean, text, text)",
+      "security_definer": true,
+      "reason": "platform-admin RPC; must gate on is_platform_admin()"
+    },
+    {
+      "signature": "api_approve_job_requirements(uuid, jsonb)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_archive_job(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_archive_project(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_assign_job_to_project(uuid, uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_attach_job_file(uuid, text, text, text, job_file_kind, text, bigint)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_cancel_engineering_suffix(uuid, bigint, uuid, uuid[], text)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_cancel_quote_request(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_confirm_part_deadline(uuid, text, date)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_confirm_sourcing_destination(uuid, jsonb)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_control_worker_session(uuid, bigint, uuid, text, uuid)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_create_client_draft(text, text, uuid, text[], text[], text, text, integer[], date)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_create_job(uuid, text, text, text, text[], text[], text, text, integer[], date)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_create_project(text, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_create_self_service_organization(text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_create_worker_pairing(uuid, uuid, uuid, bigint, uuid, text)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_delete_archived_job(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_delete_archived_jobs(uuid[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_delete_project(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_dissolve_project(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_enqueue_debug_vendor_quote(uuid, uuid, vendor_name, integer)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_finalize_job_file_upload(uuid, text, text, text, job_file_kind, text, bigint, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_client_intake_compatibility()",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_founding_beta_access_state(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_is_platform_admin()",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_job_vendor_preferences(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_organization_entitlements(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_part_deadline(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_provider_dispatch_scope(uuid, vendor_name, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_quote_access(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_quote_lane_eligibility(uuid, vendor_name[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_quote_run_readiness(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_sourcing_destination(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_get_xometry_beta_dispatch_scope(uuid, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_invite_project_member(uuid, text, project_role)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_list_client_activity_events(uuid[], integer)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_list_client_part_metadata(uuid[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_list_client_quote_workspace(uuid[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_list_organization_memberships(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_list_project_assignee_profiles(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_prepare_job_file_upload(uuid, text, job_file_kind, text, bigint, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_prepare_organization_billing_session(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_prepare_part_intake(text, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_publish_quote_package(uuid, uuid, text, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_reconcile_job_parts(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_reconcile_native_stop(uuid, uuid, uuid, uuid, uuid, bigint, uuid)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_record_manual_vendor_quote(uuid, uuid, vendor_name, vendor_status, text, text, text, jsonb, jsonb)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_remove_job_from_project(uuid, uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_remove_project_member(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_debug_extraction(uuid, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_extraction(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_manual_quote(uuid, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_manual_quotes(uuid[], boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_provider_dispatch(uuid, vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_quote(uuid, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_quote_scoped(uuid, vendor_name[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_quotes(uuid[], boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_request_xometry_beta_dispatch(uuid, text, text, text, uuid, boolean, boolean, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_reset_client_part_property_overrides(uuid, text[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_retry_native_task(uuid, uuid, uuid, uuid, bigint, uuid, text)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_select_quote_option(uuid, uuid, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_set_global_spend_cap(numeric, numeric, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_set_job_selected_vendor_quote_offer(uuid, uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_set_job_vendor_preferences(uuid, vendor_name[], vendor_name[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_set_project_vendor_preferences(uuid, vendor_name[], vendor_name[])",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_spend_summary()",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_start_quote_run(uuid, boolean)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_submit_engineering_message(uuid, uuid, uuid, uuid, bigint, uuid, text)",
+      "security_definer": false,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_unarchive_job(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_unarchive_project(uuid)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_update_client_part_request(uuid, text[], text, text, text, text, text, text, text, text, numeric, text, text, integer, integer[], date, jsonb, jsonb, jsonb, jsonb)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_update_organization_addresses(uuid, jsonb)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_update_organization_membership_role(uuid, app_role)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "api_update_project(uuid, text, text)",
+      "security_definer": true,
+      "reason": "signed-in app RPC (src/features/** or worker); internally gated on auth.uid()/membership"
+    },
+    {
+      "signature": "apply_markup(numeric, numeric, numeric)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "build_org_file_blob_storage_path(uuid, text, text)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "build_project_part_property_snapshot(jsonb, jsonb, jsonb, text, timestamp with time zone, text, text, text, text, text, numeric)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "build_project_part_property_snapshot(jsonb, jsonb, jsonb, text, timestamp with time zone, text, text, text, text, text, numeric, text, text)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "build_vendor_preferences_json(vendor_name[], vendor_name[], timestamp with time zone)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "current_user_can_access_manual_quote_artifact(uuid, text, text, boolean, boolean)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_can_delete_unregistered_manual_quote_upload(text, text, text, timestamp with time zone)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_has_aal2()",
+      "security_definer": false,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_has_commercial_capability(text)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_has_current_founding_beta_access(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_has_verified_auth()",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "current_user_home_organization_id()",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "is_internal_user(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "is_internal_user_any_org()",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "is_org_admin(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "is_platform_admin()",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "job_part_file_set(uuid)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "load_editable_project_part_context(uuid)",
+      "security_definer": true,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_file_basename(text)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_positive_integer_array(integer[], integer)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_primary_service_kind(text[], text)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_project_part_threads(jsonb)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_requested_service_kinds(text[], text)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "normalize_vendor_name_array(vendor_name[])",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "require_verified_auth()",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "resolve_project_part_property_values(jsonb, jsonb)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "seed_project_part_property_defaults(approved_part_requirements, jsonb, jsonb)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "seed_revision_and_process_property_defaults(approved_part_requirements, jsonb, jsonb)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "spend_default_daily_ceiling_usd()",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "spend_default_per_run_ceiling_usd()",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "sync_quote_request_status_from_vendor_result()",
+      "security_definer": true,
+      "reason": "trigger function; fires regardless of caller EXECUTE (follow-up: revoke from authenticated)"
+    },
+    {
+      "signature": "sync_service_request_line_item_status_from_quote_request()",
+      "security_definer": true,
+      "reason": "trigger function; fires regardless of caller EXECUTE (follow-up: revoke from authenticated)"
+    },
+    {
+      "signature": "to_vendor_name_array(jsonb)",
+      "security_definer": false,
+      "reason": "helper invoked from authenticated RLS/RPC paths"
+    },
+    {
+      "signature": "touch_updated_at()",
+      "security_definer": false,
+      "reason": "trigger function; fires regardless of caller EXECUTE (follow-up: revoke from authenticated)"
+    },
+    {
+      "signature": "user_can_access_job(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_access_job_via_project(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_access_org(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_access_package(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_access_project(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_destructively_edit_job(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_edit_job(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_can_edit_project(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    },
+    {
+      "signature": "user_is_project_owner(uuid)",
+      "security_definer": true,
+      "reason": "RLS/authorization helper keyed on auth.uid(); used by policies and RPCs evaluated as authenticated"
+    }
+  ],
+  "revoked_from_anon": [
+    "api_accept_project_invite(text)",
+    "api_admin_list_all_jobs()",
+    "api_admin_list_all_projects()",
+    "api_admin_list_all_users()",
+    "api_admin_list_organizations()",
+    "api_approve_job_requirements(uuid, jsonb)",
+    "api_archive_job(uuid)",
+    "api_archive_project(uuid)",
+    "api_assign_job_to_project(uuid, uuid)",
+    "api_cancel_quote_request(uuid)",
+    "api_create_project(text, text)",
+    "api_create_self_service_organization(text)",
+    "api_delete_project(uuid)",
+    "api_dissolve_project(uuid)",
+    "api_get_client_intake_compatibility()",
+    "api_get_is_platform_admin()",
+    "api_get_quote_run_readiness(uuid)",
+    "api_invite_project_member(uuid, text, project_role)",
+    "api_list_client_activity_events(uuid[], integer)",
+    "api_list_client_part_metadata(uuid[])",
+    "api_list_client_quote_workspace(uuid[])",
+    "api_list_organization_memberships(uuid)",
+    "api_list_project_assignee_profiles(uuid)",
+    "api_publish_quote_package(uuid, uuid, text, boolean)",
+    "api_reconcile_job_parts(uuid)",
+    "api_record_manual_vendor_quote(uuid, uuid, vendor_name, vendor_status, text, text, text, jsonb, jsonb)",
+    "api_remove_job_from_project(uuid, uuid)",
+    "api_remove_project_member(uuid)",
+    "api_request_debug_extraction(uuid, text)",
+    "api_request_extraction(uuid)",
+    "api_reset_client_part_property_overrides(uuid, text[])",
+    "api_start_quote_run(uuid, boolean)",
+    "api_unarchive_job(uuid)",
+    "api_unarchive_project(uuid)",
+    "api_update_client_part_request(uuid, text[], text, text, text, text, text, text, text, text, numeric, text, text, integer, integer[], date, jsonb, jsonb, jsonb, jsonb)",
+    "api_update_organization_membership_role(uuid, app_role)",
+    "api_update_project(uuid, text, text)",
+    "apply_markup(numeric, numeric, numeric)",
+    "build_org_file_blob_storage_path(uuid, text, text)",
+    "build_project_part_property_snapshot(jsonb, jsonb, jsonb, text, timestamp with time zone, text, text, text, text, text, numeric)",
+    "build_project_part_property_snapshot(jsonb, jsonb, jsonb, text, timestamp with time zone, text, text, text, text, text, numeric, text, text)",
+    "current_user_has_verified_auth()",
+    "current_user_home_organization_id()",
+    "is_internal_user(uuid)",
+    "is_internal_user_any_org()",
+    "is_org_admin(uuid)",
+    "is_platform_admin()",
+    "job_part_file_set(uuid)",
+    "load_editable_project_part_context(uuid)",
+    "normalize_file_basename(text)",
+    "normalize_positive_integer_array(integer[], integer)",
+    "normalize_primary_service_kind(text[], text)",
+    "normalize_project_part_threads(jsonb)",
+    "normalize_requested_service_kinds(text[], text)",
+    "require_verified_auth()",
+    "resolve_project_part_property_values(jsonb, jsonb)",
+    "seed_project_part_property_defaults(approved_part_requirements, jsonb, jsonb)",
+    "seed_revision_and_process_property_defaults(approved_part_requirements, jsonb, jsonb)",
+    "spend_default_daily_ceiling_usd()",
+    "spend_default_per_run_ceiling_usd()",
+    "sync_quote_request_status_from_vendor_result()",
+    "sync_service_request_line_item_status_from_quote_request()",
+    "to_vendor_name_array(jsonb)",
+    "touch_updated_at()",
+    "user_can_access_job(uuid)",
+    "user_can_access_job_via_project(uuid)",
+    "user_can_access_org(uuid)",
+    "user_can_access_package(uuid)",
+    "user_can_access_project(uuid)",
+    "user_can_destructively_edit_job(uuid)",
+    "user_can_edit_job(uuid)",
+    "user_can_edit_project(uuid)",
+    "user_is_project_owner(uuid)"
+  ],
+  "service_role_only": [
+    "api_acquire_organization_billing_checkout",
+    "api_authorize_provider_worker_dispatch",
+    "api_authorize_xometry_beta_worker_dispatch",
+    "api_auto_approve_job_requirements",
+    "api_bind_organization_stripe_customer",
+    "api_claim_capability_window",
+    "api_claim_native_task",
+    "api_claim_next_task",
+    "api_commit_capability_attention",
+    "api_complete_capability_window",
+    "api_configure_stripe_pro_price",
+    "api_consume_worker_pairing",
+    "api_fail_prepared_interpretation",
+    "api_finalize_organization_billing_checkout",
+    "api_finish_prepared_interpretation",
+    "api_get_capability_window",
+    "api_get_commercial_rollout_controls",
+    "api_get_stripe_event_status",
+    "api_get_worker_sourcing_intent",
+    "api_heartbeat_native_attempt",
+    "api_ingest_stripe_event",
+    "api_list_due_capability_attention",
+    "api_list_prepared_capability_attention",
+    "api_list_prepared_capability_claims",
+    "api_mobile_auth_claim_completion",
+    "api_mobile_auth_cleanup",
+    "api_mobile_auth_complete_transaction",
+    "api_mobile_auth_consume_transaction",
+    "api_mobile_auth_create_transaction",
+    "api_mobile_auth_get_browser_transaction",
+    "api_mobile_auth_log_audit_event",
+    "api_mobile_auth_prepare_bootstrap",
+    "api_mobile_auth_take_rate_limit",
+    "api_mobile_auth_terminate_transaction",
+    "api_native_attempt_eligibility",
+    "api_prepare_capability_attention",
+    "api_prepare_capability_claim",
+    "api_prepare_capability_completion",
+    "api_process_stripe_event",
+    "api_read_capability_attention",
+    "api_read_prepared_capability_attention",
+    "api_read_prepared_capability_claim",
+    "api_read_prepared_capability_completion",
+    "api_reconcile_stripe_events",
+    "api_reconcile_terminal_free_quote_tasks",
+    "api_record_billing_checkout_started",
+    "api_record_capability_observation",
+    "api_record_native_stop",
+    "api_register_part_geometry_candidate",
+    "api_register_quote_request_lane",
+    "api_register_trusted_file_hash",
+    "api_register_worker_boot",
+    "api_release_organization_billing_checkout",
+    "api_replay_stripe_event",
+    "api_request_native_retry",
+    "api_reserve_prepared_interpretation",
+    "api_reserve_spend",
+    "api_resolve_current_capability_observation",
+    "api_resolve_engineering_request",
+    "api_resolve_trusted_part_intake",
+    "api_reuse_trusted_part_version_artifacts",
+    "api_set_commercial_rollout_control",
+    "api_settle_spend",
+    "api_worker_session_eligibility"
+  ],
+  "_service_role_only_comment": "api_* names defined in migrations that anon/authenticated cannot execute in prod (service_role/worker-only, or since dropped). New api_* functions must land in authenticated or here."
+}
