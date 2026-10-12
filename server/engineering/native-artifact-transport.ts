@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { registerMeasuredNativeResult, type NativeRegistrationRepository } from "./native-result-registration";
+import { registerMeasuredNativeResult, type NativeRegistrationAdmission, type NativeRegistrationRepository } from "./native-result-registration";
 import { NATIVE_RESULT_ROLE_LIMITS, type NativeResultRole } from "./native-result-bytes";
 
 export const NATIVE_ARTIFACT_SCHEMA = "overdrafter.native-artifact-transfer.v1";
@@ -142,6 +142,32 @@ async function download(runtime: NativeArtifactRuntime, transfer: Transfer, admi
   return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
     "content-length": String(bytes.byteLength), "x-overdrafter-sha256": transfer.expectedSha, "cache-control": "no-store" } });
 }
+/** Bind the independent Storage registration read to this admitted transfer.
+ * Storage adapters still own immutable generation lookup and SQL authority;
+ * a successful PUT cannot acknowledge another scope or different stored bytes. */
+function transferRegistration(repository: NativeRegistrationRepository, scope: NativeArtifactScope,
+  transfer: Transfer): NativeRegistrationRepository {
+  const matches = (row: NativeRegistrationAdmission) => row.taskId === scope.taskId
+    && row.attemptId === scope.attemptId && row.organizationId === scope.organizationId
+    && row.projectId === scope.projectId && row.fence === scope.fence
+    && row.inputSnapshotId === scope.inputSnapshotId && row.candidateSnapshotId === scope.candidateSnapshotId
+    && row.role === transfer.role;
+  return {
+    loadAdmission: async (taskId, attemptId, role, signal) => {
+      const loaded = await repository.loadAdmission(taskId, attemptId, role, signal);
+      const admission = loaded && structuredClone(loaded);
+      if (admission && !matches(admission)) throw new Error("registration scope mismatch");
+      return admission;
+    },
+    readUploadedObject: (id, signal) => repository.readUploadedObject(id, signal),
+    registerMeasuredObject: (row, signal) => {
+      if (!matches(row) || row.byteLength !== transfer.expectedBytes || row.sha256 !== transfer.expectedSha) {
+        throw new Error("registration transfer mismatch");
+      }
+      return repository.registerMeasuredObject(row, signal);
+    },
+  };
+}
 async function upload(runtime: NativeArtifactRuntime, request: Request, scope: NativeArtifactScope, transfer: Transfer,
   admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, budget: TransferBudget): Promise<Response> {
   if (request.headers.get("content-type") !== "application/octet-stream"
@@ -150,16 +176,17 @@ async function upload(runtime: NativeArtifactRuntime, request: Request, scope: N
   const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, budget);
   const fresh = await bounded(authorize, budget);
   if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-  await bounded(() => runtime.putImmutableOutput(scope, transfer.role!, bytes, budget.signal), budget);
+  await bounded(() => runtime.putImmutableOutput(structuredClone(scope), transfer.role!, bytes, budget.signal), budget);
   const stillCurrent = await bounded(authorize, budget);
   if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
   // Registration has its own bounds, but its adapter calls must also consume
   // this transfer's original budget rather than receive a fresh 30 seconds.
+  const bound = transferRegistration(runtime.registration, scope, transfer);
   const registration: NativeRegistrationRepository = {
-    loadAdmission: (...args) => bounded(() => runtime.registration.loadAdmission(...args), budget),
-    readUploadedObject: (...args) => bounded(() => runtime.registration.readUploadedObject(...args), budget,
+    loadAdmission: (...args) => bounded(() => bound.loadAdmission(...args), budget),
+    readUploadedObject: (...args) => bounded(() => bound.readUploadedObject(...args), budget,
       (late) => { void late.body?.cancel().catch(() => undefined); }),
-    registerMeasuredObject: (...args) => bounded(() => runtime.registration.registerMeasuredObject(...args), budget),
+    registerMeasuredObject: (...args) => bounded(() => bound.registerMeasuredObject(...args), budget),
   };
   await bounded(() => {
     // Registration accepts whole milliseconds only. Refuse a submillisecond
