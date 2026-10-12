@@ -118,6 +118,7 @@ export default defineConfig(({ mode }) => ({
     include: [
       "api/**/*.test.ts",
       "server/**/*.test.ts",
+      "shared/**/*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
       "worker/src/**/*.test.ts",
