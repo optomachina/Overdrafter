@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The ordinary fixture server does not serve this synthetic page.
-test.skip(({ baseURL }) => baseURL !== "http://127.0.0.1:4175", "Requires e2e/delivered-comparison.config.ts; this is not a browser pass.");
+// Runs only under e2e/delivered-comparison.config.ts (chained into
+// `npm run e2e:fixture`), whose synthetic-only server serves this page.
 
 const FIXTURE = "/fixture/delivered-comparison";
 const CHEAPEST_WITH_DEADLINE = [
@@ -102,9 +102,11 @@ for (const { name, width, touch } of [
       await page.getByRole("button", { name: "Reset to confirmed deadline" }).click();
       await expect(slider).toHaveAttribute("aria-valuetext", "Thu, Oct 22, 2026");
 
+      // Only the grip drags; the full-height line passes pointer input through.
       const track = await page.getByTestId("deadline-track").boundingBox();
-      const handle = await slider.boundingBox();
+      const handle = await page.getByTestId("deadline-grip").boundingBox();
       expect(track && handle).toBeTruthy();
+      expect(handle!.height).toBeGreaterThanOrEqual(24);
       const startX = handle!.x + handle!.width / 2;
       const y = handle!.y + handle!.height / 2;
       const endX = track!.x + track!.width * 0.05;
@@ -126,6 +128,36 @@ for (const { name, width, touch } of [
       await expect(page.getByTestId("deadline-summary")).toContainText(moved!);
     });
 
+    test("a point under the deadline line still takes hover, click and tap", async ({ page }) => {
+      await open(page, width);
+      const slider = page.getByRole("slider", { name: "Deadline" });
+      await slider.focus();
+      for (let index = 0; index < 7; index += 1) {
+        await page.keyboard.press("ArrowLeft");
+      }
+      await expect(slider).toHaveAttribute("aria-valuetext", "Thu, Oct 15, 2026");
+      // xometry-express ships Oct 15, so the line runs through the point's center.
+      const point = page.locator('[data-quote-point="xometry-express"] circle').last();
+      const box = await point.boundingBox();
+      const line = await slider.boundingBox();
+      expect(box && line).toBeTruthy();
+      const x = box!.x + box!.width / 2;
+      const y = box!.y + box!.height / 2;
+      expect(Math.abs(x - (line!.x + line!.width / 2))).toBeLessThanOrEqual(2);
+      const hit = await page.evaluate(([px, py]) => {
+        const element = document.elementFromPoint(px, py);
+        return element?.closest("[data-quote-point]")?.getAttribute("data-quote-point") ?? element?.outerHTML.slice(0, 80);
+      }, [x, y]);
+      expect(hit).toBe("xometry-express");
+      if (touch) {
+        await page.touchscreen.tap(x, y);
+      } else {
+        await page.mouse.click(x, y);
+      }
+      await expect(row(page, "xometry-express")).toHaveAttribute("aria-selected", "true");
+      await expect(slider).toHaveAttribute("aria-valuetext", "Thu, Oct 15, 2026");
+    });
+
     test("only Cheapest and Fastest table modes, operable by keyboard", async ({ page }) => {
       await open(page, width);
       const group = page.getByRole("radiogroup", { name: "Table order" });
@@ -145,6 +177,39 @@ for (const { name, width, touch } of [
         "protolabs-economy",
         "sendcutsend-unknown",
       ]);
+    });
+
+    test("reordering the table never scrolls the page under the control in use", async ({ page }) => {
+      await open(page, width);
+      await row(page, "protolabs-economy").click();
+      await expect(row(page, "protolabs-economy")).toHaveAttribute("aria-selected", "true");
+      const group = page.getByRole("radiogroup", { name: "Table order" });
+      await group.scrollIntoViewIfNeeded();
+      const scrollY = () => page.evaluate(() => window.scrollY);
+      const settle = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await settle();
+      const before = await scrollY();
+      const controlBefore = await group.boundingBox();
+      const orderBefore = await rowKeys(page);
+      await group.getByRole("radio", { name: "Fastest" }).click();
+      await expect(group.getByRole("radio", { name: "Fastest" })).toHaveAttribute("aria-checked", "true");
+      await settle();
+      expect(await rowKeys(page)).not.toEqual(orderBefore);
+      expect(await scrollY()).toBe(before);
+      expect((await group.boundingBox())?.y).toBeCloseTo(controlBefore!.y, 0);
+
+      // Moving the deadline reorders Cheapest rows; the page stays put as well.
+      await group.getByRole("radio", { name: "Cheapest" }).click();
+      const slider = page.getByRole("slider", { name: "Deadline" });
+      await slider.evaluate((element: HTMLElement) => element.focus({ preventScroll: true }));
+      const cheapestBefore = await rowKeys(page);
+      const sliderScrollY = await scrollY();
+      for (let index = 0; index < 9; index += 1) {
+        await page.keyboard.press("ArrowRight");
+      }
+      await settle();
+      expect(await rowKeys(page)).not.toEqual(cheapestBefore);
+      expect(await scrollY()).toBe(sliderScrollY);
     });
 
     test("arrivals preserve selection, focus and viewport, then the terminal notice appears", async ({ page }) => {
@@ -170,6 +235,9 @@ for (const { name, width, touch } of [
 
       const notice = page.getByTestId("quote-request-completion-notice");
       await expect(notice).toHaveAttribute("role", "status");
+      const dismissBox = await notice.getByRole("button", { name: "Dismiss request completion notice" }).boundingBox();
+      expect(dismissBox!.width).toBeGreaterThanOrEqual(24);
+      expect(dismissBox!.height).toBeGreaterThanOrEqual(24);
       await expect(notice).toHaveText(/Quote request complete: 7 options from 5 providers\./);
       await expect(notice).not.toContainText(/RapidDirect|overseas|hidden/i);
       await notice.getByRole("button", { name: "Dismiss request completion notice" }).click();

@@ -13,7 +13,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 const PHONE_VIEWPORT = { width: 390, height: 844 };
 const DOMESTIC_LANES = ["US Economy", "US Standard", "US Expedite"];
 const ALL_SOURCING_LANE_COUNT = 7;
-const CHART_NAME = "Quote comparison by ready-to-ship working days and quoted total";
+const CHART_NAME = "Quote comparison by delivered date and expected out-the-door cost";
 const SIGN_IN_NOTE =
   "Vendor quote links open the supplier's purchasing page. Vendor sign-in or a vendor-issued guest link may be required.";
 // Any control whose accessible name mentions ordering, checkout or payment.
@@ -67,7 +67,12 @@ function comparisonChart(panel: Locator) {
 }
 
 function chartPoints(chart: Locator) {
-  return chart.locator(".recharts-scatter-symbol");
+  return chart.locator("[data-quote-point]");
+}
+
+/** Offers the chart cannot place (unknown arrival or cost) are listed beside it instead. */
+function unplottedOffers(panel: Locator) {
+  return panel.getByRole("list", { name: /^Not plotted: / }).getByRole("button");
 }
 
 async function openComparison(page: Page) {
@@ -86,10 +91,16 @@ async function showAllSourcing(panel: Locator) {
   await expect(panel.getByRole("button", { name: "All sourcing" })).toBeVisible();
 }
 
-/** Hover each plotted point until its tooltip names the requested quoted total. */
+/**
+ * Hover each plotted point until its tooltip names the requested expected
+ * out-the-door total. The fixture quotes carry no shipping, tax or fees, so
+ * every plotted total is the quoted total as a lower bound.
+ */
 async function findChartPoint(chart: Locator, quotedTotal: string) {
   const points = chartPoints(chart);
-  const tooltipTotal = chart.getByText(/^Quoted total: /);
+  // The axis title "Expected OTD (out-the-door)" shares the prefix.
+  const tooltipTotal = chart.getByText(/^Expected OTD (?!\(out-the-door\))/);
+  const expectedTotal = `Expected OTD at least ${quotedTotal}; shipping, tax, fees not quoted`;
   const pointCount = await points.count();
   let previousTotal: string | null = null;
 
@@ -104,12 +115,12 @@ async function findChartPoint(chart: Locator, quotedTotal: string) {
     }).not.toBe(previousTotal);
     previousTotal = await tooltipTotal.textContent();
 
-    if (previousTotal === `Quoted total: ${quotedTotal}`) {
+    if (previousTotal === expectedTotal) {
       return point;
     }
   }
 
-  throw new Error(`No plotted point is labelled "Quoted total: ${quotedTotal}".`);
+  throw new Error(`No plotted point is labelled "${expectedTotal}".`);
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -196,23 +207,35 @@ async function orderCheckoutOrPaymentControls(scope: Locator) {
 test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
   test.use({ viewport: DESKTOP_VIEWPORT });
 
-  test("(a) groups the domestic Xometry variants under one provider entry", async ({ page }) => {
+  // OVD-571 replaced the grouped provider header ("Xometry 3 variants" with
+  // "↳" variant rows) by one row per variant, each naming its provider and
+  // lane, with one shared color per provider in the chart. This test proves
+  // the same outcome on that UI: variants stay attributed to one provider.
+  test("(a) keeps the domestic Xometry variants attributed to one provider", async ({ page }) => {
     const panel = await openComparison(page);
+    const chart = comparisonChart(panel);
+    const providerCount = panel.getByText(/^\d+ suppliers?$/);
 
     await expect(panel.getByRole("button", { name: "US-only sourcing" })).toHaveAttribute("aria-pressed", "true");
     await expect(quoteRows(panel)).toHaveCount(DOMESTIC_LANES.length);
     for (const lane of DOMESTIC_LANES) {
       await expect(quoteRow(panel, lane)).toHaveCount(1);
+      await expect(quoteRow(panel, lane).getByRole("cell").first()).toHaveAccessibleName("Xometry");
     }
-    await expect(panel.getByRole("cell", { name: /^Xometry\b/ })).toHaveCount(1);
-    await expect(panel.getByRole("cell", { name: /^Xometry 3 variants\b/ })).toHaveCount(1);
-    await expect(panel.getByRole("cell", { name: /^↳ US (Economy|Standard|Expedite)\b/ })).toHaveCount(2);
+    await expect(providerCount).toHaveText("1 supplier");
+    await expect(chartPoints(chart)).toHaveCount(DOMESTIC_LANES.length);
+    const fills = async () =>
+      new Set(await chartPoints(chart).evaluateAll((points) =>
+        points.map((point) => point.querySelector("circle:last-of-type")?.getAttribute("fill") ?? ""),
+      ));
+    expect([...(await fills())]).toHaveLength(1);
 
-    // Wider sourcing adds variants to the same provider entry instead of new entries.
+    // Wider sourcing adds variants of the same provider, not new providers.
     await showAllSourcing(panel);
     await expect(quoteRows(panel)).toHaveCount(ALL_SOURCING_LANE_COUNT);
-    await expect(panel.getByRole("cell", { name: /^Xometry\b/ })).toHaveCount(1);
-    await expect(panel.getByRole("cell", { name: /^↳ / })).toHaveCount(ALL_SOURCING_LANE_COUNT - 1);
+    await expect(panel.getByRole("cell", { name: /^Xometry\b/ })).toHaveCount(ALL_SOURCING_LANE_COUNT);
+    await expect(providerCount).toHaveText("1 supplier");
+    expect([...(await fills())]).toHaveLength(1);
   });
 
   test("(b) keeps the table row and chart point selection on the same offer", async ({ page }) => {
@@ -228,7 +251,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await (await findChartPoint(chart, "$485.00")).click();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Expedite");
-    await expect(summaryFact(panel, "Quoted total")).toHaveText("$485.00");
+    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $485.00");
 
     // Table row -> current selection. The chart exposes no accessible
     // selected state for points, so the row-to-point direction has no role or
@@ -236,7 +259,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await quoteRow(panel, "US Standard").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Standard");
-    await expect(summaryFact(panel, "Quoted total")).toHaveText("$365.00");
+    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $365.00");
   });
 
   test("(c) plots offers as points only, with no line or area series", async ({ page }) => {
@@ -247,8 +270,12 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
       if (showAll) {
         await showAllSourcing(panel);
       }
+      // Every listed offer is either one plotted point or, when its arrival or
+      // cost is unknown, one entry in the not-plotted list. None is dropped.
       const rowCount = await quoteRows(panel).count();
-      await expect(chartPoints(chart)).toHaveCount(rowCount);
+      const unplottedCount = await unplottedOffers(panel).count();
+      expect(unplottedCount).toBe(showAll ? 1 : 0);
+      await expect(chartPoints(chart)).toHaveCount(rowCount - unplottedCount);
       for (const seriesSelector of [".recharts-line", ".recharts-area", ".recharts-curve", ".recharts-scatter-line"]) {
         await expect(chart.locator(seriesSelector)).toHaveCount(0);
       }
@@ -274,7 +301,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
       "Partner Network Unknown",
     );
     await (await findChartPoint(comparisonChart(panel), "$335.00")).hover();
-    await expect(comparisonChart(panel).getByText("Xometry · standard · Unknown", { exact: true })).toBeVisible();
+    await expect(comparisonChart(panel).getByText("Xometry · Partner Network · Unknown", { exact: true })).toBeVisible();
 
     await panel.getByRole("button", { name: "All sourcing" }).click();
     await expect(panel.getByRole("button", { name: "US-only sourcing" })).toBeVisible();
@@ -283,31 +310,35 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(quoteRows(panel)).toHaveCount(DOMESTIC_LANES.length);
   });
 
+  // OVD-571 replaced the Fast preset, its "Fast pick" badge and the
+  // working-days sort with the Fastest table order (by delivered date), and
+  // shows no winner badge at all. A missing lead time now means an unknown
+  // arrival: listed as not plotted instead of in a "Lead not quoted" zone.
   test("(e) shows a missing lead time as unavailable and never ranks it fastest", async ({ page }) => {
     const panel = await openComparison(page);
     await showAllSourcing(panel);
     const chart = comparisonChart(panel);
     const customFinish = quoteRow(panel, "Custom Finish");
 
-    await expect(customFinish.getByRole("cell").nth(4)).toHaveText("Unavailable");
-    await expect(chart.getByText("Lead not quoted", { exact: true })).toBeVisible();
-    await (await findChartPoint(chart, "$295.00")).hover();
-    await expect(chart.getByText("Ready to ship: Not quoted", { exact: true })).toBeVisible();
+    await expect(customFinish.getByRole("cell").nth(4)).toHaveText("Arrival unknown");
+    await expect(unplottedOffers(panel)).toHaveCount(1);
+    await expect(unplottedOffers(panel)).toHaveAccessibleName(/^Xometry\s*· Custom Finish · arrival unknown$/);
+    await expect(chartPoints(chart).filter({ hasText: "Custom Finish" })).toHaveCount(0);
+    await expect(chartPoints(chart).filter({ hasText: "US Expedite" })).toHaveCount(1);
 
-    const presets = panel.getByRole("group", { name: "Quote preset" });
-    await presets.getByRole("button", { name: "Fast" }).click();
-    await expect(presets.getByRole("button", { name: "Fast" })).toHaveAttribute("aria-pressed", "true");
-    const fastPicks = quoteRows(panel).filter({ hasText: "Fast pick" });
-    await expect(fastPicks).toHaveCount(1);
-    await expect(fastPicks).toContainText("US Expedite");
-    await expect(customFinish).not.toContainText("Fast pick");
-
-    await panel.getByRole("button", { name: "Sort providers by working days" }).click();
+    const tableOrder = panel.getByRole("radiogroup", { name: "Table order" });
+    await tableOrder.getByRole("radio", { name: "Fastest" }).click();
+    await expect(tableOrder.getByRole("radio", { name: "Fastest" })).toHaveAttribute("aria-checked", "true");
+    await expect(panel.getByText("Ordered by delivered date.", { exact: true })).toBeVisible();
     await expect(quoteRows(panel).first()).toContainText("US Expedite");
     await expect(quoteRows(panel).last()).toContainText("Custom Finish");
+    await expect(panel.getByText(/\bpick$/i)).toHaveCount(0);
   });
 
-  test("(e) KNOWN DEFECT (pinned): selected-offer summary shows a missing lead time as Pending, not as not available", async ({ page }) => {
+  // This test pinned a defect while #585 landed: the summary read "Pending"
+  // for a missing lead time. OVD-571 fixed it, so the pinned assertions are
+  // flipped to the not-available labels as that comment instructed.
+  test("(e) selected-offer summary shows a missing lead time as not available", async ({ page }) => {
     const panel = await openComparison(page);
     await showAllSourcing(panel);
 
@@ -315,20 +346,13 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("Custom Finish");
     await expect(summaryFact(panel, "Vendor")).toHaveText("Xometry");
-    await expect(summaryFact(panel, "Quoted total")).toHaveText("$295.00");
+    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $295.00");
+    await expect(summaryFact(panel, "Delivered by")).toHaveText("Arrival unknown");
 
-    // Product defect, reported with this spec and not fixed here (no product
-    // changes in this unit): the unit requires a missing lead time to read as
-    // not available, but the selected-offer summary reads "Pending", the label
-    // this panel uses for a queued quote. The table ("Unavailable") and the
-    // chart ("Not quoted") are correct and asserted in (e) above. This test
-    // pins today's behaviour with ordinary assertions, so a regression in any
-    // earlier step still fails it. When the product is fixed, the last two
-    // assertions fail: flip them to expect the not-available label.
-    await expect(summaryFact(panel, "Ready to ship")).toHaveText(/Pending/);
-    await expect(summaryFact(panel, "Ready to ship")).not.toHaveText(
-      /\b(?:unavailable|not (?:available|quoted|provided))\b/i,
-    );
+    await panel.getByText("Response source facts", { exact: true }).click();
+    await expect(summaryFact(panel, "Quoted total")).toHaveText("$295.00");
+    await expect(summaryFact(panel, "Ready to ship")).toHaveText("Not quoted");
+    await expect(panel.getByTestId("selected-option-summary")).not.toContainText("Pending");
   });
 
   test("(f) never lists the stale offer and never lets the expired offer be selected", async ({ page }) => {
@@ -341,7 +365,9 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await showAllSourcing(panel);
     await expect(quoteRows(panel)).toHaveCount(ALL_SOURCING_LANE_COUNT);
     await expect(page.getByText("Archived Economy")).toHaveCount(0);
-    await expect(chartPoints(chart)).toHaveCount(ALL_SOURCING_LANE_COUNT);
+    // Custom Finish has no lead time, so it is listed as not plotted.
+    await expect(chartPoints(chart)).toHaveCount(ALL_SOURCING_LANE_COUNT - 1);
+    await expect(unplottedOffers(panel)).toHaveCount(1);
 
     // Positive control: a fresh offer in the same view is live and selectable.
     await (await findChartPoint(chart, "$365.00")).click();
@@ -353,9 +379,11 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     // The expired offer is shown only as blocked and cannot become the
     // selection. Its point click sits between two point clicks that do select,
     // so a dropped click cannot make this pass.
+    // OVD-571 keeps the blocked row focusable (aria-disabled) so assistive
+    // technology can reach its reason; Enter on it must not select it.
     const lapsed = quoteRow(panel, "Lapsed Standard");
     await expect(lapsed).toContainText("Needs review before selection");
-    await expect(lapsed).toHaveAttribute("tabindex", "-1");
+    await expect(lapsed).toHaveAttribute("aria-disabled", "true");
     await (await findChartPoint(chart, "$350.00")).click();
     await expect(lapsed).toHaveAttribute("aria-selected", "false");
     await expect(selectedRow(panel)).toContainText("US Standard");
@@ -366,9 +394,14 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(lapsed).toHaveAttribute("aria-selected", "false");
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Expedite");
+    await lapsed.focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press(" ");
+    await expect(lapsed).toHaveAttribute("aria-selected", "false");
+    await expect(selectedRow(panel)).toContainText("US Expedite");
     await quoteRow(panel, "US Standard").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toContainText("US Standard");
-    await expect(summaryFact(panel, "Quoted total")).toHaveText("$365.00");
+    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $365.00");
   });
 
   test("(g) opens vendor quote links over https without opener access", async ({ page }) => {
@@ -428,8 +461,18 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
 
   test("(i) selects a quote and reaches its vendor link with the keyboard alone", async ({ page }) => {
     const panel = await openComparison(page);
-    const firstRow = quoteRows(panel).first();
-    const firstLane = (await firstRow.getByRole("cell").nth(1).getByRole("paragraph").first().textContent()) ?? "";
+    // The cheapest-first table opens with the preselected offer on top, so
+    // start from the first row that is not already selected.
+    const lanes = await quoteRows(panel).evaluateAll((rows) =>
+      rows.map((tableRow) => ({
+        lane: tableRow.querySelectorAll("td")[1]?.querySelector("p")?.textContent ?? "",
+        selected: tableRow.getAttribute("aria-selected") === "true",
+      })),
+    );
+    const firstIndex = lanes.findIndex((entry) => !entry.selected);
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(firstIndex).toBeLessThan(lanes.length - 1);
+    const firstLane = lanes[firstIndex].lane;
     expect(DOMESTIC_LANES).toContain(firstLane);
     const row = quoteRow(panel, firstLane);
     await expect(row).toHaveAttribute("aria-selected", "false");
@@ -448,7 +491,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     expect(await activeElementHasVisibleFocusIndicator(page)).toBe(true);
 
     // Space selects the next keyboard-reachable row as well.
-    const secondLane = (await quoteRows(panel).nth(1).getByRole("cell").nth(1).getByRole("paragraph").first().textContent()) ?? "";
+    const secondLane = lanes[firstIndex + 1].lane;
     const secondRow = quoteRow(panel, secondLane);
     await tabUntilFocused(page, secondRow, 2);
     await page.keyboard.press(" ");
@@ -468,7 +511,7 @@ test.describe("client quote comparison on a phone", { tag: "@fixture" }, () => {
     await quoteRow(panel, "US Expedite").getByRole("cell").first().tap();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Expedite");
-    await expect(summaryFact(panel, "Quoted total")).toHaveText("$485.00");
+    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $485.00");
 
     await panel.getByRole("button", { name: "US-only sourcing" }).tap();
     await expect(panel.getByRole("button", { name: "All sourcing" })).toBeVisible();

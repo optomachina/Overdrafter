@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   CartesianGrid,
@@ -405,7 +405,11 @@ function WorkingDaysQuoteComparisonChart({
 
 // Recharts plot-area insets for the delivered chart: margin + Y-axis width on
 // the left, margin on the right, margin + default X-axis height at the bottom.
-const DELIVERED_MARGIN = { top: 16, right: 20, bottom: 24, left: 6 } as const;
+// The deadline grip sits in the top margin, clear of a point (radius plus
+// selection ring) drawn on the plot's top edge, so it never covers a point.
+const DEADLINE_GRIP_HEIGHT = 24;
+const DEADLINE_GRIP_CLEARANCE = FIXED_POINT_RADIUS + 5;
+const DELIVERED_MARGIN = { top: DEADLINE_GRIP_HEIGHT + DEADLINE_GRIP_CLEARANCE + 4, right: 20, bottom: 24, left: 6 } as const;
 const DELIVERED_Y_AXIS_WIDTH = 80;
 const DELIVERED_X_AXIS_HEIGHT = 30;
 const DELIVERED_PLOT_INSET = {
@@ -470,7 +474,9 @@ function DeliveredTooltipContent({ active, payload }: { active?: boolean; payloa
   const status = describeDeadlineStatus(point.deadlineStatus);
   return (
     <div className="rounded border border-border bg-ws-raised px-3 py-2.5">
-      <p className="text-xs font-semibold text-foreground">{point.label}</p>
+      <p className="text-xs font-semibold text-foreground">
+        {`${point.label} · ${formatChartGeographicOrigin(point.row.option.geographicOrigin)}`}
+      </p>
       <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
         <p>{describeDeliveredArrival(point.row)}</p>
         <p>{describeDeliveredOtd(point.row)}</p>
@@ -516,18 +522,26 @@ function DeadlineHandle({
   domainMax,
   minDay,
   onChange,
+  onDragChange,
 }: Readonly<{
   deadlineDay: number;
   domainMin: number;
   domainMax: number;
   minDay: number;
   onChange: (next: string) => void;
+  onDragChange: (dragging: boolean) => void;
 }>) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const draggingPointer = useRef<number | null>(null);
   const span = Math.max(1, domainMax - domainMin);
   const percent = ((deadlineDay - domainMin) / span) * 100;
   const isoDate = epochDayToIsoDate(deadlineDay);
+  // A saved deadline can precede the order day; the slider value never leaves its range.
+  const valueNow = Math.min(domainMax, Math.max(minDay, deadlineDay));
+  const valueText = valueNow === deadlineDay
+    ? formatCivilDate(isoDate)
+    : `${formatCivilDate(isoDate)}, before the earliest selectable date ${formatCivilDate(epochDayToIsoDate(valueNow))}`;
 
   const emit = (day: number) => {
     const next = clampDay(day, minDay, domainMax);
@@ -558,14 +572,15 @@ function DeadlineHandle({
     }
   };
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLSpanElement>) => {
     draggingPointer.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    event.currentTarget.focus({ preventScroll: true });
+    sliderRef.current?.focus({ preventScroll: true });
     event.preventDefault();
+    onDragChange(true);
   };
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
     if (draggingPointer.current !== event.pointerId) {
       return;
     }
@@ -575,12 +590,13 @@ function DeadlineHandle({
     }
   };
 
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (event: ReactPointerEvent<HTMLSpanElement>) => {
     if (draggingPointer.current !== event.pointerId) {
       return;
     }
     draggingPointer.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
+    onDragChange(false);
   };
 
   return (
@@ -595,27 +611,34 @@ function DeadlineHandle({
         bottom: DELIVERED_PLOT_INSET.bottom,
       }}
     >
+      {/* The line passes pointer input through to the points under it; only the grip in the top margin drags. */}
       <div
+        ref={sliderRef}
         role="slider"
         tabIndex={0}
         aria-label="Deadline"
         aria-orientation="horizontal"
         aria-valuemin={minDay}
         aria-valuemax={domainMax}
-        aria-valuenow={deadlineDay}
-        aria-valuetext={formatCivilDate(isoDate)}
+        aria-valuenow={valueNow}
+        aria-valuetext={valueText}
         data-domain-min={minDay}
         data-domain-max={domainMax}
-        className="group pointer-events-auto absolute inset-y-0 flex w-11 -translate-x-1/2 cursor-ew-resize justify-center outline-none"
-        style={{ left: `${percent}%`, touchAction: "none" }}
+        className="group pointer-events-none absolute inset-y-0 flex w-11 -translate-x-1/2 justify-center outline-none"
+        style={{ left: `${percent}%` }}
         onKeyDown={handleKeyDown}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
       >
         <span aria-hidden="true" className="h-full border-l-2 border-dashed border-foreground/70 group-focus-visible:border-foreground" />
-        <span className="absolute -top-1 whitespace-nowrap rounded-[2px] border border-border bg-ws-raised px-1.5 py-0.5 font-mono text-[10px] text-foreground shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-foreground">
+        <span
+          data-testid="deadline-grip"
+          className="pointer-events-auto absolute inline-flex min-h-6 min-w-11 cursor-ew-resize items-center justify-center whitespace-nowrap rounded-[2px] border border-border bg-ws-raised px-1.5 font-mono text-[10px] text-foreground shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-foreground"
+          style={{ top: -(DEADLINE_GRIP_HEIGHT + DEADLINE_GRIP_CLEARANCE), height: DEADLINE_GRIP_HEIGHT, touchAction: "none" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+        >
           Deadline {new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(new Date(deadlineDay * 86_400_000))}
         </span>
       </div>
@@ -637,7 +660,7 @@ function DeliveredQuoteComparisonChart({
   onSelect,
   onHover,
 }: ClientQuoteComparisonChartProps) {
-  const { points, pointsByVendor, vendorKeys, domainMin, domainMax, minDay } = useMemo(() => {
+  const { points, pointsByVendor, vendorKeys, domainMin: liveDomainMin, domainMax: liveDomainMax, minDay } = useMemo(() => {
     const plotted = deliveredRows.flatMap((row): DeliveredChartPoint[] => {
       if (!row.plot) {
         return [];
@@ -684,6 +707,11 @@ function DeliveredQuoteComparisonChart({
 
   const chartConfig = useMemo(() => buildVendorChartConfig(vendorKeys), [vendorKeys]);
   const deadlineDay = deadline ? isoDateToEpochDay(deadline) : null;
+  // The axis follows the deadline, so it is frozen while a drag is in progress
+  // to keep the date under the pointer stable.
+  const [frozenDomain, setFrozenDomain] = useState<{ min: number; max: number } | null>(null);
+  const domainMin = frozenDomain?.min ?? liveDomainMin;
+  const domainMax = frozenDomain?.max ?? liveDomainMax;
 
   useEffect(() => {
     if (!diagnosticsEnabled) {
@@ -787,6 +815,7 @@ function DeliveredQuoteComparisonChart({
           domainMax={domainMax}
           minDay={minDay}
           onChange={onDeadlineChange}
+          onDragChange={(dragging) => setFrozenDomain(dragging ? { min: domainMin, max: domainMax } : null)}
         />
       ) : null}
     </div>

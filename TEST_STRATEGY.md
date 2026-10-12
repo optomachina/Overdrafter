@@ -137,9 +137,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - `npx playwright test --config e2e/delivered-comparison.config.ts` is the
   `OVD-571` static-fixture lane for the actual `ClientQuoteDecisionPanel`:
   delivered-date/OTD axes, overlap and late options, Cheapest/Fastest order,
-  deadline keyboard/mouse/touch control, arrival-time selection, focus and
-  viewport preservation, and the terminal request notice at desktop and mobile
-  widths. Quotes, deadline intent and provider results are synthetic; every
+  deadline keyboard/mouse/touch control (grip only; points under the line stay
+  clickable), arrival-time selection, focus and viewport preservation (no
+  scroll on a user reorder), and the terminal request notice at desktop and
+  mobile widths. `npm run e2e:fixture` runs it after the main fixture suite, so
+  the required CI browser job executes it; the main config ignores this spec. Quotes, deadline intent and provider results are synthetic; every
   non-loopback request is aborted. It does not exercise the OVD-570 RPC, quote
   polling, or provider execution.
 - `npm run e2e:fixture` selects only `@fixture` tests, skips auth preparation,

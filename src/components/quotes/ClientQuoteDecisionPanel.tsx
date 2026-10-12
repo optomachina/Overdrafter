@@ -651,8 +651,10 @@ function QuoteComparisonTable({
   }, [rowOrder]);
 
   // Keep the focused (or selected) row at the same viewport position when an
-  // update inserts rows or content above it. The position is read during
+  // arrival inserts rows or content above it. The position is read during
   // render, before React commits the new DOM, so user scrolling is never undone.
+  // Reorders the user asks for (table order, deadline) never re-anchor: the
+  // page must not scroll under the control in use.
   const anchorKey = focusedKeyRef.current ?? selectedKey;
   const preCommitTop = anchorKey ? findRow(anchorKey)?.getBoundingClientRect().top ?? null : null;
   useLayoutEffect(() => {
@@ -664,9 +666,9 @@ function QuoteComparisonTable({
     if (Math.abs(delta) >= 1) {
       findScrollContainer(element).scrollBy?.({ top: delta, behavior: "instant" as ScrollBehavior });
     }
-    // Only commits that change content above the row re-anchor; hover renders never move the viewport.
+    // Only arrivals and content changes above the row re-anchor; hover renders never move the viewport.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowOrder, layoutKey]);
+  }, [layoutKey]);
 
   const handleFocusKey = (key: string | null) => {
     if (key !== null) {
@@ -866,7 +868,7 @@ function QuoteRequestCompletionBanner({
       <button
         type="button"
         aria-label="Dismiss request completion notice"
-        className="rounded-[2px] p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground"
+        className="-my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[2px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground"
         onClick={onDismiss}
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -897,6 +899,8 @@ type DecisionPanelContentProps = Readonly<{
   timeZone: string;
   /** Changes whenever content rendered above the panel content appears or disappears. */
   aboveContentKey: string;
+  /** Changes only when the set of received options changes (an arrival), never on a reorder or scope toggle. */
+  arrivalKey: string;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
 }>;
@@ -922,6 +926,7 @@ function renderDecisionPanelContent({
   now,
   timeZone,
   aboveContentKey,
+  arrivalKey,
   onSelect,
   onToggleVendorExclusion,
 }: DecisionPanelContentProps) {
@@ -1025,7 +1030,7 @@ function renderDecisionPanelContent({
 
       <QuoteComparisonTable
         rows={sortedRows}
-        layoutKey={[aboveContentKey, selectedKey ?? "", unplottedRows.map((row) => row.key).join(",")].join("|")}
+        layoutKey={[aboveContentKey, selectedKey ?? "", arrivalKey].join("|")}
         deadline={viewDeadline}
         excludedOffers={quoteDiagnostics?.excludedOffers ?? []}
         selectedOption={selectedOption}
@@ -1123,6 +1128,8 @@ export function ClientQuoteDecisionPanel({
     ? "No options have verified US sourcing. Switch to All sourcing to include international and unknown-origin variants."
     : emptyState;
 
+  const arrivalKey = useMemo(() => options.map((option) => option.key).sort().join(","), [options]);
+
   const completionNotice = useMemo(
     () => (requestCompletion ? resolveQuoteRequestCompletion(requestCompletion, visibleOptions) : null),
     [requestCompletion, visibleOptions],
@@ -1170,6 +1177,7 @@ export function ClientQuoteDecisionPanel({
         now: projectionNow,
         timeZone: projectionTimeZone,
         aboveContentKey: visibleNotice ? `notice:${visibleNotice.requestId}` : "",
+        arrivalKey,
         onSelect,
         onToggleVendorExclusion,
       })}

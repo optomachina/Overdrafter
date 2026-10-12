@@ -67,6 +67,8 @@ if (typeof window.PointerEvent === "undefined") {
 }
 
 const NOW = new Date("2026-10-12T15:00:00.000Z");
+const TRACK_RECT = { left: 100, width: 400, right: 500, top: 0, bottom: 300, height: 300, x: 100, y: 0, toJSON: () => ({}) };
+const toDay = (value: string) => Date.parse(`${value}T00:00:00Z`) / 86_400_000;
 
 function model() {
   return buildDeliveredComparisonModel(
@@ -175,16 +177,86 @@ describe("ClientQuoteComparisonChart delivered axes (OVD-571)", () => {
     const { onDeadlineChange } = renderChart();
     const slider = screen.getByRole("slider", { name: "Deadline" });
     const track = screen.getByTestId("deadline-track");
-    track.getBoundingClientRect = () => ({ left: 100, width: 400, right: 500, top: 0, bottom: 300, height: 300, x: 100, y: 0, toJSON: () => ({}) });
+    track.getBoundingClientRect = () => TRACK_RECT;
+    const grip = screen.getByTestId("deadline-grip");
     const min = Number(slider.getAttribute("data-domain-min"));
     const max = Number(slider.getAttribute("data-domain-max"));
-    fireEvent.pointerDown(slider, { clientX: 100, pointerId: 1, pointerType: "touch" });
-    fireEvent.pointerMove(slider, { clientX: 500, pointerId: 1, pointerType: "touch" });
-    fireEvent.pointerUp(slider, { clientX: 500, pointerId: 1, pointerType: "touch" });
+    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, pointerType: "touch" });
+    fireEvent.pointerMove(grip, { clientX: 500, pointerId: 1, pointerType: "touch" });
+    fireEvent.pointerUp(grip, { clientX: 500, pointerId: 1, pointerType: "touch" });
     const calls = onDeadlineChange.mock.calls.map(([value]) => value as string);
-    const toDay = (value: string) => Date.parse(`${value}T00:00:00Z`) / 86_400_000;
     expect(toDay(calls[calls.length - 1])).toBe(max);
     expect(calls.every((value) => toDay(value) >= min)).toBe(true);
-    expect(slider.style.touchAction).toBe("none");
+    expect(grip.style.touchAction).toBe("none");
+    expect(slider).toHaveFocus();
+  });
+
+  it("limits the pointer hit area to the grip so points near the line stay clickable", () => {
+    const { onDeadlineChange } = renderChart();
+    const slider = screen.getByRole("slider", { name: "Deadline" });
+    const grip = screen.getByTestId("deadline-grip");
+    screen.getByTestId("deadline-track").getBoundingClientRect = () => TRACK_RECT;
+    // The full-height line ignores pointer input; only the grip accepts it.
+    expect(screen.getByTestId("deadline-track")).toHaveClass("pointer-events-none");
+    expect(slider).toHaveClass("pointer-events-none");
+    expect(slider).not.toHaveClass("pointer-events-auto");
+    expect(grip).toHaveClass("pointer-events-auto");
+    expect(grip).toHaveClass("min-h-6");
+    fireEvent.pointerDown(slider, { clientX: 100, pointerId: 2 });
+    fireEvent.pointerMove(slider, { clientX: 500, pointerId: 2 });
+    fireEvent.pointerUp(slider, { clientX: 500, pointerId: 2 });
+    expect(onDeadlineChange).not.toHaveBeenCalled();
+  });
+
+  it("freezes the date axis during a drag when the deadline sits beyond the data", () => {
+    // The data tail is Oct 30 + 14 days; a December deadline sets the axis end.
+    const { onDeadlineChange, rerender } = renderChart({ deadline: "2026-12-31" });
+    screen.getByTestId("deadline-track").getBoundingClientRect = () => TRACK_RECT;
+    const slider = () => screen.getByRole("slider", { name: "Deadline" });
+    const grip = () => screen.getByTestId("deadline-grip");
+    const frozenMax = slider().getAttribute("data-domain-max");
+    expect(Number(frozenMax)).toBe(toDay("2026-12-31"));
+
+    fireEvent.pointerDown(grip(), { clientX: 500, pointerId: 3 });
+    fireEvent.pointerMove(grip(), { clientX: 300, pointerId: 3 });
+    const midDrag = onDeadlineChange.mock.calls.at(-1)?.[0] as string;
+    expect(toDay(midDrag)).toBeLessThan(toDay("2026-12-31"));
+    rerender({ deadline: midDrag });
+    expect(slider().getAttribute("data-domain-max")).toBe(frozenMax);
+    // Moving back to the same pointer position maps to the same date.
+    fireEvent.pointerMove(grip(), { clientX: 320, pointerId: 3 });
+    rerender({ deadline: onDeadlineChange.mock.calls.at(-1)?.[0] as string });
+    expect(slider().getAttribute("data-domain-max")).toBe(frozenMax);
+    fireEvent.pointerMove(grip(), { clientX: 300, pointerId: 3 });
+    expect(onDeadlineChange.mock.calls.at(-1)?.[0]).toBe(midDrag);
+
+    fireEvent.pointerUp(grip(), { clientX: 300, pointerId: 3 });
+    rerender({ deadline: midDrag });
+    expect(Number(slider().getAttribute("data-domain-max"))).toBeLessThan(Number(frozenMax));
+  });
+
+  it("unfreezes the date axis when the browser drops pointer capture mid-drag", () => {
+    const { onDeadlineChange, rerender } = renderChart({ deadline: "2026-12-31" });
+    screen.getByTestId("deadline-track").getBoundingClientRect = () => TRACK_RECT;
+    const frozenMax = screen.getByRole("slider", { name: "Deadline" }).getAttribute("data-domain-max");
+    fireEvent.pointerDown(screen.getByTestId("deadline-grip"), { clientX: 500, pointerId: 4 });
+    fireEvent.pointerMove(screen.getByTestId("deadline-grip"), { clientX: 300, pointerId: 4 });
+    const moved = onDeadlineChange.mock.calls.at(-1)?.[0] as string;
+    fireEvent(screen.getByTestId("deadline-grip"), new window.PointerEvent("lostpointercapture", { bubbles: true, pointerId: 4 }));
+    rerender({ deadline: moved });
+    expect(Number(screen.getByRole("slider", { name: "Deadline" }).getAttribute("data-domain-max"))).toBeLessThan(Number(frozenMax));
+  });
+
+  it("keeps aria-valuenow within range when the saved deadline precedes the order day", () => {
+    renderChart({ deadline: "2026-10-01" });
+    const slider = screen.getByRole("slider", { name: "Deadline" });
+    const min = Number(slider.getAttribute("aria-valuemin"));
+    expect(min).toBe(toDay("2026-10-12"));
+    expect(Number(slider.getAttribute("aria-valuenow"))).toBe(min);
+    expect(slider).toHaveAttribute(
+      "aria-valuetext",
+      "Thu, Oct 1, 2026, before the earliest selectable date Mon, Oct 12, 2026",
+    );
+    expect(slider).toHaveTextContent("Deadline Oct 1");
   });
 });
