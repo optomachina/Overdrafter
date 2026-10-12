@@ -161,6 +161,7 @@ type LocatorBehavior = {
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
+  waitFor?: () => Promise<void> | void;
 };
 
 type FakePageOptions = {
@@ -185,7 +186,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       return this;
     },
     async waitFor() {
-      return undefined;
+      await behavior.waitFor?.();
     },
     async isVisible() {
       return resolve(behavior.count, 0) > 0;
@@ -1326,6 +1327,59 @@ describe("FictivAdapter", () => {
       await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
 
       expect(continueClick).not.toHaveBeenCalled();
+    });
+
+    /** A Continue modal that shows for exactly one visibility check once `show` is called. */
+    const oneShotContinue = () => {
+      let pending = false;
+      const click = vi.fn();
+      return {
+        show: () => { pending = true; },
+        click,
+        behavior: {
+          count: () => {
+            if (!pending) return 0;
+            pending = false;
+            return 1;
+          },
+          click,
+        } satisfies LocatorBehavior,
+      };
+    };
+
+    it("engaged after the last configuration checkpoint, before the final blocking state check: the refusal is rethrown", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const modal = oneShotContinue();
+      const page = flowPage({}, { [FICTIV_LOCATORS.autoConfigModalContinue[0]]: modal.behavior });
+      page.waitForLoadState = vi.fn(async () => {
+        state.engaged = true;
+        modal.show();
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(modal.click).not.toHaveBeenCalled();
+    });
+
+    it("engaged while extractQuoteData waits for the quote: the refusal is rethrown, not swallowed", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const modal = oneShotContinue();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.autoConfigModalContinue[0]]: modal.behavior,
+        [[
+          '[data-test-target="quote-level-lead-time-price-selected"]',
+          '[data-test-target="quote-level-lead-time-selected-option"]',
+        ].join(", ")]: {
+          waitFor: () => {
+            state.engaged = true;
+            modal.show();
+          },
+        },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(modal.click).not.toHaveBeenCalled();
     });
 
     it("engaged during the failed radio click wait: the process dropdown fallback is never opened", async () => {

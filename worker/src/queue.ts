@@ -148,9 +148,12 @@ export async function markTaskCancelled(
 /**
  * Requeues a task for a later retry and clears the current worker lock.
  *
- * Conditional on the row still being `running` under this worker's lock, so a
- * retry can never revive a task that was cancelled (for example by the OVD-722
- * kill switch), completed, failed, or reaped and reclaimed in the meantime.
+ * Conditional on the row still being `running` under this worker's lock and
+ * claim generation, so a retry can never revive a task that was cancelled (for
+ * example by the OVD-722 kill switch), completed, failed, or reaped and
+ * reclaimed in the meantime. `attempts` is the value this claim returned
+ * (`api_claim_next_task` increments it), so an old handler cannot requeue a
+ * newer claim of the same task under the same worker name.
  * Zero matched rows means the task was already settled elsewhere: it is
  * logged and left as it is. Returns whether the row was requeued.
  */
@@ -172,7 +175,8 @@ export async function markTaskQueuedForRetry(
       last_error: errorMessage,
     })
     .eq("id", task.id)
-    .eq("status", "running");
+    .eq("status", "running")
+    .eq("attempts", task.attempts);
   const held = task.locked_by === null ? update.is("locked_by", null) : update.eq("locked_by", task.locked_by);
   const { data, error } = await held.select("id");
 
@@ -186,7 +190,7 @@ export async function markTaskQueuedForRetry(
       level: "warn",
       source: "worker.task.requeue_skipped",
       message: "Did not requeue the task: it is no longer running under this worker's lock.",
-      context: { taskId: task.id, lockedBy: task.locked_by },
+      context: { taskId: task.id, lockedBy: task.locked_by, attempts: task.attempts },
     }));
     return false;
   }

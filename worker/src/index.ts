@@ -1255,31 +1255,37 @@ export async function handleVendorQuoteTask(
       // terminal path here moves it on; without this it would sit reporting
       // "running" forever on a lane that was never going to run -- a
       // customer-facing quote that silently never resolves.
-      await supabase
-        .from("vendor_quote_results")
-        .update({
-          status: retryAt ? "queued" : "manual_vendor_followup",
-          notes: [
-            retryAt
-              ? `Spend cap reached; this lane will retry. ${error.message}`
-              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
-          ],
-          raw_payload: {
-            mode: config.workerMode,
-            requiresManualVendorFollowUp: !retryAt,
-            manualFollowUpReason: "spend_cap_reached",
-            spendCapReasonCode: error.reasonCode,
-            requestedQuantity: currentResult.requested_quantity,
-            failureCode: "spend_cap_reached",
-          },
-        })
-        .eq("id", currentResult.id);
+      const writeSpendCapLane = () =>
+        supabase
+          .from("vendor_quote_results")
+          .update({
+            status: retryAt ? "queued" : "manual_vendor_followup",
+            notes: [
+              retryAt
+                ? `Spend cap reached; this lane will retry. ${error.message}`
+                : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+            ],
+            raw_payload: {
+              mode: config.workerMode,
+              requiresManualVendorFollowUp: !retryAt,
+              manualFollowUpReason: "spend_cap_reached",
+              spendCapReasonCode: error.reasonCode,
+              requestedQuantity: currentResult.requested_quantity,
+              failureCode: "spend_cap_reached",
+            },
+          })
+          .eq("id", currentResult.id);
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
+        // Requeue first: the lane may only advertise a retry that is actually
+        // scheduled. False means the task was settled elsewhere (cancelled,
+        // say); queue.ts logs that and the lane is left as it is.
+        const requeued = await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
           spendCapReasonCode: error.reasonCode,
         });
+        if (requeued) await writeSpendCapLane();
       } else {
+        await writeSpendCapLane();
         // Retries are exhausted, but nothing about this lane is broken -- it was
         // priced out. Cancelling rather than failing keeps the distinction, so it
         // reads as "not run" instead of "tried and defective" and can simply be
@@ -1921,6 +1927,21 @@ async function recordGenericProviderOutcome(
     requestedQuantity: input.requestedQuantity,
     artifactStoragePaths: input.failureArtifactStoragePaths ?? [],
   });
+  const note = providerTaskOutcomeNote(vendor, outcome);
+  const taskPatch = {
+    failureCode: outcome.code,
+    failureStage: outcome.stage,
+    adapterStarted: outcome.adapterStarted,
+    providerDisabledForDay: outcome.providerDisabledForDay,
+  };
+  // A requeue is scheduled before the lane says "queued", so the lane never
+  // advertises a retry that did not happen. False means the task was settled
+  // elsewhere (cancelled, say); queue.ts logs that and the lane is left as it is.
+  const retryAt = outcome.disposition === "requeue" ? outcome.retryAt : null;
+  if (retryAt && !(await markTaskQueuedForRetry(supabase, task, note, retryAt, { ...taskPatch, nextRetryAt: retryAt }))) {
+    return;
+  }
+
   const laneWrite = await writeUnsettledVendorQuoteResult(supabase, input.vendorQuoteResultId, record);
   if (laneWrite !== "written") {
     await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
@@ -1932,15 +1953,8 @@ async function recordGenericProviderOutcome(
     await markTaskCancelledForDisabledProvider(supabase, task, outcome.killSwitch.error);
     return;
   }
-  const note = providerTaskOutcomeNote(vendor, outcome);
-  const taskPatch = {
-    failureCode: outcome.code,
-    failureStage: outcome.stage,
-    adapterStarted: outcome.adapterStarted,
-    providerDisabledForDay: outcome.providerDisabledForDay,
-  };
-  if (outcome.disposition === "requeue" && outcome.retryAt) {
-    await markTaskQueuedForRetry(supabase, task, note, outcome.retryAt, { ...taskPatch, nextRetryAt: outcome.retryAt });
+  if (retryAt) {
+    return;
   } else if (outcome.disposition === "manual_follow_up") {
     await markTaskCompleted(supabase, task, {
       ...taskPatch,
@@ -2165,15 +2179,11 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
 
       if (retryAt) {
         // False when the row was already settled elsewhere (cancelled, say):
-        // it stays as it is and nothing is scheduled.
-        const requeued = await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+        // it stays as it is, nothing is scheduled, and queue.ts logs it.
+        settledElsewhere = !(await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
           ...failureEvidence.payload,
           nextRetryAt: retryAt,
-        });
-        if (!requeued) {
-          retryAt = null;
-          settledElsewhere = true;
-        }
+        }));
       } else {
         await markTaskFailed(
           supabase,
@@ -2187,22 +2197,22 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
       runtimeState.lastTaskFailedAt = new Date().toISOString();
       runtimeState.lastFailedTask = taskSummary;
       runtimeState.lastError = message;
-      logWorkerEvent(runtimeState, {
-        level: retryAt || settledElsewhere ? "warn" : "error",
-        source: retryAt ? "worker.task.retry" : settledElsewhere ? "worker.task.requeue_skipped" : "worker.task.failure",
-        message: retryAt
-          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
-          : settledElsewhere
-            ? `Did not retry ${task.task_type} ${task.id}; it was already settled elsewhere: ${message}`
+      if (!settledElsewhere) {
+        logWorkerEvent(runtimeState, {
+          level: retryAt ? "warn" : "error",
+          source: retryAt ? "worker.task.retry" : "worker.task.failure",
+          message: retryAt
+            ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
             : `Failed ${task.task_type} ${task.id}: ${message}`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-          retryCount,
-          nextRetryAt: retryAt,
-        },
-        error: failureEvidence.runtimeError,
-      });
+          context: {
+            ...buildTaskContext(task),
+            task_duration_ms: Date.now() - taskStartMs,
+            retryCount,
+            nextRetryAt: retryAt,
+          },
+          error: failureEvidence.runtimeError,
+        });
+      }
     } finally {
       runtimeState.currentTask = null;
     }

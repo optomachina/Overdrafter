@@ -76,6 +76,8 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
         if (patch?.status) laneStatus = patch.status;
         return { data: [{ id: "result" }], error: null };
       }
+      // The claimed task row is still running under its lock, so a guarded queue update matches it.
+      if (mutation && table === "work_queue") return { data: [{ id: "task" }], error: null };
       if (mutation) return { data: null, error: null };
       if (table === "vendor_quote_results" && columns === "status" && one) return { data: { status: laneStatus }, error: null };
       if (failStatusReadAfterPersist && table === "quote_runs" && persisted()) return { data: null, error: { message: "status read failed" } };

@@ -38,7 +38,7 @@ function database() {
   let failResultUpdates = false;
   const writes: Record<string, unknown>[] = [];
   // The claimed queue row; updates apply only when every filter matches, as in Postgres.
-  const queueRow: Record<string, unknown> = { id: "task", status: "running", locked_by: "worker" };
+  const queueRow: Record<string, unknown> = { id: "task", status: "running", locked_by: "worker", attempts: 1 };
   const from = (table: string) => {
     let columns = ""; let mutation = false;
     let patch: Record<string, unknown> | null = null;
@@ -78,6 +78,7 @@ function database() {
   };
   let onPreflight = () => undefined as void;
   let preflight: unknown = xometryAuthorized;
+  let spend: unknown = { allowed: true, reservationId: "r" };
   let stateReads = 0;
   let readableStateReads = Number.POSITIVE_INFINITY;
   const rpc = (name: string, args: Record<string, unknown>) => {
@@ -90,7 +91,7 @@ function database() {
     const data = name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.xometry, globalEngaged: switches.global }
       : name === "api_authorize_xometry_beta_worker_dispatch" ? preflight
-        : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
+        : name === "api_reserve_spend" ? spend
           : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
             street: "s", city: "c", region: "WA", postalCode: "z", country: "US" } } : null;
     const result = Promise.resolve({ data, error: null });
@@ -101,6 +102,7 @@ function database() {
     client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, queueRow,
     flipDuringPreflight: () => { onPreflight = () => { switches.xometry = true; }; },
     denyPreflight: (decision: unknown) => { preflight = decision; },
+    refuseSpend: () => { spend = { allowed: false, reason: "Daily cap reached.", reasonCode: "daily_cap" }; },
     unreadableAfter: (reads: number) => { readableStateReads = reads; },
     unreadableNow: () => { readableStateReads = stateReads; },
     failResultUpdates: () => { failResultUpdates = true; },
@@ -175,7 +177,7 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
   });
 
   it("a retryable error after the kill switch cancel never requeues the cancelled task (no revival)", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const quote = vi.spyOn(XometryAdapter.prototype, "quote");
     const db = database();
@@ -193,6 +195,44 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
       expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }),
     ]));
     expect(db.queueRow.status).toBe("cancelled");
+    // Logged once, by queue.ts, not again by the outer loop.
+    expect(warn.mock.calls.filter(([line]) => String(line).includes("worker.task.requeue_skipped"))).toHaveLength(1);
+  });
+
+  it("a spend cap refusal with a retry left requeues the task before the lane says queued", async () => {
+    const db = database();
+    db.refuseSpend();
+    const claimed = { ...task, locked_by: "worker" } as QueueTaskRecord;
+
+    await handleVendorQuoteTask(db.client, claimed, live);
+
+    const requeue = db.writes.findIndex((write) => write.table === "work_queue"
+      && (write.update as Record<string, unknown> | undefined)?.status === "queued");
+    const queuedLane = db.writes.findIndex((write) => write.table === "vendor_quote_results"
+      && (write.update as Record<string, unknown> | undefined)?.status === "queued");
+    expect(requeue).toBeGreaterThan(-1);
+    expect(queuedLane).toBeGreaterThan(requeue);
+    expect(db.queueRow.status).toBe("queued");
+  });
+
+  it("a spend cap requeue that matches zero rows leaves the lane as it is (no advertised retry)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const db = database();
+    db.refuseSpend();
+    // Settled elsewhere (the kill switch cancelled it) while this handler ran.
+    db.queueRow.status = "cancelled";
+    const claimed = { ...task, locked_by: "worker" } as QueueTaskRecord;
+
+    await handleVendorQuoteTask(db.client, claimed, live);
+
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }),
+    ]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({ status: "queued" }) }),
+    ]));
+    expect(db.queueRow.status).toBe("cancelled");
+    expect(warn.mock.calls.filter(([line]) => String(line).includes("worker.task.requeue_skipped"))).toHaveLength(1);
   });
 
   it("a running task stops at its next adapter checkpoint and ends cancelled_provider_disabled", async () => {

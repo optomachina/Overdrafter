@@ -312,8 +312,34 @@ describe("markTaskQueuedForRetry", () => {
     expect(stub.filters).toEqual([
       ["eq", "id", "task-1"],
       ["eq", "status", "running"],
+      ["eq", "attempts", 1],
       ["eq", "locked_by", "worker-1"],
     ]);
+  });
+
+  it("an old handler cannot requeue a newer claim of the same task under the same worker", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // The row as stored: reaped, then claimed again by the same worker name, so
+    // status and locked_by match the old claim but attempts has moved on.
+    const row: Record<string, unknown> = { id: "task-1", status: "running", locked_by: "worker-1", attempts: 2 };
+    const filters: [string, unknown][] = [];
+    let patch: Record<string, unknown> = {};
+    const query = {
+      eq: vi.fn((column: string, value: unknown) => { filters.push([column, value]); return query; }),
+      is: vi.fn((column: string, value: unknown) => { filters.push([column, value]); return query; }),
+      select: vi.fn(async () => {
+        if (!filters.every(([column, value]) => row[column] === value)) return { data: [], error: null };
+        Object.assign(row, patch);
+        return { data: [{ id: row.id }], error: null };
+      }),
+    };
+    const client = { from: vi.fn(() => ({ update: vi.fn((next: Record<string, unknown>) => { patch = next; return query; }) })) };
+
+    const requeued = await markTaskQueuedForRetry(client as never, makeQueuedTask(), "boom", "2026-10-12T00:00:00Z");
+
+    expect(requeued).toBe(false);
+    expect(row).toMatchObject({ status: "running", locked_by: "worker-1", attempts: 2 });
+    warn.mockRestore();
   });
 
   it("zero matched rows (already cancelled or settled elsewhere) logs and does not throw", async () => {

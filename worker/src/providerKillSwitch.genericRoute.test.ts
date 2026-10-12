@@ -117,9 +117,12 @@ const requirement = { id: "req", part_id: "part", description: "d", part_number:
 function database() {
   const switches = { fictiv: false, global: false };
   const writes: Record<string, unknown>[] = [];
+  // Set when the task was settled elsewhere: a requeue then matches zero rows.
+  const queue = { settledElsewhere: false };
   const from = (table: string) => {
-    let columns = ""; let mutation = false;
+    let columns = ""; let mutation = false; let patch: Record<string, unknown> = {};
     const response = (list = false) => {
+      if (mutation && table === "work_queue" && queue.settledElsewhere && patch.status === "queued") return { data: [], error: null };
       if (mutation) return { data: [{ id: "row" }], error: null };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
@@ -134,7 +137,10 @@ function database() {
       select(value: string) { columns = value; return query; },
       eq() { return query; }, neq() { return query; }, in() { return query; },
       single: async () => response(), maybeSingle: async () => response(),
-      update(value: unknown) { mutation = true; writes.push({ table, update: structuredClone(value) }); return query; },
+      update(value: unknown) {
+        mutation = true; patch = structuredClone(value) as Record<string, unknown>;
+        writes.push({ table, update: structuredClone(value) }); return query;
+      },
       insert(value: unknown) { mutation = true; writes.push({ table, insert: structuredClone(value) }); return query; },
       then(resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) {
         return Promise.resolve(response(true)).then(resolve, reject);
@@ -155,7 +161,7 @@ function database() {
   const rpcNames = () => writes.flatMap((write) => (typeof write.rpc === "string" ? [write.rpc] : []));
   const updates = (table: string) => writes.flatMap((write) =>
     write.table === table && write.update ? [write.update as Record<string, unknown>] : []);
-  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, updates };
+  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, updates, queue };
 }
 
 const cancelledTask = expect.objectContaining({
@@ -232,6 +238,43 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
     })]));
     expect(db.updates("work_queue")).toEqual([cancelledTask]);
     expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "queued" })]));
+  });
+
+  describe("a requeue outcome", () => {
+    const requeueOutcome = {
+      disposition: "requeue" as const, code: "authorization_unavailable", stage: "authorize" as const,
+      adapterStarted: false, retryAt: "2026-10-03T12:06:00.000Z", providerDisabledForDay: false, rejection: null,
+      killSwitch: null, persisted: null, evidence: { adapterError: null, artifacts: [] },
+    };
+
+    it("requeues the task before the lane says queued", async () => {
+      vi.mocked(runGenericProviderTask).mockResolvedValueOnce(requeueOutcome);
+      const db = database();
+
+      await handleVendorQuoteTask(db.client, task, live);
+
+      const requeue = db.writes.findIndex((write) => write.table === "work_queue"
+        && (write.update as Record<string, unknown> | undefined)?.status === "queued");
+      const queuedLane = db.writes.findIndex((write) => write.table === "vendor_quote_results"
+        && (write.update as Record<string, unknown> | undefined)?.status === "queued");
+      expect(requeue).toBeGreaterThan(-1);
+      expect(queuedLane).toBeGreaterThan(requeue);
+    });
+
+    it("matching zero rows leaves the lane as it is (no advertised retry) and logs once", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      vi.mocked(runGenericProviderTask).mockResolvedValueOnce(requeueOutcome);
+      const db = database();
+      db.queue.settledElsewhere = true;
+
+      await handleVendorQuoteTask(db.client, task, live);
+
+      expect(db.updates("work_queue")).toEqual([expect.objectContaining({ status: "queued" })]);
+      expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ status: "queued" }),
+      ]));
+      expect(warn.mock.calls.filter(([line]) => String(line).includes("worker.task.requeue_skipped"))).toHaveLength(1);
+    });
   });
 
   it("disengaged: every checkpoint is read, the launch read happens first, and the adapter runs to the normal persisted result", async () => {
