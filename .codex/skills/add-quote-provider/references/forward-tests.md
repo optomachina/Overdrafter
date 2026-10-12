@@ -13,7 +13,7 @@ Use add-quote-provider intake mode for https://www.quickparts.com/quote?source=m
 Run:
 
 ```bash
-npm run provider:add -- --url "https://www.quickparts.com/quote?source=mock" --dry-run
+npm run fixture:onboard -- quickparts --stage=envelope --url "https://www.quickparts.com/quote?source=mock" --dry-run
 npm run provider:check
 ```
 
@@ -55,7 +55,7 @@ Pass when the skill resolves official domains and duplicate keys before delegati
 
 ```bash
 uv run --with pyyaml python "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" .codex/skills/add-quote-provider
-npm test -- scripts/provider-add.test.mjs scripts/provider-check.test.mjs
+npm test -- scripts/fixture-onboard.test.mjs scripts/provider-add.test.mjs scripts/provider-check.test.mjs
 git diff --check
 ```
 
