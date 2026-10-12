@@ -338,6 +338,12 @@ export async function extractDrawingFieldsWithModel(
     pagePreviewPath: string | null;
     /** Budget enforcement. Each attempt reserves and settles independently. */
     spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
+    /**
+     * OVD-723: run before EACH model attempt (title block crop, full page).
+     * It throws when the job may no longer send content to a model, so the
+     * attempt never starts.
+     */
+    beforeModelAttempt?: (attempt: ModelAttempt) => Promise<void>;
   },
   dependencies: {
     provider?: ExtractionProvider;
@@ -367,6 +373,7 @@ export async function extractDrawingFieldsWithModel(
   }
 
   if (titleBlockCropPath) {
+    await input.beforeModelAttempt?.("title_block_crop");
     const { parsed: cropAttempt, usage } = await runModelAttempt({
       provider: runtime.provider,
       model: runtime.model,
@@ -419,6 +426,7 @@ export async function extractDrawingFieldsWithModel(
       : null;
   }
 
+  await input.beforeModelAttempt?.("full_page");
   const { parsed: fullPageAttempt, usage: fullPageUsage } = await runModelAttempt({
     provider: runtime.provider,
     model: runtime.model,

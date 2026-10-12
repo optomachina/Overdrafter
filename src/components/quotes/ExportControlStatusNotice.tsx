@@ -36,9 +36,11 @@ export function ExportControlStatusNotice({ jobId, className }: ExportControlSta
       if (!answer) return false;
       await declareJobExportStatus(jobId, answer);
       if (answer === "not_controlled") {
-        // Files uploaded before the answer have no clean scan of record, and
-        // quoting needs one. Extraction rescans them; it is best effort here
-        // because the answer itself is already saved.
+        // The clean declaration itself queues a scan only rescan on the
+        // server for files with no clean scan of their bytes (parts extracted
+        // before OVD-723 included). Extraction is still requested for parts
+        // that were never extracted; it is best effort here because the
+        // answer itself is already saved.
         try {
           await requestExtraction(jobId);
         } catch {

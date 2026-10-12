@@ -49,8 +49,9 @@ in earlier sections.
    longer the latest), `export_control_lookup_failed` (the dispatch lookup
    raised), and `export_scan_missing` (a file the part sends has no clean scan
    of record in its own job; see "Reused files and skipped extraction").
-7. **No separate OCR source.** OCR runs inside `extractPdfText`, so its hits are
-   recorded as `drawing_text`. The `drawing_ocr` source exists for a later split.
+7. **OCR source.** OCR runs inside `extractPdfText`, which now marks OCR
+   text (`ocr: true`), so OCR hits and clean scans are recorded as
+   `drawing_ocr` and text layer results as `drawing_text` (review round 3).
 8. **No help-article system.** The article is `docs/help/export-controlled-files.md`.
    The terms clause is in `src/pages/LegalPolicies.tsx`.
 9. **`xometryDispatchPreflight.ts` was only seen through an import in the plan.**
@@ -71,7 +72,13 @@ in earlier sections.
   the old Storage INSERT policy, and wraps both preflights. See "Expand and
   contract".
 - The worker reads at most 256 KB of a staged STEP file for the header scan
-  (`readStagedStepHeaderPrefix`). If the read fails, the task fails.
+  (`readStagedStepHeaderPrefix`). If the read fails, the task fails. STEP
+  coverage is header strings only (`HEADER;` to `ENDSEC;`: file description,
+  file name, author, organization, authorization); text inside the geometry
+  data is not scanned. A clean scan is recorded only when both `HEADER;` and
+  `ENDSEC;` are inside the prefix. A header padded past 256 KB, or a file with
+  no `HEADER;` in the prefix, gets no clean scan, so the part is held
+  (`export_scan_missing`); a marking found in the partial text still blocks.
 - Backfill: every existing job with files gets a `missing` declaration, so it is
   denied dispatch until the user declares.
 
@@ -110,10 +117,16 @@ Fix (fail closed):
   task completes (`scanStagedDrawingForExportMarkings`). A hit there opens a
   block on the target job. Every quote task scans the STEP header and records
   a clean scan before the preflight. A failed record fails the task.
-- **Remediation.** Parts extracted before the deploy have no drawing scan, so
-  they are denied with `export_scan_missing` until extraction runs again
-  (`api_request_extraction`). That covers every existing job, which the
-  backfill also marks `missing`.
+- **Remediation.** Parts extracted before the deploy have no drawing scan.
+  `api_request_extraction` skips any part that already has an extraction, so
+  it never rescans them. A clean declaration (`api_declare_job_export_status`)
+  therefore queues a scan only rescan (`export_marking_rescan` task,
+  `private.queue_export_marking_rescans`) for every drawing or STEP file of the
+  job without a scan of its current bytes; the service role can queue the
+  same through `api_queue_export_marking_rescan`. The worker task
+  (`handleExportMarkingRescanTask`, `runExportMarkingRescan`) stages the
+  bytes, scans drawing text or the STEP header, and records a clean scan or
+  opens a block, without any model call. See "Review round 3".
 - **Known limits.** Only PDF drawings and STEP CAD headers have a scanner. The
   rule doesn't scan other CAD formats (for example `.sldprt`, `.x_t`, `.igs`);
   it only requires their verified hash, so markings inside them are not
@@ -179,11 +192,19 @@ no declaration, so dispatch still denies it.
 
 ### Guarantees
 
-- **Never dispatchable.** Controlled or uncertain bytes never reach a provider:
-  dispatch checks again the job's latest declaration and blocks under the shared
-  lock, and requires, for each file the part sends, a hash verified from the
-  bytes the worker staged that equals the claimed hash, and (drawing, STEP) a
-  clean scan of those exact bytes in that job.
+- **Not dispatchable at the time of each check (point in time).** Each
+  dispatch check reads the job's latest declaration and blocks under the
+  shared lock, and requires, for each file the part sends, a hash verified
+  from the bytes the worker staged that equals the claimed hash, and (drawing,
+  STEP) a clean scan of those exact bytes in that job. The new worker asks
+  before any manual or spend cap route, again before the preflight, and once
+  more after the preflight authorizes, immediately before `adapter.quote`
+  (`withExportControlDispatchRecheck`); extraction asks before
+  `runHybridExtraction` and again before each model attempt (title block
+  crop, full page). Residual window: a declaration change or marking block
+  that commits after the last check and while the adapter is already sending
+  (or the model call is in flight) does not stop that send. The window is the
+  duration of one adapter or model call.
 - **Never registered.** A `job_files` row is created only by finalize, which
   checks again the declaration under the lock and needs a matching grant and
   object. A declaration change that commits before finalize makes finalize
@@ -217,6 +238,11 @@ no declaration, so dispatch still denies it.
   declaration. Its hash is still verified by the worker before any scan or
   dispatch.
 - Native CAD formats are verified by hash but not scanned for markings.
+- A stamp or marking that is only an image on a page that also has a text
+  layer is not read: OCR runs only when a page has no text layer.
+- Until the contract (window 2), a client can still send a manual quote
+  request for a held part. The part page asks the owner not to; the contract
+  refuses it (C.6).
 - The internal org roles can still edit `job_files` and `parts`; edits only
   remove admission, they cannot create it.
 
@@ -371,3 +397,77 @@ before and after). RapidDirect and Protolabs Network are foreign. No client IP
 is stored: an unkeyed SHA-256 of an IPv4 address is reversible by
 enumeration, and a keyed hash would need a new server secret, which is a
 protected change.
+
+## Review round 3 (REQUEST_CHANGES at 1b308e27)
+
+SQL files changed (the window 1 packet #687 must re-pin all four):
+`ovd-723.sql`, `ovd-723.rollback.sql`, `ovd-723-contract.sql`,
+`ovd-723-contract.rollback.sql`. The pgTAP suites changed too:
+`ovd723_export_control_upload_block.sql.pending` (128 assertions) and
+`ovd723_export_control_contract.sql.pending` (103 assertions).
+
+1. **e2e intake.** `e2e/intake.spec.ts` now answers the declaration dialog
+   ("Not export-controlled", then "Continue upload") in the three upload
+   cases. With the expand not applied in CI, the remaining failure is the
+   missing `api_declare_job_export_status` RPC.
+2. **Parts extracted before the deploy.** Expand adds the enum value
+   `public.queue_task_type.export_marking_rescan` (additive; PostgreSQL cannot
+   drop it, so the rollback leaves it and cancels queued rescan tasks),
+   `private.queue_export_marking_rescans(job)` and the service role
+   `api_queue_export_marking_rescan(job)`. The declare RPC queues rescans
+   after a clean declaration (`rescansQueued` in its answer). The worker task
+   scans without any model call. pgTAP section 11 walks the case end to end:
+   backfilled `missing`, existing extraction (`api_request_extraction` queues
+   0), declare (2 rescans queued, no duplicates), scans recorded, dispatch
+   admitted, a changed file queued again.
+3. **Admin clearance.** Blocks store the hash of the matched bytes.
+   `api_review_export_control_block('cleared_by_admin')` records an admin
+   cleared scan (`cleared_block_id`, `cleared_patterns`) bound to the file,
+   its job, its hash and source, when the file still holds those bytes
+   (`private.record_admin_cleared_scan`). `api_record_export_control_marking_hits`
+   takes the hash and answers `{blockId, resolved}`: a hit whose patterns are
+   all in a cleared block for the same file, hash and source is resolved; a
+   new hash or pattern opens a block. pgTAP section 12 checks
+   `export_control_dispatch_denial_for_task` with the scan rule after each
+   step.
+4. **STEP header truncation.** See "Behavior notes".
+5. **Point in time checks.** See "Guarantees".
+6. **Manual routes.** The quote task stages the files, scans the STEP header
+   and asks the export gate before the `!adapter` (WORKER_LIVE_ADAPTERS) and
+   spend cap branches, so a held job is closed as held and never becomes
+   `manual_vendor_followup`.
+7. **Client manual quote requests.** Contract C.6 wraps
+   `api_request_manual_quote` (and through it `api_request_manual_quotes`)
+   with the job rule plus the scan rule for every part, under the shared
+   lock; its rollback restores the original body and grants. The part page
+   copy no longer says nothing is quoted by hand; it asks the owner not to
+   request a manual quote while the part is held.
+8. **OCR source.** See assumption 7.
+9. **Dialog copy.** When one answer covers several files or parts, the
+   dialog names the files (up to four, then a count) and the number of parts.
+
+Verification (disposable Docker `supabase/postgres:17.6.1.095`, Auth and
+Storage platform migrations from `gotrue:v2.187.0` and `storage-api:v1.41.8`,
+all 148 main migrations, 2026-10-12):
+
+- Window 1 suite: 128/128 after expand, and 128/128 after expand, rollback,
+  reapply. Against the previous expand draft it aborts at section 4 (the
+  marking hit answer changed) and the new sections do not pass.
+- Contract suite: 103/103 after expand and contract, and after contract
+  rollback and reapply. With the previous contract draft it aborts in section
+  10 (no manual quote gate).
+- Main suites (all 68 in `supabase/tests`): no suite that passes on main
+  fails after expand. After expand and contract, `free_confirmed_quote_access`
+  needs its known seed patch (29/30 without it), and
+  `job_service_detail_privileges` needed a fixture: its authorized manual
+  quote request is now refused by C.6 for an undeclared job. The suite gets
+  the same guarded seed block as the other suites (a clean declaration,
+  verified hashes and scans for its job, skipped when
+  `private.job_export_declarations` does not exist); 27/27 on main, after
+  expand, and after contract. The 12 dblink concurrency suites could not run
+  in this harness (dblink found no password challenge) and fail the same way
+  on main, so they give no signal here; CI runs them on main as before.
+- Catalog: contract rollback equals the post expand catalog (function bodies,
+  ACLs, policies, columns, constraints); expand rollback equals main apart
+  from the retained audit tables and the enum value; reapplying gives an
+  identical catalog.

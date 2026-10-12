@@ -11,8 +11,9 @@
 -- contract migration is applied).
 --
 -- Expand is additive only. It creates new tables, functions, and one new
--- Storage policy, and backfills rows into its own new table. It does not
--- change, move, replace, or revoke any existing function or policy:
+-- Storage policy, adds one value to public.queue_task_type (1.0), and
+-- backfills rows into its own new table. It does not change, move, replace,
+-- or revoke any existing function or policy:
 --   - the legacy 6- and 8-argument upload RPCs keep working unchanged;
 --   - "job_files_storage_insert" stays; a second permissive policy is added
 --     alongside, which changes nothing until the contract drops the old one;
@@ -39,9 +40,18 @@
 --     gated until the contract migration wraps the preflights.
 --   Extraction. The new worker asks api_check_export_control_extraction
 --     before any CAD or drawing content goes to an extraction model, and
---     sends nothing unless the job's latest declaration is not_controlled with
---     no open or confirmed block. A drawing with any page that yields no text
---     gets no clean scan and is not sent to a model.
+--     again before each model attempt, and sends nothing unless the job's
+--     latest declaration is not_controlled with no open or confirmed block. A
+--     drawing with any page that yields no text gets no clean scan and is not
+--     sent to a model.
+--   Rescan. A clean declaration queues a scan only rescan (task
+--     export_marking_rescan, 1.16c) for every drawing or STEP file without a
+--     scan of its current bytes, so parts extracted before this migration can
+--     be released without extraction. The worker task never calls a model.
+--   Review. An admin clearance of a false positive records an admin cleared
+--     scan bound to the file, its content hash, and the cleared patterns
+--     (1.12a); a later hit on the same bytes and patterns resolves to it, and
+--     a new hash or pattern opens a new block.
 --
 -- What the contract migration adds (server side, any client or worker): the
 -- legacy upload RPCs refuse, the old Storage INSERT policy is dropped so only
@@ -86,6 +96,13 @@
 -- WINDOW 1: EXPAND (additive only; no existing object is changed or revoked)
 -- =====================================================================
 
+-- 1.0 Task type for the scan only rescan (1.16c). Adding an enum value is
+-- additive: no existing value, row, or function changes. PostgreSQL cannot
+-- drop an enum value, so the rollback leaves it in place (unused). The value
+-- is not used in this transaction; the functions below only name it in
+-- PL/pgSQL bodies, which resolve it when they run.
+alter type public.queue_task_type add value if not exists 'export_marking_rescan';
+
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
 -- the latest row (declared_at, id) wins. No FK to jobs so the audit survives
 -- job deletion and append-only triggers never block a job cascade. No client
@@ -126,7 +143,9 @@ create table if not exists private.export_control_events (
     'marking_block_cleared',
     'marking_block_confirmed_controlled',
     'declaration_backfilled_missing',
-    'file_scan_recorded_clean'
+    'file_scan_recorded_clean',
+    'file_scan_recorded_admin_cleared',
+    'export_marking_rescan_queued'
   )),
   detail jsonb not null default '{}'::jsonb
 );
@@ -144,6 +163,9 @@ create table if not exists private.job_export_marking_blocks (
   job_file_id uuid null,
   source text not null check (source in ('drawing_text', 'drawing_ocr', 'step_header')),
   patterns text[] not null check (cardinality(patterns) > 0),
+  -- SHA-256 of the bytes whose text matched, when the worker staged them. An
+  -- admin clearance vouches only for these bytes and these patterns (1.12).
+  content_sha256 text null check (content_sha256 is null or content_sha256 ~ '^[0-9a-f]{64}$'),
   state text not null default 'blocked_pending_review'
     check (state in ('blocked_pending_review', 'cleared_by_admin', 'confirmed_controlled')),
   created_at timestamptz not null default clock_timestamp(),
@@ -412,6 +434,7 @@ declare
   v_headers jsonb;
   v_ua text;
   v_allowed boolean;
+  v_rescans integer := 0;
 begin
   perform public.require_verified_auth();
 
@@ -470,12 +493,21 @@ begin
 
   v_allowed := p_answer = 'not_controlled' and private.job_export_upload_denial(v_job.id, v_declaration_id) is null;
 
+  -- A clean declaration releases files only once each has a clean scan of
+  -- its current bytes. Files uploaded before it (above all parts extracted
+  -- before OVD-723, which extraction never revisits) get a scan only rescan
+  -- (1.16c); the worker scans them without any model call.
+  if v_allowed then
+    v_rescans := private.queue_export_marking_rescans(v_job.id);
+  end if;
+
   return pg_catalog.jsonb_build_object(
     'declarationId', v_declaration_id,
     'answer', p_answer,
     'termsVersion', p_terms_version,
     'uploadAllowed', v_allowed,
-    'reasonCode', private.job_export_upload_denial(v_job.id, v_declaration_id)
+    'reasonCode', private.job_export_upload_denial(v_job.id, v_declaration_id),
+    'rescansQueued', v_rescans
   );
 end;
 $$;
@@ -534,17 +566,26 @@ revoke all on function public.api_get_job_export_control_status(uuid) from publi
 grant execute on function public.api_get_job_export_control_status(uuid) to authenticated;
 
 -- 1.11 Marking hits, recorded by the worker (service role only). Opening a
--- block never requires or accepts user input. Idempotent: while a block for
--- the same job, file, and source is open or confirmed, a repeat hit (a quote
--- retried, extraction requested again) returns that block and opens nothing.
+-- block never requires or accepts user input. p_content_sha256 is the hash of
+-- the bytes whose text matched (null when no staged bytes exist). Answer:
+--   {"blockId", "resolved": false}  a block is open or confirmed for this job,
+--     file, and source (a repeat hit returns it and opens nothing), or a new
+--     block was opened;
+--   {"blockId", "resolved": true}   a platform admin already cleared a block
+--     for this same job, file, source, and content hash whose patterns include
+--     every pattern found now. The hit is that reviewed false positive: no new
+--     block opens, and the admin cleared scan of these bytes is recorded
+--     (1.12a) so dispatch admits them. A different hash or any new pattern is
+--     not covered and opens a block.
 create or replace function public.api_record_export_control_marking_hits(
   p_job_id uuid,
   p_part_id uuid,
   p_job_file_id uuid,
   p_source text,
-  p_patterns text[]
+  p_patterns text[],
+  p_content_sha256 text default null
 )
-returns uuid
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
@@ -552,9 +593,12 @@ as $$
 declare
   v_job public.jobs%rowtype;
   v_block_id uuid;
+  v_cleared private.job_export_marking_blocks%rowtype;
+  v_hash text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_content_sha256, ''))), '');
 begin
   if p_patterns is null or cardinality(p_patterns) = 0
-    or p_source is null or p_source not in ('drawing_text', 'drawing_ocr', 'step_header') then
+    or p_source is null or p_source not in ('drawing_text', 'drawing_ocr', 'step_header')
+    or (v_hash is not null and v_hash !~ '^[0-9a-f]{64}$') then
     raise exception using errcode = 'P0001', message = 'export_marking_invalid';
   end if;
 
@@ -574,13 +618,29 @@ begin
   order by block.created_at, block.id
   limit 1;
   if v_block_id is not null then
-    return v_block_id;
+    return pg_catalog.jsonb_build_object('blockId', v_block_id, 'resolved', false);
+  end if;
+
+  if p_job_file_id is not null and v_hash is not null then
+    select block.* into v_cleared
+    from private.job_export_marking_blocks block
+    where block.job_id = v_job.id
+      and block.job_file_id = p_job_file_id
+      and block.source = p_source
+      and block.state = 'cleared_by_admin'
+      and block.content_sha256 = v_hash
+      and p_patterns <@ block.patterns
+    order by block.reviewed_at desc, block.id desc
+    limit 1;
+    if v_cleared.id is not null and private.record_admin_cleared_scan(v_cleared.id) then
+      return pg_catalog.jsonb_build_object('blockId', v_cleared.id, 'resolved', true);
+    end if;
   end if;
 
   insert into private.job_export_marking_blocks (
-    job_id, organization_id, part_id, job_file_id, source, patterns
+    job_id, organization_id, part_id, job_file_id, source, patterns, content_sha256
   )
-  values (v_job.id, v_job.organization_id, p_part_id, p_job_file_id, p_source, p_patterns)
+  values (v_job.id, v_job.organization_id, p_part_id, p_job_file_id, p_source, p_patterns, v_hash)
   returning id into v_block_id;
 
   insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
@@ -590,17 +650,18 @@ begin
       'blockId', v_block_id,
       'source', p_source,
       'patterns', pg_catalog.to_jsonb(p_patterns),
-      'jobFileId', p_job_file_id
+      'jobFileId', p_job_file_id,
+      'contentSha256', v_hash
     )
   );
 
-  return v_block_id;
+  return pg_catalog.jsonb_build_object('blockId', v_block_id, 'resolved', false);
 end;
 $$;
 
-revoke all on function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])
+revoke all on function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)
   from public, anon, authenticated;
-grant execute on function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])
+grant execute on function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)
   to service_role;
 
 -- 1.11b Clean marking scans, recorded by the worker (service role only).
@@ -622,7 +683,16 @@ create table if not exists private.job_file_export_scans (
   part_id uuid null,
   source text not null check (source in ('drawing_text', 'drawing_ocr', 'step_header')),
   content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
-  scanned_at timestamptz not null default clock_timestamp()
+  scanned_at timestamptz not null default clock_timestamp(),
+  -- Set only on a scan written by an admin clearance (1.12): the cleared block
+  -- and the patterns it cleared. The text of these bytes did match; a platform
+  -- admin reviewed it as a false positive. A worker scan leaves both null.
+  cleared_block_id uuid null,
+  cleared_patterns text[] null,
+  constraint job_file_export_scans_cleared_shape check (
+    (cleared_block_id is null) = (cleared_patterns is null)
+    and (cleared_patterns is null or cardinality(cleared_patterns) > 0)
+  )
 );
 
 create index if not exists job_file_export_scans_file_idx
@@ -724,8 +794,84 @@ revoke all on function public.api_record_export_control_clean_scan(uuid, uuid, u
 grant execute on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text)
   to service_role;
 
+-- 1.12a Admin cleared scan. A false positive cleared by a platform admin
+-- vouches for exactly the bytes and patterns that were reviewed: the block's
+-- file id, its job, its content hash, and its source. It is recorded as a scan
+-- of record (cleared_block_id, cleared_patterns set) only while the file is
+-- still in that job with that same claimed hash (and verified hash, when
+-- set). Otherwise nothing is recorded: the bytes changed, and the worker must
+-- scan them again. Idempotent. Returns whether such a scan exists now. The
+-- caller holds the job's exclusive export lock.
+create or replace function private.record_admin_cleared_scan(p_block_id uuid)
+returns boolean
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_block private.job_export_marking_blocks%rowtype;
+  v_file public.job_files%rowtype;
+  v_scan_id uuid;
+begin
+  select block.* into v_block
+  from private.job_export_marking_blocks block
+  where block.id = p_block_id and block.state = 'cleared_by_admin';
+  if v_block.id is null or v_block.job_file_id is null or v_block.content_sha256 is null then
+    return false;
+  end if;
+
+  select file_row.* into v_file from public.job_files file_row where file_row.id = v_block.job_file_id;
+  if v_file.id is null
+    or v_file.job_id is distinct from v_block.job_id
+    or pg_catalog.lower(pg_catalog.btrim(coalesce(v_file.content_sha256, ''))) is distinct from v_block.content_sha256
+    or (v_file.trusted_content_sha256 is not null and v_file.trusted_content_sha256 is distinct from v_block.content_sha256) then
+    return false;
+  end if;
+
+  if exists (
+    select 1
+    from private.job_file_export_scans scan
+    where scan.job_file_id = v_file.id
+      and scan.job_id = v_file.job_id
+      and scan.content_sha256 = v_block.content_sha256
+      and scan.source = v_block.source
+      and scan.cleared_block_id = v_block.id
+  ) then
+    return true;
+  end if;
+
+  insert into private.job_file_export_scans (
+    job_file_id, job_id, organization_id, part_id, source, content_sha256,
+    cleared_block_id, cleared_patterns
+  )
+  values (
+    v_file.id, v_file.job_id, v_file.organization_id, v_block.part_id, v_block.source,
+    v_block.content_sha256, v_block.id, v_block.patterns
+  )
+  returning id into v_scan_id;
+
+  insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
+  values (
+    v_file.organization_id, v_file.job_id, v_block.part_id, v_block.reviewed_by, 'file_scan_recorded_admin_cleared',
+    pg_catalog.jsonb_build_object(
+      'scanId', v_scan_id, 'blockId', v_block.id, 'source', v_block.source,
+      'jobFileId', v_file.id, 'contentSha256', v_block.content_sha256,
+      'patterns', pg_catalog.to_jsonb(v_block.patterns)
+    )
+  );
+
+  return true;
+end;
+$$;
+
+revoke all on function private.record_admin_cleared_scan(uuid)
+  from public, anon, authenticated, service_role;
+
 -- 1.12 Admin review. Users cannot clear a block; only platform admins can,
--- with a mandatory note, and every decision is an audit event.
+-- with a mandatory note, and every decision is an audit event. Clearing a
+-- false positive also records the admin cleared scan of the reviewed bytes
+-- (1.12a), so the part becomes dispatchable once nothing else holds it; a
+-- later hit on the same bytes and patterns resolves to this clearance
+-- (1.11), and a new hash or pattern opens a new block.
 create or replace function public.api_review_export_control_block(
   p_block_id uuid,
   p_decision text,
@@ -738,6 +884,7 @@ set search_path = ''
 as $$
 declare
   v_block private.job_export_marking_blocks%rowtype;
+  v_scan_recorded boolean := false;
 begin
   perform public.require_verified_auth();
   if not public.is_platform_admin() then
@@ -780,7 +927,15 @@ begin
     pg_catalog.jsonb_build_object('blockId', v_block.id, 'note', v_block.review_note)
   );
 
-  return pg_catalog.jsonb_build_object('blockId', v_block.id, 'state', v_block.state);
+  if p_decision = 'cleared_by_admin' then
+    v_scan_recorded := private.record_admin_cleared_scan(v_block.id);
+  end if;
+
+  return pg_catalog.jsonb_build_object(
+    'blockId', v_block.id,
+    'state', v_block.state,
+    'scanRecorded', v_scan_recorded
+  );
 end;
 $$;
 
@@ -1343,6 +1498,122 @@ $$;
 revoke all on function public.api_check_export_control_extraction(uuid)
   from public, anon, authenticated, service_role;
 grant execute on function public.api_check_export_control_extraction(uuid)
+  to service_role;
+
+-- 1.16c Scan only rescan (expand). Queues one export_marking_rescan task
+-- per file of the job that can be scanned (a drawing, or a CAD file named
+-- .step/.stp) and has no scan of record for its id, its current job, and its
+-- current content hash, unless such a task is already queued or running.
+-- The worker task (handleExportMarkingRescanTask) stages the bytes, verifies
+-- their hash, scans drawing text or the STEP header, and records a clean scan
+-- or opens a block. It never calls a model. This closes the gap that
+-- api_request_extraction leaves: it skips a part that already has an
+-- extraction, so a part extracted before OVD-723 would otherwise never get a
+-- drawing scan and stay export_scan_missing. Called by the declare RPC (1.9)
+-- after a clean declaration, and by the service role through
+-- api_queue_export_marking_rescan. Returns the number of tasks queued.
+create or replace function private.queue_export_marking_rescans(p_job_id uuid)
+returns integer
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_count integer := 0;
+begin
+  select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
+  if v_job.id is null then
+    return 0;
+  end if;
+
+  -- Serializes with declarations, scans and other queue calls for this job,
+  -- so two callers cannot queue the same file twice.
+  perform private.lock_job_export_state(v_job.id, true);
+
+  with candidates as (
+    select
+      file_row.id as job_file_id,
+      pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256)) as content_sha256,
+      (
+        select part.id
+        from public.parts part
+        where part.job_id = file_row.job_id
+          and file_row.id in (part.cad_file_id, part.drawing_file_id)
+        order by part.id
+        limit 1
+      ) as part_id
+    from public.job_files file_row
+    where file_row.job_id = v_job.id
+      and (
+        file_row.file_kind = 'drawing'
+        or pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+      )
+      and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.content_sha256, ''))) ~ '^[0-9a-f]{64}$'
+      and not exists (
+        select 1
+        from private.job_file_export_scans scan
+        where scan.job_file_id = file_row.id
+          and scan.job_id = file_row.job_id
+          and scan.content_sha256 = pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+      )
+      and not exists (
+        select 1
+        from public.work_queue queue
+        where queue.job_id = file_row.job_id
+          and queue.task_type::text = 'export_marking_rescan'
+          and queue.status in ('queued', 'running')
+          and queue.payload ->> 'jobFileId' = file_row.id::text
+      )
+  ),
+  queued as (
+    insert into public.work_queue (organization_id, job_id, part_id, task_type, payload)
+    select
+      v_job.organization_id,
+      v_job.id,
+      candidate.part_id,
+      'export_marking_rescan'::text::public.queue_task_type,
+      pg_catalog.jsonb_build_object(
+        'jobId', v_job.id,
+        'jobFileId', candidate.job_file_id,
+        'contentSha256', candidate.content_sha256
+      )
+    from candidates candidate
+    returning id
+  )
+  select count(*)::integer into v_count from queued;
+
+  if v_count > 0 then
+    insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
+    values (
+      v_job.organization_id, v_job.id, null, auth.uid(), 'export_marking_rescan_queued',
+      pg_catalog.jsonb_build_object('tasksQueued', v_count)
+    );
+  end if;
+
+  return v_count;
+end;
+$$;
+
+revoke all on function private.queue_export_marking_rescans(uuid)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.api_queue_export_marking_rescan(p_job_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_job_id is null or not exists (select 1 from public.jobs job_row where job_row.id = p_job_id) then
+    raise exception using errcode = 'P0001', message = 'export_rescan_invalid';
+  end if;
+  return private.queue_export_marking_rescans(p_job_id);
+end;
+$$;
+
+revoke all on function public.api_queue_export_marking_rescan(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_queue_export_marking_rescan(uuid)
   to service_role;
 
 -- 1.17 One-time backfill: every existing job with files and no declaration

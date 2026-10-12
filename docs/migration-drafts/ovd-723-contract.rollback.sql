@@ -3,7 +3,8 @@
 --
 -- Restores the state after the expand migration: the legacy upload RPCs work
 -- again, the old Storage INSERT policy is back (exactly as in
--- 20260815093000), and the preflights are the original bodies. Effect:
+-- 20260815093000), and the preflights and the manual quote RPC are the
+-- original bodies. Effect:
 -- removes the server side upload and dispatch block. Run only with Blaine's
 -- yes. Roll back strictly in reverse order of apply: the guard refuses when
 -- another migration (for example OVD-722) wraps the OVD-723 preflight
@@ -16,7 +17,8 @@ begin
   if pg_catalog.to_regprocedure('private.provider_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)') is null
     or pg_catalog.to_regprocedure('private.xometry_beta_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)') is null
     or pg_catalog.to_regprocedure('private.job_file_prepare_core(uuid, text, public.job_file_kind, text, bigint, text)') is null
-    or pg_catalog.to_regprocedure('private.job_file_finalize_core(uuid, text, text, text, public.job_file_kind, text, bigint, text)') is null then
+    or pg_catalog.to_regprocedure('private.job_file_finalize_core(uuid, text, text, text, public.job_file_kind, text, bigint, text)') is null
+    or pg_catalog.to_regprocedure('private.manual_quote_request_core(uuid, boolean)') is null then
     raise exception 'OVD-723 contract rollback refused: the contract migration is not applied';
   end if;
   if (select pg_catalog.strpos(prosrc, 'private.provider_worker_dispatch_core(') from pg_catalog.pg_proc
@@ -27,6 +29,18 @@ begin
   end if;
 end;
 $guard$;
+
+-- C.6: the manual quote RPC is the original body again.
+drop function public.api_request_manual_quote(uuid, boolean);
+drop function private.export_control_manual_quote_denial(uuid);
+alter function private.manual_quote_request_core(uuid, boolean)
+  rename to api_request_manual_quote;
+alter function private.api_request_manual_quote(uuid, boolean)
+  set schema public;
+revoke all on function public.api_request_manual_quote(uuid, boolean)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_request_manual_quote(uuid, boolean)
+  to authenticated;
 
 -- C.5
 create policy "job_files_storage_insert"

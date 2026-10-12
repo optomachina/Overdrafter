@@ -92,7 +92,20 @@ export function isExportControlAnswer(value: unknown): value is ExportControlAns
  */
 export type ExportControlPromptMode = "upload" | "declare";
 
-type ExportControlPrompter = (mode: ExportControlPromptMode) => Promise<ExportControlAnswer | null>;
+/**
+ * What one answer covers, so the question can name it. `fileNames` are the
+ * files in this upload; `fileSetCount` is how many parts (file sets) they
+ * become. One answer is recorded for each of those parts.
+ */
+export type ExportControlPromptScope = {
+  fileNames?: readonly string[];
+  fileSetCount?: number;
+};
+
+type ExportControlPrompter = (
+  mode: ExportControlPromptMode,
+  scope?: ExportControlPromptScope,
+) => Promise<ExportControlAnswer | null>;
 
 let activePrompter: ExportControlPrompter | null = null;
 
@@ -110,12 +123,35 @@ export function registerExportControlDeclarationPrompter(prompter: ExportControl
  */
 export async function requestExportControlAnswer(
   mode: ExportControlPromptMode = "upload",
+  scope: ExportControlPromptScope = {},
 ): Promise<ExportControlAnswer | null> {
   if (!activePrompter) return null;
   try {
-    const answer = await activePrompter(mode);
+    const answer = await activePrompter(mode, scope);
     return isExportControlAnswer(answer) ? answer : null;
   } catch {
     return null;
   }
+}
+
+const NAMED_FILE_LIMIT = 4;
+
+/**
+ * Plain sentence naming what one answer covers when it covers more than one
+ * file or more than one part. Returns null for a single file on one part,
+ * where the question's own wording ("this part") is already exact.
+ */
+export function describeExportControlPromptScope(scope: ExportControlPromptScope | undefined): string | null {
+  const names = (scope?.fileNames ?? []).filter((name) => typeof name === "string" && name.length > 0);
+  const fileSets = Math.max(1, Math.floor(scope?.fileSetCount ?? 1));
+  if (names.length <= 1 && fileSets <= 1) return null;
+
+  const shown = names.slice(0, NAMED_FILE_LIMIT);
+  const hidden = names.length - shown.length;
+  const listed = hidden > 0 ? `${shown.join(", ")} and ${hidden} more` : shown.join(", ");
+  const fileCount = names.length === 1 ? "1 file" : `${names.length} files`;
+  const where = fileSets > 1 ? ` on ${fileSets} parts` : "";
+  return names.length > 0
+    ? `This answer applies to all ${fileCount}${where}: ${listed}.`
+    : `This answer applies to all ${fileSets} parts in this upload.`;
 }

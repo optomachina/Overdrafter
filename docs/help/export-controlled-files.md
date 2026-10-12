@@ -26,7 +26,9 @@ yourself. An OverDrafter administrator reviews it and records the decision.
 
 Each upload records a new answer, and the most recent answer applies to the
 part. If the most recent answer is anything other than "Not export-controlled",
-the part is not sent to any manufacturer and is not quoted by hand.
+the part is not sent to any manufacturer automatically. Do not request a
+manual quote for a held part. During the first stage of this rollout a manual
+quote request is not yet refused for a held part; a later update refuses it.
 
 Parts uploaded before this question existed have no answer yet, and their
 quotes are on hold. Open the part and choose "Answer export-control question"
@@ -38,6 +40,16 @@ If OverDrafter cannot read the text on every page of a drawing (for example a
 scanned drawing), it cannot check that drawing for markings. The drawing is
 not sent to any manufacturer or to any automated reader, and the part needs
 an administrator's help.
+
+A stamp or marking that is only an image on a page that also has normal text
+is not read, because OCR runs only when a page has no text layer.
+
+## STEP files
+
+For STEP files, OverDrafter reads only the header strings (file description,
+file name, author, organization, and authorization). Text inside the model
+geometry is not checked. A STEP file whose header cannot be found in full is
+held and not sent to any manufacturer.
 
 The answer is recorded with the version of the beta terms you accepted
 (`ovd-beta-export-control.v1`). See the beta terms at `/legal/terms`.

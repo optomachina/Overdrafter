@@ -175,20 +175,34 @@ export function detectExportControlMarkings(text: string | null | undefined): st
 export const STEP_HEADER_SCAN_BYTES = 256 * 1024;
 
 /**
- * Returns the STEP `HEADER; ... ENDSEC;` section (file description, file
- * name with author/organization/authorization, schema) as text. When the
- * section is not found in the scanned prefix, the whole prefix is returned so
- * a malformed header is still scanned rather than skipped.
+ * The STEP `HEADER; ... ENDSEC;` section (file description, file name with
+ * author/organization/authorization, schema) as text, and whether it was read
+ * in full. `complete` is true only when both `HEADER;` and the `ENDSEC;` that
+ * closes it are inside the scanned prefix. A header padded past the prefix,
+ * or a file with no `HEADER;` in the prefix, is incomplete: its text is still
+ * scanned for markings (a hit still blocks), but no clean scan may be
+ * recorded for it, so dispatch stays denied (held).
  */
-export function readStepHeaderText(content: Uint8Array | string): string {
+export function readStepHeader(content: Uint8Array | string): { text: string; complete: boolean } {
   const prefix =
     typeof content === "string"
       ? content.slice(0, STEP_HEADER_SCAN_BYTES)
       : Buffer.from(content.subarray(0, STEP_HEADER_SCAN_BYTES)).toString("latin1");
   const start = prefix.search(/\bHEADER\s*;/i);
-  if (start < 0) return prefix;
+  if (start < 0) return { text: prefix, complete: false };
   const end = prefix.slice(start).search(/\bENDSEC\s*;/i);
-  return end < 0 ? prefix.slice(start) : prefix.slice(start, start + end);
+  return end < 0
+    ? { text: prefix.slice(start), complete: false }
+    : { text: prefix.slice(start, start + end), complete: true };
+}
+
+/**
+ * Returns the header text `readStepHeader` scans. When the section is not
+ * found in the scanned prefix, the whole prefix is returned so a malformed
+ * header is still scanned rather than skipped.
+ */
+export function readStepHeaderText(content: Uint8Array | string): string {
+  return readStepHeader(content).text;
 }
 
 /**
@@ -231,19 +245,62 @@ export function isDrawingTextFullyRead(
   return pdfText.pages.every((page) => typeof page.text === "string" && page.text.trim().length > 0);
 }
 
+/**
+ * The scan source for drawing text: `drawing_ocr` when `extractPdfText` read
+ * the text through its OCR fallback (it sets `ocr: true`), else `drawing_text`.
+ */
+export function drawingTextScanSource(
+  pdfText: { ocr?: boolean } | null | undefined,
+): "drawing_text" | "drawing_ocr" {
+  return pdfText?.ocr === true ? "drawing_ocr" : "drawing_text";
+}
+
 /** Scans every drawing page; OCR-derived text is reported as `drawing_ocr`. */
 export function scanDrawingTextForExportMarkings(
-  pdfText: { pages: ReadonlyArray<{ text: string }> } | null | undefined,
+  pdfText: { pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null | undefined,
   options: { ocr?: boolean } = {},
 ): ExportControlMarkingScan | null {
   if (!pdfText) return null;
   const patterns = detectExportControlMarkings(pdfText.pages.map((page) => page.text).join("\n"));
-  return patterns.length > 0 ? { source: options.ocr ? "drawing_ocr" : "drawing_text", patterns } : null;
+  const ocr = options.ocr ?? pdfText.ocr === true;
+  return patterns.length > 0 ? { source: ocr ? "drawing_ocr" : "drawing_text", patterns } : null;
 }
 
 export function scanStepHeaderForExportMarkings(content: Uint8Array | string): ExportControlMarkingScan | null {
   const patterns = detectExportControlMarkings(readStepHeaderText(content));
   return patterns.length > 0 ? { source: "step_header", patterns } : null;
+}
+
+/**
+ * Scans and records the STEP header of one staged CAD file. A clean scan is
+ * recorded only when the whole header was inside the scanned prefix
+ * (`readStepHeader(...).complete`); otherwise nothing clean is recorded and
+ * dispatch stays denied. A hit records a block and throws. Returns whether the
+ * header was read in full.
+ */
+export async function enforceAndRecordStepHeaderScan(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    jobFileId: string;
+    localPath: string;
+    contentSha256: string;
+    readPrefix?: (localPath: string) => Promise<Uint8Array>;
+  },
+): Promise<boolean> {
+  const header = readStepHeader(await (input.readPrefix ?? readStagedStepHeaderPrefix)(input.localPath));
+  const patterns = detectExportControlMarkings(header.text);
+  await enforceAndRecordExportControlScan(supabase, {
+    jobId: input.jobId,
+    partId: input.partId,
+    jobFileId: input.jobFileId,
+    source: "step_header",
+    scan: patterns.length > 0 ? { source: "step_header", patterns } : null,
+    textRead: header.complete,
+    contentSha256: input.contentSha256,
+  });
+  return header.complete;
 }
 
 export class ExportControlMarkingBlockedError extends Error {
@@ -306,8 +363,13 @@ export class ExportControlScanRecordError extends Error {
 }
 
 /**
- * Records a marking hit as a `blocked_pending_review` block. Any RPC error or
- * malformed response throws, so the caller's task fails closed.
+ * Records a marking hit. The database answers with the block it opened or
+ * already holds open (`resolved: false`), or, when an admin already cleared a
+ * block for this same file, content hash, and source whose patterns include
+ * every pattern found now, with that cleared block (`resolved: true`; the
+ * database records an admin cleared scan for those bytes). A new hash or a
+ * new pattern always opens a block. Any RPC error or malformed response
+ * throws, so the caller's task fails closed.
  */
 export async function recordExportControlMarkings(
   supabase: Pick<SupabaseClient, "rpc">,
@@ -316,8 +378,10 @@ export async function recordExportControlMarkings(
     partId: string | null;
     jobFileId: string | null;
     scan: ExportControlMarkingScan;
+    /** SHA-256 of the scanned bytes; null when no staged bytes exist. */
+    contentSha256?: string | null;
   },
-): Promise<string> {
+): Promise<{ blockId: string; resolved: boolean }> {
   let response: { data: unknown; error: unknown };
   try {
     response = await supabase.rpc("api_record_export_control_marking_hits", {
@@ -326,19 +390,27 @@ export async function recordExportControlMarkings(
       p_job_file_id: input.jobFileId,
       p_source: input.scan.source,
       p_patterns: input.scan.patterns,
+      p_content_sha256: input.contentSha256 && SHA256_HEX.test(input.contentSha256) ? input.contentSha256 : null,
     });
   } catch {
     throw new ExportControlMarkingRecordError();
   }
-  if (response.error || typeof response.data !== "string" || response.data.length === 0) {
+  const data = response.data;
+  if (response.error || !data || typeof data !== "object" || Array.isArray(data)) {
     throw new ExportControlMarkingRecordError();
   }
-  return response.data;
+  const value = data as Record<string, unknown>;
+  if (typeof value.blockId !== "string" || value.blockId.length === 0 || typeof value.resolved !== "boolean") {
+    throw new ExportControlMarkingRecordError();
+  }
+  return { blockId: value.blockId, resolved: value.resolved };
 }
 
 /**
- * Scan, record, and stop. Returns normally only when nothing matched; a hit
- * always ends in a thrown error (blocked, or record failed).
+ * Scan, record, and stop. Returns normally when nothing matched (`"clean"`)
+ * or when the database matched the hit to an admin cleared block for the same
+ * bytes and patterns (`"admin_cleared"`). Any other hit ends in a thrown
+ * error (blocked, or record failed).
  */
 export async function enforceExportControlMarkings(
   supabase: Pick<SupabaseClient, "rpc">,
@@ -347,10 +419,12 @@ export async function enforceExportControlMarkings(
     partId: string | null;
     jobFileId: string | null;
     scan: ExportControlMarkingScan | null;
+    contentSha256?: string | null;
   },
-): Promise<void> {
-  if (!input.scan) return;
-  await recordExportControlMarkings(supabase, { ...input, scan: input.scan });
+): Promise<"clean" | "admin_cleared"> {
+  if (!input.scan) return "clean";
+  const recorded = await recordExportControlMarkings(supabase, { ...input, scan: input.scan });
+  if (recorded.resolved) return "admin_cleared";
   throw new ExportControlMarkingBlockedError(input.scan.source, input.scan.patterns);
 }
 
@@ -413,8 +487,10 @@ export async function enforceAndRecordExportControlScan(
     contentSha256: string;
   },
 ): Promise<void> {
-  await enforceExportControlMarkings(supabase, input);
-  if (!input.textRead) return;
+  const outcome = await enforceExportControlMarkings(supabase, input);
+  // An admin cleared hit already has its scan of record (written by the
+  // database with the clearance); the text did match, so it is not "clean".
+  if (outcome === "admin_cleared" || !input.textRead) return;
   await recordExportControlCleanScan(supabase, input);
 }
 
@@ -429,7 +505,7 @@ export async function scanStagedDrawingForExportMarkings(
     jobId: string;
     partId: string | null;
     drawingFile: { id: string; localPath: string; contentSha256: string } | null;
-    extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }> } | null>;
+    extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
   },
 ): Promise<void> {
   if (!input.drawingFile) return;
@@ -438,7 +514,7 @@ export async function scanStagedDrawingForExportMarkings(
     jobId: input.jobId,
     partId: input.partId,
     jobFileId: input.drawingFile.id,
-    source: "drawing_text",
+    source: drawingTextScanSource(pdfText),
     scan: scanDrawingTextForExportMarkings(pdfText),
     textRead: isDrawingTextFullyRead(pdfText),
     contentSha256: input.drawingFile.contentSha256,
@@ -476,4 +552,109 @@ export async function assertExportControlExtractionAllowed(
   }
   if (denial === "export_control_lookup_failed") throw new ExportControlLookupError("extraction");
   throw new ExportControlExtractionDeniedError(denial);
+}
+
+/**
+ * True for the errors that mean "stop: this content may not reach a model":
+ * an export-control denial or a failed export-control lookup. Model callers
+ * rethrow these instead of degrading to parser-only output.
+ */
+export function isExportControlModelStop(error: unknown): boolean {
+  return error instanceof ExportControlExtractionDeniedError || error instanceof ExportControlLookupError;
+}
+
+/**
+ * OVD-723 point in time check: a hook run before EACH model attempt (title
+ * block crop, full page). The job's state can change between the check
+ * before extraction and a later attempt (a re-declaration, a marking block
+ * opened by another task), so every attempt asks again and a denial stops the
+ * attempt before any content is sent.
+ */
+export function exportControlModelAttemptGuard(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: { jobId: string },
+): () => Promise<void> {
+  return () => assertExportControlExtractionAllowed(supabase, input);
+}
+
+/** What a scan only rescan of one job file found. */
+export type ExportMarkingRescanOutcome =
+  | "clean"
+  | "admin_cleared"
+  | "blocked"
+  | "drawing_unread"
+  | "step_header_incomplete"
+  | "not_scannable";
+
+/**
+ * OVD-723 scan only rescan (task `export_marking_rescan`), queued by
+ * `api_declare_job_export_status` after a clean declaration and by the
+ * service role `api_queue_export_marking_rescan`. It covers files that never
+ * got a clean scan of record, above all parts extracted before the deploy:
+ * `api_request_extraction` skips a part that already has an extraction, and
+ * the quote task scans only the STEP header, so without this the drawing of
+ * such a part stays `export_scan_missing` forever.
+ *
+ * It stages the file (which verifies and registers its hash), scans the
+ * drawing text (text layer, OCR when the page has none) or the STEP header,
+ * and records a clean scan or opens a block. It never calls any model: this
+ * module imports no extraction model code, and the only readers are the
+ * injected text and header readers.
+ */
+export async function runExportMarkingRescan(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    file: { id: string; original_name: string; file_kind: string };
+    stage: () => Promise<{ localPath: string; trustedContentSha256?: string | null } | null>;
+    extractText: (localPath: string) => Promise<{ pageCount?: number; pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
+    readStepPrefix?: (localPath: string) => Promise<Uint8Array>;
+  },
+): Promise<ExportMarkingRescanOutcome> {
+  const isStep = isStepFileName(input.file.original_name);
+  const isDrawing = !isStep && input.file.file_kind === "drawing";
+  if (!isStep && !isDrawing) return "not_scannable";
+
+  const staged = await input.stage();
+  if (!staged) throw new ExportControlScanRecordError();
+  const contentSha256 = staged.trustedContentSha256 ?? "";
+
+  try {
+    if (isStep) {
+      const complete = await enforceAndRecordStepHeaderScan(supabase, {
+        jobId: input.jobId,
+        partId: input.partId,
+        jobFileId: input.file.id,
+        localPath: staged.localPath,
+        contentSha256,
+        readPrefix: input.readStepPrefix,
+      });
+      return complete ? "clean" : "step_header_incomplete";
+    }
+
+    const pdfText = await input.extractText(staged.localPath);
+    const scan = scanDrawingTextForExportMarkings(pdfText);
+    const fullyRead = isDrawingTextFullyRead(pdfText);
+    const outcome = await enforceExportControlMarkings(supabase, {
+      jobId: input.jobId,
+      partId: input.partId,
+      jobFileId: input.file.id,
+      scan,
+      contentSha256,
+    });
+    if (outcome === "admin_cleared") return "admin_cleared";
+    if (!fullyRead) return "drawing_unread";
+    await recordExportControlCleanScan(supabase, {
+      jobId: input.jobId,
+      partId: input.partId,
+      jobFileId: input.file.id,
+      source: drawingTextScanSource(pdfText),
+      contentSha256,
+    });
+    return "clean";
+  } catch (error) {
+    if (error instanceof ExportControlMarkingBlockedError) return "blocked";
+    throw error;
+  }
 }

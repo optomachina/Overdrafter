@@ -65,6 +65,33 @@ describe("ExportControlDeclarationDialogHost", () => {
     await expect(pending).resolves.toBe("unsure");
   });
 
+  it("names the files and counts the parts when one answer covers more than one file set", async () => {
+    render(<ExportControlDeclarationDialogHost />);
+    act(() => {
+      void requestExportControlAnswer("upload", {
+        fileNames: ["alpha.step", "alpha.pdf", "beta.step", "gamma.step", "delta.step"],
+        fileSetCount: 4,
+      });
+    });
+
+    expect(await screen.findByText("Are any of these files export-controlled?")).toBeTruthy();
+    expect(screen.queryByText("Are any files on this part export-controlled?")).toBeNull();
+    expect(
+      screen.getByText(/This answer applies to all 5 files on 4 parts: alpha\.step, alpha\.pdf, beta\.step, gamma\.step and 1 more\./),
+    ).toBeTruthy();
+    expect(screen.getByText(/recorded for each of those parts/)).toBeTruthy();
+  });
+
+  it("names the files of a single part when more than one file is uploaded", async () => {
+    render(<ExportControlDeclarationDialogHost />);
+    act(() => {
+      void requestExportControlAnswer("upload", { fileNames: ["bracket.step", "bracket.pdf"], fileSetCount: 1 });
+    });
+
+    expect(await screen.findByText("Are any files on this part export-controlled?")).toBeTruthy();
+    expect(screen.getByText(/This answer applies to all 2 files: bracket\.step, bracket\.pdf\./)).toBeTruthy();
+  });
+
   it("resolves null when cancelled", async () => {
     render(<ExportControlDeclarationDialogHost />);
     const pending = openPrompt();

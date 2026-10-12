@@ -5,6 +5,7 @@ import type { JobFileRecord, PartRecord, WorkerConfig } from "../types";
 import * as pdfDrawing from "./pdfDrawing";
 import { MODEL_FALLBACK_PROMPT_VERSION } from "./modelFallback";
 import { runHybridExtraction } from "./hybridExtraction";
+import { ExportControlExtractionDeniedError, ExportControlLookupError } from "../exportControl";
 
 function makePart(overrides: Partial<PartRecord> = {}): PartRecord {
   return {
@@ -609,6 +610,36 @@ describe("runHybridExtraction", () => {
 
     expect(extractWithModel).toHaveBeenCalledTimes(1);
     expect(incompatibleResult.modelFallbackUsed).toBe(false);
+  });
+
+  // OVD-723: the export-control guard reaches the model extractor, and an
+  // export-control denial or failed lookup stops extraction instead of
+  // degrading to parser-only output with a warning.
+  it("passes the export-control guard through and rethrows an export-control stop", async () => {
+    const input = {
+      part: makePart(),
+      cadFile: makeFile(),
+      drawingFile: makeFile({ id: "file-2", original_name: "widget-clamp.pdf", file_kind: "drawing" }),
+      drawingPath: "/tmp/widget-clamp.pdf",
+      runDir: "/tmp",
+      previewPagePath: "/tmp/drawing-page-1.png",
+      config: makeConfig(),
+      forceModelFallback: true,
+    };
+    const beforeModelAttempt = vi.fn(async () => undefined);
+    const seen = vi.fn().mockResolvedValue(null);
+    await runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: seen });
+    expect(seen.mock.calls[0][0].beforeModelAttempt).toBe(beforeModelAttempt);
+
+    for (const stop of [new ExportControlExtractionDeniedError("export_review_pending"), new ExportControlLookupError("extraction")]) {
+      await expect(
+        runHybridExtraction({ ...input, beforeModelAttempt }, { extractWithModel: vi.fn().mockRejectedValue(stop) }),
+      ).rejects.toBe(stop);
+    }
+
+    // Any other model failure still degrades to a warning.
+    const degraded = await runHybridExtraction(input, { extractWithModel: vi.fn().mockRejectedValue(new Error("timeout")) });
+    expect(degraded.warnings.join(" ")).toContain("Model fallback failed");
   });
 
   it("fails closed when parser and model disagree without a clear winner", async () => {

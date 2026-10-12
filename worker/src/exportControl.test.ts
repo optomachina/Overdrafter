@@ -24,7 +24,11 @@ import {
   FOREIGN_JURISDICTION_PROVIDERS,
   isStepFileName,
   readStagedStepHeaderPrefix,
+  readStepHeader,
   readStepHeaderText,
+  drawingTextScanSource,
+  enforceAndRecordStepHeaderScan,
+  runExportMarkingRescan,
   scanDrawingTextForExportMarkings,
   scanStagedDrawingForExportMarkings,
   STEP_HEADER_SCAN_BYTES,
@@ -37,6 +41,7 @@ import {
   assertExportControlDispatchAllowed,
   EXPORT_CONTROL_HOLD_NOTE,
   exportControlHoldReason,
+  withExportControlDispatchRecheck,
 } from "./dispatchRouting";
 import { failureCodeForError, isRetryableVendorTaskError, nextRetryAt, VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 import type { VendorName, VendorQuoteAdapterInput } from "./types";
@@ -184,7 +189,7 @@ describe("marking enforcement (records a block, then stops the task)", () => {
   const input = { jobId: "job-1", partId: "part-1", jobFileId: "file-1" };
 
   it("records a blocked_pending_review block and throws on a hit", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
     const scan = scanDrawingTextForExportMarkings({ pages: [{ text: MARKING_FIXTURES.itarStamp }] });
 
     await expect(enforceExportControlMarkings({ rpc } as unknown as SupabaseClient, { ...input, scan })).rejects.toBeInstanceOf(
@@ -197,6 +202,7 @@ describe("marking enforcement (records a block, then stops the task)", () => {
       p_job_file_id: "file-1",
       p_source: "drawing_text",
       p_patterns: ["itar", "technical_data"],
+      p_content_sha256: null,
     });
   });
 
@@ -206,6 +212,9 @@ describe("marking enforcement (records a block, then stops the task)", () => {
       vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } }),
       vi.fn().mockRejectedValue(new Error("network")),
       vi.fn().mockResolvedValue({ data: null, error: null }),
+      // The old uuid-only answer, and an answer without a resolved flag, fail closed too.
+      vi.fn().mockResolvedValue({ data: "block-1", error: null }),
+      vi.fn().mockResolvedValue({ data: { blockId: "block-1" }, error: null }),
     ]) {
       await expect(
         enforceExportControlMarkings({ rpc } as unknown as SupabaseClient, { ...input, scan }),
@@ -217,7 +226,7 @@ describe("marking enforcement (records a block, then stops the task)", () => {
     const rpc = vi.fn();
     await expect(
       enforceExportControlMarkings({ rpc } as unknown as SupabaseClient, { ...input, scan: null }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("clean");
     expect(rpc).not.toHaveBeenCalled();
   });
 });
@@ -273,7 +282,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
   });
 
   it("records a block and never a clean scan on a hit", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
     await expect(
       enforceAndRecordExportControlScan({ rpc } as unknown as SupabaseClient, {
         ...input,
@@ -314,7 +323,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
   });
 
   it("scans the reusing part's own staged drawing instead of trusting copied artifacts", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
     const extractText = vi.fn().mockResolvedValue({ pages: [{ text: MARKING_FIXTURES.cui }] });
     await expect(
       scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
@@ -388,7 +397,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
   });
 
   it("still records a block when page 1 carries a marking and later pages are unread", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
     await expect(
       scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
         jobId: "target-job",
@@ -459,8 +468,8 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     const scanAt = reuse.indexOf("scanStagedDrawingForExportMarkings(");
     expect(scanAt).toBeGreaterThan(-1);
     expect(scanAt).toBeLessThan(reuse.indexOf("reusedCanonicalPartVersion: true"));
-    expect(workerIndex).toMatch(/source: "step_header",\s+scan: scanStepHeaderForExportMarkings/);
-    expect(workerIndex).toMatch(/source: "drawing_text",\s+scan: scanDrawingTextForExportMarkings\(pdfText\)/);
+    expect(workerIndex).toContain("await enforceAndRecordStepHeaderScan(supabase, {");
+    expect(workerIndex).toMatch(/source: drawingTextScanSource\(pdfText\),\s+scan: scanDrawingTextForExportMarkings\(pdfText\)/);
     // Every clean scan carries the hash of the bytes the worker staged.
     expect(workerIndex).toContain("contentSha256: stagedDrawingFile?.trustedContentSha256");
     expect(workerIndex).toContain("contentSha256: identityStagedDrawing.trustedContentSha256");
@@ -972,5 +981,262 @@ describe("OVD-723 migration draft", () => {
         "export_foreign_provider_requires_clean_declaration",
       );
     }
+  });
+});
+
+describe("OVD-723 review round 3: STEP header completeness", () => {
+  const contentSha256 = "e".repeat(64);
+  const base = { jobId: "job-1", partId: "part-1", jobFileId: "cad-1", localPath: "/stage/part.step", contentSha256 };
+
+  it("reports a header as complete only when HEADER; and ENDSEC; are both inside the prefix", () => {
+    expect(readStepHeader(STEP_CLEAN_HEADER_MARKED_DATA).complete).toBe(true);
+    // A header padded past the scanned prefix: HEADER; found, ENDSEC; not.
+    const padded = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('" + "x".repeat(STEP_HEADER_SCAN_BYTES) + "'),'2;1');\nENDSEC;\n";
+    expect(readStepHeader(padded).complete).toBe(false);
+    // A large file with no HEADER; in the prefix.
+    expect(readStepHeader("ISO-10303-21;\n" + "y".repeat(STEP_HEADER_SCAN_BYTES * 2)).complete).toBe(false);
+  });
+
+  it("records no clean scan for a padded header, so dispatch stays denied", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const padded = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('" + "x".repeat(STEP_HEADER_SCAN_BYTES) + "'),'2;1');\nENDSEC;\n";
+    await expect(
+      enforceAndRecordStepHeaderScan({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        readPrefix: async () => new TextEncoder().encode(padded).subarray(0, STEP_HEADER_SCAN_BYTES),
+      }),
+    ).resolves.toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("records no clean scan for a large file with no HEADER section", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ovd723-noheader-"));
+    try {
+      const stepPath = path.join(dir, "large.step");
+      writeFileSync(stepPath, "ISO-10303-21;\n" + "y".repeat(STEP_HEADER_SCAN_BYTES * 2));
+      const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+      await expect(
+        enforceAndRecordStepHeaderScan({ rpc } as unknown as SupabaseClient, { ...base, localPath: stepPath }),
+      ).resolves.toBe(false);
+      expect(rpc).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a clean scan for a complete clean header and still blocks a marked partial header", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await expect(
+      enforceAndRecordStepHeaderScan({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        readPrefix: async () => new TextEncoder().encode(STEP_CLEAN_HEADER_MARKED_DATA),
+      }),
+    ).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "step_header" }));
+
+    const hit = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
+    const partial = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ITAR'),'2;1');" + "z".repeat(STEP_HEADER_SCAN_BYTES);
+    await expect(
+      enforceAndRecordStepHeaderScan({ rpc: hit } as unknown as SupabaseClient, {
+        ...base,
+        readPrefix: async () => new TextEncoder().encode(partial).subarray(0, STEP_HEADER_SCAN_BYTES),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+  });
+
+  it("wires the quote task to record STEP scans only for a complete header", () => {
+    expect(workerIndex).not.toMatch(/source: "step_header",[\s\S]{0,200}textRead: true/);
+    expect(workerIndex).toContain("await enforceAndRecordStepHeaderScan(supabase, {");
+  });
+});
+
+describe("OVD-723 review round 3: OCR text is recorded as drawing_ocr", () => {
+  const contentSha256 = "f".repeat(64);
+
+  it("uses drawing_ocr for the clean scan and the block of OCR text", async () => {
+    expect(drawingTextScanSource({ ocr: true })).toBe("drawing_ocr");
+    expect(drawingTextScanSource({})).toBe("drawing_text");
+    expect(drawingTextScanSource(null)).toBe("drawing_text");
+    expect(scanDrawingTextForExportMarkings({ pages: [{ text: MARKING_FIXTURES.cui }], ocr: true })?.source).toBe("drawing_ocr");
+
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1", localPath: "/stage/d.pdf", contentSha256 },
+      extractText: vi.fn().mockResolvedValue({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }], ocr: true }),
+    });
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "drawing_ocr" }));
+  });
+
+  it("wires extraction to the OCR aware source", () => {
+    const run = workerIndex.slice(workerIndex.indexOf("async function runDrawingExtractionForTask("));
+    const body = run.slice(0, run.indexOf("\nasync function handleExtractTask("));
+    expect(body).toContain("source: drawingTextScanSource(pdfText),");
+    expect(body).not.toContain('source: "drawing_text",');
+  });
+});
+
+describe("OVD-723 review round 3: admin cleared false positives", () => {
+  const input = { jobId: "job-1", partId: "part-1", jobFileId: "file-1", contentSha256: "a".repeat(64) };
+
+  it("continues without a block when the database resolves the hit to an admin cleared block", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: true }, error: null });
+    const scan = scanDrawingTextForExportMarkings({ pages: [{ text: MARKING_FIXTURES.itarStamp }] });
+    await expect(enforceExportControlMarkings({ rpc } as unknown as SupabaseClient, { ...input, scan })).resolves.toBe(
+      "admin_cleared",
+    );
+    expect(rpc).toHaveBeenCalledWith(
+      "api_record_export_control_marking_hits",
+      expect.objectContaining({ p_job_file_id: "file-1", p_content_sha256: "a".repeat(64) }),
+    );
+
+    // The scan of record comes from the clearance; the worker records no "clean" scan for text that matched.
+    const recorder = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: true }, error: null });
+    await enforceAndRecordExportControlScan({ rpc: recorder } as unknown as SupabaseClient, {
+      ...input,
+      source: "drawing_text",
+      scan,
+      textRead: true,
+    });
+    expect(recorder.mock.calls.map(([name]) => name)).toEqual(["api_record_export_control_marking_hits"]);
+  });
+
+  it("still blocks when the database opens or keeps a block (a new hash or a new pattern)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-2", resolved: false }, error: null });
+    const scan = scanDrawingTextForExportMarkings({ pages: [{ text: MARKING_FIXTURES.cui }] });
+    await expect(enforceExportControlMarkings({ rpc } as unknown as SupabaseClient, { ...input, scan })).rejects.toBeInstanceOf(
+      ExportControlMarkingBlockedError,
+    );
+  });
+});
+
+describe("OVD-723 review round 3: scan only rescan of files extracted before the deploy", () => {
+  const sha = "9".repeat(64);
+  const stage = vi.fn(async () => ({ localPath: "/stage/f", trustedContentSha256: sha }));
+
+  it("records a clean drawing scan without any model call", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await expect(
+      runExportMarkingRescan({ rpc } as unknown as SupabaseClient, {
+        jobId: "job-1",
+        partId: "part-1",
+        file: { id: "drawing-1", original_name: "bracket.pdf", file_kind: "drawing" },
+        stage,
+        extractText: vi.fn().mockResolvedValue({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }] }),
+      }),
+    ).resolves.toBe("clean");
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
+      p_job_id: "job-1",
+      p_part_id: "part-1",
+      p_job_file_id: "drawing-1",
+      p_source: "drawing_text",
+      p_content_sha256: sha,
+    });
+  });
+
+  it("opens a block on a hit, leaves an unread drawing without a scan, and scans STEP headers", async () => {
+    const hit = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
+    await expect(
+      runExportMarkingRescan({ rpc: hit } as unknown as SupabaseClient, {
+        jobId: "job-1",
+        partId: "part-1",
+        file: { id: "drawing-1", original_name: "bracket.pdf", file_kind: "drawing" },
+        stage,
+        extractText: vi.fn().mockResolvedValue({ pageCount: 1, pages: [{ text: MARKING_FIXTURES.itarStamp }] }),
+      }),
+    ).resolves.toBe("blocked");
+    expect(hit.mock.calls.map(([name]) => name)).toEqual(["api_record_export_control_marking_hits"]);
+
+    const unread = vi.fn();
+    await expect(
+      runExportMarkingRescan({ rpc: unread } as unknown as SupabaseClient, {
+        jobId: "job-1",
+        partId: "part-1",
+        file: { id: "drawing-1", original_name: "scan.pdf", file_kind: "drawing" },
+        stage,
+        extractText: vi.fn().mockResolvedValue({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "" }] }),
+      }),
+    ).resolves.toBe("drawing_unread");
+    expect(unread).not.toHaveBeenCalled();
+
+    const step = vi.fn().mockResolvedValue({ data: "scan-2", error: null });
+    await expect(
+      runExportMarkingRescan({ rpc: step } as unknown as SupabaseClient, {
+        jobId: "job-1",
+        partId: "part-1",
+        file: { id: "cad-1", original_name: "bracket.STEP", file_kind: "cad" },
+        stage,
+        extractText: vi.fn(),
+        readStepPrefix: async () => new TextEncoder().encode(STEP_CLEAN_HEADER_MARKED_DATA),
+      }),
+    ).resolves.toBe("clean");
+    expect(step).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "step_header" }));
+
+    const other = vi.fn();
+    await expect(
+      runExportMarkingRescan({ rpc: other } as unknown as SupabaseClient, {
+        jobId: "job-1",
+        partId: "part-1",
+        file: { id: "cad-2", original_name: "bracket.sldprt", file_kind: "cad" },
+        stage,
+        extractText: vi.fn(),
+      }),
+    ).resolves.toBe("not_scannable");
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("is a worker task that never reaches model code", () => {
+    // The task handler is wired, and neither it nor the scanner module imports any model path.
+    expect(workerIndex).toContain('case "export_marking_rescan":');
+    const handler = workerIndex.slice(workerIndex.indexOf("export async function handleExportMarkingRescanTask("));
+    const body = handler.slice(0, handler.indexOf("\nasync function fetchQuoteRequestStatusForTask("));
+    expect(body).toContain("runExportMarkingRescan(");
+    for (const modelPath of ["runHybridExtraction", "extractDrawingFieldsWithModel", "callModel", "createProvider", "runPreviewModelAttempts"]) {
+      expect(body).not.toContain(modelPath);
+    }
+    const scanner = readFileSync(new URL("./exportControl.ts", import.meta.url), "utf8");
+    expect(scanner.match(/^import .*$/gm)).toEqual([
+      'import { open } from "node:fs/promises";',
+      'import type { SupabaseClient } from "@supabase/supabase-js";',
+      'import type { VendorName } from "./types.js";',
+    ]);
+  });
+});
+
+describe("OVD-723 review round 3: point in time checks", () => {
+  it("asks the dispatch gate again after authorization and right before adapter.quote", async () => {
+    const order: string[] = [];
+    const rpc = vi.fn(async () => {
+      order.push("check");
+      return { data: { allowed: true }, error: null };
+    });
+    const adapter = { quote: vi.fn(async () => { order.push("quote"); return {} as never; }) };
+    const wrapped = withExportControlDispatchRecheck(adapter, { rpc } as unknown as SupabaseClient, { taskId: "t", vendor: "fictiv" });
+    await wrapped.quote({} as VendorQuoteAdapterInput);
+    expect(order).toEqual(["check", "quote"]);
+
+    const deny = vi.fn(async () => ({ data: { allowed: false, reasonCode: "export_review_pending" }, error: null }));
+    const blocked = { quote: vi.fn() };
+    await expect(
+      withExportControlDispatchRecheck(blocked, { rpc: deny } as unknown as SupabaseClient, { taskId: "t", vendor: "fictiv" })
+        .quote({} as VendorQuoteAdapterInput),
+    ).rejects.toBeInstanceOf(ProviderDispatchAuthorizationError);
+    expect(blocked.quote).not.toHaveBeenCalled();
+  });
+
+  it("wires the per attempt extraction guard and the pre send dispatch recheck", () => {
+    expect(workerIndex).toContain("beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: task.job_id }),");
+    expect(workerIndex).toContain("adapter: withExportControlDispatchRecheck(adapter, supabase, { taskId: task.id, vendor }),");
+    const lab = readFileSync(new URL("./extraction/debugLab.ts", import.meta.url), "utf8");
+    expect(lab).toContain("beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: context.part.job_id }),");
+  });
+
+  it("runs the export gate before the manual and spend cap routes of a quote task", () => {
+    const quote = workerIndex.slice(workerIndex.indexOf("export async function handleVendorQuoteTask("));
+    const gate = quote.indexOf("await assertExportControlDispatchAllowed(supabase, { taskId: task.id, vendor });");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(quote.indexOf("if (!adapter) {"));
+    expect(gate).toBeLessThan(quote.indexOf('vendorSpendGuard.reserve("vendor_automation"'));
   });
 });

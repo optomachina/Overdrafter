@@ -38,7 +38,7 @@
 --      (finding 4)
 begin;
 
-select plan(104);
+select plan(128);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -609,16 +609,16 @@ select is(
 
 -- 4. Marking hit.
 update ovd723_ctx
-set block_id = public.api_record_export_control_marking_hits(
+set block_id = (public.api_record_export_control_marking_hits(
   clean_job_id, null, null, 'drawing_text', array['itar', 'eccn_code']
-);
+) ->> 'blockId')::uuid;
 
 select is(
   public.api_record_export_control_marking_hits(
     (select clean_job_id from ovd723_ctx), null, null, 'drawing_text', array['itar']
   ),
-  (select block_id from ovd723_ctx),
-  'a repeat hit on the same file and source returns the open block'
+  pg_catalog.jsonb_build_object('blockId', (select block_id from ovd723_ctx), 'resolved', false),
+  'a repeat hit on the same file and source returns the open block, unresolved'
 );
 
 select is(
@@ -1026,6 +1026,328 @@ select throws_ok(
   'clean scan records cannot be deleted'
 );
 
+-- 11. A part extracted before OVD-723 (review round 3, blocker 2). Its job
+-- was backfilled 'missing', it has an extraction row, and its files have no
+-- clean scan. api_request_extraction skips it (it already has an
+-- extraction), so a clean declaration must queue a scan only rescan.
+reset role;
+
+alter table ovd723_ctx add column legacy_job_id uuid, add column first_cleared_block_id uuid,
+  add column second_block_id uuid, add column third_block_id uuid;
+update ovd723_ctx set legacy_job_id = '00000000-0000-4000-8000-0000000072d0';
+
+insert into public.jobs (id, organization_id, created_by, title)
+select legacy_job_id, organization_id, member_user_id, 'OVD 723 extracted before deploy'
+from ovd723_ctx;
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, trusted_content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select file.id, context.legacy_job_id, context.organization_id, context.member_user_id,
+  file.sha, file.sha, 'job-files', 'org-sha256/' || context.organization_id || '/' || file.sha || '/' || file.name,
+  -- normalized_name pairs the drawing with the CAD file into one part, as
+  -- api_reconcile_job_parts (run by api_request_extraction) expects.
+  file.name, 'legacy', file.kind::public.job_file_kind, 100
+from ovd723_ctx context
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072d3'::uuid, repeat('5', 64), 'legacy.pdf', 'drawing'),
+  ('00000000-0000-4000-8000-0000000072d4'::uuid, repeat('6', 64), 'legacy.step', 'cad')
+) as file(id, sha, name, kind);
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+select '00000000-0000-4000-8000-0000000072d1', legacy_job_id, organization_id, 'legacy', 'legacy',
+  '00000000-0000-4000-8000-0000000072d4', '00000000-0000-4000-8000-0000000072d3'
+from ovd723_ctx;
+
+insert into public.drawing_extractions (part_id, organization_id, extraction)
+select '00000000-0000-4000-8000-0000000072d1', organization_id, '{"source": "before OVD-723"}'::jsonb
+from ovd723_ctx;
+
+-- The window 1 backfill row for a job that existed before the migration.
+insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+select legacy_job_id, organization_id, null, 'missing', terms_version
+from ovd723_ctx;
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select '00000000-0000-4000-8000-0000000072d2', organization_id, legacy_job_id,
+  '00000000-0000-4000-8000-0000000072d1', 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072d2', 'fictiv'),
+  'export_declaration_missing',
+  'a part extracted before the deploy is held until its owner declares'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_request_extraction((select legacy_job_id from ovd723_ctx)),
+  0,
+  'extraction queues nothing for a part that already has an extraction (why a rescan is needed)'
+);
+
+select is(
+  public.api_declare_job_export_status((select legacy_job_id from ovd723_ctx), 'not_controlled', (select terms_version from ovd723_ctx)) ->> 'rescansQueued',
+  '2',
+  'a clean declaration queues a scan only rescan for the drawing and the STEP file'
+);
+
+reset role;
+
+select is(
+  (select pg_catalog.array_agg(queue.payload ->> 'jobFileId' order by queue.payload ->> 'jobFileId')
+   from public.work_queue queue
+   where queue.job_id = (select legacy_job_id from ovd723_ctx)
+     and queue.task_type::text = 'export_marking_rescan'
+     and queue.status = 'queued'
+     and queue.part_id = '00000000-0000-4000-8000-0000000072d1'),
+  array['00000000-0000-4000-8000-0000000072d3', '00000000-0000-4000-8000-0000000072d4'],
+  'one queued rescan task per unscanned file, linked to the part'
+);
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072d2', 'fictiv'),
+  'export_scan_missing',
+  'after the declaration, the part waits for the rescan'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_declare_job_export_status((select legacy_job_id from ovd723_ctx), 'not_controlled', (select terms_version from ovd723_ctx)) ->> 'rescansQueued',
+  '0',
+  'declaring again queues no duplicate while the rescans are queued'
+);
+
+reset role;
+
+select ok(
+  has_function_privilege('service_role', 'public.api_queue_export_marking_rescan(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.api_queue_export_marking_rescan(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_queue_export_marking_rescan(uuid)', 'execute')
+  and (select prosecdef and proconfig @> array['search_path=""']
+       from pg_proc where oid = 'public.api_queue_export_marking_rescan(uuid)'::regprocedure),
+  'only the service role can queue a rescan; the RPC is SECURITY DEFINER with an empty search_path'
+);
+
+-- The worker's rescan task: it scans (no model) and records clean scans.
+set local role service_role;
+select lives_ok(
+  $$select public.api_record_export_control_clean_scan(
+    (select legacy_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072d1',
+    '00000000-0000-4000-8000-0000000072d3', 'drawing_ocr', repeat('5', 64));
+    select public.api_record_export_control_clean_scan(
+    (select legacy_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072d1',
+    '00000000-0000-4000-8000-0000000072d4', 'step_header', repeat('6', 64))$$,
+  'the rescan records a clean OCR drawing scan and a clean STEP header scan'
+);
+reset role;
+
+update public.work_queue set status = 'completed'
+where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'export_marking_rescan';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072d2', 'fictiv'),
+  null,
+  'end to end: the part extracted before the deploy is dispatchable after declare and rescan, with no new extraction'
+);
+
+set local role service_role;
+select is(
+  public.api_queue_export_marking_rescan((select legacy_job_id from ovd723_ctx)),
+  0,
+  'files with a clean scan of their current bytes are not queued again'
+);
+reset role;
+
+update public.job_files
+set content_sha256 = repeat('1', 64), trusted_content_sha256 = null
+where id = '00000000-0000-4000-8000-0000000072d4';
+
+set local role service_role;
+select is(
+  public.api_queue_export_marking_rescan((select legacy_job_id from ovd723_ctx)),
+  1,
+  'a file whose bytes changed is queued again'
+);
+reset role;
+
+update public.job_files
+set content_sha256 = repeat('6', 64), trusted_content_sha256 = repeat('6', 64)
+where id = '00000000-0000-4000-8000-0000000072d4';
+update public.work_queue set status = 'completed'
+where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'export_marking_rescan';
+
+-- 12. Admin clearance of a false positive (review round 3, blocker 3). A
+-- drawing only part whose drawing text matched.
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, trusted_content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select '00000000-0000-4000-8000-0000000072e1', legacy_job_id, organization_id, member_user_id,
+  repeat('7', 64), repeat('7', 64), 'job-files', 'org-sha256/' || organization_id || '/' || repeat('7', 64) || '/marked.pdf',
+  'marked.pdf', 'marked', 'drawing', 100
+from ovd723_ctx;
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, drawing_file_id)
+select '00000000-0000-4000-8000-0000000072e2', legacy_job_id, organization_id, 'marked', 'marked',
+  '00000000-0000-4000-8000-0000000072e1'
+from ovd723_ctx;
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select '00000000-0000-4000-8000-0000000072e3', organization_id, legacy_job_id,
+  '00000000-0000-4000-8000-0000000072e2', 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx;
+
+set local role service_role;
+update ovd723_ctx
+set first_cleared_block_id = (public.api_record_export_control_marking_hits(
+  legacy_job_id, '00000000-0000-4000-8000-0000000072e2', '00000000-0000-4000-8000-0000000072e1',
+  'drawing_text', array['itar', 'technical_data'], repeat('7', 64)
+) ->> 'blockId')::uuid;
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv'),
+  'export_review_pending',
+  'a marking hit holds the part'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+
+select is(
+  public.api_review_export_control_block((select first_cleared_block_id from ovd723_ctx), 'cleared_by_admin', 'Drawing title only, not a marking') ->> 'scanRecorded',
+  'true',
+  'clearing a false positive records an admin cleared scan of the reviewed bytes'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv'),
+  null,
+  'after clearance the part is dispatchable: the scan rule accepts the admin cleared scan'
+);
+
+select ok(
+  exists (
+    select 1 from private.job_file_export_scans scan
+    where scan.job_file_id = '00000000-0000-4000-8000-0000000072e1'
+      and scan.content_sha256 = repeat('7', 64)
+      and scan.source = 'drawing_text'
+      and scan.cleared_block_id = (select first_cleared_block_id from ovd723_ctx)
+      and scan.cleared_patterns = array['itar', 'technical_data']
+  )
+  and exists (
+    select 1 from private.export_control_events event_row
+    where event_row.event = 'file_scan_recorded_admin_cleared'
+      and event_row.detail ->> 'blockId' = (select first_cleared_block_id::text from ovd723_ctx)
+      and event_row.actor = (select admin_user_id from ovd723_ctx)
+  ),
+  'the admin cleared scan is bound to the file, its hash, its source, and the cleared patterns, and is audited'
+);
+
+set local role service_role;
+select is(
+  public.api_record_export_control_marking_hits(
+    (select legacy_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072e2', '00000000-0000-4000-8000-0000000072e1',
+    'drawing_text', array['itar'], repeat('7', 64)
+  ),
+  pg_catalog.jsonb_build_object('blockId', (select first_cleared_block_id from ovd723_ctx), 'resolved', true),
+  'a rescan of the same bytes with already cleared patterns resolves to the clearance'
+);
+reset role;
+
+select is(
+  (select count(*)::integer from private.job_export_marking_blocks
+   where job_file_id = '00000000-0000-4000-8000-0000000072e1'),
+  1,
+  'the resolved rescan opened no new block'
+);
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv'),
+  null,
+  'the part stays dispatchable after the resolved rescan'
+);
+
+set local role service_role;
+update ovd723_ctx
+set second_block_id = (public.api_record_export_control_marking_hits(
+  legacy_job_id, '00000000-0000-4000-8000-0000000072e2', '00000000-0000-4000-8000-0000000072e1',
+  'drawing_text', array['itar', 'cui'], repeat('7', 64)
+) ->> 'blockId')::uuid;
+reset role;
+
+select ok(
+  (select second_block_id is not null and second_block_id <> first_cleared_block_id from ovd723_ctx)
+  and private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv') = 'export_review_pending',
+  'a new pattern on the same bytes opens a new block and holds the part'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+select is(
+  public.api_review_export_control_block((select second_block_id from ovd723_ctx), 'cleared_by_admin', 'CUI is a part number prefix') ->> 'scanRecorded',
+  'true',
+  'the admin clears the new pattern too'
+);
+reset role;
+
+-- The same file now holds different bytes.
+update public.job_files
+set content_sha256 = repeat('2', 64), trusted_content_sha256 = repeat('2', 64)
+where id = '00000000-0000-4000-8000-0000000072e1';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv'),
+  'export_scan_missing',
+  'a clearance does not vouch for different bytes in the same file row'
+);
+
+set local role service_role;
+select is(
+  (public.api_record_export_control_marking_hits(
+    (select legacy_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072e2', '00000000-0000-4000-8000-0000000072e1',
+    'drawing_text', array['itar'], repeat('2', 64)
+  ) ->> 'resolved')::boolean,
+  false,
+  'the same patterns on a different hash open a new block'
+);
+reset role;
+
+-- The bytes change again before the admin reviews the new block.
+update public.job_files
+set content_sha256 = repeat('0', 64), trusted_content_sha256 = repeat('0', 64)
+where id = '00000000-0000-4000-8000-0000000072e1';
+update ovd723_ctx
+set third_block_id = (
+  select block.id from private.job_export_marking_blocks block
+  where block.job_file_id = '00000000-0000-4000-8000-0000000072e1' and block.state = 'blocked_pending_review'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+select is(
+  public.api_review_export_control_block(
+    (select third_block_id from ovd723_ctx),
+    'cleared_by_admin', 'Reviewed the earlier bytes') ->> 'scanRecorded',
+  'false',
+  'a clearance records no scan when the file no longer holds the reviewed bytes'
+);
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072e3', 'fictiv'),
+  'export_scan_missing',
+  'the changed bytes stay held until the worker scans them'
+);
+
 -- 7. Isolation and audit immutability.
 set local role authenticated;
 select pg_temp.set_ovd723_request_identity((select other_user_id from ovd723_ctx));
@@ -1058,8 +1380,8 @@ select ok(
 );
 
 select ok(
-  not has_function_privilege('authenticated', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])', 'execute')
-  and has_function_privilege('service_role', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])', 'execute'),
+  not has_function_privilege('authenticated', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute')
+  and has_function_privilege('service_role', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute'),
   'only the service role can record marking hits'
 );
 

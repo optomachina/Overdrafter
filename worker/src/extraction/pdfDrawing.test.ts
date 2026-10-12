@@ -127,6 +127,8 @@ describe("pdfDrawing", () => {
           ].join("\n"),
         },
       ],
+      // OVD-723: OCR text is marked so its scan is recorded as drawing_ocr.
+      ocr: true,
     });
 
     expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringContaining("overdrafter-pdf-ocr-"));

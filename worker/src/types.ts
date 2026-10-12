@@ -23,7 +23,9 @@ export type QueueTaskType =
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
-  | "repair_adapter_candidate";
+  | "repair_adapter_candidate"
+  // OVD-723 scan only export marking rescan (expand draft adds the enum value).
+  | "export_marking_rescan";
 
 export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type VendorName =

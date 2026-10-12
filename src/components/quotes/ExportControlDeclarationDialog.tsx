@@ -10,12 +10,14 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
+  describeExportControlPromptScope,
   EXPORT_CONTROL_ANSWER_OPTIONS,
   EXPORT_CONTROL_HELP_PATH,
   getExportControlBlockMessage,
   registerExportControlDeclarationPrompter,
   type ExportControlAnswer,
   type ExportControlPromptMode,
+  type ExportControlPromptScope,
 } from "@/features/quotes/export-control";
 
 type PendingPrompt = {
@@ -37,6 +39,7 @@ export function ExportControlDeclarationDialogHost() {
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState<ExportControlAnswer | null>(null);
   const [mode, setMode] = useState<ExportControlPromptMode>("upload");
+  const [scope, setScope] = useState<ExportControlPromptScope>({});
 
   const settle = useCallback((value: ExportControlAnswer | null) => {
     const pending = pendingRef.current;
@@ -48,13 +51,14 @@ export function ExportControlDeclarationDialogHost() {
 
   useEffect(() => {
     const unregister = registerExportControlDeclarationPrompter(
-      (nextMode) =>
+      (nextMode, nextScope) =>
         new Promise<ExportControlAnswer | null>((resolve) => {
           // A second prompt while one is open cancels the first.
           pendingRef.current?.resolve(null);
           pendingRef.current = { resolve };
           setAnswer(null);
           setMode(nextMode === "declare" ? "declare" : "upload");
+          setScope(nextScope ?? {});
           setOpen(true);
         }),
     );
@@ -70,6 +74,8 @@ export function ExportControlDeclarationDialogHost() {
   const declaring = mode === "declare";
   let confirmLabel = blocked ? "Stop upload" : "Continue upload";
   if (declaring) confirmLabel = "Save answer";
+  const scopeSentence = describeExportControlPromptScope(scope);
+  const multipleParts = (scope.fileSetCount ?? 1) > 1;
 
   return (
     <Dialog
@@ -80,10 +86,17 @@ export function ExportControlDeclarationDialogHost() {
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Are any files on this part export-controlled?</DialogTitle>
+          <DialogTitle>
+            {multipleParts
+              ? "Are any of these files export-controlled?"
+              : "Are any files on this part export-controlled?"}
+          </DialogTitle>
           <DialogDescription>
-            Your answer covers every file on this part: files already uploaded and any you add
-            later. The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99),
+            {scopeSentence ? `${scopeSentence} ` : null}
+            {multipleParts
+              ? "It is recorded for each of those parts and covers every file on them: files already uploaded and any you add later."
+              : "Your answer covers every file on this part: files already uploaded and any you add later."}{" "}
+            The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99),
             CUI, or distribution-limited technical data.
             {declaring ? " Quotes for this part stay on hold until you answer." : " Answer before uploading."}
           </DialogDescription>

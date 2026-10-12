@@ -307,6 +307,8 @@ describe("OVD-723 export-control upload gate", () => {
       ).resolves.toEqual({ jobIds: ["job-1", "job-2"], projectId: "project-1" });
 
       expect(prompter).toHaveBeenCalledTimes(1);
+      // The one question names every file and how many parts it covers.
+      expect(prompter).toHaveBeenCalledWith("upload", { fileNames: ["alpha.step", "beta.step"], fileSetCount: 2 });
       expect(rpcMock.mock.calls.filter(([name]) => name === "api_declare_job_export_status")).toEqual([
         ["api_declare_job_export_status", expect.objectContaining({ p_job_id: "job-1" })],
         ["api_declare_job_export_status", expect.objectContaining({ p_job_id: "job-2" })],

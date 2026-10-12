@@ -31,6 +31,7 @@ import type { WorkerConfig } from "../types.js";
 import {
   assertExportControlExtractionAllowed,
   enforceExportControlMarkings,
+  exportControlModelAttemptGuard,
   ExportControlDrawingUnreadError,
   isDrawingTextFullyRead,
   scanDrawingTextForExportMarkings,
@@ -346,6 +347,8 @@ async function runPreviewModelAttempts(input: {
   drawingSignals: ReturnType<typeof inferDrawingSignalsFromPdf>;
   cropPath: string | null;
   fullPagePath: string | null;
+  /** OVD-723: asked again before each model attempt; a denial throws before any content is sent. */
+  beforeModelAttempt?: () => Promise<void>;
 }) {
   const providerName = inferProvider(input.modelId) as ExtractionModelProvider;
   if (!isDirectExtractionModelId(input.modelId) || !isDirectProvider(providerName)) {
@@ -365,6 +368,7 @@ async function runPreviewModelAttempts(input: {
     attempt: "title_block_crop" | "full_page",
     providerClient: EvalProvider,
   ) => {
+    await input.beforeModelAttempt?.();
     const evalInput: EvalModelInput = {
       parserContext: serializeParserContext(input.drawingSignals),
       baseName: input.baseName,
@@ -504,6 +508,7 @@ export async function previewStoredPartExtraction(
       partId: context.part.id,
       jobFileId: context.drawingFile.id,
       scan: scanDrawingTextForExportMarkings(pdfText),
+      contentSha256: stagedDrawingFile.trustedContentSha256 ?? null,
     });
     if (!isDrawingTextFullyRead(pdfText)) {
       throw new ExportControlDrawingUnreadError();
@@ -553,6 +558,7 @@ export async function previewStoredPartExtraction(
       drawingSignals,
       cropPath: cropAsset?.localPath ?? null,
       fullPagePath: firstPagePreviewPath,
+      beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: context.part.job_id }),
     });
 
     const previewConfig: WorkerConfig = {

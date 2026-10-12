@@ -10,6 +10,10 @@
 -- policies, and private.reject_export_control_audit_mutation(). Dropping them
 -- needs Blaine's explicit approval after an export. Effect: the new client and
 -- worker fail closed (their RPCs are gone) until they are rolled back too.
+--
+-- The 'export_marking_rescan' value of public.queue_task_type stays:
+-- PostgreSQL cannot drop an enum value. Queued rescan tasks are cancelled so
+-- an older worker never claims one (it would fail on an unknown task type).
 
 set local lock_timeout = '5s';
 
@@ -17,6 +21,7 @@ do $guard$
 begin
   if pg_catalog.to_regprocedure('private.job_file_prepare_core(uuid, text, public.job_file_kind, text, bigint, text)') is not null
     or pg_catalog.to_regprocedure('private.provider_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)') is not null
+    or pg_catalog.to_regprocedure('private.manual_quote_request_core(uuid, boolean)') is not null
     or not exists (
       select 1 from pg_catalog.pg_policies
       where schemaname = 'storage' and tablename = 'objects' and policyname = 'job_files_storage_insert'
@@ -28,6 +33,14 @@ $guard$;
 
 drop policy "job_files_storage_insert_export_cleared" on storage.objects;
 
+update public.work_queue
+set status = 'cancelled',
+    last_error = 'OVD-723 expand rolled back: export marking rescan cancelled'
+where task_type::text = 'export_marking_rescan'
+  and status = 'queued';
+
+drop function public.api_queue_export_marking_rescan(uuid);
+drop function private.queue_export_marking_rescans(uuid);
 drop function public.api_check_export_control_dispatch(uuid, text);
 drop function public.api_check_export_control_extraction(uuid);
 drop function private.export_control_extraction_denial(uuid);
@@ -37,7 +50,8 @@ drop function private.job_file_prepare_delegate(uuid, text, public.job_file_kind
 drop function private.job_file_finalize_delegate(uuid, text, text, text, public.job_file_kind, text, bigint, text);
 drop function public.current_user_has_export_cleared_upload(text, text);
 drop function public.api_review_export_control_block(uuid, text, text);
-drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[]);
+drop function private.record_admin_cleared_scan(uuid);
+drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text);
 drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);
 drop function public.api_get_job_export_control_status(uuid);
 drop function public.api_declare_job_export_status(uuid, text, text, uuid);

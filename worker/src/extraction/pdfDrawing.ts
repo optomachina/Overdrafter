@@ -15,6 +15,8 @@ type PdfTextPage = {
 export type PdfTextExtraction = {
   pageCount: number;
   pages: PdfTextPage[];
+  /** True when the text came from the OCR fallback (no text layer). OVD-723 records it as `drawing_ocr`. */
+  ocr?: boolean;
 };
 
 export type RenderedPreviewAsset = {
@@ -984,6 +986,7 @@ async function extractPdfTextWithOcrFallback(
     return {
       pageCount: Math.max(1, pageCount),
       pages,
+      ocr: true,
     };
   } finally {
     await fs.rm(runDir, { recursive: true, force: true }).catch(() => undefined);

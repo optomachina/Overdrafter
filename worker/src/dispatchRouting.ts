@@ -155,6 +155,27 @@ export async function assertExportControlDispatchAllowed(
     : new ProviderDispatchAuthorizationError(denial);
 }
 
+/**
+ * OVD-723 point in time check. Wraps an adapter so the export-control gate is
+ * asked once more after the dispatch preflight authorizes and immediately
+ * before `adapter.quote` sends anything. A declaration change or a marking
+ * block that lands between the earlier checks and the send stops it here
+ * (`assertExportControlDispatchAllowed` throws). The residual window is the
+ * time between this answer and the provider receiving the files.
+ */
+export function withExportControlDispatchRecheck(
+  adapter: Pick<VendorAdapter, "quote">,
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: { taskId: string; vendor: VendorName },
+): Pick<VendorAdapter, "quote"> {
+  return {
+    quote: async (quoteInput) => {
+      await assertExportControlDispatchAllowed(supabase, input);
+      return adapter.quote(quoteInput);
+    },
+  };
+}
+
 export type DispatchAuthorizationFailure = {
   boundary: "xometry" | "provider";
   reasonCode: string;

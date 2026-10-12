@@ -21,6 +21,7 @@ import {
   isExportControlUploadBlockReason,
   requestExportControlAnswer,
   type ExportControlAnswer,
+  type ExportControlPromptScope,
 } from "@/features/quotes/export-control";
 
 const CAD_EXTENSIONS = new Set([
@@ -156,9 +157,10 @@ export type ExportControlUploadOptions = {
  */
 export async function resolveCleanExportControlAnswer(
   options: ExportControlUploadOptions,
+  scope: ExportControlPromptScope = {},
 ): Promise<"not_controlled"> {
   const answer = options.exportControlAnswer === undefined
-    ? await requestExportControlAnswer()
+    ? await requestExportControlAnswer("upload", scope)
     : options.exportControlAnswer;
   const evaluation = evaluateExportControlAnswer(answer);
 
@@ -218,7 +220,10 @@ export async function createJobsFromUploadFiles(input: {
     return { jobIds: [], projectId: input.projectId ?? null };
   }
 
-  const exportControlAnswer = await resolveCleanExportControlAnswer(input);
+  const exportControlAnswer = await resolveCleanExportControlAnswer(input, {
+    fileNames: input.files.map((file) => file.name),
+    fileSetCount: groups.length,
+  });
 
   let targetProjectId = input.projectId ?? null;
 
@@ -288,7 +293,10 @@ export async function uploadFilesToJob(
     return { uploadedCount: 0, reusedCount: 0, duplicateNames: [] };
   }
 
-  await resolveCleanExportControlAnswer(options);
+  await resolveCleanExportControlAnswer(options, {
+    fileNames: files.map((file) => file.name),
+    fileSetCount: 1,
+  });
   const exportDeclarationId = await declareCleanJobExportStatus(jobId);
   const hashedFiles = await hashUploadFiles(files);
   const seenHashes = new Set<string>();

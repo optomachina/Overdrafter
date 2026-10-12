@@ -17,7 +17,10 @@
 --           that only the declaring overloads reach;
 --   C.4     both provider preflights are wrapped by the export gate;
 --   C.5     the old job-files Storage INSERT policy is dropped, so only the
---           grant policy added by the expand migration remains.
+--           grant policy added by the expand migration remains;
+--   C.6     client manual quote requests (api_request_manual_quote, and
+--           api_request_manual_quotes through it) are refused for a held
+--           part, so held files never reach the admin manual quote inbox.
 --
 -- Promote together with: the contract pgTAP suite
 -- (ovd723_export_control_contract.sql.pending, renamed into supabase/tests/),
@@ -291,6 +294,84 @@ grant execute on function public.api_authorize_provider_worker_dispatch(
 -- expand policy "job_files_storage_insert_export_cleared" remains, so no
 -- job-files object is written without an exact, declaration backed grant.
 drop policy "job_files_storage_insert" on storage.objects;
+
+-- C.6 Manual quote requests. In window 1 a client can still ask for a manual
+-- quote of a held part (the request lands in the admin manual inbox, where a
+-- person could send the files to a supplier by hand). The existing body moves
+-- unchanged to a private core; the public name becomes a wrapper that applies
+-- the export gate first: the job's latest declaration must be not_controlled
+-- with no open or confirmed marking block, and every part of the job must
+-- pass the scan rule (verified hash, clean scan of its current bytes). The
+-- rule does not depend on a provider: a manual quote may go to any supplier.
+-- The gate takes the shared per-job export lock (held until commit), so a
+-- declaration or block cannot interleave. A job the caller cannot see or
+-- edit goes straight to the core, so its existing errors keep precedence.
+alter function public.api_request_manual_quote(uuid, boolean) set schema private;
+alter function private.api_request_manual_quote(uuid, boolean) rename to manual_quote_request_core;
+revoke all on function private.manual_quote_request_core(uuid, boolean)
+  from public, anon, authenticated, service_role;
+
+create or replace function private.export_control_manual_quote_denial(p_job_id uuid)
+returns text
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_denial text;
+  v_part_id uuid;
+begin
+  v_denial := private.export_control_extraction_denial(p_job_id);
+  if v_denial is not null then
+    return v_denial;
+  end if;
+  for v_part_id in
+    select part.id from public.parts part where part.job_id = p_job_id order by part.id
+  loop
+    v_denial := private.export_control_scan_denial(p_job_id, v_part_id);
+    if v_denial is not null then
+      return v_denial;
+    end if;
+  end loop;
+  return null;
+exception when others then
+  return 'export_control_lookup_failed';
+end;
+$$;
+
+revoke all on function private.export_control_manual_quote_denial(uuid)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.api_request_manual_quote(
+  p_job_id uuid,
+  p_force_retry boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_denial text;
+begin
+  perform public.require_verified_auth();
+  if p_job_id is not null
+    and exists (select 1 from public.jobs job_row where job_row.id = p_job_id)
+    and public.user_can_edit_job(p_job_id) then
+    v_denial := private.export_control_manual_quote_denial(p_job_id);
+    if v_denial is not null then
+      raise exception using
+        errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
+        message = v_denial;
+    end if;
+  end if;
+  return private.manual_quote_request_core(p_job_id, p_force_retry);
+end;
+$$;
+
+revoke all on function public.api_request_manual_quote(uuid, boolean)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_request_manual_quote(uuid, boolean)
+  to authenticated;
 
 -- =====================================================================
 -- ROLLBACK

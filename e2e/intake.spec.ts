@@ -29,6 +29,7 @@ const PART_URL = /\/parts\/([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{
 const CREATE_DRAFT_RPC = "api_create_client_draft";
 // Every RPC the client intake path calls once a selection passes validation.
 const INTAKE_RPCS = new Set([
+  "api_declare_job_export_status",
   "api_prepare_part_intake",
   CREATE_DRAFT_RPC,
   "api_create_job",
@@ -173,6 +174,19 @@ function intakeInput(page: Page): Locator {
   return page.getByLabel("Choose part files to upload");
 }
 
+/**
+ * OVD-723: every upload asks the export-control question before any job or
+ * file is created. These cases upload the repository's own sample parts, so
+ * they answer "Not export-controlled" and continue.
+ */
+async function answerNotExportControlled(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: /export-controlled\?/i });
+  await expect(dialog, "the export-control question should open before intake").toBeVisible({ timeout: 15_000 });
+  await dialog.getByRole("radio", { name: /^Not export-controlled/ }).check();
+  await dialog.getByRole("button", { name: "Continue upload" }).click();
+  await expect(dialog).toBeHidden();
+}
+
 function toastWithText(page: Page, text: string): Locator {
   return page.locator("[data-sonner-toast]").filter({ hasText: text });
 }
@@ -186,6 +200,7 @@ test.describe("client STEP intake from the parts page", () => {
     try {
       const { page } = session;
       await intakeInput(page).setInputFiles(SAMPLE_STEP);
+      await answerNotExportControlled(page);
       await expect(page).toHaveURL(PART_URL, { timeout: 60_000 });
 
       const partUrl = page.url();
@@ -218,6 +233,7 @@ test.describe("client STEP intake from the parts page", () => {
       const busyToast = toastWithText(page, BUSY_MESSAGE);
 
       await intakeInput(page).setInputFiles(SAMPLE_STEP);
+      await answerNotExportControlled(page);
       await expect
         .poll(held.calls, { message: `the first selection should reach ${CREATE_DRAFT_RPC}`, timeout: 30_000 })
         .toBe(1);
@@ -284,6 +300,7 @@ test.describe("client STEP intake from the parts page", () => {
       // Intake does not inspect STEP headers, so this upload is expected to succeed;
       // only the in-browser viewer's terminal state is asserted.
       await intakeInput(page).setInputFiles(GARBAGE_STEP);
+      await answerNotExportControlled(page);
       await expect(page).toHaveURL(PART_URL, { timeout: 60_000 });
 
       const viewer = page.getByLabel("CAD preview for garbage.step");

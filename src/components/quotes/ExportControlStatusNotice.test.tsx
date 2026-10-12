@@ -46,6 +46,22 @@ describe("getExportControlNoticeCopy", () => {
     }
   });
 
+  // Window 1 does not gate manual quote requests (the contract does), so no
+  // hold may claim that nothing is quoted by hand; each asks the owner not to.
+  it("never promises that a held part cannot be quoted by hand", () => {
+    const held = [
+      { latestAnswer: "not_controlled", exportReviewState: "blocked_pending_review" },
+      { latestAnswer: "not_controlled", exportReviewState: "confirmed_controlled" },
+      { latestAnswer: "controlled", exportReviewState: "clear" },
+      { latestAnswer: "unsure", exportReviewState: "clear" },
+    ] as const;
+    for (const status of held) {
+      const copy = getExportControlNoticeCopy({ jobId: "j", ...status });
+      expect(copy?.detail).not.toMatch(/by hand|will not be sent to any supplier/);
+      expect(copy?.detail).toContain("Do not request a manual quote for this part while it is held.");
+    }
+  });
+
   it("lets a controlled or unsure answer be changed", () => {
     for (const latestAnswer of ["controlled", "unsure"] as const) {
       expect(getExportControlNoticeCopy({ jobId: "j", latestAnswer, exportReviewState: "clear" })?.action).toBe("Change answer");

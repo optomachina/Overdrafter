@@ -33,7 +33,7 @@
 --      (finding 4)
 begin;
 
-select plan(95);
+select plan(103);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -577,9 +577,9 @@ select is(
 
 -- 4. Marking hit.
 update ovd723_ctx
-set block_id = public.api_record_export_control_marking_hits(
+set block_id = (public.api_record_export_control_marking_hits(
   clean_job_id, null, null, 'drawing_text', array['itar', 'eccn_code']
-);
+) ->> 'blockId')::uuid;
 
 reset role;
 
@@ -989,6 +989,69 @@ select throws_ok(
   'clean scan records cannot be deleted'
 );
 
+-- 10. Manual quote requests (C.6, review round 3 finding 7). A held part
+-- never reaches the admin manual quote inbox.
+reset role;
+
+insert into public.jobs (id, organization_id, created_by, title)
+select '00000000-0000-4000-8000-0000000072f0', organization_id, member_user_id, 'OVD 723 manual clean'
+from ovd723_ctx;
+
+select ok(
+  has_function_privilege('authenticated', 'public.api_request_manual_quote(uuid, boolean)', 'execute')
+  and not has_function_privilege('anon', 'public.api_request_manual_quote(uuid, boolean)', 'execute')
+  and not has_function_privilege('authenticated', 'private.manual_quote_request_core(uuid, boolean)', 'execute')
+  and not has_function_privilege('service_role', 'private.manual_quote_request_core(uuid, boolean)', 'execute')
+  and (select prosecdef from pg_proc where oid = 'public.api_request_manual_quote(uuid, boolean)'::regprocedure),
+  'the manual quote RPC keeps its grants; only the wrapper reaches the moved core'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select unsure_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'a manual quote request for an unsure part is refused'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select undeclared_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_missing',
+  'a manual quote request for an undeclared part is refused'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select clean_job_id from ovd723_ctx)),
+  'P0001', 'export_scan_missing',
+  'a manual quote request is refused while any part of the job lacks a clean scan of its bytes'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quotes(array[%L::uuid])$$, (select unsure_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'the bulk manual quote RPC is gated through the same wrapper'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select other_job_id from ovd723_ctx)),
+  'P0001', format('You do not have permission to request quotes for job %s.', (select other_job_id from ovd723_ctx)),
+  'a job the caller cannot edit keeps the core''s own error'
+);
+
+select lives_ok(
+  $$select public.api_declare_job_export_status('00000000-0000-4000-8000-0000000072f0', 'not_controlled', 'ovd-beta-export-control.v1')$$,
+  'the owner declares a job with no files clean'
+);
+
+select isnt(
+  public.api_request_manual_quote('00000000-0000-4000-8000-0000000072f0'),
+  null,
+  'a clean job with nothing held reaches the manual quote core'
+);
+
+reset role;
+
 -- 7. Isolation and audit immutability.
 set local role authenticated;
 select pg_temp.set_ovd723_request_identity((select other_user_id from ovd723_ctx));
@@ -1021,8 +1084,8 @@ select ok(
 );
 
 select ok(
-  not has_function_privilege('authenticated', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])', 'execute')
-  and has_function_privilege('service_role', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])', 'execute'),
+  not has_function_privilege('authenticated', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute')
+  and has_function_privilege('service_role', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute'),
   'only the service role can record marking hits'
 );
 
