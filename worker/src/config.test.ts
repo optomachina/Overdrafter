@@ -51,6 +51,13 @@ describe("loadConfig", () => {
     expect(config.workerTempDir).toBe(path.resolve(path.join(os.tmpdir(), "overdrafter-worker")));
   });
 
+  it("keeps the OVD-462 session lease off unless explicitly set, and rejects unknown values (OVD-464)", () => {
+    const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
+    expect(loadConfig(base).providerSessionLease).toBe("off");
+    expect(loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "on" }).providerSessionLease).toBe("on");
+    expect(() => loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "true" })).toThrow();
+  });
+
   it("configures a local profile directory for mutually exclusive snapshot mode", () => {
     const config = loadConfig({
       SUPABASE_URL: "https://example.supabase.co",
