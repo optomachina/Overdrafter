@@ -344,15 +344,9 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
   });
 
   test("switching accounts without a reload never renders the previous client's parts", async ({ browser, baseURL }) => {
-    // Known product defect, reproduced by this case: useWorkspaceNavigationModel keeps
-    // its last coherent model in a ref that is not keyed by account, so after an in-tab
-    // sign-out and sign-in the next account can briefly see the previous account's parts
-    // list. The race is timing-dependent; opt in until the product fix lands.
-    test.fixme(
-      process.env.E2E_ACCOUNT_SWITCH_LEAK_CHECK !== "1",
-      "previous account's parts can render after an in-tab account switch (set E2E_ACCOUNT_SWITCH_LEAK_CHECK=1)",
-    );
-
+    // Guards the access-scope reset in useWorkspaceNavigationModel: its stabilized parts
+    // list is keyed by the signed-in user and membership, so it cannot outlive an in-tab
+    // sign-out and sign-in. The leak it catches was timing-dependent; run it repeated.
     const actor = await openActor(browser, baseURL, CLIENT_EMAIL);
 
     try {
