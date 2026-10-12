@@ -32,6 +32,7 @@ export const MAX_UNIT_OR_TOTAL_PRICE_USD = 10_000_000;
 export const MAX_LEAD_TIME_BUSINESS_DAYS = 365;
 export const DEFAULT_MAX_RESULT_AGE_MS = 30 * 60 * 1000;
 export const CLOCK_SKEW_MS = 5 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_ID_LENGTH = 160;
 const MAX_TEXT_LENGTH = 300;
 const MAX_RAW_PAYLOAD_BYTES = 16 * 1024;
@@ -134,7 +135,10 @@ export type ProviderResultRejection = {
   runId: string;
   code: ProviderResultRejectionCode;
   retry: ProviderResultRetryDisposition;
-  /** Remaining retries allowed when `retry` is `bounded`; otherwise 0. */
+  /**
+   * Remaining retries allowed when `retry` is `bounded`; otherwise 0. This is a fixed per code cap,
+   * not a counter: the caller (OVD-464) enforces it by tracking attempts per task and run.
+   */
   retryBudget: number;
   issues: ProviderResultIssue[];
   issueCount: number;
@@ -245,14 +249,16 @@ const ADMISSION_AFFIRMATIVE = new Set([
   "true", "yes", "admitted", "admit", "approved", "certified", "granted", "enabled", "live", "production", "authorized", "active",
 ]);
 const CREDENTIAL_KEY = /cookie|password|passwd|secret|authorization|api_?key|storage_?state|access_?token|refresh_?token|session_?(id|token|secret)|credential/i;
-/** Enum like words (`required_unavailable`, `none`) are descriptive, not secret material, even under a sensitive looking key. */
-const ENUM_LIKE_VALUE = /^[a-z][a-z_]{0,40}$/;
+/** Only this closed set of descriptive words is allowed under a sensitive looking key; any other string may be secret material. */
+const DESCRIPTIVE_SENSITIVE_VALUES: ReadonlySet<string> = new Set([
+  "none", "required_unavailable", "redacted", "not_applicable",
+]);
 const BULK_KEY = /^(html|dom|outerhtml|innerhtml|bodyexcerpt|body_excerpt|screenshot|pagecontent|fileBytes|cadBytes)$/i;
 const CREDENTIAL_VALUE = /(bearer\s+[a-z0-9._-]{16,}|eyJ[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.|(?<![a-z0-9])sk-[a-z0-9]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY)/i;
 
 function hasControlChars(value: string) {
   for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
+    const code = value.codePointAt(i) ?? 0;
     if (code < 0x20 || code === 0x7f) {
       return true;
     }
@@ -301,6 +307,26 @@ function hostAllowed(host: string, allowed: readonly string[]) {
   });
 }
 
+const TOKEN_LIKE_KEY = /token|secret|passw|api_?key|access_?key|auth|signature|credential|session|jwt|bearer|cookie|^sig$|^key$/i;
+
+function urlPartHoldsCredential(part: string) {
+  if (part === "") {
+    return false;
+  }
+  let decoded = part;
+  try {
+    decoded = decodeURIComponent(part);
+  } catch {
+    // Keep the raw text; the scans below still run on it.
+  }
+  if (CREDENTIAL_VALUE.test(part) || CREDENTIAL_VALUE.test(decoded)) {
+    return true;
+  }
+  return Array.from(new URLSearchParams(part).entries()).some(
+    ([key, value]) => TOKEN_LIKE_KEY.test(key) || CREDENTIAL_VALUE.test(value),
+  );
+}
+
 function validDestination(value: unknown, allowed: readonly string[]): value is string {
   if (typeof value !== "string" || value.length > 2048) {
     return false;
@@ -310,7 +336,9 @@ function validDestination(value: unknown, allowed: readonly string[]): value is 
     return url.protocol === "https:"
       && url.username === ""
       && url.password === ""
-      && hostAllowed(url.hostname, allowed);
+      && hostAllowed(url.hostname, allowed)
+      && !urlPartHoldsCredential(url.search.slice(1))
+      && !urlPartHoldsCredential(url.hash.slice(1));
   } catch {
     return false;
   }
@@ -323,7 +351,7 @@ function sensitiveKeyHoldsValue(item: unknown): boolean {
     return false;
   }
   if (typeof item === "string") {
-    return item.length > 0 && !ENUM_LIKE_VALUE.test(item);
+    return item.length > 0 && !DESCRIPTIVE_SENSITIVE_VALUES.has(item);
   }
   return true;
 }
@@ -358,10 +386,21 @@ function isAffirmativeAdmission(item: unknown): boolean {
   return isRecord(item) || Array.isArray(item) ? Object.keys(item).length > 0 : false;
 }
 
-/** Detects adapter asserted admission, through objects and arrays. Fails closed past the depth limit. */
-function hasAdmissionClaim(value: unknown, depth = 0): boolean {
+/** True when a payload nests deeper than the walkers inspect. Reported as malformed, never as an admission claim. */
+function exceedsWalkDepth(value: unknown, depth = 0): boolean {
   if (depth > MAX_WALK_DEPTH) {
     return true;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 200).some((item) => exceedsWalkDepth(item, depth + 1));
+  }
+  return isRecord(value) && Object.values(value).some((item) => exceedsWalkDepth(item, depth + 1));
+}
+
+/** Detects adapter asserted admission, through objects and arrays. Depth overflow is reported by `exceedsWalkDepth`. */
+function hasAdmissionClaim(value: unknown, depth = 0): boolean {
+  if (depth > MAX_WALK_DEPTH) {
+    return false;
   }
   if (Array.isArray(value)) {
     return value.slice(0, 200).some((item) => hasAdmissionClaim(item, depth + 1));
@@ -413,6 +452,12 @@ export function sanitizeRawPayload(value: Record<string, unknown>): Record<strin
   return JSON.stringify(cleaned).length > MAX_RAW_PAYLOAD_BYTES ? {} : cleaned;
 }
 
+function looksSimulated(raw: Record<string, unknown>) {
+  return raw.mode === "simulate"
+    || raw.detectedFlow === "simulate"
+    || (typeof raw.source === "string" && /simulat/i.test(raw.source));
+}
+
 function reject(
   expectation: Pick<ProviderResultExpectation, "provider" | "taskId" | "runId">,
   issues: ProviderResultIssue[],
@@ -445,6 +490,10 @@ const ALLOWED_OFFER_KEYS: ReadonlySet<string> = new Set([
   "leadTimeBusinessDays", "shipReceiveBy", "tier", "sourcing", "geographicOrigin", "sortRank", "provenance",
   "validUntil", "validityDurationDays", "validitySource", "validityTerms", "artifactRefs", "rawPayload",
 ]);
+
+const OPTION_ID_SOURCES: ReadonlySet<string> = new Set(["attribute", "provider_label"]);
+const VALUE_SOURCES: ReadonlySet<string> = new Set(["selector", "body_text", "none"]);
+const ORIGIN_SOURCES: ReadonlySet<string> = new Set(["provider_text", "none"]);
 
 const BINDING_FIELDS = [
   "provider",
@@ -494,7 +543,9 @@ export function validateProviderResult(
   if (binding.quantity !== expectation.requestedQuantity) {
     add("invalid_quantity", "binding.quantity");
   }
-  if (!isBoundedText(binding.adapterRevision, 80)) {
+  if (typeof binding.adapterRevision === "string" && CREDENTIAL_VALUE.test(binding.adapterRevision)) {
+    add("forbidden_content", "binding.adapterRevision");
+  } else if (!isSafeText(binding.adapterRevision, 80)) {
     add("malformed_candidate", "binding.adapterRevision");
   }
   if (result.vendor !== expectation.provider) {
@@ -509,12 +560,13 @@ export function validateProviderResult(
   const raw = isRecord(result.rawPayload) ? result.rawPayload : {};
   if (
     candidate.simulated === true
-    || raw.mode === "simulate"
-    || raw.detectedFlow === "simulate"
-    || (typeof raw.source === "string" && /simulat/i.test(raw.source))
+    || looksSimulated(raw)
     || (typeof result.quoteUrl === "string" && /^simulated:/i.test(result.quoteUrl))
   ) {
     add("simulated_result", "result.rawPayload");
+  }
+  if (exceedsWalkDepth(candidate)) {
+    add("malformed_candidate", "result");
   }
   if (hasAdmissionClaim(candidate)) {
     add("adapter_admission_claim", "result");
@@ -556,7 +608,7 @@ export function validateProviderResult(
     const validMs = parseInstant(result.validUntil);
     if (validMs === null) {
       add("invalid_timestamp", "result.validUntil");
-    } else if (validMs <= nowMs) {
+    } else if (validMs < nowMs) {
       add("expired_validity", "result.validUntil");
     } else if (quotedMs !== null && validMs < quotedMs) {
       add("invalid_timestamp", "result.validUntil");
@@ -686,6 +738,21 @@ export function validateProviderResult(
     if (!isRecord(offer.provenance) || offer.provenance.priceSource !== "selector") {
       add("untrusted_source", `${p}.provenance.priceSource`);
     }
+    if (isRecord(offer.provenance)) {
+      textIssue(offer.provenance.containerSelector, `${p}.provenance.containerSelector`, MAX_TEXT_LENGTH, false);
+      if (!OPTION_ID_SOURCES.has(String(offer.provenance.providerOptionIdSource))) {
+        add("untrusted_source", `${p}.provenance.providerOptionIdSource`);
+      }
+      if (!VALUE_SOURCES.has(String(offer.provenance.leadTimeSource))) {
+        add("untrusted_source", `${p}.provenance.leadTimeSource`);
+      }
+      if (!ORIGIN_SOURCES.has(String(offer.provenance.geographicOriginSource))) {
+        add("untrusted_source", `${p}.provenance.geographicOriginSource`);
+      }
+    }
+    if (!Number.isInteger(offer.sortRank)) {
+      add("malformed_candidate", `${p}.sortRank`);
+    }
 
     const lead = offer.leadTimeBusinessDays;
     if (lead !== null) {
@@ -710,7 +777,7 @@ export function validateProviderResult(
       const validMs = parseInstant(offerValidUntil);
       if (validMs === null) {
         add("invalid_timestamp", `${p}.validUntil`);
-      } else if (validMs <= nowMs) {
+      } else if (validMs < nowMs) {
         add("expired_validity", `${p}.validUntil`);
       } else if (quotedMs !== null && validMs < quotedMs) {
         add("invalid_timestamp", `${p}.validUntil`);
@@ -719,6 +786,12 @@ export function validateProviderResult(
     const duration = offer.validityDurationDays ?? null;
     if (duration !== null && (!Number.isInteger(duration) || duration < 1 || duration > 365)) {
       add("invalid_timestamp", `${p}.validityDurationDays`);
+    } else if (duration !== null && offer.validitySource === "vendor_duration") {
+      // A vendor stated duration runs from the quote time (collection time when the vendor gave none); the end is inclusive.
+      const anchorMs = quotedMs ?? collectedMs;
+      if (anchorMs !== null && anchorMs + duration * DAY_MS < nowMs) {
+        add("expired_validity", `${p}.validityDurationDays`);
+      }
     }
     const validitySource = offer.validitySource ?? null;
     if (
@@ -740,6 +813,9 @@ export function validateProviderResult(
       add("invalid_destination", `${p}.quoteUrl`);
     }
     const offerRaw = isRecord(offer.rawPayload) ? offer.rawPayload : {};
+    if (looksSimulated(offerRaw)) {
+      add("simulated_result", `${p}.rawPayload`);
+    }
     if (containsCredentialMaterial(offerRaw)) {
       add("forbidden_content", `${p}.rawPayload`);
     }
@@ -867,7 +943,7 @@ const FAILURE_POLICY: Record<VendorAutomationErrorCode, Omit<ClassifiedProviderF
  * policy. Unknown codes fail closed to manual follow up with no retry.
  */
 export function classifyProviderFailure(code: string): ClassifiedProviderFailure {
-  const known = Object.prototype.hasOwnProperty.call(FAILURE_POLICY, code)
+  const known = Object.hasOwn(FAILURE_POLICY, code)
     ? (code as VendorAutomationErrorCode)
     : null;
   if (!known) {

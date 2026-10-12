@@ -417,10 +417,13 @@ smoke shows sandboxed Chromium and Camoufox working as `pwuser` and the pinned
 release-tuple contracts change with it.
 
 The headed operator auth tools (`auth:xometry` with a Chromium engine,
-`auth:fictiv` and `auth:vendor`) and the synthetic browser-recovery comparison
-harness do not read `PLAYWRIGHT_DISABLE_SANDBOX`, so Playwright launches their
-Chromium with `--no-sandbox`. `src/chromiumLaunchOptions.test.ts` keeps this
-exception list exact.
+`auth:fictiv` and `auth:vendor`) do not read `PLAYWRIGHT_DISABLE_SANDBOX`, so
+Playwright launches their Chromium with `--no-sandbox`. The synthetic
+browser-recovery comparison harness does not use the helper either, but it
+passes `chromiumSandbox: true` itself, and the fixture launchers in the
+recovery tests do the same, so the sandbox is required there.
+`src/chromiumLaunchOptions.test.ts` keeps the list of launchers outside the
+helper exact.
 
 Camoufox assets live under `/home/pwuser/.cache/camoufox`. The files are
 root-owned and not writable by `pwuser`, so the worker cannot modify them in
