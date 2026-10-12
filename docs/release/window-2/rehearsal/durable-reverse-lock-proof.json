@@ -1,8 +1,8 @@
 {
   "status": "passed",
-  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
-  "sourceRevision": "2e9c4499b10c18d3f72052f50894456b0be5b6f2",
-  "reverseSha256": "6445f5e1136f0146ea34221895e3fec6579132716772b48ed25181d9f24185b3",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
+  "reverseSha256": "7af9fb70e1c550a5087e6fdb25c549aeb1816f9c544f046f923c8b74d2b9bb9c",
   "repeatable_read": "refused_0A000",
   "serializable": "refused_0A000",
   "writerCommittedDuringWait": "reverse_refused_row_retained",

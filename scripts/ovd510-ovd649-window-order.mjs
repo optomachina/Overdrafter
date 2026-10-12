@@ -66,7 +66,7 @@ export async function proveForwardSide(ctx) {
   const waitedMs = Date.now() - started;
   gate("observer replacement waits on a held (510, 2) lock", (await holder).code === 0 && waitedMs >= 1500, `${waitedMs} ms`);
   gate("replacement changes the catalog", catalog() !== base);
-  const forwardRefusal = refused(sql.forward558, "supabase_admin");
+  const forwardRefusal = refused(sql.forward558, "postgres");
   gate("verbatim OVD-558 forward refuses while the replacement is live (real prechange pin)",
     refusedWith(forwardRefusal, "P0001", "ovd558_prechange_catalog_mismatch"), sqlError(forwardRefusal).message);
   const rrRestore = refused(repeatableRead(sql.restore), "postgres");
@@ -85,14 +85,14 @@ export function proveReverseSide(ctx) {
   const { psql, catalog, refused, gate, sql, baseCatalog } = ctx;
   const post = catalog();
   psql(sql.replacement, 60_000, "postgres");
-  const reverseRefusal = refused(sql.reverse558, "supabase_admin");
+  const reverseRefusal = refused(sql.reverse558, "postgres");
   gate("verbatim OVD-558 reverse refuses while the replacement is live (real post change pin)",
     refusedWith(reverseRefusal, "P0001", "ovd558_unknown_postchange_catalog"), sqlError(reverseRefusal).message);
   psql(sql.restore, 60_000, "postgres");
   gate("restoration returns the exact post OVD-558 catalog", catalog() === post);
-  psql(sql.reverse558, 240_000, "supabase_admin");
+  psql(sql.reverse558, 240_000, "postgres");
   gate("verbatim OVD-558 reverse runs after the restoration and returns the baseline", catalog() === baseCatalog);
-  psql(sql.forward558, 240_000, "supabase_admin");
+  psql(sql.forward558, 240_000, "postgres");
   gate("OVD-558 forward reapplies to the same post change catalog", catalog() === post);
   return { ovd558ReverseRefusal: sqlError(reverseRefusal), reverseAfterRestore: true };
 }

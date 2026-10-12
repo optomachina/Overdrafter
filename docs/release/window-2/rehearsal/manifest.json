@@ -1,8 +1,8 @@
 {
-  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
-  "sourceRevision": "2e9c4499b10c18d3f72052f50894456b0be5b6f2",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
   "sourceManifestSha256": null,
-  "runnerSha256": "a6f588fceeed88be994900ae4bbb3112b9d6904ddb4e0ef2c4fcfb291dc4365e",
+  "runnerSha256": "43858f7058bbf0a0b502b1f01c3cbf8151289b2df1a124b006020a8c09996444",
   "image": "public.ecr.aws/supabase/postgres:17.6.1.095",
   "imageId": "sha256:965e2dfb5a23a0d6541b6106541e777b303656ebabd4e878746b189d550c0a66",
   "storageImage": "public.ecr.aws/supabase/storage-api:v1.41.8",

@@ -60,10 +60,18 @@ alter table engineering_private.native_verifier_registered_objects
 do $postflight$
 declare callable_count integer;
 begin
+  -- OVD-558 allowlist: exactly 7 application functions, and in storage nothing
+  -- anon cannot call (storage functions keep Supabase's shipped ACLs).
   select count(*) into callable_count from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
+    where n.nspname in ('public','engineering_private')
       and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
       and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE');
   if callable_count <> 7 then raise exception 'ovd560_reverse_allowlist_drift:%', callable_count; end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage'
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')) then
+    raise exception 'ovd560_reverse_allowlist_drift_storage_beyond_anon';
+  end if;
 end $postflight$;
 commit;

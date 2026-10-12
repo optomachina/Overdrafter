@@ -12,21 +12,58 @@
     "runner": "node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563"
   },
   "ovd558": {
+    "runnerRole": "postgres",
     "reviewedManifest": "docs/release/ovd-510-prechange-compatibility-manifest.json",
     "reviewedManifestSha256": "854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296",
-    "prechangeAdminCatalogSha256": "68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930",
-    "postchangeAdminCatalogSha256": "82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c",
-    "generatorCheck": "node scripts/ovd510-generate-migration-sql.mjs 82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c --check",
+    "prechangeCatalogSha256": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b",
+    "postchangeCatalogSha256": "be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8",
+    "digestQuery": "docs/release/window-2/ovd558-catalog-digest.sql",
+    "digestNote": "Taken with search_path = pg_catalog, so postgres and supabase_admin print the same value. The forward preflight compares it with prechangeCatalogSha256; the reverse preflight with postchangeCatalogSha256.",
+    "generatorCheck": "node scripts/ovd510-generate-migration-sql.mjs be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8 --check",
+    "verifierAppFunctions": [
+      "engineering_private.complete_native_verification(uuid,text)",
+      "engineering_private.load_native_verification(uuid,uuid)",
+      "engineering_private.native_verifier_can_read_object(text,text)",
+      "engineering_private.reject_native_verification(uuid,jsonb)",
+      "public.api_complete_native_verification(uuid,text)",
+      "public.api_load_native_verification(uuid,uuid)",
+      "public.api_reject_native_verification(uuid,jsonb)"
+    ],
+    "anonStorageFunctions": [
+      "storage.can_insert_object(text,text,uuid,jsonb)",
+      "storage.delete_leaf_prefixes(text[],text[])",
+      "storage.enforce_bucket_name_length()",
+      "storage.extension(text)",
+      "storage.filename(text)",
+      "storage.foldername(text)",
+      "storage.get_common_prefix(text,text,text)",
+      "storage.get_level(text)",
+      "storage.get_prefix(text)",
+      "storage.get_prefixes(text)",
+      "storage.get_size_by_bucket()",
+      "storage.list_multipart_uploads_with_delimiter(text,text,text,integer,text,text)",
+      "storage.list_objects_with_delimiter(text,text,text,integer,text,text,text)",
+      "storage.operation()",
+      "storage.protect_delete()",
+      "storage.search(text,text,integer,integer,integer,text,text,text)",
+      "storage.search_by_timestamp(text,text,integer,integer,text,text,text,text)",
+      "storage.search_legacy_v1(text,text,integer,integer,integer,text,text,text)",
+      "storage.search_v2(text,text,integer,integer,text,text,text,text)",
+      "storage.update_updated_at_column()"
+    ],
+    "verifierRule": "The verifier can call exactly verifierAppFunctions outside storage, and in storage exactly the functions anon can call, which must equal anonStorageFunctions (a Storage upgrade that changes them fails closed). It holds no storage table privilege anon lacks. Storage functions keep Supabase's shipped ACLs; storage.delete_leaf_prefixes and the other storage definer functions stay callable by the verifier exactly as by anon. Option C (no storage USAGE for the verifier) is a 1.1 follow up.",
     "previous": {
+      "supabaseAdminRunner": {
+        "prechangeAdminCatalogSha256": "68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930",
+        "postchangeAdminCatalogSha256": "82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c",
+        "note": "Required a supabase_admin superuser, which hosted Supabase does not give customers; replaced by the postgres runner."
+      },
       "baselineRevision": "000d82a323d887414eb86f1dfe7d105c0b5a776c",
       "migrations": 117,
       "reviewedManifestSha256": "718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac",
       "prechangeAdminCatalogSha256": "ee81feb70d8a72cb1baa3c73109c311504b9079603b51954a3f6d50a8a763dc1",
       "refusalOnProductionEqualBaseline": "docs/release/window-2/evidence/pin-refusal/result.json"
-    },
-    "prechangePostgresCatalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e",
-    "digestQuery": "docs/release/window-2/ovd558-catalog-digest.sql",
-    "digestNote": "The digest depends on the role that runs it (pg_get_functiondef renders under it). The forward compares the supabase_admin view (prechangeAdminCatalogSha256). Run as postgres, the same baseline gives prechangePostgresCatalogSha256."
+    }
   },
   "ovd602": {
     "pin": "docs/release/window-1/ovd602-pin.main.json",
@@ -39,13 +76,13 @@
       "title": "OVD-558 verifier authority (#702)",
       "forward": {
         "path": "docs/release/ovd-558-verifier-authority-forward.sql",
-        "sha256": "8c1709d2886c48ee2d154ddac5558b6aeb7750530f027ed943cf0e8ba2573e95",
-        "role": "supabase_admin"
+        "sha256": "acc45e6ba5591caf24dd9d7e6be8d22af8d1e914f9310dbbe6be8bccff21fdac",
+        "role": "postgres"
       },
       "reverse": {
         "path": "docs/release/ovd-558-verifier-authority-reverse.sql",
-        "sha256": "6445f5e1136f0146ea34221895e3fec6579132716772b48ed25181d9f24185b3",
-        "role": "supabase_admin"
+        "sha256": "7af9fb70e1c550a5087e6fdb25c549aeb1816f9c544f046f923c8b74d2b9bb9c",
+        "role": "postgres"
       }
     },
     {
@@ -54,12 +91,12 @@
       "title": "OVD-560 result registry",
       "forward": {
         "path": "docs/release/ovd-560-result-registry-forward.sql",
-        "sha256": "80910d6aae8d84b594a0ede35d7033263a3662de0e4b37e8ac869efaa922d06f",
+        "sha256": "652aa8fe33077fcaaebc672ecc03090547dabb21a0b544d1586105feb06167bd",
         "role": "postgres"
       },
       "reverse": {
         "path": "docs/release/ovd-560-result-registry-reverse.sql",
-        "sha256": "90da7ab515a67db6787e2450222a3e8fd1eb08584b0b870f354d1b32a64aa294",
+        "sha256": "2f1381dc96586b952ddee47b724f8ff3a2d204240792a53ffb7a2648107a5584",
         "role": "postgres"
       }
     },

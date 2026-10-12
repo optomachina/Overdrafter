@@ -47,9 +47,10 @@ export function checkReadOnlyDigest({ psql, catalogSql, root }) {
   const digestSql = readFileSync(join(root, manifest.ovd558.digestQuery), "utf8");
   const before = psql(catalogSql);
   const digestAs = (role) => psql(digestSql, 120_000, role).split("\n").find((line) => /^[0-9a-f]{64}$/.test(line));
+  // The digest is taken with search_path = pg_catalog, so both roles must print the same pin.
   const result = { supabaseAdmin: digestAs("supabase_admin"), postgres: digestAs("postgres") };
-  if (result.supabaseAdmin !== manifest.ovd558.prechangeAdminCatalogSha256
-      || result.postgres !== manifest.ovd558.prechangePostgresCatalogSha256 || psql(catalogSql) !== before) {
+  if (result.postgres !== manifest.ovd558.prechangeCatalogSha256
+      || result.supabaseAdmin !== manifest.ovd558.prechangeCatalogSha256 || psql(catalogSql) !== before) {
     throw new Error(`window2_read_only_digest_mismatch:${JSON.stringify(result)}`);
   }
   return result;
@@ -166,7 +167,7 @@ export async function runWindow2Chain(options) {
   const early561 = refused(read(finalization.reverse.path), finalization.reverse.role);
   gate("OVD-561 reverse refuses while the pending table exists",
     early561 && refusedWith(early561, "P0001", "ovd561_reverse_requires_pending_reverse_first"), sqlError(early561).message);
-  const early558 = refused(reverse558, "supabase_admin");
+  const early558 = refused(reverse558, ovd558.reverse.role);
   gate("OVD-558 reverse refuses while later window 2 steps are applied",
     early558 && refusedWith(early558, "P0001", "ovd558_unknown_postchange_catalog"), sqlError(early558).message);
   gate("refused out of order reverses change nothing", catalog() === fullCatalog);

@@ -1,7 +1,7 @@
 -- OVD-558 separate source-only reverse migration.
--- Exact forward SQL SHA-256: 8c1709d2886c48ee2d154ddac5558b6aeb7750530f027ed943cf0e8ba2573e95
+-- Exact forward SQL SHA-256: acc45e6ba5591caf24dd9d7e6be8d22af8d1e914f9310dbbe6be8bccff21fdac
 -- Pinned prechange manifest SHA-256: 854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296
--- Only storage function raw proacl null-to-explicit normalization is permitted.
+-- Runs as postgres. Restores the exact prechange catalog (storage untouched).
 -- READ COMMITTED and the registry lock come first so the emptiness check reads
 -- a snapshot taken after every concurrent registry writer has finished.
 -- storage.objects is locked before the registry, the order a verifier read
@@ -18,22 +18,21 @@ end $ovd558_reverse_isolation$;
 select pg_advisory_xact_lock(510, 2);
 do $ovd558_reverse_lock$
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_user <> 'postgres'
      or to_regclass('engineering_private.native_verifier_registered_objects') is null then
     raise exception 'ovd558_reverse_runner_or_registry_mismatch';
   end if;
   lock table storage.objects, engineering_private.native_verifier_registered_objects
     in access exclusive mode;
 end $ovd558_reverse_lock$;
-do $ovd558_reverse_preflight$ declare actual text;
+do $ovd558_reverse_preflight$ declare actual text; saved_search_path text := current_setting('search_path');
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_user <> 'postgres'
      or to_regrole('engineering_native_verifier') is null
      or (select count(*) from engineering_private.native_verifier_registered_objects) <> 0 then
     raise exception 'ovd558_reverse_runner_or_registry_mismatch';
   end if;
+  perform set_config('search_path', 'pg_catalog', true);
   select digest_value into actual from (select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from (with selected_roles(role_name) as (
   select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (
@@ -126,7 +125,8 @@ select jsonb_build_object(
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )::text) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from '82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c' then
+  perform set_config('search_path', saved_search_path, true);
+  if actual is distinct from 'be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8' then
     raise exception 'ovd558_unknown_postchange_catalog:%', actual;
   end if;
 end $ovd558_reverse_preflight$;
@@ -886,148 +886,6 @@ REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) F
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "supabase_replication_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "supabase_storage_admin";
 reset role;
-set role "supabase_storage_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."extension"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."filename"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."foldername"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."get_level"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefix"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."operation"() FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."protect_delete"() FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "anon";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "authenticated";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "postgres";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "service_role";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "storage"."update_updated_at_column"() FROM "supabase_read_only_user";
-reset role;
 set role "postgres";
 revoke execute on function "public"."api_accept_project_invite"(p_token text) from public, postgres, anon, authenticated, service_role;
 grant execute on function "public"."api_accept_project_invite"(p_token text) to public;
@@ -1468,52 +1326,12 @@ grant execute on function "public"."user_is_project_owner"(p_project_id uuid) to
 grant execute on function "public"."user_is_project_owner"(p_project_id uuid) to authenticated;
 grant execute on function "public"."user_is_project_owner"(p_project_id uuid) to service_role;
 reset role;
-set role "supabase_storage_admin";
-grant execute on function "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) to public;
-grant execute on function "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) to public;
-grant execute on function "storage"."enforce_bucket_name_length"() to public;
-grant execute on function "storage"."extension"(name text) to public;
-grant execute on function "storage"."filename"(name text) to public;
-grant execute on function "storage"."foldername"(name text) to public;
-grant execute on function "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) to public;
-grant execute on function "storage"."get_level"(name text) to public;
-grant execute on function "storage"."get_prefix"(name text) to public;
-grant execute on function "storage"."get_prefixes"(name text) to public;
-grant execute on function "storage"."get_size_by_bucket"() to public;
-grant execute on function "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) to public;
-grant execute on function "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) to public;
-grant execute on function "storage"."operation"() to public;
-grant execute on function "storage"."protect_delete"() to public;
-grant execute on function "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) to public;
-grant execute on function "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) to public;
-grant execute on function "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) to public;
-grant execute on function "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) to public;
-grant execute on function "storage"."update_updated_at_column"() to public;
-reset role;
 alter default privileges for role postgres in schema private, extensions revoke execute on functions from public;
 alter default privileges for role postgres grant execute on functions to public;
-alter default privileges for role supabase_storage_admin grant execute on functions to public;
-do $ovd558_reverse_postflight$ declare actual text;
+do $ovd558_reverse_postflight$ declare actual text; saved_search_path text := current_setting('search_path');
 begin
-  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'storage' and not exists (
-      select 1 from aclexplode(p.proacl) a
-      where a.grantee = 0 and a.grantor = p.proowner
-        and a.privilege_type = 'EXECUTE' and not a.is_grantable))
-     or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       cross join lateral aclexplode(p.proacl) a
-       where n.nspname = 'storage' and
-         (a.grantor <> p.proowner or a.privilege_type <> 'EXECUTE'
-          or a.is_grantable or a.grantee not in (0, p.proowner))) then
-    raise exception 'ovd558_storage_expanded_acl_mismatch';
-  end if;
-  select digest_value into actual from (select encode(sha256(convert_to(
-    jsonb_set(catalog_value, '{functions}',
-      (select jsonb_agg(case when item->>'schema_name' = 'storage'
-        then jsonb_set(jsonb_set(item, '{acl}', 'null'::jsonb),
-          '{explicit_grants}', '[]'::jsonb) else item end order by ordinal)
-       from jsonb_array_elements(catalog_value->'functions') with ordinality as f(item, ordinal)))::text,
-    'UTF8')), 'hex') from (with selected_roles(role_name) as (
+  perform set_config('search_path', 'pg_catalog', true);
+  select digest_value into actual from (select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from (with selected_roles(role_name) as (
   select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (
   select n.nspname as schema_name, p.proname as function_name,
@@ -1604,8 +1422,9 @@ select jsonb_build_object(
   'policies', (select coalesce(jsonb_agg(to_jsonb(p) order by schema_name,table_name,policy_name), '[]'::jsonb) from policies p),
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
-)) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from '68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930' then
+)::text) snapshot(catalog_value)) as digest(digest_value);
+  perform set_config('search_path', saved_search_path, true);
+  if actual is distinct from 'e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b' then
     raise exception 'ovd558_reverse_catalog_mismatch:%', actual;
   end if;
 end $ovd558_reverse_postflight$;

@@ -8,9 +8,10 @@ const registry = "engineering_private.native_verifier_registered_objects";
 const lockMarker = "end $ovd558_reverse_lock$;\n";
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function session({ dockerExecutable, container, password }, name, sql) {
+// The reverse runs as postgres, as in hosted Supabase; fixture helpers as supabase_admin.
+function session({ dockerExecutable, container, password }, name, sql, role = "supabase_admin") {
   const child = spawn(dockerExecutable, ["exec", "-i", "-e", `PGPASSWORD=${password}`, container,
-    "psql", "-U", "supabase_admin", "-d", "postgres", "-X", "-Atq",
+    "psql", "-U", role, "-d", "postgres", "-X", "-Atq",
     "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"],
   { stdio: ["pipe", "pipe", "pipe"], timeout: 240_000 });
   let stdout = "", stderr = "";
@@ -44,7 +45,7 @@ export async function runOvd558ReverseLockProof(options) {
   // 1. Anything but READ COMMITTED is refused before the lock or any read.
   for (const level of ["repeatable read", "serializable"]) {
     const run = await session(options, "ovd737_isolation",
-      `set session characteristics as transaction isolation level ${level};\n${reverseSql}`);
+      `set session characteristics as transaction isolation level ${level};\n${reverseSql}`, "postgres");
     assert.notEqual(run.code, 0, `ovd737_isolation_not_refused:${level}`);
     assert.match(run.stderr, /ERROR:\s+0A000: ovd558_reverse_read_committed_required/,
       `ovd737_isolation_wrong_error:${level}`);
@@ -59,7 +60,7 @@ insert into ${registry} values ('ovd737', 'committed-during-wait');
 select pg_sleep(4);
 commit;`);
   await barrier(psql, "ovd737_writer", "PgSleep");
-  const blocked = session(options, "ovd737_reverse", reverseSql);
+  const blocked = session(options, "ovd737_reverse", reverseSql, "postgres");
   await barrier(psql, "ovd737_reverse", "relation");
   const committed = await writer;
   assert.equal(committed.code, 0, committed.stderr);
@@ -75,7 +76,7 @@ commit;`);
   // The reverse is held after its lock and rolled back by an injected failure.
   const held = reverseSql.replace(lockMarker, `${lockMarker}select pg_sleep(4);\n`)
     .replace(/\ncommit;\n$/, "\ndo $ovd737_injected$ begin raise exception 'ovd737_injected_rollback'; end $ovd737_injected$;\ncommit;\n");
-  const holder = session(options, "ovd737_holder", held);
+  const holder = session(options, "ovd737_holder", held, "postgres");
   await barrier(psql, "ovd737_holder", "PgSleep");
   const waiter = session(options, "ovd737_waiter",
     `insert into ${registry} values ('ovd737', 'waited-for-lock');`);
@@ -120,7 +121,7 @@ commit;`;
   const raceRead = async (sql, registryHeld) => {
     const reader = session(options, "ovd737_verifier", verifierRead);
     await barrier(psql, "ovd737_verifier", "PgSleep");
-    const reverse = session(options, "ovd737_reverse_read", sql);
+    const reverse = session(options, "ovd737_reverse_read", sql, "postgres");
     for (let i = 0; psql(reverseReady(registryHeld)) !== "t"; i++) {
       if (i >= 200) throw new Error("ovd737_barrier_missing:ovd737_reverse_read");
       await pause(50);

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
+import { anonStorageFunctions, verifierAppFunctions } from "./ovd510-generate-migration-sql.mjs";
 import { catalogSql } from "./ovd510-catalog-sql.mjs";
 import { durableBehaviorSql } from "./ovd510-durable-behavior-sql.mjs";
 
@@ -18,6 +19,7 @@ import { durableBehaviorSql } from "./ovd510-durable-behavior-sql.mjs";
 export async function runReplay({ root, repositoryRoot = root, sourceRevision = null,
   sourceManifest = null, sourceManifestSha256 = null, verifySource = () => {} }) {
 const compareNames = (a, b) => a.localeCompare(b);
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const dockerExecutable = [
   "/Applications/Docker.app/Contents/Resources/bin/docker",
   "/usr/local/bin/docker",
@@ -546,13 +548,12 @@ ${sql}`;
 set local statement_timeout = '180s';
 select pg_advisory_xact_lock(510, 1);
 alter default privileges for role postgres revoke execute on functions from public;
-alter default privileges for role supabase_storage_admin revoke execute on functions from public;
 alter default privileges for role postgres in schema private, extensions grant execute on functions to public;
-revoke execute on all functions in schema public, engineering_private, storage from public;
+revoke execute on all functions in schema public, engineering_private from public;
 ${plan.sql}
 ${catalogSelect}
 rollback;`;
-    const probeRaw = psql(probeSql, 240_000, "supabase_admin");
+    const probeRaw = psql(probeSql, 240_000, "postgres");
     const post = JSON.parse(probeRaw.split("\n").find((line) => line.startsWith("{")));
     const beforeFunctions = new Map(catalog.functions.map((fn) =>
       [`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`, fn]));
@@ -579,7 +580,8 @@ rollback;`;
           latentExecuteRemoved++;
         }
       }
-      if (["public", "engineering_private", "storage"].includes(fn.schema_name)
+      // Storage functions keep their shipped ACLs (OVD-743 option A).
+      if (["public", "engineering_private"].includes(fn.schema_name)
         && fn.public_execute) {
         throw new Error(`grant_probe_public_execute_remains:${identity}`);
       }
@@ -617,7 +619,7 @@ rollback;`;
 create function public.ovd558_drift_probe() returns integer
   language sql as $body$ select 1; $body$;`, 90_000, "supabase_admin");
         let driftRejected = false;
-        try { psql(forwardSql, 240_000, "supabase_admin"); }
+        try { psql(forwardSql, 240_000, "postgres"); }
         catch (error) { driftRejected = String(error).includes("ovd558_prechange_catalog_mismatch");
           if (!driftRejected) throw error; }
         if (!driftRejected) throw new Error("durable_prechange_drift_not_rejected");
@@ -630,12 +632,12 @@ create function public.ovd558_drift_probe() returns integer
         save("durable-prechange-drift.json", { status: "rejected_before_mutation",
           restoredCatalogSha256: sha(Buffer.from(afterDriftProbe)) });
         stage = "durable_injected_failure";
-        const revokeMarker = "revoke execute on all functions in schema public, engineering_private, storage from public;";
+        const revokeMarker = "revoke execute on all functions in schema public, engineering_private from public;";
         if (forwardSql.split(revokeMarker).length !== 2) throw new Error("forward_revoke_marker_drift");
         const injectedSql = forwardSql.replace(revokeMarker, `${revokeMarker}\n` +
           "do $ovd558_injected$ begin raise exception 'ovd558_injected_failure'; end $ovd558_injected$;");
         let expectedFailure = false;
-        try { psql(injectedSql, 240_000, "supabase_admin"); }
+        try { psql(injectedSql, 240_000, "postgres"); }
         catch (error) { expectedFailure = String(error).includes("ovd558_injected_failure");
           if (!expectedFailure) throw error; }
         if (!expectedFailure) throw new Error("durable_injection_did_not_fail");
@@ -646,7 +648,7 @@ create function public.ovd558_drift_probe() returns integer
         save("durable-injected-failure.json", { status: "passed", baselineCatalogSha256: sha(Buffer.from(afterFailure)) });
         stage = "durable_forward";
       }
-      psql(forwardSql, 240_000, "supabase_admin");
+      psql(forwardSql, 240_000, "postgres");
       const postRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
       const postCatalog = JSON.parse(postRaw);
       const adminPostRaw = psql(catalogSql, 90_000, "supabase_admin")
@@ -677,10 +679,19 @@ create function public.ovd558_drift_probe() returns integer
           [`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`, fn]));
         const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
           .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
-        const callable = postCatalog.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
-          && fn.callers[verifier]?.functionExecute).map(signature).sort(compareNames);
-        if (callable.join("|") !== [...allowedVerifierSignatures].sort(compareNames).join("|")) {
+        // OVD-743 option A: exactly the 7 application functions, plus exactly the
+        // storage functions anon can call, which equal the reviewed pinned set.
+        const callableBy = (role, schemas) => postCatalog.functions.filter((fn) =>
+          schemas.includes(fn.schema_name) && fn.callers[role]?.schemaUsage
+          && fn.callers[role]?.functionExecute).map(signature).sort(byCodeUnit);
+        const callable = callableBy(verifier, ["public", "engineering_private"]);
+        if (callable.join("|") !== verifierAppFunctions.join("|")) {
           throw new Error(`durable_verifier_callable_mismatch:${callable.join("|")}`);
+        }
+        const storageCallable = callableBy(verifier, ["storage"]);
+        if (storageCallable.join("|") !== callableBy("anon", ["storage"]).join("|")
+            || storageCallable.join("|") !== anonStorageFunctions.join("|")) {
+          throw new Error(`durable_verifier_storage_not_anon_equivalent:${storageCallable.join("|")}`);
         }
         const newFunctions = postCatalog.functions.filter((fn) =>
           !priorFunctions.has(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`));
@@ -710,7 +721,7 @@ create function public.ovd558_drift_probe() returns integer
               }
             }
           }
-          if (["public", "engineering_private", "storage"].includes(fn.schema_name)
+          if (["public", "engineering_private"].includes(fn.schema_name)
               && fn.public_execute) throw new Error("durable_public_execute_leak");
         }
         const role = postCatalog.roles.find((entry) => entry.rolname === verifier);
@@ -733,7 +744,7 @@ create function public.ovd558_drift_probe() returns integer
         if (afterDirectBehavior !== postRaw) throw new Error("durable_direct_behavior_catalog_drift");
         save("durable-direct-behavior.json", { status: "passed",
           sqlSha256: sha(Buffer.from(durableBehaviorSql)), registeredReadCount: 1,
-          approvedEntryCalls: 4, deniedDirectFunctionCalls: 8,
+          approvedEntryCalls: 4, deniedDirectFunctionCalls: 6, storageCallsAsAnon: 2,
           deniedStorageDml: 3, rolledBackCatalogSha256: sha(Buffer.from(afterDirectBehavior)) });
         const escalation = [];
         for (const roleName of ["anon", "authenticated", "service_role"]) {
@@ -751,7 +762,7 @@ create function public.ovd558_drift_probe() returns integer
         save("durable-role-escalation.json", { status: "passed", attempts: escalation });
         stage = "durable_second_application";
         let secondRejected = false;
-        try { psql(forwardSql, 240_000, "supabase_admin"); }
+        try { psql(forwardSql, 240_000, "postgres"); }
         catch (error) { secondRejected = String(error).includes("ovd558_runner_or_object_preflight_mismatch");
           if (!secondRejected) throw error; }
         if (!secondRejected) throw new Error("durable_second_application_not_rejected");
@@ -900,11 +911,13 @@ end $ovd560_temp$;`;
         if (!reverseSql.includes(`Exact forward SQL SHA-256: ${sha(forwardBytes)}`)) {
           throw new Error("reverse_forward_digest_mismatch");
         }
-        const postAdminSha = sha(Buffer.from(adminPostRaw));
+        // The reverse pins the post change digest as the read only query prints it.
+        const digestSql = readFileSync(join(root, "docs/release/window-2/ovd558-catalog-digest.sql"), "utf8");
+        const postAdminSha = psql(digestSql, 90_000, "postgres").split("\n").at(-1);
         if (!reverseSql.includes(`'${postAdminSha}'`)) throw new Error("reverse_post_catalog_pin_mismatch");
         let unknownRejected = false;
         try { psql(reverseSql.replace(`'${postAdminSha}'`, `'${"0".repeat(64)}'`),
-          240_000, "supabase_admin"); }
+          240_000, "postgres"); }
         catch (error) { unknownRejected = String(error).includes("ovd558_unknown_postchange_catalog");
           if (!unknownRejected) throw error; }
         if (!unknownRejected) throw new Error("reverse_unknown_state_not_rejected");
@@ -918,7 +931,7 @@ end $ovd560_temp$;`;
         save("durable-reverse-lock-proof.json", { status: "passed", fixtureId,
           sourceRevision: revision.stdout.trim(), reverseSha256: sha(reverseBytes), ...lockProof });
         stage = "durable_reverse";
-        psql(reverseSql, 240_000, "supabase_admin");
+        psql(reverseSql, 240_000, "postgres");
         const restoredRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
         const restoredCatalog = JSON.parse(restoredRaw);
         save("durable-reverse-catalog.json", restoredCatalog);
@@ -950,10 +963,10 @@ end $ovd560_temp$;`;
           rawStorageAclNormalizationCount: catalog.functions.filter((fn) =>
             fn.schema_name === "storage" && fn.acl === null).length });
         stage = "durable_reapply";
-        psql(forwardSql, 240_000, "supabase_admin");
+        psql(forwardSql, 240_000, "postgres");
         const reappliedRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
         if (reappliedRaw !== postRaw) throw new Error("durable_reapply_forward_catalog_drift");
-        psql(reverseSql, 240_000, "supabase_admin");
+        psql(reverseSql, 240_000, "postgres");
         const reReversedRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
         if (reReversedRaw !== restoredRaw) throw new Error("durable_reapply_reverse_catalog_drift");
         save("durable-reapply.json", { status: "passed", fixtureId,

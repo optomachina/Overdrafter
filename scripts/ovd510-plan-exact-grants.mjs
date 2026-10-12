@@ -6,11 +6,12 @@
 // OVD-743 window 2 rebaseline: main's 148 migrations (the production ledger),
 // replacing the 117 migration 000d82a3 prefix.
 const expectedManifestSha256 = "854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296";
-const targetSchemas = new Set(["public", "engineering_private", "storage"]);
+// Storage functions are owned by supabase_storage_admin, which a hosted postgres
+// runner cannot act as (OVD-743 option A): their ACLs are left as shipped.
+const targetSchemas = new Set(["public", "engineering_private"]);
 const allowedOwners = new Map([
   ["public", "postgres"],
   ["engineering_private", "postgres"],
-  ["storage", "supabase_storage_admin"],
 ]);
 const quote = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 
@@ -81,7 +82,7 @@ export function planExactGrants(manifest, manifestSha256) {
   }
   const counts = Object.fromEntries([...targetSchemas].map((schema) =>
     [schema, grants.filter((grant) => grant.schema === schema).length]));
-  if (counts.public !== 730 || counts.engineering_private !== 0 || counts.storage !== 140) {
+  if (counts.public !== 730 || counts.engineering_private !== 0) {
     throw new Error(`reviewed_grant_count_drift:${JSON.stringify(counts)}`);
   }
   return { grants, counts, sql: `${sql.join("\n")}\n` };

@@ -1,9 +1,11 @@
 -- OVD-743 window 2 go or no go: READ ONLY. Prints the catalog digest that the
--- OVD-558 forward preflight computes, extracted byte for byte from
--- docs/release/ovd-558-verifier-authority-forward.sql (a node test checks it).
--- It writes nothing and holds no lock beyond a read only snapshot.
+-- OVD-558 forward preflight computes, generated with it by
+-- scripts/ovd510-generate-migration-sql.mjs (do not edit). The digest is taken
+-- with search_path = pg_catalog, so it is the same for any role; run it as
+-- postgres. It writes nothing and holds no lock beyond a read only snapshot.
 -- Usage (lead only, never an agent): psql "$DB_URL" -X -At -f docs/release/window-2/ovd558-catalog-digest.sql
 begin read only;
+set local search_path = pg_catalog;
 select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from (with selected_roles(role_name) as (
   select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (

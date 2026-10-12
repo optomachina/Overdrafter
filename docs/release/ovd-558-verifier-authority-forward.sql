@@ -1,7 +1,9 @@
 -- OVD-558 staged source migration. Do not add this file to the active migration tree.
 -- Pinned prechange manifest SHA-256: 854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296
--- Pinned PostgreSQL jsonb catalog SHA-256: 68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930
--- Requires separately qualified source, fixture ownership, and runner identity.
+-- Pinned PostgreSQL jsonb catalog SHA-256 (search_path pg_catalog): e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b
+-- Runs as postgres, the hosted Supabase owner role; no superuser is needed.
+-- Storage functions are owned by supabase_storage_admin and keep their shipped
+-- ACLs: the verifier may call exactly the storage functions anon can call.
 -- READ COMMITTED and the shared window 2 lock come first, as in every staged
 -- forward and reverse, so no two window 2 scripts interleave.
 begin;
@@ -14,15 +16,15 @@ begin
   end if;
 end $ovd558_forward_isolation$;
 select pg_advisory_xact_lock(510, 2);
-do $ovd558_preflight$ declare actual text; normalized text;
+do $ovd558_preflight$ declare actual text; saved_search_path text := current_setting('search_path');
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_user <> 'postgres'
      or to_regrole('engineering_native_verifier') is not null
      or to_regclass('engineering_private.native_verifier_registered_objects') is not null
      or to_regprocedure('public.api_load_native_verification(uuid,uuid)') is not null then
     raise exception 'ovd558_runner_or_object_preflight_mismatch';
   end if;
+  perform set_config('search_path', 'pg_catalog', true);
   select digest_value into actual from (select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from (with selected_roles(role_name) as (
   select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (
@@ -115,120 +117,9 @@ select jsonb_build_object(
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )::text) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from '68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930' then
-    -- Otherwise accept only the exact catalog the reverse leaves behind.
-    select digest_value into normalized
-      from (select encode(sha256(convert_to(
-    jsonb_set(catalog_value, '{functions}',
-      (select jsonb_agg(case when item->>'schema_name' = 'storage'
-        then jsonb_set(jsonb_set(item, '{acl}', 'null'::jsonb),
-          '{explicit_grants}', '[]'::jsonb) else item end order by ordinal)
-       from jsonb_array_elements(catalog_value->'functions') with ordinality as f(item, ordinal)))::text,
-    'UTF8')), 'hex') from (with selected_roles(role_name) as (
-  select rolname from pg_roles where rolname not like 'pg_%'
-), functions as (
-  select n.nspname as schema_name, p.proname as function_name,
-    pg_get_function_identity_arguments(p.oid) as identity_arguments,
-    pg_get_userbyid(p.proowner) as owner, p.prosecdef as security_definer,
-    p.prokind as kind, p.proacl::text as acl, p.proconfig as configuration,
-    md5(p.prosrc) as body_md5,
-    md5(pg_get_functiondef(p.oid)) as definition_md5,
-    (select coalesce(jsonb_agg(jsonb_build_object(
-      'grantor', pg_get_userbyid(a.grantor),
-      'grantee', case when a.grantee = 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end,
-      'privilege', a.privilege_type, 'grantable', a.is_grantable)
-      order by a.grantee, a.grantor, a.privilege_type), '[]'::jsonb)
-      from aclexplode(p.proacl) a) as explicit_grants,
-    exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass
-      and dep.objid = p.oid and dep.deptype = 'e') as extension_owned,
-    exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-      where a.grantee = 0 and a.privilege_type = 'EXECUTE') as public_execute,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'schemaUsage', has_schema_privilege(r.role_name, n.oid, 'USAGE'),
-      'functionExecute', has_function_privilege(r.role_name, p.oid, 'EXECUTE')))
-      from selected_roles r) as callers
-  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-), defaults as (
-  select pg_get_userbyid(d.defaclrole) as owner,
-    coalesce(n.nspname, '*') as schema_name, d.defaclobjtype as object_type,
-    d.defaclacl::text as acl
-  from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
-), schemas as (
-  select n.nspname as schema_name, pg_get_userbyid(n.nspowner) as owner,
-    n.nspacl::text as acl,
-    exists (select 1 from aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
-      where a.grantee = 0 and a.privilege_type = 'USAGE') as public_usage,
-    (select jsonb_object_agg(r.role_name,
-      has_schema_privilege(r.role_name, n.oid, 'USAGE')) from selected_roles r) as usage
-    , (select jsonb_object_agg(o.role_name, jsonb_build_object(
-      'usage', has_schema_privilege(o.role_name, n.oid, 'USAGE'),
-      'create', has_schema_privilege(o.role_name, n.oid, 'CREATE')))
-      from (values ('postgres'), ('supabase_storage_admin')) o(role_name)) as owner_capabilities
-  from pg_namespace n where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-), roles as (
-  select rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
-    rolreplication, rolbypassrls from pg_roles
-  where rolname not like 'pg_%'
-), memberships as (
-  select parent.rolname as granted_role, member.rolname as member_role,
-    m.admin_option, m.inherit_option, m.set_option
-  from pg_auth_members m join pg_roles parent on parent.oid = m.roleid
-    join pg_roles member on member.oid = m.member
-  where parent.rolname not like 'pg_%' or member.rolname not like 'pg_%'
-), policies as (
-  select schemaname as schema_name, tablename as table_name, policyname as policy_name,
-    permissive, roles, cmd, qual, with_check from pg_policies
-  where schemaname not like 'pg_%' and schemaname <> 'information_schema'
-), relations as (
-  select n.nspname as schema_name, c.relname as relation_name, c.relkind as kind,
-    pg_get_userbyid(c.relowner) as owner, c.relacl::text as acl,
-    c.relrowsecurity as row_security, c.relforcerowsecurity as force_row_security,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'select', has_table_privilege(r.role_name, c.oid, 'SELECT'),
-      'insert', has_table_privilege(r.role_name, c.oid, 'INSERT'),
-      'update', has_table_privilege(r.role_name, c.oid, 'UPDATE'),
-      'delete', has_table_privilege(r.role_name, c.oid, 'DELETE')))
-      from selected_roles r) as callers
-  from pg_class c join pg_namespace n on n.oid = c.relnamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-    and c.relkind in ('r','p','v','m')
-), sequences as (
-  select n.nspname as schema_name, c.relname as sequence_name,
-    pg_get_userbyid(c.relowner) as owner, c.relacl::text as acl,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'usage', has_sequence_privilege(r.role_name, c.oid, 'USAGE'),
-      'select', has_sequence_privilege(r.role_name, c.oid, 'SELECT'),
-      'update', has_sequence_privilege(r.role_name, c.oid, 'UPDATE')))
-      from selected_roles r) as callers
-  from pg_class c join pg_namespace n on n.oid = c.relnamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-    and c.relkind = 'S'
-)
-select jsonb_build_object(
-  'databaseVersion', current_setting('server_version'),
-  'functions', (select coalesce(jsonb_agg(to_jsonb(f) order by schema_name,function_name,identity_arguments), '[]'::jsonb) from functions f),
-  'defaults', (select coalesce(jsonb_agg(to_jsonb(d) order by owner,schema_name,object_type), '[]'::jsonb) from defaults d),
-  'schemas', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name), '[]'::jsonb) from schemas s),
-  'roles', (select coalesce(jsonb_agg(to_jsonb(r) order by rolname), '[]'::jsonb) from roles r),
-  'memberships', (select coalesce(jsonb_agg(to_jsonb(m) order by granted_role,member_role), '[]'::jsonb) from memberships m),
-  'policies', (select coalesce(jsonb_agg(to_jsonb(p) order by schema_name,table_name,policy_name), '[]'::jsonb) from policies p),
-  'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
-  'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
-)) snapshot(catalog_value)) as digest(digest_value);
-    if normalized is distinct from '68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930'
-       or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'storage' and not exists (
-      select 1 from aclexplode(p.proacl) a
-      where a.grantee = 0 and a.grantor = p.proowner
-        and a.privilege_type = 'EXECUTE' and not a.is_grantable))
-     or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       cross join lateral aclexplode(p.proacl) a
-       where n.nspname = 'storage' and
-         (a.grantor <> p.proowner or a.privilege_type <> 'EXECUTE'
-          or a.is_grantable or a.grantee not in (0, p.proowner))) then
-      raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
-    end if;
+  perform set_config('search_path', saved_search_path, true);
+  if actual is distinct from 'e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b' then
+    raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
   end if;
 end $ovd558_preflight$;
 create role engineering_native_verifier
@@ -295,9 +186,10 @@ revoke execute on function public.api_load_native_verification(uuid,uuid),
 reset role;
 
 alter default privileges for role postgres revoke execute on functions from public;
-alter default privileges for role supabase_storage_admin revoke execute on functions from public;
 alter default privileges for role postgres in schema private, extensions grant execute on functions to public;
-revoke execute on all functions in schema public, engineering_private, storage from public;
+-- Storage functions belong to supabase_storage_admin, which a hosted postgres
+-- runner cannot act as; their ACLs stay as Supabase ships them (anon callable).
+revoke execute on all functions in schema public, engineering_private from public;
 
 -- OVD-510 exact replacement grants from the pinned pre-change manifest.
 -- Requires an asserted, exclusively owned disposable replay and one outer transaction.
@@ -1033,148 +925,6 @@ GRANT EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) TO
 GRANT EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) TO "supabase_replication_admin";
 GRANT EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) TO "supabase_storage_admin";
 RESET ROLE;
-SET ROLE "supabase_storage_admin";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."can_insert_object"(bucketid text, name text, owner uuid, metadata jsonb) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."delete_leaf_prefixes"(bucket_ids text[], names text[]) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."enforce_bucket_name_length"() TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."extension"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."filename"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."foldername"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."get_common_prefix"(p_key text, p_prefix text, p_delimiter text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."get_level"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefix"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."get_prefixes"(name text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."get_size_by_bucket"() TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."list_multipart_uploads_with_delimiter"(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, next_key_token text, next_upload_token text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."list_objects_with_delimiter"(_bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text, sort_order text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."operation"() TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."protect_delete"() TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."search_by_timestamp"(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."search_legacy_v1"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."search_v2"(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."search"(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) TO "supabase_read_only_user";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "anon";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "authenticated";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "dashboard_user";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "postgres";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "service_role";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "supabase_etl_admin";
-GRANT EXECUTE ON FUNCTION "storage"."update_updated_at_column"() TO "supabase_read_only_user";
-RESET ROLE;
 
 grant usage on schema public, engineering_private, storage to engineering_native_verifier;
 grant select on storage.objects to engineering_native_verifier;
@@ -1195,23 +945,81 @@ create policy ovd510_verifier_registered_restrictive on storage.objects
   as restrictive for select to engineering_native_verifier
   using (engineering_private.native_verifier_can_read_object(bucket_id, name));
 
-do $ovd558_postflight$ declare actual text; found text[];
+do $ovd558_postflight$ declare actual text; found text[]; anon_found text[];
+  saved_search_path text := current_setting('search_path');
 begin
-  select array_agg(n.nspname || '.' || p.proname || '(' ||
-    pg_get_function_identity_arguments(p.oid) || ')' order by n.nspname, p.proname)
-    into found from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
-      and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
-      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE');
-  if coalesce(array_length(found, 1), 0) <> 7 then
-    raise exception 'ovd558_verifier_allowlist_count_mismatch:%', found;
+  perform set_config('search_path', 'pg_catalog', true);
+  select (select coalesce(array_agg(p.oid::regprocedure::text
+      order by p.oid::regprocedure::text collate "C"), '{}')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public','engineering_private') and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')) into found;
+  if found is distinct from array['engineering_private.complete_native_verification(uuid,text)',
+    'engineering_private.load_native_verification(uuid,uuid)',
+    'engineering_private.native_verifier_can_read_object(text,text)',
+    'engineering_private.reject_native_verification(uuid,jsonb)',
+    'public.api_complete_native_verification(uuid,text)',
+    'public.api_load_native_verification(uuid,uuid)',
+    'public.api_reject_native_verification(uuid,jsonb)']::text[] then
+    raise exception 'ovd558_verifier_app_allowlist_mismatch:%', found;
+  end if;
+  select (select coalesce(array_agg(p.oid::regprocedure::text
+      order by p.oid::regprocedure::text collate "C"), '{}')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage' and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')) into found;
+  select (select coalesce(array_agg(p.oid::regprocedure::text
+      order by p.oid::regprocedure::text collate "C"), '{}')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage' and has_schema_privilege('anon', n.oid, 'USAGE')
+      and has_function_privilege('anon', p.oid, 'EXECUTE')) into anon_found;
+  if found is distinct from anon_found then
+    raise exception 'ovd558_verifier_storage_functions_exceed_anon:%', found;
+  end if;
+  -- Fails closed when a Supabase Storage upgrade adds or changes a function.
+  if anon_found is distinct from array['storage.can_insert_object(text,text,uuid,jsonb)',
+    'storage.delete_leaf_prefixes(text[],text[])',
+    'storage.enforce_bucket_name_length()',
+    'storage.extension(text)',
+    'storage.filename(text)',
+    'storage.foldername(text)',
+    'storage.get_common_prefix(text,text,text)',
+    'storage.get_level(text)',
+    'storage.get_prefix(text)',
+    'storage.get_prefixes(text)',
+    'storage.get_size_by_bucket()',
+    'storage.list_multipart_uploads_with_delimiter(text,text,text,integer,text,text)',
+    'storage.list_objects_with_delimiter(text,text,text,integer,text,text,text)',
+    'storage.operation()',
+    'storage.protect_delete()',
+    'storage.search(text,text,integer,integer,integer,text,text,text)',
+    'storage.search_by_timestamp(text,text,integer,integer,text,text,text,text)',
+    'storage.search_legacy_v1(text,text,integer,integer,integer,text,text,text)',
+    'storage.search_v2(text,text,integer,integer,text,text,text,text)',
+    'storage.update_updated_at_column()']::text[] then
+    raise exception 'ovd558_storage_anon_functions_changed:%', anon_found;
+  end if;
+  if exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) as priv(name)
+      where n.nspname = 'storage' and c.relkind in ('r','p','v','m','f')
+        and has_table_privilege('engineering_native_verifier', c.oid, priv.name)
+        and not has_table_privilege('anon', c.oid, priv.name)) then
+    raise exception 'ovd558_verifier_storage_table_exceeds_anon';
+  end if;
+  if exists (select 1 from pg_namespace n where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
+      and (has_schema_privilege('engineering_native_verifier', n.oid, 'CREATE')
+        or has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
+          <> (n.nspname in ('public','engineering_private','storage')))) then
+    raise exception 'ovd558_verifier_schema_authority_mismatch';
   end if;
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
+    where n.nspname in ('public','engineering_private')
       and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
         where a.grantee = 0 and a.privilege_type = 'EXECUTE')) then
     raise exception 'ovd558_public_execute_leak';
   end if;
+  perform set_config('search_path', saved_search_path, true);
+  perform set_config('search_path', 'pg_catalog', true);
   select digest_value into actual from (select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from (with selected_roles(role_name) as (
   select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (
@@ -1304,7 +1112,8 @@ select jsonb_build_object(
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )::text) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from '82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c' then
+  perform set_config('search_path', saved_search_path, true);
+  if actual is distinct from 'be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8' then
     raise exception 'ovd558_postchange_catalog_mismatch:%', actual;
   end if;
 end $ovd558_postflight$;

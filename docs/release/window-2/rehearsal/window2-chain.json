@@ -1,18 +1,18 @@
 {
   "status": "passed",
-  "manifestSha256": "38a12c2506df8b6a4ae6e776585f50b32f86328ec930aa2e4ee84ac2db9bdfe4",
-  "baseCatalogSha256": "03061a166ecd3c62ab3fcb39e6cfd4eeaa5165f562bfdadd6dbefe62f3af58ea",
+  "manifestSha256": "7dfa9dc1ff497dd065cb46031a32875614f472293904a2b9af2bbee5aac5168e",
+  "baseCatalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e",
   "readOnlyDigest": {
-    "supabaseAdmin": "68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930",
-    "postgres": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e"
+    "supabaseAdmin": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b",
+    "postgres": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b"
   },
   "steps": [
     {
       "id": "ovd-558",
       "order": 1,
-      "role": "supabase_admin",
-      "forwardMs": 617,
-      "catalogSha256": "7e1d9bf1a8a214b7d0ca61000d03331c0781d42cf8aedd0a44c2a4922aa191a7",
+      "role": "postgres",
+      "forwardMs": 632,
+      "catalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
       "ovd602Flags": [
         "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_accept_project_invite(text)",
         "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_jobs()",
@@ -132,56 +132,56 @@
       "id": "ovd-560",
       "order": 2,
       "role": "postgres",
-      "forwardMs": 127,
-      "catalogSha256": "5c087b3f88f7d0b9f06925cf1ab45a9539a5df0b996490592e3b5240e0eec982",
+      "forwardMs": 126,
+      "catalogSha256": "96a2fddf7b6f38fda9c29a4879115109920a29a1d9ec619de9aa74ac28aba192",
       "ovd602Flags": []
     },
     {
       "id": "ovd-561-finalization",
       "order": 3,
       "role": "postgres",
-      "forwardMs": 108,
-      "catalogSha256": "cb960acc49257c59b4a1b373e6ca0717a958977a0bb8aa4e2be5a01e4e72a1a0",
+      "forwardMs": 119,
+      "catalogSha256": "b299453ce95a3b52e4e8b0e49077aa2055a5729b75b7900d26e6c6763f7718e6",
       "ovd602Flags": []
     },
     {
       "id": "ovd-561-pending",
       "order": 4,
       "role": "postgres",
-      "forwardMs": 117,
-      "catalogSha256": "69aee0f9809840a4f43c1e3111d84b41363833f7d724229f0548ec811b56450e",
+      "forwardMs": 123,
+      "catalogSha256": "cfa6a75a6d352ff84b2304495ad23f0969f77217d2eaea839114622f643d4236",
       "ovd602Flags": []
     },
     {
       "id": "native-result-reader",
       "order": 5,
       "role": "postgres",
-      "forwardMs": 116,
-      "catalogSha256": "4c1b538b62ecfdea49df7fb3c0c6606f98099bff87a4bd44ed2a20e6cc9784f0",
+      "forwardMs": 120,
+      "catalogSha256": "5ab4083e2e282f2285ac8b66f7c39ad991de7a28c899e078ede3be3aa03a6b09",
       "ovd602Flags": []
     },
     {
       "id": "private-artifact",
       "order": 6,
       "role": "postgres",
-      "forwardMs": 106,
-      "catalogSha256": "3b1f0668b2b1c5a40cfcd60aaf6b789ff5b06ce3cc076c11cd66217bc268b818",
+      "forwardMs": 111,
+      "catalogSha256": "804efb3e028463bb4dcf4173d2fe3e8d1d0c0df44690c2061ea4eefab2731046",
       "ovd602Flags": []
     },
     {
       "id": "native-artifact-mapping",
       "order": 7,
       "role": "postgres",
-      "forwardMs": 103,
-      "catalogSha256": "4be0fba9ad9c3de4b4d155752d7b5a3cdbbdcd9f644177dd8d9e997fcb088f87",
+      "forwardMs": 110,
+      "catalogSha256": "6a001c67ac32dba476bf99e02dd90f6a3b87acaf920c8a5854120eb789ffd750",
       "ovd602Flags": []
     },
     {
       "id": "ovd-563",
       "order": 8,
       "role": "postgres",
-      "forwardMs": 115,
-      "catalogSha256": "a3c137bc0ba74a38ccc5b959fdc629e0564563610daff111282b7cd9c4499942",
+      "forwardMs": 103,
+      "catalogSha256": "27a9acac225651f98be849824fe26ea43747272a3ce59aa76a003f660584de4f",
       "ovd602Flags": [
         "DEFINER_EXECUTABLE_BY authenticated added public.api_read_native_step_review(uuid,uuid,uuid)"
       ]
@@ -190,8 +190,8 @@
       "id": "ovd-649-observer-replay",
       "order": 9,
       "role": "postgres",
-      "forwardMs": 99,
-      "catalogSha256": "21b9cbbc89a68e768bced66e5281df5091d68321c6ebadc7435ac75bd6a4105a",
+      "forwardMs": 110,
+      "catalogSha256": "603b989c9cc8c35e0d3f2a91a0d23fd0b355540bf5a7b4d8193fb40388df83ec",
       "ovd602Flags": []
     }
   ],
@@ -200,78 +200,78 @@
       "id": "ovd-649-observer-replay",
       "order": 9,
       "role": "postgres",
-      "reverseMs": 118,
-      "catalogSha256": "a3c137bc0ba74a38ccc5b959fdc629e0564563610daff111282b7cd9c4499942"
+      "reverseMs": 117,
+      "catalogSha256": "27a9acac225651f98be849824fe26ea43747272a3ce59aa76a003f660584de4f"
     },
     {
       "id": "ovd-563",
       "order": 8,
       "role": "postgres",
-      "reverseMs": 92,
-      "catalogSha256": "4be0fba9ad9c3de4b4d155752d7b5a3cdbbdcd9f644177dd8d9e997fcb088f87"
+      "reverseMs": 97,
+      "catalogSha256": "6a001c67ac32dba476bf99e02dd90f6a3b87acaf920c8a5854120eb789ffd750"
     },
     {
       "id": "native-artifact-mapping",
       "order": 7,
       "role": "postgres",
-      "reverseMs": 107,
-      "catalogSha256": "3b1f0668b2b1c5a40cfcd60aaf6b789ff5b06ce3cc076c11cd66217bc268b818"
+      "reverseMs": 90,
+      "catalogSha256": "804efb3e028463bb4dcf4173d2fe3e8d1d0c0df44690c2061ea4eefab2731046"
     },
     {
       "id": "private-artifact",
       "order": 6,
       "role": "postgres",
-      "reverseMs": 105,
-      "catalogSha256": "4c1b538b62ecfdea49df7fb3c0c6606f98099bff87a4bd44ed2a20e6cc9784f0"
+      "reverseMs": 104,
+      "catalogSha256": "5ab4083e2e282f2285ac8b66f7c39ad991de7a28c899e078ede3be3aa03a6b09"
     },
     {
       "id": "native-result-reader",
       "order": 5,
       "role": "postgres",
-      "reverseMs": 106,
-      "catalogSha256": "69aee0f9809840a4f43c1e3111d84b41363833f7d724229f0548ec811b56450e"
+      "reverseMs": 94,
+      "catalogSha256": "cfa6a75a6d352ff84b2304495ad23f0969f77217d2eaea839114622f643d4236"
     },
     {
       "id": "ovd-561-pending",
       "order": 4,
       "role": "postgres",
-      "reverseMs": 102,
-      "catalogSha256": "cb960acc49257c59b4a1b373e6ca0717a958977a0bb8aa4e2be5a01e4e72a1a0"
+      "reverseMs": 85,
+      "catalogSha256": "b299453ce95a3b52e4e8b0e49077aa2055a5729b75b7900d26e6c6763f7718e6"
     },
     {
       "id": "ovd-561-finalization",
       "order": 3,
       "role": "postgres",
-      "reverseMs": 88,
-      "catalogSha256": "5c087b3f88f7d0b9f06925cf1ab45a9539a5df0b996490592e3b5240e0eec982"
+      "reverseMs": 91,
+      "catalogSha256": "96a2fddf7b6f38fda9c29a4879115109920a29a1d9ec619de9aa74ac28aba192"
     },
     {
       "id": "ovd-560",
       "order": 2,
       "role": "postgres",
-      "reverseMs": 109,
-      "catalogSha256": "7e1d9bf1a8a214b7d0ca61000d03331c0781d42cf8aedd0a44c2a4922aa191a7"
+      "reverseMs": 117,
+      "catalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381"
     },
     {
       "id": "ovd-558",
       "order": 1,
-      "role": "supabase_admin",
-      "reverseMs": 550,
-      "catalogSha256": "03061a166ecd3c62ab3fcb39e6cfd4eeaa5165f562bfdadd6dbefe62f3af58ea"
+      "role": "postgres",
+      "reverseMs": 585,
+      "catalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e"
     }
   ],
   "reapply": [
     {
       "id": "ovd-558",
-      "forwardMs": 637
+      "forwardMs": 456
     },
     {
       "id": "ovd-560",
-      "forwardMs": 140
+      "forwardMs": 154
     },
     {
       "id": "ovd-561-finalization",
-      "forwardMs": 94
+      "forwardMs": 103
     },
     {
       "id": "ovd-561-pending",
@@ -279,23 +279,23 @@
     },
     {
       "id": "native-result-reader",
-      "forwardMs": 113
+      "forwardMs": 99
     },
     {
       "id": "private-artifact",
-      "forwardMs": 93
+      "forwardMs": 99
     },
     {
       "id": "native-artifact-mapping",
-      "forwardMs": 111
+      "forwardMs": 102
     },
     {
       "id": "ovd-563",
-      "forwardMs": 105
+      "forwardMs": 111
     },
     {
       "id": "ovd-649-observer-replay",
-      "forwardMs": 87
+      "forwardMs": 100
     }
   ],
   "proofs": {
@@ -304,16 +304,16 @@
     "ovd563": 25
   },
   "windowOrderForward": {
-    "replacementWaitedMs": 2607,
+    "replacementWaitedMs": 2867,
     "ovd558ForwardRefusal": {
       "sqlstate": "P0001",
-      "message": "ovd558_prechange_catalog_mismatch:50b331e134e9ef9f6ce278cc41c01a6e27b0e0589406d55c64aa51dc450a6e5e"
+      "message": "ovd558_prechange_catalog_mismatch:354ca05fe2f72368baa4e51250e0661d564a756574ebb49688c0047739d0c214"
     }
   },
   "windowOrderReverse": {
     "ovd558ReverseRefusal": {
       "sqlstate": "P0001",
-      "message": "ovd558_unknown_postchange_catalog:77918ffe30fb7bec314e1279454f2ecb8141e2a9e78be56a00e9b438128823b6"
+      "message": "ovd558_unknown_postchange_catalog:ecda43bd4c8d7f5fb2c82729400f9ca626efb5c6c970b750c0680317bafa6c84"
     },
     "reverseAfterRestore": true
   },
@@ -330,7 +330,7 @@
       "planned": 129,
       "passed": 129,
       "failed": 0,
-      "transcriptSha256": "abf0d3c6570c55912f2c603b0e4754bc9632bd949e3d5194f0a6ef0575842b78"
+      "transcriptSha256": "e4b6cb7a906c1b93c558c99844b53e7aed75e30b66a91c66445426b975d03857"
     },
     {
       "name": "quote_publication_helper_privileges",
@@ -1384,7 +1384,7 @@
     {
       "name": "observer replacement waits on a held (510, 2) lock",
       "pass": true,
-      "detail": "2607 ms"
+      "detail": "2867 ms"
     },
     {
       "name": "replacement changes the catalog",
@@ -1394,7 +1394,7 @@
     {
       "name": "verbatim OVD-558 forward refuses while the replacement is live (real prechange pin)",
       "pass": true,
-      "detail": "ovd558_prechange_catalog_mismatch:50b331e134e9ef9f6ce278cc41c01a6e27b0e0589406d55c64aa51dc450a6e5e"
+      "detail": "ovd558_prechange_catalog_mismatch:354ca05fe2f72368baa4e51250e0661d564a756574ebb49688c0047739d0c214"
     },
     {
       "name": "restoration refuses REPEATABLE READ with 0A000",
@@ -1419,7 +1419,7 @@
     {
       "name": "verbatim OVD-558 reverse refuses while the replacement is live (real post change pin)",
       "pass": true,
-      "detail": "ovd558_unknown_postchange_catalog:77918ffe30fb7bec314e1279454f2ecb8141e2a9e78be56a00e9b438128823b6"
+      "detail": "ovd558_unknown_postchange_catalog:ecda43bd4c8d7f5fb2c82729400f9ca626efb5c6c970b750c0680317bafa6c84"
     },
     {
       "name": "restoration returns the exact post OVD-558 catalog",
@@ -1514,7 +1514,7 @@
     {
       "name": "OVD-558 reverse refuses while later window 2 steps are applied",
       "pass": true,
-      "detail": "ovd558_unknown_postchange_catalog:4f4c42bee89460ab43e05bca04ae2a9a309f82f335c9673739c8db08e4375956"
+      "detail": "ovd558_unknown_postchange_catalog:ece79b2fcce20c29ad0c02ea6475fbf94e1523c29641debb4ea8a7a7aa37865c"
     },
     {
       "name": "refused out of order reverses change nothing",

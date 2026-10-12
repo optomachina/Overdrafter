@@ -22,8 +22,9 @@ Base: `main` at `26b0b76e` with 148 migrations, equal to the production ledger (
 
 ## Decisions before the window
 
-1. **Runner role for OVD-558.** The OVD-558 forward and reverse refuse unless `current_user` is `supabase_admin` and a superuser. Hosted Supabase does not give customers that role; the dashboard and `DB_URL` connect as `postgres`, which is not a superuser. As written, OVD-558 cannot run on the hosted project. Every later Jarvis step depends on OVD-558. Blaine or the lead must decide how OVD-558 is run (for example through Supabase support, or a redesign of OVD-558 for the `postgres` role) before this window can include the Jarvis chain. The other steps run as `postgres`.
-2. **Production catalog equality.** The OVD-558 forward hashes the whole catalog, including the server version, every role and every platform function. Its pin comes from the disposable Supabase image (`postgres:17.6.1.095`) with main's 148 migrations. Production must hash to the same value or the forward refuses (safely, before any change). Check it read only before the window (go or no go item 4). If it differs, the Jarvis chain does not run in this window; regenerating the reviewed baseline from a production catalog snapshot is a separate, reviewed change.
+1. **OVD-558 runs as `postgres` (decided: option A).** Every step of the chain runs as `postgres`, the role `DB_URL` connects as on hosted Supabase; no superuser is needed. Storage functions belong to `supabase_storage_admin`, which `postgres` cannot act as, so OVD-558 leaves their ACLs exactly as Supabase ships them. Its postflight proves, live: outside `storage` the verifier can call exactly the 7 application functions; inside `storage` it can call exactly the functions `anon` can call, and that set equals the 20 names pinned in `manifest.json`; it holds no privilege on any `storage` table that `anon` lacks. So `storage.delete_leaf_prefixes` and the other Storage definer functions stay callable by the verifier exactly as by an unauthenticated visitor, and by nothing more. Option C (the verifier never gets `storage` USAGE; the worker mints signed URLs, or `service_role` fetches bytes after a definer check) is a 1.1 follow up the lead is filing.
+   * **When a Supabase upgrade trips the pin** (`ovd558_storage_anon_functions_changed`, or a changed catalog digest), nothing was changed: the forward or reverse refused before any write. Rerun the postflight query on a disposable fixture with the new Storage version, review each new or changed Storage function (definer or not, what it touches), and repin through the generator in a reviewed PR. Never edit the pins in the window.
+2. **Production catalog equality.** The OVD-558 forward hashes the whole catalog, including the server version, every role and every platform function. Its pin comes from the disposable Supabase image (`postgres:17.6.1.095`) with main's 148 migrations. Production must hash to the same value or the forward refuses (safely, before any change). The digest is taken with `search_path = pg_catalog`, so it is the same for any role. Check it read only before the window (go or no go item 4). If it differs, the Jarvis chain does not run in this window; regenerating the reviewed baseline from a production catalog snapshot is a separate, reviewed change.
 3. **Order against the other window 2 items.** The Jarvis section runs first. Any migration applied before the OVD-558 forward changes the catalog it pins, and the forward refuses. Any migration applied after it changes the catalog the OVD-558 reverse pins, and the reverse refuses until that migration is rolled back. The slots below therefore run after the Jarvis section, and rolling back OVD-558 later means rolling back every later migration first. After the next ordinary migration lands, the OVD-558 reverse refuses permanently by design.
 4. **The new reviewed caller baseline** (OVD-558 manifest at 148 migrations) gets an independent review before the window. See the PR for the table of new rules.
 
@@ -39,7 +40,6 @@ Base: `main` at `26b0b76e` with 148 migrations, equal to the production ledger (
 
 * A checkout of `main` with this packet merged, Node 22, `psql` 17 or newer, the Supabase CLI and Docker for the local restore check.
 * `DB_URL` from Blaine: Dashboard, **Connect > Session pooler**. In your shell only: `export DB_URL='postgresql://...'`. Never paste it anywhere else, never commit it. The dump needs it.
-* The runner role decided under decision 1.
 
 ## Go or no go (read only, the day before and again at the start)
 
@@ -57,11 +57,11 @@ Base: `main` at `26b0b76e` with 148 migrations, equal to the production ledger (
    node scripts/window-1/ovd602-diff.mjs docs/release/window-1/ovd602-pin.main.json /tmp/w2-before.json
    ```
    Expected: `ovd602: no difference from the pin`. The rehearsal baseline equals this pin exactly (`rehearsal/window2-ovd602-baseline-vs-window1-pin.json`).
-4. **OVD-558 catalog digest.** Run as the role that will run the OVD-558 forward (decision 1):
+4. **OVD-558 catalog digest**, as `postgres` (read only, through the connector):
    ```
    psql "$DB_URL" -X -At -f docs/release/window-2/ovd558-catalog-digest.sql
    ```
-   Expected as `supabase_admin`: `68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930`. As `postgres` the same catalog prints `f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e` (the digest depends on the role, because function definitions render under it). Both values were reproduced by this exact file on the rehearsal baseline (`rehearsal/window2-read-only-digest.json`). Any other value is a no go for the Jarvis section.
+   Expected: `e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b`. The query fixes `search_path = pg_catalog`, so every role prints the same value; on the rehearsal baseline this exact file printed it as both `postgres` and `supabase_admin` (`rehearsal/window2-read-only-digest.json`). Any other value is a no go for the Jarvis section.
 5. **Dump and restore check**, as in window 1 (on your machine only, outside the repo; it holds customer data):
    ```
    mkdir -p ~/w2-backup && chmod 700 ~/w2-backup
@@ -97,15 +97,15 @@ The OVD-558 and OVD-560 reverses hold ACCESS EXCLUSIVE on `storage.objects`; the
 <!-- forward-order -->
 | Step | File | Role | Rehearsed | Expected 602 diff |
 | --- | --- | --- | --- | --- |
-| 1 | `docs/release/ovd-558-verifier-authority-forward.sql` | `supabase_admin` (decision 1) | 617 ms | `step-1-ovd-558.json`: 4 functions, 1 table, 2 Storage policies added; 73 existing functions lose only the PUBLIC grant (anon, authenticated and service_role keep explicit grants; no caller gains or loses access); 112 flags, all on those unchanged definer functions |
-| 2 | `docs/release/ovd-560-result-registry-forward.sql` | `postgres` | 127 ms | `step-2-ovd-560.json`: 0 flags |
-| 3 | `docs/release/ovd-561-finalization-forward.sql` | `postgres` | 108 ms | `step-3-ovd-561-finalization.json`: 0 flags |
-| 4 | `docs/release/ovd561-pending-forward.sql` | `postgres` | 117 ms | `step-4-ovd-561-pending.json`: 0 flags |
-| 5 | `docs/release/native-result-reader-forward.sql` | `postgres` | 116 ms | `step-5-native-result-reader.json`: 0 flags |
-| 6 | `docs/release/private-artifact-forward.sql` | `postgres` | 106 ms | `step-6-private-artifact.json`: 0 flags |
-| 7 | `docs/release/native-artifact-mapping-forward.sql` | `postgres` | 103 ms | `step-7-native-artifact-mapping.json`: 0 flags |
-| 8 | `docs/release/ovd-563-step-review-forward.sql` | `postgres` | 115 ms | `step-8-ovd-563.json`: 1 flag, `api_read_native_step_review` executable by `authenticated` (intended) |
-| 9 | `scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql` | `postgres` | 99 ms | `step-9-ovd-649-observer-replay.json`: no inventory change (body only) |
+| 1 | `docs/release/ovd-558-verifier-authority-forward.sql` | `postgres` | 632 ms | `step-1-ovd-558.json`: 4 functions, 1 table, 2 Storage policies added; 73 existing functions lose only the PUBLIC grant (anon, authenticated and service_role keep explicit grants; no caller gains or loses access); 112 flags, all on those unchanged definer functions |
+| 2 | `docs/release/ovd-560-result-registry-forward.sql` | `postgres` | 126 ms | `step-2-ovd-560.json`: 0 flags |
+| 3 | `docs/release/ovd-561-finalization-forward.sql` | `postgres` | 119 ms | `step-3-ovd-561-finalization.json`: 0 flags |
+| 4 | `docs/release/ovd561-pending-forward.sql` | `postgres` | 123 ms | `step-4-ovd-561-pending.json`: 0 flags |
+| 5 | `docs/release/native-result-reader-forward.sql` | `postgres` | 120 ms | `step-5-native-result-reader.json`: 0 flags |
+| 6 | `docs/release/private-artifact-forward.sql` | `postgres` | 111 ms | `step-6-private-artifact.json`: 0 flags |
+| 7 | `docs/release/native-artifact-mapping-forward.sql` | `postgres` | 110 ms | `step-7-native-artifact-mapping.json`: 0 flags |
+| 8 | `docs/release/ovd-563-step-review-forward.sql` | `postgres` | 103 ms | `step-8-ovd-563.json`: 1 flag, `api_read_native_step_review` executable by `authenticated` (intended) |
+| 9 | `scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql` | `postgres` | 110 ms | `step-9-ovd-649-observer-replay.json`: no inventory change (body only) |
 <!-- end -->
 
 After step 9 the whole window diff against the window 1 pin equals `ovd602-expected/window-2.json` (113 flags: the 112 of step 1 and the one of step 8).
@@ -119,15 +119,15 @@ Exactly the reverse of the steps applied, starting from the last one applied. Ev
 <!-- reverse-order -->
 | Step | File | Role | Rehearsed | Refuses when |
 | --- | --- | --- | --- | --- |
-| 9 | `scripts/native/stop-observer/sql/store-native-observer-evidence-restore.staged.sql` | `postgres` | 118 ms | the live body is not exactly the staged replacement |
-| 8 | `docs/release/ovd-563-step-review-reverse.sql` | `postgres` | 92 ms | any step review exists |
-| 7 | `docs/release/native-artifact-mapping-reverse.sql` | `postgres` | 107 ms | a mapping function is missing |
-| 6 | `docs/release/private-artifact-reverse.sql` | `postgres` | 105 ms | any artifact mapping exists |
-| 5 | `docs/release/native-result-reader-reverse.sql` | `postgres` | 106 ms | any read binding exists |
-| 4 | `docs/release/ovd561-pending-reverse.sql` | `postgres` | 102 ms | any pending finalization exists |
-| 3 | `docs/release/ovd-561-finalization-reverse.sql` | `postgres` | 88 ms | any finalization exists, or the pending table still exists (its envelopes are signed with the key this drops) |
-| 2 | `docs/release/ovd-560-result-registry-reverse.sql` | `postgres` | 109 ms | any registration exists |
-| 1 | `docs/release/ovd-558-verifier-authority-reverse.sql` | `supabase_admin` (decision 1) | 550 ms | the registry is not empty, or the catalog is not exactly the post OVD-558 catalog |
+| 9 | `scripts/native/stop-observer/sql/store-native-observer-evidence-restore.staged.sql` | `postgres` | 117 ms | the live body is not exactly the staged replacement |
+| 8 | `docs/release/ovd-563-step-review-reverse.sql` | `postgres` | 97 ms | any step review exists |
+| 7 | `docs/release/native-artifact-mapping-reverse.sql` | `postgres` | 90 ms | a mapping function is missing |
+| 6 | `docs/release/private-artifact-reverse.sql` | `postgres` | 104 ms | any artifact mapping exists |
+| 5 | `docs/release/native-result-reader-reverse.sql` | `postgres` | 94 ms | any read binding exists |
+| 4 | `docs/release/ovd561-pending-reverse.sql` | `postgres` | 85 ms | any pending finalization exists |
+| 3 | `docs/release/ovd-561-finalization-reverse.sql` | `postgres` | 91 ms | any finalization exists, or the pending table still exists (its envelopes are signed with the key this drops) |
+| 2 | `docs/release/ovd-560-result-registry-reverse.sql` | `postgres` | 117 ms | any registration exists |
+| 1 | `docs/release/ovd-558-verifier-authority-reverse.sql` | `postgres` | 585 ms | the registry is not empty, or the catalog is not exactly the post OVD-558 catalog |
 <!-- end -->
 
 After each reverse the 602 inventory must equal `/tmp/w2-before-<N>.json` of that step: `node scripts/window-1/ovd602-diff.mjs /tmp/w2-before-<N>.json <now.json>` prints `ovd602: no difference from the pin`.
@@ -142,9 +142,9 @@ Disposable only: one exclusively owned Docker fixture (`public.ecr.aws/supabase/
 node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563 [--window2-main-suites]
 ```
 
-On main's 148 migrations it runs, in order: the reviewed OVD-558 checks (grant plan probe, drift and injected failure refusals, forward, authority assertions, reverse lock proof, reverse, reapply), OVD-560 (11/11), OVD-561 (24/24) with its 12 races, OVD-563 (25/25), OVD-520 (24/24), and then the window 2 stage (`window2-chain.json`, 55 gates):
+Every OVD-558 and window 2 step runs as `postgres`, as on the hosted project. On main's 148 migrations it runs, in order: the reviewed OVD-558 checks (grant plan probe, drift and injected failure refusals, forward, authority assertions, reverse lock proof, reverse, reapply), OVD-560 (11/11), OVD-561 (24/24) with its 12 races, OVD-563 (25/25), OVD-520 (24/24), and then the window 2 stage (`window2-chain.json`, 55 gates):
 
-* the read only digest file as both roles on the pristine baseline equals both pins;
+* the read only digest file, run as `postgres` and as `supabase_admin` on the pristine baseline, prints the same pin for both;
 * the baseline OVD-602 inventory equals the window 1 pin exactly;
 * the observer replacement refuses REPEATABLE READ with 0A000, waits on a held (510, 2) lock, and with it live the verbatim OVD-558 forward refuses (`ovd558_prechange_catalog_mismatch`); the restoration refuses REPEATABLE READ with 0A000, returns the exact baseline, and a second run refuses;
 * all 9 forwards in the order above, each 602 diff equal to `ovd602-expected/`; right after OVD-558, with the replacement live the verbatim OVD-558 reverse refuses (`ovd558_unknown_postchange_catalog`), and after the restoration it runs and the forward reapplies to the same catalog;
@@ -152,6 +152,6 @@ On main's 148 migrations it runs, in order: the reviewed OVD-558 checks (grant p
 * out of order reverses refuse and change nothing: OVD-561 while the pending table exists, OVD-558 while later steps are applied;
 * all 9 reverses in reverse order, each back to the exact catalog and 602 inventory from before its forward, ending at the baseline catalog and the window 1 pin exactly; then all 9 forwards again, to the same full chain catalog, and OVD-563 25/25 again.
 
-Timings above are from the run in `rehearsal/` (whole fixture about 4 minutes with all main suites, about 2 minutes without). Separately: the OVD-651 isolation race proof (16/16, PostgreSQL 17.11), the OVD-575 registry test with the staged replacement (94 assertions), and the restore drill.
+Timings above are from the run in `rehearsal/` (whole fixture about 4 minutes with all main suites, about 2 minutes without). The OVD-558 direct behavior checks now call one existing and one future Storage function as the verifier and assert `anon` can call them too; the 6 other direct calls stay denied. Separately: the OVD-651 isolation race proof (16/16, PostgreSQL 17.11), the OVD-575 registry test with the staged replacement (94 assertions), and the restore drill.
 
 The shim based window 1 rehearsal is not reused here: OVD-558 pins the catalog of the Supabase image, so the rehearsal must run on that image.

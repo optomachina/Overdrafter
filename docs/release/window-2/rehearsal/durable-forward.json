@@ -1,7 +1,7 @@
 {
   "status": "passed",
-  "forwardSha256": "8c1709d2886c48ee2d154ddac5558b6aeb7750530f027ed943cf0e8ba2573e95",
-  "catalogSha256": "3c9edad5f7ba3e3afaa1509850bdac68da9b7b007c3896c4421b0c81d7fde842",
-  "canonicalCatalogSha256": "7e1d9bf1a8a214b7d0ca61000d03331c0781d42cf8aedd0a44c2a4922aa191a7",
-  "adminCanonicalCatalogSha256": "82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c"
+  "forwardSha256": "acc45e6ba5591caf24dd9d7e6be8d22af8d1e914f9310dbbe6be8bccff21fdac",
+  "catalogSha256": "28ba5c5b96eaea58904ae48589e4c37877a39a2c750c5a552da15b248f9e4fae",
+  "canonicalCatalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
+  "adminCanonicalCatalogSha256": "75d7e476f03d395af4b9a28a5c0fed3d45008ed563a74cbdfa0cf6325f2dab70"
 }

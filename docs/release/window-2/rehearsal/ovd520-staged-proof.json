@@ -1,7 +1,7 @@
 {
   "status": "passed",
-  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
-  "sourceRevision": "2e9c4499b10c18d3f72052f50894456b0be5b6f2",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
   "proofSha256": "43c67dcefa53e08afd58676d437a2791745579766549c4a0f989e5d4aeb3a5e4",
   "assertions": 24,
   "syntheticOnly": true,

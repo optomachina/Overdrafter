@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
-  "forwardCatalogSha256": "7e1d9bf1a8a214b7d0ca61000d03331c0781d42cf8aedd0a44c2a4922aa191a7",
-  "reversedCatalogSha256": "03061a166ecd3c62ab3fcb39e6cfd4eeaa5165f562bfdadd6dbefe62f3af58ea"
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "forwardCatalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
+  "reversedCatalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e"
 }
