@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   detectProviderEnablement,
+  parseEnvelopeProviders,
   parseNameStatus,
 } from "./provider-enablement-detect.mjs";
 import {
@@ -106,35 +107,57 @@ function nameStatus(files) {
   return files.map(({ path: file, status = "M" }) => `${status}\t${file}`);
 }
 
-function change(files) {
-  return { changedFiles: nameStatus(files), diffText: unifiedDiff(files) };
+/**
+ * `contents` maps a path to {base, head} text. The detector reads the registry
+ * and the envelope list from it, never from diff lines.
+ */
+function change(files, contents = {}) {
+  const readFile = (side, file) => contents[file]?.[side] ?? null;
+  return { changedFiles: nameStatus(files), diffText: unifiedDiff(files), readFile };
+}
+
+function merge(...changes) {
+  return {
+    changedFiles: changes.flatMap((entry) => entry.changedFiles),
+    diffText: changes.map((entry) => entry.diffText).join("\n"),
+    readFile: (side, file) => changes.map((entry) => entry.readFile(side, file)).find((text) => text !== null) ?? null,
+  };
+}
+
+function registryJson(providers) {
+  return JSON.stringify({
+    schemaVersion: 1,
+    providers: providers.map(([key, liveAdapter, egress = "none"]) => ({ key, liveAdapter, sessionSecrets: [], egress })),
+  }, null, 2);
+}
+
+function envelopeSource(providers, layout = "multiline") {
+  const entries = providers.map((provider) =>
+    layout === "multiline"
+      ? `  {\n    provider: "${provider}",\n    id: "${provider}-env",\n    version: 1,\n    requiredAdmission: "generic_dispatch",\n  },`
+      : `  { requiredAdmission: "generic_dispatch", version: 1, id: "${provider}-env", provider: '${provider}' },`,
+  );
+  return `export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [\n${entries.join("\n")}\n];\n`;
+}
+
+const REGISTRY_CHANGE = { path: REGISTRY, added: ["x"] };
+const ENVELOPE_CHANGE = { path: ENVELOPE, added: ["x"] };
+
+function registryChange(base, head) {
+  return change([REGISTRY_CHANGE], { [REGISTRY]: { base: registryJson(base), head: registryJson(head) } });
+}
+
+function envelopeChange(base, head, layout) {
+  return change([ENVELOPE_CHANGE], { [ENVELOPE]: { base: envelopeSource(base), head: envelopeSource(head, layout) } });
 }
 
 const ENABLE_REGISTRY = {
-  path: REGISTRY,
-  removed: ['      "liveAdapter": false,'],
-  added: ['      "liveAdapter": true,'],
+  ...registryChange([["fictiv", true, "stable_nat"], ["geomiq", false]], [["fictiv", true, "stable_nat"], ["geomiq", true, "stable_nat"]]),
 };
-const DISABLE_REGISTRY = {
-  path: REGISTRY,
-  removed: ['      "liveAdapter": true,', '      "egress": "stable_nat"'],
-  added: ['      "liveAdapter": false,', '      "egress": "none"'],
-};
-const ADD_ENVELOPE = {
-  path: ENVELOPE,
-  added: [
-    "  {",
-    '    provider: "geomiq",',
-    "    id: GEOMIQ_DISPATCH_ENVELOPE.id,",
-    "    version: GEOMIQ_DISPATCH_ENVELOPE.version,",
-    '    requiredAdmission: "generic_dispatch",',
-    "  },",
-  ],
-};
-const REMOVE_ENVELOPE = {
-  path: ENVELOPE,
-  removed: ADD_ENVELOPE.added,
-};
+const DISABLE_REGISTRY = registryChange([["fictiv", true, "stable_nat"], ["geomiq", false]], [["fictiv", false], ["geomiq", false]]);
+const ENABLE_ENVELOPE = envelopeChange(["xometry"], ["xometry", "geomiq"]);
+const REMOVE_ENVELOPE = envelopeChange(["xometry", "geomiq"], ["xometry"]);
+
 const ENABLE_MIGRATION = {
   path: MIGRATION,
   status: "A",
@@ -156,65 +179,88 @@ const DISABLE_MIGRATION = {
   ],
 };
 
+const reasons = (input) => detectProviderEnablement(input).map((finding) => finding.reason);
+
 describe("detectProviderEnablement", () => {
-  it("detects a registry entry flipping liveAdapter to true", () => {
-    const findings = detectProviderEnablement(change([ENABLE_REGISTRY]));
-    expect(findings).toEqual([{ file: REGISTRY, reason: "registry entry gains liveAdapter: true" }]);
+  it("detects a pure enable of one provider", () => {
+    expect(reasons(registryChange([["geomiq", false]], [["geomiq", true]]))).toEqual(['registry provider "geomiq" gains liveAdapter: true']);
+    expect(detectProviderEnablement(registryChange([["geomiq", false]], [["geomiq", true]]))[0].kind).toBe("provider");
   });
 
-  it("detects a registry entry gaining production egress", () => {
-    const findings = detectProviderEnablement(
-      change([{ path: REGISTRY, removed: ['      "egress": "none"'], added: ['      "egress": "stable_nat"'] }]),
+  it("detects a swap that turns one provider on while turning another off", () => {
+    const swap = registryChange(
+      [["fictiv", true, "stable_nat"], ["geomiq", false]],
+      [["fictiv", false], ["geomiq", true, "stable_nat"]],
     );
-    expect(findings.map((finding) => finding.reason)).toEqual(['registry entry gains production egress ("stable_nat")']);
+    expect(reasons(swap)).toEqual([
+      'registry provider "geomiq" gains liveAdapter: true',
+      'registry provider "geomiq" gains production egress ("stable_nat")',
+    ]);
+    expect(enablesProvider(swap)).toBe(true);
   });
 
-  it("detects a new registry entry that is added already live", () => {
+  it("does not trigger on a pure disable", () => {
+    expect(enablesProvider(DISABLE_REGISTRY)).toBe(false);
+  });
+
+  it("detects a registry provider gaining production egress", () => {
+    expect(reasons(registryChange([["geomiq", true, "none"]], [["geomiq", true, "stable_nat"]]))).toEqual([
+      'registry provider "geomiq" gains production egress ("stable_nat")',
+    ]);
+  });
+
+  it("detects a new registry provider that is added already live", () => {
+    expect(enablesProvider(registryChange([["fictiv", false]], [["fictiv", false], ["newco", true]]))).toBe(true);
+  });
+
+  it("does not trigger on a disabled new registry provider, a reformat, or a removed provider", () => {
+    expect(enablesProvider(registryChange([["fictiv", true, "stable_nat"]], [["fictiv", true, "stable_nat"], ["newco", false]]))).toBe(false);
+    expect(enablesProvider(registryChange([["fictiv", true, "stable_nat"]], [["fictiv", true, "stable_nat"]]))).toBe(false);
+    expect(enablesProvider(registryChange([["fictiv", true, "stable_nat"], ["old", true, "stable_nat"]], [["fictiv", true, "stable_nat"]]))).toBe(false);
+  });
+
+  it("fails closed when the registry cannot be read", () => {
+    const unreadable = change([REGISTRY_CHANGE], { [REGISTRY]: { base: "{}", head: "not json" } });
+    expect(enablesProvider(unreadable)).toBe(true);
+    expect(enablesProvider(change([REGISTRY_CHANGE]))).toBe(true);
+  });
+
+  it("detects a provider added to REVIEWED_PROVIDER_DISPATCH_ENVELOPES", () => {
+    expect(reasons(ENABLE_ENVELOPE)).toEqual(['REVIEWED_PROVIDER_DISPATCH_ENVELOPES gains provider "geomiq"']);
+  });
+
+  it("reads the envelope list structurally, whatever the layout", () => {
+    expect(reasons(envelopeChange(["xometry"], ["xometry", "geomiq"], "inline"))).toEqual([
+      'REVIEWED_PROVIDER_DISPATCH_ENVELOPES gains provider "geomiq"',
+    ]);
+    const frozen = `export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = Object.freeze([{ provider: "xometry" }, { "provider": "geomiq" }] as const);`;
+    expect(parseEnvelopeProviders(frozen)).toEqual(new Set(["xometry", "geomiq"]));
+    const base = envelopeSource(["xometry"]);
+    const reformatted = envelopeSource(["xometry"], "inline");
+    expect(enablesProvider(change([ENVELOPE_CHANGE], { [ENVELOPE]: { base, head: reformatted } }))).toBe(false);
+  });
+
+  it("does not trigger when an envelope is removed or only revised, and fails closed on unreadable source", () => {
+    expect(enablesProvider(REMOVE_ENVELOPE)).toBe(false);
+    const revised = envelopeSource(["xometry", "weerg"]).replace("version: 1", "version: 2");
+    expect(enablesProvider(change([ENVELOPE_CHANGE], { [ENVELOPE]: { base: envelopeSource(["xometry", "weerg"]), head: revised } }))).toBe(false);
+    expect(enablesProvider(change([ENVELOPE_CHANGE], { [ENVELOPE]: { base: "", head: "export const other = 1;" } }))).toBe(true);
     expect(
       enablesProvider(
-        change([{ path: REGISTRY, added: ['      "key": "newco",', '      "liveAdapter": true,'] }]),
+        change([ENVELOPE_CHANGE], { [ENVELOPE]: { base: envelopeSource(["xometry"]), head: "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = [{ provider: NAME }];" } }),
       ),
     ).toBe(true);
   });
 
-  it("does not trigger on a disabled new registry entry or a reformat", () => {
-    expect(
-      enablesProvider(change([{ path: REGISTRY, added: ['      "key": "newco",', '      "liveAdapter": false,', '      "egress": "none"'] }])),
-    ).toBe(false);
-    expect(
-      enablesProvider(
-        change([{ path: REGISTRY, removed: ['"liveAdapter":true,'], added: ['      "liveAdapter": true,'] }]),
-      ),
-    ).toBe(false);
-  });
-
-  it("detects a provider added to REVIEWED_PROVIDER_DISPATCH_ENVELOPES", () => {
-    const findings = detectProviderEnablement(change([ADD_ENVELOPE]));
-    expect(findings).toEqual([
-      { file: ENVELOPE, reason: 'REVIEWED_PROVIDER_DISPATCH_ENVELOPES gains provider "geomiq"' },
-    ]);
-  });
-
-  it("does not trigger when an existing provider envelope is only revised or removed", () => {
-    const bump = {
-      path: ENVELOPE,
-      removed: ["    version: 1,", '    requiredAdmission: "generic_dispatch",'],
-      added: ["    version: 2,", '    requiredAdmission: "generic_dispatch",'],
-    };
-    expect(enablesProvider(change([bump]))).toBe(false);
-    expect(enablesProvider(change([REMOVE_ENVELOPE]))).toBe(false);
-    const rewrittenEntry = {
-      path: ENVELOPE,
-      removed: ['    provider: "weerg",', '    requiredAdmission: "generic_dispatch",'],
-      added: ['    provider: "weerg",', '    requiredAdmission: "generic_dispatch",', "    version: 2,"],
-    };
-    expect(enablesProvider(change([rewrittenEntry]))).toBe(false);
-  });
-
   it("ignores provider literals outside the reviewed envelope list", () => {
-    expect(
-      enablesProvider(change([{ path: ENVELOPE, added: ['    provider: "xometry",', "    sourceFiles: []"] }])),
-    ).toBe(false);
+    const head = `${envelopeSource(["xometry"])}export const other = [{ provider: "geomiq" }];\n`;
+    expect(enablesProvider(change([ENVELOPE_CHANGE], { [ENVELOPE]: { base: envelopeSource(["xometry"]), head } }))).toBe(false);
+  });
+
+  it("flags an edit to the gate itself as a gate finding, not a provider finding", () => {
+    const findings = detectProviderEnablement(change([{ path: "scripts/validate-pr-body.mjs", added: ["x"] }]));
+    expect(findings).toEqual([{ file: "scripts/validate-pr-body.mjs", reason: "edits the PR body gate itself", kind: "gate" }]);
+    expect(enablesProvider(change([{ path: ".github/workflows/pr-body-gate.yml", added: ["x"] }]))).toBe(false);
   });
 
   it("detects an admission migration that enables a provider", () => {
@@ -250,6 +296,42 @@ describe("detectProviderEnablement", () => {
     expect(enablesProvider(change([nowait]))).toBe(false);
   });
 
+  it("does not read a WHERE clause as an assignment: a disable migration is not enabling", () => {
+    const disable = {
+      path: "supabase/migrations/20261012130000_weerg_disable.sql",
+      status: "A",
+      added: [
+        "update private.quote_provider_admission_policies",
+        "   set admission_state = 'disabled', generic_dispatch_enabled = false",
+        " where provider = 'weerg' and admission_state = 'approved' and generic_dispatch_enabled = true;",
+      ],
+    };
+    expect(enablesProvider(change([disable]))).toBe(false);
+    const oneLine = {
+      path: "supabase/migrations/20261012130001_weerg_disable.sql",
+      status: "A",
+      added: ["update t set admission_state = 'disabled', generic_dispatch_enabled = false where provider = 'weerg' and admission_state = 'approved';"],
+    };
+    expect(enablesProvider(change([oneLine]))).toBe(false);
+  });
+
+  it("reads SET assignments, multi row inserts, and ON CONFLICT DO UPDATE as enabling", () => {
+    const sql = (line) => change([{ path: "supabase/migrations/20261012140000_x.sql", status: "A", added: [line] }]);
+    expect(enablesProvider(sql("update t set note = 'x', generic_dispatch_enabled = true where provider = 'a';"))).toBe(true);
+    expect(enablesProvider(sql("update t set admission_state = 'approved'::text from s where s.id = t.id;"))).toBe(true);
+    expect(
+      enablesProvider(
+        sql("insert into t (provider, admission_state, generic_dispatch_enabled) values ('a', 'disabled', false), ('b', 'approved', true);"),
+      ),
+    ).toBe(true);
+    expect(
+      enablesProvider(
+        sql("insert into t (provider, generic_dispatch_enabled) values ('a', false) on conflict (provider) do update set generic_dispatch_enabled = true;"),
+      ),
+    ).toBe(true);
+    expect(enablesProvider(sql("select * from t where generic_dispatch_enabled = true;"))).toBe(false);
+  });
+
   it("does not trigger on a disabled seed or a comment that mentions enabling", () => {
     const seed = {
       path: "supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql",
@@ -264,9 +346,9 @@ describe("detectProviderEnablement", () => {
   });
 
   it("never triggers on disable, kill switch, or cease and desist changes", () => {
-    expect(enablesProvider(change([DISABLE_REGISTRY]))).toBe(false);
+    expect(enablesProvider(DISABLE_REGISTRY)).toBe(false);
     expect(enablesProvider(change([DISABLE_MIGRATION]))).toBe(false);
-    expect(enablesProvider(change([DISABLE_REGISTRY, REMOVE_ENVELOPE, DISABLE_MIGRATION]))).toBe(false);
+    expect(enablesProvider(merge(DISABLE_REGISTRY, REMOVE_ENVELOPE, change([DISABLE_MIGRATION])))).toBe(false);
   });
 
   it("does not trigger on the review-only admit stub, generated output, or unrelated files", () => {
@@ -297,7 +379,7 @@ const EVIDENCE_RUN = "https://github.com/optomachina/Overdrafter/actions/runs/38
 const EVIDENCE_LINEAR = "https://linear.app/overdrafter/issue/OVD-690";
 
 function evidenceFor(item, index) {
-  return [EVIDENCE_PR, EVIDENCE_RUN, EVIDENCE_LINEAR, "OVD-691"][index % 4];
+  return [EVIDENCE_PR, EVIDENCE_RUN, EVIDENCE_LINEAR][index % 3];
 }
 
 function itemLine(item, index, overrides = {}) {
@@ -323,7 +405,7 @@ function buildGoLiveSection(overridesById = {}) {
   return lines.join("\n");
 }
 
-const ENABLING = change([ENABLE_REGISTRY]);
+const ENABLING = ENABLE_REGISTRY;
 
 function validate(section, options = ENABLING) {
   return validatePrBody(`${buildValidPrBody()}${section}`, options);
@@ -387,11 +469,22 @@ describe("validatePrBody", () => {
       { path: "provider-integrations/geomiq/manifest.v1.json", added: ['  "status": "draft"'] },
       { path: "worker/scripts/deploy-cloud-run.sh", added: ["echo hi"] },
     ];
-    expect(validatePrBody(buildValidPrBody(), change(files))).toEqual({ ok: true, errors: [] });
+    const same = envelopeSource(["xometry"]);
+    expect(validatePrBody(buildValidPrBody(), change(files, { [ENVELOPE]: { base: same, head: same } }))).toEqual({ ok: true, errors: [] });
+  });
+
+  it("requires a Gate change review note when the gate itself is edited", () => {
+    const edit = change([{ path: "scripts/provider-enablement-detect.mjs", added: ["x"] }]);
+    const missing = validatePrBody(buildValidPrBody(), edit);
+    expect(missing.errors[0]).toMatch(/missing required section "Gate change review"/);
+    const note = (text) => `${buildValidPrBody()}\n## Gate change review\n\n${text}\n`;
+    expect(validatePrBody(note(`Reviewer: Ada Lovelace\nEvidence: ${EVIDENCE_PR}`), edit)).toEqual({ ok: true, errors: [] });
+    expect(validatePrBody(note(`Evidence: ${EVIDENCE_PR}`), edit).errors[0]).toMatch(/name a reviewer/);
+    expect(validatePrBody(note("Reviewer: Ada Lovelace\nEvidence: OVD-690"), edit).errors[0]).toMatch(/add an evidence link/);
   });
 
   it("passes a disable PR without the section", () => {
-    const disable = change([DISABLE_REGISTRY, REMOVE_ENVELOPE, DISABLE_MIGRATION]);
+    const disable = merge(DISABLE_REGISTRY, REMOVE_ENVELOPE, change([DISABLE_MIGRATION]));
     expect(validatePrBody(buildValidPrBody(), disable)).toEqual({ ok: true, errors: [] });
   });
 
@@ -442,7 +535,15 @@ describe("validatePrBody", () => {
     ]);
     expect(extractEvidenceLinks("https://github.com/optomachina/Overdrafter/commit/0123456789abcdef")).toHaveLength(1);
     expect(extractEvidenceLinks(EVIDENCE_LINEAR)).toEqual([EVIDENCE_LINEAR]);
-    expect(extractEvidenceLinks("see OVD-690")).toEqual(["OVD-690"]);
+    expect(extractEvidenceLinks("see OVD-690")).toEqual([]);
+  });
+
+  it("rejects a bare OVD-n as evidence on every box", () => {
+    const overrides = Object.fromEntries(PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [item.id, { evidence: "OVD-1" }]));
+    const result = validate(buildGoLiveSection(overrides));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toHaveLength(PROVIDER_GO_LIVE_REQUIRED_ITEMS.length);
+    expect(result.errors.every((error) => error.startsWith("add an evidence link"))).toBe(true);
   });
 
   it("allows N/A with a written justification on items that can be N/A", () => {
@@ -508,7 +609,7 @@ describe("evidence link verification", () => {
 
   it("collects the evidence links of checked items", () => {
     const links = collectGoLiveEvidenceLinks(body);
-    expect(links).toEqual(expect.arrayContaining([EVIDENCE_PR, EVIDENCE_RUN, EVIDENCE_LINEAR, "OVD-691"]));
+    expect(links).toEqual(expect.arrayContaining([EVIDENCE_PR, EVIDENCE_RUN, EVIDENCE_LINEAR]));
   });
 
   it("calls the GitHub API for PR, run, and commit links and skips Linear", async () => {
@@ -542,21 +643,28 @@ describe("evidence link verification", () => {
 });
 
 describe("main", () => {
-  function setup({ section = "", files }) {
+  function setup(input, section = "") {
     const dir = mkdtempSync(path.join(os.tmpdir(), "pr-body-gate-"));
     const bodyFile = path.join(dir, "body.md");
     const namesFile = path.join(dir, "names.txt");
     const diffFile = path.join(dir, "pr.diff");
     writeFileSync(bodyFile, `${buildValidPrBody()}${section}`);
-    writeFileSync(namesFile, nameStatus(files).join("\n"));
-    writeFileSync(diffFile, unifiedDiff(files));
+    writeFileSync(namesFile, input.changedFiles.join("\n"));
+    writeFileSync(diffFile, input.diffText);
     return [bodyFile, "--changed-files-from", namesFile, "--diff-from", diffFile, "--skip-unless-enabling"];
   }
+  const run = (input, section) => main(setup(input, section), {}, { readFile: input.readFile });
 
   it("skips a disable change, fails an enabling change without the section, and passes with it", async () => {
-    expect(await main(setup({ files: [DISABLE_REGISTRY] }))).toBe(0);
-    expect(await main(setup({ files: [ENABLE_REGISTRY] }))).toBe(1);
-    expect(await main(setup({ files: [ENABLE_REGISTRY], section: buildGoLiveSection() }))).toBe(0);
+    expect(await run(DISABLE_REGISTRY)).toBe(0);
+    expect(await run(ENABLE_REGISTRY)).toBe(1);
+    expect(await run(ENABLE_REGISTRY, buildGoLiveSection())).toBe(0);
+  });
+
+  it("fails a swap that nets to zero without the section", async () => {
+    const swap = registryChange([["fictiv", true, "stable_nat"], ["geomiq", false]], [["fictiv", false], ["geomiq", true, "stable_nat"]]);
+    expect(await run(swap)).toBe(1);
+    expect(await run(swap, buildGoLiveSection())).toBe(0);
   });
 
   it("fails when a flag is missing its path", async () => {
@@ -595,6 +703,18 @@ describe("provider go-live docs and workflows", () => {
     expect(template).not.toContain("Admit SQL was not added");
   });
 
+  it("states the N/A rule the same way in the template and the checklist", () => {
+    const template = read(".github", "pull_request_template.md").replace(/\s+/g, " ");
+    const checklist = read("docs", "checklists", "provider-go-live-checklist.md").replace(/\s+/g, " ");
+    for (const text of [template, checklist]) {
+      expect(text).toContain("ITAR/EAR item for a US only provider");
+      expect(text).toContain("format checked only");
+      expect(text).toContain("A bare `OVD-n`");
+    }
+    const naIds = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => item.na).map((item) => item.id);
+    expect(naIds).toEqual(["worker-secret", "egress", "admission-revision", "rollout", "certification", "export-control"]);
+  });
+
   it("covers the provider legal stance in the checklist", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
     for (const phrase of ["provider:kill", "provider-cease-and-desist.md", "same day", "20 quotes", "rotate IPs", "CAPTCHA", "customer passwords", "one click", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
@@ -625,9 +745,20 @@ describe("provider go-live docs and workflows", () => {
     expect(gate).toMatch(/git diff --no-renames -U0 HEAD\^1 HEAD/);
     expect(gate).not.toContain("base.sha");
     expect(gate).toMatch(/PR_BODY: \$\{\{ github\.event\.pull_request\.body \}\}/);
-    const runBlocks = gate.split("run: |").slice(1).join("\n");
+    const runBlocks = [...gate.matchAll(/run: \|\n((?: {10}.*\n|\n)+)/g)].map((match) => match[1]).join("\n");
+    expect(runBlocks).toContain("validate-pr-body.mjs");
     expect(runBlocks).not.toContain("${{");
     expect(gate).toContain("--skip-unless-enabling");
+  });
+
+  it("runs the validator from the base copy and passes a no op on merge_group", () => {
+    const gate = read(".github", "workflows", "pr-body-gate.yml");
+    expect(gate).toMatch(/merge_group:/);
+    expect(gate).toMatch(/git show "HEAD\^1:\$file"/);
+    expect(gate).toContain("--base-ref HEAD^1 --head-ref HEAD");
+    expect(gate).toMatch(/if: github\.event_name == 'merge_group'/);
+    expect(gate).not.toContain("PR body gate / provider-go-live");
+    expect(gate).toContain('"provider-go-live" (the job name)');
   });
 
   it("leaves ci.yml triggers and the ci aggregate alone", () => {

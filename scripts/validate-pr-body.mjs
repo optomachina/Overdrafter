@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -252,9 +253,9 @@ export const PROVIDER_GO_LIVE_NA_PLACEHOLDERS = new Set([
 
 /**
  * `na: true` items may be marked N/A with a written justification when the
- * item does not apply to the stage being enabled. Items with `na: false` are
- * the legal stance and the proof of a rehearsed disable; they always need a
- * real evidence link.
+ * item does not apply to the stage being enabled. Items with `na: false` always
+ * need a real evidence link. Legal stance items are never N/A, with one
+ * exception: the ITAR/EAR item may be N/A for a US only provider.
  */
 export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
@@ -379,12 +380,16 @@ export { detectProviderEnablement };
 
 /**
  * Return whether the change enables a provider for customers. Path matches
- * alone never count; the diff content must show enablement. A disable or kill
- * switch change returns false.
+ * alone never count; the registry and envelope list are compared per provider
+ * and migrations are read statement by statement. A disable or kill switch
+ * change returns false, and so does an edit to the gate itself (that needs a
+ * reviewer note instead, see validateGateChangeNote).
  */
 export function enablesProvider(options = {}) {
-  return detectProviderEnablement(options).length > 0;
+  return detectProviderEnablement(options).some((finding) => finding.kind === "provider");
 }
+
+export const GATE_CHANGE_HEADING = "Gate change review";
 
 function parseCheckboxLines(content) {
   const boxes = [];
@@ -457,7 +462,9 @@ function trimUrl(url) {
 
 /**
  * Real evidence is a GitHub PR, Actions run, or commit URL in this repo, or a
- * Linear OVD issue (URL or bare OVD-n). Any other https URL is not evidence.
+ * full Linear OVD issue URL. A bare OVD-n and any other https URL are not
+ * evidence. Links are checked by format here; verifyEvidenceLinks additionally
+ * confirms GitHub links exist. No check reads what a link says.
  */
 export function extractEvidenceLinks(text) {
   const links = [];
@@ -468,16 +475,11 @@ export function extractEvidenceLinks(text) {
     }
   }
 
-  const withoutUrls = text.replace(URL_PATTERN, " ");
-  for (const match of withoutUrls.matchAll(/\bOVD-\d+\b/g)) {
-    links.push(match[0]);
-  }
-
   return links;
 }
 
 const EVIDENCE_HINT =
-  "add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a Linear OVD issue)";
+  "add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL)";
 
 function checkboxResult(box, label, naAllowed) {
   const na = parseNaAnnotation(box.text);
@@ -511,6 +513,27 @@ function checkboxResult(box, label, naAllowed) {
  */
 export function validateProviderGoLive(body) {
   return validateProviderGoLiveSection(body, [{ file: "(rendered body)", reason: "provider go-live requested" }]);
+}
+
+/**
+ * An edit to the gate itself needs a "Gate change review" section naming a
+ * reviewer and linking evidence, because the gate runs from the base copy and
+ * cannot check its own replacement.
+ */
+export function validateGateChangeNote(body, findings = []) {
+  const section = collectSections(body).get(normalizeHeading(GATE_CHANGE_HEADING));
+  if (!section) {
+    const files = findings.map((finding) => finding.file).join(", ");
+    return [`missing required section "${GATE_CHANGE_HEADING}" for a PR that edits the PR body gate (${files})`];
+  }
+  const errors = [];
+  if (!/^\s*(?:[-*]\s+)?Reviewer:\s*[A-Za-z][^\n]{2,}$/m.test(section.content)) {
+    errors.push(`name a reviewer in "${GATE_CHANGE_HEADING}" with a line "Reviewer: <name>"`);
+  }
+  if (extractEvidenceLinks(section.content).length === 0) {
+    errors.push(`${EVIDENCE_HINT} in "${GATE_CHANGE_HEADING}"`);
+  }
+  return errors;
 }
 
 function validateProviderGoLiveSection(body, findings) {
@@ -570,6 +593,11 @@ export function collectGoLiveEvidenceLinks(body) {
         .flatMap((box) => extractEvidenceLinks(box.text)),
     ),
   ];
+}
+
+export function collectGateEvidenceLinks(body) {
+  const section = collectSections(body).get(normalizeHeading(GATE_CHANGE_HEADING));
+  return section ? [...new Set(extractEvidenceLinks(section.content))] : [];
 }
 
 /**
@@ -635,8 +663,13 @@ export function validatePrBody(body, options = {}) {
   }
 
   const findings = detectProviderEnablement(options);
-  if (findings.length > 0) {
-    errors.push(...validateProviderGoLiveSection(body, findings));
+  const providerFindings = findings.filter((finding) => finding.kind === "provider");
+  const gateFindings = findings.filter((finding) => finding.kind === "gate");
+  if (providerFindings.length > 0) {
+    errors.push(...validateProviderGoLiveSection(body, providerFindings));
+  }
+  if (gateFindings.length > 0) {
+    errors.push(...validateGateChangeNote(body, gateFindings));
   }
 
   return {
@@ -662,6 +695,8 @@ async function readStdin() {
 const VALUE_FLAGS = new Map([
   ["--changed-files-from", "changedFilesFrom"],
   ["--diff-from", "diffFrom"],
+  ["--base-ref", "baseRef"],
+  ["--head-ref", "headRef"],
 ]);
 
 const BOOLEAN_FLAGS = new Map([
@@ -705,9 +740,28 @@ async function readLines(filePath) {
  *   --diff-from <path>           git diff --no-renames unified diff
  *   --skip-unless-enabling       pass without checking when the diff does not
  *                                enable a provider (the PR body gate uses this)
+ *   --base-ref <ref>             git ref of the base (default HEAD^1); the
+ *                                registry and envelope list are compared
+ *                                between it and the head ref
+ *   --head-ref <ref>             git ref of the head (default HEAD)
  *   --verify-links               confirm GitHub evidence links resolve
  */
-export async function main(argv = process.argv.slice(2), env = process.env) {
+function gitShowReader(baseRef, headRef) {
+  return (side, filePath) => {
+    const ref = side === "base" ? baseRef : headRef;
+    try {
+      return execFileSync("git", ["show", `${ref}:${filePath}`], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } catch {
+      return null;
+    }
+  };
+}
+
+export async function main(argv = process.argv.slice(2), env = process.env, deps = {}) {
   const parsed = parseCliArgs(argv);
   const useStdin = parsed.flags.has("stdin");
   const filePath = useStdin ? null : parsed.positional[0];
@@ -729,18 +783,24 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const body = useStdin ? await readStdin() : await fs.readFile(filePath, "utf8");
   const changedFiles = parsed.values.changedFilesFrom ? await readLines(parsed.values.changedFilesFrom) : [];
   const diffText = parsed.values.diffFrom ? await fs.readFile(parsed.values.diffFrom, "utf8") : "";
-  const findings = detectProviderEnablement({ changedFiles, diffText });
+  const readFile = deps.readFile ?? gitShowReader(parsed.values.baseRef ?? "HEAD^1", parsed.values.headRef ?? "HEAD");
+  const detection = { changedFiles, diffText, readFile };
+  const findings = detectProviderEnablement(detection);
 
   if (parsed.flags.has("skipUnlessEnabling") && findings.length === 0) {
-    console.log("No provider enablement in this diff; Provider go-live section not required.");
+    console.log("No provider enablement or gate edit in this diff; no extra PR section required.");
     return 0;
   }
 
-  const result = validatePrBody(body, { changedFiles, diffText });
+  const result = validatePrBody(body, detection);
   const errors = [...result.errors];
 
   if (errors.length === 0 && findings.length > 0 && parsed.flags.has("verifyLinks")) {
-    errors.push(...(await verifyEvidenceLinks(collectGoLiveEvidenceLinks(body), { token: env.GITHUB_TOKEN })));
+    const links = new Set(collectGoLiveEvidenceLinks(body));
+    if (findings.some((finding) => finding.kind === "gate")) {
+      for (const link of collectGateEvidenceLinks(body)) links.add(link);
+    }
+    errors.push(...(await verifyEvidenceLinks([...links], { token: env.GITHUB_TOKEN })));
   }
 
   if (errors.length > 0) {
@@ -750,12 +810,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
 
   const sectionNames = REQUIRED_SECTIONS.map((section) => section.heading);
-  if (findings.length > 0) {
-    sectionNames.push(PROVIDER_GO_LIVE_HEADING);
-    for (const finding of findings) {
-      console.log(`Provider enablement detected: ${finding.file}: ${finding.reason}`);
-    }
+  for (const finding of findings) {
+    console.log(`${finding.kind === "gate" ? "Gate edit" : "Provider enablement"} detected: ${finding.file}: ${finding.reason}`);
   }
+  if (findings.some((finding) => finding.kind === "provider")) sectionNames.push(PROVIDER_GO_LIVE_HEADING);
+  if (findings.some((finding) => finding.kind === "gate")) sectionNames.push(GATE_CHANGE_HEADING);
 
   console.log(`PR body validation passed for sections: ${sectionNames.join(", ")}`);
   return 0;

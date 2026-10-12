@@ -77,23 +77,27 @@ Baseline failures or exceptions:
 ## Provider go-live
 
 Required only when this PR enables a provider for customers, and CI decides from
-the diff content: a registry entry gaining `liveAdapter: true` or production
-egress, a new provider added to `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, or a
-migration that sets `generic_dispatch_enabled = true` or `admission_state =
-'approved'`. Omit this section on every other PR, including generated
+the diff content: a registry provider going to `liveAdapter: true` or gaining
+production egress (compared per provider), a new provider added to
+`REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, or a migration that assigns
+`generic_dispatch_enabled = true` or `admission_state = 'approved'` in a SET
+clause or an insert. Omit this section on every other PR, including generated
 stage 1 and 2 output, registry hardening, permissions docs, kill switch and
-disable changes, and cease and desist disables.
+disable changes, and cease and desist disables. A PR that edits the PR body
+gate itself adds a `## Gate change review` section with a `Reviewer: <name>`
+line and an evidence link.
 
 A checked box grants no authority. Generated output stays disabled by default.
 Admission happens only when a human applies reviewed SQL; admit SQL is never
 committed by a generator. Record Secret Manager secret names only.
 
 Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
-`optomachina/Overdrafter`, or a Linear OVD issue. Other URLs are not evidence.
-Worker secret, egress, admission, rollout, certification, and export control
-items may be marked `N/A: <written justification>` (checked `[x]`) when they do
-not apply to this stage. The envelope, rollback, kill switch, and legal stance
-items cannot be N/A.
+`optomachina/Overdrafter`, or a full Linear issue URL. A bare `OVD-n` and other
+URLs are not evidence. Links are format checked only.
+Worker secret, egress, admission, rollout, and certification items may be marked
+`N/A: <written justification>` (checked `[x]`) when they do not apply to this
+stage. The envelope, rollback, and legal stance items cannot be N/A, except the
+ITAR/EAR item for a US only provider.
 See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Envelope

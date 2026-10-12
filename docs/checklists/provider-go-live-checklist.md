@@ -15,18 +15,30 @@ Use this checklist with the **Provider go-live** section in
 
 ## When the section is required
 
-The `PR body gate` workflow requires the section only for a change that
-enables a provider for customers. It reads the diff content, not just file
-paths. A change enables a provider when it does any of the following:
+The `PR body gate` workflow (check name `provider-go-live`) requires the
+section only for a change that enables a provider for customers. It reads file
+content, not just paths. A change enables a provider when it does any of the
+following:
 
-- flips a registry entry in `provider-integrations/provider-registry.v1.json`
-  to `"liveAdapter": true`, or adds production egress (`"egress":
-  "stable_nat"`);
+- makes a provider in `provider-integrations/provider-registry.v1.json` go from
+  `liveAdapter` false or absent to `true`, or gain production egress
+  (`"stable_nat"`). The registry is compared per provider key between the base
+  and the head, so turning one provider off never offsets turning another on;
 - adds a provider that was not present to `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`
-  in `worker/src/providerDispatchEnvelope.ts`;
-- adds or changes a migration that sets `generic_dispatch_enabled = true` or
-  `admission_state = 'approved'` (an `UPDATE` or an `INSERT`; comments are
-  ignored). A schema change whose name mentions admission does not count.
+  in `worker/src/providerDispatchEnvelope.ts` (read structurally, whatever the
+  formatting);
+- adds or changes a migration that assigns `generic_dispatch_enabled = true` or
+  `admission_state = 'approved'` in a `SET` clause or inserts such a value.
+  Values that only appear in a `WHERE` clause do not count, so a disable
+  migration that filters on `approved` is not enabling. Comments are ignored.
+  A schema change whose name mentions admission does not count.
+
+The gate runs the detector and validator from the base commit, so a PR cannot
+edit them to skip itself. A PR that edits the gate files (the detector, the
+validator and its test, or `.github/workflows/pr-body-gate.yml`) needs a **Gate
+change review** section with a `Reviewer: <name>` line and an evidence link.
+On `merge_group` the check passes with no work, so a required check does not
+stall a merge queue.
 
 Everything else does not need the section: stage 1 and 2 `fixture:onboard`
 output (`provider:add` is the alias of `--stage=envelope`), registry hardening,
@@ -38,14 +50,18 @@ signal never requires the section.
 ## Evidence and N/A
 
 Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
-`optomachina/Overdrafter`, or a Linear OVD issue. Other URLs are not evidence.
-The gate also checks that GitHub links resolve.
+`optomachina/Overdrafter`, or a full Linear issue URL
+(`https://linear.app/<workspace>/issue/OVD-n`). A bare `OVD-n` is not evidence.
+Links are format checked only. The gate confirms that a GitHub link exists, and
+accepts a Linear link by its shape; nothing reads what a link says, so the
+named reviewer owns whether it supports the box.
 
-Worker secret, egress, admission, rollout, certification, and export control
-items may be marked N/A when they do not apply to the stage being enabled.
-Check the box `[x]` and write `N/A: <justification>` with a real sentence (not
-`n/a`, `tbd`, `todo`, `none`, or `-`). The envelope, rollback, kill switch, and
-legal stance items cannot be N/A.
+Worker secret, egress, admission, rollout, and certification items may be
+marked N/A when they do not apply to the stage being enabled. Check the box
+`[x]` and write `N/A: <justification>` with a real sentence (not `n/a`, `tbd`,
+`todo`, `none`, or `-`). The envelope, rollback, and legal stance items cannot
+be N/A, with one exception: the ITAR/EAR item may be N/A for a US only
+provider, with the justification written out.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those
@@ -93,7 +109,8 @@ alias). There is no `provider:onboard` command.
 
 ## Legal stance
 
-These items record the provider legal stance. None can be N/A.
+These items record the provider legal stance. None can be N/A except the
+ITAR/EAR item for a US only provider (see Evidence and N/A).
 
 - [ ] **Per provider kill switch rehearsal.** Run `npm run provider:kill` for
       this provider on and off, following
