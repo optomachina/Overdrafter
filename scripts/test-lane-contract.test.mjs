@@ -17,6 +17,7 @@ const portableSuites = [
   "scripts/native/runner-containment/closed-journal.node-test.mjs",
   "scripts/migration-timestamp.node-test.mjs",
   "scripts/verify-migration-lineage.node-test.mjs",
+  "scripts/provider-permissions-verify.node-test.mjs",
 ];
 
 function portableCommand() {
