@@ -11,7 +11,6 @@ import type {
 } from "@/features/quotes/types";
 import {
   buildClientWorkspaceState,
-  describeClientPresetUnavailableReason,
   getClientQuoteOptionStateReasons,
   summarizeClientWorkspaceStates,
 } from "@/features/quotes/client-workspace-state";
@@ -308,13 +307,6 @@ describe("client workspace state", () => {
       "Misses requested date 2026-04-15",
       "Not eligible for Domestic preset",
     ]);
-    expect(
-      describeClientPresetUnavailableReason({
-        options,
-        preset: "domestic",
-        requestedByDate: "2026-04-15",
-      }),
-    ).toBe("No quote currently meets the requested date of 2026-04-15.");
   });
 
   it("summarizes ready, warning, and blocked counts for aggregate views", () => {

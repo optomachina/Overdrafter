@@ -5,6 +5,7 @@ import {
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import { containsSensitiveErrorDetail } from "@/lib/error-message";
 import {
   getFoundingBetaStatusFromRefetch,
   getFoundingBetaUploadMessage,
@@ -21,9 +22,16 @@ type UseClientJobFilePickerOptions = {
   onFilesSelected: (files: File[]) => Promise<void>;
 };
 
+const UPLOAD_ERROR_FALLBACK = "Unable to create a new job right now.";
+
+// Server-provided upload errors can carry tokens or stack frames; those never reach the toast.
+function withoutSensitiveDetail(message: string): string {
+  return containsSensitiveErrorDetail(message) ? UPLOAD_ERROR_FALLBACK : message;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
-    return error.message;
+    return withoutSensitiveDetail(error.message);
   }
 
   if (
@@ -32,10 +40,10 @@ function getErrorMessage(error: unknown): string {
     "message" in error &&
     typeof (error as { message?: unknown }).message === "string"
   ) {
-    return (error as { message: string }).message;
+    return withoutSensitiveDetail((error as { message: string }).message);
   }
 
-  return "Unable to create a new job right now.";
+  return UPLOAD_ERROR_FALLBACK;
 }
 
 export function useClientJobFilePicker({

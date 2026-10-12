@@ -38,8 +38,11 @@ bytes to the existing STEP renderer. Any read or integrity error clears the
 geometry and displays an unavailable state.
 
 The private byte table has RLS enabled, no API-role grants, and immutable row
-history. Reverse refuses populated review history through the same owner-only
-guard exercised by the source-only SQL fixture, preserving evidence. The fixture
+history. Reverse refuses any isolation level other than READ COMMITTED (an
+older snapshot could read committed evidence as absent), takes the shared
+window 2 reverse lock `pg_advisory_xact_lock(510, 2)`, locks the table, then
+refuses populated review history through the same owner-only guard exercised by
+the source-only SQL fixture, preserving evidence. The fixture
 must prove role grants, tenant isolation, stale-result
 denial, byte substitution detection, replay behavior and reverse safety in an
 exclusively owned disposable database. Browser fixtures do not count as native
