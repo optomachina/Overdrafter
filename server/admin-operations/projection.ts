@@ -13,7 +13,7 @@ const DATABASE_AGE = 60_000;
 const WORKER_AGE = 120_000;
 const FAILURE_WINDOW = 86_400_000;
 const MAX_ROWS = 200;
-const FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached"];
+const FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached", "provider_kill_switch_engaged", "provider_kill_switch_unavailable"];
 function oneOf(value: unknown, values: readonly string[]): boolean { return typeof value === "string" && values.includes(value); }
 export function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function provider(value: unknown): OperationsProvider | null { return typeof value === "string" && (OPERATIONS_PROVIDERS as readonly string[]).includes(value) ? value as OperationsProvider : null; }

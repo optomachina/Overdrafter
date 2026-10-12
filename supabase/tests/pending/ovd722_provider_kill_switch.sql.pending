@@ -1,0 +1,300 @@
+-- OVD-722 per-provider and global provider kill switch.
+--
+-- PENDING: this suite targets docs/migration-drafts/ovd-722.sql, which is
+-- NOT applied (NEEDS BLAINE MIGRATION WINDOW). It carries a .pending suffix so
+-- the policy-test runner stages it but never executes it. In the approved
+-- window, the draft becomes one migration and this file is renamed to
+-- supabase/tests/ovd722_provider_kill_switch.sql in the same change.
+--
+-- Covers plan tests 1, 4, 5, 6 and the SQL side of 7:
+--   * seeded rows for every vendor_name value and the global singleton
+--   * pg_proc: SECURITY DEFINER, search_path = '', EXECUTE grants
+--   * anon / non-admin refusal; reason >= 10 characters
+--   * each flip writes an audit row; UPDATE/DELETE/TRUNCATE on the audit fail
+--   * the worker state read is fresh after every flip (no caching)
+--   * global switch denies every provider; off restores each provider's state
+--   * server preflight (generic + Xometry) denies provider_kill_switch_engaged
+--   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged
+--   * the sweep cancels queued tasks as cancelled_provider_disabled only for
+--     the switched-off provider
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(46);
+
+create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role)::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+grant execute on function pg_temp.ovd722_as(uuid, text) to anon, authenticated, service_role;
+
+insert into auth.users (id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000722001', 'authenticated', 'authenticated', 'ovd722-admin@example.test'),
+  ('00000000-0000-4000-8000-000000722002', 'authenticated', 'authenticated', 'ovd722-member@example.test');
+insert into private.platform_admin_emails (email) values ('ovd722-admin@example.test')
+on conflict do nothing;
+
+-- ---------------------------------------------------------------------
+-- Seed and shape
+-- ---------------------------------------------------------------------
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switches),
+  (select pg_catalog.array_length(pg_catalog.enum_range(null::public.vendor_name), 1)),
+  'every vendor_name value has a kill-switch row'
+);
+select ok(
+  not exists (select 1 from private.provider_kill_switches where engaged),
+  'every provider switch is seeded disengaged'
+);
+select ok(
+  exists (select 1 from private.provider_global_kill_switch where singleton and not engaged),
+  'the global singleton is seeded disengaged'
+);
+select ok(
+  (select bool_and(provider_exists) from (
+    select exists (select 1 from private.provider_kill_switches s where s.provider = p::public.vendor_name) as provider_exists
+    from pg_catalog.unnest(array['xometry', 'fictiv', 'quickparts', 'weerg', 'geomiq', 'rmfg']) as p
+  ) seeded),
+  'each 1.0 provider (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG) has a row'
+);
+
+-- ---------------------------------------------------------------------
+-- pg_proc security posture and grants
+-- ---------------------------------------------------------------------
+select ok(
+  (select bool_and(p.prosecdef and p.proconfig @> array['search_path=""'])
+   from pg_catalog.pg_proc p
+   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('api_admin_set_provider_kill_switch', 'api_admin_set_global_kill_switch',
+       'api_admin_list_provider_kill_switches', 'api_worker_provider_kill_switch_state',
+       'api_worker_cancel_provider_disabled_tasks')),
+  'kill-switch RPCs are SECURITY DEFINER with search_path = '''''
+);
+select ok(not has_function_privilege('anon', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+  'anon cannot execute api_admin_set_provider_kill_switch');
+select ok(not has_function_privilege('public', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+  'public cannot execute api_admin_set_provider_kill_switch');
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+  'authenticated can execute api_admin_set_provider_kill_switch');
+select ok(not has_function_privilege('anon', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+  'anon cannot execute api_admin_set_global_kill_switch');
+select ok(not has_function_privilege('public', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+  'public cannot execute api_admin_set_global_kill_switch');
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+  'authenticated can execute api_admin_set_global_kill_switch');
+select ok(not has_function_privilege('authenticated', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE'),
+  'the worker state read is service_role only');
+select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE'),
+  'the sweep is service_role only');
+select ok(not has_function_privilege('service_role', 'private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)', 'EXECUTE'),
+  'the preserved pre-OVD-722 bodies cannot be called directly to bypass the switch');
+select ok(
+  not has_table_privilege('authenticated', 'private.provider_kill_switch_audit', 'UPDATE')
+    and not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'DELETE')
+    and not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'TRUNCATE'),
+  'no API role holds UPDATE, DELETE or TRUNCATE on the audit table'
+);
+
+-- ---------------------------------------------------------------------
+-- Refusals
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd722_as(null, 'anon');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'anon should never flip this')$$,
+  '42501', null, 'anon is refused by the provider RPC');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722002', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'member should never flip this')$$,
+  '42501', 'platform_admin_required', 'a non-admin is refused by the provider RPC');
+select throws_ok(
+  $$select public.api_admin_set_global_kill_switch(true, 'member should never flip this')$$,
+  '42501', 'platform_admin_required', 'a non-admin is refused by the global RPC');
+select throws_ok(
+  $$select public.api_admin_list_provider_kill_switches()$$,
+  '42501', 'platform_admin_required', 'a non-admin cannot list switch state');
+
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'too short')$$,
+  '22023', 'reason_required_min_10_chars', 'a reason under 10 characters is refused');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, '   ')$$,
+  '22023', 'reason_required_min_10_chars', 'a blank reason is refused');
+reset role;
+
+select ok(
+  not exists (select 1 from private.provider_kill_switch_audit where actor = '00000000-0000-4000-8000-000000722002'),
+  'refused calls wrote no audit rows'
+);
+
+-- ---------------------------------------------------------------------
+-- Flip, audit, fresh read (no caching)
+-- ---------------------------------------------------------------------
+set local role service_role;
+select is(
+  public.api_worker_provider_kill_switch_state('fictiv') ->> 'engaged', 'false',
+  'before the flip the worker read reports fictiv disengaged');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_provider_kill_switch('fictiv', true, 'OVD-722 test: cease-and-desist drill') ->> 'engaged', 'true',
+  'a platform admin engages the fictiv switch');
+reset role;
+
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider = 'fictiv' and engaged and actor = '00000000-0000-4000-8000-000000722001'
+     and reason = 'OVD-722 test: cease-and-desist drill'),
+  1, 'the flip wrote exactly one audit row with actor and reason');
+select ok(
+  exists (select 1 from private.provider_kill_switches where provider = 'fictiv' and engaged
+    and engaged_by = '00000000-0000-4000-8000-000000722001' and engaged_at is not null),
+  'the switch row records actor and time');
+
+set local role service_role;
+select is(
+  public.api_worker_provider_kill_switch_state('fictiv'),
+  '{"schema":"provider-kill-switch-state.v1","provider":"fictiv","engaged":true,"globalEngaged":false}'::jsonb,
+  'the very next worker read after the flip reports engaged (no cache, no deploy)');
+select is(
+  public.api_worker_provider_kill_switch_state('xometry') ->> 'engaged', 'false',
+  'other providers are unaffected');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Audit is append-only
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$update private.provider_kill_switch_audit set reason = 'rewritten history here' where provider = 'fictiv'$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'UPDATE on the audit table fails');
+select throws_ok(
+  $$delete from private.provider_kill_switch_audit where provider = 'fictiv'$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'DELETE on the audit table fails');
+select throws_ok(
+  $$truncate private.provider_kill_switch_audit$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'TRUNCATE on the audit table fails');
+
+-- ---------------------------------------------------------------------
+-- Enforcement: server preflight and enqueue
+-- ---------------------------------------------------------------------
+set local role service_role;
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
+    '{"schema":"quote-lane-scope.v1","vendor":"fictiv"}'::jsonb, 'worker-1', pg_catalog.now()),
+  '{"schema":"provider-dispatch-authorization.v1","authorized":false,"denial":"provider_kill_switch_engaged","retryable":false}'::jsonb,
+  'generic preflight denies a switched-off provider with provider_kill_switch_engaged (terminal)');
+select isnt(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
+    '{"schema":"quote-lane-scope.v1","vendor":"quickparts"}'::jsonb, 'worker-1', pg_catalog.now()) ->> 'denial',
+  'provider_kill_switch_engaged',
+  'another provider reaches its normal preflight checks');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722002', 'authenticated');
+select throws_ok(
+  $$select public.api_request_provider_dispatch('00000000-0000-4000-8000-000000722103', 'fictiv',
+    'mm', 'x', 'x', 'x', '00000000-0000-4000-8000-000000722104', true, true, true)$$,
+  'P0001', 'provider_kill_switch_engaged', 'a new fictiv dispatch request is refused at enqueue');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Sweep: queued tasks end cancelled_provider_disabled; other providers stay
+-- ---------------------------------------------------------------------
+insert into public.organizations (id, name, slug)
+values ('00000000-0000-4000-8000-000000722201', 'OVD-722 org', 'ovd722-kill-switch-org');
+insert into public.work_queue (id, organization_id, task_type, status, payload) values
+  ('00000000-0000-4000-8000-000000722211', '00000000-0000-4000-8000-000000722201', 'run_vendor_quote', 'queued',
+   '{"vendor":"fictiv"}'),
+  ('00000000-0000-4000-8000-000000722212', '00000000-0000-4000-8000-000000722201', 'run_vendor_quote', 'queued',
+   '{"vendor":"quickparts"}');
+
+set local role service_role;
+select is(
+  (public.api_worker_cancel_provider_disabled_tasks() ->> 'cancelled')::int >= 1, true,
+  'the sweep cancels at least the queued fictiv task');
+reset role;
+
+select ok(
+  exists (select 1 from public.work_queue where id = '00000000-0000-4000-8000-000000722211'
+    and status = 'cancelled' and payload ->> 'cancellationReason' = 'cancelled_provider_disabled'),
+  'the fictiv task ends cancelled_provider_disabled');
+select is(
+  (select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722212'),
+  'queued', 'the quickparts task is untouched');
+
+-- ---------------------------------------------------------------------
+-- Global switch
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_global_kill_switch(true, 'OVD-722 test: global brake drill') ->> 'engaged', 'true',
+  'a platform admin engages the global switch');
+reset role;
+
+select ok(
+  (select bool_and(private.provider_kill_switch_engaged(v))
+   from pg_catalog.unnest(pg_catalog.enum_range(null::public.vendor_name)) as v),
+  'with the global switch engaged every provider is denied');
+
+set local role service_role;
+select is(
+  public.api_authorize_xometry_beta_worker_dispatch(
+    '00000000-0000-4000-8000-000000722101', '00000000-0000-4000-8000-000000722102',
+    '{"schema":"quote-lane-scope.v1","vendor":"xometry"}'::jsonb, 'worker-1', pg_catalog.now()),
+  '{"authorized":false,"reasonCode":"provider_kill_switch_engaged"}'::jsonb,
+  'the Xometry preflight denies under the global switch');
+select is(
+  public.api_worker_provider_kill_switch_state('xometry') ->> 'globalEngaged', 'true',
+  'the worker read reports the global switch');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_global_kill_switch(false, 'OVD-722 test: global brake released') ->> 'engaged', 'false',
+  'a platform admin releases the global switch');
+reset role;
+
+select ok(
+  not private.provider_kill_switch_engaged('xometry') and private.provider_kill_switch_engaged('fictiv'),
+  'releasing the global switch restores each provider''s own state');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit where provider is null),
+  2, 'both global flips are audited with a null provider');
+
+-- ---------------------------------------------------------------------
+-- Fail-closed on missing rows
+-- ---------------------------------------------------------------------
+delete from private.provider_kill_switches where provider = 'geomiq';
+select ok(private.provider_kill_switch_engaged('geomiq'),
+  'a provider with no kill-switch row is treated as engaged');
+select ok(private.provider_kill_switch_engaged_text('not-a-provider'),
+  'an unknown provider string is treated as engaged');
+
+select * from finish();
+
+rollback;
