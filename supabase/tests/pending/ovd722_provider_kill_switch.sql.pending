@@ -106,15 +106,18 @@ select ok(not has_function_privilege('authenticated', 'public.api_worker_provide
 select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE')
     and has_function_privilege('service_role', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE'),
   'the sweep is service_role only');
+-- Only what OVD-722 owns: it adds no *_pre_ovd722 function and no dispatch
+-- function in any schema references the switch. (Another window 1 migration
+-- may wrap the preflights; their shape is that migration's to pin.)
 select ok(
-  (select pg_catalog.bool_and(p.prosrc not like '%kill\_switch%' and p.proconfig = array['search_path=pg_catalog'])
-   from pg_catalog.pg_proc p
-   where p.oid in (
-     'public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure,
-     'public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure))
+  not exists (
+    select 1 from pg_catalog.pg_proc p
+    where (p.proname like 'api\_authorize\_%worker\_dispatch%' or p.proname like 'api\_request\_%dispatch%'
+           or p.proname like '%\_pre\_ovd722')
+      and (p.prosrc like '%kill\_switch%' or p.proname like '%\_pre\_ovd722'))
     and pg_catalog.to_regprocedure('private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null
     and pg_catalog.to_regprocedure('private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null,
-  'expand only: the worker preflights are not renamed, wrapped or changed');
+  'expand only: OVD-722 renames, wraps or edits no dispatch function');
 select ok(
   pg_catalog.to_regprocedure('private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)') is null
     and pg_catalog.to_regprocedure('private.api_request_xometry_beta_dispatch_pre_ovd722(uuid, text, text, text, uuid, boolean, boolean, boolean)') is null
