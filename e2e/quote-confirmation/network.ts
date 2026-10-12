@@ -83,6 +83,11 @@ export class QuoteBrowserBackend {
         return this.json(route, { jobId: ID.job, organizationId: ID.organization, projectId: null,
           availableVendors: ["xometry"], projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
           jobVendorPreferences: { includedVendors: ["xometry"], excludedVendors: [] } });
+      case "api_get_job_export_control_status":
+        // OVD-723: a declared, unblocked part, so no export-control notice renders.
+        return this.json(route, { jobId: ID.job, latestAnswer: "not_controlled",
+          latestDeclaredAt: "2026-10-01T00:00:00.000Z", termsVersion: "ovd-beta-export-control.v1",
+          exportReviewState: "clear" });
       case "api_get_quote_lane_eligibility":
         return this.json(route, [{ vendor: "xometry", partId: ID.part, requestedQuantity: 1,
           state: "requestable", currentOfferId: null, validUntil: null, retryAt: null }]);
