@@ -14,9 +14,9 @@ finalization SQL (#619).
 | Generator | `scripts/native/stop-observer/sql/generate-restore-sql.mjs` | Writes the reverse; `--check` fails on drift |
 
 The reverse is generated from the OVD-575 migration and the staged replacement;
-never edit it by hand. It pins the replacement file SHA-256, the replacement body
-MD5 (`f763f457581f994efb095a989bb7f270`) and the OVD-575 body MD5
-(`7690e7cc953f97c9a422dcbaeb17cb8c`). In order it: refuses any isolation other
+never edit it by hand. It pins the replacement file SHA-256 and the SHA-256 of the
+replacement body (`cee9b348b708fd02723b555ed894b727cc43f3c6e1951efee14607b711f0f9e1`) and of
+the OVD-575 body (`6ec69c8214fe42427905f0501aa738cb0b2bee0d68d00d4d0c937c1e6d9f3bb4`). In order it: refuses any isolation other
 than READ COMMITTED with SQLSTATE 0A000; takes `pg_advisory_xact_lock(510, 2)`,
 the lock the OVD-558 forward and reverse take, before touching any relation;
 refuses unless exactly one function of that name exists, its body is exactly

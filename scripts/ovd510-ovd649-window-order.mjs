@@ -105,7 +105,7 @@ export async function runOvd649WindowOrderProof(options) {
     await ok("supabase_admin", restoreSql, "restoration after reapply");
     assert.equal(await catalog(), beforeReplacement, "second restoration returns the exact catalog");
     evidence = { preReplacementDigest: before, replacementDigest: replaced,
-      replacementBodyMd5: pins.replacementBodyMd5, originalBodyMd5: pins.originalBodyMd5,
+      replacementBodySha256: pins.replacementBodySha256, originalBodySha256: pins.originalBodySha256,
       suffixMigrations: suffix.length, reverse558PreflightRefusedWithReplacement: true,
       reverse558PreflightAcceptedAfterRestore: true, repeatableReadRestoreRefused: true,
       secondRestoreRefused: true, reapplyThenRestore: true };

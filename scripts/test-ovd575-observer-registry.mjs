@@ -197,7 +197,7 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
-  const functionState=`select json_build_object('body',md5(p.prosrc),'definition',md5(pg_get_functiondef(p.oid)),
+  const functionState=`select json_build_object('body',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex'),'definition',md5(pg_get_functiondef(p.oid)),
     'oid',p.oid,'owner',pg_get_userbyid(p.proowner),'acl',p.proacl::text,'secdef',p.prosecdef,
     'config',p.proconfig,'identity',pg_get_function_identity_arguments(p.oid))::text from pg_proc p
     where p.oid=to_regprocedure('engineering_private.store_native_observer_evidence(uuid,bytea,bytea)')`;
@@ -441,8 +441,8 @@ try {
     // prior definition, refusal of any other current body, and reapply.
     const {sql:restoreSql,pins}=buildRestoreSql();
     equal(readFileSync(restorePath,'utf8'),restoreSql,'committed restoration matches its generator');
-    equal(JSON.parse(replacementState).body,pins.replacementBodyMd5,'restoration pins the live replacement body');
-    equal(JSON.parse(migrationState).body,pins.originalBodyMd5,'restoration pins the OVD-575 migration body');
+    equal(JSON.parse(replacementState).body,pins.replacementBodySha256,'restoration pins the live replacement body');
+    equal(JSON.parse(migrationState).body,pins.originalBodySha256,'restoration pins the OVD-575 migration body');
     for(const level of ['repeatable read','serializable']) {
       const refused=script(restoreSql.replace('\nbegin;\n',`\nbegin isolation level ${level};\n`));
       check(refused.code!==0&&/0A000/.test(refused.stderr)&&/ovd649_restore_read_committed_required/.test(refused.stderr),

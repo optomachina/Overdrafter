@@ -30,16 +30,16 @@ begin
       where n.nspname = 'engineering_private' and p.proname = 'store_native_observer_evidence') <> 1 then
     raise exception 'ovd649_restore_function_missing_or_overloaded';
   end if;
-  select md5(p.prosrc) as body_md5, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner,
+  select encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex') as body_sha256, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner,
       p.proacl::text as acl, p.prokind, p.proretset, p.prorettype, l.lanname
     into v_before from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = v_oid;
-  if v_before.body_md5 <> 'f763f457581f994efb095a989bb7f270'
+  if v_before.body_sha256 <> 'cee9b348b708fd02723b555ed894b727cc43f3c6e1951efee14607b711f0f9e1'
      or not v_before.prosecdef or v_before.proconfig is distinct from array['search_path=""']
      or v_before.owner <> 'postgres' or v_before.prokind <> 'f' or v_before.proretset
      or v_before.prorettype <> 'uuid'::regtype or v_before.lanname <> 'plpgsql'
      or exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a
        where p.oid = v_oid and a.grantee not in (p.proowner, 'ovd575_observer_validator'::regrole)) then
-    raise exception 'ovd649_restore_unexpected_current_state:%', v_before.body_md5;
+    raise exception 'ovd649_restore_unexpected_current_state:%', v_before.body_sha256;
   end if;
   execute $ovd649_restore_definition$create or replace function engineering_private.store_native_observer_evidence(
   p_profile uuid,p_manifest bytea,p_journal bytea
@@ -490,15 +490,15 @@ begin
   return v_id;
 end;
 $$;$ovd649_restore_definition$;
-  select md5(p.prosrc) as body_md5, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner,
+  select encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex') as body_sha256, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) as owner,
       p.proacl::text as acl, p.prokind, p.proretset, p.prorettype, l.lanname
     into v_after from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = v_oid;
-  if v_after.body_md5 <> '7690e7cc953f97c9a422dcbaeb17cb8c'
+  if v_after.body_sha256 <> '6ec69c8214fe42427905f0501aa738cb0b2bee0d68d00d4d0c937c1e6d9f3bb4'
      or (v_after.prosecdef, v_after.proconfig, v_after.owner, v_after.acl, v_after.prokind,
          v_after.proretset, v_after.prorettype, v_after.lanname)
        is distinct from (v_before.prosecdef, v_before.proconfig, v_before.owner, v_before.acl,
          v_before.prokind, v_before.proretset, v_before.prorettype, v_before.lanname) then
-    raise exception 'ovd649_restore_postflight_mismatch:%', v_after.body_md5;
+    raise exception 'ovd649_restore_postflight_mismatch:%', v_after.body_sha256;
   end if;
 end $ovd649_restore$;
 commit;
