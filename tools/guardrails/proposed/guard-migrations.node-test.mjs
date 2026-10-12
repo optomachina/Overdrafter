@@ -595,7 +595,7 @@ test("every real root and worker script: only db:push and qualify:ovd417 (which 
     const scripts = Object.keys(JSON.parse(readFileSync(join(ROOT, file), "utf8")).scripts ?? {});
     for (const name of scripts) if (run(`npm ${prefix}run ${name}`)) blocked.push(`${prefix}${name}`);
   }
-  assert.deepEqual(blocked.sort(), ["db:push", "qualify:ovd417"]);
+  assert.deepEqual(blocked.sort((a, b) => a.localeCompare(b)), ["db:push", "qualify:ovd417"]);
   assert.equal(run("npm run verify"), null);
   assert.equal(run("npm run verify:worker"), null);
   assert.equal(run("npm run db:reset"), null);
