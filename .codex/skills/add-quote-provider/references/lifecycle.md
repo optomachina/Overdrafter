@@ -4,7 +4,7 @@ Every provider parent has exactly these gated children. Replace `<provider>` wit
 
 ## 1. Define `<provider>`’s evidence-backed quote envelope
 
-Generator: `npm run fixture:onboard -- <key> --stage=envelope --url <https-url>` (adds the default-off provider-registry entry and runs `provider:sync`), then `npm run provider:check`.
+Generator: `npm run fixture:onboard -- [<key>] --stage=envelope --url <https-url>` (the key is optional with `--url`; adds the default-off provider-registry entry and runs `provider:sync`), then `npm run provider:check`.
 
 Outcome: public first-party research establishes a conservative manifest, eligibility evaluator, default-off identity/catalog wiring, review date, and offline envelope tests.
 
