@@ -8,6 +8,9 @@ import { test, expect } from "./test";
 // trusted-live rule but its vendor validity has expired, so it is listed as
 // blocked and cannot be selected.
 const COMPARISON_ROUTE = "/parts/fx-job-comparison?fixture=client-comparison&debug=1";
+// Same part, but the stored choice is the expired "Lapsed Standard" offer.
+const LAPSED_SELECTION_ROUTE = "/parts/fx-job-comparison?fixture=client-comparison-lapsed-selection&debug=1";
+const PREVIOUS_CHOICE_GONE = "Your previous quote choice is no longer available. Choose a quote to continue.";
 const APP_ENTRY_TIMEOUT_MS = 20_000;
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 const PHONE_VIEWPORT = { width: 390, height: 844 };
@@ -70,8 +73,8 @@ function chartPoints(chart: Locator) {
   return chart.locator(".recharts-scatter-symbol");
 }
 
-async function openComparison(page: Page) {
-  await page.goto(COMPARISON_ROUTE);
+async function openComparison(page: Page, route = COMPARISON_ROUTE) {
+  await page.goto(route);
   const panel = decisionPanel(page);
   await expect(panel.getByRole("button", { name: "US-only sourcing" })).toBeVisible({
     timeout: APP_ENTRY_TIMEOUT_MS,
@@ -454,6 +457,27 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await page.keyboard.press(" ");
     await expect(secondRow).toHaveAttribute("aria-selected", "true");
     await expect(row).toHaveAttribute("aria-selected", "false");
+  });
+});
+
+test.describe("client quote comparison after the stored choice lapses", { tag: "@fixture" }, () => {
+  test.use({ viewport: DESKTOP_VIEWPORT });
+
+  test("shows no substitute as selected and lets the client choose again", async ({ page }) => {
+    const panel = await openComparison(page, LAPSED_SELECTION_ROUTE);
+    const notice = panel.getByRole("status").filter({ hasText: PREVIOUS_CHOICE_GONE });
+
+    await expect(notice).toBeVisible();
+    await expect(selectedRow(panel)).toHaveCount(0);
+    await expect(panel.getByText("Current selection", { exact: true })).toHaveCount(0);
+    await expect(panel.getByText("Recommended starting point", { exact: true })).toBeVisible();
+
+    await quoteRow(panel, "US Standard").getByRole("cell").first().click();
+    await expect(selectedRow(panel)).toHaveCount(1);
+    await expect(selectedRow(panel)).toContainText("US Standard");
+    await expect(panel.getByText("Current selection", { exact: true })).toBeVisible();
+    await expect(summaryFact(panel, "Quoted total")).toHaveText("$365.00");
+    await expect(notice).toHaveCount(0);
   });
 });
 
