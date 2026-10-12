@@ -388,6 +388,43 @@ describe("fail closed matrix", () => {
     expect(codes(expired, e)).toContain("expired_validity");
     const ok = candidate("xometry", { offers: [offer()], validUntil: "2026-10-12", quotedAt: "2026-10-12T11:00:00.000Z" });
     expect(validateProviderResult(ok, e).ok).toBe(true);
+    const inverted = candidate("xometry", {
+      offers: [offer()],
+      validUntil: "2026-10-12T12:01:00.000Z",
+      quotedAt: "2026-10-12T12:02:00.000Z",
+    });
+    inverted.collectedAt = "2026-10-12T11:58:00.000Z";
+    expect(codes(inverted, e)).toContain("invalid_timestamp");
+    const invertedOffer = candidate("xometry", {
+      offers: [offer({ validUntil: "2026-10-12T12:01:00.000Z" })],
+      quotedAt: "2026-10-12T12:02:00.000Z",
+    });
+    invertedOffer.collectedAt = "2026-10-12T11:58:00.000Z";
+    expect(codes(invertedOffer, e)).toContain("invalid_timestamp");
+  });
+
+  it("treats validUntil as inclusive at the validation instant", () => {
+    expect(validateProviderResult(candidate("xometry", { offers: [offer()], validUntil: NOW }), e).ok).toBe(true);
+    expect(validateProviderResult(candidate("xometry", { offers: [offer({ validUntil: NOW })] }), e).ok).toBe(true);
+    expect(codes(candidate("xometry", { offers: [offer({ validUntil: "2026-10-12T11:59:59.999Z" })] }), e)).toContain("expired_validity");
+  });
+
+  it("derives an expiry from a vendor duration and rejects it once passed", () => {
+    const stale = candidate("xometry", {
+      offers: [offer({ validityDurationDays: 1, validitySource: "vendor_duration" })],
+      quotedAt: "2026-10-10T10:00:00.000Z",
+    });
+    expect(codes(stale, e)).toContain("expired_validity");
+    const live = candidate("xometry", {
+      offers: [offer({ validityDurationDays: 3, validitySource: "vendor_duration" })],
+      quotedAt: "2026-10-10T10:00:00.000Z",
+    });
+    expect(validateProviderResult(live, e).ok).toBe(true);
+    const boundary = candidate("xometry", {
+      offers: [offer({ validityDurationDays: 1, validitySource: "vendor_duration" })],
+      quotedAt: "2026-10-11T12:00:00.000Z",
+    });
+    expect(validateProviderResult(boundary, e).ok).toBe(true);
   });
 
   it("rejects non quote statuses with a classified admin rejection", () => {
@@ -411,14 +448,19 @@ describe("fail closed matrix", () => {
     expect(codes(many, e)).toContain("too_many_offers");
   });
 
-  it("rejects credential material and never echoes adapter values", () => {
+  it("rejects a credential shaped note and never echoes adapter values", () => {
     const secret = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
-    const c = candidate("xometry", { offers: [offer()], notes: [secret], rawPayload: { requestedQuantity: 10, storageState: "x" } });
+    const c = candidate("xometry", { offers: [offer()], notes: [secret] });
     const out = validateProviderResult(c, e);
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.rejection.code).toBe("forbidden_content");
     expect(JSON.stringify(toAdminRejectionDiagnostic(out.rejection))).not.toContain("abcdefghijkl");
+  });
+
+  it("rejects a storageState key holding a value on its own", () => {
+    const c = candidate("xometry", { offers: [offer()], rawPayload: { requestedQuantity: 10, storageState: "x" } });
+    expect(codes(c, e)).toEqual(["forbidden_content"]);
   });
 
   it("strips bulk DOM payload keys from accepted offers", () => {
@@ -557,7 +599,8 @@ describe("review probes", () => {
     let deep: Record<string, unknown> = { leaf: 1 };
     for (let i = 0; i < 12; i += 1) deep = { next: deep };
     const tooDeep = candidate("quickparts", { offers: [offer()], rawPayload: { requestedQuantity: 10, deep } });
-    expect(codes(tooDeep, e)).toContain("adapter_admission_claim");
+    expect(codes(tooDeep, e)).toContain("malformed_candidate");
+    expect(codes(tooDeep, e)).not.toContain("adapter_admission_claim");
   });
 
   it("keeps a sensitive key that holds a real value as forbidden", () => {
@@ -565,6 +608,75 @@ describe("review probes", () => {
     expect(codes(c, e)).toContain("forbidden_content");
     const empty = candidate("quickparts", { offers: [offer({ rawPayload: { sessionId: null } })] });
     expect(validateProviderResult(empty, e).ok).toBe(true);
+  });
+});
+
+describe("OVD-463 follow up hardening", () => {
+  const e = expectation("xometry");
+  const withOffer = (o: Partial<AdapterOfferInput>) => candidate("xometry", { offers: [offer(o)] });
+  const prov = (over: Record<string, unknown>) => ({ ...offer().provenance, ...over }) as AdapterOfferInput["provenance"];
+
+  it("scans and constrains nested provenance and sortRank", () => {
+    expect(codes(withOffer({ provenance: prov({ containerSelector: "Bearer abcdefghijklmnopqrstuvwxyz0123456789" }) }), e)).toContain("forbidden_content");
+    expect(codes(withOffer({ provenance: prov({ containerSelector: 7 }) }), e)).toContain("malformed_candidate");
+    expect(codes(withOffer({ provenance: prov({ providerOptionIdSource: "guess" }) }), e)).toContain("untrusted_source");
+    expect(codes(withOffer({ provenance: prov({ leadTimeSource: "sk-abcdefghijklmnopqrstuv" }) }), e)).toContain("untrusted_source");
+    expect(codes(withOffer({ provenance: prov({ geographicOriginSource: "inferred" }) }), e)).toContain("untrusted_source");
+    expect(codes(withOffer({ sortRank: 1.5 }), e)).toContain("malformed_candidate");
+    expect(codes(withOffer({ sortRank: "1" as unknown as number }), e)).toContain("malformed_candidate");
+    expect(validateProviderResult(withOffer({ sortRank: 3 }), e).ok).toBe(true);
+  });
+
+  it("does not exempt short lowercase secrets under a credential key", () => {
+    const c = candidate("xometry", { offers: [offer({ rawPayload: { password: "correcthorsebattery" } })] });
+    expect(codes(c, e)).toContain("forbidden_content");
+    for (const word of ["none", "required_unavailable", "redacted", "not_applicable"]) {
+      const ok = candidate("xometry", { offers: [offer({ rawPayload: { password: word } })] });
+      expect(validateProviderResult(ok, e).ok).toBe(true);
+    }
+  });
+
+  it("reports depth overflow as malformed, not as an admission claim", () => {
+    let deep: Record<string, unknown> = { leaf: 1 };
+    for (let i = 0; i < 12; i += 1) deep = { next: deep };
+    const out = validateProviderResult(candidate("xometry", { offers: [offer({ rawPayload: { deep } })] }), e);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.rejection.issues.map((i) => i.code)).toContain("malformed_candidate");
+    expect(out.rejection.issues.map((i) => i.code)).not.toContain("adapter_admission_claim");
+  });
+
+  it("scans quoteUrl query string and fragment for credentials", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc";
+    for (const url of [
+      `https://www.xometry.com/q/1?access_token=${jwt}`,
+      `https://www.xometry.com/q/1?ref=${jwt}`,
+      "https://www.xometry.com/q/1?token=abc",
+      "https://www.xometry.com/q/1?sig=abc",
+      `https://www.xometry.com/q/1#access_token=${jwt}`,
+      "https://www.xometry.com/q/1#password=hunter2",
+    ]) {
+      expect(codes(withOffer({ quoteUrl: url }), e), url).toContain("invalid_destination");
+      expect(codes(candidate("xometry", { offers: [offer()], quoteUrl: url }), e), url).toContain("invalid_destination");
+    }
+    expect(validateProviderResult(withOffer({ quoteUrl: "https://www.xometry.com/q/1?quote=42&utm_source=mail#details" }), e).ok).toBe(true);
+  });
+
+  it("credential scans binding.adapterRevision", () => {
+    const c = candidate("xometry", { offers: [offer()] });
+    c.binding.adapterRevision = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
+    const out = validateProviderResult(c, e);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.rejection.code).toBe("forbidden_content");
+  });
+
+  it("checks simulated markers on offer rawPayload", () => {
+    for (const rawPayload of [{ mode: "simulate" }, { detectedFlow: "simulate" }, { source: "simulated_portal" }]) {
+      const out = validateProviderResult(withOffer({ rawPayload }), e);
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.rejection.code).toBe("simulated_result");
+    }
   });
 });
 
