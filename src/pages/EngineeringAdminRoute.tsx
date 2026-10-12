@@ -22,7 +22,7 @@ export default function EngineeringAdminRoute() {
     if (!userId) return;
     let live = true;
     setAdmission({ userId, state: "checking" });
-    callRpc("api_get_is_platform_admin")
+    void callRpc("api_get_is_platform_admin")
       .then((result) => result.error === null && result.data === true)
       .catch(() => false)
       .then((admitted) => {
