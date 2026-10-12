@@ -322,6 +322,8 @@ export async function invalidateClientWorkspaceQueries(
     queryClient.invalidateQueries({ queryKey: ["project"] }),
     queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
     queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
+    // OVD-570 deadline intent can change with a request save, so the comparison reseeds from it.
+    queryClient.invalidateQueries({ queryKey: ["part-deadline"] }),
     ...(input.projectId
       ? [
           queryClient.invalidateQueries({
