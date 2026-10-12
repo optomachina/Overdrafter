@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { REQUIRED_READINESS_HEADINGS } from "./provider-readiness-doc.mjs";
+
 /**
  * Deterministic templates for `fixture:onboard --stage=live|admit` (OVD-687).
  * Every template is a pure function of the provider manifest and the explicit
@@ -451,20 +453,10 @@ export function sessionSecretBlock({ key, displayName }) {
 export function readinessDoc({ key, displayName, manifest }) {
   const C = constantCase(key);
   const P = pascalCase(key);
-  return `# ${displayName} live readiness (generated, default-off)
-
-${generatedBanner(key, "live")} Review and edit before relying on it.
-
-This workflow describes the generated ${displayName} production quote path.
-Every generated piece is disabled and non-authoritative. Shipping it does not
-authorize ${displayName} login, session capture, CAD upload, quote creation,
-live DOM capture, deployment, admission, or rollout; each remains a protected
-action under \`AGENTS.md\`. Promotion follows the three stages in
-\`docs/provider-integration.md\` and the generator contract in \`docs/fixture.md\`.
-
-## What the generator provides
-
-| Layer | File | State |
+  // Headings and their order come from the shared constant that provider:check
+  // enforces; only the bodies are defined here.
+  const bodies = new Map([
+    ["## What the code provides", `| Layer | File | State |
 | --- | --- | --- |
 | Envelope fixture | \`test-fixtures/provider-dispatch-envelope/${key}-v1.json\` | Synthetic \`${dispatchEnvelopeId(key)}.v1\`; one CAD file, no drawing. |
 | Authorization binding | \`worker/src/adapters/${key}DispatchAuthorization.ts\` | \`${C}_DISPATCH_ENVELOPE\` bound to the shared \`providerDispatchAuthorizationDenial\`. Not in \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\`. |
@@ -476,10 +468,21 @@ action under \`AGENTS.md\`. Promotion follows the three stages in
 
 Allowed hosts (from the manifest, unreviewed): ${allowedHosts(manifest).map((host) => `\`${host}\``).join(", ")}.
 CAD extensions (from the manifest envelope): ${cadExtensions(manifest).map((extension) => `\`${extension}\``).join(", ")}.
+`],
+    ["## Default-off switches", `Nothing generated here enables ${displayName}. Each switch below stays off
+until a reviewed change turns it on:
 
-## Remaining manual steps before admission
-
-1. Replace the placeholder routes, upload selector, terminal signals and
+1. **Admission policy.** The \`${key}\` admission policy stays \`disabled\`;
+   the generator never approves it.
+2. **Reviewed envelope.** \`${dispatchEnvelopeId(key)}\` is not in
+   \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` until step 5 below.
+3. **Adapter registration.** The production portal definition is not
+   registered in \`worker/src/adapters/index.ts\`.
+4. **Live adapter.** The registry entry for \`${key}\` is \`liveAdapter: false\`
+   until the reviewed edit in step 4 below.
+5. **Worker adapters.** \`${key}\` is not in \`WORKER_LIVE_ADAPTERS\`, and no
+   session secret is bound.`],
+    ["## Known gaps before admission", `1. Replace the placeholder routes, upload selector, terminal signals and
    \`${C}_PRODUCTION_LOCATORS\` from one authorized live DOM review.
 2. Implement \`assessEligibility\`, \`configure\` and \`extractOffers\`, then
    un-skip the browser fixture.
@@ -496,15 +499,37 @@ CAD extensions (from the manifest envelope): ${cadExtensions(manifest).map((exte
 5. Review the envelope: add it to \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` and
    generate the review-only admission SQL with
    \`npm run fixture:onboard -- ${key} --stage=admit\`.
-
-## Inputs only Blaine can provide
-
-1. A ${displayName} account approved for automated quote-only use and its
+`],
+    ["## Inputs only Blaine can provide", `1. A ${displayName} account approved for automated quote-only use and its
    Playwright storage state in Secret Manager.
 2. The permission basis (written authorization or terms review).
 3. The live DOM review, the egress decision, and the admission values and
    certification run.
-`;
+`],
+    ["## Admission revision template (not applied)", `Not applied. Generate the review-only admission revision with
+\`npm run fixture:onboard -- ${key} --stage=admit\`. The output is an operator
+review artifact, not a migration. Record admission as a separate reviewed
+change only after the inputs above exist.`],
+  ]);
+  const sections = REQUIRED_READINESS_HEADINGS.map((heading) => {
+    const body = bodies.get(heading);
+    if (!body) {
+      throw new Error(`readiness doc template has no body for ${heading}`);
+    }
+    return `${heading}\n\n${body.trim()}\n`;
+  });
+  return `# ${displayName} live readiness (generated, default-off)
+
+${generatedBanner(key, "live")} Review and edit before relying on it.
+
+This workflow describes the generated ${displayName} production quote path.
+Every generated piece is disabled and non-authoritative. Shipping it does not
+authorize ${displayName} login, session capture, CAD upload, quote creation,
+live DOM capture, deployment, admission, or rollout; each remains a protected
+action under \`AGENTS.md\`. Promotion follows the three stages in
+\`docs/provider-integration.md\` and the generator contract in \`docs/fixture.md\`.
+
+${sections.join("\n")}`;
 }
 
 export function envelopeReviewSql({ key, displayName, issue, timestamp }) {
