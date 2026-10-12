@@ -21,6 +21,7 @@
     "provider:sync": "node scripts/provider-sync.mjs",
     "provider:check": "node scripts/provider-check.mjs",
     "provider:permissions": "node scripts/provider-permissions-check.mjs",
+    "provider:kill": "node scripts/provider-kill.mjs",
     "preflight": "bash scripts/preflight.sh",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.server.json",
