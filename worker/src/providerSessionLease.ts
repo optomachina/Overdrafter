@@ -212,15 +212,31 @@ export type ProviderSessionLeaseStoreReleaseResponse =
 export type ProviderSessionLeaseStoreReportResponse =
   | { status: "blocked"; outcome: ProviderSessionBlockingOutcome; generation: number }
   | ProviderSessionLeaseStoreLost
-  | OwnerRejected;
+  | OwnerRejected
+  | { status: "rejected"; reason: "invalid_outcome" };
 
 export type ProviderSessionLeaseStoreRevokeResponse =
   | { status: "blocked"; outcome: ProviderSessionBlockingOutcome; generation: number }
-  | { status: "rejected"; reason: "invalid_identity" | "binding_mismatch" };
+  | { status: "rejected"; reason: "invalid_identity" | "invalid_actor" | "binding_mismatch" };
 
 export type ProviderSessionLeaseStoreClearResponse =
   | { status: "cleared" }
-  | { status: "rejected"; reason: "invalid_identity" | "not_blocked" };
+  | { status: "rejected"; reason: "invalid_identity" | "invalid_actor" | "not_blocked" };
+
+/**
+ * Required attribution for operator actions, recorded with the row. Both are
+ * opaque references in the task-ref format (for example `ops-oncall-1` and a
+ * ticket or runbook id); never names or e-mail addresses.
+ */
+export type ProviderSessionLeaseOperatorAudit = { actorRef: string; reasonRef: string };
+
+export function isProviderSessionOperatorAudit(value: unknown): value is ProviderSessionLeaseOperatorAudit {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value).sort();
+  if (keys.length !== 2 || keys[0] !== "actorRef" || keys[1] !== "reasonRef") return false;
+  const audit = value as ProviderSessionLeaseOperatorAudit;
+  return isProviderSessionTaskRef(audit.actorRef) && isProviderSessionTaskRef(audit.reasonRef);
+}
 
 /**
  * Atomic lease storage. Each method must be linearizable per binding key:
@@ -237,10 +253,21 @@ export interface ProviderSessionLeaseStore {
   ): Promise<ProviderSessionLeaseStoreReportResponse>;
 }
 
-/** Operator-only actions; not reachable from the task-facing manager. */
+/**
+ * Operator-only actions; not reachable from the task-facing manager, and built
+ * by a separate factory so worker code never holds them. Every call requires and
+ * records an actor and reason reference.
+ */
 export interface ProviderSessionLeaseOperatorStore {
-  revokeBinding(identity: ProviderSessionIdentity): Promise<ProviderSessionLeaseStoreRevokeResponse>;
-  clearBlock(key: ProviderSessionBindingKey, generation: number): Promise<ProviderSessionLeaseStoreClearResponse>;
+  revokeBinding(
+    identity: ProviderSessionIdentity,
+    audit: ProviderSessionLeaseOperatorAudit,
+  ): Promise<ProviderSessionLeaseStoreRevokeResponse>;
+  clearBlock(
+    key: ProviderSessionBindingKey,
+    generation: number,
+    audit: ProviderSessionLeaseOperatorAudit,
+  ): Promise<ProviderSessionLeaseStoreClearResponse>;
 }
 
 // --------------------------------------------------------------------------- errors and logging

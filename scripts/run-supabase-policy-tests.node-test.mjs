@@ -75,4 +75,16 @@ test('OVD-462 pgTAP fixture is a byte copy of the proposed migration draft', () 
   // suite installs this copy in its rolled-back transaction only while the table is absent.
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd462_provider_session_leases.inc')),
     readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.sql', import.meta.url))));
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd462_provider_session_leases_rollback.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.rollback.sql', import.meta.url))));
+});
+
+test('OVD-462 rollback refuses to drop occupants before any drop runs', () => {
+  const rollback = readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.rollback.sql', import.meta.url)), 'utf8');
+  const guard = rollback.indexOf("raise exception 'OVD-462 rollback refused");
+  assert(guard > 0, 'occupant guard missing');
+  assert(rollback.indexOf('\ndrop ') > guard, 'every drop must follow the occupant guard');
+  assert.match(rollback, /state in \('active', 'blocked'\)/);
+  assert.match(rollback, /current_setting\('ovd462\.rollback_discard_occupants', true\), ''\) <> 'confirmed'/);
+  assert(!/^\s*(?:begin|commit)\s*;/im.test(rollback), 'the runner owns the transaction');
 });

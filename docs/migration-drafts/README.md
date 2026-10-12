@@ -7,4 +7,4 @@ promoted with `npm run migration:next` and copied byte-for-byte into
 
 | Draft | Issue | Rollback | Notes |
 | --- | --- | --- | --- |
-| `ovd-462.sql` | OVD-462 provider session lease | `ovd-462.rollback.sql` | expand-only; see [provider-session-lease.md](../provider-session-lease.md) |
+| `ovd-462.sql` | OVD-462 provider session lease | `ovd-462.rollback.sql` (refuses while occupants exist) | expand-only; see [provider-session-lease.md](../provider-session-lease.md) |

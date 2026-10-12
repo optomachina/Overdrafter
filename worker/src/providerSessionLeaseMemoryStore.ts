@@ -1,11 +1,13 @@
 import {
   isProviderSessionHolderToken,
   isProviderSessionIdentity,
+  isProviderSessionOperatorAudit,
   isProviderSessionTaskRef,
   PROVIDER_SESSION_BLOCKING_OUTCOMES,
   type ProviderSessionBindingKey,
   type ProviderSessionBlockingOutcome,
   type ProviderSessionIdentity,
+  type ProviderSessionLeaseOperatorAudit,
   type ProviderSessionLeaseOperatorStore,
   type ProviderSessionLeaseOwnedRequest,
   type ProviderSessionLeaseStore,
@@ -43,6 +45,8 @@ export type ProviderSessionLeaseMemoryRow = {
   renewalCount: number;
   expiresAt: number | null;
   hardExpiresAt: number | null;
+  revokedBy: ProviderSessionLeaseOperatorAudit | null;
+  clearedBy: ProviderSessionLeaseOperatorAudit | null;
 };
 
 export type ProviderSessionLeaseMemoryStore = ProviderSessionLeaseStore &
@@ -61,10 +65,30 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
 
   const occupant = (key: ProviderSessionBindingKey) =>
     rows.find((row) => sameKey(row, key) && (row.state === "active" || row.state === "blocked"));
-  const nextGeneration = (key: ProviderSessionBindingKey) =>
-    rows.filter((row) => sameKey(row, key)).reduce((max, row) => Math.max(max, row.generation), 0) + 1;
-  const bindingUsedElsewhere = (identity: ProviderSessionIdentity) =>
-    rows.some((row) => row.sessionBindingRef === identity.sessionBindingRef && !sameKey(row, identity));
+  const nextGeneration = (key: ProviderSessionBindingKey) => {
+    const fromHistory = rows.filter((row) => sameKey(row, key)).reduce((max, row) => Math.max(max, row.generation), 0) + 1;
+    const generation = Math.max(counters.get(keyOf(key)) ?? 1, fromHistory);
+    counters.set(keyOf(key), generation + 1);
+    return generation;
+  };
+  // Mirrors provider_session_bindings: a session binding registers to one key,
+  // and the per-key generation counter survives lease-history deletion.
+  const bindings = new Map<string, ProviderSessionBindingKey>();
+  const counters = new Map<string, number>();
+  const keyOf = (key: ProviderSessionBindingKey) => `${key.provider}|${key.accountRef}|${key.environment}`;
+  const bindingUsedElsewhere = (identity: ProviderSessionIdentity) => {
+    const registered = bindings.get(identity.sessionBindingRef);
+    return registered !== undefined && keyOf(registered) !== keyOf(identity);
+  };
+  const register = (identity: ProviderSessionIdentity) => {
+    if (!bindings.has(identity.sessionBindingRef)) {
+      bindings.set(identity.sessionBindingRef, {
+        provider: identity.provider,
+        accountRef: identity.accountRef,
+        environment: identity.environment,
+      });
+    }
+  };
   const expireStale = (key: ProviderSessionBindingKey, at: number) => {
     for (const row of rows) {
       if (sameKey(row, key) && row.state === "active" && (row.expiresAt ?? 0) <= at) row.state = "expired";
@@ -113,6 +137,7 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
           retryAfterMs: Math.min(Math.max(1, Math.ceil(current.expiresAt! - at)), ttlSeconds * 1000),
         };
       }
+      register(identity);
       const generation = nextGeneration(identity);
       rows.push({
         provider: identity.provider,
@@ -129,6 +154,8 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
         renewalCount: 0,
         expiresAt: at + ttlSeconds * 1000,
         hardExpiresAt: at + maxDurationSeconds * 1000,
+        revokedBy: null,
+        clearedBy: null,
       });
       return { status: "acquired", generation, idempotent: false, expiresInMs: ttlSeconds * 1000, renewalsRemaining: maxRenewals };
     },
@@ -164,9 +191,9 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
     async reportOutcome(
       request: ProviderSessionLeaseOwnedRequest & { outcome: ProviderSessionBlockingOutcome },
     ): Promise<ProviderSessionLeaseStoreReportResponse> {
-      if (!isProviderSessionIdentity(request.identity)
-        || !(PROVIDER_SESSION_BLOCKING_OUTCOMES as readonly string[]).includes(request.outcome)) {
-        return { status: "rejected", reason: "invalid_identity" };
+      if (!isProviderSessionIdentity(request.identity)) return { status: "rejected", reason: "invalid_identity" };
+      if (!(PROVIDER_SESSION_BLOCKING_OUTCOMES as readonly string[]).includes(request.outcome)) {
+        return { status: "rejected", reason: "invalid_outcome" };
       }
       const row = findOwned(request);
       if (!row) return { status: "rejected", reason: "not_owner" };
@@ -180,16 +207,25 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
       return { status: "blocked", outcome: request.outcome, generation: row.generation };
     },
 
-    async revokeBinding(identity: ProviderSessionIdentity): Promise<ProviderSessionLeaseStoreRevokeResponse> {
+    async revokeBinding(
+      identity: ProviderSessionIdentity,
+      audit: ProviderSessionLeaseOperatorAudit,
+    ): Promise<ProviderSessionLeaseStoreRevokeResponse> {
       if (!isProviderSessionIdentity(identity)) return { status: "rejected", reason: "invalid_identity" };
+      if (!isProviderSessionOperatorAudit(audit)) return { status: "rejected", reason: "invalid_actor" };
       if (bindingUsedElsewhere(identity)) return { status: "rejected", reason: "binding_mismatch" };
       const current = occupant(identity);
+      if (current && current.sessionBindingRef !== identity.sessionBindingRef) {
+        return { status: "rejected", reason: "binding_mismatch" };
+      }
       if (current?.state === "blocked") return { status: "blocked", outcome: current.outcome!, generation: current.generation };
       if (current) {
         current.state = "blocked";
         current.outcome = "owner_revoked";
+        current.revokedBy = { ...audit };
         return { status: "blocked", outcome: "owner_revoked", generation: current.generation };
       }
+      register(identity);
       const generation = nextGeneration(identity);
       rows.push({
         provider: identity.provider,
@@ -206,21 +242,33 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
         renewalCount: 0,
         expiresAt: null,
         hardExpiresAt: null,
+        revokedBy: { ...audit },
+        clearedBy: null,
       });
       return { status: "blocked", outcome: "owner_revoked", generation };
     },
 
-    async clearBlock(key: ProviderSessionBindingKey, generation: number): Promise<ProviderSessionLeaseStoreClearResponse> {
+    async clearBlock(
+      key: ProviderSessionBindingKey,
+      generation: number,
+      audit: ProviderSessionLeaseOperatorAudit,
+    ): Promise<ProviderSessionLeaseStoreClearResponse> {
       const probe = { ...key, sessionBindingRef: `sb_${"0".repeat(32)}` };
       if (!isProviderSessionIdentity(probe)) return { status: "rejected", reason: "invalid_identity" };
+      if (!isProviderSessionOperatorAudit(audit)) return { status: "rejected", reason: "invalid_actor" };
       const row = rows.find((candidate) => sameKey(candidate, key) && candidate.generation === generation && candidate.state === "blocked");
       if (!row) return { status: "rejected", reason: "not_blocked" };
       row.state = "cleared";
+      row.clearedBy = { ...audit };
       return { status: "cleared" };
     },
 
     rows() {
-      return rows.map((row) => ({ ...row }));
+      return rows.map((row) => ({
+        ...row,
+        revokedBy: row.revokedBy && { ...row.revokedBy },
+        clearedBy: row.clearedBy && { ...row.clearedBy },
+      }));
     },
   };
 }

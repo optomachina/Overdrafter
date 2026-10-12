@@ -10,7 +10,9 @@ import {
 } from "./providerSessionLease";
 import { createProviderSessionLeaseMemoryStore } from "./providerSessionLeaseMemoryStore";
 import {
+  createProviderSessionLeaseOperatorRpcStore,
   createProviderSessionLeaseRpcStore,
+  PROVIDER_SESSION_LEASE_OPERATOR_RPCS,
   PROVIDER_SESSION_LEASE_RPCS,
   ProviderSessionLeaseStoreError,
   type ProviderSessionLeaseRpcClient,
@@ -26,6 +28,7 @@ const identity: ProviderSessionIdentity = {
 };
 const HOLDER = "46200000-0000-4000-8000-000000000001";
 const owned = { identity, taskRef: "task-a", holderToken: HOLDER, generation: 1 };
+const OPERATOR = { actorRef: "ops-oncall-1", reasonRef: "OVD-462-runbook" };
 
 function fixedClient(data: unknown, error: unknown = null) {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
@@ -50,12 +53,13 @@ describe("provider session lease RPC store", () => {
     const acquire = fixedClient({ status: "contended", retry_after_ms: 5 });
     await createProviderSessionLeaseRpcStore(acquire.client).acquire({ ...owned, ttlSeconds: 30, maxRenewals: 2, maxDurationSeconds: 60 });
     const revoke = fixedClient({ status: "rejected", reason: "binding_mismatch" });
-    await createProviderSessionLeaseRpcStore(revoke.client).revokeBinding(identity);
+    await createProviderSessionLeaseOperatorRpcStore(revoke.client).revokeBinding(identity, OPERATOR);
     const clear = fixedClient({ status: "rejected", reason: "not_blocked" });
-    await createProviderSessionLeaseRpcStore(clear.client).clearBlock(identity, 3);
+    await createProviderSessionLeaseOperatorRpcStore(clear.client).clearBlock(identity, 3, OPERATOR);
 
     const all = [...calls, ...acquire.calls, ...revoke.calls, ...clear.calls];
-    expect(new Set(all.map((c) => c.fn))).toEqual(new Set(Object.values(PROVIDER_SESSION_LEASE_RPCS)));
+    expect(new Set(all.map((c) => c.fn))).toEqual(
+      new Set([...Object.values(PROVIDER_SESSION_LEASE_RPCS), ...Object.values(PROVIDER_SESSION_LEASE_OPERATOR_RPCS)]));
     for (const call of all) {
       const signature = new RegExp(`create function public\\.${call.fn}\\(([^)]*)\\)`).exec(draft);
       expect(signature, call.fn).not.toBeNull();
@@ -73,7 +77,34 @@ describe("provider session lease RPC store", () => {
       p_max_renewals: 2,
       p_max_duration_seconds: 60,
     });
-    expect(clear.calls[0].args).toEqual({ p_provider: "xometry", p_account_ref: identity.accountRef, p_environment: "test", p_generation: 3 });
+    expect(clear.calls[0].args).toEqual({
+      p_provider: "xometry",
+      p_account_ref: identity.accountRef,
+      p_environment: "test",
+      p_generation: 3,
+      p_actor_ref: "ops-oncall-1",
+      p_reason_ref: "OVD-462-runbook",
+    });
+  });
+
+  it("keeps operator RPCs out of the worker store", () => {
+    const { client } = fixedClient(null);
+    const worker = createProviderSessionLeaseRpcStore(client);
+    expect(Object.keys(worker).sort()).toEqual(["acquire", "release", "renew", "reportOutcome"]);
+    expect(Object.keys(createProviderSessionLeaseOperatorRpcStore(client)).sort()).toEqual(["clearBlock", "revokeBinding"]);
+    expect(Object.values(PROVIDER_SESSION_LEASE_RPCS)).not.toContain(PROVIDER_SESSION_LEASE_OPERATOR_RPCS.revokeBinding);
+    expect(Object.values(PROVIDER_SESSION_LEASE_RPCS)).not.toContain(PROVIDER_SESSION_LEASE_OPERATOR_RPCS.clearBlock);
+  });
+
+  it("requires operator attribution before calling an operator RPC", async () => {
+    const { client, calls } = fixedClient({ status: "cleared" });
+    const operator = createProviderSessionLeaseOperatorRpcStore(client);
+    expect(await operator.revokeBinding(identity, { actorRef: "", reasonRef: "OVD-462" })).toEqual({ status: "rejected", reason: "invalid_actor" });
+    expect(await operator.clearBlock(identity, 1, { actorRef: "someone@example.com", reasonRef: "OVD-462" }))
+      .toEqual({ status: "rejected", reason: "invalid_actor" });
+    expect(calls).toHaveLength(0);
+    expect(await createProviderSessionLeaseOperatorRpcStore(fixedClient({ status: "rejected", reason: "invalid_actor" }).client)
+      .revokeBinding(identity, OPERATOR)).toEqual({ status: "rejected", reason: "invalid_actor" });
   });
 
   it.each([
@@ -97,6 +128,9 @@ describe("provider session lease RPC store", () => {
     expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "blocked", outcome: "corrupt_state", generation: 1 }).client)
       .reportOutcome({ ...owned, outcome: "corrupt_state" }))
       .toEqual({ status: "blocked", outcome: "corrupt_state", generation: 1 });
+    expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "rejected", reason: "invalid_outcome" }).client)
+      .reportOutcome({ ...owned, outcome: "corrupt_state" }))
+      .toEqual({ status: "rejected", reason: "invalid_outcome" });
   });
 
   it.each([

@@ -26,6 +26,7 @@ const NAMESPACE_KEY = new Uint8Array(32).fill(7);
 const RAW_ACCOUNT = "buyer.synthetic@example.test";
 const RAW_COOKIE = "sessionid=synthetic-cookie-value-462";
 const RAW_PROFILE_PATH = "/var/lib/overdrafter/profiles/xometry/buyer.synthetic";
+const OPERATOR = { actorRef: "ops-oncall-1", reasonRef: "OVD-462-runbook" };
 
 function identityFor(
   provider = "xometry",
@@ -345,7 +346,7 @@ describe("AC4: renewal is finite and lease loss stops execution without fallback
       }
     });
     await vi.advanceTimersByTimeAsync(15_000);
-    await memory.revokeBinding(identity);
+    await memory.revokeBinding(identity, OPERATOR);
     await vi.advanceTimersByTimeAsync(15_000);
     const result = await run;
     expect(result).toEqual({ kind: "lease_lost", outcome: "owner_revoked" });
@@ -428,7 +429,8 @@ describe("AC5: session failures map to bounded terminal/manual-follow-up outcome
       expect(result).toEqual({ kind: "manual_follow_up", outcome });
       expect(await manager.acquire({ identity, taskRef: "task-b" })).toEqual({ kind: "manual_follow_up", outcome });
       const blocked = memory.rows().find((row) => row.state === "blocked")!;
-      expect(await memory.clearBlock(identity, blocked.generation)).toEqual({ status: "cleared" });
+      expect(await memory.clearBlock(identity, blocked.generation, OPERATOR)).toEqual({ status: "cleared" });
+      expect(memory.rows().find((row) => row.generation === blocked.generation)?.clearedBy).toEqual(OPERATOR);
       expect((await manager.acquire({ identity, taskRef: "task-b" })).kind).toBe("acquired");
     },
   );
@@ -453,10 +455,39 @@ describe("AC5: session failures map to bounded terminal/manual-follow-up outcome
     const { manager, memory } = setup();
     const identity = identityFor();
     const lease = await mustAcquire(manager, identity, "task-a");
-    expect(await memory.revokeBinding(identity)).toEqual({ status: "blocked", outcome: "owner_revoked", generation: 1 });
+    expect(await memory.revokeBinding(identity, OPERATOR)).toEqual({ status: "blocked", outcome: "owner_revoked", generation: 1 });
+    expect(memory.rows()[0].revokedBy).toEqual(OPERATOR);
     expect(await lease.renew()).toEqual({ kind: "lost", outcome: "owner_revoked" });
     expect(() => lease.assertHeld()).toThrow(expect.objectContaining({ outcome: "owner_revoked" }));
     expect(await manager.acquire({ identity, taskRef: "task-b" })).toEqual({ kind: "manual_follow_up", outcome: "owner_revoked" });
+  });
+
+  it("requires opaque operator attribution and the holder's session binding to revoke", async () => {
+    const { manager, memory } = setup();
+    const identity = identityFor();
+    const lease = await mustAcquire(manager, identity, "task-a");
+    for (const audit of [{ actorRef: "", reasonRef: "OVD-462" }, { actorRef: "ops", reasonRef: "" },
+      { actorRef: RAW_ACCOUNT, reasonRef: "OVD-462" }, { ...OPERATOR, extra: "x" }]) {
+      expect(await memory.revokeBinding(identity, audit as typeof OPERATOR)).toEqual({ status: "rejected", reason: "invalid_actor" });
+    }
+    const otherSlot = identityFor("xometry", "test", RAW_ACCOUNT, "secondary");
+    expect(await memory.revokeBinding(otherSlot, OPERATOR)).toEqual({ status: "rejected", reason: "binding_mismatch" });
+    expect(await memory.revokeBinding(identityFor("fictiv"), OPERATOR)).toEqual(expect.objectContaining({ status: "blocked" }));
+    const fictivSlot = identityFor("fictiv");
+    expect(await memory.revokeBinding({ ...identity, sessionBindingRef: fictivSlot.sessionBindingRef }, OPERATOR))
+      .toEqual({ status: "rejected", reason: "binding_mismatch" });
+    expect((await lease.renew()).kind).toBe("renewed");
+    expect(await memory.clearBlock(identity, 1, { actorRef: "ops", reasonRef: "" })).toEqual({ status: "rejected", reason: "invalid_actor" });
+  });
+
+  it("rejects an unknown outcome as invalid_outcome", async () => {
+    const memory = createProviderSessionLeaseMemoryStore();
+    const identity = identityFor();
+    const acquired = await memory.acquire({ identity, taskRef: "task-a", holderToken: nextToken(), ttlSeconds: 30, maxRenewals: 1, maxDurationSeconds: 60 });
+    const holderToken = memory.rows()[0].holderToken!;
+    expect(acquired.status).toBe("acquired");
+    expect(await memory.reportOutcome({ identity, taskRef: "task-a", holderToken, generation: 1, outcome: "not_an_outcome" as never }))
+      .toEqual({ status: "rejected", reason: "invalid_outcome" });
   });
 
   it("does not record an outcome after the lease was already lost", async () => {
@@ -476,7 +507,7 @@ describe("AC6: credentials, cookies, storage state, account identifiers and prof
     const lease = await mustAcquire(manager, identity, "task-a");
     await manager.acquire({ identity, taskRef: "task-b" });
     await lease.renew();
-    await memory.revokeBinding(identity);
+    await memory.revokeBinding(identity, OPERATOR);
     await lease.renew();
     let thrown: unknown;
     try {

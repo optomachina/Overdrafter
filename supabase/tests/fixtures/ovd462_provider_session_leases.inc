@@ -8,16 +8,60 @@
 --
 -- ===========================================================================
 -- PHASE 1: EXPAND (this window)
--- Adds one table, one private validator and six service-role-only RPCs. No
+-- Adds two tables, one private validator and six service-role-only RPCs. No
 -- existing object is altered, so the phase is backward compatible: running
 -- workers ignore it until OVD-464 wires the worker lease manager to these RPCs.
 --
 -- Data boundary: rows hold only opaque HMAC-derived references (acct_<hex>,
 -- sb_<hex>), the provider slug, the runtime environment, a task reference, a
--- random holder token and timestamps. Credentials, cookies, storage state,
--- profile bytes, account names, e-mail addresses and paths are never stored;
--- the format checks below reject them.
+-- random holder token, opaque operator actor/reason references and timestamps.
+-- Credentials, cookies, storage state, profile bytes, account names, e-mail
+-- addresses and paths are never stored; the format checks below reject them.
+--
+-- Locking: every RPC serializes on a transaction advisory lock for the
+-- provider/account/environment key. RPCs that can associate a session binding
+-- with a key (acquire, revoke) then take a second lock on the session_binding_ref.
+-- The order is always key lock first, then exactly one session-binding lock, so
+-- no deadlock cycle is possible. Each RPC sets lock_timeout = 2s: a stuck holder
+-- makes callers fail with 55P03 (lock_not_available), which the worker treats as
+-- an unconfirmed store call and fails closed, instead of waiting without bound.
 -- ===========================================================================
+
+-- Storage backstop for "a session binding belongs to exactly one
+-- provider/account/environment": the primary key makes the association unique
+-- even if the advisory locks were bypassed, and lease rows reference it. It also
+-- carries the generation counter, so generations stay strictly increasing after
+-- lease history is deleted by retention.
+create table public.provider_session_bindings (
+  session_binding_ref text primary key,
+  provider text not null,
+  account_ref text not null,
+  environment text not null,
+  next_generation bigint not null default 1,
+  created_at timestamptz not null default pg_catalog.clock_timestamp(),
+  updated_at timestamptz not null default pg_catalog.clock_timestamp(),
+  constraint provider_session_bindings_provider_format
+    check (provider ~ '^[a-z][a-z0-9_]{1,31}$'),
+  constraint provider_session_bindings_account_ref_format
+    check (account_ref ~ '^acct_[0-9a-f]{32}$'),
+  constraint provider_session_bindings_environment_known
+    check (environment in ('production', 'staging', 'development', 'test')),
+  constraint provider_session_bindings_session_binding_ref_format
+    check (session_binding_ref ~ '^sb_[0-9a-f]{32}$'),
+  constraint provider_session_bindings_next_generation_positive check (next_generation > 0),
+  constraint provider_session_bindings_identity_unique
+    unique (session_binding_ref, provider, account_ref, environment)
+);
+
+comment on table public.provider_session_bindings is
+  'OVD-462 session binding registry. Each session_binding_ref belongs to exactly one provider/account/environment and carries the per-key generation counter. Opaque references only. Service-role RPC access only.';
+
+create index provider_session_bindings_key_idx
+  on public.provider_session_bindings (provider, account_ref, environment);
+
+alter table public.provider_session_bindings enable row level security;
+alter table public.provider_session_bindings force row level security;
+revoke all on table public.provider_session_bindings from public, anon, authenticated, service_role;
 
 create table public.provider_session_leases (
   id uuid primary key default gen_random_uuid(),
@@ -37,6 +81,10 @@ create table public.provider_session_leases (
   expires_at timestamptz,
   hard_expires_at timestamptz,
   ended_at timestamptz,
+  revoked_by_ref text,
+  revoke_reason_ref text,
+  cleared_by_ref text,
+  clear_reason_ref text,
   created_at timestamptz not null default pg_catalog.clock_timestamp(),
   updated_at timestamptz not null default pg_catalog.clock_timestamp(),
   constraint provider_session_leases_provider_format
@@ -75,10 +123,27 @@ create table public.provider_session_leases (
     check (acquired_at is null or (expires_at <= hard_expires_at
       and hard_expires_at > acquired_at
       and hard_expires_at <= acquired_at + interval '4 hours')),
+  -- Operator audit: revocations and clears record who acted and why, as opaque
+  -- references (never names or e-mail addresses).
+  constraint provider_session_leases_operator_refs_format
+    check ((revoked_by_ref is null or revoked_by_ref ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')
+      and (revoke_reason_ref is null or revoke_reason_ref ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')
+      and (cleared_by_ref is null or cleared_by_ref ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')
+      and (clear_reason_ref is null or clear_reason_ref ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')),
+  constraint provider_session_leases_revoke_audit_together
+    check ((revoked_by_ref is null) = (revoke_reason_ref is null)
+      and (revoked_by_ref is null or outcome = 'owner_revoked')),
+  constraint provider_session_leases_clear_audit_matches_state
+    check ((cleared_by_ref is null) = (clear_reason_ref is null)
+      and (state = 'cleared') = (cleared_by_ref is not null)),
   -- Generation fencing: every grant or revocation for a binding gets a fresh,
   -- strictly increasing generation.
   constraint provider_session_leases_generation_unique
-    unique (provider, account_ref, environment, generation)
+    unique (provider, account_ref, environment, generation),
+  -- A lease row can only name a session binding registered to the same key.
+  constraint provider_session_leases_binding_registered
+    foreign key (session_binding_ref, provider, account_ref, environment)
+    references public.provider_session_bindings (session_binding_ref, provider, account_ref, environment)
 );
 
 comment on table public.provider_session_leases is
@@ -91,18 +156,21 @@ create unique index provider_session_leases_one_occupant
   on public.provider_session_leases (provider, account_ref, environment)
   where state in ('active', 'blocked');
 
--- Supports the cross-binding reuse check (a session binding belongs to exactly
--- one provider/account/environment).
+-- Supports the binding foreign key and lookups by session binding.
 create index provider_session_leases_session_binding_ref_idx
   on public.provider_session_leases (session_binding_ref);
 
 alter table public.provider_session_leases enable row level security;
 alter table public.provider_session_leases force row level security;
--- No policies: every direct read or write is denied. Access is only through the
--- SECURITY DEFINER RPCs below, which run as the table owner.
+-- No policies: every direct read or write is denied, including for the table
+-- owner, because RLS is forced. The SECURITY DEFINER RPCs below run as the
+-- function owner, which therefore must have BYPASSRLS or be a superuser
+-- (Supabase's `postgres` role has BYPASSRLS). The pgTAP suite asserts this; a
+-- migration run as any other owner would fail closed on every RPC.
 revoke all on table public.provider_session_leases from public, anon, authenticated, service_role;
 
-create function public.provider_session_lease_identity_ok(
+-- Not callable by any API role; lives in the repo's private helper schema.
+create function private.provider_session_lease_identity_ok(
   p_provider text,
   p_account_ref text,
   p_environment text,
@@ -121,7 +189,7 @@ as $$
     false)
 $$;
 
-revoke all on function public.provider_session_lease_identity_ok(text, text, text, text)
+revoke all on function private.provider_session_lease_identity_ok(text, text, text, text)
   from public, anon, authenticated, service_role;
 
 create function public.acquire_provider_session_lease(
@@ -139,13 +207,14 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_row public.provider_session_leases%rowtype;
   v_generation bigint;
 begin
-  if not public.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref)
+  if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref)
      or p_task_ref is null or p_task_ref !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
      or p_holder_token is null then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
@@ -158,12 +227,16 @@ begin
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('ovd462sb|' || p_session_binding_ref, 462));
+  -- Read the clock after the lock wait so expiry checks and new deadlines are current.
+  v_now := pg_catalog.clock_timestamp();
 
   -- A session binding belongs to exactly one provider/account/environment.
   if exists (
-    select 1 from public.provider_session_leases l
-    where l.session_binding_ref = p_session_binding_ref
-      and (l.provider, l.account_ref, l.environment) is distinct from (p_provider, p_account_ref, p_environment)
+    select 1 from public.provider_session_bindings b
+    where b.session_binding_ref = p_session_binding_ref
+      and (b.provider, b.account_ref, b.environment) is distinct from (p_provider, p_account_ref, p_environment)
   ) then
     return jsonb_build_object('status', 'rejected', 'reason', 'binding_mismatch');
   end if;
@@ -200,9 +273,31 @@ begin
         p_ttl_seconds * 1000)::bigint);
   end if;
 
-  select coalesce(max(l.generation), 0) + 1 into v_generation
-    from public.provider_session_leases l
-   where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment;
+  -- Register the session binding to this key (storage backstop) and re-check.
+  insert into public.provider_session_bindings (session_binding_ref, provider, account_ref, environment, created_at, updated_at)
+  values (p_session_binding_ref, p_provider, p_account_ref, p_environment, v_now, v_now)
+  on conflict (session_binding_ref) do nothing;
+  if not exists (
+    select 1 from public.provider_session_bindings b
+    where b.session_binding_ref = p_session_binding_ref
+      and b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment
+  ) then
+    return jsonb_build_object('status', 'rejected', 'reason', 'binding_mismatch');
+  end if;
+
+  -- The per-key counter lives on every binding row of the key and is advanced
+  -- together under the key lock; lease history is only a floor for it.
+  select greatest(
+           coalesce(max(b.next_generation), 1),
+           coalesce((select max(l.generation) from public.provider_session_leases l
+                      where l.provider = p_provider and l.account_ref = p_account_ref
+                        and l.environment = p_environment), 0) + 1)
+    into v_generation
+    from public.provider_session_bindings b
+   where b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment;
+  update public.provider_session_bindings b
+     set next_generation = v_generation + 1, updated_at = v_now
+   where b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment;
 
   insert into public.provider_session_leases (
     provider, account_ref, environment, session_binding_ref, generation, state,
@@ -236,18 +331,20 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_row public.provider_session_leases%rowtype;
   v_expires timestamptz;
 begin
-  if not public.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
+  if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  v_now := pg_catalog.clock_timestamp();
 
   select * into v_row from public.provider_session_leases l
    where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment
@@ -272,6 +369,9 @@ begin
     return jsonb_build_object('status', 'lost', 'reason', 'expired', 'outcome', null);
   end if;
 
+  -- renewal_exhausted is reported once; the row is stored as 'expired', so later
+  -- calls for this generation report reason 'expired'. Both are terminal
+  -- lease_lost for the worker.
   if v_row.renewal_count >= v_row.max_renewals or v_row.hard_expires_at <= v_now then
     update public.provider_session_leases l
        set state = 'expired', ended_at = v_now, updated_at = v_now
@@ -304,18 +404,20 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_row public.provider_session_leases%rowtype;
   v_final text;
 begin
-  if not public.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
+  if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  v_now := pg_catalog.clock_timestamp();
 
   select * into v_row from public.provider_session_leases l
    where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment
@@ -357,19 +459,23 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_row public.provider_session_leases%rowtype;
 begin
-  if not public.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref)
-     or p_outcome is null
-     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'owner_revoked', 'corrupt_state') then
+  if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
+  end if;
+  if p_outcome is null
+     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'owner_revoked', 'corrupt_state') then
+    return jsonb_build_object('status', 'rejected', 'reason', 'invalid_outcome');
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  v_now := pg_catalog.clock_timestamp();
 
   select * into v_row from public.provider_session_leases l
    where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment
@@ -401,35 +507,54 @@ begin
 end;
 $$;
 
--- Operator fence: revokes whichever owner currently holds the binding and
--- blocks new grants until clear_provider_session_binding_block runs.
+-- Operator fence: revokes the owner currently holding the binding on exactly
+-- this session binding and blocks new grants until
+-- clear_provider_session_binding_block runs. Requires and records opaque actor
+-- and reason references. Revoking with a session binding that is not the current
+-- holder's is rejected (binding_mismatch). With no holder, the session binding is
+-- registered to this key and the block is recorded on it.
+--
+-- Operator RPCs are granted to service_role like the worker RPCs; the worker
+-- code path cannot construct them (separate TS factory) and every use is
+-- attributable. A dedicated operator database role is a follow-up if the
+-- service_role credential must stop being able to call them at all.
 create function public.revoke_provider_session_binding(
   p_provider text,
   p_account_ref text,
   p_environment text,
-  p_session_binding_ref text
+  p_session_binding_ref text,
+  p_actor_ref text,
+  p_reason_ref text
 )
 returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_row public.provider_session_leases%rowtype;
   v_generation bigint;
 begin
-  if not public.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
+  if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
+  end if;
+  if p_actor_ref is null or p_actor_ref !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+     or p_reason_ref is null or p_reason_ref !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$' then
+    return jsonb_build_object('status', 'rejected', 'reason', 'invalid_actor');
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('ovd462sb|' || p_session_binding_ref, 462));
+  v_now := pg_catalog.clock_timestamp();
 
   if exists (
-    select 1 from public.provider_session_leases l
-    where l.session_binding_ref = p_session_binding_ref
-      and (l.provider, l.account_ref, l.environment) is distinct from (p_provider, p_account_ref, p_environment)
+    select 1 from public.provider_session_bindings b
+    where b.session_binding_ref = p_session_binding_ref
+      and (b.provider, b.account_ref, b.environment) is distinct from (p_provider, p_account_ref, p_environment)
   ) then
     return jsonb_build_object('status', 'rejected', 'reason', 'binding_mismatch');
   end if;
@@ -439,47 +564,75 @@ begin
      and l.state in ('active', 'blocked')
    for update;
 
+  if found and v_row.session_binding_ref <> p_session_binding_ref then
+    return jsonb_build_object('status', 'rejected', 'reason', 'binding_mismatch');
+  end if;
+
   if found and v_row.state = 'blocked' then
     return jsonb_build_object('status', 'blocked', 'outcome', v_row.outcome, 'generation', v_row.generation);
   end if;
 
   if found then
     update public.provider_session_leases l
-       set state = 'blocked', outcome = 'owner_revoked', ended_at = v_now, updated_at = v_now
+       set state = 'blocked', outcome = 'owner_revoked', ended_at = v_now, updated_at = v_now,
+           revoked_by_ref = p_actor_ref, revoke_reason_ref = p_reason_ref
      where l.id = v_row.id;
     return jsonb_build_object('status', 'blocked', 'outcome', 'owner_revoked', 'generation', v_row.generation);
   end if;
 
-  select coalesce(max(l.generation), 0) + 1 into v_generation
-    from public.provider_session_leases l
-   where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment;
+  insert into public.provider_session_bindings (session_binding_ref, provider, account_ref, environment, created_at, updated_at)
+  values (p_session_binding_ref, p_provider, p_account_ref, p_environment, v_now, v_now)
+  on conflict (session_binding_ref) do nothing;
+  if not exists (
+    select 1 from public.provider_session_bindings b
+    where b.session_binding_ref = p_session_binding_ref
+      and b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment
+  ) then
+    return jsonb_build_object('status', 'rejected', 'reason', 'binding_mismatch');
+  end if;
+
+  select greatest(
+           coalesce(max(b.next_generation), 1),
+           coalesce((select max(l.generation) from public.provider_session_leases l
+                      where l.provider = p_provider and l.account_ref = p_account_ref
+                        and l.environment = p_environment), 0) + 1)
+    into v_generation
+    from public.provider_session_bindings b
+   where b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment;
+  update public.provider_session_bindings b
+     set next_generation = v_generation + 1, updated_at = v_now
+   where b.provider = p_provider and b.account_ref = p_account_ref and b.environment = p_environment;
 
   insert into public.provider_session_leases (
     provider, account_ref, environment, session_binding_ref, generation, state, outcome,
-    ended_at, created_at, updated_at)
+    ended_at, revoked_by_ref, revoke_reason_ref, created_at, updated_at)
   values (
     p_provider, p_account_ref, p_environment, p_session_binding_ref, v_generation, 'blocked',
-    'owner_revoked', v_now, v_now, v_now);
+    'owner_revoked', v_now, p_actor_ref, p_reason_ref, v_now, v_now);
 
   return jsonb_build_object('status', 'blocked', 'outcome', 'owner_revoked', 'generation', v_generation);
 end;
 $$;
 
 -- Operator action after manual follow-up (re-authentication, challenge cleared,
--- owner re-approved) completed outside this system. Clears exactly one block.
+-- owner re-approved) completed outside this system. Clears exactly one block
+-- and records opaque actor and reason references. See the role note above.
 create function public.clear_provider_session_binding_block(
   p_provider text,
   p_account_ref text,
   p_environment text,
-  p_generation bigint
+  p_generation bigint,
+  p_actor_ref text,
+  p_reason_ref text
 )
 returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '2s'
 as $$
 declare
-  v_now timestamptz := pg_catalog.clock_timestamp();
+  v_now timestamptz;
   v_id uuid;
 begin
   if p_provider is null or p_provider !~ '^[a-z][a-z0-9_]{1,31}$'
@@ -487,12 +640,17 @@ begin
      or p_environment is null or p_environment not in ('production', 'staging', 'development', 'test') then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
   end if;
+  if p_actor_ref is null or p_actor_ref !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'
+     or p_reason_ref is null or p_reason_ref !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$' then
+    return jsonb_build_object('status', 'rejected', 'reason', 'invalid_actor');
+  end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('ovd462|' || p_provider || '|' || p_account_ref || '|' || p_environment, 462));
+  v_now := pg_catalog.clock_timestamp();
 
   update public.provider_session_leases l
-     set state = 'cleared', updated_at = v_now
+     set state = 'cleared', updated_at = v_now, cleared_by_ref = p_actor_ref, clear_reason_ref = p_reason_ref
    where l.provider = p_provider and l.account_ref = p_account_ref and l.environment = p_environment
      and l.generation = p_generation and l.state = 'blocked'
   returning l.id into v_id;
@@ -512,9 +670,9 @@ revoke all on function public.release_provider_session_lease(text, text, text, t
   from public, anon, authenticated;
 revoke all on function public.report_provider_session_lease_outcome(text, text, text, text, text, uuid, bigint, text)
   from public, anon, authenticated;
-revoke all on function public.revoke_provider_session_binding(text, text, text, text)
+revoke all on function public.revoke_provider_session_binding(text, text, text, text, text, text)
   from public, anon, authenticated;
-revoke all on function public.clear_provider_session_binding_block(text, text, text, bigint)
+revoke all on function public.clear_provider_session_binding_block(text, text, text, bigint, text, text)
   from public, anon, authenticated;
 
 grant execute on function public.acquire_provider_session_lease(text, text, text, text, text, uuid, integer, integer, integer)
@@ -525,9 +683,9 @@ grant execute on function public.release_provider_session_lease(text, text, text
   to service_role;
 grant execute on function public.report_provider_session_lease_outcome(text, text, text, text, text, uuid, bigint, text)
   to service_role;
-grant execute on function public.revoke_provider_session_binding(text, text, text, text)
+grant execute on function public.revoke_provider_session_binding(text, text, text, text, text, text)
   to service_role;
-grant execute on function public.clear_provider_session_binding_block(text, text, text, bigint)
+grant execute on function public.clear_provider_session_binding_block(text, text, text, bigint, text, text)
   to service_role;
 
 -- ===========================================================================
@@ -536,13 +694,15 @@ grant execute on function public.clear_provider_session_binding_block(text, text
 -- for correctness. Candidates once OVD-464 has run on these RPCs in production
 -- for a full release cycle, each as its own reviewed migration:
 --
---   -- Retention: bound history growth (keep occupants and recent generations).
+--   -- Retention: bound lease history growth (keep occupants). Generations stay
+--   -- monotonic because they come from provider_session_bindings.next_generation,
+--   -- which retention must never delete or lower.
 --   -- delete from public.provider_session_leases
 --   --  where state in ('released', 'expired', 'cleared')
 --   --    and ended_at < now() - interval '30 days';
 --
 --   -- If a later design replaces operator revocation with an approval table:
---   -- drop function public.revoke_provider_session_binding(text, text, text, text);
+--   -- drop function public.revoke_provider_session_binding(text, text, text, text, text, text);
 --
 -- Worker-side contract (code, not SQL): retire the file-system sidecar lock in
 -- worker/src/adapters/persistentProfileLock.ts only after the DB lease is the

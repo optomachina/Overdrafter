@@ -1,8 +1,10 @@
 import {
+  isProviderSessionOperatorAudit,
   PROVIDER_SESSION_BLOCKING_OUTCOMES,
   type ProviderSessionBindingKey,
   type ProviderSessionBlockingOutcome,
   type ProviderSessionIdentity,
+  type ProviderSessionLeaseOperatorAudit,
   type ProviderSessionLeaseOperatorStore,
   type ProviderSessionLeaseOwnedRequest,
   type ProviderSessionLeaseStore,
@@ -20,6 +22,11 @@ import {
  * docs/migration-drafts/ovd-462.sql. Usable only after that migration is
  * applied (migration window 1); until then every call fails closed through the
  * manager's `unavailable` / unconfirmed paths.
+ *
+ * Worker code gets only `createProviderSessionLeaseRpcStore` (acquire, renew,
+ * release, report). Operator revoke/clear live in a separate factory,
+ * `createProviderSessionLeaseOperatorRpcStore`, for operator tooling only, and
+ * require an actor and reason reference that the database records.
  *
  * Responses are parsed exact-key. Client errors are replaced by a fixed error
  * so PostgREST details (which can echo arguments) never reach logs.
@@ -41,6 +48,9 @@ export const PROVIDER_SESSION_LEASE_RPCS = Object.freeze({
   renew: "renew_provider_session_lease",
   release: "release_provider_session_lease",
   reportOutcome: "report_provider_session_lease_outcome",
+});
+
+export const PROVIDER_SESSION_LEASE_OPERATOR_RPCS = Object.freeze({
   revokeBinding: "revoke_provider_session_binding",
   clearBlock: "clear_provider_session_binding_block",
 });
@@ -99,6 +109,23 @@ function parseOwnerRejected(data: unknown) {
   return { status: "rejected" as const, reason: oneOf(row.reason, ["invalid_identity", "not_owner"] as const) };
 }
 
+function rpcCaller(client: ProviderSessionLeaseRpcClient) {
+  return async function call(fn: string, args: Json): Promise<unknown> {
+    let result: { data: unknown; error: unknown };
+    try {
+      result = await client.rpc(fn, args);
+    } catch {
+      throw new ProviderSessionLeaseStoreError("rpc_failed");
+    }
+    if (result.error) throw new ProviderSessionLeaseStoreError("rpc_failed");
+    return result.data;
+  };
+}
+
+function auditArgs(audit: ProviderSessionLeaseOperatorAudit): Json {
+  return { p_actor_ref: audit.actorRef, p_reason_ref: audit.reasonRef };
+}
+
 function identityArgs(identity: ProviderSessionIdentity): Json {
   return {
     p_provider: identity.provider,
@@ -117,19 +144,8 @@ function ownedArgs(request: ProviderSessionLeaseOwnedRequest): Json {
   };
 }
 
-export function createProviderSessionLeaseRpcStore(
-  client: ProviderSessionLeaseRpcClient,
-): ProviderSessionLeaseStore & ProviderSessionLeaseOperatorStore {
-  async function call(fn: string, args: Json): Promise<unknown> {
-    let result: { data: unknown; error: unknown };
-    try {
-      result = await client.rpc(fn, args);
-    } catch {
-      throw new ProviderSessionLeaseStoreError("rpc_failed");
-    }
-    if (result.error) throw new ProviderSessionLeaseStoreError("rpc_failed");
-    return result.data;
-  }
+export function createProviderSessionLeaseRpcStore(client: ProviderSessionLeaseRpcClient): ProviderSessionLeaseStore {
+  const call = rpcCaller(client);
 
   return {
     async acquire(request): Promise<ProviderSessionLeaseStoreAcquireResponse> {
@@ -207,15 +223,25 @@ export function createProviderSessionLeaseRpcStore(
         }
         case "lost":
           return parseLost(data);
-        case "rejected":
-          return parseOwnerRejected(data);
+        case "rejected": {
+          const reason = oneOf(exact(data, ["status", "reason"]).reason, ["invalid_identity", "not_owner", "invalid_outcome"] as const);
+          return { status: "rejected", reason };
+        }
         default:
           return malformed();
       }
     },
+  };
+}
 
-    async revokeBinding(identity): Promise<ProviderSessionLeaseStoreRevokeResponse> {
-      const data = await call(PROVIDER_SESSION_LEASE_RPCS.revokeBinding, identityArgs(identity));
+/** Operator tooling only. Never pass this store to the worker lease manager. */
+export function createProviderSessionLeaseOperatorRpcStore(client: ProviderSessionLeaseRpcClient): ProviderSessionLeaseOperatorStore {
+  const call = rpcCaller(client);
+
+  return {
+    async revokeBinding(identity, audit): Promise<ProviderSessionLeaseStoreRevokeResponse> {
+      if (!isProviderSessionOperatorAudit(audit)) return { status: "rejected", reason: "invalid_actor" };
+      const data = await call(PROVIDER_SESSION_LEASE_OPERATOR_RPCS.revokeBinding, { ...identityArgs(identity), ...auditArgs(audit) });
       switch (statusOf(data)) {
         case "blocked": {
           const row = exact(data, ["status", "outcome", "generation"]);
@@ -228,19 +254,25 @@ export function createProviderSessionLeaseRpcStore(
         case "rejected":
           return {
             status: "rejected",
-            reason: oneOf(exact(data, ["status", "reason"]).reason, ["invalid_identity", "binding_mismatch"] as const),
+            reason: oneOf(exact(data, ["status", "reason"]).reason, ["invalid_identity", "invalid_actor", "binding_mismatch"] as const),
           };
         default:
           return malformed();
       }
     },
 
-    async clearBlock(key: ProviderSessionBindingKey, generation: number): Promise<ProviderSessionLeaseStoreClearResponse> {
-      const data = await call(PROVIDER_SESSION_LEASE_RPCS.clearBlock, {
+    async clearBlock(
+      key: ProviderSessionBindingKey,
+      generation: number,
+      audit: ProviderSessionLeaseOperatorAudit,
+    ): Promise<ProviderSessionLeaseStoreClearResponse> {
+      if (!isProviderSessionOperatorAudit(audit)) return { status: "rejected", reason: "invalid_actor" };
+      const data = await call(PROVIDER_SESSION_LEASE_OPERATOR_RPCS.clearBlock, {
         p_provider: key.provider,
         p_account_ref: key.accountRef,
         p_environment: key.environment,
         p_generation: generation,
+        ...auditArgs(audit),
       });
       switch (statusOf(data)) {
         case "cleared":
@@ -249,7 +281,7 @@ export function createProviderSessionLeaseRpcStore(
         case "rejected":
           return {
             status: "rejected",
-            reason: oneOf(exact(data, ["status", "reason"]).reason, ["invalid_identity", "not_blocked"] as const),
+            reason: oneOf(exact(data, ["status", "reason"]).reason, ["invalid_identity", "invalid_actor", "not_blocked"] as const),
           };
         default:
           return malformed();
