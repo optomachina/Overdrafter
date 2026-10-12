@@ -38,12 +38,7 @@
     "files": {
       "status": "supported",
       "values": [
-        "3dm",
-        "iges",
-        "sat",
-        "sldprt",
-        "step",
-        "x_t"
+        "step"
       ]
     },
     "quantity": {

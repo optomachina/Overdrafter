@@ -105,8 +105,10 @@
 -- 1.0 Task type for the scan only rescan (1.16c). Adding an enum value is
 -- additive: no existing value, row, or function changes. PostgreSQL cannot
 -- drop an enum value, so the rollback leaves it in place (unused). The value
--- is not used in this transaction; the functions below only name it in
--- PL/pgSQL bodies, which resolve it when they run.
+-- is not used in this transaction; the functions below name it only as text
+-- (task_type::text) or through a runtime cast
+-- ('export_marking_rescan'::text::public.queue_task_type), which is resolved
+-- when they run, never when they are created.
 alter type public.queue_task_type add value if not exists 'export_marking_rescan';
 
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
@@ -1511,8 +1513,8 @@ grant execute on function public.api_check_export_control_extraction(uuid)
   to service_role;
 
 -- 1.16c Scan only rescan (expand). Queues one export_marking_rescan task
--- per file of the job that can be scanned (a drawing, or a CAD file named
--- .step/.stp) and has no scan of record for its id, its current job, and its
+-- per file a part of the job sends that needs a scan (the part's drawing, or
+-- its CAD file when named .step/.stp, as in the dispatch denial) and has no scan of record for its id, its current job, and its
 -- current content hash, unless such a task is already queued or running.
 -- The worker task (handleExportMarkingRescanTask) stages the bytes, verifies
 -- their hash, scans drawing text or the STEP header, and records a clean scan
@@ -1522,15 +1524,27 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- drawing scan and stay export_scan_missing. Called by the declare RPC (1.9)
 -- after a clean declaration, by the job owner through
 -- api_request_export_marking_rescan, and by the service role through
--- api_queue_export_marking_rescan. A file whose last rescan of the same bytes
--- ended drawing_unread or step_header_incomplete is not queued again (the
--- answer would not change). Returns the number of tasks queued.
--- Final outcome of the latest completed rescan of one file's bytes. A
--- drawing that could not be read (drawing_unread) or a STEP header that ended
--- before ENDSEC; (step_header_incomplete) gives the same answer for the same
--- bytes, so neither is queued again for that hash; replacing the file (a new
--- hash) queues a fresh rescan. Null when there is no such outcome.
-create or replace function private.export_rescan_final_outcome(p_job_file_id uuid, p_content_sha256 text)
+-- api_queue_export_marking_rescan. A file whose last scan of the same bytes
+-- (a rescan, or the part's extraction) ended drawing_unread or
+-- step_header_incomplete is not queued again (the answer would not change).
+-- Extraction (extract_part) scans the part's drawing and STEP header itself,
+-- so a new upload needs no rescan. Returns the number of tasks queued.
+-- Final outcome of the latest scan of one file's bytes in its job: a
+-- completed export_marking_rescan task (payload exportScanOutcome), or an
+-- extract_part task that scanned the part's files (payload
+-- exportScanOutcomes, keyed by job file id; written on completion and on the
+-- failure that an unread drawing causes). A drawing that could not be read
+-- (drawing_unread) or a STEP header that ended before ENDSEC;
+-- (step_header_incomplete) gives the same answer for the same bytes, so
+-- neither is queued again for that hash; replacing the file (a new hash)
+-- queues a fresh rescan. Null when there is no such outcome. The job and
+-- task type predicates match work_queue's (status, task_type) index, so a
+-- status read does not walk every completed task.
+create or replace function private.export_rescan_final_outcome(
+  p_job_id uuid,
+  p_job_file_id uuid,
+  p_content_sha256 text
+)
 returns text
 language sql
 stable
@@ -1538,24 +1552,40 @@ set search_path = ''
 as $$
   select latest.outcome
   from (
-    select queue.payload ->> 'exportScanOutcome' as outcome
+    select coalesce(
+      queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'outcome',
+      queue.payload ->> 'exportScanOutcome'
+    ) as outcome
     from public.work_queue queue
-    where queue.task_type::text = 'export_marking_rescan'
-      and queue.status = 'completed'
-      and queue.payload ->> 'jobFileId' = p_job_file_id::text
-      and queue.payload ->> 'contentSha256' = p_content_sha256
+    where queue.job_id = p_job_id
+      and (
+        (
+          queue.status = 'completed'
+          and queue.task_type = 'export_marking_rescan'::text::public.queue_task_type
+          and queue.payload ->> 'jobFileId' = p_job_file_id::text
+          and queue.payload ->> 'contentSha256' = p_content_sha256
+        )
+        or (
+          queue.status in ('completed', 'failed')
+          and queue.task_type = 'extract_part'::text::public.queue_task_type
+          and queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'contentSha256' = p_content_sha256
+        )
+      )
     order by queue.updated_at desc, queue.created_at desc, queue.id desc
     limit 1
   ) latest
   where latest.outcome in ('drawing_unread', 'step_header_incomplete');
 $$;
 
-revoke all on function private.export_rescan_final_outcome(uuid, text)
+revoke all on function private.export_rescan_final_outcome(uuid, uuid, text)
   from public, anon, authenticated, service_role;
 
--- Scan state of a job for the part page (1.10). Over every scannable file of
--- the job (a drawing, or a CAD file named .step/.stp, with a well formed
--- hash) that has no scan of record for its current bytes:
+-- Scan state of a job for the part page (1.10). Over every file a part of
+-- the job sends that needs a scan, the same files the dispatch denial checks
+-- (export_control_scan_denial: the part's drawing, and its CAD file when
+-- named .step/.stp), with a well formed hash and no scan of record for its
+-- current bytes. A replaced file that no part references any more (an older
+-- drawing under the same base name) does not count:
 --   pending                 a rescan of the file, or an extraction of the
 --                           job, is queued or running;
 --   drawing_unread          the last rescan of these bytes could not read
@@ -1591,16 +1621,24 @@ as $$
             ) then 'pending'
             else coalesce(
               private.export_rescan_final_outcome(
-                file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+                file_row.job_id, file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
               ),
               'missing'
             )
           end as state
         from public.job_files file_row
         where file_row.job_id = p_job_id
-          and (
-            file_row.file_kind = 'drawing'
-            or pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+          and exists (
+            select 1
+            from public.parts part
+            where part.job_id = file_row.job_id
+              and (
+                part.drawing_file_id = file_row.id
+                or (
+                  part.cad_file_id = file_row.id
+                  and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+                )
+              )
           )
           and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.content_sha256, ''))) ~ '^[0-9a-f]{64}$'
           and not exists (
@@ -1658,9 +1696,19 @@ begin
       ) as part_id
     from public.job_files file_row
     where file_row.job_id = v_job.id
-      and (
-        file_row.file_kind = 'drawing'
-        or pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+      -- Only files a part of the job sends, as in the dispatch denial and
+      -- job_export_scan_state; a replaced file no part references is skipped.
+      and exists (
+        select 1
+        from public.parts part
+        where part.job_id = file_row.job_id
+          and (
+            part.drawing_file_id = file_row.id
+            or (
+              part.cad_file_id = file_row.id
+              and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+            )
+          )
       )
       and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.content_sha256, ''))) ~ '^[0-9a-f]{64}$'
       and not exists (
@@ -1679,7 +1727,7 @@ begin
           and queue.payload ->> 'jobFileId' = file_row.id::text
       )
       and private.export_rescan_final_outcome(
-        file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+        file_row.job_id, file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
       ) is null
   ),
   queued as (

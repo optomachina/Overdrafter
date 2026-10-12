@@ -31,6 +31,9 @@ import {
   runExportMarkingRescan,
   scanDrawingTextForExportMarkings,
   scanStagedDrawingForExportMarkings,
+  scanPartStepHeaderForExtraction,
+  exportScanOutcomesPayload,
+  type ExportScanOutcomes,
   STEP_HEADER_SCAN_BYTES,
   scanStepHeaderForExportMarkings,
 } from "./exportControl";
@@ -45,6 +48,11 @@ import {
 } from "./dispatchRouting";
 import { failureCodeForError, isRetryableVendorTaskError, nextRetryAt, VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 import type { VendorName, VendorQuoteAdapterInput } from "./types";
+import { PROVIDER_CATALOG } from "./generated/provider-catalog";
+import { EXTENDED_VENDOR_WORKFLOWS } from "./adapters/extendedVendorWorkflows";
+import { buildWeergProductionPortalDefinition, createWeergPortalDefinition } from "./adapters/weergPortal";
+import { buildGeomiqPortalDefinition } from "./adapters/geomiqPortal";
+import { buildGeomiqProductionPortalDefinition } from "./adapters/geomiqProductionPortal";
 
 const draft = readFileSync(new URL("../../docs/migration-drafts/ovd-723.sql", import.meta.url), "utf8");
 const contract = readFileSync(new URL("../../docs/migration-drafts/ovd-723-contract.sql", import.meta.url), "utf8");
@@ -417,7 +425,8 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(body).toContain("const drawingTextRead = isDrawingTextFullyRead(pdfText);");
     expect(body).toContain("textRead: drawingTextRead,");
     expect(body).not.toContain("textRead: pdfText !== null");
-    expect(body.indexOf("throw new ExportControlDrawingUnreadError();")).toBeLessThan(modelAt);
+    expect(body.indexOf("throw new ExportControlDrawingUnreadError({")).toBeGreaterThan(-1);
+    expect(body.indexOf("throw new ExportControlDrawingUnreadError({")).toBeLessThan(modelAt);
     expect(body.indexOf("await assertExportControlExtractionAllowed(supabase, { jobId: task.job_id });")).toBeLessThan(modelAt);
     expect(body.indexOf("await assertExportControlExtractionAllowed(")).toBeGreaterThan(
       body.indexOf("await enforceAndRecordExportControlScan("),
@@ -874,6 +883,69 @@ describe("OVD-723 migration draft", () => {
     );
   });
 
+  // OVD-723 review round 5: only STEP has an export-control scanner (the
+  // header); native CAD is not scanned. Every place that says which files a
+  // foreign provider may receive therefore lists only step and stp, so native
+  // CAD never reaches a foreign provider until a native scanner exists.
+  it("lets foreign providers receive only STEP files", () => {
+    const stepOnly = (values: readonly string[]) =>
+      values.length > 0 && values.every((value) => value === "step" || value === "stp");
+    const repoRoot = new URL("../../", import.meta.url);
+    for (const provider of FOREIGN_JURISDICTION_PROVIDERS) {
+      const manifest = JSON.parse(
+        readFileSync(new URL(`provider-integrations/${provider}/manifest.v1.json`, repoRoot), "utf8"),
+      ) as { capabilityEnvelope: { files: { values: string[] } } };
+      expect(stepOnly(manifest.capabilityEnvelope.files.values), `${provider} manifest`).toBe(true);
+      expect(stepOnly(PROVIDER_CATALOG[provider].capabilityEnvelope.files.values), `${provider} catalog`).toBe(true);
+    }
+
+    const foreignWorkflows = EXTENDED_VENDOR_WORKFLOWS.filter((workflow) =>
+      (FOREIGN_JURISDICTION_PROVIDERS as ReadonlySet<string>).has(workflow.vendor));
+    expect(foreignWorkflows.length).toBeGreaterThan(0);
+    for (const workflow of foreignWorkflows) {
+      expect(stepOnly(workflow.supportedFileExtensions), `${workflow.vendor} workflow`).toBe(true);
+    }
+
+    const portals = [
+      createWeergPortalDefinition(),
+      buildWeergProductionPortalDefinition(),
+      buildGeomiqPortalDefinition(),
+      buildGeomiqProductionPortalDefinition(),
+    ];
+    for (const portal of portals) {
+      expect(FOREIGN_JURISDICTION_PROVIDERS.has(portal.provider as VendorName)).toBe(true);
+      expect(stepOnly(portal.supportedFileExtensions), `${portal.provider} portal`).toBe(true);
+    }
+
+    // Reviewed admission templates: the provider's own directory and its
+    // readiness runbook under docs/workflows.
+    const templates: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else templates.push(full);
+      }
+    };
+    const rootPath = new URL(repoRoot).pathname;
+    const workflowDocs = readdirSync(path.join(rootPath, "docs/workflows"));
+    let admissionArrays = 0;
+    for (const provider of FOREIGN_JURISDICTION_PROVIDERS) {
+      walk(path.join(rootPath, "provider-integrations", provider));
+      for (const doc of workflowDocs) {
+        if (doc.includes(provider)) templates.push(path.join(rootPath, "docs/workflows", doc));
+      }
+    }
+    for (const file of templates) {
+      for (const match of readFileSync(file, "utf8").matchAll(/accepted_file_extensions\s*=\s*array\[([^\]]*)\]/g)) {
+        admissionArrays += 1;
+        const values = [...match[1].matchAll(/'([^']*)'/g)].map((value) => value[1]);
+        expect(stepOnly(values), `${file} admission template`).toBe(true);
+      }
+    }
+    expect(admissionArrays).toBeGreaterThan(0);
+  });
+
   it("checks foreign providers first, as a separate rule, and fails closed on lookup errors", () => {
     const gate = draft.slice(draft.indexOf("function private.export_control_dispatch_denial("));
     const body = gate.slice(0, gate.indexOf("$$;"));
@@ -995,6 +1067,45 @@ describe("OVD-723 review round 3: STEP header completeness", () => {
     expect(readStepHeader(padded).complete).toBe(false);
     // A large file with no HEADER; in the prefix.
     expect(readStepHeader("ISO-10303-21;\n" + "y".repeat(STEP_HEADER_SCAN_BYTES * 2)).complete).toBe(false);
+  });
+
+  // OVD-723 review round 5: the header end search skips quoted strings and
+  // comments, so a quoted or commented ENDSEC; cannot hide later header text.
+  const header = (body: string) => `ISO-10303-21;\nHEADER;\n${body}\nENDSEC;\nDATA;\n#1=PRODUCT('ITAR in data');\nENDSEC;\n`;
+
+  it("does not end the header at an ENDSEC; inside a quoted string", () => {
+    const text = header("FILE_DESCRIPTION(('ENDSEC; then ITAR CONTROLLED'),'2;1');");
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(result.text).toContain("ITAR CONTROLLED");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toContain("itar");
+  });
+
+  it("does not end the header at an ENDSEC; inside a comment", () => {
+    const text = header("/* ENDSEC; */ FILE_NAME('part','2026',('ITAR'),(''),'','','');");
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(detectExportControlMarkings(result.text)).toContain("itar");
+  });
+
+  it("treats a doubled quote as an escaped quote inside a string", () => {
+    const text = header("FILE_DESCRIPTION(('it''s ENDSEC; and ITAR'),'2;1');");
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(detectExportControlMarkings(result.text)).toContain("itar");
+  });
+
+  it("holds a header with an unbalanced quote or comment as incomplete", () => {
+    expect(readStepHeader("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('open);\nENDSEC;\n").complete).toBe(false);
+    expect(readStepHeader("ISO-10303-21;\nHEADER;\n/* open comment\nENDSEC;\n").complete).toBe(false);
+  });
+
+  it("still excludes the DATA section after the real ENDSEC;", () => {
+    const text = header("FILE_DESCRIPTION(('bracket'),'2;1');");
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(result.text).not.toContain("DATA;");
+    expect(scanStepHeaderForExportMarkings(text)).toBeNull();
   });
 
   it("records no clean scan for a padded header, so dispatch stays denied", async () => {
@@ -1278,5 +1389,120 @@ describe("OVD-723 review round 3: point in time checks", () => {
     expect(gate).toBeGreaterThan(-1);
     expect(gate).toBeLessThan(quote.indexOf("if (!adapter) {"));
     expect(gate).toBeLessThan(quote.indexOf('vendorSpendGuard.reserve("vendor_automation"'));
+  });
+});
+
+describe("OVD-723 review round 5: extraction records scan outcomes", () => {
+  const cadSha = "c".repeat(64);
+  const drawingSha = "d".repeat(64);
+  const cleanStep = new TextEncoder().encode(STEP_CLEAN_HEADER_MARKED_DATA);
+
+  it("scans a STEP part's header during extraction and records a clean scan", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const outcomes: ExportScanOutcomes = {};
+    await scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      cadFile: { id: "cad-1", original_name: "fresh.step" },
+      stagedCad: { localPath: "/stage/fresh.step", trustedContentSha256: cadSha },
+      readPrefix: async () => cleanStep,
+    }, outcomes);
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({
+      p_job_file_id: "cad-1", p_source: "step_header", p_content_sha256: cadSha,
+    }));
+    expect(outcomes).toEqual({ "cad-1": { contentSha256: cadSha, outcome: "clean" } });
+  });
+
+  it("records step_header_incomplete for a header past the prefix, with no clean scan", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const outcomes: ExportScanOutcomes = {};
+    await scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      cadFile: { id: "cad-1", original_name: "big.stp" },
+      stagedCad: { localPath: "/stage/big.stp", trustedContentSha256: cadSha },
+      readPrefix: async () => new TextEncoder().encode("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('x"),
+    }, outcomes);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(outcomes["cad-1"]).toEqual({ contentSha256: cadSha, outcome: "step_header_incomplete" });
+  });
+
+  it("skips non STEP CAD and fails closed when a STEP file was not staged", async () => {
+    const rpc = vi.fn();
+    const outcomes: ExportScanOutcomes = {};
+    await scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1", partId: "part-1", cadFile: { id: "cad-1", original_name: "part.sldprt" }, stagedCad: null,
+    }, outcomes);
+    expect(outcomes).toEqual({});
+    await expect(scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1", partId: "part-1", cadFile: { id: "cad-1", original_name: "part.step" }, stagedCad: null,
+    }, outcomes)).rejects.toBeInstanceOf(ExportControlScanRecordError);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("opens a block and stops when the STEP header is marked", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
+    await expect(scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      cadFile: { id: "cad-1", original_name: "fresh.step" },
+      stagedCad: { localPath: "/stage/fresh.step", trustedContentSha256: cadSha },
+      readPrefix: async () => new TextEncoder().encode(STEP_WITH_ITAR),
+    }, {})).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+  });
+
+  it("carries the unread drawing outcome into the failed task payload", () => {
+    const error = new ExportControlDrawingUnreadError({ jobFileId: "drawing-1", contentSha256: drawingSha });
+    error.exportScanOutcomes = { "cad-1": { contentSha256: cadSha, outcome: "clean" }, ...error.exportScanOutcomes };
+    expect(exportScanOutcomesPayload(error)).toEqual({
+      exportScanOutcomes: {
+        "cad-1": { contentSha256: cadSha, outcome: "clean" },
+        "drawing-1": { contentSha256: drawingSha, outcome: "drawing_unread" },
+      },
+    });
+    // No hash, no outcome; other errors add nothing.
+    expect(exportScanOutcomesPayload(new ExportControlDrawingUnreadError({ jobFileId: "d", contentSha256: "" }))).toEqual({});
+    expect(exportScanOutcomesPayload(new Error("other"))).toEqual({});
+  });
+
+  it("records drawing_unread for an unread drawing on the trusted reuse path", async () => {
+    const rpc = vi.fn();
+    const outcomes: ExportScanOutcomes = {};
+    await scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1", localPath: "/stage/rep.pdf", contentSha256: drawingSha },
+      extractText: async () => ({ pageCount: 1, pages: [{ text: "" }] }),
+    }, outcomes);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(outcomes).toEqual({ "drawing-1": { contentSha256: drawingSha, outcome: "drawing_unread" } });
+  });
+
+  it("wires the scans and outcomes into the extract task and its failure payload", () => {
+    const handler = workerIndex.slice(workerIndex.indexOf("async function handleExtractTask("));
+    const body = handler.slice(0, handler.indexOf("\nasync function handleGenerateCadPreviewTask("));
+    const stepScan = body.indexOf("await scanPartStepHeaderForExtraction(");
+    expect(stepScan).toBeGreaterThan(-1);
+    // Before both the trusted reuse branch and the extraction run.
+    expect(stepScan).toBeLessThan(body.indexOf("api_reuse_trusted_part_version_artifacts"));
+    expect(stepScan).toBeLessThan(body.indexOf("await runDrawingExtractionForTask("));
+    expect(body.match(/exportScanOutcomes,\n\s+\}\);/g)?.length).toBe(2);
+    expect(body).toContain("error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };");
+    expect(workerIndex).toContain("{ ...failureEvidence.payload, ...exportScanOutcomesPayload(error) },");
+  });
+
+  it("reads extraction outcomes as final, scoped to the job and its parts' files", () => {
+    const outcome = sqlFunctionBody("private.export_rescan_final_outcome");
+    expect(outcome).toContain("queue.job_id = p_job_id");
+    expect(outcome).toContain("queue.task_type = 'export_marking_rescan'::text::public.queue_task_type");
+    expect(outcome).toContain("queue.task_type = 'extract_part'::text::public.queue_task_type");
+    expect(outcome).toContain("queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'contentSha256' = p_content_sha256");
+    expect(outcome).not.toContain("task_type::text");
+    for (const name of ["private.job_export_scan_state", "private.queue_export_marking_rescans"]) {
+      const body = sqlFunctionBody(name);
+      expect(body).toMatch(/from public\.parts part\s+where part\.job_id = file_row\.job_id/);
+      expect(body).toContain("part.drawing_file_id = file_row.id");
+      expect(body).not.toContain("file_row.file_kind = 'drawing'");
+    }
   });
 });

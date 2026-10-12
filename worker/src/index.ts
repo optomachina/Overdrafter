@@ -91,11 +91,14 @@ import {
   ExportControlDrawingUnreadError,
   ExportControlLookupError,
   exportControlModelAttemptGuard,
+  exportScanOutcomesPayload,
+  type ExportScanOutcomes,
   isDrawingTextFullyRead,
   isStepFileName,
   readStagedStepHeaderPrefix,
   runExportMarkingRescan,
   scanDrawingTextForExportMarkings,
+  scanPartStepHeaderForExtraction,
   scanStagedDrawingForExportMarkings,
 } from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
@@ -603,7 +606,10 @@ async function runDrawingExtractionForTask(
         contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
       });
       if (!drawingTextRead) {
-        throw new ExportControlDrawingUnreadError();
+        throw new ExportControlDrawingUnreadError({
+          jobFileId: context.drawingFile.id,
+          contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
+        });
       }
     }
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
@@ -722,12 +728,25 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   let runDir: string | null = null;
   let organizationIdForError: string | null = null;
   let partIdForError: string | null = task.part_id;
+  // OVD-723: per file scan outcomes, recorded in the task payload on
+  // completion and on an unread drawing failure (exportScanOutcomes).
+  const exportScanOutcomes: ExportScanOutcomes = {};
   try {
     const identityContext = await fetchPartContext(supabase, task.part_id!);
     const identityStageDir = await createRunDir(config, ["identity", task.id]);
     runDir = identityStageDir;
-    await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
+    const identityStagedCad = await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
     const identityStagedDrawing = await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
+    // OVD-723 review round 5: scan the STEP header here, on both the reuse and
+    // the extraction path, so a new STEP part has its scan of record (or a
+    // held outcome) before any quote is requested. No model is called.
+    await scanPartStepHeaderForExtraction(supabase, {
+      jobId: task.job_id!,
+      partId: task.part_id,
+      cadFile: identityContext.cadFile,
+      stagedCad: identityStagedCad,
+      readPrefix: readStagedStepHeaderPrefix,
+    }, exportScanOutcomes);
 
     const { data: trustedIntake, error: trustedIntakeError } = await supabase.rpc(
       "api_resolve_trusted_part_intake",
@@ -789,13 +808,14 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
                 }
               : null,
           extractText: extractPdfText,
-        });
+        }, exportScanOutcomes);
         const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
           sourcePartId,
           autoApprovedPartCount,
+          exportScanOutcomes,
         });
         return;
       }
@@ -890,8 +910,13 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     await markTaskCompleted(supabase, task, {
       cadPreviewStatus,
       ...completionPayload,
+      exportScanOutcomes,
     });
   } catch (error) {
+    if (error instanceof ExportControlDrawingUnreadError) {
+      // The failed task records the STEP outcome with the unread drawing.
+      error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };
+    }
     if (organizationIdForError && task.job_id) {
       await logWorkerAuditEvent(supabase, {
         organizationId: organizationIdForError,
@@ -1907,7 +1932,7 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
           supabase,
           task,
           failureEvidence.failureMessage,
-          failureEvidence.payload,
+          { ...failureEvidence.payload, ...exportScanOutcomesPayload(error) },
         );
       }
 

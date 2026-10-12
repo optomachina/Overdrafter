@@ -79,10 +79,10 @@ in earlier sections.
   `ENDSEC;` are inside the prefix. A header padded past 256 KB, or a file with
   no `HEADER;` in the prefix, gets no clean scan, so the part is held
   (`export_scan_missing`); a marking found in the partial text still blocks.
-  The scan ends at the first `ENDSEC;` it finds, even one inside a quoted
-  header string, so a header that quotes `ENDSEC;` hides the text after it
-  from the scan. Real CAD exporters do not write that; it matters only for a
-  file crafted to evade the scan.
+  The end search skips quoted strings (a doubled `''` is an escaped quote)
+  and `/* */` comments, so an `ENDSEC;` inside either does not end the
+  header early; an unbalanced quote or comment leaves the header incomplete
+  (held). Extraction scans the STEP header too (review round 5).
 - Backfill: every existing job with files gets a `missing` declaration, so it is
   denied dispatch until the user declares.
 
@@ -136,7 +136,10 @@ Fix (fail closed):
   it only requires their verified hash, so markings inside them are not
   detected. That is unchanged from before. Closing
   that gap means either a scanner per format or denying dispatch for unscanned
-  formats, and that call needs a product decision. Each quote task appends one
+  formats, and that call needs a product decision. Until then every foreign
+  provider (manifest files, portal definitions, live workflows, reviewed
+  admission templates) accepts only `step` and `stp`, pinned by a CI test, so
+  unscanned CAD never reaches a foreign provider (review round 5). Each quote task appends one
   STEP scan row per vendor attempt. The rows are small and append-only.
 
 Tests: `worker/src/exportControl.test.ts` covers the reference model, the record
@@ -539,4 +542,52 @@ Verification (disposable Docker `supabase/postgres:17.6.1.095`, Auth and
 Storage platform migrations from `gotrue:v2.187.0` and `storage-api:v1.41.8`,
 all main migrations after merging origin/main, 2026-10-12): see the PR
 comment for this round.
+
+## Review round 5 (independent review at acf37144)
+
+SQL files changed: `ovd-723.sql` and `ovd-723.rollback.sql`. The contract and
+contract rollback are unchanged. The window 1 pgTAP suite now has 152
+assertions (section 11c added); the contract suite is unchanged (103).
+
+1. **B1, a fresh STEP upload showed the recheck hold.** The client declares
+   before the `job_files` rows exist, so the declaration queues no rescan,
+   and the STEP header was scanned only by a quote. `extract_part` now scans
+   the part's STEP header (same 256 KB prefix scanner, no model) on both the
+   trusted reuse and the extraction path, before either branch
+   (`scanPartStepHeaderForExtraction`). A marking hit opens a block and fails
+   the task; an incomplete header records `step_header_incomplete`. After
+   extraction a new STEP part is `complete` or shows the real hold.
+2. **B2, a replaced drawing kept the notice.** `private.job_export_scan_state`
+   and `private.queue_export_marking_rescans` now look only at files a part
+   of the job sends: the part's drawing, and its CAD file when named
+   `.step`/`.stp`, the same files `export_control_scan_denial` checks. An
+   older drawing that no part references no longer holds the state or gets a
+   rescan.
+3. **Final outcomes from extraction.** `extract_part` records
+   `exportScanOutcomes` (keyed by job file id, with the scanned hash) on
+   completion and on the failure an unread drawing causes.
+   `private.export_rescan_final_outcome(job, file, hash)` (new signature)
+   reads both completed rescans and these extraction outcomes, so a part goes
+   straight to `drawing_unread` or `step_header_incomplete` instead of first
+   showing `missing`. It filters on `job_id` and compares `task_type` as the
+   enum (`'export_marking_rescan'::text::public.queue_task_type`), matching
+   the `work_queue (status, task_type, available_at)` index.
+4. **Point in time checks.** Fictiv asks the gate inside its locator loop,
+   right before each upload attempt and outside the per selector `try`. The
+   portal kernel asks it again before a drawing upload. Xometry does not
+   report a dispatch decision to Jev as an operational failure. `callModel`
+   measures the remaining deadline after `beforeRequest`.
+5. **STEP header end.** String and comment aware (see Behavior notes).
+6. **Native CAD and foreign providers.** RapidDirect and Protolabs Network
+   manifests and the foreign live workflows (RapidDirect, Geomiq, Weerg,
+   Protolabs Network) now list only `step`/`stp`; a CI test pins every
+   foreign manifest, catalog entry, portal definition, workflow and reviewed
+   admission template to `step`/`stp`.
+7. **Admin labels.** `EXPORT_CONTROL_FAILURE_LABELS` and
+   `OPERATIONS_TASK_TYPE_LABELS` were not rendered anywhere and are removed.
+   The allowlists stay (`EXPORT_CONTROL_FAILURE_CODES` in `FAILURE_CODES`,
+   `export_marking_rescan` in `OPERATIONS_TASK_TYPES`).
+
+Residuals: OCR of raster drawings is OVD-747. Declarations are job wide by
+design. Native CAD is not scanned and is kept off foreign providers by item 6.
 

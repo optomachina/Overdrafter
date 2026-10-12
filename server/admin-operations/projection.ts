@@ -14,17 +14,12 @@ const WORKER_AGE = 120_000;
 const FAILURE_WINDOW = 86_400_000;
 const MAX_ROWS = 200;
 const LEGACY_FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached"];
-/** OVD-723 failure codes a worker task can record, with a plain label for admins. */
-export const EXPORT_CONTROL_FAILURE_LABELS = {
-  export_review_pending: "Held: export-control markings wait for admin review",
-  export_scan_unread: "Held: a drawing page could not be read for the export-control check",
-  export_declaration_missing: "Held: the customer has not answered the export-control question",
-  export_declaration_not_clean: "Held: the customer answered controlled or unsure",
-  export_foreign_provider_requires_clean_declaration: "Held: a foreign supplier needs a clean export-control answer",
-  export_control_lookup_failed: "Held: the export-control check could not be completed",
-  export_scan_missing: "Held: a file has no export-control scan of its current bytes",
-} as const;
-export const FAILURE_CODES: readonly string[] = [...LEGACY_FAILURE_CODES, ...Object.keys(EXPORT_CONTROL_FAILURE_LABELS)];
+/** OVD-723 failure codes a worker task can record (export-control holds). */
+export const EXPORT_CONTROL_FAILURE_CODES = [
+  "export_review_pending", "export_scan_unread", "export_declaration_missing", "export_declaration_not_clean",
+  "export_foreign_provider_requires_clean_declaration", "export_control_lookup_failed", "export_scan_missing",
+] as const;
+export const FAILURE_CODES: readonly string[] = [...LEGACY_FAILURE_CODES, ...EXPORT_CONTROL_FAILURE_CODES];
 function oneOf(value: unknown, values: readonly string[]): boolean { return typeof value === "string" && values.includes(value); }
 export function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function provider(value: unknown): OperationsProvider | null { return typeof value === "string" && (OPERATIONS_PROVIDERS as readonly string[]).includes(value) ? value as OperationsProvider : null; }

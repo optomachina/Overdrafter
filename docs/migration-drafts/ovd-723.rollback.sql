@@ -45,7 +45,7 @@ drop function public.api_request_export_marking_rescan(uuid);
 drop function public.api_queue_export_marking_rescan(uuid);
 drop function private.queue_export_marking_rescans(uuid);
 drop function private.job_export_scan_state(uuid);
-drop function private.export_rescan_final_outcome(uuid, text);
+drop function private.export_rescan_final_outcome(uuid, uuid, text);
 drop function public.api_check_export_control_dispatch(uuid, text);
 drop function public.api_check_export_control_extraction(uuid);
 drop function private.export_control_extraction_denial(uuid);

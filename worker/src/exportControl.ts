@@ -190,10 +190,58 @@ export function readStepHeader(content: Uint8Array | string): { text: string; co
       : Buffer.from(content.subarray(0, STEP_HEADER_SCAN_BYTES)).toString("latin1");
   const start = prefix.search(/\bHEADER\s*;/i);
   if (start < 0) return { text: prefix, complete: false };
-  const end = prefix.slice(start).search(/\bENDSEC\s*;/i);
+  const end = findStepHeaderEnd(prefix, start);
   return end < 0
     ? { text: prefix.slice(start), complete: false }
-    : { text: prefix.slice(start, start + end), complete: true };
+    : { text: prefix.slice(start, end), complete: true };
+}
+
+const STEP_ENDSEC = /^ENDSEC\s*;/i;
+
+/**
+ * Index of the `ENDSEC;` that closes the header section starting at `start`,
+ * or -1 when it is not in `text`. Text inside a quoted string (single quotes;
+ * a doubled `''` is an escaped quote) or a `/* ... *\/` comment never ends the
+ * header, so a header that quotes or comments `ENDSEC;` cannot hide the text
+ * after it from the scan. An unbalanced quote or comment reaches the end of
+ * the text and returns -1 (incomplete, held).
+ */
+function findStepHeaderEnd(text: string, start: number): number {
+  let index = start;
+  while (index < text.length) {
+    const char = text[index];
+    if (char === "'") {
+      index += 1;
+      for (;;) {
+        if (index >= text.length) return -1;
+        if (text[index] === "'") {
+          if (text[index + 1] === "'") {
+            index += 2;
+            continue;
+          }
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && text[index + 1] === "*") {
+      const close = text.indexOf("*/", index + 2);
+      if (close < 0) return -1;
+      index = close + 2;
+      continue;
+    }
+    if (
+      (char === "E" || char === "e")
+      && (index === 0 || !/\w/.test(text[index - 1]))
+      && STEP_ENDSEC.test(text.slice(index, index + 64))
+    ) {
+      return index;
+    }
+    index += 1;
+  }
+  return -1;
 }
 
 /**
@@ -327,10 +375,81 @@ export class ExportControlMarkingRecordError extends Error {
  * same nothing.
  */
 export class ExportControlDrawingUnreadError extends Error {
-  constructor() {
+  /**
+   * Scan outcomes the failed task records in its payload
+   * (`exportScanOutcomes`), so the part shows `drawing_unread` at once
+   * (`private.export_rescan_final_outcome`) instead of first `missing`.
+   */
+  exportScanOutcomes: ExportScanOutcomes = {};
+
+  constructor(drawing?: { jobFileId: string; contentSha256: string }) {
     super("Export-control scan could not read every drawing page; the drawing is held and not sent to any model.");
     this.name = "ExportControlDrawingUnreadError";
+    if (drawing) addExportScanOutcome(this.exportScanOutcomes, drawing.jobFileId, drawing.contentSha256, "drawing_unread");
   }
+}
+
+/** What one scan of one file's bytes found, as recorded in a task payload. */
+export type ExportScanOutcome = "clean" | "admin_cleared" | "drawing_unread" | "step_header_incomplete";
+
+/**
+ * Per file outcomes an extract_part task records in its payload
+ * (`exportScanOutcomes`, keyed by job file id, with the hash of the scanned
+ * bytes). The database reads `drawing_unread` and `step_header_incomplete`
+ * from it as final for those bytes; a clean outcome also has its scan of
+ * record, which is what dispatch checks.
+ */
+export type ExportScanOutcomes = Record<string, { contentSha256: string; outcome: ExportScanOutcome }>;
+
+export function addExportScanOutcome(
+  outcomes: ExportScanOutcomes,
+  jobFileId: string,
+  contentSha256: string | null | undefined,
+  outcome: ExportScanOutcome,
+): void {
+  if (jobFileId.length === 0 || typeof contentSha256 !== "string" || !SHA256_HEX.test(contentSha256)) return;
+  outcomes[jobFileId] = { contentSha256, outcome };
+}
+
+/** The payload patch a failed task records for an unread drawing; empty otherwise. */
+export function exportScanOutcomesPayload(error: unknown): { exportScanOutcomes?: ExportScanOutcomes } {
+  if (error instanceof ExportControlDrawingUnreadError && Object.keys(error.exportScanOutcomes).length > 0) {
+    return { exportScanOutcomes: { ...error.exportScanOutcomes } };
+  }
+  return {};
+}
+
+/**
+ * OVD-723 review round 5: extraction scans the part's STEP header too (the
+ * same 256 KB prefix scanner as the quote task, no model), so a new STEP
+ * part has a scan of record, or a held outcome, before any quote is asked
+ * for. A file not named .step/.stp is not scanned. A hit opens a block and
+ * throws (`ExportControlMarkingBlockedError`). Adds the outcome to
+ * `outcomes`.
+ */
+export async function scanPartStepHeaderForExtraction(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    cadFile: { id: string; original_name: string } | null;
+    stagedCad: { localPath: string; trustedContentSha256?: string | null } | null;
+    readPrefix?: (localPath: string) => Promise<Uint8Array>;
+  },
+  outcomes: ExportScanOutcomes,
+): Promise<void> {
+  if (!input.cadFile || !isStepFileName(input.cadFile.original_name)) return;
+  if (!input.stagedCad) throw new ExportControlScanRecordError();
+  const contentSha256 = input.stagedCad.trustedContentSha256 ?? "";
+  const complete = await enforceAndRecordStepHeaderScan(supabase, {
+    jobId: input.jobId,
+    partId: input.partId,
+    jobFileId: input.cadFile.id,
+    localPath: input.stagedCad.localPath,
+    contentSha256,
+    readPrefix: input.readPrefix,
+  });
+  addExportScanOutcome(outcomes, input.cadFile.id, contentSha256, complete ? "clean" : "step_header_incomplete");
 }
 
 /**
@@ -505,20 +624,25 @@ export async function scanStagedDrawingForExportMarkings(
     jobId: string;
     partId: string | null;
     drawingFile: { id: string; localPath: string; contentSha256: string } | null;
-    extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
+    extractText: (localPath: string) => Promise<{ pageCount?: number; pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
   },
+  outcomes: ExportScanOutcomes = {},
 ): Promise<void> {
   if (!input.drawingFile) return;
   const pdfText = await input.extractText(input.drawingFile.localPath);
+  const textRead = isDrawingTextFullyRead(pdfText);
   await enforceAndRecordExportControlScan(supabase, {
     jobId: input.jobId,
     partId: input.partId,
     jobFileId: input.drawingFile.id,
     source: drawingTextScanSource(pdfText),
     scan: scanDrawingTextForExportMarkings(pdfText),
-    textRead: isDrawingTextFullyRead(pdfText),
+    textRead,
     contentSha256: input.drawingFile.contentSha256,
   });
+  // An unread drawing gets no clean scan; the outcome makes it show as
+  // drawing_unread (replace the drawing) rather than missing.
+  addExportScanOutcome(outcomes, input.drawingFile.id, input.drawingFile.contentSha256, textRead ? "clean" : "drawing_unread");
 }
 
 /**

@@ -156,12 +156,18 @@ async function callModelWithinBudget(
   let lastError: { errorType: ModelErrorType; errorMessage: string } | null = null;
 
   while (attempts < maxAttempts) {
-    const remainingMs = deadlineMs - (Date.now() - startedAt);
-    if (remainingMs <= 0) {
+    if (deadlineMs - (Date.now() - startedAt) <= 0) {
       break;
     }
 
     await options.beforeRequest?.();
+
+    // Measured after the check, so time spent in beforeRequest is not given
+    // back to the provider request.
+    const remainingMs = deadlineMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      break;
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remainingMs);

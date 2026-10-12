@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAdminOperationsHandler, type AdminOperationsRuntime } from "./handler";
-import { EXPORT_CONTROL_FAILURE_LABELS, projectOperations, type SourceName, type SourceObservation } from "./projection";
-import { OPERATIONS_TASK_TYPE_LABELS } from "../../src/features/operations/contract";
+import { EXPORT_CONTROL_FAILURE_CODES, projectOperations, type SourceName, type SourceObservation } from "./projection";
+import { OPERATIONS_TASK_TYPES } from "../../src/features/operations/contract";
 import { createAdminOperationsRuntime, databaseTimestamp } from "./runtime";
 import { withinBudget, readBoundedJson } from "./budget";
 const now = Date.parse("2026-10-02T12:00:00.000Z");
@@ -56,14 +56,14 @@ describe("operations implementation", () => {
     expect(queued).toMatchObject({reasonCode:"queued_work",occurrenceCount:1});
     const codes = ["export_review_pending","export_scan_unread","export_declaration_missing","export_declaration_not_clean",
       "export_foreign_provider_requires_clean_declaration","export_control_lookup_failed","export_scan_missing"];
-    expect(Object.keys(EXPORT_CONTROL_FAILURE_LABELS).sort()).toEqual([...codes].sort());
+    expect([...EXPORT_CONTROL_FAILURE_CODES].sort()).toEqual([...codes].sort());
     for (const failureCode of codes) {
       for (const task_type of ["export_marking_rescan","run_vendor_quote","extract_part"]) {
         const item = projectOperations({failures:source([queue({status:"failed",task_type,provider:null,failureCode})])},now).items.find((i)=>i.category==="task_failure");
         expect(item).toMatchObject({reasonCode:"repeated_failures",severity:"attention"});
       }
     }
-    expect(OPERATIONS_TASK_TYPE_LABELS.export_marking_rescan).toBe("Export-control file recheck");
+    expect(OPERATIONS_TASK_TYPES).toContain("export_marking_rescan");
     expect(projectOperations({failures:source([queue({status:"failed",failureCode:"export_unknown",provider:null})])},now).items.find((i)=>i.category==="task_failure")?.reasonCode).toBe("source_malformed");
   });
   it("keeps uncoded failed evidence unknown and a proven empty failure window healthy", () => {

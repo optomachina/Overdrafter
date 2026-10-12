@@ -56,6 +56,31 @@ describe("callModel", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  // OVD-723 review round 5: the deadline is measured after beforeRequest, so a
+  // slow check cannot hand the provider a timer longer than the time left.
+  it("measures the remaining deadline after the export-control check", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const run = vi.fn().mockResolvedValue(success());
+      const beforeRequest = vi.fn(async () => {
+        now += 5_000;
+      });
+
+      const call = callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+        sleep: noSleep,
+        beforeRequest,
+        deadlineMs: 1_000,
+      });
+
+      await expect(call).rejects.toBeInstanceOf(ModelCallError);
+      expect(beforeRequest).toHaveBeenCalledTimes(1);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("returns usage on first success", async () => {
     const run = vi.fn().mockResolvedValue(success());
 

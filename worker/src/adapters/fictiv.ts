@@ -583,13 +583,11 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
   );
 }
 
-async function setFilesOnUpload(
+export async function setFilesOnUpload(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
   beforeProviderDisclosure?: () => Promise<void>,
 ) {
-  // OVD-723: the export-control gate is asked again right before the upload.
-  await beforeProviderDisclosure?.();
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 30_000;
 
@@ -604,6 +602,10 @@ async function setFilesOnUpload(
 
       if (count < 1) continue;
 
+      // OVD-723: the export-control gate is asked right before each upload
+      // attempt, outside the per selector try, so a declaration or marking
+      // block that lands while the locator loop waits stops the upload.
+      await beforeProviderDisclosure?.();
       try {
         markProviderMutationStarted();
         await locator.setInputFiles(files);

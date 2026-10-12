@@ -3234,7 +3234,9 @@ export class XometryAdapter extends VendorAdapter {
         }),
       };
     } catch (error) {
-      if (this.operationalJev) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
+      // An export-control or dispatch decision is a hold, not an operational
+      // failure, so it is not reported to Jev (as in the portal kernel).
+      if (this.operationalJev && !isDispatchDecisionError(error)) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
         provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
       if (isDispatchDecisionError(error)) {
         dispatchDecisionError = error;

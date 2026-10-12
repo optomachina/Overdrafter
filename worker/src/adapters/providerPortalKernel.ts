@@ -1337,6 +1337,10 @@ async function uploadAuthorizedDrawing(
   if (drawingInputCount < 1) {
     return terminalResult("selector_drift", "drawing_upload_selector_missing", session.page, [], true);
   }
+  // OVD-723: the drawing is a separate disclosure, so the export-control gate
+  // is asked again right before it, as in Xometry's drawing fallback.
+  await interaction.input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   await drawingInput.setInputFiles(files.drawing);
   assertPortalBoundary(definition, session.page, session.boundary);
   return null;
