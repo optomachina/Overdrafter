@@ -29,6 +29,11 @@ const GIT_READERS = new Set(["log", "show", "status", "blame", "diff", "grep", "
 const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
 const VALUE_FLAGS = new Set(["-I", "-n", "-P", "-L", "-d", "-s", "-u", "-g"]);
 
+function indexOrEnd(src, text, from) {
+  const at = src.indexOf(text, from);
+  return at === -1 ? src.length : at;
+}
+
 function matchClose(src, i, open, close) {
   for (let depth = 0; i < src.length; i++) {
     if (src[i] === open) depth++;
@@ -44,7 +49,7 @@ function parse(src) {
   const pendingDocs = [];
   let word = null;
   let redirect = null;
-  const seg = () => segments[segments.length - 1];
+  const seg = () => segments.at(-1);
   const add = (text) => (word = (word ?? "") + text);
   const flush = () => {
     if (word === null) return;
@@ -62,7 +67,7 @@ function parse(src) {
     const c = src[i];
     const next = src[i + 1];
     if (c === "'") {
-      const end = src.indexOf("'", i + 1) < 0 ? src.length : src.indexOf("'", i + 1);
+      const end = indexOrEnd(src, "'", i + 1);
       add(src.slice(i + 1, end));
       i = end + 1;
     } else if (c === "\\") {
@@ -75,14 +80,14 @@ function parse(src) {
           add('$`"\\'.includes(src[i + 1]) ? src[i + 1] : src.slice(i, i + 2));
           i += 2;
         } else if (src[i] === "$" && src[i + 1] === "(") i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
-        else if (src[i] === "`") i = subst(i, src.indexOf("`", i + 1) < 0 ? src.length : src.indexOf("`", i + 1), 1);
+        else if (src[i] === "`") i = subst(i, indexOrEnd(src, "`", i + 1), 1);
         else add(src[i++]);
       }
       i++;
     } else if (c === "$" && next === "(") {
       i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
     } else if (c === "`") {
-      i = subst(i, src.indexOf("`", i + 1) < 0 ? src.length : src.indexOf("`", i + 1), 1);
+      i = subst(i, indexOrEnd(src, "`", i + 1), 1);
     } else if ((c === "<" || c === ">") && next === "(") {
       i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
     } else if (c === "<" && next === "<" && src[i + 2] !== "<") {
@@ -102,7 +107,7 @@ function parse(src) {
       for (const doc of pendingDocs.splice(0)) {
         const lines = [];
         while (i < src.length) {
-          const eol = src.indexOf("\n", i) < 0 ? src.length : src.indexOf("\n", i);
+          const eol = indexOrEnd(src, "\n", i);
           const line = src.slice(i, eol);
           i = eol + 1;
           if (line.replace(/^\t+/, "") === doc.delim) break;
@@ -143,11 +148,10 @@ const base = (word = "") => word.split("/").pop();
 function unwrap(words) {
   let argv = words.slice(Math.max(0, words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w))));
   while (WRAPPERS.has(base(argv[0]))) {
-    const wrapper = base(argv[0]);
-    argv = argv.slice(1);
-    while (argv.length > 0 && (argv[0].startsWith("-") || /^[A-Za-z_]\w*=/.test(argv[0]) || (wrapper === "timeout" && /^\d/.test(argv[0])))) {
-      argv = argv.slice(VALUE_FLAGS.has(argv[0]) ? 2 : 1);
-    }
+    const isOption = (w) => w.startsWith("-") || /^[A-Za-z_]\w*=/.test(w) || (base(argv[0]) === "timeout" && /^\d/.test(w));
+    let i = 1;
+    while (i < argv.length && isOption(argv[i])) i += VALUE_FLAGS.has(argv[i]) ? 2 : 1;
+    argv = argv.slice(i);
   }
   return argv;
 }
@@ -197,7 +201,7 @@ function touches(word, dir) {
   if (word.includes(SUB)) return false;
   if (/supabase[\\/]+migrations/i.test(word)) return true;
   const segs = changeDir(dir, word);
-  return inMigrations(segs) || (word.split("/").some(Boolean) && globEq(segs[segs.length - 1] ?? "", "supabase"));
+  return inMigrations(segs) || (word.split("/").some(Boolean) && globEq(segs.at(-1) ?? "", "supabase"));
 }
 
 function readerWrites(cmd, args) {
@@ -270,8 +274,12 @@ function checkCommand(src, dir, depth = 0) {
       return "runs generated code with an interpreter";
     }
     for (const body of segment.heredocs) {
-      const reason = SHELLS.has(cmd) ? checkCommand(body, dir, depth + 1) : INTERPRETERS.has(cmd) && /supabase\W+migrations/i.test(body) ? "interpreter heredoc mentions supabase/migrations" : null;
-      if (reason) return reason;
+      if (SHELLS.has(cmd)) {
+        const reason = checkCommand(body, dir, depth + 1);
+        if (reason) return reason;
+      } else if (INTERPRETERS.has(cmd) && /supabase\W+migrations/i.test(body)) {
+        return "interpreter heredoc mentions supabase/migrations";
+      }
     }
     if (cmd === "eval" || (SHELLS.has(cmd) && argv.includes("-c"))) {
       const reason = checkCommand(cmd === "eval" ? argv.slice(1).join(" ") : argv[argv.indexOf("-c") + 1] ?? "", dir, depth + 1);

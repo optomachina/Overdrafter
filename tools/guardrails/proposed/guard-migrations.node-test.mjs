@@ -169,8 +169,10 @@ const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", t
 
 for (const [round, probe, expected] of PROBES) {
   const label = typeof probe === "string" ? probe : `${probe.tool_name} ${JSON.stringify(probe.tool_input)}`;
-  const kind = expected.deny ? "deny rule" : expected.residual ? "residual" : expected;
-  test(`round ${round} [${kind}] ${label}`, () => {
+  let kind = expected;
+  if (expected.deny) kind = "deny rule";
+  else if (expected.residual) kind = "residual";
+  test(`round ${String(round)} [${String(kind)}] ${label}`, () => {
     const reason = decide(payloadOf(probe));
     if (expected === HOOK_BLOCKS) assert.ok(reason, "hook should block");
     else if (expected === PASSES) assert.equal(reason, null);
