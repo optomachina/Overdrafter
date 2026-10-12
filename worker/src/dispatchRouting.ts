@@ -31,7 +31,10 @@ import {
  * - a live non-Xometry task carrying a generic permit (both
  *   `providerDispatchPermitId` and `providerDispatchEnvelopeFingerprint` as
  *   strings, as written by `api_request_provider_dispatch`) goes through the
- *   provider-neutral `quoteWithProviderDispatchPreflight`
+ *   provider-neutral `quoteWithProviderDispatchPreflight`. The worker's
+ *   `handleVendorQuoteTask` sends those tasks to the OVD-464 ordered pipeline
+ *   (`providerTaskPipeline.ts`) instead and reaches this function only for
+ *   Xometry and simulate mode
  * - any other live non-Xometry task stays on the specialized path, which
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *

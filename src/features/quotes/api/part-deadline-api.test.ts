@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const rpcMock = vi.hoisted(() => vi.fn());
 vi.mock("./shared/rpc", () => ({ callRpc: rpcMock }));
 
-import { fetchPartDeadline, parsePartDeadline } from "./part-deadline-api";
+import { fetchPartDeadline, parsePartDeadline, toPanelDeadline } from "./part-deadline-api";
 
 describe("parsePartDeadline", () => {
   it("returns the confirmed active deadline", () => {
@@ -38,5 +38,22 @@ describe("fetchPartDeadline", () => {
   it("surfaces access errors", async () => {
     rpcMock.mockResolvedValueOnce({ data: null, error: { message: "part_deadline_access_denied" } });
     await expect(fetchPartDeadline("p")).rejects.toMatchObject({ message: "part_deadline_access_denied" });
+  });
+});
+
+describe("toPanelDeadline", () => {
+  const base = { partId: "p", revision: null };
+
+  it("keeps the recorded date of an expired deadline so the panel can label it expired", () => {
+    expect(toPanelDeadline({ ...base, recordedDate: "2026-09-01", activeDate: null, state: "expired" }))
+      .toEqual({ date: "2026-09-01", state: "expired" });
+  });
+
+  it("uses the active date when confirmed and no date for an inferred deadline", () => {
+    expect(toPanelDeadline({ ...base, recordedDate: "2026-10-22", activeDate: "2026-10-22", state: "confirmed" }))
+      .toEqual({ date: "2026-10-22", state: "confirmed" });
+    expect(toPanelDeadline({ ...base, recordedDate: "2026-10-22", activeDate: null, state: "inferred" }))
+      .toEqual({ date: null, state: "inferred" });
+    expect(toPanelDeadline(null)).toBeNull();
   });
 });

@@ -42,7 +42,7 @@ function consumeExactPromise(value) {
       || Object.getOwnPropertyDescriptor(value, "constructor")
       || !sameDescriptor(Object.getOwnPropertyDescriptor(TRUSTED_PROTOTYPE, "constructor"), CONSTRUCTOR_DESCRIPTOR)
       || !sameDescriptor(Object.getOwnPropertyDescriptor(TRUSTED_PROMISE, Symbol.species), SPECIES_DESCRIPTOR)) return;
-    Reflect.apply(NATIVE_THEN, value, [() => undefined, () => undefined]);
+    void Reflect.apply(NATIVE_THEN, value, [() => undefined, () => undefined]);
   } catch { /* Exotic executable values remain outside the host-event containment guarantee. */ }
 }
 function snapshot(value, state = { nodes: 0, seen: new WeakSet() }, depth = 0) {

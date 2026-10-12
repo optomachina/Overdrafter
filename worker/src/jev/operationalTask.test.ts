@@ -13,6 +13,9 @@ import { markProviderMutationStarted } from "../providerMutationPhase";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
 import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight";
+import type { ProviderTaskRouteInput } from "../providerTaskRoute";
+import type { ProviderTaskOutcome } from "../providerTaskPipeline";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -26,6 +29,12 @@ vi.mock("../exportControl.js", async (original) => ({
   ...await original<typeof import("../exportControl.js")>(),
   readStagedStepHeaderPrefix: vi.fn(async () => new TextEncoder().encode("ISO-10303-21;\nHEADER;\nENDSEC;\n")),
 }));
+// Lets one test drive the generic route's persist callback without a full permit fixture; every other test runs the real route.
+const genericRoute = vi.hoisted(() => ({ run: null as null | ((input: ProviderTaskRouteInput) => Promise<ProviderTaskOutcome>) }));
+vi.mock("../providerTaskRoute.js", async (original) => {
+  const actual = await original<typeof import("../providerTaskRoute.js")>();
+  return { ...actual, runGenericProviderTask: (input: ProviderTaskRouteInput) => (genericRoute.run ?? actual.runGenericProviderTask)(input) };
+});
 
 const scope: OperationalJevScope = { organizationId: "secret-org", taskId: "secret-task", quoteRunId: "secret-run",
   provider: "xometry", sourceRevision: "f9195d2f071159bd46873b0ad402b1b12de75601" };
@@ -58,24 +67,39 @@ function sessionFixture() {
 
 /** In-memory DB/storage boundaries only: actual handler, preflight, registry, Xometry simulation,
  * spend guard, lane snapshot, offer projection, finalization and queue helpers remain real. */
-function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement) {
+function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement,
+  failStatusReadAfterPersist = false, { persistAckLost = false } = {}) {
   const writes: unknown[] = [];
+  const persisted = () => writes.some((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  // The lane row's status, so a compare and set update matches only what the database would match.
+  let laneStatus = "queued";
   const from = (table: string) => {
-    let columns = ""; let mutation = false;
+    let columns = ""; let mutation = false; let one = false; let statusIn: unknown[] | null = null; let write: unknown = null;
     const response = () => {
+      if (mutation && table === "vendor_quote_results") {
+        const patch = (write as { update?: { status?: string } }).update;
+        if (statusIn && !statusIn.includes(laneStatus)) { writes.splice(writes.indexOf(write), 1); return { data: [], error: null }; }
+        if (patch?.status) laneStatus = patch.status;
+        return { data: [{ id: "result" }], error: null };
+      }
       if (mutation) return { data: null, error: null };
+      if (table === "vendor_quote_results" && columns === "status" && one) return { data: { status: laneStatus }, error: null };
+      if (failStatusReadAfterPersist && table === "quote_runs" && persisted()) return { data: null, error: { message: "status read failed" } };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? approved
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "instant_quote_received" }] : { id: "result", requested_quantity: 2 })
             : table === "jobs" ? { organization_id: scope.organizationId, status: "internal_review" }
-              : table === "quote_runs" ? { status: "received", quote_requests: { status: requestCanceled ? "canceled" : "requesting" } } : null;
+              : table === "quote_runs" ? { status: "received", quote_requests: { status: requestCanceled ? "canceled" : "requesting" } }
+                : table === "quote_request_lanes" ? { id: "lane", quote_request_id: "request", quote_run_id: scope.quoteRunId,
+                  vendor_quote_result_id: "result", scope_fingerprint: "f".repeat(64) } : null;
       return { data, error: null };
     };
     const query = {
       select(value: string) { columns = value; return query; },
-      eq() { return query; }, neq() { return query; }, in() { return query; },
-      single: async () => response(), maybeSingle: async () => response(),
-      update(value: unknown) { mutation = true; writes.push({ table, update: structuredClone(value) }); return query; },
+      eq() { return query; }, neq() { return query; },
+      in(column: string, values: unknown[]) { if (column === "status") statusIn = values; return query; },
+      single: async () => response(), maybeSingle: async () => { one = true; return response(); },
+      update(value: unknown) { mutation = true; write = { table, update: structuredClone(value) }; writes.push(write); return query; },
       insert(value: unknown) { mutation = true; writes.push({ table, insert: structuredClone(value) }); return query; },
       then(resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) {
         return (async () => { if (mutation && table === "work_queue") await queueAck?.(); return response(); })().then(resolve, reject);
@@ -85,6 +109,14 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
   };
   const rpc = (name: string, args: unknown) => {
     writes.push({ rpc: name, args: structuredClone(args) });
+    if (name === "reconcile_vendor_quote_offers") {
+      // The function commits; with persistAckLost its response is lost on the way back.
+      laneStatus = (args as { p_result: { status: string } }).p_result.status;
+      if (persistAckLost) {
+        const lost = Promise.resolve({ data: null, error: { message: "TypeError: fetch failed" } });
+        return Object.assign(lost, { abortSignal: () => lost });
+      }
+    }
     const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
@@ -98,7 +130,14 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
   };
   return { client: { from, rpc } as unknown as SupabaseClient, writes };
 }
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); genericRoute.run = null; });
+
+/** Every write that came after the atomic result and offer write. */
+function writesAfterPersist(writes: unknown[]) {
+  const index = writes.findIndex((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  expect(index).toBeGreaterThanOrEqual(0);
+  return writes.slice(index + 1);
+}
 
 describe("actual worker operational advisory seam", () => {
   it("preserves all persistence/offer/task writes through actual registry and custom Xometry", async () => {
@@ -202,13 +241,177 @@ describe("actual worker operational advisory seam", () => {
     expect(rpcs).not.toContain("api_authorize_xometry_beta_worker_dispatch");
     expect(db.writes).toEqual(expect.arrayContaining([
       { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
-        notes: ["Automatic fictiv dispatch authorization was denied before adapter launch; manual follow-up is required."],
+        notes: ["fictiv automation stopped at authorize (permit_revoked); manual follow up is required."],
         raw_payload: expect.objectContaining({ failureCode: "permit_revoked", manualFollowUpReason: "permit_revoked",
-          requiresManualVendorFollowUp: true, retryScheduledFor: null }) }) },
+          requiresManualVendorFollowUp: true, retryScheduledFor: null, adapterStarted: false }) }) },
       { table: "work_queue", update: expect.objectContaining({ status: "completed" }) },
     ]));
     await fixture.capability.observations.drain();
     expect(fixture.caps.decide).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before the preflight when the session lease setting is on but no lease is wired (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"], providerSessionLease: "on" } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const db = database();
+    await handleVendorQuoteTask(db.client, generic, live);
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
+        raw_payload: expect.objectContaining({ failureCode: "session_lease_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "completed" }) },
+    ]));
+  });
+
+  it("requeues a generic task on a transient preflight failure with zero adapter calls (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, attempts: 1, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+      ? (db.writes.push({ rpc: name }), Promise.resolve({ data: null, error: { code: "08006" }, status: 503 }))
+      : rpc(name as never, args as never);
+    await handleVendorQuoteTask(db.client, generic, live);
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "queued",
+        raw_payload: expect.objectContaining({ failureCode: "preflight_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "queued" }) },
+    ]));
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+  });
+
+  it("reads the claim RPC attempts and settles a generic task past the cap without a preflight or adapter (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const permit = { providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) };
+    const claimed = (attempts: number) => ({ ...task, attempts,
+      payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2, ...permit } }) as QueueTaskRecord;
+    const transient = (db: ReturnType<typeof database>) => {
+      const rpc = db.client.rpc.bind(db.client);
+      (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+        ? (db.writes.push({ rpc: name }), Promise.resolve({ data: null, error: { code: "08006" }, status: 503 }))
+        : rpc(name as never, args as never);
+    };
+
+    // The same transient denial requeues on claim 1 and settles on claim 2: the decision follows the claimed row.
+    const second = database(); transient(second);
+    await handleVendorQuoteTask(second.client, claimed(2), live);
+    expect(second.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "failed",
+        raw_payload: expect.objectContaining({ failureCode: "preflight_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "failed" }) },
+    ]));
+
+    const exhausted = database();
+    await handleVendorQuoteTask(exhausted.client, claimed(3), live);
+    const rpcs = exhausted.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(exhausted.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "failed",
+        raw_payload: expect.objectContaining({ failureCode: "attempts_exhausted", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "failed" }) },
+    ]));
+  });
+
+  it("keeps a persisted generic result when the status read after persistence fails (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    genericRoute.run = async (route) => {
+      const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
+        leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { source: "fictiv-live-adapter" } };
+      const { artifactCount } = await route.persist(output);
+      return { disposition: "persisted", code: "persisted", stage: "persist", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: { status: output.status, offerCount: 1, artifactCount },
+        evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, true);
+    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+  });
+
+  // OVD-723 x OVD-464: the generic route asks the export gate right before
+  // adapter.quote; a hold raised there closes the lane as held, never as a
+  // provider failure or manual follow-up.
+  it("closes a generic lane as held when the export gate flips before the adapter (OVD-723)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    let adapterError: unknown = null;
+    genericRoute.run = async (route) => {
+      adapterError = await route.adapter.quote({} as VendorQuoteAdapterInput).catch((error: unknown) => error);
+      // What the pipeline returns for an adapter that threw before any mutation.
+      return { disposition: "manual_follow_up", code: "adapter_failed", stage: "adapter", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, true);
+    const baseRpc = db.client.rpc.bind(db.client);
+    let dispatchChecks = 0;
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => {
+      if (name === "api_check_export_control_dispatch" && ++dispatchChecks > 2) {
+        db.writes.push({ rpc: name, args: structuredClone(args) });
+        const denied = Promise.resolve({ data: { allowed: false, reasonCode: "export_review_pending" }, error: null });
+        return Object.assign(denied, { abortSignal: () => denied });
+      }
+      return baseRpc(name, args as never);
+    };
+    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    expect(adapterError).toBeInstanceOf(ProviderDispatchAuthorizationError);
+    const laneWrites = db.writes.filter((write) => (write as { table?: string }).table === "vendor_quote_results");
+    expect(laneWrites).toEqual(expect.arrayContaining([expect.objectContaining({ update: expect.objectContaining({ status: "failed",
+      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_review_pending" }) }) })]));
+    expect(JSON.stringify(laneWrites)).not.toContain("manual_vendor_followup");
+    expect(db.writes).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "completed",
+      payload: expect.objectContaining({ exportControlHold: true, failureCode: "export_review_pending" }) }) }]));
+  });
+
+  it("never overwrites a committed generic result whose persistence acknowledgement was lost (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    genericRoute.run = async (route) => {
+      const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
+        leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { source: "fictiv-live-adapter" } };
+      // What the pipeline returns when persist throws.
+      await expect(route.persist(output)).rejects.toThrow();
+      return { disposition: "failed", code: "persistence_failure", stage: "persist", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, false, { persistAckLost: true });
+    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
+    expect(after).not.toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }]));
+  });
+
+  it("never overwrites or retries a committed Xometry result whose persistence acknowledgement was lost", async () => {
+    const db = database(false, false, undefined, requirement, false, { persistAckLost: true });
+    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
+  });
+
+  it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {
+    const db = database(false, false, undefined, requirement, true);
+    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
   });
 
   it("registry checks actual input org/run and actual provider against admission", async () => {

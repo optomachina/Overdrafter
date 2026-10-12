@@ -500,6 +500,11 @@ export type WorkerConfig = {
   anthropicApiKey: string | null;
   openRouterApiKey: string | null;
   workerBuildVersion: string;
+  /**
+   * OVD-464: OVD-462 session lease around the generic provider route. Default
+   * off until the lease migration is applied; off keeps today's behavior.
+   */
+  providerSessionLease?: "off" | "on";
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
   drawingExtractionDebugAllowedModels: string[];
