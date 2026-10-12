@@ -21,7 +21,8 @@ import {
   readProviderRegistry,
   readProviderRegistrySchema,
 } from "./provider-registry.mjs";
-import { assertReviewedEnvelopeCompleteness } from "./reviewed-envelope-check.mjs";
+import { assertDefaultDenyExecuted } from "./default-deny-execution.mjs";
+import { assertReviewedEnvelopeCompleteness, reviewedDefaultDenySuites } from "./reviewed-envelope-check.mjs";
 
 export const KILL_SWITCH_SEED_RELATIVE_PATH = "docs/migration-drafts/ovd-722.sql";
 const KILL_SWITCH_SEED_INSERT = /insert\s+into\s+private\.provider_kill_switches\s*\(\s*provider\s*,\s*engaged\s*\)/i;
@@ -244,6 +245,7 @@ export async function checkProviderIntegrations({
     await assertCatalogConsumers(rootDir);
   }
   const reviewed = await assertReviewedEnvelopeCompleteness({ rootDir, today });
+  const defaultDeny = await assertDefaultDenyExecuted({ rootDir, suites: await reviewedDefaultDenySuites(rootDir) });
   return {
     providerCount: manifests.length,
     vendorKeys,
@@ -257,6 +259,7 @@ export async function checkProviderIntegrations({
     registryPath: PROVIDER_REGISTRY_RELATIVE_PATH,
     registrySchemaPath: PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
     reviewedProviders: reviewed.reviewedProviders,
+    defaultDenyExecuted: defaultDeny.executed,
   };
 }
 
