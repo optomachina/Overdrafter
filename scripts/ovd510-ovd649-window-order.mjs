@@ -54,7 +54,13 @@ export async function proveForwardSide(ctx) {
   gate("refused replacement changes nothing", catalog() === base);
   // The replacement waits on a held (510, 2) lock, as every window 2 script does.
   const holder = session(ctx, "postgres", "begin; select pg_advisory_xact_lock(510, 2); select pg_sleep(3); commit;");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Start timing only once the holder has the lock, however slow its exec start.
+  const lockDeadline = Date.now() + 10_000;
+  while (psql("select count(*) from pg_locks where locktype = 'advisory' and classid = 510 and objid = 2 and objsubid = 2 and granted;",
+    10_000, "postgres") !== "1") {
+    if (Date.now() > lockDeadline) throw new Error("ovd649_holder_lock_not_observed");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   const started = Date.now();
   psql(sql.replacement, 60_000, "postgres");
   const waitedMs = Date.now() - started;

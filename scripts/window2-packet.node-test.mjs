@@ -93,3 +93,13 @@ test("the read only digest query equals the OVD-558 forward preflight digest que
   assert.doesNotMatch(digest.replace(/--[^\n]*/g, "").replace(/'[^']*'/g, "''"),
     /\b(insert|update|delete|create|alter|drop|grant|revoke|lock|commit)\b/i);
 });
+
+test("the restore check refuses URLs that libpq could send to a remote host", async () => {
+  const { isLocalTarget } = await import("./window-1/restore-check.mjs");
+  assert.equal(isLocalTarget("postgresql://postgres:postgres@127.0.0.1:54322/postgres"), true);
+  assert.equal(isLocalTarget("postgresql:///postgres?host=/tmp"), true);
+  assert.equal(isLocalTarget("postgresql://localhost/postgres?host=localhost&host=db.example.com"), false);
+  assert.equal(isLocalTarget("postgresql:///postgres?host=/tmp,db.example.com"), false);
+  assert.equal(isLocalTarget("postgresql://localhost/postgres?host=localhost,db.example.com"), false);
+  assert.equal(isLocalTarget("postgresql://db.example.com/postgres"), false);
+});
