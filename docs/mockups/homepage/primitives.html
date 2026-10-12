@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OverDrafter — Service Primitives</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<style>
+.intro{padding:48px 24px 32px;max-width:900px}.intro h1{font:700 clamp(40px,6vw,72px)/.95 var(--display);text-transform:uppercase}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--hairline);border-left:1px solid var(--hairline)}
+.p{border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline);background:var(--surface);padding:12px 12px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.p svg{width:100%;height:auto;display:block}.p h3{font:700 22px var(--display);text-transform:uppercase;margin-top:4px}.p p{font-size:13px;color:var(--muted)}
+.p .micro{display:flex;justify-content:space-between}
+.leg{padding:16px;background:var(--bg);border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.leg ol{list-style:none;padding:0;font:400 12px var(--mono);display:flex;flex-direction:column;gap:6px;margin-top:12px}
+@media(max-width:1100px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.machine .edge{fill:none;stroke:var(--text);stroke-width:.9;vector-effect:non-scaling-stroke}
+.machine .wire{fill:none;stroke:var(--t-top);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.machine .pane{fill:none;stroke:var(--ink-data);stroke-dasharray:3 3}
+.machine .view{fill:none;stroke:var(--ink-data);stroke-width:1.2}.machine .dim{fill:var(--accent-red);stroke:var(--accent-red)}
+</style></head><body>
+<header class="strip"><span class="brand">OVERDRAFTER</span><span>Service primitives</span><a class="btn plain" href="index.html">All mockups</a></header>
+<section class="intro"><span class="micro">13 primitives · one drawing language</span><h1>Every service, one machine.</h1><p style="font-size:16px;max-width:56ch;margin-top:16px">Each primitive is an invented mechanism whose moving parts behave the way the service works. Same camera, same four tones, one red part per figure.</p></section>
+<section class="grid" id="g"></section>
+<script src="iso.js"></script><script src="prim.js"></script><script>
+const grid=document.getElementById("g"),NS="http://www.w3.org/2000/svg";
+PRIMS.forEach((p,i)=>{const c=document.createElement("article");c.className="p";
+c.innerHTML=`<span class="micro"><span>${String(i+1).padStart(2,"0")}</span><span>${p.group}</span></span><div></div><h3>${p.title}</h3><p>${p.idea}</p>`;
+const svg=document.createElementNS(NS,"svg");svg.setAttribute("class","machine");svg.setAttribute("viewBox","30 10 350 340");svg.setAttribute("role","img");svg.setAttribute("aria-label",p.title+": "+p.idea);
+c.children[1].appendChild(svg);grid.appendChild(c);const I=Iso(svg,{S:26,OX:190,OY:150});p.draw(I,svg);I.still();});
+const l=document.createElement("div");l.className="leg";l.innerHTML=`<span class="micro">Reading the sheet</span><ol><li>DESIGN · 01–05</li><li>SOURCE · 06–09</li><li>DELIVER · 10–13</li></ol><p style="margin-top:12px">Red marks the one part each machine is about.</p>`;grid.appendChild(l);
+</script></body></html>
