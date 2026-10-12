@@ -1,12 +1,24 @@
 # OverDrafter Business Model
 
-Approved by Blaine on October 11, 2026. Source: the business council synthesis
-(Grok, Astra and Opus, two rounds) with Blaine's changes applied.
+Approved by Blaine on October 11, 2026. Source: the pricing council synthesis
+(pricing council synthesis FINAL ANSWER, October 11, 2026) with Blaine's
+overrides applied. Prices below are **locked** for Alpha and the scoped Beta.
 
-**Final prices are pending a council rerun.** This document records the model
-and the tier structure. Every price below is TBD until that rerun is approved,
-and the Stripe catalog (OVD-228) stays disabled until then and until 1.0
-certification (OVD-199, OVD-319).
+Stripe catalog work on OVD-725 / [PR #671](https://github.com/optomachina/Overdrafter/pull/671)
+must match this document (including Jarvis free with a $10 per seat model
+usage cap). Billing stays disabled until pre charge conditions are met and
+1.0 is certified (OVD-199, OVD-319). A live charge still needs separate
+explicit approval (OVD-228).
+
+## Phases
+
+* **Alpha:** free for Blaine's invited friends. No charge. Invited friends get
+  any tier's features at $0.
+* **Beta (scoped beta, November 13, 2026):** paid, using the locked tiers
+  below. Monthly billing only at launch. No annual plan at launch.
+* **Jarvis:** free (not $49). Separate Stripe product. $10 per seat model
+  usage cap. A sourcing cutoff never refunds Jarvis, and a Jarvis failure
+  never refunds sourcing.
 
 ## Model
 
@@ -21,26 +33,76 @@ certification (OVD-199, OVD-319).
 * **Suppliers are free.** Shops get the portal and a profile claim at no cost.
   A paid shop plan comes only after OverDrafter sends a shop repeat work.
   Affiliate income is not planned.
-* **Value is engineer hours saved**, roughly $100/hr. The old $49 hypothesis is
-  dropped as too cheap.
+* **Value is engineer hours saved**, roughly $100/hr. The old $49 Pro
+  hypothesis is dropped as too cheap.
 * **The traditional shop channel is the moat** and the hedge against a
   platform cutting off access. Hard parts (Swiss turning, nickel alloys,
   optical tolerances) need real RFQs. Supplier network architecture is
   recorded on OVD-707.
 
-## Tiers (prices TBD)
+## Locked tiers (monthly only at launch)
 
-| Tier | Price | Includes |
-|---|---|---|
-| Free | $0 | Manual quote runs on the existing free quote meter, 1 user, no automation, no RFQ send |
-| Pro | TBD | 1 user, automated multi provider quotes (only providers the permissions matrix clears), fair use cap, history, requote on revision |
-| Team | TBD | Multiple seats, shared projects, traditional shop RFQs and the QR vendor portal, private approved supplier list |
-| Founding Team | TBD, locked 12 months, max 12 teams | Team features in exchange for a case study and a monthly call |
-| Procurement (pilot, month 6+, staffed) | TBD (flat monthly or a capped percent of in app PO value, buyer picks) | Outreach, chasing, PO tracking, scorecards. Kept out of the ARR plan |
-| Suppliers | Free | Portal and profile claim |
+| Tier | Price | Includes | Cap |
+|---|---|---|---|
+| Free | $0 | 1 user, manual quote path, no automation | 3 manual runs/mo |
+| Pro | **$99/mo** | 1 user, automated comparison across live providers, history | 40 successful runs; 300 provider attempts |
+| Team | **$349/mo**, 5 seats, **+$40/seat** | Pro, plus shared projects; shop RFQs, vendor portal and supplier list as each ships | 120 pooled runs; 900 attempts |
+| Founding Team | **$199/mo**, max 8 teams | Team features as they ship; 12 month rate hold, billed monthly | Same as Team |
+| Jarvis | **Free**, separate Stripe product | Phone to SolidWorks assistant, approval required before CAD changes | $10 per seat model usage cap |
+| Procurement (pilot, month 6+, staffed) | TBD later | Outreach, chasing, PO tracking, scorecards. Kept out of the ARR plan | — |
+| Suppliers | Free | Portal and profile claim | — |
 
-Metering is a fair use cap where failed runs don't count, with no overage at
-launch. Cost per run is measured before the cap is set.
+**Run definitions:** one run is one part revision, one spec, and up to 3
+quantities across the live providers. Failed runs and provider off errors are
+free. A fresh re quote counts; viewing history is free. Each provider gets at
+most one automatic retry per run and a plain daily cap per account (about 20
+quotes per provider per day), with no human mimicking pacing. There is **no
+overage**: notify at 80%, pause automation at 100%. If margin breaks, cut the
+cap before raising the price.
+
+**Founding offer:** 8 hand sold teams at $199/mo, rate held 12 months, billed
+monthly, cancel anytime. Charge only after a team has seen one real sourcing
+job succeed. In exchange: a 20 to 25 minute monthly call, with a case study
+requested but not required. After 12 months they move to list price with 30
+days' notice. At capacity this is $1,592 MRR.
+
+**Annual:** none at launch. Team at $3,490/yr (2 months free) may be offered
+later only after 6 months with no C&D, and only if either 3+ instant providers
+are live or at least 50% of that customer's usage is shop RFQs. Pro annual
+($990) waits until providers have been stable for 6 months. If service is
+withdrawn, unused months are refunded in cash.
+
+**Price tests:** test $149 Pro and $399 Team on new signups only, after 10
+companies have renewed twice.
+
+## Pre charge conditions
+
+Before the first card:
+
+* Form an Arizona LLC (about $50) and open a business bank account in its
+  name. Put Stripe in the LLC's name.
+* Turn on Stripe Tax.
+* Use template terms with these clauses: providers are "currently available"
+  and may change; quotes are informational and orders are placed on the
+  provider's site; liability is capped at 3 months of fees; no indemnity; no
+  SLA; clear auto renewal language. Add the customer acknowledgement about
+  their own provider accounts. Show live providers on the checkout page.
+* **Reserve:** first month of collections plus $500. The next roughly $3k goes
+  to counsel to review the terms and the permissions matrix. Counsel is paid
+  from revenue, not as a gate before charging.
+
+## Refunds and switch offs
+
+* Turn off a provider the same day on any C&D, IP or bot block, CAPTCHA wall,
+  or ban of a customer's account. Never work around a block.
+* Email affected customers the same day. They get 14 days to claim a full
+  refund of the current month, one refund per cutoff event. No partial
+  credits.
+* Pro auto pauses (Stripe pause collection) when fewer than 2 instant
+  providers are live.
+* Team keeps billing through a cutoff only once shop RFQs are live and in
+  use. Before that, it follows the Pro rule.
+* Sourcing and Jarvis never cross refund.
 
 ## Wedge customer
 
@@ -52,32 +114,44 @@ customer.
 
 ## First 90 days of monetization
 
-**Days 1 to 21: gates before any charge**
+Scoped beta starts November 13, 2026. Gates below assume pre charge
+conditions are already met.
 
+**Before the first charge**
+
+* Arizona LLC, bank and Stripe in the LLC's name. Stripe Tax on.
+* Template terms, acknowledgement and live provider checkout.
+* Off switches tested. Refund, prorate and pause flows run once in Stripe
+  test mode.
+* Upload block live. Credential storage reviewed.
 * Provider permissions matrix for all 8 platforms.
-* **Legal council review (model council) and a cease and desist response
-  playbook.** This replaces a paid lawyer review for now.
-* Per provider kill switch.
-* Block controlled or uncertain (ITAR/EAR) uploads.
-* Ask Fictiv/MISUMI, Geomiq, Weerg and OSH Cut about partner API access.
-* Set up the Stripe catalog for Pro, Team and Founding Team with prices TBD
-  (OVD-228). Keep it disabled until the council rerun sets prices and 1.0 is
-  certified.
+* Legal council review (model council) and a cease and desist response
+  playbook.
+* Stripe catalog for Free, Pro, Team, Founding Team and Jarvis matches this
+  document (OVD-725 / PR #671). Keep billing disabled until certification
+  (OVD-199, OVD-319) and separate live charge approval (OVD-228).
 
-**Days 22 to 45:** Founding Beta (OVD-358) with about 10 Tucson and regional
-teams. Watch 2 to 3 real sourcing jobs per team. Log hours saved per part,
-quote comparability, cost per run and the reason for each "no".
+**Days 1 to 30:** Free Alpha for invited friends; watch real sourcing jobs on
+Beta. Measure cost per run (at least 50 runs), hours saved, and support
+minutes. Charge each Founding team only after one job succeeds.
 
-**Days 46 to 60:** Offer Founding Team once a team has seen value (OVD-320).
-Target 6 to 8 paying teams.
+**Days 31 to 60:** Fill 8 Founding slots at $199. Fund the reserve. Start the
+counsel review once collections cover reserve plus $3k.
 
-**Days 61 to 90:** Publish 3 case studies with real cross supplier price
-spreads. Open self serve Pro.
+**Days 61 to 90:** Open self serve Pro only if at least 5 Founding teams are
+paying, delivery cost is at or under $20/Pro and $70/Team, and support takes
+under about 5 hours a week.
 
-**Day 90 gate:** If MRR misses the target set in the pricing rerun, fewer than
-5 of 8 Founding teams are still paying, or churn is over 8% a month, rework
-price or wedge. If 60%+ renew and usage is 4+ parts a month, start the Pro
-price test and the Team upsell. Still no shop fees and no Procurement tier.
+**Day 90 go:** At least 6 of 8 Founding teams still paying, MRR at or above
+$1.5k, no more than 1 dispute, no unresolved C&D. Continue, and plan the
+$149/$399 test after 10 companies have renewed twice.
+
+**Day 90 rework:** MRR under $1.5k, fewer than 5 of 8 Founding teams paying,
+churn over 8%/mo, or delivery cost over budget. Cut caps first, then rework
+price or wedge.
+
+**Jarvis checkpoint:** Fewer than 5 outside weekly active users means it
+stays free and gets fewer of Blaine's hours.
 
 ## Risks
 
@@ -91,12 +165,15 @@ price test and the Team upsell. Still no shop fees and no Procurement tier.
   A controlled data tier waits for a specialist review.
 * **Disintermediation.** Retention comes from revision history, approvals and
   audit trails. Any order fee applies only to POs issued inside OverDrafter.
+* **Nothing makes liability zero.** An LLC and a 3 month liability cap in
+  customer terms bound exposure; they do not eliminate CFAA or tort risk from
+  automation in customer provider accounts.
 
 ## Scope note
 
-The council suggested parking Jarvis and Fixture until paying teams exist.
-Blaine overrode that: **Jarvis continues in parallel with 1.0** and Fixture
-stays on the 1.0 plan as a throughput multiplier (see
+Blaine overrode parking Jarvis: **Jarvis continues in parallel with 1.0**,
+stays free with a $10 per seat model usage cap as a separate Stripe product,
+and Fixture stays on the 1.0 plan as a throughput multiplier (see
 [`docs/plans/beta-launch-plan.md`](../plans/beta-launch-plan.md)). The full
 procurement suite remains parked.
 
@@ -106,8 +183,8 @@ procurement suite remains parked.
 2. Wedge teams source at least 4 parts a month, every month.
 3. Buyers pay with zero or few platforms connected, so RFQ and portal value
    stands on its own.
-4. The Pro price can go on a card without approval, and a higher test price
-   does not cut conversion by more than about 30%.
+4. The $99 Pro price can go on a card without approval, and a higher test
+   price does not cut conversion by more than about 30%.
 5. Teams pay for shared projects and RFQs rather than one seat each.
 6. Fully loaded automation cost per quote run keeps gross margin at 80%+.
 7. At least 4 of 8 platforms permit, or will partner on, automated quoting.

@@ -79,7 +79,7 @@ export async function runComparisonCase(testCase: ComparisonCase, decide?: Recov
       vendorStorageStateJson: { quickparts: JSON.stringify({ cookies: [], origins: [] }) },
     } as unknown as WorkerConfig;
     const launchBrowser = async (): Promise<Browser> => {
-      const browser = await chromium.launch({ timeout: 10_000 });
+      const browser = await chromium.launch({ chromiumSandbox: true, timeout: 10_000 });
       const originalContext = browser.newContext.bind(browser);
       browser.newContext = async (options): Promise<BrowserContext> => {
         const context = await originalContext(options);
