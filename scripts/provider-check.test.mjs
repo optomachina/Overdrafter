@@ -12,6 +12,11 @@ import { readProviderManifests } from "./provider-manifest.mjs";
 import { syncProviderCatalogs, syncProviderIntegrations } from "./provider-sync.mjs";
 import { PROVIDER_REGISTRY_RELATIVE_PATH, WORKER_REGISTRY_RELATIVE_PATH } from "./provider-registry.mjs";
 import {
+  NONE_ALLOWED_READINESS_HEADINGS,
+  REQUIRED_READINESS_HEADINGS,
+  validateReadinessDoc,
+} from "./provider-readiness-doc.mjs";
+import {
   REVIEWED_ENVELOPE_ARTIFACTS,
   assertReviewedEnvelopeCompleteness,
   collectReviewedEnvelopeGaps,
@@ -21,6 +26,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
+const EMPTY_ENVELOPE_SOURCE = "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = [];\n";
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
@@ -57,12 +63,13 @@ async function createCheckedFixture() {
       await fs.copyFile(path.join(repoRoot, relativePath), target);
     }),
   ]);
+  await fs.writeFile(path.join(rootDir, "worker/src/providerDispatchEnvelope.ts"), EMPTY_ENVELOPE_SOURCE);
   await syncProviderIntegrations({ rootDir });
   return { temporaryRoot, rootDir };
 }
 
 describe("checked-in provider manifests and projections", () => {
-  it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", async () => {
+  it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", { timeout: 180_000 }, async () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-28" });
     const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
 
@@ -70,6 +77,10 @@ describe("checked-in provider manifests and projections", () => {
     expect(result.vendorKeys).toHaveLength(18);
     expect(result.vendorKeys).toContain("rmfg");
     expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
+    expect(result.defaultDenyExecuted).toEqual([
+      { key: "quickparts", file: "worker/src/adapters/quickpartsProductionPortal.test.ts", passed: 10 },
+      { key: "weerg", file: "worker/src/adapters/weergProductionPortal.test.ts", passed: 10 },
+    ]);
     for (const { manifest } of manifests) {
       expect(manifest.official.urls.length).toBeGreaterThan(0);
       expect(manifest.official.domains.length).toBeGreaterThan(0);
@@ -206,11 +217,30 @@ describe("checked-in provider manifests and projections", () => {
     })).rejects.toThrow("generated provider catalog output must be a regular file");
   });
 
+  it("fails provider:check when rmfg displayName looks like a secret", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const manifestPath = path.join(rootDir, "provider-integrations/rmfg/manifest.v1.json");
+    const catalogPath = path.join(rootDir, "src/features/quotes/generated/provider-catalog.ts");
+    const catalogBefore = await fs.readFile(catalogPath, "utf8");
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    manifest.displayName = "eyJhbGciOiJIUzI1NiJ9xx";
+    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(checkProviderIntegrations({
+      rootDir,
+      today: "2026-09-28",
+      checkConsumers: false,
+    })).rejects.toThrow("secret-value-like string");
+    expect(await fs.readFile(catalogPath, "utf8")).toBe(catalogBefore);
+    expect(catalogBefore).not.toContain("eyJhbGciOiJIUzI1NiJ9xx");
+  });
+
   it("fails provider:check when a manifest has no registry entry", async () => {
     const { rootDir } = await createCheckedFixture();
     const registryPath = path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH);
     const registry = JSON.parse(await fs.readFile(registryPath, "utf8"));
     registry.providers = registry.providers.filter((entry) => entry.key !== "rmfg");
+    registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "rmfg");
     await fs.writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
     await expect(checkProviderIntegrations({
@@ -232,6 +262,13 @@ describe("checked-in provider manifests and projections", () => {
     })).rejects.toThrow(`generated provider registry is stale: ${WORKER_REGISTRY_RELATIVE_PATH}`);
   });
 });
+
+function readinessDocSource(key, { skip = null, emptyHeading = null } = {}) {
+  const sections = REQUIRED_READINESS_HEADINGS
+    .filter((heading) => heading !== skip)
+    .map((heading) => `${heading}\n\n${heading === emptyHeading ? "" : `${key} content.\n`}`);
+  return `# ${key} live readiness\n\n${sections.join("\n")}`;
+}
 
 function defaultDenyTestSource(key, envelopeId) {
   return `import { describe } from "vitest";
@@ -309,7 +346,7 @@ async function writeCompleteReviewedProvider(rootDir, key, { reviewed = true, ev
   await fs.mkdir(path.join(rootDir, "docs/workflows"), { recursive: true });
   await fs.writeFile(
     path.join(rootDir, "docs/workflows", docName),
-    `# ${key} live readiness\n\nGenerated output stays disabled by default. Secret names only.\n`,
+    readinessDocSource(key),
   );
   await fs.mkdir(path.join(rootDir, "worker/test-support"), { recursive: true });
   await fs.writeFile(
@@ -342,6 +379,9 @@ async function writeCompleteReviewedProvider(rootDir, key, { reviewed = true, ev
 async function createEnvelopeRoot() {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-reviewed-envelope-"));
   temporaryRoots.push(temporaryRoot);
+  const envelopeSourcePath = path.join(temporaryRoot, "worker/src/providerDispatchEnvelope.ts");
+  await fs.mkdir(path.dirname(envelopeSourcePath), { recursive: true });
+  await fs.writeFile(envelopeSourcePath, EMPTY_ENVELOPE_SOURCE);
   return temporaryRoot;
 }
 
@@ -436,7 +476,7 @@ describe("reviewed envelope completeness", () => {
     ]);
   });
 
-  it("passes current main providers or keeps only dated tracking exceptions", async () => {
+  it("passes current main providers or keeps only dated tracking exceptions", { timeout: 180_000 }, async () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-10-11" });
     const gaps = await collectReviewedEnvelopeGaps({ rootDir: repoRoot, today: "2026-10-11" });
 
@@ -490,29 +530,68 @@ describe("reviewed envelope completeness", () => {
     ));
   });
 
-  it("accepts OVD-688 registry mountPath declarations as names, not secret values", async () => {
-    const rootDir = await createEnvelopeRoot();
-    await writeCompleteReviewedProvider(rootDir, "acme");
+  async function writeAcmeRegistry(rootDir, sessionSecrets) {
     await fs.writeFile(
       path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH),
       `${JSON.stringify({
         providers: [{
           key: "acme",
           liveAdapter: false,
-          sessionSecrets: [{
-            secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
-            mountPath: "/var/secrets/acme-storage-state/storage-state.json",
-            requiredWhenListed: true,
-          }],
+          sessionSecrets,
           egress: "stable_nat",
         }],
       }, null, 2)}\n`,
+    );
+  }
+
+  it("accepts OVD-688 registry mountPath declarations as names, not secret values", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await writeAcmeRegistry(rootDir, [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/var/secrets/acme-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    }]);
+    await fs.writeFile(
+      path.join(rootDir, "worker/src/generated/providerRegistry.ts"),
+      'export const acmeSessionSecretNames = ["ACME_STORAGE_STATE_SECRET_NAME"] as const;\n',
+    );
+    await fs.writeFile(
+      path.join(rootDir, "worker/scripts/generated/provider-secrets.sh"),
+      "# ACME_STORAGE_STATE_SECRET_NAME\n",
     );
 
     await expect(assertReviewedEnvelopeCompleteness({
       rootDir,
       today: "2026-10-11",
     })).resolves.toEqual({ reviewedProviders: ["acme"] });
+  });
+
+  it.each([
+    ["an invalid mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/tmp/acme-storage-state.json",
+      requiredWhenListed: true,
+    }]],
+    ["both mountEnv and mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "ACME_STORAGE_STATE_JSON",
+      mountPath: "/var/secrets/acme-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    }]],
+    ["neither mountEnv nor mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      requiredWhenListed: true,
+    }]],
+  ])("treats a registry secret with %s as missing deploy wiring", async (_label, sessionSecrets) => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await writeAcmeRegistry(rootDir, sessionSecrets);
+    await expect(collectReviewedEnvelopeGaps({ rootDir, today: "2026-10-11" })).resolves.toEqual([{
+      key: "acme",
+      artifact: "deploy wiring",
+      expectedPath: PROVIDER_REGISTRY_RELATIVE_PATH,
+    }]);
   });
 
   it("refuses registry entries that carry secret values", async () => {
@@ -763,5 +842,236 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
       artifact: "readiness doc",
       expectedPath: "docs/workflows/ovd9001-delta-live-readiness.md",
     }]);
+  });
+});
+
+describe("reviewed envelope source fails closed", () => {
+  const sourcePath = "worker/src/providerDispatchEnvelope.ts";
+
+  it("throws when the envelope source file is missing", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.rm(path.join(rootDir, sourcePath));
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow(`provider:check: cannot read reviewed envelopes from ${sourcePath}: `);
+  });
+
+  it("throws when the envelope source has a syntax error", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.writeFile(path.join(rootDir, sourcePath), "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = [{ ;\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow(`provider:check: cannot read reviewed envelopes from ${sourcePath}: `);
+  });
+
+  it("still fails with the existing message when the source parses but has no export", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.writeFile(path.join(rootDir, sourcePath), "export const SOMETHING_ELSE = [];\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow("does not declare REVIEWED_PROVIDER_DISPATCH_ENVELOPES");
+  });
+});
+
+describe("default-deny registrar call placement", () => {
+  async function checkWithBody(body) {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    const header = defaultDenyTestSource("acme", "acme-quote-envelope").split("describe(")[0];
+    await fs.writeFile(
+      path.join(rootDir, "worker/src/adapters/acmeProductionPortal.test.ts"),
+      `${header}${body}\n`,
+    );
+    return assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" });
+  }
+  const call = "registerProductionPortalAuthorizationRefusals(defaultDenyHarness())";
+
+  it.each([
+    ["top level", `${call};`],
+    ["describe", `describe("a", () => { ${call}; });`],
+    ["nested describe", `describe("a", () => { describe("b", function () { ${call}; }); });`],
+  ])("accepts a call at %s", async (_name, body) => {
+    await expect(checkWithBody(body)).resolves.toEqual({ reviewedProviders: ["acme"] });
+  });
+
+  it.each([
+    ["if (false)", `if (false) { ${call}; }`, "IfStatement"],
+    ["if without block", `if (false) ${call};`, "IfStatement"],
+    ["ternary", `true ? ${call} : undefined;`, "ConditionalExpression"],
+    ["try", `try { ${call}; } catch {}`, "TryStatement"],
+    ["for", `for (let i = 0; i < 1; i += 1) { ${call}; }`, "ForStatement"],
+    ["while", `while (false) { ${call}; }`, "WhileStatement"],
+    ["helper function", `function helper() { ${call}; }`, "FunctionDeclaration"],
+    ["arrow helper", `const helper = () => { ${call}; };`, "ArrowFunction"],
+    ["it callback", `it("a", () => { ${call}; });`, "ArrowFunction"],
+    ["&& expression", `(globalThis as any).x && ${call};`, "BinaryExpression"],
+    ["|| expression", `(globalThis as any).x || ${call};`, "BinaryExpression"],
+    ["if inside describe", `describe("a", () => { if (false) { ${call}; } });`, "IfStatement"],
+    ["describe.skip", `describe.skip("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.todo", `describe.todo("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.skipIf", `describe.skipIf(true)("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.only", `describe.only("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.each with items", `describe.each([1])("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.each empty", `describe.each([])("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe { skip: true }", `describe("a", { skip: true }, () => { ${call}; });`, "describe options argument"],
+    ["describe { todo: true }", `describe("a", { todo: true }, () => { ${call}; });`, "describe options argument"],
+    ["describe third-argument options", `describe("a", () => { ${call}; }, { skip: true });`, "describe options argument"],
+    ["nested describe options", `describe("a", () => { describe("b", { skip: true }, () => { ${call}; }); });`, "describe options argument"],
+  ])("rejects a call under %s and names %s", async (_name, body, kind) => {
+    await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
+  });
+});
+
+describe("readiness doc structure", () => {
+  const docPath = "docs/workflows/acme-live-readiness.md";
+
+  async function checkWithDoc(contents) {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    if (contents === null) {
+      await fs.rm(path.join(rootDir, docPath));
+    } else {
+      await fs.writeFile(path.join(rootDir, docPath), contents);
+    }
+    return assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" });
+  }
+
+  it("passes a conforming doc and does not require the recommended permissions heading", () => {
+    expect(validateReadinessDoc(readinessDocSource("acme"))).toEqual([]);
+  });
+
+  it.each(REQUIRED_READINESS_HEADINGS)("fails when %s is missing", async (heading) => {
+    await expect(checkWithDoc(readinessDocSource("acme", { skip: heading })))
+      .rejects.toThrow(`missing heading: ${heading}`);
+  });
+
+  it.each(REQUIRED_READINESS_HEADINGS)("fails when the body under %s is empty", async (heading) => {
+    await expect(checkWithDoc(readinessDocSource("acme", { emptyHeading: heading })))
+      .rejects.toThrow(`empty section: ${heading}`);
+  });
+
+  it("fails when required headings are out of order", () => {
+    const [first, second, ...rest] = REQUIRED_READINESS_HEADINGS;
+    const swapped = [second, first, ...rest].map((heading) => `${heading}\n\nbody\n`).join("\n");
+    expect(validateReadinessDoc(swapped).join(";")).toContain("out of order");
+  });
+
+  it("ignores headings inside fenced code blocks", () => {
+    const fenced = `${REQUIRED_READINESS_HEADINGS.map((heading) => `\`\`\`\n${heading}\n\`\`\`\n`).join("")}`;
+    expect(validateReadinessDoc(fenced)).toHaveLength(REQUIRED_READINESS_HEADINGS.length);
+  });
+
+  it("reports a missing doc through the existing gap message", async () => {
+    await expect(checkWithDoc(null)).rejects.toThrow(
+      formatReviewedEnvelopeGap("acme", "readiness doc", docPath),
+    );
+  });
+
+  it("fails a one-character doc as malformed", async () => {
+    await expect(checkWithDoc("x\n")).rejects.toThrow(`readiness doc ${docPath} is malformed`);
+  });
+
+  it("treats HTML comments and whitespace as empty section content", async () => {
+    const commented = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n<!-- todo -->\n\n`)
+      .join("");
+    expect(validateReadinessDoc(commented)).toEqual(
+      REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+    );
+    await expect(checkWithDoc(commented)).rejects.toThrow("empty section:");
+  });
+
+  it.each(["TBD", "todo", "N/A", "tbd.", "n.a.", "(TODO)"])(
+    "treats a %s-only body as empty section content",
+    async (placeholder) => {
+      const doc = REQUIRED_READINESS_HEADINGS
+        .map((heading) => `${heading}\n\n${placeholder}\n`)
+        .join("");
+      expect(validateReadinessDoc(doc)).toEqual(
+        REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+      );
+      await expect(checkWithDoc(doc)).rejects.toThrow("empty section:");
+    },
+  );
+
+  it.each([
+    "TBD - later", "Coming soon", "TBD TODO", "WIP", "TBC",
+    "TBD: fill in later.", "To be determined.", "FIXME", "XXX", "Lorem ipsum.", "- TODO: list gaps", "&nbsp;",
+  ])(
+    "treats a %s-only body as empty section content",
+    async (placeholder) => {
+      const doc = REQUIRED_READINESS_HEADINGS
+        .map((heading) => `${heading}\n\n${placeholder}\n`)
+        .join("");
+      expect(validateReadinessDoc(doc)).toEqual(
+        REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+      );
+      await expect(checkWithDoc(doc)).rejects.toThrow("empty section:");
+    },
+  );
+
+  it("accepts an honest None. only where no gaps or inputs is a real answer", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n${NONE_ALLOWED_READINESS_HEADINGS.includes(heading) ? "None." : "Real content."}\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
+    const allNone = REQUIRED_READINESS_HEADINGS.map((heading) => `${heading}\n\nNone.\n`).join("");
+    expect(validateReadinessDoc(allNone)).toEqual(
+      REQUIRED_READINESS_HEADINGS
+        .filter((heading) => !NONE_ALLOWED_READINESS_HEADINGS.includes(heading))
+        .map((heading) => `empty section: ${heading}`),
+    );
+  });
+
+  it("treats a whole section wrapped in an HTML comment as missing", async () => {
+    const [, second] = REQUIRED_READINESS_HEADINGS;
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => {
+        const section = `${heading}\n\nacme content.\n`;
+        return heading === second ? `<!--\n${section}-->\n` : section;
+      })
+      .join("\n");
+    expect(validateReadinessDoc(doc)).toEqual([`missing heading: ${second}`]);
+    await expect(checkWithDoc(doc)).rejects.toThrow(`missing heading: ${second}`);
+  });
+
+  it("checks every readiness doc path that exists, not only the first", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "delta", { evidenceReference: "OVD-9001" });
+    await fs.writeFile(path.join(rootDir, "docs/workflows/delta-live-readiness.md"), "TBD\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow("readiness doc docs/workflows/delta-live-readiness.md is malformed");
+  });
+
+  it.each([
+    "docs/workflows/ovd673-fictiv-live-readiness.md",
+    "docs/workflows/ovd674-quickparts-live-readiness.md",
+    "docs/workflows/ovd675-weerg-live-readiness.md",
+  ])("passes the checked-in readiness doc %s", async (relative) => {
+    expect(validateReadinessDoc(await fs.readFile(path.join(repoRoot, relative), "utf8"))).toEqual([]);
+  });
+
+  it("treats a ###-only body as empty section content", async () => {
+    const headed = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n### Details\n`)
+      .join("");
+    expect(validateReadinessDoc(headed)).toEqual(
+      REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+    );
+    await expect(checkWithDoc(headed)).rejects.toThrow("empty section:");
+  });
+
+  it("keeps a section that has a sub-heading plus real body", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n### Details\n\nReal content.\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
+  });
+
+  it("keeps a section that mentions TBD among real content", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\nTBD pending a live login capture.\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
   });
 });

@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./adapters/persistentProfileLock";
+import { PRODUCTION_LIVE_ADAPTERS } from "./generated/providerRegistry";
 import {
+  LIVE_ADAPTER_READINESS_CHECKS,
   prepareRuntimeSecrets,
   validateDrawingExtractionReadiness,
   validateFictivReadiness,
@@ -343,6 +345,10 @@ describe("runtimeSecrets", () => {
     const linked = path.join(workerTempDir, "linked-weerg-storage-state.json");
     await fs.symlink(mounted, linked);
     expect(await validateWeergReadiness(config({ vendorStorageStatePaths: { weerg: linked } }))).toEqual(missing);
+  });
+
+  it("keeps live-adapter readiness checks in step with the registry live list", () => {
+    expect(Object.keys(LIVE_ADAPTER_READINESS_CHECKS)).toEqual([...PRODUCTION_LIVE_ADAPTERS]);
   });
 
   it("limits the production live-adapter set to adapters with a reviewed dispatch preflight", () => {
