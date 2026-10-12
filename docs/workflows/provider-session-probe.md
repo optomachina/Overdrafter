@@ -4,6 +4,26 @@ The session probe answers one question for a stored provider credential: is the 
 
 Covered providers: Fictiv, Quickparts, Geomiq (Playwright storage state) and RMFG (API key). Weerg is out of scope because its login loops in automated browsers.
 
+## Run it
+
+One time setup on the Mac, from the repository root: `npm --prefix worker ci`, then `npm --prefix worker run install:browsers` (installs the Playwright Chromium). Sign in with `gcloud auth login` first. Run one provider at a time, and read the single JSON line it prints.
+
+```bash
+npm --prefix worker run probe:session -- fictiv --secret fictiv-storage-state --project overdrafter-worker-9133
+npm --prefix worker run probe:session -- quickparts --secret quickparts-storage-state --project overdrafter-worker-9133
+npm --prefix worker run probe:session -- geomiq --secret geomiq-storage-state --project overdrafter-worker-9133
+```
+
+| Outcome | What it means | What to do next |
+| --- | --- | --- |
+| `authenticated` | The landing page loaded on the provider's own domain and shows a log out control. | Nothing. The stored session works. |
+| `logged_out` with `login_form` or `login_redirect_off_host` | The provider asked the session to sign in again. | Recapture the storage state and store a new secret version. |
+| `logged_out` with `no_authenticated_marker` | The page loaded but no log out control was found. | Inconclusive. Do not recapture for this alone. Tell the team so the marker can be set per provider. |
+| `blocked` | The provider challenged or refused the probe. | Stop. That provider is off for the day. Do not rerun. Save the JSON line in the tracking issue. |
+| `error` | The probe could not decide. | If the reason is `browser_launch_failed`, run the one time setup above and rerun. If it is `secret_unavailable` or `storage_state_invalid`, fix the secret or sign in to gcloud and rerun. If `httpStatus` is set, the provider did answer, so do not rerun until someone has read the record. |
+
+Exit code 0 means `authenticated`. Anything else exits 1.
+
 ## What the probe does
 
 For storage state providers it loads the state from a file or from Secret Manager into memory only, launches Chromium with the standard sandbox options, and aborts every request that is not https to the provider's own domains or that is not a GET or HEAD. It makes exactly one navigation to the provider landing page (followed through at most 5 checked redirect hops), checks the page without clicking or submitting anything, and closes. Any other page navigation, whether a script redirect or a popup opened with `window.open`, counts toward the single navigation cap, is aborted before it is sent, and is reported.
@@ -18,17 +38,21 @@ Chromium is never allowed to follow a redirect on its own, because it would foll
 
 The reported `finalHost` is the host of the final page.
 
-Landing page and allowed hosts come from the provider catalog generated from the manifests (`officialRfqUrl` and `officialDomains`). One exception: the Quickparts catalog URL is the marketing site, so the probe lands on the QuickQuote app at `https://quickquote.quickparts.com/` instead (the adapter's upload URL, inside the `quickparts.com` allowlist). The authenticated marker is provider neutral: a visible log out or sign out control, with no password field or challenge.
+Landing page and allowed hosts come from the provider catalog generated from the manifests (`officialRfqUrl` and `officialDomains`). One exception: the Quickparts catalog URL is the marketing site, so the probe lands on the QuickQuote app at `https://quickquote.quickparts.com/` instead (the adapter's upload URL, inside the `quickparts.com` allowlist). The authenticated marker is provider neutral: a log out or sign out link or button found in the page, with no challenge. It is matched in the page markup whether or not it is visible, because many sites keep it in an account menu that is closed on load.
+
+Before deciding, the probe takes a second look at the page a short moment after the first (600 ms) and only accepts the answer if both looks agree. A single page app that shows a password form for a moment before its session check finishes is therefore not read as logged out.
 
 ### What counts as blocked
 
-A page is called blocked only on a real signal: HTTP 403, 429 or 503; a Cloudflare challenge marker (the challenge form, the challenge options object, or the challenge platform orchestrate script); a Turnstile widget on a page with no password field; or a challenge or denial title such as "Just a moment", "Attention required" or "Access denied". Body text never decides a block. A "protected by reCAPTCHA" footer, a reCAPTCHA or Turnstile widget on a login form, or the word "Forbidden" in ordinary text does not make a page blocked; a login page with such a widget reads `logged_out`.
+A page is called blocked only on a real signal: HTTP 403, 429 or 503; a Cloudflare challenge marker (the challenge form, the challenge options object, or the challenge platform orchestrate script); a Turnstile widget on a page with neither a password field nor a log out control; or a challenge or denial title such as "Just a moment", "Attention required" or "Access denied". Body text never decides a block. A "protected by reCAPTCHA" footer, a reCAPTCHA or Turnstile widget on a login form, or the word "Forbidden" in ordinary text does not make a page blocked; a login page with such a widget reads `logged_out`. A log out control on the page wins over a CAPTCHA widget alone, so a signed in page that carries a Turnstile widget reads `authenticated`. It does not win over a Cloudflare challenge marker, a challenge title, or HTTP 403, 429 or 503.
+
+A redirect to a login or identity host outside the provider's own domains (for example a single sign on host) is not a block. The request is still refused, with zero hits on that host, and the run reads `logged_out` with reason `login_redirect_off_host` and the host name only in the `offHost` field. A host counts as an identity host when its name has a label such as `login`, `auth`, `sso`, `id` or `accounts`, belongs to a known identity service (Auth0, Okta, OneLogin, Microsoft), or the redirect path looks like a login page. Any other off host redirect stays `blocked` with `off_host_redirect`.
 
 For RMFG it makes one authenticated GET with the key. See the open item below.
 
 ## Commands Blaine runs
 
-Run from the repository root. Each needs `gcloud` signed in with access to project `overdrafter-worker-9133`. The probe finds `gcloud` in fixed install locations rather than through PATH; if yours is elsewhere, set `GCLOUD_PATH` to its absolute path. Add `--out <path>` to also write the JSON record.
+Run from the repository root. Each needs `gcloud` signed in with access to project `overdrafter-worker-9133`. The probe finds `gcloud` in fixed install locations rather than through PATH; if yours is elsewhere, set `GCLOUD_PATH` to its absolute path. When `GCLOUD_PATH` is set it is the only location tried: if it is not an absolute, executable path the run ends as `secret_unavailable` instead of using another gcloud. Add `--out <path>` to also write the JSON record.
 
 ```bash
 npm --prefix worker run probe:session -- fictiv --secret fictiv-storage-state --project overdrafter-worker-9133
@@ -56,11 +80,11 @@ The record holds no cookies, tokens, page content or path. `finalHost` is the ho
 | Outcome | Meaning | Action |
 | --- | --- | --- |
 | `authenticated` | Landing page loaded on an allowed host and shows a logged in marker. | Provider session is qualified for this run. |
-| `logged_out` | A login form, a login redirect or hash route (such as `#/login`), a 401, or no logged in marker. Reasons: `login_form`, `http_unauthorized`, `no_authenticated_marker`. | The stored state has expired or is wrong. Capture a fresh state and store a new secret version. Do not loop. |
-| `blocked` | A challenge (`challenge_page`: a Cloudflare or Turnstile marker, a challenge title, or HTTP 503), a denial title (`access_denied`), HTTP 403 or 429, RMFG 401, a page redirect off the allowed hosts (`off_host_redirect`) or to anything but https (`non_https_target`), a redirect chain longer than 5 hops (`redirect_limit_exceeded`), a state changing (non GET) page navigation that was aborted (`non_get_navigation`), or an extra navigation or popup (`unexpected_extra_navigation`). | Stop. The provider is off for the day (see below). |
-| `error` | The probe could not decide: secret unavailable, malformed state (`storage_state_invalid`), navigation failure, page inspection failure, unexpected status, or the RMFG endpoint is not configured. | If the reason is local (`secret_unavailable`, `storage_state_invalid`, `probe_not_supported`, `rmfg_endpoint_not_configured`, `rmfg_key_invalid`) fix the cause and run again. For `navigation_failed` or `page_inspection_failed`, look at the record first. If `httpStatus` is set, the provider did answer: do not rerun, and treat it like a block until someone has looked at the record. There is no same day rerun after a `blocked` outcome or a `challenge_page` reason, and no retry around a block: the provider stays off for the day. |
+| `logged_out` | A login form, a login redirect or hash route (such as `#/login`), a redirect to an off domain login or identity host, a 401, or no logged in marker. Reasons: `login_form`, `login_redirect_off_host`, `http_unauthorized`, `no_authenticated_marker`. | For `login_form`, `login_redirect_off_host` and `http_unauthorized` the stored state has expired or is wrong: capture a fresh state and store a new secret version. Do not loop. `no_authenticated_marker` is inconclusive for all three providers (see below) and is not a reason to recapture on its own. |
+| `blocked` | A challenge (`challenge_page`: a Cloudflare or Turnstile marker, a challenge title, or HTTP 503), a denial title (`access_denied`), HTTP 403 or 429, RMFG 401, a page redirect off the allowed hosts that is not a login or identity host (`off_host_redirect`) or to anything but https (`non_https_target`), a redirect chain longer than 5 hops (`redirect_limit_exceeded`), a state changing (non GET) page navigation that was aborted (`non_get_navigation`), or an extra navigation or popup (`unexpected_extra_navigation`). | Stop. The provider is off for the day (see below). |
+| `error` | The probe could not decide: secret unavailable, malformed state (`storage_state_invalid`), navigation failure, Chromium failing to start (`browser_launch_failed`), page inspection failure, unexpected status, or the RMFG endpoint is not configured. | If the reason is local (`secret_unavailable`, `storage_state_invalid`, `probe_not_supported`, `rmfg_endpoint_not_configured`, `rmfg_key_invalid`) fix the cause and run again. For `navigation_failed` or `page_inspection_failed`, look at the record first. If `httpStatus` is set, the provider did answer: do not rerun, and treat it like a block until someone has looked at the record. There is no same day rerun after a `blocked` outcome or a `challenge_page` reason, and no retry around a block: the provider stays off for the day. |
 
-`no_authenticated_marker` can also mean the landing page is logged in but has no visible log out control. If a logged in state keeps returning it, tell the team so the marker can be declared per provider. For Quickparts treat `no_authenticated_marker` as inconclusive: the QuickQuote app's signed in page has not been captured in the repository, so it is not known to show a log out control on first load. A Quickparts `login_form` is still a real logged out answer.
+`no_authenticated_marker` is inconclusive for Fictiv, Quickparts and Geomiq alike. The marker is a generic check in the page markup, not one confirmed against each provider's signed in page, so a logged in page without a log out link or button reads this way. Do not recapture a session because of it alone. If a logged in state keeps returning it, tell the team so the marker can be declared per provider. For Quickparts, in addition, treat `no_authenticated_marker` as inconclusive: the QuickQuote app's signed in page has not been captured in the repository, so it is not known to show a log out control on first load. A Quickparts `login_form` is still a real logged out answer.
 
 ## Blocked turns the provider off for the day
 
@@ -70,11 +94,12 @@ A blocked outcome is the standing rule trigger: the provider is turned off for t
 
 These are design limits, not bugs, and they bias the result toward caution.
 
-- **Traffic goes through Node, not Chrome.** Every request, including each redirect hop, is made by Playwright's Node HTTP stack inside the probe's route handler, so each hop is checked before it is sent. Chromium only receives final responses. The provider sees HTTP/1.1 and a Node TLS fingerprint under a Chrome user agent. Bot management may challenge that. A `blocked` result with reason `challenge_page` or `http_forbidden` may therefore mean the probe's fingerprint was challenged, not that the stored session is bad. It still turns the provider off for the day.
+- **Traffic goes through Node, not Chrome.** Every request, including each redirect hop, is made by Playwright's Node HTTP stack inside the probe's route handler, so each hop is checked before it is sent. Chromium only receives final responses. The provider sees HTTP/1.1 and a Node TLS fingerprint under the headless Chromium user agent, which names itself `HeadlessChrome`. That string can itself draw a challenge, as can the Node fingerprint. A `blocked` result with reason `challenge_page` or `http_forbidden` may therefore mean the probe's fingerprint was challenged, not that the stored session is bad. It still turns the provider off for the day.
 - **Only GET and HEAD are allowed.** Every other request is aborted. A single page app that loads its account data with a POST (for example a GraphQL query) may never render its log out control, and the probe will then report `logged_out` with reason `no_authenticated_marker`. Treat that reason as inconclusive for such providers rather than as proof the session expired.
 - **Subresource redirects keep the requested address.** A redirected image, script or API call is answered under the address the page asked for. The landing page itself is not affected: it always ends on its real final URL.
 - **Popups and script redirects count as navigations.** A landing page that opens a popup or redirects with script reads `blocked` with reason `unexpected_extra_navigation`, unless the target looks like a login page, which reads `logged_out`.
-- **The logged in marker is generic.** It looks for a visible log out or sign out control. A logged in page without one reads as `logged_out`.
+- **The logged in marker is generic.** It looks for a log out or sign out link or button in the page markup, visible or not. A logged in page without one reads as `logged_out` with reason `no_authenticated_marker`, which is inconclusive.
+- **Identity host detection is a name heuristic.** An off domain login host that does not look like one by name or path reads `blocked` with `off_host_redirect`, which is the cautious answer.
 
 ## Open item: RMFG endpoint
 

@@ -16,6 +16,7 @@ import {
   runBoundedBrowserSessionProbe,
   runBoundedRmfgSessionProbe,
   runSessionProbe,
+  findGcloud,
   SESSION_PROBE_PROVIDERS,
   type SessionProbeTarget,
 } from "./providerSessionProbe.js";
@@ -105,6 +106,27 @@ function handle(hostLetter: "A" | "B") {
         return html(200, '<div class="cf-turnstile" data-sitekey="x"></div>');
       case "/turnstile-login":
         return html(200, '<form><input type="password" name="p"><div class="cf-turnstile" data-sitekey="x"></div></form>');
+      case "/turnstile-app":
+        return html(200, `${LOGOUT}<h1>Upload</h1><div class="cf-turnstile" data-sitekey="x"></div>`);
+      case "/challenge-with-marker":
+        return html(200, `${LOGOUT}<form id="challenge-form" action="/x"></form>`, "Just a moment...");
+      case "/forbidden-with-marker":
+        return html(403, `${LOGOUT}<div class="cf-turnstile"></div>`);
+      case "/menu-logout":
+        return html(200, '<ul style="display:none"><li><a href="/account/logout">Log out</a></li></ul>');
+      case "/spa-form-flash":
+        return html(
+          200,
+          '<div id="a"><form><input type="password" name="p"></form></div><script>setTimeout(function(){document.getElementById("a").innerHTML=\'<a href="/logout">Log out</a>\'},800)</script>',
+        );
+      case "/off-host-login":
+        return redirect(`${offHostOrigin}/login?next=/secret-path`);
+      case "/off-host-sso":
+        return redirect(`${offHostOrigin.replace("localhost", "sso.localhost")}/start`);
+      case "/off-host-login-nav":
+        return html(200, `<a href="/logout">Log out</a><script>setTimeout(()=>{location.href="${offHostOrigin}/signin"},50)</script>`);
+      case "/chain-off-login":
+        return redirect("/off-host-login");
       case "/recaptcha-app":
         return html(
           200,
@@ -263,6 +285,7 @@ function probe(path: string, probeTarget: SessionProbeTarget = target, state = s
     allowLoopbackHttp: true,
     timeoutMs: 8_000,
     settleMs: 400,
+    confirmMs: 900,
     now: fixedNow,
   });
 }
@@ -356,6 +379,45 @@ describe("browser session probe against local fixtures", () => {
     expect(await probe("/challenge-cf-marker")).toMatchObject({ outcome: "blocked", reason: "challenge_page", httpStatus: 200 });
     expect(await probe("/turnstile-only")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
   }, 60_000);
+
+  it("lets a present log out control win over a CAPTCHA widget alone, but not over a real challenge", async () => {
+    expect(await probe("/turnstile-app")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
+    expect(await probe("/turnstile-only")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
+    expect(await probe("/challenge-with-marker")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
+    expect(await probe("/forbidden-with-marker")).toMatchObject({ outcome: "blocked", reason: "http_forbidden" });
+  }, 60_000);
+
+  it("counts a log out control in a closed menu as the marker", async () => {
+    expect(await probe("/menu-logout")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
+  }, 30_000);
+
+  it("waits for a single page app that flashes a password form before its session check finishes", async () => {
+    expect(await probe("/spa-form-flash")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
+  }, 30_000);
+
+  it("reads a redirect to an off host login or identity host as logged_out with only the host name, and never requests it", async () => {
+    for (const pathname of ["/off-host-login", "/chain-off-login"]) {
+      const evidence = await probe(pathname);
+      expect(evidence).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "localhost" });
+      expect(JSON.stringify(evidence)).not.toContain("secret-path");
+      expect(offHostHits).toEqual([]);
+    }
+    const sso = await probe("/off-host-sso", { ...target, allowedHosts: ["127.0.0.1"] });
+    expect(sso).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "sso.localhost" });
+    const script = await probe("/off-host-login-nav");
+    expect(script).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "localhost" });
+    expect(offHostHits).toEqual([]);
+    // A plain off host landing that is not a login still reads as a block.
+    expect(await probe("/off-host")).toMatchObject({ outcome: "blocked", reason: "off_host_redirect" });
+  }, 60_000);
+
+  it("reports browser_launch_failed when Chromium cannot start", async () => {
+    const evidence = await runBoundedBrowserSessionProbe({
+      target, storageState, sandbox, executablePath: "/nonexistent/chromium",
+      landingUrlOverride: `${origin}/app`, allowLoopbackHttp: true, timeoutMs: 8_000, now: fixedNow,
+    });
+    expect(evidence).toMatchObject({ outcome: "error", reason: "browser_launch_failed" });
+  }, 30_000);
 
   it("never blocks on body text: reCAPTCHA footers, Turnstile on a login form and the word Forbidden", async () => {
     expect(await probe("/recaptcha-app")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
@@ -614,6 +676,34 @@ describe("probe CLI wrapper under tsx", () => {
       ).rejects.toThrow(/loopback fixture URL/);
     }
     expect(loadSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("gcloud lookup", () => {
+  const saved = process.env.GCLOUD_PATH;
+  afterAll(() => {
+    if (saved === undefined) delete process.env.GCLOUD_PATH;
+    else process.env.GCLOUD_PATH = saved;
+  });
+
+  it("fails closed when GCLOUD_PATH is set but not executable, relative or missing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "probe-gcloud-"));
+    try {
+      const plain = path.join(dir, "gcloud");
+      fs.writeFileSync(plain, "#!/bin/sh\n", { mode: 0o644 });
+      const exec = path.join(dir, "gcloud-ok");
+      fs.writeFileSync(exec, "#!/bin/sh\n", { mode: 0o755 });
+      process.env.GCLOUD_PATH = plain;
+      expect(await findGcloud()).toBeNull();
+      process.env.GCLOUD_PATH = path.join(dir, "missing");
+      expect(await findGcloud()).toBeNull();
+      process.env.GCLOUD_PATH = "gcloud";
+      expect(await findGcloud()).toBeNull();
+      process.env.GCLOUD_PATH = exec;
+      expect(await findGcloud()).toBe(exec);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
