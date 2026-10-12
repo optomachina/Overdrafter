@@ -73,8 +73,10 @@
   `src/features/quotes/export-control.test.ts`), dialog
   (`src/components/quotes/ExportControlDeclarationDialog.test.tsx`), worker
   (`worker/src/exportControl.test.ts`), plus updated existing upload tests.
-- pgTAP: `supabase/tests/ovd723_export_control_upload_block.sql` targets the
-  draft. **Not executed.** This box has no Docker or local Postgres, and the
-  draft isn't applied. It is deliberately not added to any CI path list.
+- pgTAP: `supabase/tests/pending/ovd723_export_control_upload_block.sql.pending`
+  targets the draft. **Not executed.** This box has no Docker or local
+  Postgres, and the draft isn't applied. The policy runner stages but does not
+  execute non-`.sql` files, so the suite stays out of CI until the migration
+  window, when it is renamed back to `supabase/tests/ovd723_export_control_upload_block.sql`.
 - OVD-319 cert walk (test 8): **not run.** It needs the applied draft. Expected
   results are recorded as pending rows in `docs/providers/acceptance-tables.md`.

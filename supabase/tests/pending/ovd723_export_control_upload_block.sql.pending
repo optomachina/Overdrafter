@@ -3,9 +3,12 @@
 -- preflight denies without a clean latest declaration.
 --
 -- Targets the DRAFT docs/migration-drafts/ovd-723.sql (PHASE 1 and PHASE 2).
--- The draft is not applied and needs a Blaine migration window, so this suite
--- is not in any CI path list yet. Pre-apply observation: every assertion that
--- references the new functions or tables fails with "does not exist".
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd723_export_control_upload_block.sql in the same
+-- change. Pre-apply observation: every assertion that references the new
+-- functions or tables fails with "does not exist".
 --
 -- Acceptance coverage:
 --   1. upload without a declaration is rejected and stores nothing

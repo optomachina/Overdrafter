@@ -33,6 +33,10 @@
 --   export_review_pending
 --   export_foreign_provider_requires_clean_declaration
 --   export_control_lookup_failed
+--
+-- pgTAP: supabase/tests/pending/ovd723_export_control_upload_block.sql.pending
+-- (parked; rename to supabase/tests/ovd723_export_control_upload_block.sql in
+-- the same change that promotes this draft).
 
 -- =====================================================================
 -- PHASE 1 - EXPAND (additive; existing clients keep working)
