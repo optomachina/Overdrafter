@@ -26,6 +26,10 @@ CAD extensions (from the manifest envelope): `step`, `stp`.
 
 ## Remaining manual steps before admission
 
+0. **Export control first.** The OVD-723 ITAR/EAR upload block (PR #677) must
+   be applied in production and verified before any Geomiq admission, registry
+   `liveAdapter` flip, or certification run, because Geomiq is a foreign
+   provider. Nothing below starts until this is done.
 1. Replace the placeholder routes, upload selector, terminal signals and
    `GEOMIQ_PRODUCTION_LOCATORS` from one authorized live DOM review.
 2. Implement `assessEligibility`, `configure` and `extractOffers`, then
@@ -74,7 +78,7 @@ in full:
   rotates IPs, solves a CAPTCHA, or paces requests to look human. The planned
   ceiling is about 20 quotes per provider per day.
 
-## Permissions matrix (OVD-722)
+## Permissions matrix (OVD-724, #667)
 
 Geomiq paid automated quoting is not matrix cleared. The row is
 `draft_outreach_prepared` with `tos_stance: silent`. See
