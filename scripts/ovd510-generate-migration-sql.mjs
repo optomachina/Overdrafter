@@ -160,6 +160,8 @@ function reverseSql(postCanonicalSha, forwardSha) {
 -- Only storage function raw proacl null-to-explicit normalization is permitted.
 -- READ COMMITTED and the registry lock come first so the emptiness check reads
 -- a snapshot taken after every concurrent registry writer has finished.
+-- storage.objects is locked before the registry, the order a verifier read
+-- takes them through its policy, so a concurrent read cannot deadlock.
 begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
@@ -177,7 +179,8 @@ begin
      or to_regclass('engineering_private.native_verifier_registered_objects') is null then
     raise exception 'ovd558_reverse_runner_or_registry_mismatch';
   end if;
-  lock table engineering_private.native_verifier_registered_objects in access exclusive mode;
+  lock table storage.objects, engineering_private.native_verifier_registered_objects
+    in access exclusive mode;
 end $ovd558_reverse_lock$;
 do $ovd558_reverse_preflight$ declare actual text;
 begin

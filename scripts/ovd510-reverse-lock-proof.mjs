@@ -92,5 +92,58 @@ commit;`);
   unchanged("writer_waits_for_lock");
   results.writerAfterLock = "waited_then_committed_after_rollback";
   results.lockTimeoutWriter = "55P03";
+
+  // 4. A verifier read already holding storage.objects reaches the registry
+  // through its policy only later. Registry-first locking deadlocks with it;
+  // the generated storage.objects-first order waits and proceeds.
+  psql(`insert into storage.buckets (id, name, public) values ('ovd737-proof', 'ovd737-proof', false);
+insert into storage.objects (bucket_id, name) values ('ovd737-proof', 'unregistered-result');`,
+  30_000, "supabase_admin");
+  const verifierRead = `begin;
+set local role engineering_native_verifier;
+set local request.jwt.claim.role = 'engineering_native_verifier';
+select 1 from storage.objects limit 0;
+select pg_sleep(3);
+select count(*) from storage.objects where bucket_id = 'ovd737-proof';
+commit;`;
+  const lockLine = `lock table storage.objects, ${registry}\n    in access exclusive mode;`;
+  assert.equal(held.split(lockLine).length, 2, "ovd737_storage_first_lock_drift");
+  const rollbackOnly = held.replace(`${lockMarker}select pg_sleep(4);\n`, lockMarker);
+  // The reverse must be waiting on storage.objects, or (registry first) already
+  // hold the registry, before the verifier wakes from its sleep.
+  const reverseReady = (registryHeld) => registryHeld
+    ? `select exists(select 1 from pg_locks l join pg_stat_activity a on a.pid = l.pid
+        where a.application_name = 'ovd737_reverse_read' and l.granted
+          and l.mode = 'AccessExclusiveLock' and l.relation = '${registry}'::regclass);`
+    : `select exists(select 1 from pg_stat_activity where datname = 'postgres'
+        and application_name = 'ovd737_reverse_read' and wait_event = 'relation');`;
+  const raceRead = async (sql, registryHeld) => {
+    const reader = session(options, "ovd737_verifier", verifierRead);
+    await barrier(psql, "ovd737_verifier", "PgSleep");
+    const reverse = session(options, "ovd737_reverse_read", sql);
+    for (let i = 0; psql(reverseReady(registryHeld)) !== "t"; i++) {
+      if (i >= 200) throw new Error("ovd737_barrier_missing:ovd737_reverse_read");
+      await pause(50);
+    }
+    return { read: await reader, reverse: await reverse };
+  };
+  const registryFirst = await raceRead(rollbackOnly.replace(lockLine,
+    `lock table ${registry} in access exclusive mode;`), true);
+  assert.match(`${registryFirst.read.stderr}${registryFirst.reverse.stderr}`, /ERROR:\s+40P01:/,
+    "ovd737_registry_first_order_did_not_deadlock");
+  unchanged("registry_first_deadlock");
+  const storageFirst = await raceRead(rollbackOnly, false);
+  assert.equal(storageFirst.read.code, 0, storageFirst.read.stderr);
+  assert.equal(storageFirst.read.stdout.split("\n").at(-1), "0", "ovd737_verifier_read_result");
+  assert.doesNotMatch(storageFirst.reverse.stderr, /40P01/, storageFirst.reverse.stderr);
+  assert.match(storageFirst.reverse.stderr, /ovd737_injected_rollback/, storageFirst.reverse.stderr);
+  psql(`begin;
+set local storage.allow_delete_query = 'true';
+delete from storage.objects where bucket_id = 'ovd737-proof';
+delete from storage.buckets where id = 'ovd737-proof';
+commit;`, 30_000, "supabase_admin");
+  unchanged("verifier_read_during_lock");
+  results.registryFirstVerifierRead = "deadlock_40P01";
+  results.verifierReadDuringLock = "read_completed_reverse_waited_then_proceeded";
   return results;
 }

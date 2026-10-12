@@ -36,13 +36,17 @@ node scripts/ovd510-disposable-replay.mjs --durable-migration
 The reverse SQL refuses an unknown catalog and a nonempty registered-object
 table rather than deleting evidence. Since OVD-737 it first refuses any
 isolation level other than READ COMMITTED with SQLSTATE `0A000`
-(`ovd558_reverse_read_committed_required`), then takes the advisory lock and an
-`ACCESS EXCLUSIVE` lock on the registered-object table before it reads the
-catalog or the registry. A registry writer that commits while the reverse waits
-is therefore seen by the emptiness check, and a writer that arrives later waits
-for the reverse to finish. The disposable replay proves both orders with live
-sessions, the REPEATABLE READ and SERIALIZABLE refusals, and a forward,
-reverse, forward, reverse reapplication with identical catalogs
+(`ovd558_reverse_read_committed_required`). It then takes the advisory lock
+and `ACCESS EXCLUSIVE` locks on `storage.objects` and then the
+registered-object table before it reads the catalog or the registry. A
+registry writer that commits while the reverse waits is therefore seen by the
+emptiness check, and a writer that arrives later waits for the reverse to
+finish. Storage comes first because a verifier read takes the two tables in
+that order through its Storage policy; the opposite order deadlocks with a
+concurrent verifier read. The disposable replay proves both writer orders, the
+verifier read during the lock (and the deadlock when the registry is locked
+first), the REPEATABLE READ and SERIALIZABLE refusals, and a forward, reverse,
+forward, reverse reapplication with identical catalogs, all with live sessions
 (`durable-reverse-lock-proof.json`, `durable-reapply.json`). To allow that
 reapplication, the forward preflight still accepts the pinned prechange catalog
 and otherwise accepts only the exact catalog the reverse leaves: the normalized
@@ -50,7 +54,9 @@ digest must equal the pinned prechange digest and every Storage function must
 carry exactly the explicit owner and `PUBLIC` EXECUTE entries. The post-forward
 digest check is unchanged. Pinned SHA-256 values: forward
 `9a60a19f734da9e46384df9ab6e27911d10eafacc240c2993d3dc000ea75bb5f`, reverse
-`667594ac83d4242af4f2893c376b2d182306e01dcd35970c50d1411a48bd4fc4`. It restores the exact public function ACL
+`56ff1fffaac04240501c26a4b3418096fe85c96962743554351838ffc8d31e3f`.
+
+The reverse also restores the exact public function ACL
 order and preserves the old effective callers. The 20 Storage functions that
 started with null `proacl` return with explicit owner/PUBLIC entries after the
 required revoke and regrant; their expanded grants, grantors, grant options,
