@@ -514,7 +514,7 @@ create or replace function private.provider_kill_switch_permit_guard()
 returns trigger
 language plpgsql
 security definer
-set search_path = pg_catalog
+set search_path = ''
 as $$
 begin
   -- Both permit tables carry provider (the Xometry table defaults and checks
