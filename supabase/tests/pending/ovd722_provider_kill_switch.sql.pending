@@ -14,7 +14,9 @@
 --   * the worker state read is fresh after every flip (no caching)
 --   * global switch denies every provider; off restores each provider's state
 --   * server preflight (generic + Xometry) denies provider_kill_switch_engaged
---   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged
+--   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged: a
+--     BEFORE INSERT trigger on both permit tables; the request RPCs are
+--     not renamed or wrapped
 --   * the sweep cancels queued tasks as cancelled_provider_disabled only for
 --     the switched-off provider
 --   * release is compare and set: a stale or versionless release is refused
@@ -26,7 +28,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(53);
+select plan(56);
 
 create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
 returns void
@@ -105,8 +107,21 @@ select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_
     and has_function_privilege('service_role', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE'),
   'the sweep is service_role only');
 select ok(not has_function_privilege('service_role', 'private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
-    and not has_function_privilege('authenticated', 'private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)', 'EXECUTE'),
-  'the preserved pre-OVD-722 bodies cannot be called directly to bypass the switch');
+    and not has_function_privilege('service_role', 'private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
+    and (select p.proconfig = array['search_path=pg_catalog'] from pg_catalog.pg_proc p
+         where p.oid = 'public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure)
+    and (select p.proconfig = array['search_path=pg_catalog'] from pg_catalog.pg_proc p
+         where p.oid = 'public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)'::regprocedure),
+  'the preserved pre-OVD-722 preflights cannot be called directly; the wrappers keep search_path = pg_catalog');
+select ok(
+  pg_catalog.to_regprocedure('private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)') is null
+    and pg_catalog.to_regprocedure('private.api_request_xometry_beta_dispatch_pre_ovd722(uuid, text, text, text, uuid, boolean, boolean, boolean)') is null
+    and (select pg_catalog.count(*) from pg_catalog.pg_trigger t
+         where t.tgname = 'provider_kill_switch_permit_guard' and not t.tgisinternal and t.tgenabled = 'O'
+           and t.tgrelid in ('private.provider_dispatch_permits'::regclass, 'private.xometry_beta_dispatch_permits'::regclass)) = 2
+    and not exists (select 1 from (values ('public'), ('anon'), ('authenticated'), ('service_role')) as r(role)
+         where pg_catalog.has_function_privilege(r.role, 'private.provider_kill_switch_permit_guard()', 'EXECUTE')),
+  'the request RPCs are untouched; an enabled permit guard trigger sits on both permit tables');
 select ok(
   (select bool_and(c.relrowsecurity and c.relforcerowsecurity) from pg_catalog.pg_class c
    where c.oid in ('private.provider_kill_switches'::regclass, 'private.provider_global_kill_switch'::regclass,
@@ -256,13 +271,15 @@ select isnt(
   'another provider reaches its normal preflight checks');
 reset role;
 
-set local role authenticated;
-select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722002', 'authenticated');
+-- Every new dispatch request inserts exactly one permit row inside the
+-- request transaction. The guard fires before the NOT NULL and FK checks, so a
+-- bare insert shows which providers it refuses.
 select throws_ok(
-  $$select public.api_request_provider_dispatch('00000000-0000-4000-8000-000000722103', 'fictiv',
-    'mm', 'x', 'x', 'x', '00000000-0000-4000-8000-000000722104', true, true, true)$$,
-  'P0001', 'provider_kill_switch_engaged', 'a new fictiv dispatch request is refused at enqueue');
-reset role;
+  $$insert into private.provider_dispatch_permits (provider) values ('fictiv')$$,
+  'P0001', 'provider_kill_switch_engaged', 'a new fictiv permit (enqueue) is refused by the guard trigger');
+select throws_ok(
+  $$insert into private.provider_dispatch_permits (provider) values ('quickparts')$$,
+  '23502', null, 'a quickparts permit passes the guard and reaches the table''s own constraints');
 
 -- ---------------------------------------------------------------------
 -- Sweep: queued tasks end cancelled_provider_disabled; other providers stay
@@ -315,6 +332,10 @@ select is(
   public.api_worker_provider_kill_switch_state('xometry') ->> 'globalEngaged', 'true',
   'the worker read reports the global switch');
 reset role;
+
+select throws_ok(
+  $$insert into private.xometry_beta_dispatch_permits default values$$,
+  'P0001', 'provider_kill_switch_engaged', 'a new Xometry permit (enqueue) is refused under the global switch');
 
 create temp table ovd722_global_seen on commit drop as
   select version from private.provider_global_kill_switch;
