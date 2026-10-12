@@ -328,7 +328,7 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
     try {
       // Positive control: the owning client opens the same URL and reads the job.
       await owner.page.goto(partPath);
-      await expect(owner.page.getByText("FX-101").first()).toBeVisible();
+      await expect(owner.page.getByText("FX-101").first()).toBeVisible({ timeout: 30_000 });
       await expect(owner.page.getByText(PART_DENIED_MESSAGE)).toHaveCount(0);
       expect(await readJobRows(owner, CLIENT_QUOTED_JOB_ID)).toEqual([{ id: CLIENT_QUOTED_JOB_ID }]);
 

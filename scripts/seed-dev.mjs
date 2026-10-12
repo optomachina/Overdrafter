@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -328,9 +328,27 @@ export function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
   return { apply: true, dbUrl };
 }
 
+const PSQL_DIRECTORIES = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+
+/** Finds psql in fixed system directories so the lookup never depends on a writable PATH entry. */
+function resolvePsql() {
+  const versioned = existsSync("/usr/lib/postgresql")
+    ? readdirSync("/usr/lib/postgresql").map((version) => `/usr/lib/postgresql/${version}/bin`)
+    : [];
+  const directory = [...PSQL_DIRECTORIES, ...versioned].find((candidate) => existsSync(path.join(candidate, "psql")));
+
+  if (!directory) {
+    throw new Error(
+      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
+    );
+  }
+
+  return path.join(directory, "psql");
+}
+
 function ensurePsqlAvailable() {
   try {
-    execFileSync("psql", ["--version"], { stdio: "ignore" });
+    execFileSync(resolvePsql(), ["--version"], { stdio: "ignore" });
   } catch (error) {
     throw new Error(
       `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
@@ -342,7 +360,7 @@ function ensurePsqlAvailable() {
 /** Writes the Founding Beta rows as postgres; service_role cannot reach those tables. */
 function applyBetaAccessFixture(dbUrl) {
   try {
-    execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
+    execFileSync(resolvePsql(), [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
       cwd: repoRoot,
       stdio: ["ignore", "inherit", "inherit"],
     });
