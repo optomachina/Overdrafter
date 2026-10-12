@@ -15,21 +15,28 @@ import {
   getExportControlBlockMessage,
   registerExportControlDeclarationPrompter,
   type ExportControlAnswer,
+  type ExportControlPromptMode,
 } from "@/features/quotes/export-control";
 
 type PendingPrompt = {
   resolve: (answer: ExportControlAnswer | null) => void;
 };
 
+const DECLARE_BLOCKED_MESSAGE =
+  "Your answer will be recorded. The OverDrafter beta cannot quote these files, and they will not be sent to any supplier.";
+
 /**
- * OVD-723 upload declaration. Mounted once at the app root; the upload API
- * asks through `requestExportControlAnswer`. There is no default answer, and
- * closing the dialog resolves null, which blocks the upload.
+ * OVD-723 export-control declaration. Mounted once at the app root; the upload
+ * API and the part page ask through `requestExportControlAnswer`. The answer
+ * is recorded for the whole part, so the question names every file on it.
+ * There is no default answer, and closing the dialog resolves null, which
+ * blocks the upload or records nothing.
  */
 export function ExportControlDeclarationDialogHost() {
   const pendingRef = useRef<PendingPrompt | null>(null);
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState<ExportControlAnswer | null>(null);
+  const [mode, setMode] = useState<ExportControlPromptMode>("upload");
 
   const settle = useCallback((value: ExportControlAnswer | null) => {
     const pending = pendingRef.current;
@@ -41,12 +48,13 @@ export function ExportControlDeclarationDialogHost() {
 
   useEffect(() => {
     const unregister = registerExportControlDeclarationPrompter(
-      () =>
+      (nextMode) =>
         new Promise<ExportControlAnswer | null>((resolve) => {
           // A second prompt while one is open cancels the first.
           pendingRef.current?.resolve(null);
           pendingRef.current = { resolve };
           setAnswer(null);
+          setMode(nextMode === "declare" ? "declare" : "upload");
           setOpen(true);
         }),
     );
@@ -59,6 +67,9 @@ export function ExportControlDeclarationDialogHost() {
   }, []);
 
   const blocked = answer === "controlled" || answer === "unsure";
+  const declaring = mode === "declare";
+  let confirmLabel = blocked ? "Stop upload" : "Continue upload";
+  if (declaring) confirmLabel = "Save answer";
 
   return (
     <Dialog
@@ -69,10 +80,12 @@ export function ExportControlDeclarationDialogHost() {
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Are these files export-controlled?</DialogTitle>
+          <DialogTitle>Are any files on this part export-controlled?</DialogTitle>
           <DialogDescription>
-            The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99), CUI, or
-            distribution-limited technical data. Answer before uploading.
+            Your answer covers every file on this part: files already uploaded and any you add
+            later. The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99),
+            CUI, or distribution-limited technical data.
+            {declaring ? " Quotes for this part stay on hold until you answer." : " Answer before uploading."}
           </DialogDescription>
         </DialogHeader>
 
@@ -104,7 +117,7 @@ export function ExportControlDeclarationDialogHost() {
 
         {blocked ? (
           <p role="alert" className="text-sm text-destructive">
-            {getExportControlBlockMessage("export_declaration_not_clean")}
+            {declaring ? DECLARE_BLOCKED_MESSAGE : getExportControlBlockMessage("export_declaration_not_clean")}
           </p>
         ) : null}
 
@@ -124,7 +137,7 @@ export function ExportControlDeclarationDialogHost() {
             disabled={answer === null}
             onClick={() => settle(answer)}
           >
-            {blocked ? "Stop upload" : "Continue upload"}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

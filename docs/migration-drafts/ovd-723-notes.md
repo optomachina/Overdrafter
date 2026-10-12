@@ -316,8 +316,8 @@ What stays open until the contract: a stale browser tab or a direct API call can
 
 Verification (disposable Docker, all 148 migrations, 2026-10-12):
 
-- Window 1 suite `ovd723_export_control_upload_block.sql.pending`: 94/94 after expand.
-- Contract suite `ovd723_export_control_contract.sql.pending`: 95/95 after expand and contract.
+- Window 1 suite `ovd723_export_control_upload_block.sql.pending`: 104/104 after expand (rerun 2026-10-12 after the review round 2 changes below).
+- Contract suite `ovd723_export_control_contract.sql.pending`: 95/95 after expand and contract (rerun the same day).
 - No main suite that passes on main fails after expand alone, or after expand and contract.
 - Rollbacks:
   - Contract rollback returns the catalog to the post expand state. Expand rollback returns it to main, apart from the retained audit tables. Function bodies are identical; only ACL entry order differs.
@@ -330,3 +330,44 @@ Contract promotion also needs `ovd-723-contract-free-confirmed-seed.patch` appli
 in `scripts/fixtures/free-quote-ci-source.json`, so regenerate it and refresh the
 pin in the same change). After expand alone that suite passes unchanged (30/30);
 after the contract it needs the seed (29/30 without it, 30/30 with it).
+
+## Review round 2 (REQUEST_CHANGES at 414bc441)
+
+Changes, and the SQL files they touch (the window 1 rehearsal packet must re-pin
+these): `ovd-723.sql` and `ovd-723.rollback.sql` changed; `ovd-723-contract.sql`
+and `ovd-723-contract.rollback.sql` did not.
+
+1. **Unread drawings.** `extractPdfText` returns pages with empty text, not
+   null, when neither pdftotext nor OCR reads anything. The production image
+   has no tesseract and OCR reads only page 1, so a raster drawing could get a
+   clean scan. Now a drawing counts as read only when every page yields text
+   (`isDrawingTextFullyRead`). An unread drawing gets no clean scan (dispatch
+   stays `export_scan_missing`), and extraction stops with
+   `ExportControlDrawingUnreadError` before any model call. A marking found on
+   a page that was read still opens a block. Longer term, installing tesseract
+   in the worker image and OCR on every page would let scanned drawings
+   through; that is a Dockerfile change and is not made here.
+2. **Export-control holds are not manual work.** A gate denial, or a marking
+   hit while staging a quote, closes the lane as `failed` with a note that the
+   files are held and must not be quoted manually. It is never
+   `manual_vendor_followup`, so it does not move the job to
+   `awaiting_vendor_manual_review` or into the admin manual queue, and the task
+   completes so it is not retried. The worker's own failed lookup
+   (`ExportControlLookupError`) retries on the finite vendor schedule, then
+   holds. Repeat marking hits on the same job, file and source return the open
+   block instead of opening another (`api_record_export_control_marking_hits`).
+   The client part page shows a plain explanation of the hold.
+3. **Extraction gate.** New service role check
+   `api_check_export_control_extraction(job)` (expand, additive): the latest
+   declaration must be `not_controlled` with no open or confirmed block. The
+   worker calls it before `runHybridExtraction` and before the debug lab
+   preview model call, and fails closed.
+
+Also: the declaration question says it covers every file on the part, and a
+part can be declared from the part page without uploading (this is how a
+backfilled part is released). The backfill audit insert has a NOT EXISTS
+guard, checked by expand, rollback, reapply on a disposable database (1 event
+before and after). RapidDirect and Protolabs Network are foreign. No client IP
+is stored: an unkeyed SHA-256 of an IPv4 address is reversible by
+enumeration, and a keyed hash would need a new server secret, which is a
+protected change.

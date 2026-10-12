@@ -38,7 +38,14 @@ export type ExportControlDenialCode = (typeof EXPORT_CONTROL_DENIAL_CODES)[numbe
 export type ExportDeclarationAnswer = "not_controlled" | "controlled" | "unsure" | "missing";
 
 /** Providers outside US jurisdiction. Unknown providers get the same rule. */
-export const FOREIGN_JURISDICTION_PROVIDERS: ReadonlySet<VendorName> = new Set<VendorName>(["weerg", "geomiq"]);
+export const FOREIGN_JURISDICTION_PROVIDERS: ReadonlySet<VendorName> = new Set<VendorName>([
+  "weerg",
+  "geomiq",
+  // RapidDirect manufactures in China; Protolabs Network (Hubs) routes work
+  // through its own non-US partner network.
+  "rapiddirect",
+  "protolabsnetwork",
+]);
 
 const US_JURISDICTION_PROVIDERS: ReadonlySet<string> = new Set<VendorName>([
   "xometry",
@@ -49,8 +56,6 @@ const US_JURISDICTION_PROVIDERS: ReadonlySet<string> = new Set<VendorName>([
   "fabworks",
   "ponoko",
   "quickparts",
-  "rapiddirect",
-  "protolabsnetwork",
   "partsbadger",
   "fastdms",
   "devzmanufacturing",
@@ -210,6 +215,22 @@ export type ExportControlMarkingScan = {
   patterns: string[];
 };
 
+/**
+ * True only when every page of the drawing yielded text. `extractPdfText`
+ * returns pages with empty text when neither pdftotext nor OCR found any (a
+ * raster drawing on a host without tesseract, or OCR that reads only page 1),
+ * so a non-null result is not proof the drawing was read. A drawing with any
+ * unread page is unread as a whole: no clean scan is recorded for it, so
+ * dispatch stays denied, and its content never goes to an extraction model.
+ */
+export function isDrawingTextFullyRead(
+  pdfText: { pageCount?: number; pages: ReadonlyArray<{ text: string }> } | null | undefined,
+): boolean {
+  if (!pdfText || !Array.isArray(pdfText.pages) || pdfText.pages.length === 0) return false;
+  if (typeof pdfText.pageCount === "number" && pdfText.pages.length < pdfText.pageCount) return false;
+  return pdfText.pages.every((page) => typeof page.text === "string" && page.text.trim().length > 0);
+}
+
 /** Scans every drawing page; OCR-derived text is reported as `drawing_ocr`. */
 export function scanDrawingTextForExportMarkings(
   pdfText: { pages: ReadonlyArray<{ text: string }> } | null | undefined,
@@ -239,6 +260,41 @@ export class ExportControlMarkingRecordError extends Error {
   constructor() {
     super("Export-control marking block could not be recorded; failing closed.");
     this.name = "ExportControlMarkingRecordError";
+  }
+}
+
+/**
+ * The drawing's text could not be read on every page, so the marking scan is
+ * incomplete. Nothing clean is recorded and the drawing is not sent to any
+ * model. Terminal: rerunning the same scanner on the same bytes reads the
+ * same nothing.
+ */
+export class ExportControlDrawingUnreadError extends Error {
+  constructor() {
+    super("Export-control scan could not read every drawing page; the drawing is held and not sent to any model.");
+    this.name = "ExportControlDrawingUnreadError";
+  }
+}
+
+/**
+ * The worker's own export-control lookup (dispatch or extraction check)
+ * failed: an RPC error, a thrown call, or a malformed response. It is not a
+ * decision, so the task retries on the finite vendor schedule; once retries
+ * run out the lane is held like any other export-control denial.
+ */
+export class ExportControlLookupError extends Error {
+  readonly reasonCode = "export_control_lookup_failed" as const;
+  constructor(public readonly check: "dispatch" | "extraction") {
+    super(`Export-control ${check} check could not be completed; failing closed.`);
+    this.name = "ExportControlLookupError";
+  }
+}
+
+/** The job's export-control state does not allow CAD or drawing content to reach a model. */
+export class ExportControlExtractionDeniedError extends Error {
+  constructor(public readonly reasonCode: ExportControlDenialCode) {
+    super(`Export-control check denied model extraction (${reasonCode}).`);
+    this.name = "ExportControlExtractionDeniedError";
   }
 }
 
@@ -384,7 +440,40 @@ export async function scanStagedDrawingForExportMarkings(
     jobFileId: input.drawingFile.id,
     source: "drawing_text",
     scan: scanDrawingTextForExportMarkings(pdfText),
-    textRead: pdfText !== null,
+    textRead: isDrawingTextFullyRead(pdfText),
     contentSha256: input.drawingFile.contentSha256,
   });
+}
+
+/**
+ * OVD-723: asked before any CAD or drawing content goes to an extraction
+ * model (`api_check_export_control_extraction`, service role). The job's
+ * latest declaration must be not_controlled with no open or confirmed marking
+ * block. Anything but exactly `{ allowed: true }` throws, so an undeclared job
+ * (stale tab, direct API call, service-role import) never reaches the model.
+ */
+export async function assertExportControlExtractionAllowed(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: { jobId: string },
+): Promise<void> {
+  let denial: ExportControlDenialCode = "export_control_lookup_failed";
+  try {
+    const { data, error } = await supabase.rpc("api_check_export_control_extraction", { p_job_id: input.jobId });
+    if (!error && data && typeof data === "object" && !Array.isArray(data)) {
+      const value = data as Record<string, unknown>;
+      const keys = Object.keys(value).sort((a, b) => a.localeCompare(b)).join(",");
+      if (value.allowed === true && keys === "allowed") return;
+      if (
+        value.allowed === false
+        && keys === "allowed,reasonCode"
+        && (EXPORT_CONTROL_DENIAL_CODES as readonly unknown[]).includes(value.reasonCode)
+      ) {
+        denial = value.reasonCode as ExportControlDenialCode;
+      }
+    }
+  } catch {
+    // Fail closed: denial stays export_control_lookup_failed.
+  }
+  if (denial === "export_control_lookup_failed") throw new ExportControlLookupError("extraction");
+  throw new ExportControlExtractionDeniedError(denial);
 }

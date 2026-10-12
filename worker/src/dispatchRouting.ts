@@ -15,7 +15,12 @@ import {
   quoteWithDispatchPreflight,
   XometryDispatchAuthorizationError,
 } from "./xometryDispatchPreflight.js";
-import { EXPORT_CONTROL_DENIAL_CODES, type ExportControlDenialCode } from "./exportControl.js";
+import {
+  EXPORT_CONTROL_DENIAL_CODES,
+  ExportControlLookupError,
+  ExportControlMarkingBlockedError,
+  type ExportControlDenialCode,
+} from "./exportControl.js";
 
 /**
  * OVD-381 (worker routing, OVD-464): the single seam that picks the dispatch
@@ -111,9 +116,10 @@ export async function quoteWithRoutedDispatchPreflight(input: {
  * undeclared, blocked, or unscanned part in the new worker; the contract
  * migration later wraps both preflights with the same gate on the server.
  * Anything but exactly `{ allowed: true }` is a denial: an RPC error, a thrown
- * call, or a malformed response becomes `export_control_lookup_failed`. The
- * denial is thrown as the boundary's own authorization error, so the task
- * ends exactly as it would on a preflight denial and no adapter launches.
+ * call, or a malformed response throws `ExportControlLookupError`, which the
+ * task retries on the finite schedule. A decision is thrown as the boundary's
+ * own authorization error, and the task holds the lane (see
+ * `exportControlHoldReason`) before any adapter launches.
  */
 export async function assertExportControlDispatchAllowed(
   supabase: Pick<SupabaseClient, "rpc">,
@@ -127,7 +133,7 @@ export async function assertExportControlDispatchAllowed(
     });
     if (!error && data && typeof data === "object" && !Array.isArray(data)) {
       const value = data as Record<string, unknown>;
-      const keys = Object.keys(value).sort().join(",");
+      const keys = Object.keys(value).sort((a, b) => a.localeCompare(b)).join(",");
       if (value.allowed === true && keys === "allowed") {
         denial = null;
       } else if (
@@ -142,6 +148,8 @@ export async function assertExportControlDispatchAllowed(
     // Fail closed: denial stays export_control_lookup_failed.
   }
   if (denial === null) return;
+  // A failed lookup is not a decision: it retries (finite), then holds.
+  if (denial === "export_control_lookup_failed") throw new ExportControlLookupError("dispatch");
   throw input.vendor === "xometry"
     ? new XometryDispatchAuthorizationError(denial)
     : new ProviderDispatchAuthorizationError(denial);
@@ -164,6 +172,30 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
   }
   if (error instanceof ProviderDispatchAuthorizationError) {
     return { boundary: "provider", reasonCode: error.denial, retryable: error.retryable };
+  }
+  return null;
+}
+
+/** Customer-safe note on a held lane. It names the hold and the way out, never the files' content. */
+export const EXPORT_CONTROL_HOLD_NOTE =
+  "Held by export control. These files were not sent to this supplier and must not be quoted manually. "
+  + "Open the part and answer the export-control question for its files; parts with export-control markings stay held until an OverDrafter admin reviews them.";
+
+/**
+ * OVD-723: a quote lane held by export control. Every export-control code a
+ * dispatch boundary returns (from the worker's check or, after the contract,
+ * from the preflight wrappers) and a marking hit found while staging the lane
+ * is a hold: terminal, never retried, and never routed to manual vendor
+ * follow-up, because quoting the files by hand would send them to the vendor
+ * the gate just refused. The worker's own failed lookup
+ * (`ExportControlLookupError`) is not a hold until its retries run out.
+ * Returns the reason code, or null for anything else.
+ */
+export function exportControlHoldReason(error: unknown): ExportControlDenialCode | null {
+  if (error instanceof ExportControlMarkingBlockedError) return "export_review_pending";
+  const failure = dispatchAuthorizationFailure(error);
+  if (failure && (EXPORT_CONTROL_DENIAL_CODES as readonly string[]).includes(failure.reasonCode)) {
+    return failure.reasonCode as ExportControlDenialCode;
   }
   return null;
 }

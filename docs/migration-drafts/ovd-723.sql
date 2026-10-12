@@ -37,6 +37,11 @@
 --     hash and a clean scan bound to its job and content, or a foreign or
 --     unknown provider without a clean, unblocked job. An old worker is NOT
 --     gated until the contract migration wraps the preflights.
+--   Extraction. The new worker asks api_check_export_control_extraction
+--     before any CAD or drawing content goes to an extraction model, and
+--     sends nothing unless the job's latest declaration is not_controlled with
+--     no open or confirmed block. A drawing with any page that yields no text
+--     gets no clean scan and is not sent to a model.
 --
 -- What the contract migration adds (server side, any client or worker): the
 -- legacy upload RPCs refuse, the old Storage INSERT policy is dropped so only
@@ -83,7 +88,11 @@
 
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
 -- the latest row (declared_at, id) wins. No FK to jobs so the audit survives
--- job deletion and append-only triggers never block a job cascade.
+-- job deletion and append-only triggers never block a job cascade. No client
+-- IP is stored: an unkeyed hash of an IPv4 address is reversible by
+-- enumeration, and a keyed hash needs a server secret this draft does not
+-- create. The declarer is identified by declared_by and the session's own
+-- auth audit trail.
 create table if not exists private.job_export_declarations (
   id uuid primary key default gen_random_uuid(),
   job_id uuid not null,
@@ -94,7 +103,6 @@ create table if not exists private.job_export_declarations (
     check (answer in ('not_controlled', 'controlled', 'unsure', 'missing')),
   terms_version text not null check (length(btrim(terms_version)) > 0),
   declared_at timestamptz not null default clock_timestamp(),
-  ip_hash text null check (ip_hash is null or ip_hash ~ '^[0-9a-f]{64}$'),
   ua_hash text null check (ua_hash is null or ua_hash ~ '^[0-9a-f]{64}$'),
   -- 'missing' is only written by the one-time backfill, never by a user.
   constraint job_export_declarations_missing_is_system
@@ -268,7 +276,8 @@ $$;
 
 -- Provider jurisdiction. Foreign (non-US) providers get their own explicit
 -- rule in the dispatch gate. Unknown providers are treated as foreign so a
--- new provider cannot silently get the looser rule.
+-- new provider cannot silently get the looser rule. RapidDirect (China) and
+-- Protolabs Network (Hubs, a non-US partner network) are foreign.
 create or replace function private.export_control_provider_jurisdiction(p_provider text)
 returns text
 language sql
@@ -276,11 +285,11 @@ immutable
 set search_path = ''
 as $$
   select case
-    when p_provider in ('weerg', 'geomiq') then 'foreign'
+    when p_provider in ('weerg', 'geomiq', 'rapiddirect', 'protolabsnetwork') then 'foreign'
     when p_provider in (
       'xometry', 'fictiv', 'protolabs', 'sendcutsend', 'oshcut', 'fabworks',
-      'ponoko', 'quickparts', 'rapiddirect', 'protolabsnetwork', 'partsbadger',
-      'fastdms', 'devzmanufacturing', 'infraredlaboratories', 'emachineshop', 'rmfg'
+      'ponoko', 'quickparts', 'partsbadger', 'fastdms', 'devzmanufacturing',
+      'infraredlaboratories', 'emachineshop', 'rmfg'
     ) then 'us'
     else 'unknown'
   end;
@@ -401,7 +410,6 @@ declare
   v_job public.jobs%rowtype;
   v_declaration_id uuid;
   v_headers jsonb;
-  v_ip text;
   v_ua text;
   v_allowed boolean;
 begin
@@ -431,13 +439,12 @@ begin
   exception when others then
     v_headers := null;
   end;
-  v_ip := nullif(pg_catalog.btrim(pg_catalog.split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1)), '');
   v_ua := nullif(v_headers ->> 'user-agent', '');
 
   perform private.lock_job_export_state(v_job.id, true);
 
   insert into private.job_export_declarations (
-    job_id, part_id, organization_id, declared_by, answer, terms_version, ip_hash, ua_hash
+    job_id, part_id, organization_id, declared_by, answer, terms_version, ua_hash
   )
   values (
     v_job.id,
@@ -446,8 +453,6 @@ begin
     auth.uid(),
     p_answer,
     p_terms_version,
-    case when v_ip is null then null
-      else pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('ovd723:ip:' || v_ip, 'UTF8')), 'hex') end,
     case when v_ua is null then null
       else pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('ovd723:ua:' || v_ua, 'UTF8')), 'hex') end
   )
@@ -529,7 +534,9 @@ revoke all on function public.api_get_job_export_control_status(uuid) from publi
 grant execute on function public.api_get_job_export_control_status(uuid) to authenticated;
 
 -- 1.11 Marking hits, recorded by the worker (service role only). Opening a
--- block never requires or accepts user input.
+-- block never requires or accepts user input. Idempotent: while a block for
+-- the same job, file, and source is open or confirmed, a repeat hit (a quote
+-- retried, extraction requested again) returns that block and opens nothing.
 create or replace function public.api_record_export_control_marking_hits(
   p_job_id uuid,
   p_part_id uuid,
@@ -557,6 +564,18 @@ begin
   end if;
 
   perform private.lock_job_export_state(v_job.id, true);
+
+  select block.id into v_block_id
+  from private.job_export_marking_blocks block
+  where block.job_id = v_job.id
+    and block.job_file_id is not distinct from p_job_file_id
+    and block.source = p_source
+    and block.state in ('blocked_pending_review', 'confirmed_controlled')
+  order by block.created_at, block.id
+  limit 1;
+  if v_block_id is not null then
+    return v_block_id;
+  end if;
 
   insert into private.job_export_marking_blocks (
     job_id, organization_id, part_id, job_file_id, source, patterns
@@ -1254,6 +1273,78 @@ revoke all on function public.api_check_export_control_dispatch(uuid, text)
 grant execute on function public.api_check_export_control_dispatch(uuid, text)
   to service_role;
 
+-- 1.16b Extraction check for the worker (expand). Asked before any CAD or
+-- drawing content is sent to an extraction model. Allowed only when the job's
+-- latest declaration is not_controlled and no marking block is open or
+-- confirmed; the provider jurisdiction plays no part. In window 1 the legacy
+-- upload path is still open, so an undeclared job (a stale tab, a direct API
+-- call, a service-role import) can hold files; this check keeps them away
+-- from the model. Any lookup error is a denial.
+create or replace function private.export_control_extraction_denial(p_job_id uuid)
+returns text
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_answer text;
+begin
+  if p_job_id is null then
+    return 'export_declaration_missing';
+  end if;
+
+  perform private.lock_job_export_state(p_job_id, false);
+
+  select declaration.answer into v_answer
+  from private.job_export_declarations declaration
+  where declaration.job_id = p_job_id
+  order by declaration.declared_at desc, declaration.id desc
+  limit 1;
+
+  if v_answer is null or v_answer = 'missing' then
+    return 'export_declaration_missing';
+  end if;
+  if v_answer is distinct from 'not_controlled' then
+    return 'export_declaration_not_clean';
+  end if;
+  if exists (
+    select 1
+    from private.job_export_marking_blocks block
+    where block.job_id = p_job_id
+      and block.state in ('blocked_pending_review', 'confirmed_controlled')
+  ) then
+    return 'export_review_pending';
+  end if;
+  return null;
+exception when others then
+  return 'export_control_lookup_failed';
+end;
+$$;
+
+revoke all on function private.export_control_extraction_denial(uuid)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.api_check_export_control_extraction(p_job_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_denial text;
+begin
+  v_denial := private.export_control_extraction_denial(p_job_id);
+  if v_denial is not null then
+    return pg_catalog.jsonb_build_object('allowed', false, 'reasonCode', v_denial);
+  end if;
+  return pg_catalog.jsonb_build_object('allowed', true);
+end;
+$$;
+
+revoke all on function public.api_check_export_control_extraction(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_check_export_control_extraction(uuid)
+  to service_role;
+
 -- 1.17 One-time backfill: every existing job with files and no declaration
 -- gets an explicit 'missing' row (denied until the user declares).
 insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
@@ -1268,7 +1359,14 @@ insert into private.export_control_events (organization_id, job_id, actor, event
 select declaration.organization_id, declaration.job_id, null, 'declaration_backfilled_missing',
   pg_catalog.jsonb_build_object('declarationId', declaration.id)
 from private.job_export_declarations declaration
-where declaration.answer = 'missing';
+where declaration.answer = 'missing'
+  and not exists (
+    select 1
+    from private.export_control_events event_row
+    where event_row.event = 'declaration_backfilled_missing'
+      and event_row.job_id = declaration.job_id
+      and event_row.detail ->> 'declarationId' = declaration.id::text
+  );
 
 -- 1.18 Storage (expand). A second job-files INSERT policy is added
 -- alongside the existing "job_files_storage_insert" (20260815093000), which

@@ -29,6 +29,8 @@ $guard$;
 drop policy "job_files_storage_insert_export_cleared" on storage.objects;
 
 drop function public.api_check_export_control_dispatch(uuid, text);
+drop function public.api_check_export_control_extraction(uuid);
+drop function private.export_control_extraction_denial(uuid);
 drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid);
 drop function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text, uuid);
 drop function private.job_file_prepare_delegate(uuid, text, public.job_file_kind, text, bigint, text);

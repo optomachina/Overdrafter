@@ -26,6 +26,9 @@
 --   8. dispatch needs a clean scan of record for the part's own files; a
 --      reused file (same bytes, different job_file) is not covered by another
 --      file's scan
+--  10. extraction check: CAD or drawing content reaches a model only for a
+--      clean, unblocked job; repeat marking hits do not open duplicate
+--      blocks; RapidDirect and Protolabs Network are foreign; no IP stored
 --   9. Codex review attacks: an upload grant covers one exact object, is
 --      single use, and finalize checks owner, size, and window (finding 2);
 --      the Storage helper serializes with declaration writers (finding 1, the
@@ -35,7 +38,7 @@
 --      (finding 4)
 begin;
 
-select plan(94);
+select plan(104);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -548,6 +551,48 @@ select is(
   'a task lookup that finds nothing is denied'
 );
 
+-- 10. Extraction check, jurisdiction, and no stored IP.
+select is(
+  private.export_control_extraction_denial((select clean_job_id from ovd723_ctx)),
+  null,
+  'extraction: a clean, unblocked job may reach the model'
+);
+
+select is(
+  private.export_control_extraction_denial((select unsure_job_id from ovd723_ctx)),
+  'export_declaration_not_clean',
+  'extraction: an unsure job never reaches the model'
+);
+
+select is(
+  private.export_control_extraction_denial((select undeclared_job_id from ovd723_ctx)),
+  'export_declaration_missing',
+  'extraction: an undeclared job (legacy upload path) never reaches the model'
+);
+
+select ok(
+  private.export_control_provider_jurisdiction('rapiddirect') = 'foreign'
+  and private.export_control_provider_jurisdiction('protolabsnetwork') = 'foreign'
+  and private.export_control_provider_jurisdiction('weerg') = 'foreign'
+  and private.export_control_provider_jurisdiction('geomiq') = 'foreign',
+  'RapidDirect and Protolabs Network are foreign, with Weerg and Geomiq'
+);
+
+select ok(
+  not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'private' and table_name = 'job_export_declarations' and column_name = 'ip_hash'
+  ),
+  'declarations store no client IP hash'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.api_check_export_control_extraction(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_check_export_control_extraction(uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.api_check_export_control_extraction(uuid)', 'execute'),
+  'only the service role can run the extraction check'
+);
+
 set local role service_role;
 
 select is(
@@ -568,7 +613,29 @@ set block_id = public.api_record_export_control_marking_hits(
   clean_job_id, null, null, 'drawing_text', array['itar', 'eccn_code']
 );
 
+select is(
+  public.api_record_export_control_marking_hits(
+    (select clean_job_id from ovd723_ctx), null, null, 'drawing_text', array['itar']
+  ),
+  (select block_id from ovd723_ctx),
+  'a repeat hit on the same file and source returns the open block'
+);
+
+select is(
+  public.api_check_export_control_extraction((select clean_job_id from ovd723_ctx)),
+  '{"allowed": false, "reasonCode": "export_review_pending"}'::jsonb,
+  'extraction: a job with an open marking block never reaches the model'
+);
+
 reset role;
+
+select ok(
+  (select count(*) from private.job_export_marking_blocks
+   where job_id = (select clean_job_id from ovd723_ctx) and source = 'drawing_text') = 1
+  and (select count(*) from private.export_control_events
+   where event = 'marking_block_opened' and job_id = (select clean_job_id from ovd723_ctx)) = 1,
+  'the repeat hit opened no second block and no second audit event'
+);
 
 select is(
   private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
@@ -656,6 +723,12 @@ select is(
   private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
   null,
   'after admin clearance the clean declaration is admitted again'
+);
+
+select is(
+  private.export_control_extraction_denial((select clean_job_id from ovd723_ctx)),
+  null,
+  'after admin clearance extraction is allowed again'
 );
 
 -- 8. Clean scan of record (reused files and skipped extraction).

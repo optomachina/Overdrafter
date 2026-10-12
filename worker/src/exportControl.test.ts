@@ -13,8 +13,13 @@ import {
   evaluateExportControlScanCoverage,
   EXPORT_CONTROL_DENIAL_CODES,
   ExportControlMarkingBlockedError,
+  assertExportControlExtractionAllowed,
+  ExportControlDrawingUnreadError,
+  ExportControlExtractionDeniedError,
+  ExportControlLookupError,
   ExportControlMarkingRecordError,
   ExportControlScanRecordError,
+  isDrawingTextFullyRead,
   exportControlProviderJurisdiction,
   FOREIGN_JURISDICTION_PROVIDERS,
   isStepFileName,
@@ -28,7 +33,12 @@ import {
 import { PROVIDER_DISPATCH_DENIAL_CODES, isRetryableProviderDispatchDenial } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError, quoteWithProviderDispatchPreflight } from "./providerDispatchPreflight";
 import { quoteWithDispatchPreflight, XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
-import { assertExportControlDispatchAllowed } from "./dispatchRouting";
+import {
+  assertExportControlDispatchAllowed,
+  EXPORT_CONTROL_HOLD_NOTE,
+  exportControlHoldReason,
+} from "./dispatchRouting";
+import { failureCodeForError, isRetryableVendorTaskError, nextRetryAt, VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 import type { VendorName, VendorQuoteAdapterInput } from "./types";
 
 const draft = readFileSync(new URL("../../docs/migration-drafts/ovd-723.sql", import.meta.url), "utf8");
@@ -349,6 +359,77 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(failing).not.toHaveBeenCalled();
   });
 
+  it("treats a drawing as read only when every page yielded text", () => {
+    expect(isDrawingTextFullyRead(null)).toBe(false);
+    // pdftotext and OCR both found nothing: extractPdfText returns empty pages, not null.
+    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: "" }, { text: "  \n" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ pageCount: 0, pages: [] })).toBe(false);
+    // OCR reads only page 1: later pages come back empty.
+    expect(isDrawingTextFullyRead({ pageCount: 3, pages: [{ text: CLEAN_DRAWING }, { text: "" }, { text: "" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(true);
+  });
+
+  it.each([
+    ["an extraction with only empty pages", { pageCount: 2, pages: [{ page: 1, text: "" }, { page: 2, text: "" }] }],
+    ["page 1 text with empty later pages", { pageCount: 3, pages: [{ page: 1, text: CLEAN_DRAWING }, { page: 2, text: "" }, { page: 3, text: " " }] }],
+  ])("records no clean scan for %s, so dispatch stays denied", async (_label, pdfText) => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      jobId: "target-job",
+      partId: "target-part",
+      drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
+      extractText: vi.fn().mockResolvedValue(pdfText),
+    });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(evaluateExportControlScanCoverage({ drawing: { inJob: true, hashVerified: true, scanned: false }, cad: null })).toBe(
+      "export_scan_missing",
+    );
+  });
+
+  it("still records a block when page 1 carries a marking and later pages are unread", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    await expect(
+      scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
+        jobId: "target-job",
+        partId: "target-part",
+        drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
+        extractText: vi.fn().mockResolvedValue({ pageCount: 2, pages: [{ text: MARKING_FIXTURES.itarStamp }, { text: "" }] }),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual(["api_record_export_control_marking_hits"]);
+  });
+
+  it("stops extraction before any model call when the drawing is unread or the job is not cleared", () => {
+    const run = workerIndex.slice(workerIndex.indexOf("async function runDrawingExtractionForTask("));
+    const body = run.slice(0, run.indexOf("\nasync function handleExtractTask("));
+    const modelAt = body.indexOf("await runHybridExtraction(");
+    expect(modelAt).toBeGreaterThan(-1);
+    expect(body).toContain("const drawingTextRead = isDrawingTextFullyRead(pdfText);");
+    expect(body).toContain("textRead: drawingTextRead,");
+    expect(body).not.toContain("textRead: pdfText !== null");
+    expect(body.indexOf("throw new ExportControlDrawingUnreadError();")).toBeLessThan(modelAt);
+    expect(body.indexOf("await assertExportControlExtractionAllowed(supabase, { jobId: task.job_id });")).toBeLessThan(modelAt);
+    expect(body.indexOf("await assertExportControlExtractionAllowed(")).toBeGreaterThan(
+      body.indexOf("await enforceAndRecordExportControlScan("),
+    );
+    // The debug lab preview sends the drawing to a model too, behind the same gate.
+    const lab = readFileSync(new URL("./extraction/debugLab.ts", import.meta.url), "utf8");
+    const preview = lab.slice(lab.indexOf("export async function previewStoredPartExtraction("));
+    const firstModelCall = preview.indexOf("runPreviewModelAttempts(");
+    for (const guard of [
+      "await enforceExportControlMarkings(",
+      "throw new ExportControlDrawingUnreadError();",
+      "await assertExportControlExtractionAllowed(supabase, { jobId: context.part.job_id });",
+    ]) {
+      expect(preview.indexOf(guard)).toBeGreaterThan(-1);
+      expect(preview.indexOf(guard)).toBeLessThan(firstModelCall);
+    }
+    // A failed lookup retries the extract task on the finite schedule; a decision does not.
+    expect(workerIndex).toContain('(task.task_type === "extract_part" && error instanceof ExportControlLookupError)');
+    expect(failureCodeForError(new ExportControlDrawingUnreadError())).toBe("export_scan_unread");
+  });
+
   it("requires a verified hash and a job- and hash-bound clean scan before dispatch (reference model)", () => {
     const ok = { inJob: true, hashVerified: true, scanned: true };
     expect(evaluateExportControlScanCoverage(null)).toBe("export_scan_missing");
@@ -531,10 +612,25 @@ describe("export-control dispatch check (window 1 worker gate)", () => {
     });
   });
 
-  it.each(EXPORT_CONTROL_DENIAL_CODES)("throws the boundary's own error for %s", async (reasonCode) => {
-    const rpc = vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode }, error: null });
-    await expect(call(rpc)).rejects.toEqual(new ProviderDispatchAuthorizationError(reasonCode));
-    await expect(call(rpc, "xometry")).rejects.toEqual(new XometryDispatchAuthorizationError(reasonCode));
+  it.each(EXPORT_CONTROL_DENIAL_CODES.filter((code) => code !== "export_control_lookup_failed"))(
+    "throws the boundary's own error for %s, which holds the lane",
+    async (reasonCode) => {
+      const rpc = vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode }, error: null });
+      await expect(call(rpc)).rejects.toEqual(new ProviderDispatchAuthorizationError(reasonCode));
+      await expect(call(rpc, "xometry")).rejects.toEqual(new XometryDispatchAuthorizationError(reasonCode));
+      const error = await call(rpc).catch((caught: unknown) => caught);
+      expect(exportControlHoldReason(error)).toBe(reasonCode);
+      expect(isRetryableVendorTaskError(error, undefined)).toBe(false);
+    },
+  );
+
+  it("throws a retryable lookup error when the check reports a failed lookup", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode: "export_control_lookup_failed" }, error: null });
+    const error = await call(rpc).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ExportControlLookupError);
+    expect(isRetryableVendorTaskError(error, undefined)).toBe(true);
+    expect(failureCodeForError(error)).toBe("export_control_lookup_failed");
+    expect(exportControlHoldReason(error)).toBeNull();
   });
 
   it("fails closed on errors and malformed responses", async () => {
@@ -547,8 +643,47 @@ describe("export-control dispatch check (window 1 worker gate)", () => {
       vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode: "made_up" }, error: null }),
       vi.fn().mockResolvedValue({ data: [{ allowed: true }], error: null }),
     ]) {
-      await expect(call(rpc)).rejects.toEqual(new ProviderDispatchAuthorizationError("export_control_lookup_failed"));
+      await expect(call(rpc)).rejects.toEqual(new ExportControlLookupError("dispatch"));
+      await expect(call(rpc, "xometry")).rejects.toEqual(new ExportControlLookupError("dispatch"));
     }
+  });
+
+  it("holds the lane, never as manual follow-up, on a denial or a marking hit while staging", () => {
+    expect(exportControlHoldReason(new ExportControlMarkingBlockedError("step_header", ["itar"]))).toBe(
+      "export_review_pending",
+    );
+    expect(isRetryableVendorTaskError(new ExportControlMarkingBlockedError("step_header", ["itar"]), undefined)).toBe(false);
+    expect(failureCodeForError(new ExportControlMarkingBlockedError("step_header", ["itar"]))).toBe("export_review_pending");
+    // A contract-era wrapper reporting a failed lookup is a decision of record: hold.
+    expect(exportControlHoldReason(new ProviderDispatchAuthorizationError("export_control_lookup_failed"))).toBe(
+      "export_control_lookup_failed",
+    );
+    expect(exportControlHoldReason(new ProviderDispatchAuthorizationError("permit_expired"))).toBeNull();
+    expect(exportControlHoldReason(new XometryDispatchAuthorizationError("dispatch_preflight_unavailable"))).toBeNull();
+    expect(exportControlHoldReason(new Error("network"))).toBeNull();
+
+    const catchBlock = workerIndex.slice(workerIndex.indexOf("const dispatchAuthorizationError = dispatchAuthorizationFailure(error);"));
+    const holdAt = catchBlock.indexOf("if (exportControlHold) {");
+    expect(holdAt).toBeGreaterThan(-1);
+    // The hold returns before the manual follow-up decision is ever made.
+    expect(holdAt).toBeLessThan(catchBlock.indexOf("const requiresManualVendorFollowUp ="));
+    const hold = catchBlock.slice(holdAt, catchBlock.indexOf("return;", holdAt));
+    expect(hold).toContain('status: "failed"');
+    expect(hold).toContain("notes: [EXPORT_CONTROL_HOLD_NOTE]");
+    expect(hold).toContain("requiresManualVendorFollowUp: false");
+    expect(hold).toContain("manualFollowUpReason: null");
+    expect(hold).toContain("await markTaskCompleted(");
+    expect(hold).not.toContain("manual_vendor_followup");
+    expect(catchBlock).toContain(
+      "?? (error instanceof ExportControlLookupError && nextRetryAt(task.attempts) === null ? error.reasonCode : null);",
+    );
+    expect(EXPORT_CONTROL_HOLD_NOTE).toContain("must not be quoted manually");
+    expect(EXPORT_CONTROL_HOLD_NOTE).not.toMatch(/manual follow-up is required/i);
+  });
+
+  it("retries a failed lookup only on the finite schedule", () => {
+    expect(nextRetryAt(1)).not.toBeNull();
+    expect(nextRetryAt(VENDOR_TASK_RETRY_DELAYS_MS.length + 1)).toBeNull();
   });
 
   it("runs before the routed preflight in the quote task", () => {
@@ -556,6 +691,41 @@ describe("export-control dispatch check (window 1 worker gate)", () => {
     expect(checkAt).toBeGreaterThan(-1);
     expect(checkAt).toBeLessThan(workerIndex.indexOf("const result = await quoteWithRoutedDispatchPreflight({"));
     expect(checkAt).toBeGreaterThan(workerIndex.indexOf('source: "step_header",'));
+  });
+});
+
+describe("export-control extraction check (no CAD or drawing to a model without a clean job)", () => {
+  const call = (rpc: ReturnType<typeof vi.fn>) =>
+    assertExportControlExtractionAllowed({ rpc } as unknown as SupabaseClient, { jobId: "job-1" });
+
+  it("passes only on exactly { allowed: true }", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { allowed: true }, error: null });
+    await expect(call(rpc)).resolves.toBeUndefined();
+    expect(rpc).toHaveBeenCalledWith("api_check_export_control_extraction", { p_job_id: "job-1" });
+  });
+
+  it.each(["export_declaration_missing", "export_declaration_not_clean", "export_review_pending"] as const)(
+    "denies %s",
+    async (reasonCode) => {
+      const rpc = vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode }, error: null });
+      await expect(call(rpc)).rejects.toEqual(new ExportControlExtractionDeniedError(reasonCode));
+      const error = await call(rpc).catch((caught: unknown) => caught);
+      expect(failureCodeForError(error)).toBe(reasonCode);
+    },
+  );
+
+  it("fails closed with a lookup error on errors and malformed responses", async () => {
+    for (const rpc of [
+      vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } }),
+      vi.fn().mockRejectedValue(new Error("network")),
+      vi.fn().mockResolvedValue({ data: null, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: "true" }, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: true, extra: 1 }, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode: "made_up" }, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode: "export_control_lookup_failed" }, error: null }),
+    ]) {
+      await expect(call(rpc)).rejects.toEqual(new ExportControlLookupError("extraction"));
+    }
   });
 });
 
@@ -753,5 +923,54 @@ describe("OVD-723 migration draft", () => {
     );
     expect(draft).toMatch(/if not public\.is_platform_admin\(\) then\s+raise exception using errcode = '42501', message = 'export_review_admin_required'/);
     expect(draft).toContain("'marking_block_cleared'");
+  });
+
+  it("adds a service-role extraction check that needs a clean, unblocked latest declaration", () => {
+    const denial = sqlFunctionBody("private.export_control_extraction_denial");
+    expect(denial).toContain("private.lock_job_export_state(p_job_id, false)");
+    expect(denial).toContain("order by declaration.declared_at desc, declaration.id desc");
+    expect(denial).toContain("return 'export_declaration_missing'");
+    expect(denial).toContain("return 'export_declaration_not_clean'");
+    expect(denial).toContain("return 'export_review_pending'");
+    expect(denial).toMatch(/exception when others then\s+return 'export_control_lookup_failed'/);
+    expect(sqlFunctionBody("public.api_check_export_control_extraction")).toContain(
+      "private.export_control_extraction_denial(p_job_id)",
+    );
+    expect(sqlWindow1()).toMatch(
+      /revoke all on function public\.api_check_export_control_extraction\(uuid\)\s+from public, anon, authenticated, service_role;\s+grant execute on function public\.api_check_export_control_extraction\(uuid\)\s+to service_role;/,
+    );
+    expect(expandRollback).toContain("drop function public.api_check_export_control_extraction(uuid);");
+    expect(expandRollback).toContain("drop function private.export_control_extraction_denial(uuid);");
+  });
+
+  it("opens at most one open block per job, file, and source", () => {
+    const record = sqlFunctionBody("public.api_record_export_control_marking_hits");
+    const lookupAt = record.indexOf("block.job_file_id is not distinct from p_job_file_id");
+    expect(lookupAt).toBeGreaterThan(record.indexOf("private.lock_job_export_state(v_job.id, true)"));
+    expect(lookupAt).toBeLessThan(record.indexOf("insert into private.job_export_marking_blocks"));
+    expect(record).toContain("block.state in ('blocked_pending_review', 'confirmed_controlled')");
+  });
+
+  it("does not duplicate backfill audit events when expand is reapplied after a rollback", () => {
+    const backfill = sqlWindow1().slice(sqlWindow1().indexOf("-- 1.17 One-time backfill"));
+    const audit = backfill.slice(backfill.indexOf("insert into private.export_control_events"));
+    expect(audit.slice(0, audit.indexOf(";"))).toMatch(
+      /not exists \(\s+select 1\s+from private\.export_control_events event_row\s+where event_row\.event = 'declaration_backfilled_missing'[\s\S]*event_row\.detail ->> 'declarationId' = declaration\.id::text/,
+    );
+  });
+
+  it("stores no client IP: an unkeyed hash of an address is reversible", () => {
+    expect(sqlCode(draft)).not.toContain("ip_hash");
+    expect(sqlCode(draft)).not.toContain("x-forwarded-for");
+  });
+
+  it("classifies RapidDirect and Protolabs Network as foreign", () => {
+    for (const provider of ["rapiddirect", "protolabsnetwork", "weerg", "geomiq"] as const) {
+      expect(FOREIGN_JURISDICTION_PROVIDERS.has(provider)).toBe(true);
+      expect(exportControlProviderJurisdiction(provider)).toBe("foreign");
+      expect(evaluateExportControlDispatch({ provider, latestAnswer: "unsure", markingBlocked: false })).toBe(
+        "export_foreign_provider_requires_clean_declaration",
+      );
+    }
   });
 });

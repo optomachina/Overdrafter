@@ -40,6 +40,31 @@ describe("ExportControlDeclarationDialogHost", () => {
     await expect(pending).resolves.toBe(answer);
   });
 
+  it("says the answer covers every file on the part", async () => {
+    render(<ExportControlDeclarationDialogHost />);
+    openPrompt();
+
+    expect(await screen.findByText("Are any files on this part export-controlled?")).toBeTruthy();
+    expect(screen.getByText(/covers every file on this part: files already uploaded and any you add later/)).toBeTruthy();
+  });
+
+  it("declares an existing part without uploading and records every answer", async () => {
+    render(<ExportControlDeclarationDialogHost />);
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = requestExportControlAnswer("declare");
+    });
+
+    const save = await screen.findByRole("button", { name: "Save answer" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Continue upload" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: /I'm not sure/ }));
+    expect(screen.getByRole("alert").textContent).toContain("will not be sent to any supplier");
+    fireEvent.click(save);
+
+    await expect(pending).resolves.toBe("unsure");
+  });
+
   it("resolves null when cancelled", async () => {
     render(<ExportControlDeclarationDialogHost />);
     const pending = openPrompt();

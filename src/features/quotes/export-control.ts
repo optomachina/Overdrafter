@@ -45,7 +45,7 @@ export const EXPORT_CONTROL_ANSWER_OPTIONS: ReadonlyArray<{
 
 const BLOCK_MESSAGES: Record<ExportControlUploadBlockReason, string> = {
   export_declaration_missing:
-    "Upload stopped. Tell us whether these files are export-controlled before uploading.",
+    "Upload stopped. Tell us whether the files on this part are export-controlled before uploading.",
   export_declaration_not_clean:
     "Upload stopped. The OverDrafter beta does not accept ITAR, EAR-controlled (other than EAR99), CUI, or unconfirmed files. Nothing was uploaded.",
   export_declaration_stale:
@@ -84,7 +84,15 @@ export function isExportControlAnswer(value: unknown): value is ExportControlAns
   return value === "not_controlled" || value === "controlled" || value === "unsure";
 }
 
-type ExportControlPrompter = () => Promise<ExportControlAnswer | null>;
+/**
+ * `upload`: asked before files are uploaded; only not_controlled continues.
+ * `declare`: asked for a part that already has files (for example a part
+ * backfilled as undeclared), with no upload. Every answer is recorded.
+ * In both, the answer covers every file on the part, not only new ones.
+ */
+export type ExportControlPromptMode = "upload" | "declare";
+
+type ExportControlPrompter = (mode: ExportControlPromptMode) => Promise<ExportControlAnswer | null>;
 
 let activePrompter: ExportControlPrompter | null = null;
 
@@ -100,10 +108,12 @@ export function registerExportControlDeclarationPrompter(prompter: ExportControl
  * Asks the user. With no registered prompter, or if the prompt fails, the
  * result is null, which the caller treats as a missing declaration.
  */
-export async function requestExportControlAnswer(): Promise<ExportControlAnswer | null> {
+export async function requestExportControlAnswer(
+  mode: ExportControlPromptMode = "upload",
+): Promise<ExportControlAnswer | null> {
   if (!activePrompter) return null;
   try {
-    const answer = await activePrompter();
+    const answer = await activePrompter(mode);
     return isExportControlAnswer(answer) ? answer : null;
   } catch {
     return null;

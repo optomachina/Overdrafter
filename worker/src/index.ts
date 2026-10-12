@@ -82,7 +82,11 @@ import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import {
+  assertExportControlExtractionAllowed,
   enforceAndRecordExportControlScan,
+  ExportControlDrawingUnreadError,
+  ExportControlLookupError,
+  isDrawingTextFullyRead,
   isStepFileName,
   readStagedStepHeaderPrefix,
   scanDrawingTextForExportMarkings,
@@ -100,6 +104,8 @@ import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
   assertExportControlDispatchAllowed,
   dispatchAuthorizationFailure,
+  EXPORT_CONTROL_HOLD_NOTE,
+  exportControlHoldReason,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting.js";
 
@@ -577,15 +583,21 @@ async function runDrawingExtractionForTask(
     if (context.drawingFile) {
       // The clean scan is bound to the hash of the staged bytes; without a
       // staged file there is no hash, and a record attempt fails closed.
+      // A drawing with any page that yielded no text is unread: no clean
+      // scan is recorded and the task stops before any model call.
+      const drawingTextRead = isDrawingTextFullyRead(pdfText);
       await enforceAndRecordExportControlScan(supabase, {
         jobId: task.job_id,
         partId: task.part_id,
         jobFileId: context.drawingFile.id,
         source: "drawing_text",
         scan: scanDrawingTextForExportMarkings(pdfText),
-        textRead: pdfText !== null,
+        textRead: drawingTextRead,
         contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
       });
+      if (!drawingTextRead) {
+        throw new ExportControlDrawingUnreadError();
+      }
     }
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
@@ -634,6 +646,9 @@ async function runDrawingExtractionForTask(
             ...config,
             drawingExtractionModel: effectiveModel,
           };
+    // OVD-723: no CAD or drawing content reaches a model unless the job's
+    // latest declaration is not_controlled with no open or confirmed block.
+    await assertExportControlExtractionAllowed(supabase, { jobId: task.job_id });
     const extraction = await runHybridExtraction({
       part: context.part,
       cadFile: context.cadFile,
@@ -1447,6 +1462,42 @@ export async function handleVendorQuoteTask(
       await enqueueRepairCandidate(supabase, task, vendorError);
     }
 
+    // OVD-723: an export-control hold (a gate denial, a marking hit while
+    // staging, or a lookup that failed through every retry) is terminal and
+    // never becomes manual vendor follow-up: quoting held files by hand would
+    // send them to the vendor the gate refused. The lane is closed as failed,
+    // so it stays out of the manual quote queue, and the task completes so it
+    // is never retried (a retry would only rescan and refuse again).
+    const exportControlHold =
+      exportControlHoldReason(error)
+      ?? (error instanceof ExportControlLookupError && nextRetryAt(task.attempts) === null ? error.reasonCode : null);
+    if (exportControlHold) {
+      await supabase
+        .from("vendor_quote_results")
+        .update({
+          status: "failed",
+          notes: [EXPORT_CONTROL_HOLD_NOTE],
+          raw_payload: {
+            ...buildFailureRawPayload(vendor, retryCount, exportControlHold, {}, failureArtifactStoragePaths),
+            ...providerMutationEvidence(),
+            requestedQuantity: currentResult.requested_quantity,
+            retryScheduledFor: null,
+            requiresManualVendorFollowUp: false,
+            manualFollowUpReason: null,
+            exportControlHold: true,
+            exportControlReasonCode: exportControlHold,
+          },
+        })
+        .eq("id", currentResult.id);
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      await markTaskCompleted(supabase, task, {
+        vendorStatus: "failed",
+        exportControlHold: true,
+        failureCode: exportControlHold,
+      });
+      return;
+    }
+
     const failureCode = dispatchAuthorizationError
       ? dispatchAuthorizationError.reasonCode
       : failureCodeForError(error);
@@ -1485,6 +1536,8 @@ export async function handleVendorQuoteTask(
         "Automatic Xometry dispatch authorization was denied before browser launch; manual follow-up is required.";
     } else if (requiresManualVendorFollowUp) {
       failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
+    } else if (error instanceof ExportControlLookupError && retryAt) {
+      failureNote = `The export-control check is temporarily unavailable. Nothing was sent to ${vendor}. Retry scheduled for ${retryAt}.`;
     } else if (retryAt) {
       failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
     }
@@ -1731,6 +1784,7 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
       const shouldRetry =
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
         (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
+        (task.task_type === "extract_part" && error instanceof ExportControlLookupError) ||
         (task.task_type === "run_vendor_quote" &&
           isRetryableVendorTaskError(error, providerMutationPhase));
       if (shouldRetry) {

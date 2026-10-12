@@ -29,6 +29,13 @@ import { fetchPartContext } from "../partContext.js";
 import { createServiceClient } from "../queue.js";
 import type { WorkerConfig } from "../types.js";
 import {
+  assertExportControlExtractionAllowed,
+  enforceExportControlMarkings,
+  ExportControlDrawingUnreadError,
+  isDrawingTextFullyRead,
+  scanDrawingTextForExportMarkings,
+} from "../exportControl.js";
+import {
   createProvider,
   inferProvider,
   isEvalError,
@@ -489,6 +496,19 @@ export async function previewStoredPartExtraction(
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
+    // OVD-723: this preview sends the drawing to a model, so it passes the
+    // same gate as extraction: a marking hit records a block and stops, an
+    // unread page stops, and the job must be declared clean and unblocked.
+    await enforceExportControlMarkings(supabase, {
+      jobId: context.part.job_id,
+      partId: context.part.id,
+      jobFileId: context.drawingFile.id,
+      scan: scanDrawingTextForExportMarkings(pdfText),
+    });
+    if (!isDrawingTextFullyRead(pdfText)) {
+      throw new ExportControlDrawingUnreadError();
+    }
+    await assertExportControlExtractionAllowed(supabase, { jobId: context.part.job_id });
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
     if (stagedDrawingFile && pdfText) {
