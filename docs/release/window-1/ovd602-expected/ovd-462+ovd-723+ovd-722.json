@@ -1,0 +1,491 @@
+{
+  "format": "ovd602.diff.v1",
+  "added": {
+    "functions": [
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "pg_catalog",
+        "signature": "private.api_request_provider_dispatch_pre_ovd722(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "pg_catalog",
+        "signature": "private.api_request_xometry_beta_dispatch_pre_ovd722(uuid,text,text,text,uuid,boolean,boolean,boolean)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "public",
+        "signature": "private.job_file_finalize_core(uuid,text,text,text,public.job_file_kind,text,bigint,text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "public",
+        "signature": "private.job_file_prepare_core(uuid,text,public.job_file_kind,text,bigint,text)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.provider_kill_switch_engaged(public.vendor_name)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.provider_kill_switch_engaged_text(text)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "pg_catalog",
+        "signature": "private.provider_worker_dispatch_core(uuid,uuid,jsonb,text,timestamp with time zone)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "pg_catalog",
+        "signature": "private.xometry_beta_worker_dispatch_core(uuid,uuid,jsonb,text,timestamp with time zone)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.acquire_provider_session_lease(text,text,text,text,text,uuid,integer,integer,integer)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_admin_list_provider_kill_switches()"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_admin_set_global_kill_switch(boolean,text,bigint)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_declare_job_export_status(uuid,text,text,uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text,uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_get_job_export_control_status(uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text,uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_record_export_control_clean_scan(uuid,uuid,uuid,text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_record_export_control_marking_hits(uuid,uuid,uuid,text,text[])"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_review_export_control_block(uuid,text,text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_worker_cancel_provider_disabled_tasks()"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_worker_provider_kill_switch_state(public.vendor_name)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.clear_provider_session_binding_block(text,text,text,bigint,text,text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated",
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.current_user_has_export_cleared_upload(text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.release_provider_session_lease(text,text,text,text,text,uuid,bigint)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.renew_provider_session_lease(text,text,text,text,text,uuid,bigint)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.report_provider_session_lease_outcome(text,text,text,text,text,uuid,bigint,text)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.revoke_provider_session_binding(text,text,text,text,text,text)"
+      }
+    ],
+    "relations": [
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "private.export_cleared_upload_grants",
+        "rls": true
+      },
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "private.export_control_events",
+        "rls": true
+      },
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "private.job_export_declarations",
+        "rls": true
+      },
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "private.job_export_marking_blocks",
+        "rls": true
+      },
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "private.job_file_export_scans",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "private.provider_global_kill_switch",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "private.provider_kill_switch_audit",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "private.provider_kill_switches",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "public.provider_session_bindings",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "public.provider_session_leases",
+        "rls": true
+      }
+    ],
+    "policies": [
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "export_control_events_member_read",
+        "permissive": "PERMISSIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "private.export_control_events",
+        "using_md5": "1a032f3d23e321c4f7a5c62409d62f17"
+      },
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "job_export_declarations_member_read",
+        "permissive": "PERMISSIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "private.job_export_declarations",
+        "using_md5": "1a032f3d23e321c4f7a5c62409d62f17"
+      },
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "job_export_marking_blocks_member_read",
+        "permissive": "PERMISSIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "private.job_export_marking_blocks",
+        "using_md5": "1a032f3d23e321c4f7a5c62409d62f17"
+      },
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "job_file_export_scans_member_read",
+        "permissive": "PERMISSIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "private.job_file_export_scans",
+        "using_md5": "1a032f3d23e321c4f7a5c62409d62f17"
+      }
+    ]
+  },
+  "removed": {},
+  "changed": {
+    "functions": [
+      {
+        "key": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "service_role"
+          ],
+          "search_path": "pg_catalog",
+          "signature": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "service_role"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_authorize_provider_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)"
+        }
+      },
+      {
+        "key": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "service_role"
+          ],
+          "search_path": "pg_catalog",
+          "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "service_role"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamp with time zone)"
+        }
+      },
+      {
+        "key": "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)"
+        }
+      },
+      {
+        "key": "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)"
+        }
+      },
+      {
+        "key": "public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "authenticated"
+          ],
+          "search_path": "pg_catalog",
+          "signature": "public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "authenticated"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)"
+        }
+      },
+      {
+        "key": "public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "authenticated"
+          ],
+          "search_path": "pg_catalog",
+          "signature": "public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "authenticated"
+          ],
+          "search_path": "\"\"",
+          "signature": "public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)"
+        }
+      }
+    ]
+  },
+  "flags": [
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_list_provider_kill_switches()",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_global_kill_switch(boolean,text,bigint)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_declare_job_export_status(uuid,text,text,uuid)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text,uuid)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_get_job_export_control_status(uuid)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text,uuid)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_review_export_control_block(uuid,text,text)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.current_user_has_export_cleared_upload(text)",
+    "DEFINER_EXECUTABLE_BY authenticated changed public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)",
+    "DEFINER_EXECUTABLE_BY authenticated changed public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)",
+    "DEFINER_EXECUTABLE_BY authenticated changed public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)",
+    "DEFINER_EXECUTABLE_BY authenticated changed public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.api_request_provider_dispatch_pre_ovd722(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean) search_path=pg_catalog",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.api_request_xometry_beta_dispatch_pre_ovd722(uuid,text,text,text,uuid,boolean,boolean,boolean) search_path=pg_catalog",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.job_file_finalize_core(uuid,text,text,text,public.job_file_kind,text,bigint,text) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.job_file_prepare_core(uuid,text,public.job_file_kind,text,bigint,text) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.provider_worker_dispatch_core(uuid,uuid,jsonb,text,timestamp with time zone) search_path=pg_catalog",
+    "DEFINER_NONEMPTY_SEARCH_PATH added private.xometry_beta_worker_dispatch_core(uuid,uuid,jsonb,text,timestamp with time zone) search_path=pg_catalog"
+  ]
+}

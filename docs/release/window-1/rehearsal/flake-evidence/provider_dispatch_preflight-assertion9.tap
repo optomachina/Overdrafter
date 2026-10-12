@@ -1,0 +1,362 @@
+ plan  
+-------
+ 1..64
+(1 row)
+
+                                   ok                                   
+------------------------------------------------------------------------
+ ok 1 - both new functions exist once and pin search_path to pg_catalog
+(1 row)
+
+                             ok                              
+-------------------------------------------------------------
+ ok 2 - only service_role can execute the provider preflight
+(1 row)
+
+                            ok                             
+-----------------------------------------------------------
+ ok 3 - no API role can execute the private denial builder
+(1 row)
+
+                                              ok                                              
+----------------------------------------------------------------------------------------------
+ ok 4 - the preflight is security definer so service_role never reads private tables directly
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                 is                                                 
+----------------------------------------------------------------------------------------------------
+ ok 5 - the authorized response exposes exactly the bounded provider-dispatch-authorization.v1 keys
+(1 row)
+
+                                          ok                                           
+---------------------------------------------------------------------------------------
+ ok 6 - the exact running task, permit, provider, scope, and session binding authorize
+(1 row)
+
+                                                ok                                                 
+---------------------------------------------------------------------------------------------------
+ ok 7 - the response carries the stored canonical envelope text and its self-verifying fingerprint
+(1 row)
+
+                                                 ok                                                  
+-----------------------------------------------------------------------------------------------------
+ ok 8 - evidence is the database clock, permit state, OVD-379 resolver row, and rollout control only
+(1 row)
+
+                                                    ok                                                    
+----------------------------------------------------------------------------------------------------------
+ not ok 9 - the response carries no file names, storage paths, scope snapshot, or raw policy rows        +
+ # Failed test 9: "the response carries no file names, storage paths, scope snapshot, or raw policy rows"
+(1 row)
+
+                                            is                                             
+-------------------------------------------------------------------------------------------
+ ok 10 - preflight is a read-only check: a second call for the same claim authorizes again
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 11 - a client-authenticated caller cannot obtain provider authority
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 12 - a missing task identity is denied
+(1 row)
+
+                     is                      
+---------------------------------------------
+ ok 13 - a non-object staged scope is denied
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 14 - a different worker cannot use another worker's claim
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 15 - a stale claim generation is denied
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 16 - a task that is no longer running is denied
+(1 row)
+
+                       is                        
+-------------------------------------------------
+ ok 17 - a cross-provider staged scope is denied
+(1 row)
+
+                       is                        
+-------------------------------------------------
+ ok 18 - a substituted result identity is denied
+(1 row)
+
+                           is                           
+--------------------------------------------------------
+ ok 19 - a task moved to another organization is denied
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 20 - a task moved to another job is denied
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 21 - a task moved to another part is denied
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 22 - a task whose job was cleared is denied
+(1 row)
+
+                       is                        
+-------------------------------------------------
+ ok 23 - a task whose part was cleared is denied
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 24 - a task whose quote run was cleared is denied
+(1 row)
+
+                                               is                                                
+-------------------------------------------------------------------------------------------------
+ ok 25 - an internal or service-created task without a generic permit gets no runnable authority
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 26 - an unknown permit identity is denied
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 27 - a task bound to a different envelope revision is denied
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 28 - a substituted envelope fingerprint is denied
+(1 row)
+
+                                    is                                     
+---------------------------------------------------------------------------
+ ok 29 - a valid permit minted for another task cannot authorize this task
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 30 - a task payload bound to another scope is denied
+(1 row)
+
+ rewrite_permit 
+----------------
+ 
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 31 - an expired permit is denied against the database clock
+(1 row)
+
+ rewrite_permit 
+----------------
+ 
+(1 row)
+
+                       is                        
+-------------------------------------------------
+ ok 32 - a permit issued in the future is denied
+(1 row)
+
+                                                                revoke_provider_dispatch_permit                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"reason": "operator_revoked", "permitId": "2785c312-d898-415e-9430-b93c31a49f62", "revokedAt": "2026-10-12T02:57:46.639711+00:00", "permitState": "revoked"}
+(1 row)
+
+                 is                 
+------------------------------------
+ ok 33 - a revoked permit is denied
+(1 row)
+
+ rewrite_permit 
+----------------
+ 
+(1 row)
+
+                                        is                                        
+----------------------------------------------------------------------------------
+ ok 34 - a permit bound to a notice revision other than the current one is denied
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 35 - a result that is no longer running is denied
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 36 - a canceled quote request is denied
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 37 - a job archived after the permit was minted is denied
+(1 row)
+
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 38 - a job whose service intent is no longer manufacturing-quote-only is denied
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 39 - the registry rollback switch denies already-issued generic permits
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 40 - a permit minted under a superseded admission revision is denied
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 41 - an expired admission policy is denied
+(1 row)
+
+                             is                              
+-------------------------------------------------------------
+ ok 42 - a provider with no admission registry row is denied
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 43 - withdrawing the reviewed envelope denies already-issued permits
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 44 - a permit bound to a superseded reviewed envelope is denied
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 45 - revoked Founding Beta enrollment is denied
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 46 - a removed commercial entitlement is denied
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 47 - a disabled automatic-quote rollout is denied
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 48 - a permit minted under a superseded rollout revision is denied
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 49 - an organization that no longer enables the provider is denied
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 50 - changed current CAD bytes are denied
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 51 - a part whose drawing changed since the permit is denied
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 52 - staged CAD bytes that differ from the permit are denied
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 53 - a substituted staged drawing identity is denied
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 54 - a staged scope that differs from the permitted lane is denied
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 55 - a current scope that changed after the permit is denied
+(1 row)
+
+                                    ok                                     
+---------------------------------------------------------------------------
+ ok 56 - preflight denials consumed, revoked, released, and minted nothing
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 57 - after every rolled-back change the exact claim authorizes again
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 58 - revoking the generic preflight disables every generic decision
+(1 row)
+
+                                                     is                                                      
+-------------------------------------------------------------------------------------------------------------
+ ok 59 - the specialized Xometry preflight stays available to service_role while the generic one is disabled
+(1 row)
+
+                                            is                                             
+-------------------------------------------------------------------------------------------
+ ok 60 - the legacy Xometry fixture authorizes through the unchanged specialized preflight
+(1 row)
+
+                                           is                                            
+-----------------------------------------------------------------------------------------
+ ok 61 - an authorized Xometry decision is byte-identical through the provider preflight
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 62 - a Xometry staged-scope denial is byte-identical through the provider preflight
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 63 - a Xometry unknown-task denial is byte-identical through the provider preflight
+(1 row)
+
+                                                     ok                                                     
+------------------------------------------------------------------------------------------------------------
+ ok 64 - a generic task presented with a Xometry scope gets only the legacy denial, never generic authority
+(1 row)
+
+                finish                
+--------------------------------------
+ # Looks like you failed 1 test of 64
+(1 row)
+
+psql:/tmp/ovd635-window1-Ta7o93/src-main/supabase/tests/provider_dispatch_preflight.sql:188: NOTICE:  relation "requestable_quote_lanes" already exists, skipping
