@@ -894,7 +894,7 @@ export function ClientQuoteDecisionPanel({
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
       />
-      {previousSelectionUnavailable && !selectedOption ? (
+      {previousSelectionUnavailable && !selectedOption && quoteDataStatus === "available" && options.length > 0 ? (
         <output
           className="mt-4 block border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
           data-testid="previous-selection-unavailable"

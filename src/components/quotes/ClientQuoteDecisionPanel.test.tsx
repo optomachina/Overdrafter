@@ -160,6 +160,25 @@ describe("ClientQuoteDecisionPanel when the previous choice is gone", () => {
     expect(screen.getByText("Current selection")).toBeInTheDocument();
   });
 
+  it.each([
+    ["there are no options", [], "available"],
+    ["the quote data is unavailable", [makeClientQuoteOption()], "schema_unavailable"],
+    ["the quote rows could not be plotted", [makeClientQuoteOption()], "invalid_for_plotting"],
+  ] as const)("does not show the notice when %s", (_label, options, quoteDataStatus) => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={options}
+        selectedOption={null}
+        previousSelectionUnavailable
+        quoteDataStatus={quoteDataStatus}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    expect(screen.queryByTestId("previous-selection-unavailable")).not.toBeInTheDocument();
+  });
+
   it("does not show the notice when nothing was ever chosen", async () => {
     render(
       <ClientQuoteDecisionPanel

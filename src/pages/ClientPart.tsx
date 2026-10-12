@@ -284,6 +284,10 @@ const ClientPart = () => {
     setSearchParams(nextSearchParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const validSelectedQuoteOption =
+    rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
+    selectedQuoteOption;
+
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
   }, [selectedQuoteOption?.key]);
@@ -935,10 +939,7 @@ const ClientPart = () => {
                     title="Quote comparison"
                     description="Set the sourcing criteria, then compare every quote by price and lead time."
                     options={rankedQuoteOptions}
-                    selectedOption={
-                      rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
-                      selectedQuoteOption
-                    }
+                    selectedOption={validSelectedQuoteOption}
                     previousSelectionUnavailable={previousQuoteSelectionUnavailable}
                     onSelect={handleWorkspaceOfferSelect}
                     requestedByDate={requestSummaryRequestedByDate}
@@ -948,15 +949,30 @@ const ClientPart = () => {
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
                     headerActions={
+                      <>
                       <Button
                         type="button"
                         className="rounded-full shadow-sm"
                         onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                        disabled={rankedQuoteOptions.length === 0}
+                        disabled={rankedQuoteOptions.length === 0 || !validSelectedQuoteOption}
+                        title={
+                          rankedQuoteOptions.length > 0 && !validSelectedQuoteOption
+                            ? "Choose a quote to continue"
+                            : undefined
+                        }
+                        aria-describedby={
+                          rankedQuoteOptions.length > 0 && !validSelectedQuoteOption
+                            ? "review-order-disabled-reason"
+                            : undefined
+                        }
                       >
                         Review order
                         <MoveRight className="ml-2 h-4 w-4" />
                       </Button>
+                      <span id="review-order-disabled-reason" className="sr-only">
+                        Choose a quote to continue
+                      </span>
+                      </>
                     }
                     controls={
                       <QuoteSelectionFunctionBar

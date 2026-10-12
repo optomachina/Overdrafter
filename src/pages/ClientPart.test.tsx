@@ -605,6 +605,114 @@ function createXometryDispatchScope() {
   };
 }
 
+/** A part detail with one live Xometry offer (`offer-1`), selected by the given stored offer id. */
+function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: string | null = "offer-1") {
+  const base = createPartDetail();
+  return createPartDetail({
+    job: { ...base.job, selected_vendor_quote_offer_id: selectedOfferId },
+    summary: {
+      ...createPartDetail().summary,
+      selectedSupplier: null,
+    },
+    part: {
+      ...createPartDetail().part,
+      cadFile: {
+        id: "cad-file-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "org-1/job-1/bracket.step",
+        normalized_name: "bracket.step",
+        original_name: "bracket.step",
+        mime_type: "application/step",
+        size_bytes: 1024,
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6 aluminum",
+        finish: "Black anodize",
+        tightest_tolerance_inch: 0.005,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: ["xometry"],
+        spec_snapshot: { process: "CNC milling" },
+        approved_by: "user-1",
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+      vendorQuotes: [
+        {
+          id: "quote-1",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "xometry",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 10,
+          total_price_usd: 100,
+          lead_time_business_days: 7,
+          quote_url: "https://www.xometry.com/quoting/home/quote-1",
+          dfm_issues: [],
+          notes: [],
+          raw_payload: {
+            automationVersion: "xometry-worker-v1",
+            detectedFlow: "quote_ready",
+            requirementCapturedAt: liveTimestamp,
+          },
+          created_at: liveTimestamp,
+          updated_at: liveTimestamp,
+          offers: [
+            {
+              id: "offer-1",
+              vendor_quote_result_id: "quote-1",
+              organization_id: "org-1",
+              offer_key: "xometry-standard",
+              supplier: "Xometry",
+              lane_label: "USA / Standard",
+              sourcing: "USA",
+              tier: "Standard",
+              quote_ref: "Q-1",
+              quote_date: liveTimestamp.slice(0, 10),
+              unit_price_usd: 10,
+              total_price_usd: 100,
+              lead_time_business_days: 7,
+              ship_receive_by: "2026-03-10",
+              due_date: "2026-04-15",
+              process: "CNC Machining",
+              material: "6061-T6",
+              finish: "Black anodize",
+              tightest_tolerance: "±.005\"",
+              tolerance_source: "Drawing",
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 0,
+              raw_payload: {},
+              created_at: liveTimestamp,
+              updated_at: liveTimestamp,
+            },
+          ],
+          artifacts: [],
+        },
+      ],
+    },
+  });
+}
+
 async function findActivityCommentField() {
   if (!screen.queryByLabelText("Leave a comment")) {
     await openActivitySection();
@@ -1174,108 +1282,7 @@ describe("ClientPart", () => {
     const liveTimestamp = new Date().toISOString();
     api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
     api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        summary: {
-          ...createPartDetail().summary,
-          selectedSupplier: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cadFile: {
-            id: "cad-file-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "org-1/job-1/bracket.step",
-            normalized_name: "bracket.step",
-            original_name: "bracket.step",
-            mime_type: "application/step",
-            size_bytes: 1024,
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6 aluminum",
-            finish: "Black anodize",
-            tightest_tolerance_inch: 0.005,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: { process: "CNC milling" },
-            approved_by: "user-1",
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-          vendorQuotes: [
-            {
-              id: "quote-1",
-              quote_run_id: "run-1",
-              part_id: "part-1",
-              organization_id: "org-1",
-              vendor: "xometry",
-              requested_quantity: 10,
-              status: "official_quote_received",
-              unit_price_usd: 10,
-              total_price_usd: 100,
-              lead_time_business_days: 7,
-              quote_url: "https://www.xometry.com/quoting/home/quote-1",
-              dfm_issues: [],
-              notes: [],
-              raw_payload: {
-                automationVersion: "xometry-worker-v1",
-                detectedFlow: "quote_ready",
-                requirementCapturedAt: liveTimestamp,
-              },
-              created_at: liveTimestamp,
-              updated_at: liveTimestamp,
-              offers: [
-                {
-                  id: "offer-1",
-                  vendor_quote_result_id: "quote-1",
-                  organization_id: "org-1",
-                  offer_key: "xometry-standard",
-                  supplier: "Xometry",
-                  lane_label: "USA / Standard",
-                  sourcing: "USA",
-                  tier: "Standard",
-                  quote_ref: "Q-1",
-                  quote_date: liveTimestamp.slice(0, 10),
-                  unit_price_usd: 10,
-                  total_price_usd: 100,
-                  lead_time_business_days: 7,
-                  ship_receive_by: "2026-03-10",
-                  due_date: "2026-04-15",
-                  process: "CNC Machining",
-                  material: "6061-T6",
-                  finish: "Black anodize",
-                  tightest_tolerance: "±.005\"",
-                  tolerance_source: "Drawing",
-                  thread_callouts: null,
-                  thread_match_notes: null,
-                  notes: null,
-                  sort_rank: 0,
-                  raw_payload: {},
-                  created_at: liveTimestamp,
-                  updated_at: liveTimestamp,
-                },
-              ],
-              artifacts: [],
-            },
-          ],
-        },
-      }),
+      createLiveOfferPartDetail(liveTimestamp),
     );
 
     renderWithClient("/parts/job-1");
@@ -1288,6 +1295,49 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({
       optionCount: 1,
       totalPrices: [100],
+    });
+  });
+
+  describe("when the stored quote selection is gone", () => {
+    const missingSelectionDetail = () => createLiveOfferPartDetail(new Date().toISOString(), "offer-gone");
+
+    it("selects no substitute at the controller level while options still exist", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result } = renderHook(
+        () => useClientPartController("job-1", { warmNavigation: false }),
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+      expect(result.current.rankedQuoteOptions.some((option) => option.eligible)).toBe(true);
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(result.current.previousQuoteSelectionUnavailable).toBe(true);
+      queryClient.clear();
+    });
+
+    it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      renderWithClient("/parts/job-1");
+
+      await screen.findByText("Xometry · Standard");
+      const button = screen.getByRole("button", { name: "Review order" });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    });
+
+    it("enables the Review order button when the stored selection is still current", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
+      renderWithClient("/parts/job-1");
+
+      await screen.findByText("Xometry · Standard");
+      const button = screen.getByRole("button", { name: "Review order" });
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAttribute("aria-describedby");
     });
   });
 
