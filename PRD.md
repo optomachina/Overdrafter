@@ -426,9 +426,12 @@ technical behavior, not permission to publish those offers or prices before the
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
-- The implemented $49/month Stripe price is a disabled pricing hypothesis, not
-  an approved 1.0 offer. Activating or changing it requires a 1.2 pricing
-  decision and synchronized product copy, validation, and Stripe configuration.
+- Prices are locked in `docs/business/business-model.md`: Free $0, Pro $99/month,
+  Team $349/month with 5 seats plus $40 per seat, Founding Team $199/month
+  (at most 8 teams), and Jarvis free. Monthly only at launch; no overage. The
+  Stripe catalog (`supabase/functions/_shared/billingCatalogPrices.json`) stays
+  disabled until 1.0 certification (OVD-199, OVD-319) and a separate live
+  charge approval (OVD-228).
 - Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
 - Stripe is the economic source of truth for customers, products, prices, subscriptions, and invoices.
 - A webhook-synchronized local projection plus active manual grants is the server-side source used for product access decisions.

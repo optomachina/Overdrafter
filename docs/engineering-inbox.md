@@ -132,8 +132,21 @@ enforces operator admission, membership, project access and conversation ownersh
 The development-only `/engineering?conversation=<uuid>` screen connects this
 adapter to the existing bottom composer. Like the local handoff workbench, it
 requires development mode, `VITE_ENABLE_ENGINEERING_WORKBENCH=1` and a loopback
-host. The route is excluded from production builds. These browser gates do not
-replace server authorization or enable any operator.
+host. These browser gates do not replace server authorization or enable any operator.
+
+OVD-740 adds a hosted admin entry for the same screen. It is compiled into a
+build only when the public build variable `VITE_ENABLE_ENGINEERING_ADMIN_ROUTE`
+is exactly `1`; it is unset by default, and a build without it is byte for byte
+the same as before. With the variable set, `/engineering` loads a separate lazy
+chunk (`src/pages/EngineeringAdminRoute.tsx`) that asks the server
+`api_get_is_platform_admin` (the existing `private.platform_admin_emails`
+allowlist) on every visit and ignores any cached client flag. Signed out
+visitors, callers the allowlist rejects and failed checks all get the ordinary
+not found page, and only an admitted caller downloads the inbox chunk.
+Conversation data stays behind its RLS policies and operator allowlist, so a
+platform admin who is not an engineering operator still sees no conversation.
+No quoting module may import the engineering area; `src/lib/engineering-isolation.test.ts`
+enforces that.
 
 The screen requires a signed-in session and an already provisioned conversation.
 It reads the owner's conversation scope/head/revision and up to 100 recent
@@ -242,6 +255,8 @@ npx vitest run src/pages/EngineeringInbox.test.tsx
 npx vitest run src/features/engineering/EngineeringTaskStatus.test.tsx
 npx vitest run src/features/engineering/engineering-conversation-reader.test.ts
 PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
+npx vitest run src/pages/EngineeringAdminRoute.test.tsx src/lib/engineering-isolation.test.ts
+PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-admin-route.spec.ts
 ```
 
 The browser test uses synthetic session fixtures and intercepted local HTTP

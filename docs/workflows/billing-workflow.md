@@ -47,13 +47,24 @@ independent default-off switches, audited enablement, and rollback sequence.
   - `OVERDRAFTER_APP_URL`
   - `STRIPE_EXPECTED_LIVEMODE`
   - `STRIPE_SECRET_KEY`
+- Checkout stays refused unless both `BILLING_SELF_SERVICE_ENABLED` and
+  `BILLING_TIER_CATALOG_ENABLED` are exactly the string `true` (server side;
+  the browser mirrors them with `VITE_BILLING_SELF_SERVICE_ENABLED` and
+  `VITE_BILLING_TIER_CATALOG_ENABLED`). Both default off. Any other value,
+  including `TRUE` or a padded value, keeps Checkout refused.
 - Configure the Checkout-only `STRIPE_PRO_MONTHLY_PRICE_ID` only when new
   subscriptions are explicitly resumed. The configured Price must be an active
-  USD $49.00 monthly recurring price on
-  an active Product in the expected Stripe mode. The function validates this
-  before creating every Checkout Session. It enables exactly one Checkout
-  Price per Stripe mode while retaining historical Price IDs in the webhook
-  allowlist so existing subscriptions continue to synchronize after rotation.
+  USD monthly recurring price on an active Product in the expected Stripe mode,
+  at the locked catalog amount for its lookup key: Pro $99.00
+  (`od_pro_month_v1`), Team $349.00 (`od_team_month_v1`), Team extra seat
+  $40.00 (`od_team_seat_month_v1`), Founding Team $199.00
+  (`od_founding_team_month_v1`, capped at 8 teams), and Jarvis $0.00
+  (`od_jarvis_seat_month_v1`). Amounts come from
+  `supabase/functions/_shared/billingCatalogPrices.json`. The function
+  validates the Price before creating every Checkout Session. It enables
+  exactly one Checkout Price per Stripe mode while retaining historical Price
+  IDs in the webhook allowlist so existing subscriptions continue to
+  synchronize after rotation.
 - The current browser exposes only the Billing Portal action. The dormant
   Checkout action remains server-disabled until a later approved release.
   Customer IDs, Price IDs, amounts, intervals, modes, and return URLs are

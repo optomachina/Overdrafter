@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useTheme } from "next-themes";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
@@ -74,6 +75,8 @@ import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
+import { BillingTierCatalog } from "@/components/billing/BillingTierCatalog";
+import { isBillingTierCatalogUiEnabled } from "@/lib/billing-flags";
 import { openBillingPortal } from "@/features/quotes/billing-sessions";
 import {
   FOUNDING_BETA_POLICY_EFFECTIVE_DATE,
@@ -722,7 +725,7 @@ export function WorkspaceAccountMenu({
       await confirmSourcingDestination(activeMembership.organizationId, sourcingDestination.address);
       setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
     } catch (error) {
-      setSourcingError(error instanceof Error ? error.message : "Could not confirm the shipping address.");
+      setSourcingError(getUserFacingErrorMessage(error, "Could not confirm the shipping address."));
       try {
         const [destination, details] = await Promise.all([
           fetchSourcingDestination(activeMembership.organizationId),
@@ -873,9 +876,10 @@ export function WorkspaceAccountMenu({
       await openBillingPortal(organizationId);
     } catch (error) {
       setBillingError(
-        error instanceof Error
-          ? error.message
-          : "Billing could not be opened. Your current product access is unchanged.",
+        getUserFacingErrorMessage(
+          error,
+          "Billing could not be opened. Your current product access is unchanged.",
+        ),
       );
     } finally {
       setIsOpeningBilling(false);
@@ -1153,6 +1157,11 @@ export function WorkspaceAccountMenu({
                 <p className="mt-3 text-sm leading-5 text-red-300" role="alert">
                   {billingError}
                 </p>
+              ) : null}
+              {isBillingTierCatalogUiEnabled() ? (
+                <div className="mt-4">
+                  <BillingTierCatalog />
+                </div>
               ) : null}
             </div>
 

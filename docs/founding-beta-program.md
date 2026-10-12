@@ -4,6 +4,10 @@ Last updated: September 28, 2026
 
 ## Purpose
 
+The October 11, 2026 business model
+([`docs/business/business-model.md`](business/business-model.md)) sets the
+later Founding Team offer; final prices are TBD pending a council rerun.
+
 This is the durable operating specification for the 1.0 Founding Beta. It
 turns the production contract in `docs/1-0-beta-runbook.md` into a small,
 evidence-driven customer program without expanding the product promise.

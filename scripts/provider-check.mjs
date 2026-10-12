@@ -21,6 +21,8 @@ import {
   readProviderRegistry,
   readProviderRegistrySchema,
 } from "./provider-registry.mjs";
+import { assertDefaultDenyExecuted } from "./default-deny-execution.mjs";
+import { assertReviewedEnvelopeCompleteness, reviewedDefaultDenySuites } from "./reviewed-envelope-check.mjs";
 
 const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
 const REQUIRED_CATALOG_CONSUMERS = new Map([
@@ -205,6 +207,8 @@ export async function checkProviderIntegrations({
   if (checkConsumers) {
     await assertCatalogConsumers(rootDir);
   }
+  const reviewed = await assertReviewedEnvelopeCompleteness({ rootDir, today });
+  const defaultDeny = await assertDefaultDenyExecuted({ rootDir, suites: await reviewedDefaultDenySuites(rootDir) });
   return {
     providerCount: manifests.length,
     vendorKeys,
@@ -217,6 +221,8 @@ export async function checkProviderIntegrations({
     ],
     registryPath: PROVIDER_REGISTRY_RELATIVE_PATH,
     registrySchemaPath: PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
+    reviewedProviders: reviewed.reviewedProviders,
+    defaultDenyExecuted: defaultDeny.executed,
   };
 }
 

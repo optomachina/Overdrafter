@@ -167,7 +167,7 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
 - **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Visualizations collapse back to the clean view when not needed.
-- **Quote comparison** renders as a dominant price-versus-working-days scatter with a compact sortable vendor table directly below it. Chart, table, selected summary, and source facts share one selection state; only that active option uses `--accent-red`.
+- **Quote comparison** renders as a dominant delivered-date-versus-expected-delivered-cost scatter with a compact vendor table directly below it (`OVD-571`). Chart, table, selected summary, and source facts share one selection state; only that active option uses `--accent-red`.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
 ### Quote Intelligence launch shell
@@ -193,7 +193,10 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 - `All | Parts | Assemblies` is one compact segmented filter over a single collection.
 - A part row leads with its isometric thumbnail and artifact identity. The 3D viewer appears only on request.
 - Quote detail uses progressive hierarchy: estimate/request context leads before responses; actual offers lead after responses arrive.
-- Buyer quote scatter uses independent fixed-size points: working-day lead time on X, quoted total on Y. Never draw a connecting, trend, or Pareto line.
+- Buyer quote scatter uses independent fixed-size points: projected delivered calendar date on X, expected delivered cost (parts, shipping, tax and fees; "out-the-door") on Y; buyer-facing copy says "Expected delivered cost", never "OTD", which buyers read as on-time delivery (`OVD-571`, from the `OVD-569` projection). Never draw a connecting, trend, or Pareto line. Fill color encodes provider only; solid points are fully quoted, hollow dashed points are lower bounds (ship date without transit, or a subtotal without shipping, tax, or fees). Unknown values are listed beneath the chart, never plotted at zero or jittered. Overlapping options stay separate points and table rows.
+- The deadline is a vertical line seeded from the persisted part deadline (`OVD-570`). It is a slider: drag or touch its dated grip (at least 24px, in the margin above the plot), or use arrow/Page/Home/End keys, to adjust it for the current view, with the date always shown. The line itself passes pointer input through, so points under it stay hoverable and selectable. Options that miss it stay visible and selectable but de-emphasized with a `Misses deadline` label.
+- The table has exactly two orders: **Cheapest** (default; with a deadline, on-time options first by expected delivered cost, then options that may miss the deadline, then late) and **Fastest** (by delivered date), shown as a square hairline segmented control (radius 2px, no pill) with roving focus. No winner badge, recommendation, or default emphasis. New arrivals preserve selection, focus, table order, deadline, and the viewport; a reorder the buyer asks for (table order, deadline) never scrolls the page.
+- A single in-panel status notice appears only when the active request reaches its terminal outcome (request received or failed and every requested provider terminal on that run). Its counts use only the options the current sourcing view shows, so concealed overseas or unverified-origin results are never counted. It is not a notifications system.
 - Chart and table are two views of one selection state.
 - Validity, source URL, and response timing live in the selected-response details when the source data exists; they do not permanently widen the core decision table on small screens.
 - In the first beta, `?app=ios` may suppress redundant web navigation because
@@ -325,6 +328,7 @@ Reject any UI work that includes:
 | 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
 | 2026-07-28 | Initial client launch shell is `Parts \| Quotes \| Search` on responsive web and the first iOS beta | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The shell supersedes the persistent left ledger for client entry surfaces. |
 | 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
+| 2026-10-11 | Buyer scatter axes become delivered date × expected delivered cost with an accessible deadline line (`OVD-571`) | Buyers decide on when parts arrive and what they cost out the door. Unknown and lower-bound values must look different from quoted values; Cheapest/Fastest replace preset badges so the surface never names a winner. Supersedes the 2026-07-28 working-day axes for the comparison surface; the illustrative homepage chart keeps them. |
 | 2026-08-12 | Parts, Projects, and Quotes share one scatter-first comparison surface | The fixed-dot price-versus-working-days chart is the primary decision surface, its compact vendor table shares selection and hover state, and provider recommendations remain collapsed behind actual quote comparison. |
 | 2026-08-22 | Multi-offer sourcing uses **US only / All sourcing**, with **Unknown** preserved | A provider may return domestic, global, and origin-unknown variants together. US only is a hard filter over explicit domestic evidence. All sourcing includes every origin class and must not be labeled “international.” Missing or ambiguous provenance stays Unknown. `OVD-408` uses a typed geographic-origin field separate from descriptive sourcing text; `OVD-394` connectivity proof is not this completed experience. |
 | 2026-07-29 | Commercial account and manual-order UX require a new parity design exploration | The 2026-05-05 `Order Confirmation` concept is retained below as historical exploration, but its payment-method and `PLACE ORDER` contract is superseded. `OVD-232` must compare matching board and Figma directions for Free/Pro gating, upgrade prompts, account administration, subscription billing, promotions, and a manual procurement/order-record flow before production implementation. |
@@ -371,9 +375,9 @@ Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORI
 ### Vendor multi-quote stacking
 
 A single vendor (e.g. Xometry) can return multiple quote variants with different
-lead times, tiers, or regions. The vendor table renders a contiguous provider
-group with the provider name and variant count on its first row and visibly
-indented variant labels on subsequent rows. Every variant stays visible and
+lead times, tiers, or regions. Since `OVD-571` the vendor table orders every
+variant as its own row by the active Cheapest/Fastest order, with the provider
+name, color swatch, and lane label on each row. Every variant stays visible and
 selectable; the active variant carries the selection treatment. The scatter
 comparison renders the same visible variant set as independent points.
 
