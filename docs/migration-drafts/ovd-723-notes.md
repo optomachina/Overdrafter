@@ -591,3 +591,35 @@ assertions (section 11c added); the contract suite is unchanged (103).
 Residuals: OCR of raster drawings is OVD-747. Declarations are job wide by
 design. Native CAD is not scanned and is kept off foreign providers by item 6.
 
+
+## Review round 6 (independent review at 4acce0d6)
+
+SQL files changed: `ovd-723.sql` and `ovd-723.rollback.sql`. The contract and
+contract rollback are unchanged. The window 1 pgTAP suite now has 153
+assertions; the contract suite is unchanged (103).
+
+1. **Blocking, hold after the adapter started.** The generic provider route
+   marks the provider mutation before it rethrows an export stop. A lookup
+   that fails inside the wrapped adapter after it started (the recheck before
+   the drawing upload) now closes the lane as held: the task completes, is
+   never requeued, and the lane note says files may already have reached the
+   supplier instead of "Nothing was sent". The hold write uses the compare
+   and set lane helper, so a lane settled elsewhere is not overwritten.
+2. **STEP header start.** `HEADER;` is found with the same string and
+   comment aware tokenizer as `ENDSEC;`, and the scanned text runs from the
+   start of the file through the header.
+3. **Extraction scan retry.** A STEP header scan that could not be staged or
+   recorded (`ExportControlStepScanRetryableError`) is retried by
+   `extract_part` on the bounded schedule; it runs before any model call.
+4. **Index.** No `work_queue` index led with `job_id`. Expand adds
+   `work_queue_job_task_type_idx (job_id, task_type)` (plain build, since
+   the window applies in one transaction); the rollback drops it. Indexes
+   are not part of the OVD-602 inventory, so the expected diff is unchanged.
+5. **pgTAP guards.** The upload fixtures in `empty_file_upload_rejection.sql`
+   and `founding_beta_file_boundaries.sql` key on the declaring prepare
+   overload, which an expand rollback drops, not on the retained table.
+6. **Jev.** A failed export lookup is a dispatch decision: the registry
+   wrapper no longer reports dispatch decisions, and the failure capture
+   treats the lookup error as structured.
+7. **PR #710 readiness.** An unknown page count or a page whose OCR status is
+   not `ok` is unread, and per page `ocrText` is scanned for markings.
