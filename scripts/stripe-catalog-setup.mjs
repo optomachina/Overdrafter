@@ -146,6 +146,47 @@ function priceMatchesCatalog(price, entry, amountCents, placeholder) {
     metadata.placeholder === expected.placeholder;
 }
 
+function amountFor(entry) {
+  return entry.amountCents ?? PLACEHOLDER_AMOUNT_CENTS;
+}
+
+function rememberProduct(product, productName, productIds) {
+  if (product && typeof product === "object" && product.id) {
+    productIds.set(productName, product.id);
+    return 1;
+  }
+  return 0;
+}
+
+async function resolveProductId(client, entry, productIds, dryRun, placeholder) {
+  const cached = productIds.get(entry.productName);
+  if (cached) {
+    return { created: false, existing: false, productId: cached };
+  }
+
+  const products = await client.products.search?.({
+    query: `name:'${entry.productName}'`,
+  }) ?? { data: [] };
+  const found = products.data.find((product) => product.name === entry.productName);
+  if (found) {
+    productIds.set(entry.productName, found.id);
+    return { created: false, existing: true, productId: found.id };
+  }
+
+  const productId = dryRun
+    ? `prod_dry_run_${entry.tier}`
+    : (await client.products.create({
+      name: entry.productName,
+      metadata: {
+        od_catalog_version: String(BILLING_CATALOG_VERSION),
+        od_tier: entry.tier,
+        placeholder: placeholder ? "true" : "false",
+      },
+    })).id;
+  productIds.set(entry.productName, productId);
+  return { created: true, existing: false, productId };
+}
+
 export async function syncStripeCatalog({
   catalog = BILLING_CATALOG_PRICES,
   client,
@@ -156,79 +197,50 @@ export async function syncStripeCatalog({
     throw new Error("stripe_catalog_amounts_tbd");
   }
 
-  const created = { prices: 0, products: 0 };
-  const existing = { prices: 0, products: 0 };
-  const drift = [];
+  const listed = await client.prices.list({
+    expand: ["data.product"],
+    limit: 100,
+    lookup_keys: catalog.map((entry) => entry.lookupKey),
+  });
+  const byKey = new Map(listed.data.map((price) => [price.lookup_key, price]));
   const productIds = new Map();
-
-  for (const entry of catalog) {
-    const amountCents = entry.amountCents ?? PLACEHOLDER_AMOUNT_CENTS;
-    const metadata = catalogPriceMetadata(entry, placeholder);
-    const listed = await client.prices.list({
-      lookup_keys: [entry.lookupKey],
-      expand: ["data.product"],
-      limit: 2,
-    });
-    const current = listed.data[0];
-
-    if (current) {
-      existing.prices += 1;
-      const product = current.product;
-      if (product && typeof product === "object" && product.id) {
-        productIds.set(entry.productName, product.id);
-        existing.products += 1;
-      }
-      if (!priceMatchesCatalog(current, entry, amountCents, placeholder)) {
-        drift.push({
-          lookupKey: entry.lookupKey,
-          reason: "price_drift",
-        });
-      }
-      continue;
+  const existing = { prices: 0, products: 0 };
+  const drift = catalog.flatMap((entry) => {
+    const current = byKey.get(entry.lookupKey);
+    if (!current) {
+      return [];
     }
+    existing.prices += 1;
+    existing.products += rememberProduct(current.product, entry.productName, productIds);
+    return priceMatchesCatalog(current, entry, amountFor(entry), placeholder)
+      ? []
+      : [{ lookupKey: entry.lookupKey, reason: "price_drift" }];
+  });
 
-    let productId = productIds.get(entry.productName);
-    if (!productId) {
-      const products = await client.products.search?.({
-        query: `name:'${entry.productName}'`,
-      }) ?? { data: [] };
-      const found = products.data.find((product) => product.name === entry.productName);
-      if (found) {
-        productId = found.id;
-        existing.products += 1;
-      } else if (!dryRun) {
-        const createdProduct = await client.products.create({
-          name: entry.productName,
-          metadata: {
-            od_catalog_version: String(BILLING_CATALOG_VERSION),
-            od_tier: entry.tier,
-            placeholder: placeholder ? "true" : "false",
-          },
-        });
-        productId = createdProduct.id;
-        created.products += 1;
-      } else {
-        productId = `prod_dry_run_${entry.tier}`;
-        created.products += 1;
-      }
-      productIds.set(entry.productName, productId);
-    }
+  const missing = catalog.filter((entry) => !byKey.has(entry.lookupKey));
+  const uniqueMissing = [...new Map(missing.map((entry) => [entry.productName, entry])).values()];
+  const resolved = await Promise.all(
+    uniqueMissing.map((entry) => resolveProductId(client, entry, productIds, dryRun, placeholder)),
+  );
+  const created = {
+    prices: missing.length,
+    products: resolved.filter((item) => item.created).length,
+  };
+  existing.products += resolved.filter((item) => item.existing).length;
 
-    if (!dryRun) {
-      await client.prices.create({
-        currency: BILLING_CATALOG_CURRENCY,
-        lookup_key: entry.lookupKey,
-        metadata,
-        nickname: entry.nickname,
-        product: productId,
-        recurring: {
-          interval: entry.interval,
-          interval_count: 1,
-        },
-        unit_amount: amountCents,
-      });
-    }
-    created.prices += 1;
+  if (!dryRun) {
+    await Promise.all(missing.map((entry) => client.prices.create({
+      currency: BILLING_CATALOG_CURRENCY,
+      lookup_key: entry.lookupKey,
+      metadata: catalogPriceMetadata(entry, placeholder),
+      nickname: entry.nickname,
+      product: productIds.get(entry.productName),
+      recurring: {
+        interval: entry.interval,
+        interval_count: 1,
+      },
+      unit_amount: amountFor(entry),
+    })));
   }
 
   return { created, drift, existing, livemode: false };
@@ -268,9 +280,10 @@ const isMain = import.meta.url === `file://${process.argv[1]}` ||
   process.argv[1]?.endsWith("stripe-catalog-setup.mjs");
 
 if (isMain && process.env.OVD_STRIPE_CATALOG_SKIP_MAIN !== "1") {
-  runStripeCatalogSetup(process.argv.slice(2), process.env, {
-    createClient: defaultCreateClient,
-  }).then((result) => {
+  try {
+    const result = await runStripeCatalogSetup(process.argv.slice(2), process.env, {
+      createClient: defaultCreateClient,
+    });
     console.log(JSON.stringify({
       created: result.created,
       drift: result.drift,
@@ -278,8 +291,8 @@ if (isMain && process.env.OVD_STRIPE_CATALOG_SKIP_MAIN !== "1") {
       livemode: result.livemode,
       key: redactSecret(process.env.STRIPE_SECRET_KEY),
     }));
-  }).catch((error) => {
+  } catch (error) {
     console.error(error instanceof Error ? error.message : "stripe_catalog_failed");
     process.exitCode = 1;
-  });
+  }
 }

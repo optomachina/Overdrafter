@@ -239,6 +239,46 @@ export function canPurchaseFoundingTeam(slotsUsed: number): boolean {
     slotsUsed < FOUNDING_TEAM_MAX_SLOTS;
 }
 
+function catalogGuardFailures(
+  price: CatalogPriceLike,
+  expected: CatalogPrice,
+  options: {
+    allowPlaceholder?: boolean;
+    expectedLivemode: boolean;
+  },
+): string[] {
+  const expectedAmount = expected.amountCents ??
+    (options.allowPlaceholder === true ? PLACEHOLDER_AMOUNT_CENTS : null);
+  const product = isExpandedProduct(price.product) ? price.product : null;
+  const metadata = price.metadata ?? {};
+  const checks: Array<[boolean, string]> = [
+    [expected.amountCents == null && options.allowPlaceholder !== true, "catalog_amount_tbd"],
+    [!price.id || !/^price_[A-Za-z0-9]+$/.test(price.id), "price_id_invalid"],
+    [price.lookup_key !== expected.lookupKey, "lookup_key_mismatch"],
+    [price.active !== true, "price_inactive"],
+    [price.livemode !== options.expectedLivemode, "livemode_mismatch"],
+    [(price.currency ?? "").toLowerCase() !== BILLING_CATALOG_CURRENCY, "currency_mismatch"],
+    [price.type !== "recurring", "price_not_recurring"],
+    [
+      price.recurring?.interval !== expected.interval ||
+      price.recurring?.interval_count !== 1,
+      "interval_mismatch",
+    ],
+    [expectedAmount == null || price.unit_amount !== expectedAmount, "amount_mismatch"],
+    [product === null, "product_not_expanded"],
+    [product?.deleted === true, "product_deleted"],
+    [product?.active !== true, "product_inactive"],
+    [metadata.od_tier !== expected.tier, "tier_metadata_mismatch"],
+    [metadata.od_interval !== expected.interval, "interval_metadata_mismatch"],
+    [metadata.od_catalog_version !== String(BILLING_CATALOG_VERSION), "catalog_version_mismatch"],
+    [
+      options.allowPlaceholder === true && metadata.placeholder !== "true",
+      "placeholder_metadata_missing",
+    ],
+  ];
+  return checks.filter(([failed]) => failed).map(([, reason]) => reason);
+}
+
 export function assertCatalogPrice(
   price: CatalogPriceLike,
   expected: CatalogPrice,
@@ -247,70 +287,8 @@ export function assertCatalogPrice(
     expectedLivemode: boolean;
   },
 ): { ok: true } | { ok: false; reason: string } {
-  if (expected.amountCents == null && options.allowPlaceholder !== true) {
-    return { ok: false, reason: "catalog_amount_tbd" };
-  }
-
-  if (!price.id || !/^price_[A-Za-z0-9]+$/.test(price.id)) {
-    return { ok: false, reason: "price_id_invalid" };
-  }
-  if (price.lookup_key !== expected.lookupKey) {
-    return { ok: false, reason: "lookup_key_mismatch" };
-  }
-  if (price.active !== true) {
-    return { ok: false, reason: "price_inactive" };
-  }
-  if (price.livemode !== options.expectedLivemode) {
-    return { ok: false, reason: "livemode_mismatch" };
-  }
-  if ((price.currency ?? "").toLowerCase() !== BILLING_CATALOG_CURRENCY) {
-    return { ok: false, reason: "currency_mismatch" };
-  }
-  if (price.type !== "recurring") {
-    return { ok: false, reason: "price_not_recurring" };
-  }
-  if (
-    price.recurring?.interval !== expected.interval ||
-    price.recurring.interval_count !== 1
-  ) {
-    return { ok: false, reason: "interval_mismatch" };
-  }
-
-  const expectedAmount = expected.amountCents ??
-    (options.allowPlaceholder === true ? PLACEHOLDER_AMOUNT_CENTS : null);
-  if (expectedAmount == null || price.unit_amount !== expectedAmount) {
-    return { ok: false, reason: "amount_mismatch" };
-  }
-
-  const product = price.product;
-  if (!isExpandedProduct(product)) {
-    return { ok: false, reason: "product_not_expanded" };
-  }
-  if (product.deleted === true) {
-    return { ok: false, reason: "product_deleted" };
-  }
-  if (product.active !== true) {
-    return { ok: false, reason: "product_inactive" };
-  }
-
-  const metadata = price.metadata ?? {};
-  if (metadata.od_tier !== expected.tier) {
-    return { ok: false, reason: "tier_metadata_mismatch" };
-  }
-  if (metadata.od_interval !== expected.interval) {
-    return { ok: false, reason: "interval_metadata_mismatch" };
-  }
-  if (metadata.od_catalog_version !== String(BILLING_CATALOG_VERSION)) {
-    return { ok: false, reason: "catalog_version_mismatch" };
-  }
-  if (
-    options.allowPlaceholder === true &&
-    metadata.placeholder !== "true"
-  ) {
-    return { ok: false, reason: "placeholder_metadata_missing" };
-  }
-
-  return { ok: true };
+  const [reason] = catalogGuardFailures(price, expected, options);
+  return reason ? { ok: false, reason } : { ok: true };
 }
 
 function readWebhookEvent(event: unknown): {
