@@ -108,6 +108,77 @@ function SelectionHarness({
   );
 }
 
+describe("ClientQuoteDecisionPanel when the previous choice is gone", () => {
+  function UnavailableSelectionHarness({
+    options,
+    onSelect,
+  }: {
+    readonly options: readonly ClientQuoteSelectionOption[];
+    readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  }) {
+    const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(null);
+
+    return (
+      <ClientQuoteDecisionPanel
+        options={options}
+        selectedOption={selected}
+        previousSelectionUnavailable={selected === null}
+        onSelect={(option) => {
+          onSelect(option);
+          setSelected(option);
+        }}
+        requestedByDate="2026-04-15"
+      />
+    );
+  }
+
+  it("shows no option as selected, explains why, and allows a normal reselection", async () => {
+    const onSelect = vi.fn();
+    const first = makeClientQuoteOption();
+    const second = makeSecondOption();
+
+    render(<UnavailableSelectionHarness options={[first, second]} onSelect={onSelect} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your previous quote choice is no longer available. Choose a quote to continue.",
+    );
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
+    expect(screen.queryByText("Current selection")).not.toBeInTheDocument();
+    // OVD-571 removed the recommendation fallback, so nothing stands in for the lost choice.
+    expect(screen.queryByText("Recommended starting point")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("row", { selected: true })).toHaveLength(0);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Proto Labs"));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(second);
+    expect(screen.queryByTestId("previous-selection-unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
+    expect(screen.getByText("Current selection")).toBeInTheDocument();
+  });
+
+  it("does not show the notice when nothing was ever chosen", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeClientQuoteOption()]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("previous-selection-unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
+  });
+});
+
 describe("ClientQuoteDecisionPanel", () => {
   it("renders quote data and selects a clicked option", async () => {
     const onSelect = vi.fn();

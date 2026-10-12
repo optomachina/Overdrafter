@@ -44,6 +44,11 @@ separate connectivity proof.
 - `Domestic`: eligible domestic options sorted by total price ascending, then lead time.
 - If no candidate exists for a preset, the current manual selection is preserved.
 
+## Stored Selection
+- The active selection is only the stored choice (`jobs.selected_vendor_quote_offer_id` or the published selection) when it still resolves to a selectable current option.
+- When the stored choice is missing, expired, invalidated, or absent from the current options, no option is shown as selected and no other offer is substituted. The comparison panel says the previous choice is no longer available, and the client chooses again (`OVD-733`).
+- A recommendation may be shown as a starting point, but it is never marked or handed off as the selection.
+
 ## Sourcing Views
 
 - `OVD-408` persists `geographic_origin` separately from the legacy descriptive

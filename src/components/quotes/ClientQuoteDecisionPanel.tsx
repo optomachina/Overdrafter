@@ -68,6 +68,8 @@ type ClientQuoteDecisionPanelProps = {
   description?: string;
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
+  /** The stored choice no longer resolves to a selectable option, so nothing is selected. */
+  previousSelectionUnavailable?: boolean;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   requestedByDate: string | null;
   quoteDataStatus?: QuoteDataStatus;
@@ -1076,6 +1078,7 @@ export function ClientQuoteDecisionPanel({
   description = "Compare delivered date and expected delivered cost as one decision surface, then commit the selected option from the same workspace.",
   options,
   selectedOption,
+  previousSelectionUnavailable = false,
   onSelect,
   requestedByDate,
   quoteDataStatus = "available",
@@ -1154,6 +1157,14 @@ export function ClientQuoteDecisionPanel({
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
       />
+      {previousSelectionUnavailable && !selectedOption ? (
+        <output
+          className="mt-4 block border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
+          data-testid="previous-selection-unavailable"
+        >
+          Your previous quote choice is no longer available. Choose a quote to continue.
+        </output>
+      ) : null}
       {visibleNotice ? (
         <QuoteRequestCompletionBanner
           notice={visibleNotice}

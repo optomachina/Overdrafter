@@ -223,6 +223,7 @@ const ClientPart = () => {
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,
@@ -937,8 +938,10 @@ const ClientPart = () => {
                     description="Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost."
                     options={rankedQuoteOptions}
                     selectedOption={
-                      rankedQuoteOptions.find((option) => option.key === selectedOptionKey) ?? selectedQuoteOption
+                      rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
+                      selectedQuoteOption
                     }
+                    previousSelectionUnavailable={previousQuoteSelectionUnavailable}
                     onSelect={handleWorkspaceOfferSelect}
                     requestedByDate={requestSummaryRequestedByDate}
                     quoteDataStatus={quoteDataStatus}

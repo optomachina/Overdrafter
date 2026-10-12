@@ -89,7 +89,7 @@ import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadat
 import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
-  getSelectedOption,
+  resolveStoredQuoteSelection,
   pickPresetOption,
   sortQuoteOptionsForPreset,
   summarizeQuoteDiagnostics,
@@ -975,15 +975,14 @@ export function useClientPartController(
     sourcingCandidates,
     sourcingResult,
   ]);
-  const selectedQuoteOption =
-    getSelectedOption(
-      rankedQuoteOptions,
-      partDetail?.job.selected_vendor_quote_offer_id,
-      partDetail?.publishedQuoteSelection?.option_id,
-    ) ??
-    rankedQuoteOptions.find((option) => option.eligible) ??
-    rankedQuoteOptions[0] ??
-    null;
+  const {
+    selectedOption: selectedQuoteOption,
+    previousSelectionUnavailable: previousQuoteSelectionUnavailable,
+  } = resolveStoredQuoteSelection(
+    rankedQuoteOptions,
+    partDetail?.job.selected_vendor_quote_offer_id,
+    partDetail?.publishedQuoteSelection?.option_id,
+  );
   const eligibleQuoteCount = rankedQuoteOptions.filter((option) => option.eligible).length;
   const revisionOptions = useMemo(() => {
     if (!summary) {
@@ -1798,6 +1797,7 @@ export function useClientPartController(
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,

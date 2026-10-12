@@ -422,6 +422,7 @@ const ClientQuoteDetail = () => {
         description="Delivered date runs left to right. Expected delivered cost runs bottom to top. Supplier identities remain private to this buyer workspace."
         options={controller.rankedQuoteOptions}
         selectedOption={controller.selectedQuoteOption}
+        previousSelectionUnavailable={controller.previousQuoteSelectionUnavailable}
         onSelect={controller.handleSelectQuoteOption}
         requestedByDate={controller.requestSummaryRequestedByDate}
         quoteDataStatus={controller.quoteDataStatus}
