@@ -1,4 +1,5 @@
-import type { Browser, BrowserContext, Locator, Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import type { APIRequestContext, Browser, BrowserContext, Locator, Page } from "@playwright/test";
 import { test, expect } from "./test";
 
 // Authenticated lane only (no @fixture tag): these cases need the local stack
@@ -8,9 +9,14 @@ const CLIENT_EMAIL = "client.demo@overdrafter.local";
 const OUTSIDER_EMAIL = "outsider.demo@overdrafter.local";
 const UNENROLLED_EMAIL = "unenrolled.demo@overdrafter.local";
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const MAILPIT_URL = process.env.MAILPIT_URL ?? "http://127.0.0.1:54324";
 
-// Seeded org A job: uuid(101) from scripts/seed-dev.mjs.
+// Seeded org A records: uuid(101) and uuid(21) from scripts/seed-dev.mjs.
 const CLIENT_QUOTED_JOB_ID = "00000000-0000-4000-8000-000000000101";
+const CLIENT_QUOTED_PROJECT_ID = "00000000-0000-4000-8000-000000000021";
+const CLIENT_QUOTED_PROJECT_NAME = "Synthetic quote comparison";
+// Seeded part names owned by client.demo; job titles contain them too.
+const CLIENT_PART_NAMES = ["FX-100", "FX-101", "FX-200"];
 
 const NOT_ENROLLED_MESSAGE = /Founding Beta invitation required to create new parts or upload files/;
 const PART_DENIED_MESSAGE = "This part could not be loaded.";
@@ -21,6 +27,15 @@ const WRITE_RPCS = [
   "api_prepare_job_file_upload",
   "api_finalize_job_file_upload",
 ];
+
+type ProbeRecord = { phase: string; name: string; text: string; path: string; at: number; signedIn: boolean };
+type AccessScopeProbe = { phase: string; records: ProbeRecord[] };
+
+declare global {
+  interface Window {
+    __accessScopeProbe?: AccessScopeProbe;
+  }
+}
 
 type Actor = { context: BrowserContext; page: Page; spy: SupabaseSpy };
 
@@ -136,6 +151,115 @@ function notEnrolledToast(page: Page): Locator {
   return page.locator("[data-sonner-toast]").filter({ hasText: NOT_ENROLLED_MESSAGE });
 }
 
+/** Client-side route change without a document reload, as an in-app link would do. */
+async function navigateWithinApp(page: Page, target: string) {
+  await page.evaluate((path) => {
+    window.history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  }, target);
+}
+
+/** Records every rendered text or label that contains a watched name, tagged by phase. */
+async function installPartNameObserver(page: Page, names: string[]) {
+  await page.evaluate((watchedNames) => {
+    const probe: AccessScopeProbe = { phase: "installed", records: [] };
+    window.__accessScopeProbe = probe;
+
+    const inspect = (text: string | null | undefined) => {
+      if (!text) {
+        return;
+      }
+
+      for (const name of watchedNames) {
+        if (text.includes(name)) {
+          probe.records.push({
+            phase: probe.phase,
+            name,
+            text: text.slice(0, 200),
+            path: window.location.pathname,
+            at: Math.round(performance.now()),
+            signedIn: Array.from(document.querySelectorAll("button")).some((button) =>
+              /open account menu/i.test(button.getAttribute("aria-label") ?? button.textContent ?? ""),
+            ),
+          });
+        }
+      }
+    };
+    const inspectLabels = (element: Element) => {
+      inspect(element.getAttribute("aria-label"));
+      inspect(element.getAttribute("title"));
+    };
+
+    new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "characterData") {
+          inspect(mutation.target.textContent);
+        } else if (mutation.type === "attributes") {
+          inspectLabels(mutation.target as Element);
+        } else {
+          mutation.addedNodes.forEach((node) => {
+            inspect(node.textContent);
+
+            if (node instanceof Element) {
+              inspectLabels(node);
+              node.querySelectorAll("[aria-label], [title]").forEach(inspectLabels);
+            }
+          });
+        }
+      }
+    }).observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-label", "title"],
+    });
+  }, names);
+}
+
+async function setProbePhase(page: Page, phase: string) {
+  await page.evaluate((nextPhase) => {
+    window.__accessScopeProbe!.phase = nextPhase;
+  }, phase);
+}
+
+async function readProbeRecords(page: Page, ...phases: string[]): Promise<ProbeRecord[]> {
+  return page.evaluate(
+    (wantedPhases) => (window.__accessScopeProbe?.records ?? []).filter((record) => wantedPhases.includes(record.phase)),
+    phases,
+  );
+}
+
+async function readConfirmationUrl(request: APIRequestContext, email: string): Promise<string> {
+  let confirmationUrl: string | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        const search = await request.get(`${MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`);
+        if (!search.ok()) {
+          return null;
+        }
+
+        const { messages = [] } = (await search.json()) as { messages?: Array<{ ID: string }> };
+        if (messages.length === 0) {
+          return null;
+        }
+
+        const message = (await (await request.get(`${MAILPIT_URL}/api/v1/message/${messages[0].ID}`)).json()) as {
+          Text?: string;
+        };
+        const match = /https?:\/\/[^\s"'<>]+\/auth\/v1\/verify\?[^\s"'<>]+/.exec(message.Text ?? "");
+        confirmationUrl = match ? match[0].replaceAll("&amp;", "&") : null;
+        return confirmationUrl;
+      },
+      { message: `Mailpit should receive the confirmation email for ${email}`, timeout: 20_000 },
+    )
+    .not.toBeNull();
+
+  return confirmationUrl!;
+}
+
 test.describe("Founding Beta enrollment and organization access scope", () => {
   test.describe.configure({ timeout: 120_000 });
 
@@ -216,6 +340,113 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
     } finally {
       await owner.context.close();
       await outsider.context.close();
+    }
+  });
+
+  test("switching accounts without a reload never renders the previous client's parts", async ({ browser, baseURL }) => {
+    // Known product defect, reproduced by this case: useWorkspaceNavigationModel keeps
+    // its last coherent model in a ref that is not keyed by account, so after an in-tab
+    // sign-out and sign-in the next account can briefly see the previous account's parts
+    // list. The race is timing-dependent; opt in until the product fix lands.
+    test.fixme(
+      process.env.E2E_ACCOUNT_SWITCH_LEAK_CHECK !== "1",
+      "previous account's parts can render after an in-tab account switch (set E2E_ACCOUNT_SWITCH_LEAK_CHECK=1)",
+    );
+
+    const actor = await openActor(browser, baseURL, CLIENT_EMAIL);
+
+    try {
+      const { page } = actor;
+      const reviewPath = `/projects/${CLIENT_QUOTED_PROJECT_ID}/review?debug=1`;
+      await expect(page).toHaveURL(/\/parts/);
+      await expect(page.getByText("FX-100").first()).toBeVisible();
+
+      await installPartNameObserver(page, CLIENT_PART_NAMES);
+
+      // Positive control: the observer records the owner's own in-app render of
+      // project-review data, which the client caches under unscoped keys.
+      await setProbePhase(page, "owner");
+      await navigateWithinApp(page, reviewPath);
+      await expect(page.getByRole("heading", { name: CLIENT_QUOTED_PROJECT_NAME })).toBeVisible();
+      await expect.poll(async () => (await readProbeRecords(page, "owner")).length).toBeGreaterThan(0);
+      await navigateWithinApp(page, "/parts?debug=1");
+      await expect(page.getByText("FX-100").first()).toBeVisible();
+
+      await setProbePhase(page, "owner-parts");
+      await page.getByRole("button", { name: /open account menu/i }).click();
+      await page.getByRole("menuitem", { name: "Log out" }).click();
+      await setProbePhase(page, "logout");
+      await page.getByRole("button", { name: "Log out" }).click();
+      await expect(page.getByRole("button", { name: /open account menu/i })).toHaveCount(0);
+
+      await setProbePhase(page, "anonymous");
+      await page.getByRole("button", { name: "Sign in" }).first().click();
+      await setProbePhase(page, "outsider");
+      await submitSignIn(page, OUTSIDER_EMAIL, PASSWORD);
+      await expect(page.getByRole("heading", { name: "Parts", exact: true })).toBeVisible();
+      await expect(page.getByText("No matching parts")).toBeVisible();
+
+      // The outsider revisits the previous client's routes inside the same document.
+      await navigateWithinApp(page, reviewPath);
+      await expect(page.getByRole("heading", { name: "Project", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: CLIENT_QUOTED_PROJECT_NAME })).toHaveCount(0);
+      await navigateWithinApp(page, `/parts/${CLIENT_QUOTED_JOB_ID}?debug=1`);
+      await expect(page.getByText(PART_DENIED_MESSAGE)).toBeVisible();
+
+      const records = await page.evaluate(() => window.__accessScopeProbe?.records ?? []);
+      await test.info().attach("part-name-observer.json", {
+        body: JSON.stringify(records, null, 2),
+        contentType: "application/json",
+      });
+
+      // The probe survives only if no document reload purged the client state.
+      expect(await page.evaluate(() => window.__accessScopeProbe?.phase)).toBe("outsider");
+      expect(await readProbeRecords(page, "logout", "anonymous", "outsider")).toEqual([]);
+    } finally {
+      await actor.context.close();
+    }
+  });
+
+  test("a confirmed self-service signup lands in the not-enrolled state", async ({ browser, baseURL, request }) => {
+    const email = `signup-${randomUUID()}@overdrafter.local`;
+    const password = `Signup-${randomUUID()}`;
+    const context = await browser.newContext({ baseURL });
+
+    try {
+      const page = await context.newPage();
+      const spy = installSupabaseSpy(page);
+
+      await page.goto("/?auth=signup&debug=1", { waitUntil: "networkidle" });
+      await page.locator("#auth-email").fill(email);
+      await page.locator("#auth-password").fill(password);
+      await page.locator("form").getByRole("button", { name: "Create account" }).click();
+      await expect(page.getByText("Email verification required")).toBeVisible();
+
+      // Positive control: the account cannot sign in before the emailed link is used.
+      const apiKey = spy.apiKey();
+      expect(apiKey).toBeTruthy();
+      const unconfirmed = await request.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        headers: { apikey: apiKey! },
+        data: { email, password },
+      });
+      expect(unconfirmed.status()).toBe(400);
+      expect(await unconfirmed.text()).toMatch(/email[_ ]not[_ ]confirmed/i);
+
+      // The verify request itself confirms the address; its redirect is not followed
+      // into the app, so no browser code exchange is needed before password sign-in.
+      const confirmation = await request.get(await readConfirmationUrl(request, email), { maxRedirects: 0 });
+      expect([302, 303]).toContain(confirmation.status());
+      const location = confirmation.headers()["location"] ?? "";
+      expect(location).toMatch(/[?#&](code|access_token)=/);
+      expect(location).not.toMatch(/error/i);
+
+      await page.goto("/?auth=signin&debug=1", { waitUntil: "networkidle" });
+      await submitSignIn(page, email, password);
+      await expect(page).toHaveURL(/\/parts/, { timeout: 15_000 });
+      await expect(foundingBetaNotice(page)).toContainText(NOT_ENROLLED_MESSAGE);
+      expect(new Set(spy.accessStates())).toEqual(new Set(["not_enrolled"]));
+    } finally {
+      await context.close();
     }
   });
 });
