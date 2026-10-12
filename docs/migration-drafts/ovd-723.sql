@@ -2,40 +2,50 @@
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
 -- OVD-723: block ITAR/EAR controlled or uncertain uploads at upload time.
+-- EXPAND migration (window 1). The CONTRACT migration is a separate draft,
+-- ovd-723-contract.sql, for a later window (window 2, about Nov 9).
 --
 -- This file is a DRAFT. It is not under supabase/migrations/ and is not part
 -- of migration lineage. Promote it only inside a Blaine-approved migration
--- window (window 1) as ONE migration. The ROLLBACK section at the end
--- reverses it.
+-- window. Rollback: ovd-723.rollback.sql (guarded; refuses while the
+-- contract migration is applied).
 --
--- Enforcement (all in window 1, server side; nothing depends on the browser):
---   Upload. The legacy prepare/finalize signatures raise
---     export_declaration_missing. The new overloads require the job's latest
---     declaration to be not_controlled and unblocked, checked under a shared
---     per-job lock. Prepare issues a single-use grant bound to the exact
---     object (bucket and full path), the expected SHA-256, the size, the user,
---     the job, and the declaration. The job-files Storage INSERT policy admits
---     only an object that matches an unexpired, unfinalized grant, and it
---     re-checks the declaration under the same lock with a fresh snapshot.
---     Finalize admits only an object this user inserted under such a grant
---     (owner, path, size, time window) and re-checks the declaration under the
---     lock.
---   Content. SQL cannot read object bytes, so the SHA-256 is verified by the
---     worker on every staging (api_register_trusted_file_hash records the hash
---     of the downloaded bytes). A clean scan is recorded only for bytes whose
---     hash equals job_files.content_sha256, and dispatch requires, for every
---     file the part sends, a verified hash equal to content_sha256 and (for
---     drawings and STEP files) a clean scan bound to the same job, file, and
---     hash.
---   Dispatch. Both provider preflights deny a job whose latest declaration is
---     missing, controlled, or unsure, or that has a marking block pending
---     review or confirmed controlled. Foreign providers (weerg, geomiq) and
---     unknown providers have their own explicit rule.
+-- Expand is additive only. It creates new tables, functions, and one new
+-- Storage policy, and backfills rows into its own new table. It does not
+-- change, move, replace, or revoke any existing function or policy:
+--   - the legacy 6- and 8-argument upload RPCs keep working unchanged;
+--   - "job_files_storage_insert" stays; a second permissive policy is added
+--     alongside, which changes nothing until the contract drops the old one;
+--   - both provider preflights are unchanged; the new worker calls the new
+--     api_check_export_control_dispatch before every preflight.
 --
--- Deploy order inside window 1: this migration, then the web client and the
--- worker. Between the migration and the client deploy, the old client's
--- uploads fail closed (export_declaration_missing); the client is the only
--- caller of the upload RPCs (see ovd-723-notes.md, "Callers").
+-- What holds after expand (window 1):
+--   Upload. The new client declares, then uses the 7- and 9-argument
+--     overloads: the job's latest declaration must be not_controlled and
+--     unblocked (checked under a shared per-job lock). Prepare issues a
+--     single-use grant bound to the exact object (bucket and path, SHA-256,
+--     size, user, job, declaration); finalize admits only an object this user
+--     owns at that path, written before the grant expired, with that size.
+--     An old client, or a direct call to the legacy RPCs, is NOT blocked
+--     until the contract migration.
+--   Content. The worker verifies the SHA-256 of the bytes it stages; a clean
+--     scan is recorded only for bytes whose hash equals the claimed one.
+--   Dispatch. The new worker asks api_check_export_control_dispatch before
+--     every preflight and stops on any denial: a missing, controlled, or
+--     unsure latest declaration (every pre-existing job is backfilled to
+--     missing), an open or confirmed marking block, a file without a verified
+--     hash and a clean scan bound to its job and content, or a foreign or
+--     unknown provider without a clean, unblocked job. An old worker is NOT
+--     gated until the contract migration wraps the preflights.
+--
+-- What the contract migration adds (server side, any client or worker): the
+-- legacy upload RPCs refuse, the old Storage INSERT policy is dropped so only
+-- the grant policy remains, and both preflights are wrapped by the export
+-- gate. The server side block is complete only after the contract.
+--
+-- Deploy order: this migration, then the worker and the web client. The
+-- contract migration follows once the deployed client uses the declaring
+-- overloads and the worker calls the dispatch check.
 --
 -- Verified names this draft binds to (see ovd-723-notes.md):
 --   upload RPCs : public.api_prepare_job_file_upload(uuid, text, job_file_kind, text, bigint, text)
@@ -68,7 +78,7 @@
 -- the same change that promotes this draft).
 
 -- =====================================================================
--- WINDOW 1 (upload, Storage, and dispatch enforcement in one migration)
+-- WINDOW 1: EXPAND (additive only; no existing object is changed or revoked)
 -- =====================================================================
 
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
@@ -758,74 +768,59 @@ $$;
 revoke all on function public.api_review_export_control_block(uuid, text, text) from public, anon;
 grant execute on function public.api_review_export_control_block(uuid, text, text) to authenticated;
 
--- 1.13 Upload RPCs. The current bodies move unchanged to private cores
--- (no grants). The legacy public signatures no longer reach them: they raise
--- export_declaration_missing, so a client that does not declare cannot
--- upload. The new overloads take p_export_declaration_id with no default, so
--- PostgREST never finds the two signatures ambiguous.
-alter function public.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) set schema private;
-alter function private.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) rename to job_file_prepare_core;
-revoke all on function private.job_file_prepare_core(
-  uuid, text, public.job_file_kind, text, bigint, text
-) from public, anon, authenticated;
-
-alter function public.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) set schema private;
-alter function private.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) rename to job_file_finalize_core;
-revoke all on function private.job_file_finalize_core(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) from public, anon, authenticated;
-
--- Legacy signatures: fail closed. They stay executable by authenticated so an
--- old client gets the stable code instead of a permission error.
-create or replace function public.api_prepare_job_file_upload(
+-- 1.13 Upload RPCs (expand). The legacy 6- and 8-argument RPCs are not
+-- touched in window 1. New overloads take p_export_declaration_id with no
+-- default (so PostgREST never finds the signatures ambiguous), check the
+-- declaration, and reach the upload logic through two private delegates. In
+-- window 1 the delegates call the legacy RPCs; the contract migration moves
+-- the legacy bodies into private cores and repoints only the delegates.
+create or replace function private.job_file_prepare_delegate(
   p_job_id uuid,
   p_original_name text,
   p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
+  p_mime_type text,
+  p_size_bytes bigint,
+  p_content_sha256 text
 )
 returns jsonb
 language plpgsql
-security definer
 set search_path = ''
 as $$
 begin
-  raise exception using
-    errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
-    message = 'export_declaration_missing';
+  return public.api_prepare_job_file_upload(
+    p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
+  );
 end;
 $$;
 
-create or replace function public.api_finalize_job_file_upload(
+create or replace function private.job_file_finalize_delegate(
   p_job_id uuid,
   p_storage_bucket text,
   p_storage_path text,
   p_original_name text,
   p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
+  p_mime_type text,
+  p_size_bytes bigint,
+  p_content_sha256 text
 )
 returns uuid
 language plpgsql
-security definer
 set search_path = ''
 as $$
 begin
-  raise exception using
-    errcode = 'P0001',
-    message = 'export_declaration_missing';
+  return public.api_finalize_job_file_upload(
+    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+    p_mime_type, p_size_bytes, p_content_sha256
+  );
 end;
 $$;
+
+revoke all on function private.job_file_prepare_delegate(
+  uuid, text, public.job_file_kind, text, bigint, text
+) from public, anon, authenticated, service_role;
+revoke all on function private.job_file_finalize_delegate(
+  uuid, text, text, text, public.job_file_kind, text, bigint, text
+) from public, anon, authenticated, service_role;
 
 -- New overloads (declaration required).
 create or replace function public.api_prepare_job_file_upload(
@@ -851,7 +846,7 @@ begin
   select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
   if v_job.id is null or not public.user_can_edit_job(v_job.id) then
     -- Same contract as the core so job existence is not disclosed differently.
-    return private.job_file_prepare_core(
+    return private.job_file_prepare_delegate(
       p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
     );
   end if;
@@ -859,7 +854,7 @@ begin
   -- Declaration first: a denied call writes no job_files, blobs, or grants.
   perform private.require_clean_export_declaration(v_job.id, p_export_declaration_id);
 
-  v_result := private.job_file_prepare_core(
+  v_result := private.job_file_prepare_delegate(
     p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
   );
 
@@ -919,7 +914,7 @@ begin
 
   select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
   if v_job.id is null or not public.user_can_edit_job(v_job.id) then
-    return private.job_file_finalize_core(
+    return private.job_file_finalize_delegate(
       p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
       p_mime_type, p_size_bytes, p_content_sha256
     );
@@ -927,7 +922,7 @@ begin
 
   perform private.require_clean_export_declaration(v_job.id, p_export_declaration_id);
 
-  v_file_id := private.job_file_finalize_core(
+  v_file_id := private.job_file_finalize_delegate(
     p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
     p_mime_type, p_size_bytes, p_content_sha256
   );
@@ -975,18 +970,6 @@ begin
 end;
 $$;
 
-revoke all on function public.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) from public, anon;
-grant execute on function public.api_prepare_job_file_upload(
-  uuid, text, public.job_file_kind, text, bigint, text
-) to authenticated;
-revoke all on function public.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) from public, anon;
-grant execute on function public.api_finalize_job_file_upload(
-  uuid, text, text, text, public.job_file_kind, text, bigint, text
-) to authenticated;
 revoke all on function public.api_prepare_job_file_upload(
   uuid, text, public.job_file_kind, text, bigint, text, uuid
 ) from public, anon;
@@ -1050,7 +1033,8 @@ $$;
 revoke all on function public.current_user_has_export_cleared_upload(text, text) from public, anon;
 grant execute on function public.current_user_has_export_cleared_upload(text, text) to authenticated;
 
--- 1.15 Dispatch gate evaluation (used by the 1.16 preflight wrappers).
+-- 1.15 Dispatch gate evaluation (used by the 1.16 check and, after the
+-- contract migration, by the preflight wrappers).
 -- Returns null only when the job's latest declaration is not_controlled and
 -- no marking block is open or confirmed. The task-level check then also
 -- requires a clean scan of record for the part's files
@@ -1240,127 +1224,35 @@ revoke all on function private.export_control_scan_denial(uuid, uuid)
 revoke all on function private.export_control_file_denial(uuid, uuid, text[])
   from public, anon, authenticated, service_role;
 
--- 1.16 Dispatch preflights. The existing bodies move unchanged to private
--- cores; the public names become wrappers. Each wrapper runs the core first,
--- inside a subtransaction. A core denial is returned unchanged, so every
--- existing denial keeps its code and precedence. When the core authorizes,
--- the export gate runs (taking the shared per-job export lock, held until
--- commit, so a declaration or marking block cannot interleave); if it denies,
--- the wrapper raises SQLSTATE OV723 to roll back everything the core did
--- (for example a consumed permit) and returns the export denial instead. Any
--- other error propagates, as before. The wrappers keep the original
--- search_path = pg_catalog and qualify every reference.
-alter function public.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) set schema private;
-alter function private.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) rename to xometry_beta_worker_dispatch_core;
-revoke all on function private.xometry_beta_worker_dispatch_core(
-  uuid, uuid, jsonb, text, timestamptz
-) from public, anon, authenticated, service_role;
-
-alter function public.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) set schema private;
-alter function private.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) rename to provider_worker_dispatch_core;
-revoke all on function private.provider_worker_dispatch_core(
-  uuid, uuid, jsonb, text, timestamptz
-) from public, anon, authenticated, service_role;
-
-create or replace function public.api_authorize_xometry_beta_worker_dispatch(
+-- 1.16 Dispatch check for the worker (expand). The existing preflights are
+-- not touched in window 1. The new worker calls this before every preflight
+-- and treats anything but {"allowed": true} as a denial. The contract
+-- migration also wraps both preflights, so the gate then holds on the
+-- server for any worker.
+create or replace function public.api_check_export_control_dispatch(
   p_work_queue_task_id uuid,
-  p_vendor_quote_result_id uuid,
-  p_scope_snapshot jsonb,
-  p_expected_worker_name text,
-  p_expected_claimed_at timestamptz
+  p_provider text
 )
 returns jsonb
 language plpgsql
 security definer
-set search_path = pg_catalog
+set search_path = ''
 as $$
 declare
-  v_result jsonb;
   v_denial text;
 begin
-  begin
-    v_result := private.xometry_beta_worker_dispatch_core(
-      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-      p_expected_worker_name, p_expected_claimed_at
-    );
-    if v_result ->> 'authorized' = 'true' then
-      v_denial := private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry');
-      if v_denial is not null then
-        raise exception using errcode = 'OV723', message = v_denial;
-      end if;
-    end if;
-  exception when sqlstate 'OV723' then
-    return pg_catalog.jsonb_build_object('authorized', false, 'reasonCode', v_denial);
-  end;
-  return v_result;
-end;
-$$;
-
-create or replace function public.api_authorize_provider_worker_dispatch(
-  p_work_queue_task_id uuid,
-  p_vendor_quote_result_id uuid,
-  p_scope_snapshot jsonb,
-  p_expected_worker_name text,
-  p_expected_claimed_at timestamptz
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = pg_catalog
-as $$
-declare
-  v_result jsonb;
-  v_denial text;
-begin
-  -- Xometry keeps its legacy response shape; its wrapper applies the gate.
-  if p_scope_snapshot ->> 'vendor' = 'xometry' then
-    return public.api_authorize_xometry_beta_worker_dispatch(
-      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-      p_expected_worker_name, p_expected_claimed_at
-    );
+  v_denial := private.export_control_dispatch_denial_for_task(p_work_queue_task_id, p_provider);
+  if v_denial is not null then
+    return pg_catalog.jsonb_build_object('allowed', false, 'reasonCode', v_denial);
   end if;
-
-  begin
-    v_result := private.provider_worker_dispatch_core(
-      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-      p_expected_worker_name, p_expected_claimed_at
-    );
-    if v_result ->> 'authorized' = 'true' then
-      v_denial := private.export_control_dispatch_denial_for_task(
-        p_work_queue_task_id,
-        p_scope_snapshot ->> 'vendor'
-      );
-      if v_denial is not null then
-        raise exception using errcode = 'OV723', message = v_denial;
-      end if;
-    end if;
-  exception when sqlstate 'OV723' then
-    return private.provider_dispatch_authorization_denial(v_denial);
-  end;
-  return v_result;
+  return pg_catalog.jsonb_build_object('allowed', true);
 end;
 $$;
 
-revoke all on function public.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) from public, anon, authenticated, service_role;
-grant execute on function public.api_authorize_xometry_beta_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) to service_role;
-revoke all on function public.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) from public, anon, authenticated, service_role;
-grant execute on function public.api_authorize_provider_worker_dispatch(
-  uuid, uuid, jsonb, text, timestamptz
-) to service_role;
+revoke all on function public.api_check_export_control_dispatch(uuid, text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_check_export_control_dispatch(uuid, text)
+  to service_role;
 
 -- 1.17 One-time backfill: every existing job with files and no declaration
 -- gets an explicit 'missing' row (denied until the user declares).
@@ -1378,16 +1270,18 @@ select declaration.organization_id, declaration.job_id, null, 'declaration_backf
 from private.job_export_declarations declaration
 where declaration.answer = 'missing';
 
--- 1.18 Storage: no job-files object is written without an exact,
--- declaration-backed grant (1.14). Replaces the policy from 20260815093000
--- in the same migration, so there is no window where the RPCs are gated but
--- Storage is not. Both statements take ACCESS EXCLUSIVE on storage.objects;
--- the lock timeout makes the migration fail fast (and roll back whole) rather
--- than queue every Storage read and write behind a long running query. On a
--- timeout, rerun the migration at lower traffic.
+-- 1.18 Storage (expand). A second job-files INSERT policy is added
+-- alongside the existing "job_files_storage_insert" (20260815093000), which
+-- is not touched. Permissive policies combine with OR, so in window 1 this
+-- policy changes nothing; the contract migration drops the old policy, and
+-- then this one alone decides: no job-files object without an exact,
+-- declaration backed grant (1.14). Creating a policy takes ACCESS EXCLUSIVE
+-- on storage.objects; the lock timeout makes the migration fail fast (and
+-- roll back whole) rather than queue every Storage read and write behind a
+-- long running query. On a timeout, rerun at lower traffic.
 set local lock_timeout = '3s';
-drop policy if exists "job_files_storage_insert" on storage.objects;
-create policy "job_files_storage_insert"
+drop policy if exists "job_files_storage_insert_export_cleared" on storage.objects;
+create policy "job_files_storage_insert_export_cleared"
 on storage.objects
 for insert
 to authenticated
@@ -1407,57 +1301,6 @@ with check (
 -- =====================================================================
 -- ROLLBACK
 -- =====================================================================
--- One step (window 1 is one migration). Declarations, events, blocks, and
--- scans are audit data: the rollback keeps those tables (they are inert once
--- nothing reads them). Drop them only with Blaine's explicit approval, after
--- exporting them. Rolling back removes the upload and dispatch block; run it
--- only with Blaine's yes.
---
---   -- Storage policy (1.18): restore "job_files_storage_insert" exactly as in
---   -- 20260815093000 (without the current_user_has_export_cleared_upload clause).
---   -- dispatch preflight wrappers (1.16):
---   drop function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
---   alter function private.provider_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)
---     rename to api_authorize_provider_worker_dispatch;
---   alter function private.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---     set schema public;
---   drop function public.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
---   alter function private.xometry_beta_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)
---     rename to api_authorize_xometry_beta_worker_dispatch;
---   alter function private.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
---     set schema public;
---   -- restate the original grants (service_role only) for both functions, as in
---   -- 20261003170000 and 20261002182910.
---   -- upload RPCs (1.13):
---   drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid);
---   drop function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text, uuid);
---   drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text);
---   drop function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text);
---   alter function private.job_file_prepare_core(uuid, text, public.job_file_kind, text, bigint, text)
---     rename to api_prepare_job_file_upload;
---   alter function private.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text)
---     set schema public;
---   alter function private.job_file_finalize_core(uuid, text, text, text, public.job_file_kind, text, bigint, text)
---     rename to api_finalize_job_file_upload;
---   alter function private.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text)
---     set schema public;
---   -- restate the revoke/grant pairs for both from 20261004110000.
---   drop function public.current_user_has_export_cleared_upload(text, text);
---   drop function public.api_review_export_control_block(uuid, text, text);
---   drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[]);
---   drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);
---   drop function public.api_get_job_export_control_status(uuid);
---   drop function public.api_declare_job_export_status(uuid, text, text, uuid);
---   drop function private.export_control_dispatch_denial_for_task(uuid, text);
---   drop function private.export_control_scan_denial(uuid, uuid);
---   drop function private.export_control_file_denial(uuid, uuid, text[]);
---   drop function private.export_control_dispatch_denial(uuid, text);
---   drop function private.require_clean_export_declaration(uuid, uuid);
---   drop function private.job_export_upload_denial(uuid, uuid);
---   drop function private.lock_job_export_state(uuid, boolean);
---   drop function private.export_control_provider_jurisdiction(text);
---   drop function private.export_control_terms_version();
---   drop table private.export_cleared_upload_grants;
---   -- keep private.job_export_declarations, private.export_control_events,
---   -- private.job_export_marking_blocks, private.job_file_export_scans and
---   -- their triggers (audit retention).
+-- Executable and guarded: docs/migration-drafts/ovd-723.rollback.sql. It
+-- refuses while the contract migration is applied (roll that back first),
+-- drops only what this migration created, and keeps the audit tables.

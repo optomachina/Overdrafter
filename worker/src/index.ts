@@ -98,6 +98,7 @@ import {
 import { isRetryableCadPreviewError } from "./cadPreview.js";
 import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
+  assertExportControlDispatchAllowed,
   dispatchAuthorizationFailure,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting.js";
@@ -1311,6 +1312,9 @@ export async function handleVendorQuoteTask(
       try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
       catch { /* Local advisory capture cannot affect dispatch authority. */ }
     }
+    // OVD-723: the export-control gate runs before any preflight; a denial
+    // ends the task like a preflight denial, before any adapter launches.
+    await assertExportControlDispatchAllowed(supabase, { taskId: task.id, vendor });
     const result = await quoteWithRoutedDispatchPreflight({
       supabase,
       config,

@@ -3,7 +3,8 @@
 #
 # Two-session race on a DISPOSABLE local database only (synthetic fixture
 # lane). Never point it at a hosted project. It needs a database that has every
-# migration under supabase/migrations/ plus docs/migration-drafts/ovd-723.sql
+# migration under supabase/migrations/ plus docs/migration-drafts/ovd-723.sql and
+# docs/migration-drafts/ovd-723-contract.sql
 # applied, and it commits synthetic rows.
 #
 # Session A declares `controlled` and holds its transaction open for 4 s.

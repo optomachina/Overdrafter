@@ -90,7 +90,9 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
         : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" }
           // OVD-723: the unmarked STEP header records a clean scan before dispatch.
-          : name === "api_record_export_control_clean_scan" ? "export-scan" : null;
+          : name === "api_record_export_control_clean_scan" ? "export-scan"
+            // OVD-723: the export-control gate admits this clean, scanned part.
+            : name === "api_check_export_control_dispatch" ? { allowed: true } : null;
     const result = Promise.resolve({ data, error: null });
     return Object.assign(result, { abortSignal: () => result });
   };

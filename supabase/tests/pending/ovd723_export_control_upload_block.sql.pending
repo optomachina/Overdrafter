@@ -2,8 +2,12 @@
 -- with export-control markings are held for admin review, and every provider
 -- preflight denies without a clean latest declaration.
 --
--- Targets the DRAFT docs/migration-drafts/ovd-723.sql (one window-1
--- migration: upload, Storage, and dispatch enforcement together).
+-- Targets the EXPAND draft docs/migration-drafts/ovd-723.sql (window 1)
+-- alone. Window 1 changes no existing object: the legacy upload RPCs, the
+-- old Storage INSERT policy, and both preflights keep their behavior, so
+-- this suite checks the grant policy expression and the new worker dispatch
+-- check directly. The server side enforcement added by the contract draft is
+-- covered by ovd723_export_control_contract.sql.pending.
 -- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
 -- carries a .pending suffix so the policy-test runner stages it but never
 -- executes it. In the approved window, the draft is promoted and this file is
@@ -31,7 +35,7 @@
 --      (finding 4)
 begin;
 
-select plan(95);
+select plan(94);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -157,18 +161,19 @@ select is(
 );
 
 -- 1. No declaration.
-select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L)$$,
-    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
-  'P0001', 'export_declaration_missing', -- NOSONAR: stable export-control denial assertion
-  'the legacy prepare signature without a declaration is rejected'
+select is(
+  public.api_prepare_job_file_upload(
+    (select clean_job_id from ovd723_ctx), 'part.step', 'cad', null, 10, (select clean_hash from ovd723_ctx)
+  ) ->> 'status',
+  'upload_required',
+  'window 1 leaves the legacy prepare unchanged (the contract makes it refuse)'
 );
 
 select throws_ok(
   format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', 'x', 'part.step', 'cad', null, 10, %L)$$,
     (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
-  'P0001', 'export_declaration_missing',
-  'the legacy finalize signature without a declaration is rejected'
+  'P0001', 'file_upload_path_mismatch',
+  'window 1 leaves the legacy finalize unchanged: it still runs its own checks'
 );
 
 select throws_ok(
@@ -185,13 +190,10 @@ select throws_ok(
   'prepare with an unknown declaration id on an undeclared job is rejected'
 );
 
-select throws_ok(
-  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
-    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
-    (select member_user_id from ovd723_ctx)),
-  '42501',
-  null,
-  'storage rejects a job-files object without a declaration-backed grant'
+select is(
+  public.current_user_has_export_cleared_upload('job-files', (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx)),
+  false,
+  'the grant policy rejects a job-files object without a declaration backed grant'
 );
 
 -- Declaration input validation.
@@ -267,13 +269,10 @@ select throws_ok(
   'finalize with an unsure declaration is rejected'
 );
 
-select throws_ok(
-  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
-    (select public.build_org_file_blob_storage_path(organization_id, blocked_hash, 'part.step') from ovd723_ctx),
-    (select member_user_id from ovd723_ctx)),
-  '42501',
-  null,
-  'storage rejects the object after an unsure declaration'
+select is(
+  public.current_user_has_export_cleared_upload('job-files', (select public.build_org_file_blob_storage_path(organization_id, blocked_hash, 'part.step') from ovd723_ctx)),
+  false,
+  'the grant policy rejects the object after an unsure declaration'
 );
 
 reset role;
@@ -335,13 +334,10 @@ select is(
 );
 
 -- Finding 2: the grant covers the exact path only.
-select throws_ok(
-  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
-    (select 'org-sha256/' || organization_id || '/' || clean_hash || '/other.pdf' from ovd723_ctx),
-    (select member_user_id from ovd723_ctx)),
-  '42501',
-  null,
-  'storage rejects another basename under the granted org/hash'
+select is(
+  public.current_user_has_export_cleared_upload('job-files', (select 'org-sha256/' || organization_id || '/' || clean_hash || '/other.pdf' from ovd723_ctx)),
+  false,
+  'the grant policy rejects another basename under the granted org/hash'
 );
 
 select throws_ok(
@@ -457,39 +453,32 @@ where content_sha256 = repeat('6', 64);
 set local role authenticated;
 select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
 
-select throws_ok(
-  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
-    (select public.build_org_file_blob_storage_path(organization_id, repeat('6', 64), 'late.step') from ovd723_ctx),
-    (select member_user_id from ovd723_ctx)),
-  '42501',
-  null,
-  'storage rejects the exact object once its grant has expired'
+select is(
+  public.current_user_has_export_cleared_upload('job-files', (select public.build_org_file_blob_storage_path(organization_id, repeat('6', 64), 'late.step') from ovd723_ctx)),
+  false,
+  'the grant policy rejects the exact object once its grant has expired'
 );
 
--- Finding 3: the legacy signatures never delegate, even with a clean
--- declaration on the job.
-select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'legacy.step', 'cad', null, 10, %L)$$,
-    (select clean_job_id from ovd723_ctx), repeat('5', 64)),
-  'P0001', 'export_declaration_missing',
-  'the legacy prepare signature is rejected even after a clean declaration'
-);
-
-select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'legacy.step', 'cad', null, 10, %L)$$,
-    (select clean_job_id from ovd723_ctx),
-    (select public.build_org_file_blob_storage_path(organization_id, repeat('5', 64), 'legacy.step') from ovd723_ctx),
-    repeat('5', 64)),
-  'P0001', 'export_declaration_missing',
-  'the legacy finalize signature is rejected even after a clean declaration'
+-- Finding 3 (window 1 part): the legacy RPCs still work and are untouched;
+-- the contract draft makes them refuse.
+select is(
+  public.api_prepare_job_file_upload(
+    (select clean_job_id from ovd723_ctx), 'legacy.step', 'cad', null, 10, repeat('5', 64)
+  ) ->> 'status',
+  'upload_required',
+  'the legacy prepare still works after a clean declaration in window 1'
 );
 
 reset role;
 
 select ok(
-  not has_function_privilege('authenticated', 'private.job_file_prepare_core(uuid, text, public.job_file_kind, text, bigint, text)', 'execute')
-  and not has_function_privilege('authenticated', 'private.job_file_finalize_core(uuid, text, text, text, public.job_file_kind, text, bigint, text)', 'execute'),
-  'the moved upload cores are not executable by clients'
+  not has_function_privilege('authenticated', 'private.job_file_prepare_delegate(uuid, text, public.job_file_kind, text, bigint, text)', 'execute')
+  and not has_function_privilege('authenticated', 'private.job_file_finalize_delegate(uuid, text, text, text, public.job_file_kind, text, bigint, text)', 'execute')
+  and (select prosrc !~ 'export' from pg_proc
+       where oid = 'public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text)'::regprocedure)
+  and (select prosrc !~ 'export' from pg_proc
+       where oid = 'public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text)'::regprocedure),
+  'the upload delegates are not client executable and the legacy RPC bodies are untouched'
 );
 
 select ok(
@@ -927,56 +916,33 @@ select is(
   'a native CAD file with a verified hash is admitted (no scanner for the format yet)'
 );
 
--- Wrapper order: the core runs first; when it authorizes and the export gate
--- denies, everything the core wrote is rolled back. A stub core records each
--- call so the rollback is observable.
-create temporary table ovd723_core_calls (task_id uuid not null) on commit drop;
-grant insert, select on ovd723_core_calls to service_role;
-
-create or replace function private.provider_worker_dispatch_core(
-  p_work_queue_task_id uuid,
-  p_vendor_quote_result_id uuid,
-  p_scope_snapshot jsonb,
-  p_expected_worker_name text,
-  p_expected_claimed_at timestamptz
-)
-returns jsonb
-language plpgsql
-as $$
-begin
-  insert into ovd723_core_calls values (p_work_queue_task_id);
-  return pg_catalog.jsonb_build_object('schema', 'provider-dispatch-authorization.v1', 'authorized', true);
-end;
-$$;
+-- The worker dispatch check (window 1): the new worker calls it before every
+-- preflight and stops on anything but {"allowed": true}.
+select ok(
+  has_function_privilege('service_role', 'public.api_check_export_control_dispatch(uuid, text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.api_check_export_control_dispatch(uuid, text)', 'execute')
+  and not has_function_privilege('anon', 'public.api_check_export_control_dispatch(uuid, text)', 'execute'),
+  'only the service role can run the dispatch check'
+);
 
 set local role service_role;
 
 select is(
-  public.api_authorize_provider_worker_dispatch(
-    '00000000-0000-4000-8000-0000000072c2', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
-  ) ->> 'denial',
-  'export_scan_missing',
-  'an export denial replaces a core authorization'
+  public.api_check_export_control_dispatch('00000000-0000-4000-8000-0000000072c2', 'fictiv'),
+  '{"allowed": false, "reasonCode": "export_scan_missing"}'::jsonb,
+  'the dispatch check denies the reused copy'
 );
 
 select is(
-  (select count(*)::integer from ovd723_core_calls),
-  0,
-  'the core''s writes are rolled back when the export gate denies'
+  public.api_check_export_control_dispatch('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  '{"allowed": true}'::jsonb,
+  'the dispatch check admits a clean, scanned, verified part'
 );
 
 select is(
-  public.api_authorize_provider_worker_dispatch(
-    '00000000-0000-4000-8000-0000000072c1', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
-  ) ->> 'authorized',
-  'true',
-  'a core authorization passes through when the export gate admits'
-);
-
-select is(
-  (select count(*)::integer from ovd723_core_calls),
-  1,
-  'the admitted core call keeps its writes'
+  public.api_check_export_control_dispatch(gen_random_uuid(), 'fictiv') ->> 'reasonCode',
+  'export_declaration_missing',
+  'the dispatch check denies a task it cannot find'
 );
 
 reset role;

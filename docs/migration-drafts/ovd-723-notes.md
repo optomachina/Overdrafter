@@ -1,7 +1,12 @@
 # OVD-723 notes: block ITAR/EAR controlled or uncertain uploads
 
-**NEEDS BLAINE MIGRATION WINDOW - not applied.** All SQL is in
-[`ovd-723.sql`](ovd-723.sql). Nothing under `supabase/migrations/` changed.
+**NEEDS BLAINE MIGRATION WINDOWS - not applied.** The SQL is split into an
+expand migration for window 1, [`ovd-723.sql`](ovd-723.sql), and a contract
+migration for a later window, [`ovd-723-contract.sql`](ovd-723-contract.sql),
+each with a guarded, executable rollback (`ovd-723.rollback.sql`,
+`ovd-723-contract.rollback.sql`). Nothing under `supabase/migrations/` changed.
+See "Expand and contract" at the end; it supersedes the "one window" wording
+in earlier sections.
 
 ## Verified names (read in code)
 
@@ -59,28 +64,12 @@
   Those answers are not recorded server-side on that path because there is no
   job yet. The RPC does accept and audit them when called for an existing job.
 - An upload with zero files doesn't ask.
-- One window. Upload, Storage, and dispatch enforcement ship in ONE migration
-  in window 1 (there is no longer a PHASE 1 / PHASE 2 split; see "Codex cross
-  review", finding 3). Both preflights (`api_authorize_provider_worker_dispatch`
-  and `api_authorize_xometry_beta_worker_dispatch`) deny a job whose latest
-  declaration is missing, controlled, or unsure, or that has a marking block
-  pending review or confirmed controlled. Foreign providers (weerg, geomiq) and
-  unknown providers have their own explicit rule. The legacy upload
-  signatures raise `export_declaration_missing`, and the Storage insert policy
-  requires an exact grant backed by the declaration.
-- Deploy order inside window 1: the migration, then the web client and the
-  worker right after it. Between the migration and the client deploy, the old
-  client's uploads fail closed with `export_declaration_missing` (the browser
-  shows the raw code until the new client loads). Before the migration, the
-  new client's calls fail and it fails closed too, so the order only decides
-  which side shows the short outage; migration first is preferred because no
-  byte can reach Storage without the gate. Deploy the worker after the
-  migration, because it calls `api_record_export_control_marking_hits` and the
-  five argument `api_record_export_control_clean_scan`, and a failed record fails
-  the task. Between the migration and the worker deploy, the old worker records
-  no scans, so every dispatch is denied with `export_scan_missing`. That fails
-  closed, but keep the gap short. The old worker doesn't know the new codes and
-  reports them as a generic terminal denial.
+- Two steps. Window 1 (expand) adds the declaration model, the declaring
+  upload overloads, the grant policy alongside the old one, the dispatch check
+  the new worker calls, and the backfill; it changes no existing object.
+  The contract step (later window) makes the legacy upload RPCs refuse, drops
+  the old Storage INSERT policy, and wraps both preflights. See "Expand and
+  contract".
 - The worker reads at most 256 KB of a staged STEP file for the header scan
   (`readStagedStepHeaderPrefix`). If the read fails, the task fails.
 - Backfill: every existing job with files gets a `missing` declaration, so it is
@@ -176,7 +165,7 @@ reproduced on a disposable local database before the fix.
 | --- | --- | --- | --- |
 | 1 | Storage authorization raced declaration changes (helper STABLE, no lock) | Yes. An insert committed while a `controlled` declaration held the exclusive lock. | The helper is VOLATILE, takes the shared lock for the job, then reads in a new statement. Writers take the lock exclusively. Finalize and dispatch check again under the same lock. |
 | 2 | Grant covered an org/hash namespace; bytes never checked | Yes. After preparing `safe.step`, an `evil.pdf` under the same org/hash was accepted and finalized with the safe hash. | The grant names one bucket and path, hash, size, user, job, declaration; single use (`finalized_at`). Finalize needs an object this user owns at that path, written before the grant expired, with the granted size. The hash is verified by the worker (below). |
-| 3 | Phase 1 left the legacy RPCs and Storage policy open | Yes. After declaring `controlled`, legacy prepare returned `upload_required` and legacy finalize registered the file. | One window: legacy signatures raise, the Storage policy is replaced in the same migration. |
+| 3 | Phase 1 left the legacy RPCs and Storage policy open | Yes. After declaring `controlled`, legacy prepare returned `upload_required` and legacy finalize registered the file. | Fixed in the contract migration: legacy signatures raise and the old Storage INSERT policy is dropped. Window 1 is expand only by rule, so until the contract the legacy path stays open; see "Expand and contract". |
 | 4 | Clean scans not bound to job or content | Yes, for the internal org roles (`internal_estimator`, `internal_admin`; `job_files_update_internal`). A `client` member cannot update `job_files`. A repointed CAD row and a drawing moved to another job kept the part admitted. | Scans store the scanned hash; dispatch matches file id, current job, and current hash, and the part and file must be in the task's job. |
 
 ### Callers checked for window 1
@@ -289,3 +278,48 @@ Local check (disposable Docker, all 148 migrations, 2026-10-12): every main
 suite was run without and with the draft (draft committed, so the dblink
 concurrency suites see it). No suite that passes without the draft fails with
 it. The OVD-723 pending suite passes 95/95.
+
+## Expand and contract
+
+Window rules are expand, then contract. The draft is split accordingly.
+
+**Window 1, expand (`ovd-723.sql`).** Additive only. Nothing existing is changed, moved, replaced, or revoked:
+
+- Tables, triggers and helpers.
+- The declare, status, record and review RPCs.
+- The 7- and 9-argument upload overloads. They check the declaration, then reach the unchanged legacy RPCs through `private.job_file_*_delegate`.
+- The grant helper and the new permissive Storage INSERT policy `job_files_storage_insert_export_cleared`, added next to the existing one. Permissive policies combine with OR, so it changes nothing yet.
+- The dispatch gate functions, plus `api_check_export_control_dispatch` (service role).
+- The backfill, which writes only into its own new table.
+
+The new worker calls the check before every preflight and stops on any denial (`assertExportControlDispatchAllowed` in `worker/src/dispatchRouting.ts`).
+
+**Contract (`ovd-723-contract.sql`), window 2, about Nov 9, before any provider goes live for beta users.** Every statement changes an existing object:
+
+- The legacy bodies move to private cores and the delegates now reach the cores.
+- The legacy 6- and 8-argument RPCs refuse with `export_declaration_missing`.
+- Both preflights are wrapped by the export gate.
+- The old `job_files_storage_insert` policy is dropped.
+
+The contract refuses to run without the expand migration. Run it only after the deployed client uses the declaring overloads and the deployed worker calls the dispatch check.
+
+**The server side block is complete only after the contract.** Between window 1 and the contract:
+
+- **The new client path.** The client always declares first and uploads only through the declaring overloads with an exact grant. Controlled, unsure, or dismissed answers stop before any job, file or byte is created.
+- **The new worker's dispatch check.** It refuses any part whose job has no clean, unblocked latest declaration, or whose files lack a verified hash and a clean scan bound to their job and content. Every pre-existing job is backfilled as `missing`, so none can be dispatched until its owner declares.
+- **Default off admission for foreign providers.** In `private.quote_provider_admission_policies`, weerg and geomiq ship `admission_state = 'disabled'` with `generic_dispatch_enabled = false`, so no task is routed to them without an admin admission change. Unknown providers are held to the foreign rule by the dispatch check.
+
+What stays open until the contract: a stale browser tab or a direct API call can still use the legacy upload RPCs and write to Storage without a declaration or grant. Those bytes can still not be dispatched by the new worker unless the job's owner declares it clean. An old worker build is not gated by the server until the preflights are wrapped.
+
+**Exceptions.** None needed: every object could be split. One tradeoff to note: before the contract, the dispatch gate is enforced by the worker (the new `api_check_export_control_dispatch`), not by the preflight itself. Keeping a server side dispatch gate in window 1 would mean moving the preflight wrappers into window 1, which replaces existing functions. That needs Blaine's explicit exception.
+
+Verification (disposable Docker, all 148 migrations, 2026-10-12):
+
+- Window 1 suite `ovd723_export_control_upload_block.sql.pending`: 94/94 after expand.
+- Contract suite `ovd723_export_control_contract.sql.pending`: 95/95 after expand and contract.
+- No main suite that passes on main fails after expand alone, or after expand and contract.
+- Rollbacks:
+  - Contract rollback returns the catalog to the post expand state. Expand rollback returns it to main, apart from the retained audit tables. Function bodies are identical; only ACL entry order differs.
+  - Each rollback guard refuses out of order use, and the contract refuses to run without expand.
+  - Reapplying gives an identical catalog.
+- The race script holds after the contract.

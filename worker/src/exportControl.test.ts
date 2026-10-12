@@ -28,20 +28,29 @@ import {
 import { PROVIDER_DISPATCH_DENIAL_CODES, isRetryableProviderDispatchDenial } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError, quoteWithProviderDispatchPreflight } from "./providerDispatchPreflight";
 import { quoteWithDispatchPreflight, XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
+import { assertExportControlDispatchAllowed } from "./dispatchRouting";
 import type { VendorName, VendorQuoteAdapterInput } from "./types";
 
 const draft = readFileSync(new URL("../../docs/migration-drafts/ovd-723.sql", import.meta.url), "utf8");
+const contract = readFileSync(new URL("../../docs/migration-drafts/ovd-723-contract.sql", import.meta.url), "utf8");
+const expandRollback = readFileSync(new URL("../../docs/migration-drafts/ovd-723.rollback.sql", import.meta.url), "utf8");
+const contractRollback = readFileSync(new URL("../../docs/migration-drafts/ovd-723-contract.rollback.sql", import.meta.url), "utf8");
 const workerIndex = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 
-function sqlFunctionBody(name: string): string {
-  const start = draft.indexOf(`function ${name}(`);
+function sqlFunctionBody(name: string, source: string = draft): string {
+  const start = source.indexOf(`function ${name}(`);
   expect(start).toBeGreaterThan(-1);
-  const rest = draft.slice(start);
+  const rest = source.slice(start);
   return rest.slice(0, rest.indexOf("$$;"));
 }
 
+/** SQL statements only: comments removed. */
+function sqlCode(source: string): string {
+  return source.replace(/--[^\n]*/g, "");
+}
+
 function sqlWindow1(): string {
-  const start = draft.indexOf("-- WINDOW 1 ");
+  const start = draft.indexOf("-- WINDOW 1: EXPAND");
   const end = draft.indexOf("-- ROLLBACK\n");
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
@@ -509,11 +518,53 @@ describe("worker preflights surface the export-control denials", () => {
   });
 });
 
+describe("export-control dispatch check (window 1 worker gate)", () => {
+  const call = (rpc: ReturnType<typeof vi.fn>, vendor: "fictiv" | "xometry" = "fictiv") =>
+    assertExportControlDispatchAllowed({ rpc } as unknown as SupabaseClient, { taskId: "task-1", vendor });
+
+  it("passes only on exactly { allowed: true }", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { allowed: true }, error: null });
+    await expect(call(rpc)).resolves.toBeUndefined();
+    expect(rpc).toHaveBeenCalledWith("api_check_export_control_dispatch", {
+      p_work_queue_task_id: "task-1",
+      p_provider: "fictiv",
+    });
+  });
+
+  it.each(EXPORT_CONTROL_DENIAL_CODES)("throws the boundary's own error for %s", async (reasonCode) => {
+    const rpc = vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode }, error: null });
+    await expect(call(rpc)).rejects.toEqual(new ProviderDispatchAuthorizationError(reasonCode));
+    await expect(call(rpc, "xometry")).rejects.toEqual(new XometryDispatchAuthorizationError(reasonCode));
+  });
+
+  it("fails closed on errors and malformed responses", async () => {
+    for (const rpc of [
+      vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } }),
+      vi.fn().mockRejectedValue(new Error("network")),
+      vi.fn().mockResolvedValue({ data: null, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: "true" }, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: true, extra: 1 }, error: null }),
+      vi.fn().mockResolvedValue({ data: { allowed: false, reasonCode: "made_up" }, error: null }),
+      vi.fn().mockResolvedValue({ data: [{ allowed: true }], error: null }),
+    ]) {
+      await expect(call(rpc)).rejects.toEqual(new ProviderDispatchAuthorizationError("export_control_lookup_failed"));
+    }
+  });
+
+  it("runs before the routed preflight in the quote task", () => {
+    const checkAt = workerIndex.indexOf("await assertExportControlDispatchAllowed(supabase, { taskId: task.id, vendor });");
+    expect(checkAt).toBeGreaterThan(-1);
+    expect(checkAt).toBeLessThan(workerIndex.indexOf("const result = await quoteWithRoutedDispatchPreflight({"));
+    expect(checkAt).toBeGreaterThan(workerIndex.indexOf('source: "step_header",'));
+  });
+});
+
 describe("OVD-723 migration draft", () => {
   it("is a draft, not an applied migration", () => {
     expect(draft.startsWith("-- =")).toBe(true);
     expect(draft).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
-    expect(draft).toMatch(/-- WINDOW 1 [\s\S]*-- ROLLBACK/);
+    expect(draft).toMatch(/-- WINDOW 1: EXPAND [\s\S]*-- ROLLBACK/);
+    expect(contract).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
     expect(draft).not.toMatch(/PHASE [12]/);
     const migrationsDir = new URL("../../supabase/migrations/", import.meta.url);
     for (const name of readdirSync(migrationsDir)) {
@@ -533,29 +584,52 @@ describe("OVD-723 migration draft", () => {
     expect(new Set(returned)).toEqual(new Set(EXPORT_CONTROL_DENIAL_CODES));
   });
 
-  it("enforces upload, Storage, and dispatch in the same window-1 migration", () => {
-    const window1 = sqlWindow1();
-    for (const fn of ["api_authorize_xometry_beta_worker_dispatch", "api_authorize_provider_worker_dispatch"]) {
-      expect(window1).toContain(`create or replace function public.${fn}(`);
-    }
-    expect(window1).toContain("create or replace function private.export_control_dispatch_denial(");
-    expect(window1).toContain("create or replace function private.export_control_scan_denial(");
-    expect(window1).toContain('create policy "job_files_storage_insert"');
+  it("keeps window 1 additive: no existing function or policy is changed or revoked", () => {
+    const window1 = sqlCode(sqlWindow1());
+    expect(window1).not.toMatch(/alter function public\./);
+    expect(window1).not.toMatch(/create or replace function public\.api_authorize_/);
+    expect(window1).not.toContain('drop policy if exists "job_files_storage_insert" on');
+    expect(window1).not.toMatch(/revoke all on function public\.api_(prepare|finalize)_job_file_upload\(\s+uuid, text, public\.job_file_kind, text, bigint, text\s+\)/);
+    // Exactly one new overload each; the 6- and 8-argument legacy RPCs are untouched.
+    expect(window1.match(/create or replace function public\.api_prepare_job_file_upload\(/g)).toHaveLength(1);
+    expect(window1.match(/create or replace function public\.api_finalize_job_file_upload\(/g)).toHaveLength(1);
+    expect(sqlFunctionBody("public.api_prepare_job_file_upload")).toContain("p_export_declaration_id uuid");
+    expect(sqlFunctionBody("private.job_file_prepare_delegate")).toContain("return public.api_prepare_job_file_upload(");
+    // The grant policy is added alongside the existing one.
+    expect(window1).toContain('create policy "job_files_storage_insert_export_cleared"');
     expect(window1).toContain("and public.current_user_has_export_cleared_upload(bucket_id, name)");
-    // The legacy signatures never delegate to the cores.
+    // The worker asks the gate through a new service-role RPC.
+    expect(sqlFunctionBody("public.api_check_export_control_dispatch")).toContain(
+      "private.export_control_dispatch_denial_for_task(p_work_queue_task_id, p_provider)",
+    );
+    expect(window1).toMatch(/grant execute on function public\.api_check_export_control_dispatch\(uuid, text\)\s+to service_role;/);
+  });
+
+  it("puts every change to an existing object in the contract draft", () => {
+    const code = sqlCode(contract);
+    expect(code).toContain("raise exception 'OVD-723 contract refused: apply the OVD-723 expand migration first'");
+    for (const fn of ["api_authorize_xometry_beta_worker_dispatch", "api_authorize_provider_worker_dispatch"]) {
+      expect(code).toContain(`create or replace function public.${fn}(`);
+    }
+    expect(code).toContain('drop policy "job_files_storage_insert" on storage.objects;');
+    expect(sqlFunctionBody("private.job_file_prepare_delegate", contract)).toContain("return private.job_file_prepare_core(");
+    // The legacy signatures refuse and never delegate.
     const legacy =
-      /create or replace function public\.api_prepare_job_file_upload\(\s+p_job_id uuid,\s+p_original_name text,\s+p_file_kind public\.job_file_kind,\s+p_mime_type text default null,[\s\S]*?\$\$;/.exec(
-        window1,
-      )?.[0] ?? "";
+      /create or replace function public\.api_prepare_job_file_upload\(\s+p_job_id uuid,\s+p_original_name text,\s+p_file_kind public\.job_file_kind,\s+p_mime_type text default null,[\s\S]*?\$\$;/.exec(code)?.[0] ?? "";
     expect(legacy).toContain("message = 'export_declaration_missing'");
     expect(legacy).not.toContain("job_file_prepare_core");
-    expect(window1.match(/create or replace function public\.api_prepare_job_file_upload\(/g)).toHaveLength(2);
-    expect(window1.match(/create or replace function public\.api_finalize_job_file_upload\(/g)).toHaveLength(2);
-    const rollback = draft.slice(draft.indexOf("-- ROLLBACK\n"));
-    expect(rollback).toContain("drop function public.api_authorize_provider_worker_dispatch(");
-    expect(rollback).toContain("drop function public.api_authorize_xometry_beta_worker_dispatch(");
-    expect(rollback).toContain("drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);");
-    expect(rollback).toContain("drop function public.current_user_has_export_cleared_upload(text, text);");
+  });
+
+  it("guards both rollbacks and restores exactly what each step changed", () => {
+    expect(expandRollback).toContain("OVD-723 expand rollback refused: the contract migration is applied");
+    expect(expandRollback).toContain('drop policy "job_files_storage_insert_export_cleared" on storage.objects;');
+    expect(expandRollback).toContain("drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);");
+    expect(expandRollback).toContain("drop function public.current_user_has_export_cleared_upload(text, text);");
+    expect(expandRollback).not.toMatch(/drop table private\.(job_export_declarations|export_control_events|job_export_marking_blocks|job_file_export_scans)/);
+    expect(contractRollback).toContain("the OVD-723 wrappers are not the outermost preflights");
+    expect(contractRollback).toContain('create policy "job_files_storage_insert"');
+    expect(contractRollback).toContain("drop function public.api_authorize_provider_worker_dispatch(");
+    expect(contractRollback).toContain("drop function public.api_authorize_xometry_beta_worker_dispatch(");
   });
 
   it("binds each upload grant to one exact object and serializes Storage authorization", () => {
@@ -642,19 +716,19 @@ describe("OVD-723 migration draft", () => {
     }
   });
 
-  it("wraps both preflights and keeps them service-role only", () => {
+  it("wraps both preflights in the contract and keeps them service-role only", () => {
     for (const fn of ["api_authorize_xometry_beta_worker_dispatch", "api_authorize_provider_worker_dispatch"]) {
-      expect(draft).toContain(`create or replace function public.${fn}(`);
-      expect(draft).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to service_role;`));
+      expect(contract).toContain(`create or replace function public.${fn}(`);
+      expect(contract).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to service_role;`));
     }
-    expect(draft).toContain("private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry')");
+    expect(contract).toContain("private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry')");
     // The core decides first, so its denials keep their codes; an export
     // denial after a core authorization rolls the core's writes back (OV723).
     for (const [fn, core] of [
       ["public.api_authorize_xometry_beta_worker_dispatch", "private.xometry_beta_worker_dispatch_core("],
       ["public.api_authorize_provider_worker_dispatch", "private.provider_worker_dispatch_core("],
     ]) {
-      const body = sqlFunctionBody(fn);
+      const body = sqlFunctionBody(fn, contract);
       expect(body).toContain("set search_path = pg_catalog");
       expect(body.indexOf(core)).toBeLessThan(body.indexOf("private.export_control_dispatch_denial_for_task("));
       expect(body).toContain("raise exception using errcode = 'OV723'");
@@ -662,11 +736,15 @@ describe("OVD-723 migration draft", () => {
     }
   });
 
-  it("bounds the storage.objects policy swap with a lock timeout", () => {
+  it("bounds every storage.objects policy change with a lock timeout", () => {
     const window1 = sqlWindow1();
     const timeoutAt = window1.indexOf("set local lock_timeout = '3s';");
     expect(timeoutAt).toBeGreaterThan(-1);
-    expect(timeoutAt).toBeLessThan(window1.indexOf('drop policy if exists "job_files_storage_insert" on storage.objects;'));
+    expect(timeoutAt).toBeLessThan(window1.indexOf('create policy "job_files_storage_insert_export_cleared"'));
+    expect(contract.indexOf("set local lock_timeout = '3s';")).toBeGreaterThan(-1);
+    expect(contract.indexOf("set local lock_timeout = '3s';")).toBeLessThan(
+      contract.indexOf('drop policy "job_files_storage_insert" on storage.objects;'),
+    );
   });
 
   it("records marking hits through a service-role-only RPC and audits admin review", () => {

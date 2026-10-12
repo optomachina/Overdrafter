@@ -15,6 +15,7 @@ import {
   quoteWithDispatchPreflight,
   XometryDispatchAuthorizationError,
 } from "./xometryDispatchPreflight.js";
+import { EXPORT_CONTROL_DENIAL_CODES, type ExportControlDenialCode } from "./exportControl.js";
 
 /**
  * OVD-381 (worker routing, OVD-464): the single seam that picks the dispatch
@@ -101,6 +102,49 @@ export async function quoteWithRoutedDispatchPreflight(input: {
     quoteInput: input.quoteInput,
     onAuthorized: input.onAuthorized,
   });
+}
+
+/**
+ * OVD-723 window 1: the export-control gate, asked before every dispatch
+ * preflight (`api_check_export_control_dispatch`). Window 1 leaves the
+ * preflights unchanged, so this check is what stops a controlled, uncertain,
+ * undeclared, blocked, or unscanned part in the new worker; the contract
+ * migration later wraps both preflights with the same gate on the server.
+ * Anything but exactly `{ allowed: true }` is a denial: an RPC error, a thrown
+ * call, or a malformed response becomes `export_control_lookup_failed`. The
+ * denial is thrown as the boundary's own authorization error, so the task
+ * ends exactly as it would on a preflight denial and no adapter launches.
+ */
+export async function assertExportControlDispatchAllowed(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: { taskId: string; vendor: VendorName },
+): Promise<void> {
+  let denial: ExportControlDenialCode | null = "export_control_lookup_failed";
+  try {
+    const { data, error } = await supabase.rpc("api_check_export_control_dispatch", {
+      p_work_queue_task_id: input.taskId,
+      p_provider: input.vendor,
+    });
+    if (!error && data && typeof data === "object" && !Array.isArray(data)) {
+      const value = data as Record<string, unknown>;
+      const keys = Object.keys(value).sort().join(",");
+      if (value.allowed === true && keys === "allowed") {
+        denial = null;
+      } else if (
+        value.allowed === false
+        && keys === "allowed,reasonCode"
+        && (EXPORT_CONTROL_DENIAL_CODES as readonly unknown[]).includes(value.reasonCode)
+      ) {
+        denial = value.reasonCode as ExportControlDenialCode;
+      }
+    }
+  } catch {
+    // Fail closed: denial stays export_control_lookup_failed.
+  }
+  if (denial === null) return;
+  throw input.vendor === "xometry"
+    ? new XometryDispatchAuthorizationError(denial)
+    : new ProviderDispatchAuthorizationError(denial);
 }
 
 export type DispatchAuthorizationFailure = {
