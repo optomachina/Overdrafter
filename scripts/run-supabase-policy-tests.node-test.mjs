@@ -69,3 +69,47 @@ test('successful pg_prove summary must cover every selected file with real asser
     assert.throws(() => admitPgProve(invalid, 53));
   }
 });
+
+const draftUrl = name => new URL(`../docs/migration-drafts/${name}`, import.meta.url);
+test('OVD-734 pgTAP fixtures are byte copies of the proposed migration draft and its rollback', () => {
+  // The draft stays outside supabase/migrations until a migration window; the pgTAP
+  // suites install these copies only while the consumption table is absent.
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd734_provider_dispatch_permit_consumption.inc')),
+    readFileSync(draftUrl('ovd-734.sql')));
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd734_provider_dispatch_permit_consumption_rollback.inc')),
+    readFileSync(draftUrl('ovd-734.rollback.sql')));
+});
+test('OVD-734 draft RPCs are definer, empty search_path, lock-timed and service_role only', () => {
+  const draft = readFileSync(draftUrl('ovd-734.sql'), 'utf8');
+  assert(!/^\s*(?:begin|commit)\s*;/im.test(draft), 'the runner owns the transaction');
+  for (const rpc of [
+    'public.api_consume_provider_dispatch_permit(uuid, uuid, uuid, text, text)',
+    'public.api_mark_provider_dispatch_permit_side_effect_started(uuid, integer, text)',
+    'public.api_record_provider_dispatch_permit_outcome(uuid, integer, text, text)',
+  ]) {
+    assert(draft.includes(`revoke all on function ${rpc}\n  from public, anon, authenticated, service_role;`), rpc);
+    assert(draft.includes(`grant execute on function ${rpc}\n  to service_role;`), rpc);
+  }
+  const headers = [...draft.matchAll(/create function public\.api_[a-z_]+\([\s\S]*?\nas \$\$/g)].map(match => match[0]);
+  assert.equal(headers.length, 3);
+  for (const header of headers) {
+    assert.match(header, /\nsecurity definer\nset search_path = ''\nset lock_timeout = '2s'\nas \$\$$/);
+  }
+  assert.doesNotMatch(draft, /search_path = pg_catalog/);
+  assert.match(draft, /primary key \(permit_id, attempt\)/);
+  assert.match(draft, /check \(attempt in \(1, 2\)\)/);
+  assert.match(draft, /private\.provider_kill_switches provider_switch/);
+  assert.match(draft, /private\.provider_global_kill_switch global_switch/);
+  assert.doesNotMatch(draft, /grant (?:select|insert|update|delete|all)[^;]*provider_dispatch_permit_consumptions/i);
+});
+test('OVD-734 rollback refuses to drop live consumptions before any drop runs', () => {
+  const rollback = readFileSync(draftUrl('ovd-734.rollback.sql'), 'utf8');
+  const bypass = rollback.indexOf('(r.rolsuper or r.rolbypassrls)');
+  const lock = rollback.indexOf('lock table private.provider_dispatch_permit_consumptions in access exclusive mode;');
+  const live = rollback.indexOf('where permit.expires_at > pg_catalog.clock_timestamp()');
+  const refusal = rollback.indexOf("raise exception 'OVD-734 rollback refused: unexpired permits have recorded consumptions'");
+  assert(bypass > 0 && bypass < lock && lock < live && live < refusal && refusal < rollback.indexOf('\ndrop '),
+    'bypass check, then table lock, then live-consumption check, then drops');
+  assert.match(rollback, /current_setting\('ovd734\.rollback_discard_consumptions', true\), ''\) <> 'confirmed'/);
+  assert(!/^\s*(?:begin|commit)\s*;/im.test(rollback), 'the runner owns the transaction');
+});

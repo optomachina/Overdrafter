@@ -6,7 +6,16 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * resets: any later failure in that task, whatever its type or message, is
  * treated as possibly having mutated provider state and is not auto-retried.
  */
-export type ProviderMutationPhase = { started: boolean };
+export type ProviderMutationPhase = {
+  started: boolean;
+  /**
+   * OVD-734: the task's durable permit side effect was stamped. Its permit is
+   * then consumed, so a requeue could never dispatch again and no later
+   * failure in the task is retried. Unlike `started` it is not evidence that a
+   * provider mutation happened.
+   */
+  permitSideEffectStarted?: boolean;
+};
 
 const activePhase = new AsyncLocalStorage<ProviderMutationPhase>();
 
@@ -34,6 +43,14 @@ export function markProviderMutationStarted(): void {
   const phase = activePhase.getStore();
   if (phase) {
     phase.started = true;
+  }
+}
+
+/** Call once the durable permit side effect is stamped (OVD-734). No-op outside a tracked task. */
+export function markProviderDispatchSideEffectStarted(): void {
+  const phase = activePhase.getStore();
+  if (phase) {
+    phase.permitSideEffectStarted = true;
   }
 }
 

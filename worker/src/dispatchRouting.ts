@@ -5,6 +5,10 @@ import {
   quoteWithProviderDispatchPreflight,
   type ProviderDispatchClaim,
 } from "./providerDispatchPreflight.js";
+import {
+  createProviderDispatchPermitConsumer,
+  type ProviderDispatchPermitConsumer,
+} from "./providerDispatchPermitConsumption.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -55,6 +59,12 @@ export function providerDispatchClaimFromTask(input: {
   };
 }
 
+/**
+ * The generic path always consumes the permit durably (OVD-734) between the
+ * preflight and the adapter, so a requeued task cannot dispatch twice across
+ * workers. `permitConsumer` exists for tests; production uses the default
+ * service-role consumer with the process-wide in-process guard.
+ */
 export async function quoteWithRoutedDispatchPreflight(input: {
   supabase: SupabaseClient;
   config: Pick<WorkerConfig, "workerMode" | "workerName">;
@@ -66,6 +76,7 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   adapter: Pick<VendorAdapter, "quote">;
   quoteInput: VendorQuoteAdapterInput;
   onAuthorized?: () => void;
+  permitConsumer?: ProviderDispatchPermitConsumer;
 }): Promise<VendorQuoteAdapterOutput> {
   const claim =
     input.config.workerMode === "live"
@@ -86,6 +97,7 @@ export async function quoteWithRoutedDispatchPreflight(input: {
       adapter: input.adapter,
       quoteInput: input.quoteInput,
       onAuthorized: input.onAuthorized,
+      permitConsumer: input.permitConsumer ?? createProviderDispatchPermitConsumer(input.supabase),
     });
   }
 

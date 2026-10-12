@@ -51,12 +51,18 @@ export function failureCodeForError(error: unknown) {
  *
  * Fail-closed: once the task's provider mutation phase has started, no failure
  * is retryable, including plain errors whose message looks transient.
+ *
+ * OVD-734 durable permit consumption: `permit_already_consumed` is terminal
+ * like every other non-unavailable dispatch denial. A permit allows at most one
+ * transient retry: a consumption failure on attempt 2 is raised non-retryable,
+ * and once the permit's side effect is stamped no failure is retryable, since a
+ * requeue could only be refused by the consumed permit.
  */
 export function isRetryableVendorTaskError(
   error: unknown,
   mutationPhase: ProviderMutationPhase | undefined = currentProviderMutationPhase(),
 ) {
-  if (mutationPhase?.started) {
+  if (mutationPhase?.started || mutationPhase?.permitSideEffectStarted) {
     return false;
   }
 

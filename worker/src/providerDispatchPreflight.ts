@@ -15,6 +15,7 @@ import {
   type ReviewedProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope.js";
 import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
+import type { ProviderDispatchPermitConsumer } from "./providerDispatchPermitConsumption.js";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types.js";
 
 /**
@@ -75,10 +76,17 @@ const TRANSIENT_HTTP_STATUS: ReadonlySet<number> = new Set([0, 408, 500, 502, 50
 export class ProviderDispatchAuthorizationError extends Error {
   readonly retryable: boolean;
 
-  constructor(public readonly denial: ProviderDispatchDenialCode) {
+  /**
+   * `options.retryable: false` can only withdraw retryability, never grant it:
+   * OVD-734 uses it once the one permitted transient retry has been spent.
+   */
+  constructor(
+    public readonly denial: ProviderDispatchDenialCode,
+    options: { retryable?: boolean } = {},
+  ) {
     super("Provider dispatch authorization was denied before adapter launch.");
     this.name = "ProviderDispatchAuthorizationError";
-    this.retryable = isRetryableProviderDispatchDenial(denial);
+    this.retryable = isRetryableProviderDispatchDenial(denial) && options.retryable !== false;
   }
 }
 
@@ -309,6 +317,10 @@ export async function authorizeProviderDispatch(
  * Keeps the final generic decision and the adapter call adjacent: the adapter
  * runs only after an admitted decision for the exact claim. Xometry is refused
  * here and must use the specialized `quoteWithDispatchPreflight`.
+ *
+ * With a `permitConsumer` (OVD-734; `dispatchRouting.ts` always passes one) the
+ * permit is then consumed durably and its side effect stamped before the
+ * adapter runs; any consumption failure throws and the adapter never runs.
  */
 export async function quoteWithProviderDispatchPreflight(input: {
   supabase: SupabaseClient;
@@ -320,6 +332,7 @@ export async function quoteWithProviderDispatchPreflight(input: {
   quoteInput: VendorQuoteAdapterInput;
   onAuthorized?: (authorization: ProviderDispatchAuthorization) => void;
   reviewedEnvelopes?: readonly ReviewedProviderDispatchEnvelope[];
+  permitConsumer?: ProviderDispatchPermitConsumer;
 }): Promise<VendorQuoteAdapterOutput> {
   if (input.claim.provider === "xometry") {
     throw new ProviderDispatchAuthorizationError("provider_mismatch");
@@ -333,6 +346,26 @@ export async function quoteWithProviderDispatchPreflight(input: {
     reviewedEnvelopes: input.reviewedEnvelopes,
   });
 
+  const consumer = input.permitConsumer;
+  if (!consumer) {
+    input.onAuthorized?.(authorization);
+    return input.adapter.quote({ ...input.quoteInput, providerDispatchAuthorization: authorization });
+  }
+
+  const consumption = await consumer.consume({
+    claim: input.claim,
+    workerName: input.workerName,
+    expiresAt: authorization.expiresAt,
+  });
+  await consumer.startSideEffect(consumption);
   input.onAuthorized?.(authorization);
-  return input.adapter.quote({ ...input.quoteInput, providerDispatchAuthorization: authorization });
+  let output: VendorQuoteAdapterOutput;
+  try {
+    output = await input.adapter.quote({ ...input.quoteInput, providerDispatchAuthorization: authorization });
+  } catch (error) {
+    await consumer.recordOutcome(consumption, "failed");
+    throw error;
+  }
+  await consumer.recordOutcome(consumption, "completed");
+  return output;
 }

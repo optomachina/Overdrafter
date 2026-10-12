@@ -9,7 +9,12 @@ import {
   fingerprintProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
+import {
+  createProviderDispatchPermitConsumer,
+  createProviderDispatchPermitLocalGuard,
+} from "./providerDispatchPermitConsumption";
 import { fictivDispatchEnvelope } from "../test-support/fictivDispatchFixture";
+import { genericDispatchRpc } from "../test-support/genericDispatchResponse";
 
 /**
  * OVD-673: once Fictiv v1 is on the code-reviewed list, a database-admitted
@@ -71,7 +76,9 @@ function stagedInput(trustedContentSha256: string): VendorQuoteAdapterInput {
 
 async function authorizationFor(quoteInput: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterInput> {
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
-  const rpc = vi.fn().mockResolvedValue({ data: admitted, error: null });
+  // OVD-734: each call is a fresh simulated worker and permit consumption table.
+  const rpc = genericDispatchRpc({ data: admitted, error: null });
+  const supabase = { rpc } as unknown as SupabaseClient;
   const task = {
     id: envelope.task.workQueueTaskId,
     payload: {
@@ -80,7 +87,11 @@ async function authorizationFor(quoteInput: VendorQuoteAdapterInput): Promise<Ve
     },
   };
   await quoteWithRoutedDispatchPreflight({
-    supabase: { rpc } as unknown as SupabaseClient,
+    supabase,
+    permitConsumer: createProviderDispatchPermitConsumer(supabase, {
+      localGuard: createProviderDispatchPermitLocalGuard(),
+      now: () => Date.parse("2026-10-10T12:05:00.000Z"),
+    }),
     config: { workerMode: "live", workerName: "ovd-673-fictiv" },
     task,
     vendorQuoteResultId: envelope.task.vendorQuoteResultId,

@@ -82,6 +82,12 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "observation_denied",
   "preflight_rejected",
   "preflight_unavailable",
+  // OVD-734 durable permit consumption: the permit was already used for a
+  // dispatch. Terminal; a fresh preflight and a new permit are required. An
+  // unreachable consumption RPC reports preflight_unavailable.
+  "permit_already_consumed",
+  // OVD-722: the provider or global kill switch is engaged. Terminal.
+  "provider_kill_switch_engaged",
 ] as const;
 
 export type ProviderDispatchDenialCode = (typeof PROVIDER_DISPATCH_DENIAL_CODES)[number];

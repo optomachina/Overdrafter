@@ -11,7 +11,12 @@ import {
   fingerprintProviderDispatchEnvelope,
   WEERG_DISPATCH_ENVELOPE,
 } from "../providerDispatchEnvelope";
+import {
+  createProviderDispatchPermitConsumer,
+  createProviderDispatchPermitLocalGuard,
+} from "../providerDispatchPermitConsumption";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
+import { genericDispatchRpc } from "../../test-support/genericDispatchResponse";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import {
   registerProductionPortalAuthorizationRefusals,
@@ -345,8 +350,14 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       },
     };
     const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
+    // OVD-734: a fresh simulated permit consumption table and in-process guard.
+    const supabase = { rpc: genericDispatchRpc({ data: admitted, error: null }) } as unknown as SupabaseClient;
     await expect(quoteWithRoutedDispatchPreflight({
-      supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
+      supabase,
+      permitConsumer: createProviderDispatchPermitConsumer(supabase, {
+        localGuard: createProviderDispatchPermitLocalGuard(),
+        now: () => Date.parse("2026-10-11T12:05:00.000Z"),
+      }),
       config: { workerMode: "live", workerName: "worker-1" },
       task: {
         id: envelope.task.workQueueTaskId,
