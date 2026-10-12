@@ -249,7 +249,16 @@ no declaration, so dispatch still denies it.
   a text layer is read. OCR does not cover content outside the PDF CropBox,
   which is not rendered. A dense large format sheet (an E size page) can
   exceed the 60 s tesseract timeout; that page is then not read and the
-  drawing is held.
+  drawing is held (since round 8 as `drawing_ocr_failed`, which the owner
+  can recheck).
+- Some OCR failures repeat on the same bytes: a page past
+  `PDF_OCR_MAX_PAGES`, or a CropBox over the pixel cap, is reported as
+  `not_read` or `failed` like a timeout. Round 8 makes every such outcome
+  retryable through Recheck files, so a recheck of such a drawing holds it
+  again; the owner then replaces it.
+- The local smoke and eval tools (`worker/src/tools/extractDrawingSmoke.ts`,
+  `worker/src/tools/extractEvalGate.ts`) call extraction without the export
+  gate. They are operator only and never run on customer jobs.
 - The STEP header scan does not support nested comments
   (`/* a /* b */ HEADER;ENDSEC; */`). They are not valid STEP and only a
   crafted file has them; such crafted evasions stay on this list.
@@ -660,3 +669,39 @@ fallback and its optional `ocr` field are dropped; #710's `ocr` meaning
    covers the Storage policy; the rollback already sets its 5 s timeout first.
 6. **Residuals** are listed under Residual risks above: nested STEP comments,
    content outside the CropBox, and dense large format sheets.
+
+## Review round 8 (cross review after the round 7 APPROVE at fcce27c1)
+
+1. **A page is read only when OCR read it.** `isDrawingTextFullyRead` now
+   requires, on top of `drawingFullyRead === true`, that every page has OCR
+   status ok and nonempty OCR text. A text layer alone never makes a page
+   read: OCR is the only reader that sees a raster stamp, and #710 reports
+   ok on any tesseract exit 0, even with no text.
+2. **Malformed STEP escapes fail closed.** `readStepHeader` marks the header
+   incomplete when it holds a malformed or unterminated escape: hex of the
+   wrong length or with a non hex digit, a `\X4\` code point that is not a
+   Unicode scalar value, an `\X2\` or `\X4\` with no `\X0\` in the same
+   string, or a stray `\X0\`. The raw text is still scanned, so a marking
+   still blocks. A backslash that starts no escape directive (a Windows path
+   written unescaped) stays plain text.
+3. **OCR environment failures are retryable.** An unread drawing whose OCR
+   failed, timed out, ran out of budget, or was unavailable records
+   `drawing_ocr_failed` instead of `drawing_unread` (extraction, trusted
+   reuse, and the scan only rescan). `private.export_rescan_final_outcome`
+   already treats only `drawing_unread` and `step_header_incomplete` as
+   final, so the file shows as `missing` and Recheck files queues it again.
+   The SQL changed in comments only (still expand only; the rollback is
+   unchanged). The pgTAP suite has three new assertions (156 in total).
+4. **Lookup hold note.** It no longer promises an admin retry: "Nothing was
+   sent to this supplier. This lane is held for review." OVD-753 tracks the
+   admin queue.
+5. **Normalization.** Decoded STEP header text is normalized with NFKC and
+   format characters (`\p{Cf}`) are removed before matching. The header is
+   also read as UTF-8, so a fullwidth `ITAR` written directly by a
+   nonconforming exporter is found too.
+6. **Tests and types.** A raw scan only match is pinned
+   (`\X2\0041\X0\ITAR`). `extractText` is typed as
+   `DrawingTextForExportScan` in both scan helpers.
+7. **Residuals** (above): the smoke and eval tools, content outside the
+   CropBox, and repeatable OCR failures.
+

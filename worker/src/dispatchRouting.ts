@@ -236,12 +236,12 @@ export const EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE =
  * The hold note for a generic provider lane whose export-control check could
  * not be read after its automation started but before the adapter marked any
  * provider mutation (no upload or quote configuration yet). The lane is still
- * held and never requeued, but nothing reached the supplier.
+ * held and never requeued, but nothing reached the supplier. It promises no
+ * retry: the admin queue for these lanes is OVD-753.
  */
 export const EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE =
   "Held because the export-control check could not be read before any file was sent to this supplier. "
-  + "Nothing was sent. This lane will not be retried automatically and must not be quoted manually. "
-  + "An OverDrafter admin can retry it once the check is available again.";
+  + "Nothing was sent to this supplier. This lane is held for review and must not be quoted manually.";
 
 /**
  * Picks the hold note for a lane. `providerMutationStarted` is the lane's

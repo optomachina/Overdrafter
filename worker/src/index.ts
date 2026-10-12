@@ -96,6 +96,7 @@ import {
   exportControlModelAttemptGuard,
   exportScanOutcomesPayload,
   type ExportScanOutcomes,
+  drawingUnreadOutcome,
   isDrawingTextFullyRead,
   isStepFileName,
   readStagedStepHeaderPrefix,
@@ -629,7 +630,7 @@ async function runDrawingExtractionForTask(
         throw new ExportControlDrawingUnreadError({
           jobFileId: context.drawingFile.id,
           contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
-        });
+        }, drawingUnreadOutcome(pdfText));
       }
     }
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;

@@ -42,7 +42,7 @@
 --      not hold the scan state
 begin;
 
-select plan(153);
+select plan(156);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -1428,6 +1428,49 @@ select is(
   'B2: the unread bytes are not queued for a rescan that would read the same nothing'
 );
 reset role;
+
+-- Review round 8: an unread result caused by an OCR failure (tesseract
+-- failed, timed out, ran out of budget, or was unavailable) is not final for
+-- those bytes. A later extraction that recorded drawing_ocr_failed for the
+-- same bytes shows the file as missing, and Recheck files queues it.
+insert into public.work_queue (
+  id, organization_id, job_id, part_id, task_type, status, last_error, payload, created_at, updated_at
+)
+select '00000000-0000-4000-8000-0000000072ff', organization_id, fresh_job_id,
+  '00000000-0000-4000-8000-0000000072f3', 'extract_part', 'failed', 'export_scan_unread',
+  pg_catalog.jsonb_build_object('failureCode', 'export_scan_unread', 'exportScanOutcomes', pg_catalog.jsonb_build_object(
+    '00000000-0000-4000-8000-0000000072fd',
+    pg_catalog.jsonb_build_object('contentSha256', repeat('56', 32), 'outcome', 'drawing_ocr_failed'))),
+  now() + interval '1 second', now() + interval '1 second'
+from ovd723_ctx;
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  null,
+  'round 8: drawing_ocr_failed is not a final outcome for the bytes'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select fresh_job_id from ovd723_ctx)) ->> 'scanState',
+  'missing',
+  'round 8: an OCR failure shows the drawing as missing (recheck), not drawing_unread'
+);
+select is(
+  public.api_request_export_marking_rescan((select fresh_job_id from ovd723_ctx)),
+  1,
+  'round 8: Recheck files queues the same bytes again after an OCR failure'
+);
+reset role;
+
+-- Put the job back as the B2 case left it: the unread outcome is latest again
+-- and no rescan is queued.
+delete from public.work_queue
+where job_id = (select fresh_job_id from ovd723_ctx)
+  and (id = '00000000-0000-4000-8000-0000000072ff'
+       or (task_type::text = 'export_marking_rescan' and status = 'queued'));
 
 select is(
   private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072fb', 'fictiv'),

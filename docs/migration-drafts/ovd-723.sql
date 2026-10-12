@@ -1527,6 +1527,9 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- api_queue_export_marking_rescan. A file whose last scan of the same bytes
 -- (a rescan, or the part's extraction) ended drawing_unread or
 -- step_header_incomplete is not queued again (the answer would not change).
+-- drawing_ocr_failed (OCR failed, timed out, ran out of budget, or was
+-- unavailable) is not final: the environment failed, not the bytes, so the
+-- file stays missing and the owner can queue it again (Recheck files).
 -- Extraction (extract_part) scans the part's drawing and STEP header itself,
 -- so a new upload needs no rescan. Returns the number of tasks queued.
 -- Final outcome of the latest scan of one file's bytes in its job: a
@@ -1534,10 +1537,13 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- extract_part task that scanned the part's files (payload
 -- exportScanOutcomes, keyed by job file id; written on completion and on the
 -- failure that an unread drawing causes). A drawing that could not be read
--- (drawing_unread) or a STEP header that ended before ENDSEC;
+-- (drawing_unread: OCR ran on every page and some page read nothing) or a
+-- STEP header that ended before ENDSEC; or holds a malformed string escape
 -- (step_header_incomplete) gives the same answer for the same bytes, so
 -- neither is queued again for that hash; replacing the file (a new hash)
--- queues a fresh rescan. Null when there is no such outcome. The job and
+-- queues a fresh rescan. Any other latest outcome, drawing_ocr_failed among
+-- them, is not final and returns null, so a recheck can read the same bytes
+-- once OCR works. Null when there is no such outcome. The job and
 -- task type predicates use work_queue_job_task_type_idx below, so a status
 -- read only touches this job's tasks instead of every completed task.
 --
@@ -1602,12 +1608,14 @@ revoke all on function private.export_rescan_final_outcome(uuid, uuid, text)
 --   pending                 a rescan of the file, or an extraction of the
 --                           job, is queued or running;
 --   drawing_unread          the last rescan of these bytes could not read
---                           every page (replace the drawing);
+--                           every page (replace the drawing); an OCR failure
+--                           (drawing_ocr_failed) shows as missing instead;
 --   step_header_incomplete  the last rescan of these bytes found no complete
 --                           STEP header (replace the STEP file);
 --   missing                 nothing will scan the file on its own (a failed
---                           rescan, an old worker, or none queued); the owner
---                           can requeue it (api_request_export_marking_rescan).
+--                           rescan, an OCR failure, an old worker, or none
+--                           queued); the owner can requeue it
+--                           (api_request_export_marking_rescan).
 -- The most actionable state wins (missing first). complete when no such file.
 create or replace function private.job_export_scan_state(p_job_id uuid)
 returns text

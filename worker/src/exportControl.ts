@@ -187,6 +187,10 @@ export const STEP_HEADER_SCAN_BYTES = 256 * 1024;
  * comments, so a commented `HEADER; ENDSEC;` before the real header cannot
  * stand in for it. The returned text runs from the start of the file through
  * the header, so anything before `HEADER;` (comments included) is scanned too.
+ *
+ * A header with a malformed or unterminated string escape
+ * (`stepHeaderEscapesWellFormed`) is incomplete too: its decoded text is not
+ * what the exporter wrote, so a clean result would not be an answer.
  */
 export function readStepHeader(content: Uint8Array | string): { text: string; complete: boolean } {
   const prefix =
@@ -196,9 +200,9 @@ export function readStepHeader(content: Uint8Array | string): { text: string; co
   const start = findStepKeyword(prefix, 0, STEP_HEADER);
   if (start < 0) return { text: prefix, complete: false };
   const end = findStepKeyword(prefix, start, STEP_ENDSEC);
-  return end < 0
-    ? { text: prefix, complete: false }
-    : { text: prefix.slice(0, end), complete: true };
+  if (end < 0) return { text: prefix, complete: false };
+  const text = prefix.slice(0, end);
+  return { text, complete: stepHeaderEscapesWellFormed(text) };
 }
 
 const STEP_HEADER = /^HEADER\s*;/i;
@@ -264,7 +268,8 @@ export function readStepHeaderText(content: Uint8Array | string): string {
  * non ASCII text: `\X2\hhhh...\X0\` (UTF-16 hex), `\X4\hhhhhhhh...\X0\`
  * (UTF-32 hex), `\X\hh` (one 8 bit code), `\S\c` (the high half of the
  * current ISO 8859 part), and `\\` (one backslash). `\P?\` switches the code
- * page and is stripped. A malformed escape is left as is.
+ * page and is stripped. A malformed escape is left as is; the raw text is
+ * always scanned too, and `readStepHeader` marks such a header incomplete.
  */
 export function decodeStepStringEscapes(text: string): string {
   return text.replace(
@@ -273,7 +278,7 @@ export function decodeStepStringEscapes(text: string): string {
       if (x2 !== undefined) return String.fromCharCode(...hexGroups(x2, 4));
       if (x4 !== undefined) {
         const codePoints = hexGroups(x4, 8);
-        return codePoints.every((codePoint) => codePoint <= 0x10ffff) ? String.fromCodePoint(...codePoints) : match;
+        return codePoints.every(isUnicodeScalarValue) ? String.fromCodePoint(...codePoints) : match;
       }
       if (x !== undefined) return String.fromCharCode(Number.parseInt(x, 16));
       if (high !== undefined) return String.fromCharCode(high.charCodeAt(0) + 0x80);
@@ -286,6 +291,45 @@ export function decodeStepStringEscapes(text: string): string {
 const STEP_STRING_ESCAPE =
   /\\X2\\((?:[0-9A-F]{4})+)\\X0\\|\\X4\\((?:[0-9A-F]{8})+)\\X0\\|\\X\\([0-9A-F]{2})|\\S\\([\x20-\x7e])|\\P[A-I]\\|\\\\/gi;
 
+/** A well formed escape, matched at one backslash (sticky). */
+const STEP_STRING_ESCAPE_AT =
+  /\\X2\\((?:[0-9A-F]{4})+)\\X0\\|\\X4\\((?:[0-9A-F]{8})+)\\X0\\|\\X\\[0-9A-F]{2}|\\S\\[\x20-\x7e]|\\P[A-I]\\|\\\\/iy;
+
+/**
+ * The start of an escape directive: `\X2\`, `\X4\`, `\X0\`, `\X\`, `\S\`, or
+ * `\P?\`. A backslash that starts none of these (a Windows path some
+ * exporters write unescaped, `C:\Users\Parts`) is plain text, not an escape.
+ */
+const STEP_ESCAPE_DIRECTIVE_AT = /\\(?:X[024]?\\|S\\|P[^\\]\\)/iy;
+
+/**
+ * False when the text holds a malformed or unterminated escape: a directive
+ * whose hex is the wrong length, holds a non hex digit, or names a code point
+ * that is not a Unicode scalar value, an `\X2\` or `\X4\` with no `\X0\`
+ * before the string ends, an escape split across two strings, or a stray
+ * `\X0\`. Read left to right, so `\\` is one backslash and never starts a
+ * directive.
+ */
+export function stepHeaderEscapesWellFormed(text: string): boolean {
+  for (let index = text.indexOf("\\"); index >= 0; index = text.indexOf("\\", index)) {
+    STEP_STRING_ESCAPE_AT.lastIndex = index;
+    const match = STEP_STRING_ESCAPE_AT.exec(text);
+    if (match) {
+      if (match[2] !== undefined && !hexGroups(match[2], 8).every(isUnicodeScalarValue)) return false;
+      index = STEP_STRING_ESCAPE_AT.lastIndex;
+      continue;
+    }
+    STEP_ESCAPE_DIRECTIVE_AT.lastIndex = index;
+    if (STEP_ESCAPE_DIRECTIVE_AT.test(text)) return false;
+    index += 1;
+  }
+  return true;
+}
+
+function isUnicodeScalarValue(codePoint: number): boolean {
+  return codePoint <= 0x10ffff && (codePoint < 0xd800 || codePoint > 0xdfff);
+}
+
 function hexGroups(hex: string, width: number): number[] {
   const groups: number[] = [];
   for (let index = 0; index < hex.length; index += width) {
@@ -297,16 +341,22 @@ function hexGroups(hex: string, width: number): number[] {
 /**
  * Marking ids found in STEP header text, raw or with its string escapes
  * decoded. The raw text is always scanned too, so a malformed escape never
- * hides text that was readable before decoding.
+ * hides text that was readable before decoding. The decoded text is
+ * normalized (NFKC, format characters such as a zero width space removed)
+ * before matching, so fullwidth `ＩＴＡＲ` or `IT\u200BAR` still matches. The
+ * header is read as latin1; it is also read as UTF-8, which nonconforming
+ * exporters write into strings directly.
  */
 export function detectStepHeaderMarkings(text: string): string[] {
-  const decoded = decodeStepStringEscapes(text);
-  const raw = detectExportControlMarkings(text);
-  if (decoded === text) return raw;
-  const fromDecoded = detectExportControlMarkings(decoded);
-  return EXPORT_CONTROL_MARKING_PATTERNS
-    .map(({ id }) => id)
-    .filter((id) => raw.includes(id) || fromDecoded.includes(id));
+  const candidates = new Set([text, normalizeStepHeaderText(decodeStepStringEscapes(text))]);
+  const utf8 = Buffer.from(text, "latin1").toString("utf8");
+  if (utf8 !== text) candidates.add(normalizeStepHeaderText(decodeStepStringEscapes(utf8)));
+  const found = new Set([...candidates].flatMap((candidate) => detectExportControlMarkings(candidate)));
+  return EXPORT_CONTROL_MARKING_PATTERNS.map(({ id }) => id).filter((id) => found.has(id));
+}
+
+function normalizeStepHeaderText(text: string): string {
+  return text.normalize("NFKC").replace(/\p{Cf}/gu, "");
 }
 
 /**
@@ -349,18 +399,39 @@ export type DrawingTextForExportScan = {
 
 /**
  * True only when `extractPdfText` says the drawing was fully read
- * (`drawingFullyRead === true`; missing or null is unread) and every page has
- * text from its text layer or its OCR. A page with neither is unread: an empty
- * tesseract result on a nonblank page looks the same as a blank page, so a
- * drawing with a truly blank page is held too. A drawing with any unread page
- * is unread as a whole: no clean scan is recorded for it, so dispatch stays
- * denied, and its content never goes to an extraction model.
+ * (`drawingFullyRead === true`; missing or null is unread) and every page was
+ * read by OCR: its OCR status is ok and its OCR text is not empty. OCR is the
+ * only reader that sees a raster stamp, so a text layer alone never makes a
+ * page read. An empty tesseract result on a nonblank page looks the same as a
+ * blank page, so a drawing with a truly blank page is held too. A drawing with
+ * any unread page is unread as a whole: no clean scan is recorded for it, so
+ * dispatch stays denied, and its content never goes to an extraction model.
  */
 export function isDrawingTextFullyRead(pdfText: DrawingTextForExportScan | null | undefined): boolean {
   if (pdfText?.drawingFullyRead !== true) return false;
   if (!Array.isArray(pdfText.pages) || pdfText.pages.length === 0) return false;
   if (typeof pdfText.pageCount === "number" && pdfText.pages.length < pdfText.pageCount) return false;
-  return pdfText.pages.every((page) => hasText(page.text) || hasText(page.ocrText));
+  return pdfText.pages.every((page) => page.ocrStatus === "ok" && hasText(page.ocrText));
+}
+
+/** OCR statuses that say the OCR environment failed, not the page. */
+const RETRYABLE_OCR_STATUSES: ReadonlySet<string> = new Set(["failed", "not_read", "unavailable"]);
+
+/**
+ * The outcome for a drawing `isDrawingTextFullyRead` rejects.
+ * `drawing_ocr_failed` when any page's OCR failed, timed out, ran out of
+ * budget, or was unavailable: the environment, not the bytes, so a recheck
+ * of the same bytes may read it and the database does not treat it as final.
+ * Otherwise `drawing_unread` (OCR ran and read nothing, the page count is
+ * unknown, or a text layer failed), which is final for those bytes.
+ */
+export function drawingUnreadOutcome(
+  pdfText: DrawingTextForExportScan | null | undefined,
+): "drawing_unread" | "drawing_ocr_failed" {
+  const pages = Array.isArray(pdfText?.pages) ? pdfText.pages : [];
+  return pages.some((page) => typeof page.ocrStatus === "string" && RETRYABLE_OCR_STATUSES.has(page.ocrStatus))
+    ? "drawing_ocr_failed"
+    : "drawing_unread";
 }
 
 function hasText(value: unknown): boolean {
@@ -455,8 +526,10 @@ export class ExportControlMarkingRecordError extends Error {
 /**
  * The drawing's text could not be read on every page, so the marking scan is
  * incomplete. Nothing clean is recorded and the drawing is not sent to any
- * model. Terminal: rerunning the same scanner on the same bytes reads the
- * same nothing.
+ * model. The task is not retried. The outcome says whether a recheck can
+ * help: `drawing_unread` (OCR ran and read nothing) is final for those bytes;
+ * `drawing_ocr_failed` (OCR failed, timed out, ran out of budget, or was
+ * unavailable) is not, so the owner can requeue a scan with Recheck files.
  */
 export class ExportControlDrawingUnreadError extends Error {
   /**
@@ -466,22 +539,31 @@ export class ExportControlDrawingUnreadError extends Error {
    */
   exportScanOutcomes: ExportScanOutcomes = {};
 
-  constructor(drawing?: { jobFileId: string; contentSha256: string }) {
+  constructor(
+    drawing?: { jobFileId: string; contentSha256: string },
+    outcome: "drawing_unread" | "drawing_ocr_failed" = "drawing_unread",
+  ) {
     super("Export-control scan could not read every drawing page; the drawing is held and not sent to any model.");
     this.name = "ExportControlDrawingUnreadError";
-    if (drawing) addExportScanOutcome(this.exportScanOutcomes, drawing.jobFileId, drawing.contentSha256, "drawing_unread");
+    if (drawing) addExportScanOutcome(this.exportScanOutcomes, drawing.jobFileId, drawing.contentSha256, outcome);
   }
 }
 
 /** What one scan of one file's bytes found, as recorded in a task payload. */
-export type ExportScanOutcome = "clean" | "admin_cleared" | "drawing_unread" | "step_header_incomplete";
+export type ExportScanOutcome =
+  | "clean"
+  | "admin_cleared"
+  | "drawing_unread"
+  | "drawing_ocr_failed"
+  | "step_header_incomplete";
 
 /**
  * Per file outcomes an extract_part task records in its payload
  * (`exportScanOutcomes`, keyed by job file id, with the hash of the scanned
  * bytes). The database reads `drawing_unread` and `step_header_incomplete`
- * from it as final for those bytes; a clean outcome also has its scan of
- * record, which is what dispatch checks.
+ * from it as final for those bytes; `drawing_ocr_failed` is not final, so the
+ * file shows as missing and Recheck files queues it again. A clean outcome
+ * also has its scan of record, which is what dispatch checks.
  */
 export type ExportScanOutcomes = Record<string, { contentSha256: string; outcome: ExportScanOutcome }>;
 
@@ -733,7 +815,7 @@ export async function scanStagedDrawingForExportMarkings(
     jobId: string;
     partId: string | null;
     drawingFile: { id: string; localPath: string; contentSha256: string } | null;
-    extractText: (localPath: string) => Promise<{ pageCount?: number; pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
+    extractText: (localPath: string) => Promise<DrawingTextForExportScan | null>;
   },
   outcomes: ExportScanOutcomes = {},
 ): Promise<void> {
@@ -750,8 +832,14 @@ export async function scanStagedDrawingForExportMarkings(
     contentSha256: input.drawingFile.contentSha256,
   });
   // An unread drawing gets no clean scan; the outcome makes it show as
-  // drawing_unread (replace the drawing) rather than missing.
-  addExportScanOutcome(outcomes, input.drawingFile.id, input.drawingFile.contentSha256, textRead ? "clean" : "drawing_unread");
+  // drawing_unread (replace the drawing) rather than missing, or as missing
+  // (recheck) when OCR itself failed (drawing_ocr_failed).
+  addExportScanOutcome(
+    outcomes,
+    input.drawingFile.id,
+    input.drawingFile.contentSha256,
+    textRead ? "clean" : drawingUnreadOutcome(pdfText),
+  );
 }
 
 /**
@@ -816,6 +904,7 @@ export type ExportMarkingRescanOutcome =
   | "admin_cleared"
   | "blocked"
   | "drawing_unread"
+  | "drawing_ocr_failed"
   | "step_header_incomplete"
   | "not_scannable";
 
@@ -829,8 +918,10 @@ export type ExportMarkingRescanOutcome =
  * such a part stays `export_scan_missing` forever.
  *
  * It stages the file (which verifies and registers its hash), scans the
- * drawing text (text layer, OCR when the page has none) or the STEP header,
- * and records a clean scan or opens a block. It never calls any model: this
+ * drawing text (text layer and OCR of every page; a page counts as read only
+ * when OCR read it) or the STEP header, and records a clean scan or opens a
+ * block. An unread drawing is `drawing_unread`, or `drawing_ocr_failed` when
+ * OCR itself failed, which the owner can recheck. It never calls any model: this
  * module imports no extraction model code, and the only readers are the
  * injected text and header readers.
  */
@@ -841,7 +932,7 @@ export async function runExportMarkingRescan(
     partId: string | null;
     file: { id: string; original_name: string; file_kind: string };
     stage: () => Promise<{ localPath: string; trustedContentSha256?: string | null } | null>;
-    extractText: (localPath: string) => Promise<{ pageCount?: number; pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null>;
+    extractText: (localPath: string) => Promise<DrawingTextForExportScan | null>;
     readStepPrefix?: (localPath: string) => Promise<Uint8Array>;
   },
 ): Promise<ExportMarkingRescanOutcome> {
@@ -877,7 +968,7 @@ export async function runExportMarkingRescan(
       contentSha256,
     });
     if (outcome === "admin_cleared") return "admin_cleared";
-    if (!fullyRead) return "drawing_unread";
+    if (!fullyRead) return drawingUnreadOutcome(pdfText);
     await recordExportControlCleanScan(supabase, {
       jobId: input.jobId,
       partId: input.partId,

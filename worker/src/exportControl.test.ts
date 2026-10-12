@@ -23,6 +23,7 @@ import {
   ExportControlScanRecordError,
   ExportControlStepScanRetryableError,
   isDrawingTextFullyRead,
+  drawingUnreadOutcome,
   exportControlProviderJurisdiction,
   FOREIGN_JURISDICTION_PROVIDERS,
   isStepFileName,
@@ -357,7 +358,10 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       jobId: "target-job",
       partId: "target-part",
       drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
-      extractText: vi.fn().mockResolvedValue({ drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }] }),
+      extractText: vi.fn().mockResolvedValue({
+        drawingFullyRead: true,
+        pages: [{ text: CLEAN_DRAWING, ocrText: CLEAN_DRAWING, ocrStatus: "ok" }],
+      }),
     });
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
       p_job_id: "target-job",
@@ -379,15 +383,18 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(failing).not.toHaveBeenCalled();
   });
 
-  it("treats a drawing as read only when every page yielded text", () => {
+  it("treats a drawing as read only when OCR read every page", () => {
     const read = { drawingFullyRead: true as const };
+    const ocrPage = (text: string) => ({ text, ocrText: text, ocrStatus: "ok" });
     expect(isDrawingTextFullyRead(null)).toBe(false);
     // pdftotext and OCR both found nothing: extractPdfText returns empty pages, not null.
-    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: "" }, { text: "  \n" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [ocrPage(""), ocrPage("  \n")] })).toBe(false);
     expect(isDrawingTextFullyRead({ ...read, pageCount: 0, pages: [] })).toBe(false);
-    expect(isDrawingTextFullyRead({ ...read, pageCount: 3, pages: [{ text: CLEAN_DRAWING }, { text: "" }, { text: "" }] })).toBe(false);
-    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: CLEAN_DRAWING }] })).toBe(false);
-    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(true);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 3, pages: [ocrPage(CLEAN_DRAWING), ocrPage(""), ocrPage("")] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [ocrPage(CLEAN_DRAWING)] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [ocrPage(CLEAN_DRAWING), ocrPage("SHEET 2")] })).toBe(true);
+    // Text layers alone (no OCR output) never count as read.
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(false);
   });
 
   // OVD-747 part B: the extractor's own drawingFullyRead is required.
@@ -423,7 +430,17 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     })).toBe(false);
   });
 
-  it("reads a page whose only text came from OCR", () => {
+  it("reads a page whose only text came from OCR, and needs OCR text on every page", () => {
+    expect(isDrawingTextFullyRead({
+      pageCount: 2,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      pages: [
+        { text: CLEAN_DRAWING, ocrText: "TITLE BLOCK", ocrStatus: "ok" },
+        { text: "", ocrText: "SHEET 2 OF 2", ocrStatus: "ok" },
+      ],
+    })).toBe(true);
+    // Round 8: a text layer next to empty OCR output is not read.
     expect(isDrawingTextFullyRead({
       pageCount: 2,
       pageCountKnown: true,
@@ -432,7 +449,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
         { text: CLEAN_DRAWING, ocrText: "", ocrStatus: "ok" },
         { text: "", ocrText: "SHEET 2 OF 2", ocrStatus: "ok" },
       ],
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it("detects an OCR only ITAR stamp next to selectable dimensions on a fully read drawing", () => {
@@ -1290,7 +1307,12 @@ describe("OVD-723 review round 3: OCR text is recorded as drawing_ocr", () => {
       jobId: "job-1",
       partId: "part-1",
       drawingFile: { id: "drawing-1", localPath: "/stage/d.pdf", contentSha256 },
-      extractText: vi.fn().mockResolvedValue({ pageCount: 1, drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }], ocr: true }),
+      extractText: vi.fn().mockResolvedValue({
+        pageCount: 1,
+        drawingFullyRead: true,
+        pages: [{ text: CLEAN_DRAWING, ocrText: CLEAN_DRAWING, ocrStatus: "ok" }],
+        ocr: true,
+      }),
     });
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "drawing_ocr" }));
   });
@@ -1349,7 +1371,11 @@ describe("OVD-723 review round 3: scan only rescan of files extracted before the
         partId: "part-1",
         file: { id: "drawing-1", original_name: "bracket.pdf", file_kind: "drawing" },
         stage,
-        extractText: vi.fn().mockResolvedValue({ pageCount: 1, drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }] }),
+        extractText: vi.fn().mockResolvedValue({
+          pageCount: 1,
+          drawingFullyRead: true,
+          pages: [{ text: CLEAN_DRAWING, ocrText: CLEAN_DRAWING, ocrStatus: "ok" }],
+        }),
       }),
     ).resolves.toBe("clean");
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
@@ -1691,8 +1717,8 @@ describe("OVD-723 review round 7: STEP string escapes", () => {
     expect(decodeStepStringEscapes("\\X2\\004\\X0\\ ITAR \\X2\\0049 \\X\\ZZ")).toBe("\\X2\\004\\X0\\ ITAR \\X2\\0049 \\X\\ZZ");
     const text = header("FILE_DESCRIPTION(('\\X2\\004\\X0\\ ITAR'),'2;1');");
     expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
-    // An escape that decodes away a raw match does not lose it: raw text is scanned too.
-    expect(detectStepHeaderMarkings("CUI \\X2\\0041\\X0\\")).toEqual(["cui"]);
+    // A match found only by the raw scan is kept: decoded, this reads "AITAR".
+    expect(detectStepHeaderMarkings("\\X2\\0041\\X0\\ITAR")).toEqual(["itar"]);
   });
 
   it("records a block, not a clean scan, for an escaped marking in a staged file", async () => {
@@ -1707,5 +1733,155 @@ describe("OVD-723 review round 7: STEP string escapes", () => {
     })).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_marking_hits", expect.objectContaining({ p_job_file_id: "cad-1" }));
     expect(rpc).not.toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.anything());
+  });
+});
+
+// OVD-723 review round 8: two fail open cases from the cross review, the
+// retryable OCR outcome, and STEP header normalization.
+describe("OVD-723 review round 8: a page is read only when OCR read it", () => {
+  const read = { pageCount: 1, pageCountKnown: true, drawingFullyRead: true as const };
+
+  it("does not count a page with a text layer and empty OCR output as read", () => {
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: "part", ocrText: "", ocrStatus: "ok" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: CLEAN_DRAWING, ocrText: " \n\t", ocrStatus: "ok" }] })).toBe(false);
+    // The text layer alone never makes a page read, whatever the OCR status says.
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: CLEAN_DRAWING }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "failed" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "ok" }] })).toBe(true);
+    expect(isDrawingTextFullyRead({ ...read, pages: [{ text: "", ocrText: "SHEET 1", ocrStatus: "ok" }] })).toBe(true);
+  });
+
+  it("keeps drawingFullyRead as a precondition", () => {
+    const pages = [{ text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "ok" }];
+    expect(isDrawingTextFullyRead({ ...read, drawingFullyRead: false, pages })).toBe(false);
+  });
+
+  it("records no clean scan for a drawing whose OCR came back empty on a text page", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const outcomes: ExportScanOutcomes = {};
+    await scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1", localPath: "/stage/d.pdf", contentSha256: "d".repeat(64) },
+      extractText: async () => ({ ...read, pages: [{ text: "part", ocrText: "", ocrStatus: "ok" }] }),
+    }, outcomes);
+    expect(rpc).not.toHaveBeenCalled();
+    // OCR ran and read nothing: a blank or unreadable page, final for these bytes.
+    expect(outcomes).toEqual({ "drawing-1": { contentSha256: "d".repeat(64), outcome: "drawing_unread" } });
+  });
+});
+
+describe("OVD-723 review round 8: an OCR environment failure is retryable, not final", () => {
+  const sha = "8".repeat(64);
+  const stage = vi.fn(async () => ({ localPath: "/stage/f", trustedContentSha256: sha }));
+  const unreadBy = (ocrStatus: string) => ({
+    pageCount: 2,
+    pageCountKnown: true,
+    drawingFullyRead: false,
+    pages: [
+      { text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "ok" },
+      { text: "SHEET 2", ocrText: "", ocrStatus },
+    ],
+  });
+
+  it.each(["failed", "not_read", "unavailable"])("classifies OCR status %s as drawing_ocr_failed", (status) => {
+    expect(drawingUnreadOutcome(unreadBy(status))).toBe("drawing_ocr_failed");
+  });
+
+  it("keeps a blank or unreadable page with OCR ok as drawing_unread", () => {
+    expect(drawingUnreadOutcome({ ...unreadBy("ok"), drawingFullyRead: true })).toBe("drawing_unread");
+    expect(drawingUnreadOutcome(null)).toBe("drawing_unread");
+  });
+
+  it.each(["failed", "not_read", "unavailable"])("a rescan that hits OCR status %s completes as drawing_ocr_failed with no scan", async (status) => {
+    const rpc = vi.fn();
+    await expect(runExportMarkingRescan({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      file: { id: "drawing-1", original_name: "d.pdf", file_kind: "drawing" },
+      stage,
+      extractText: async () => unreadBy(status),
+    })).resolves.toBe("drawing_ocr_failed");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("records drawing_ocr_failed for extraction and the trusted reuse path", async () => {
+    const outcomes: ExportScanOutcomes = {};
+    await scanStagedDrawingForExportMarkings({ rpc: vi.fn() } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1", localPath: "/stage/d.pdf", contentSha256: sha },
+      extractText: async () => unreadBy("unavailable"),
+    }, outcomes);
+    expect(outcomes).toEqual({ "drawing-1": { contentSha256: sha, outcome: "drawing_ocr_failed" } });
+
+    const error = new ExportControlDrawingUnreadError({ jobFileId: "drawing-1", contentSha256: sha }, "drawing_ocr_failed");
+    expect(exportScanOutcomesPayload(error)).toEqual({
+      exportScanOutcomes: { "drawing-1": { contentSha256: sha, outcome: "drawing_ocr_failed" } },
+    });
+    expect(workerIndex).toContain("drawingUnreadOutcome(pdfText)");
+  });
+
+  it("treats only drawing_unread and step_header_incomplete as final in SQL", () => {
+    const outcome = sqlFunctionBody("private.export_rescan_final_outcome");
+    expect(outcome).toContain("where latest.outcome in ('drawing_unread', 'step_header_incomplete');");
+    expect(outcome).not.toContain("drawing_ocr_failed");
+  });
+});
+
+describe("OVD-723 review round 8: malformed STEP escapes fail closed", () => {
+  const header = (body: string) => `ISO-10303-21;\nHEADER;\n${body}\nENDSEC;\nDATA;\nENDSEC;\n`;
+
+  it.each([
+    ["an odd length \\X2\\ group", "FILE_DESCRIPTION(('\\X2\\00490054004100520\\X0\\'),'2;1');"],
+    ["an invalid \\X4\\ code point", "FILE_DESCRIPTION(('\\X4\\00110000\\X0\\'),'2;1');"],
+    ["a surrogate \\X4\\ code point", "FILE_DESCRIPTION(('\\X4\\0000D800\\X0\\'),'2;1');"],
+    ["an escape split across strings", "FILE_DESCRIPTION(('\\X2\\00490054','00410052\\X0\\'),'2;1');"],
+    ["an unterminated \\X2\\", "FILE_DESCRIPTION(('\\X2\\00490054'),'2;1');"],
+    ["a stray \\X0\\", "FILE_DESCRIPTION(('ab\\X0\\'),'2;1');"],
+    ["a bad \\X\\ code", "FILE_DESCRIPTION(('\\X\\ZZ'),'2;1');"],
+  ])("marks the header incomplete for %s", async (_label, body) => {
+    const text = header(body);
+    expect(readStepHeader(text).complete).toBe(false);
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await expect(enforceAndRecordStepHeaderScan({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      jobFileId: "cad-1",
+      localPath: "/stage/part.step",
+      contentSha256: "e".repeat(64),
+      readPrefix: async () => Buffer.from(text, "latin1"),
+    })).resolves.toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps well formed escapes and ordinary backslash paths complete", () => {
+    expect(readStepHeader(header("FILE_DESCRIPTION(('\\X2\\00E9\\X0\\ \\X\\E9 \\S\\e \\PA\\ a\\\\b'),'2;1');")).complete).toBe(true);
+    expect(readStepHeader(header("FILE_NAME('C:\\Users\\Parts\\Program Files\\bracket.step','2026',(''),(''),'','','');")).complete).toBe(true);
+  });
+
+  it("still detects a marking in a header with a malformed escape", () => {
+    const text = header("FILE_DESCRIPTION(('\\X2\\004\\X0\\ ITAR'),'2;1');");
+    expect(readStepHeader(text).complete).toBe(false);
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
+  });
+});
+
+describe("OVD-723 review round 8: STEP header text is normalized before matching", () => {
+  it("detects fullwidth ITAR (NFKC)", () => {
+    expect(detectStepHeaderMarkings("'\\X2\\FF29FF34FF21FF32\\X0\\'")).toEqual(["itar"]);
+    // Raw UTF-8 bytes read as latin1, as a nonconforming exporter writes them.
+    expect(detectStepHeaderMarkings(Buffer.from("'ＩＴＡＲ'", "utf8").toString("latin1"))).toEqual(["itar"]);
+  });
+
+  it("detects ITAR with a zero width space inside it", () => {
+    expect(detectStepHeaderMarkings("'IT\\X2\\200B\\X0\\AR'")).toEqual(["itar"]);
+    expect(detectStepHeaderMarkings(Buffer.from("'IT\u200BAR'", "utf8").toString("latin1"))).toEqual(["itar"]);
+  });
+
+  it("keeps a match found only by the raw scan", () => {
+    // Decoded this reads "AITAR", which has no word boundary before ITAR.
+    expect(detectExportControlMarkings(decodeStepStringEscapes("\\X2\\0041\\X0\\ITAR"))).toEqual([]);
+    expect(detectStepHeaderMarkings("\\X2\\0041\\X0\\ITAR")).toEqual(["itar"]);
   });
 });
