@@ -38,10 +38,11 @@
    15-minute grant for the exact org/sha256 object (`private.export_cleared_upload_grants`),
    and PHASE 2 adds `current_user_has_export_cleared_upload(name)` to
    `"job_files_storage_insert"`.
-6. **More reason codes were needed.** These two are added to the plan's codes:
+6. **More reason codes were needed.** These three are added to the plan's codes:
    `export_declaration_stale` (the upload referenced a declaration that is no
-   longer the latest) and `export_control_lookup_failed` (the dispatch lookup
-   raised).
+   longer the latest), `export_control_lookup_failed` (the dispatch lookup
+   raised), and `export_scan_missing` (a file the part sends has no clean scan
+   of record in its own job; see "Reused files and skipped extraction").
 7. **No separate OCR source.** OCR runs inside `extractPdfText`, so its hits are
    recorded as `drawing_text`. The `drawing_ocr` source exists for a later split.
 8. **No help-article system.** The article is `docs/help/export-controlled-files.md`.
@@ -84,12 +85,63 @@
 - Backfill: every existing job with files gets a `missing` declaration, so it is
   denied dispatch until the user declares.
 
+## Reused files and skipped extraction
+
+QA asked whether files that skip extraction are ever scanned. Before this
+change, some were not. These are the paths:
+
+| Path | Where | Scanned before this change? |
+| --- | --- | --- |
+| Org blob reuse: the same bytes uploaded again in the org. `prepare` returns `reused` and attaches the existing blob as a new `job_files` row with no Storage upload. | `job_file_prepare_core` (body from `20261004110000`), `uploadFilesToJob` | Partly. Extraction still runs for the new part unless trusted reuse (next row) applies. The STEP header is scanned on every quote. |
+| Trusted artifact reuse: a part whose trusted CAD and drawing hashes match a completed part version in the same org copies that part's `drawing_extractions` and preview assets, and the task completes **without extraction**. The source part can be in a different job. | `handleExtractTask` in `worker/src/index.ts` → `api_reuse_trusted_part_version_artifacts` (`20260812042000`) | **No.** The drawing scan runs only inside extraction, so the reusing part's drawing was never scanned in its own job. A block on the source part's job doesn't hold the target job, because blocks are keyed on `job_id`. A source extracted before OVD-723 was never scanned at all. |
+| In-job duplicate (`duplicate_in_job`), and duplicates within one upload batch | prepare core, `uploadFilesToJob` | Not applicable. Nothing is attached. |
+| Legacy attach (`api_attach_job_file`) | `20260815093000` | Not applicable. It always raises `legacy_file_attach_unavailable`. |
+| Job or part duplication | none found | No RPC or client path duplicates a job or part. `importSpreadsheetQuotes`'s "duplicate" handling only rejects ambiguous workbook matches. |
+
+Fix (fail closed):
+
+- **Scan of record.** `private.job_file_export_scans` stores clean scan results,
+  keyed on the `job_files.id` in its own job, never on `content_sha256`. A
+  scan of the same bytes in another job doesn't count. The worker writes rows
+  through the service-role RPC `api_record_export_control_clean_scan`, which
+  checks that the file belongs to the job. Hits still open blocks through
+  `api_record_export_control_marking_hits`.
+- **Dispatch rule (PHASE 1).** `export_control_dispatch_denial_for_task` reads
+  the task's `part_id` and, after the job-level rule passes, calls
+  `private.export_control_scan_denial`. That function returns
+  `export_scan_missing` in four cases: the part is missing, the drawing has no
+  drawing scan, the CAD file reference is dangling, or a STEP CAD file has no
+  `step_header` scan.
+- **Worker.** Extraction records a clean drawing scan. If the drawing text
+  could not be read, nothing is recorded and dispatch stays denied. The
+  trusted-reuse branch scans the target part's own staged drawing before the
+  task completes (`scanStagedDrawingForExportMarkings`). A hit there opens a
+  block on the target job. Every quote task scans the STEP header and records
+  a clean scan before the preflight. A failed record fails the task.
+- **Remediation.** Parts extracted before the deploy have no drawing scan, so
+  they are denied with `export_scan_missing` until extraction runs again
+  (`api_request_extraction`). That covers every existing job, which the
+  backfill also marks `missing`.
+- **Known limits.** Only PDF drawings and STEP CAD headers have a scanner. The
+  rule doesn't cover other CAD formats (for example `.sldprt`, `.x_t`, `.igs`),
+  so it neither scans nor holds them. That is unchanged from before. Closing
+  that gap means either a scanner per format or denying dispatch for unscanned
+  formats, and that call needs a product decision. Each quote task appends one
+  STEP scan row per vendor attempt. The rows are small and append-only.
+
+Tests: `worker/src/exportControl.test.ts` covers the reference model, the record
+and fail-closed behavior, the reuse-branch wiring, and draft assertions
+(per-file keying, the phase split, and the rollback). The pending pgTAP section
+8 covers the SQL rule, including a reused copy of the same bytes being denied.
+
 ## Verification status
 
 - vitest: client gate (`src/features/quotes/api/uploads-export-control.test.ts`,
   `src/features/quotes/export-control.test.ts`), dialog
   (`src/components/quotes/ExportControlDeclarationDialog.test.tsx`), worker
-  (`worker/src/exportControl.test.ts`), plus updated existing upload tests.
+  (`worker/src/exportControl.test.ts`, which also checks that the SQL
+  foreign-provider list exactly equals `FOREIGN_JURISDICTION_PROVIDERS`), plus
+  updated existing upload tests and `worker/src/jev/operationalTask.test.ts`.
 - pgTAP: `supabase/tests/pending/ovd723_export_control_upload_block.sql.pending`
   targets the draft. **Not executed.** This box has no Docker or local
   Postgres, and the draft isn't applied. The policy runner stages but does not
