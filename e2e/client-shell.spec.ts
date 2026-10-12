@@ -220,7 +220,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       const quoteInformation = page.getByRole("region", { name: "Quote information" });
       const quoteCriteria = page.getByLabel("Need by date", { exact: true });
       const scatterChart = page.getByRole("group", {
-        name: "Quote comparison by delivered date and expected out-the-door cost",
+        name: "Quote comparison by delivered date and expected delivered cost",
       });
 
       await expect(preview).toBeVisible();
@@ -241,7 +241,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
         const quoteInformationElement = document.querySelector('[aria-label="Quote information"]');
         const quoteCriteriaElement = document.querySelector("#quote-selection-due-by");
         const scatterChartElement = document.querySelector(
-          '[aria-label="Quote comparison by delivered date and expected out-the-door cost"]',
+          '[aria-label="Quote comparison by delivered date and expected delivered cost"]',
         );
 
         if (

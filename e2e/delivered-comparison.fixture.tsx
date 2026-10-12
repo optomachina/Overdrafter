@@ -16,7 +16,7 @@ function option(key: string, vendorKey: VendorName, vendorLabel: string, overrid
   return makeClientQuoteOption({
     key, offerId: key, persistedOfferId: key, vendorKey, vendorLabel, supplier: vendorLabel,
     vendorQuoteResultId: `result-${vendorKey}`, leadTimeBusinessDays: null, resolvedDeliveryDate: null,
-    laneLabel: key.replace(/-/g, " "), ...overrides,
+    laneLabel: key.replaceAll("-", " "), ...overrides,
   });
 }
 

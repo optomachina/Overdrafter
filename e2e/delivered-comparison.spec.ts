@@ -48,12 +48,12 @@ for (const { name, width, touch } of [
   test.describe(`@fixture OVD-571 delivered comparison (${name})`, () => {
     test.use({ hasTouch: touch, isMobile: touch });
 
-    test("plots delivered dates and OTD, keeps every option accessible, and shows no winner", async ({ page }) => {
+    test("plots delivered dates and expected delivered cost, keeps every option accessible, and shows no winner", async ({ page }) => {
       const { external, pageErrors } = await open(page, width);
-      const chart = page.getByRole("group", { name: "Quote comparison by delivered date and expected out-the-door cost" });
+      const chart = page.getByRole("group", { name: "Quote comparison by delivered date and expected delivered cost" });
       await expect(chart).toBeVisible();
-      await expect(chart.getByText("Delivered date")).toBeVisible();
-      await expect(chart.getByText("Expected OTD (out-the-door)")).toBeVisible();
+      await expect(chart.getByText("Delivered date", { exact: true })).toBeVisible();
+      await expect(chart.getByText("Expected delivered cost", { exact: true })).toBeVisible();
       // Overlapping options are separate points: no jitter, no collapse.
       await expect(page.locator('[data-quote-point="protolabs-overlap"]')).toHaveCount(1);
       await expect(page.locator('[data-quote-point="xometry-standard"]')).toHaveCount(1);
@@ -234,7 +234,8 @@ for (const { name, width, touch } of [
       expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThanOrEqual(2);
 
       const notice = page.getByTestId("quote-request-completion-notice");
-      await expect(notice).toHaveAttribute("role", "status");
+      await expect(page.getByRole("status").filter({ has: page.getByText(/Quote request complete/) })).toHaveCount(1);
+      expect(await notice.evaluate((element) => element.tagName)).toBe("OUTPUT");
       const dismissBox = await notice.getByRole("button", { name: "Dismiss request completion notice" }).boundingBox();
       expect(dismissBox!.width).toBeGreaterThanOrEqual(24);
       expect(dismissBox!.height).toBeGreaterThanOrEqual(24);

@@ -934,7 +934,7 @@ const ClientPart = () => {
                 <ClientQuoteDecisionPanel
                     className="rounded-[12px]"
                     title="Quote comparison"
-                    description="Set the sourcing criteria, then compare every quote by delivered date and expected out-the-door cost."
+                    description="Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost."
                     options={rankedQuoteOptions}
                     selectedOption={
                       rankedQuoteOptions.find((option) => option.key === selectedOptionKey) ?? selectedQuoteOption

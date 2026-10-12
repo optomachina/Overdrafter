@@ -451,22 +451,22 @@ function describeDeliveredArrival(row: DeliveredComparisonRow): string {
 function describeDeliveredOtd(row: DeliveredComparisonRow): string {
   if (row.otd.kind === "complete") {
     const suffix = row.otd.provenance === "estimated" ? " (estimated)" : "";
-    return `Expected OTD ${formatCurrency(row.otd.amountUsd)}${suffix}`;
+    return `Expected delivered cost ${formatCurrency(row.otd.amountUsd)}${suffix}`;
   }
   if (row.otd.kind === "partial") {
-    return `Expected OTD at least ${formatCurrency(row.otd.knownAmountUsd)}; ${formatUnknownCostComponents(row.otd.unknownComponents)} not quoted`;
+    return `Expected delivered cost at least ${formatCurrency(row.otd.knownAmountUsd)}; ${formatUnknownCostComponents(row.otd.unknownComponents)} not quoted`;
   }
-  return "Expected OTD unknown";
+  return "Expected delivered cost unknown";
 }
 
 function describeDeadlineStatus(status: DeadlineStatus): string | null {
   if (status === "late") return "Misses deadline";
   if (status === "on_time") return "Meets deadline";
-  if (status === "unconfirmed") return "Deadline fit unconfirmed";
+  if (status === "unconfirmed") return "May miss deadline";
   return null;
 }
 
-function DeliveredTooltipContent({ active, payload }: { active?: boolean; payload?: Array<{ payload: DeliveredChartPoint }> }) {
+function DeliveredTooltipContent({ active, payload }: Readonly<{ active?: boolean; payload?: Array<{ payload: DeliveredChartPoint }> }>) {
   if (!active || !payload?.[0]) {
     return null;
   }
@@ -486,7 +486,14 @@ function DeliveredTooltipContent({ active, payload }: { active?: boolean; payloa
   );
 }
 
-function DeliveredPointShape(props: { cx?: number; cy?: number; payload?: DeliveredChartPoint }) {
+type DeliveredPointShapeProps = Readonly<{ cx?: number; cy?: number; payload?: DeliveredChartPoint }>;
+
+function deliveredPointStroke(payload: DeliveredChartPoint, isActive: boolean): string {
+  if (payload.hollow) return payload.fill;
+  return isActive ? "var(--text)" : "var(--hairline)";
+}
+
+function DeliveredPointShape(props: DeliveredPointShapeProps) {
   const { cx, cy, payload } = props;
   if (cx === undefined || cy === undefined || !payload) {
     return null;
@@ -504,12 +511,17 @@ function DeliveredPointShape(props: { cx?: number; cy?: number; payload?: Delive
         r={FIXED_POINT_RADIUS}
         fill={payload.fill}
         fillOpacity={payload.hollow ? 0.18 : 1}
-        stroke={payload.hollow ? payload.fill : isActive ? "var(--text)" : "var(--hairline)"}
+        stroke={deliveredPointStroke(payload, isActive)}
         strokeWidth={payload.hollow || isActive ? 1.75 : 1}
         strokeDasharray={payload.hollow ? "3 2" : undefined}
       />
     </g>
   );
+}
+
+/** Recharts passes untyped shape props; one module-level renderer keeps the shape a stable component. */
+function renderDeliveredPointShape(shapeProps: unknown) {
+  return <DeliveredPointShape {...(shapeProps as DeliveredPointShapeProps)} />;
 }
 
 function clampDay(day: number, min: number, max: number) {
@@ -631,7 +643,7 @@ function DeadlineHandle({
         <span aria-hidden="true" className="h-full border-l-2 border-dashed border-foreground/70 group-focus-visible:border-foreground" />
         <span
           data-testid="deadline-grip"
-          className="pointer-events-auto absolute inline-flex min-h-6 min-w-11 cursor-ew-resize items-center justify-center whitespace-nowrap rounded-[2px] border border-border bg-ws-raised px-1.5 font-mono text-[10px] text-foreground shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-foreground"
+          className="pointer-events-auto absolute inline-flex min-h-6 min-w-11 cursor-ew-resize items-center justify-center whitespace-nowrap rounded-[2px] border border-border bg-ws-raised px-1.5 font-mono text-[10px] text-foreground group-focus-visible:ring-2 group-focus-visible:ring-foreground"
           style={{ top: -(DEADLINE_GRIP_HEIGHT + DEADLINE_GRIP_CLEARANCE), height: DEADLINE_GRIP_HEIGHT, touchAction: "none" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -677,7 +689,7 @@ function DeliveredQuoteComparisonChart({
         selected: selectedKey === row.key,
         hovered: hoveredKey === row.key,
         deadlineStatus,
-        label: `${row.option.vendorLabel}${row.option.laneLabel ?? row.option.tier ? ` · ${row.option.laneLabel ?? row.option.tier}` : ""}`,
+        label: [row.option.vendorLabel, row.option.laneLabel ?? row.option.tier].filter(Boolean).join(" · "),
         row,
       }];
     });
@@ -738,7 +750,7 @@ function DeliveredQuoteComparisonChart({
         config={chartConfig}
         className="h-[320px] w-full sm:h-[420px]"
         role="group"
-        aria-label="Quote comparison by delivered date and expected out-the-door cost"
+        aria-label="Quote comparison by delivered date and expected delivered cost"
       >
         <ScatterChart accessibilityLayer margin={DELIVERED_MARGIN}>
           <CartesianGrid stroke="var(--hairline)" />
@@ -773,7 +785,7 @@ function DeliveredQuoteComparisonChart({
             width={DELIVERED_Y_AXIS_WIDTH}
           >
             <Label
-              value="Expected OTD (out-the-door)"
+              value="Expected delivered cost"
               angle={-90}
               position="insideLeft"
               offset={4}
@@ -790,7 +802,7 @@ function DeliveredQuoteComparisonChart({
               fill={getVendorColor(vendorKey)}
               line={false}
               isAnimationActive={false}
-              shape={(shapeProps: unknown) => <DeliveredPointShape {...(shapeProps as { cx?: number; cy?: number; payload?: DeliveredChartPoint })} />}
+              shape={renderDeliveredPointShape}
               onClick={(point) => {
                 const payload = (point as { payload?: DeliveredChartPoint } | undefined)?.payload;
                 if (payload?.row.option.isSelectable) {

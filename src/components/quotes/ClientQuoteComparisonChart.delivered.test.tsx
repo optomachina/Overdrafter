@@ -112,7 +112,7 @@ describe("ClientQuoteComparisonChart delivered axes (OVD-571)", () => {
   it("labels the axes as delivered date and expected OTD", () => {
     renderChart();
     expect(screen.getByText("Delivered date")).toBeInTheDocument();
-    expect(screen.getByText("Expected OTD (out-the-door)")).toBeInTheDocument();
+    expect(screen.getByText("Expected delivered cost")).toBeInTheDocument();
     expect(screen.queryByText("Lead not quoted")).not.toBeInTheDocument();
   });
 

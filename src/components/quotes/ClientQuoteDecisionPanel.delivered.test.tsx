@@ -168,11 +168,13 @@ describe("ClientQuoteDecisionPanel delivered-date comparison (OVD-571)", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("re-anchors the viewport only for arrivals, never for a table order or deadline reorder", () => {
+  it("re-anchors the viewport only for arrivals, never for a table order, deadline or selection change", () => {
     // jsdom has no layout: place each row by its index so a reorder moves the selected row.
     const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const index = this.matches("tr[data-quote-key]") ? Array.from(this.parentElement?.children ?? []).indexOf(this) : 0;
-      const top = 100 + index * 40;
+      // The selected-option summary sits above the table, so it pushes every row down.
+      const summaryOffset = document.querySelector('[data-testid="selected-option-summary"]') ? 100 : 0;
+      const top = 100 + summaryOffset + index * 40;
       return { top, bottom: top + 40, left: 0, right: 600, width: 600, height: 40, x: 0, y: top, toJSON: () => ({}) };
     });
     const scrollBy = vi.fn();
@@ -197,6 +199,13 @@ describe("ClientQuoteDecisionPanel delivered-date comparison (OVD-571)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Mock drag deadline" }));
       fireEvent.click(screen.getByRole("radio", { name: "Cheapest" }));
       expect(rowKeys()).not.toEqual(afterMode);
+      expect(scrollBy).not.toHaveBeenCalled();
+
+      // Picking an option makes the summary above the table appear and push the
+      // rows down; that selection never scrolls the page either.
+      view.rerender(<ClientQuoteDecisionPanel {...props} selectedOption={null} options={[LATE_CHEAP, ON_PRICEY, ON_MID, UNKNOWN]} />);
+      view.rerender(<ClientQuoteDecisionPanel {...props} selectedOption={ON_MID} options={[LATE_CHEAP, ON_PRICEY, ON_MID, UNKNOWN]} />);
+      expect(screen.getByTestId("selected-option-summary")).toBeInTheDocument();
       expect(scrollBy).not.toHaveBeenCalled();
 
       // An arrival above the selected row keeps that row where it was.
@@ -229,7 +238,9 @@ describe("ClientQuoteDecisionPanel request-completion notice (OVD-571)", () => {
   it("announces completion with counts that exclude concealed overseas and unverified-origin results", () => {
     renderPanel({ options: [domestic, foreign, unverified], activePreset: "cheapest_domestic", requestCompletion: completion });
     const notice = screen.getByTestId("quote-request-completion-notice");
-    expect(notice).toHaveAttribute("role", "status");
+    // <output> carries the implicit status role, so the notice is a polite live region.
+    expect(notice.tagName).toBe("OUTPUT");
+    expect(screen.getByRole("status")).toBe(notice);
     expect(notice).toHaveTextContent("Quote request complete: 1 option from 1 provider.");
     expect(notice).toHaveTextContent("1 provider returned no quote.");
     expect(notice.textContent).not.toMatch(/3 options|overseas|international|hidden/i);

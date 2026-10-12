@@ -136,7 +136,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   `e2e/quote-confirmation/README.md` for the matrix and recovery boundaries.
 - `npx playwright test --config e2e/delivered-comparison.config.ts` is the
   `OVD-571` static-fixture lane for the actual `ClientQuoteDecisionPanel`:
-  delivered-date/OTD axes, overlap and late options, Cheapest/Fastest order,
+  delivered-date and expected-delivered-cost axes, overlap and late options, Cheapest/Fastest order,
   deadline keyboard/mouse/touch control (grip only; points under the line stay
   clickable), arrival-time selection, focus and viewport preservation (no
   scroll on a user reorder), and the terminal request notice at desktop and

@@ -279,7 +279,7 @@ function SelectedOptionSummary({
       </p>
       <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-6">
         <SummaryFact label="Vendor" value={option.vendorLabel} />
-        <SummaryFact label="Expected OTD" value={row ? formatOtdText(row) : formatCurrency(option.totalPriceUsd)} />
+        <SummaryFact label="Expected delivered cost" value={row ? formatOtdText(row) : formatCurrency(option.totalPriceUsd)} />
         <SummaryFact label="Delivered by" value={row ? formatArrivalText(row) : "Arrival unknown"} />
         <SummaryFact label="Quantity" value={String(option.requestedQuantity)} />
         <SummaryFact label="Sourcing" value={formatGeographicOrigin(option.geographicOrigin)} />
@@ -384,7 +384,7 @@ function DeliveredOtdCell({ row }: Readonly<{ row: DeliveredComparisonRow }>) {
 
 const DEADLINE_STATUS_LABELS: Partial<Record<DeadlineStatus, string>> = {
   late: "Misses deadline",
-  unconfirmed: "Deadline fit unconfirmed",
+  unconfirmed: "May miss deadline",
 };
 
 function ProviderSwatch({ option }: Readonly<{ option: ClientQuoteSelectionOption }>) {
@@ -570,7 +570,8 @@ function TableModeControl({
   onChange,
 }: Readonly<{ mode: DeliveredComparisonMode; onChange: (mode: DeliveredComparisonMode) => void }>) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  // ARIA radiogroup pattern: the checked radio is the tab stop; arrows move and select.
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     const next = mode === "cheapest" ? "fastest" : "cheapest";
@@ -582,8 +583,7 @@ function TableModeControl({
     <div
       role="radiogroup"
       aria-label="Table order"
-      className="inline-flex items-center overflow-hidden rounded-full border border-border bg-muted p-0.5"
-      onKeyDown={handleKeyDown}
+      className="inline-flex w-fit rounded-[2px] border border-border"
     >
       {TABLE_MODES.map((entry, index) => (
         <button
@@ -596,10 +596,11 @@ function TableModeControl({
           aria-checked={mode === entry.key}
           tabIndex={mode === entry.key ? 0 : -1}
           className={cn(
-            "h-7 rounded-full px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-foreground",
-            mode === entry.key ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-accent",
+            "min-h-8 border-r border-border px-3 text-xs font-medium outline-none last:border-r-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+            mode === entry.key ? "bg-primary text-primary-foreground" : "bg-ws-card text-muted-foreground hover:text-foreground",
           )}
           onClick={() => onChange(entry.key)}
+          onKeyDown={handleKeyDown}
         >
           {entry.label}
         </button>
@@ -653,8 +654,8 @@ function QuoteComparisonTable({
   // Keep the focused (or selected) row at the same viewport position when an
   // arrival inserts rows or content above it. The position is read during
   // render, before React commits the new DOM, so user scrolling is never undone.
-  // Reorders the user asks for (table order, deadline) never re-anchor: the
-  // page must not scroll under the control in use.
+  // Only arrivals re-anchor. Reorders and selection changes the user makes
+  // (table order, deadline, picking a row) never scroll the page under them.
   const anchorKey = focusedKeyRef.current ?? selectedKey;
   const preCommitTop = anchorKey ? findRow(anchorKey)?.getBoundingClientRect().top ?? null : null;
   useLayoutEffect(() => {
@@ -666,7 +667,7 @@ function QuoteComparisonTable({
     if (Math.abs(delta) >= 1) {
       findScrollContainer(element).scrollBy?.({ top: delta, behavior: "instant" as ScrollBehavior });
     }
-    // Only arrivals and content changes above the row re-anchor; hover renders never move the viewport.
+    // Only arrivals (new options or the arrival notice above) re-anchor; hover renders never move the viewport.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutKey]);
 
@@ -691,7 +692,7 @@ function QuoteComparisonTable({
             <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Vendor</TableHead>
             <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Scope</TableHead>
             <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Unit</TableHead>
-            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Expected OTD</TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Expected delivered cost</TableHead>
             <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Delivered by</TableHead>
             <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Source</TableHead>
           </TableRow>
@@ -820,6 +821,7 @@ function DeadlineSummary({
     );
   }
   const adjusted = viewDeadline !== baseDeadline;
+  const savedLabel = baseDeadline ? formatCivilDate(baseDeadline) : "not set";
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="deadline-summary">
       <span className="text-foreground">
@@ -827,7 +829,7 @@ function DeadlineSummary({
       </span>
       <span className="text-muted-foreground">
         {adjusted
-          ? `Adjusted for this view; saved deadline ${baseDeadline ? formatCivilDate(baseDeadline) : "not set"}`
+          ? `Adjusted for this view; saved deadline ${savedLabel}`
           : DEADLINE_STATE_LABELS[baseState]}
       </span>
       {adjusted && baseDeadline ? (
@@ -851,12 +853,11 @@ function QuoteRequestCompletionBanner({
     ? "Quote request complete: no comparable options to show."
     : `Quote request complete: ${formatCount(notice.optionCount, "option", "options")} from ${formatCount(notice.providerWithOptionsCount, "provider", "providers")}.`;
   return (
-    <div
-      role="status"
+    <output
       data-testid="quote-request-completion-notice"
       className="mt-4 flex items-start justify-between gap-3 border border-border bg-ws-inset px-3 py-2 text-xs text-foreground"
     >
-      <p className="flex items-start gap-2">
+      <span className="flex items-start gap-2">
         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span>
           {summary}
@@ -864,7 +865,7 @@ function QuoteRequestCompletionBanner({
             ? ` ${formatCount(notice.noQuoteProviderCount, "provider", "providers")} returned no quote.`
             : ""}
         </span>
-      </p>
+      </span>
       <button
         type="button"
         aria-label="Dismiss request completion notice"
@@ -873,7 +874,7 @@ function QuoteRequestCompletionBanner({
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
-    </div>
+    </output>
   );
 }
 
@@ -897,7 +898,7 @@ type DecisionPanelContentProps = Readonly<{
   onViewDeadlineChange: (next: string | null) => void;
   now: Date;
   timeZone: string;
-  /** Changes whenever content rendered above the panel content appears or disappears. */
+  /** Changes when the arrival notice above the panel content appears or disappears. */
   aboveContentKey: string;
   /** Changes only when the set of received options changes (an arrival), never on a reorder or scope toggle. */
   arrivalKey: string;
@@ -981,7 +982,7 @@ function renderDecisionPanelContent({
         <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-1 pb-2">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Decision map</p>
-            <p className="mt-1 text-sm text-foreground">Delivered date × expected OTD</p>
+            <p className="mt-1 text-sm text-foreground">Delivered date × expected delivered cost</p>
           </div>
           <p className="max-w-xl text-right text-xs text-muted-foreground">
             Solid points are fully quoted; hollow points are lower bounds. Drag the deadline or use arrow keys.
@@ -1019,18 +1020,12 @@ function renderDecisionPanelContent({
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <TableModeControl mode={tableMode} onChange={onTableModeChange} />
-        <p className="text-xs text-muted-foreground">
-          {tableMode === "fastest"
-            ? "Ordered by delivered date."
-            : viewDeadline
-              ? "On-time options first by expected OTD, then unconfirmed, then late."
-              : "Ordered by expected OTD."}
-        </p>
+        <p className="text-xs text-muted-foreground">{describeTableOrder(tableMode, viewDeadline)}</p>
       </div>
 
       <QuoteComparisonTable
         rows={sortedRows}
-        layoutKey={[aboveContentKey, selectedKey ?? "", arrivalKey].join("|")}
+        layoutKey={[aboveContentKey, arrivalKey].join("|")}
         deadline={viewDeadline}
         excludedOffers={quoteDiagnostics?.excludedOffers ?? []}
         selectedOption={selectedOption}
@@ -1053,6 +1048,12 @@ function renderDecisionPanelContent({
   );
 }
 
+function describeTableOrder(mode: DeliveredComparisonMode, deadline: string | null): string {
+  if (mode === "fastest") return "Ordered by delivered date.";
+  if (deadline) return "On-time options first by expected delivered cost, then options that may miss the deadline, then late.";
+  return "Ordered by expected delivered cost.";
+}
+
 function presetTableMode(preset: QuotePreset | null): DeliveredComparisonMode {
   return getPresetMode(preset) === "fastest" ? "fastest" : "cheapest";
 }
@@ -1072,7 +1073,7 @@ function resolveDefaultTimeZone(): string {
  */
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
-  description = "Compare delivered date and expected out-the-door cost as one decision surface, then commit the selected option from the same workspace.",
+  description = "Compare delivered date and expected delivered cost as one decision surface, then commit the selected option from the same workspace.",
   options,
   selectedOption,
   onSelect,
@@ -1128,7 +1129,10 @@ export function ClientQuoteDecisionPanel({
     ? "No options have verified US sourcing. Switch to All sourcing to include international and unknown-origin variants."
     : emptyState;
 
-  const arrivalKey = useMemo(() => options.map((option) => option.key).sort().join(","), [options]);
+  const arrivalKey = useMemo(
+    () => options.map((option) => option.key).sort((left, right) => left.localeCompare(right)).join(","),
+    [options],
+  );
 
   const completionNotice = useMemo(
     () => (requestCompletion ? resolveQuoteRequestCompletion(requestCompletion, visibleOptions) : null),

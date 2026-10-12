@@ -290,7 +290,7 @@ export function resolveQuoteRequestCompletion(
   visibleOptions: readonly ClientQuoteSelectionOption[],
 ): QuoteRequestCompletionNotice | null {
   const { request, run } = input;
-  if (!request || !run || run.quoteRequestId !== request.id) {
+  if (!request || run?.quoteRequestId !== request.id) {
     return null;
   }
   if (request.status !== "received" && request.status !== "failed") {

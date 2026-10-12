@@ -13,7 +13,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 const PHONE_VIEWPORT = { width: 390, height: 844 };
 const DOMESTIC_LANES = ["US Economy", "US Standard", "US Expedite"];
 const ALL_SOURCING_LANE_COUNT = 7;
-const CHART_NAME = "Quote comparison by delivered date and expected out-the-door cost";
+const CHART_NAME = "Quote comparison by delivered date and expected delivered cost";
 const SIGN_IN_NOTE =
   "Vendor quote links open the supplier's purchasing page. Vendor sign-in or a vendor-issued guest link may be required.";
 // Any control whose accessible name mentions ordering, checkout or payment.
@@ -98,9 +98,9 @@ async function showAllSourcing(panel: Locator) {
  */
 async function findChartPoint(chart: Locator, quotedTotal: string) {
   const points = chartPoints(chart);
-  // The axis title "Expected OTD (out-the-door)" shares the prefix.
-  const tooltipTotal = chart.getByText(/^Expected OTD (?!\(out-the-door\))/);
-  const expectedTotal = `Expected OTD at least ${quotedTotal}; shipping, tax, fees not quoted`;
+  // The axis title is exactly "Expected delivered cost"; tooltip lines continue after a space.
+  const tooltipTotal = chart.getByText(/^Expected delivered cost /);
+  const expectedTotal = `Expected delivered cost at least ${quotedTotal}; shipping, tax, fees not quoted`;
   const pointCount = await points.count();
   let previousTotal: string | null = null;
 
@@ -251,7 +251,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await (await findChartPoint(chart, "$485.00")).click();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Expedite");
-    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $485.00");
+    await expect(summaryFact(panel, "Expected delivered cost")).toHaveText("≥ $485.00");
 
     // Table row -> current selection. The chart exposes no accessible
     // selected state for points, so the row-to-point direction has no role or
@@ -259,7 +259,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await quoteRow(panel, "US Standard").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Standard");
-    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $365.00");
+    await expect(summaryFact(panel, "Expected delivered cost")).toHaveText("≥ $365.00");
   });
 
   test("(c) plots offers as points only, with no line or area series", async ({ page }) => {
@@ -346,7 +346,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("Custom Finish");
     await expect(summaryFact(panel, "Vendor")).toHaveText("Xometry");
-    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $295.00");
+    await expect(summaryFact(panel, "Expected delivered cost")).toHaveText("≥ $295.00");
     await expect(summaryFact(panel, "Delivered by")).toHaveText("Arrival unknown");
 
     await panel.getByText("Response source facts", { exact: true }).click();
@@ -401,7 +401,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(selectedRow(panel)).toContainText("US Expedite");
     await quoteRow(panel, "US Standard").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toContainText("US Standard");
-    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $365.00");
+    await expect(summaryFact(panel, "Expected delivered cost")).toHaveText("≥ $365.00");
   });
 
   test("(g) opens vendor quote links over https without opener access", async ({ page }) => {
@@ -511,7 +511,7 @@ test.describe("client quote comparison on a phone", { tag: "@fixture" }, () => {
     await quoteRow(panel, "US Expedite").getByRole("cell").first().tap();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("US Expedite");
-    await expect(summaryFact(panel, "Expected OTD")).toHaveText("≥ $485.00");
+    await expect(summaryFact(panel, "Expected delivered cost")).toHaveText("≥ $485.00");
 
     await panel.getByRole("button", { name: "US-only sourcing" }).tap();
     await expect(panel.getByRole("button", { name: "All sourcing" })).toBeVisible();
