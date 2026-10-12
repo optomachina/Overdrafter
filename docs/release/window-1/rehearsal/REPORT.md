@@ -17,12 +17,12 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `e254d032` (its `supabase/migrations` tree is identical to `cc9a5fe8`; since then `main` only added the pgTAP suites `client_rpc_least_privilege` and `founding_beta_subscription_bypass`, which now run in every main suite gate), #675 `42d5cc61`, #677 `161329de` (723 EXPAND, a placeholder: #677 round 4 may change `ovd-723.sql`, and the packet will be repinned once more), #676 `8c3fc133` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `e254d032` (its `supabase/migrations` tree is identical to `cc9a5fe8`; since then `main` only added the pgTAP suites `client_rpc_least_privilege` and `founding_beta_subscription_bypass`, which now run in every main suite gate), #675 `42d5cc61`, #677 `161329de` (723 EXPAND, a placeholder: #677 round 4 may change `ovd-723.sql`, and the packet will be repinned once more), #676 `9b90e860` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
 | `ovd-462-only/` | 462 | **PASS, every gate** | 152 s |
-| `recommended/` | 462, 723, 722 | **PASS, every gate** | 313 s |
+| `recommended/` | 462, 723, 722 | **PASS, every gate** | 323 s |
 
 Per migration (recommended run; first apply / reapply):
 

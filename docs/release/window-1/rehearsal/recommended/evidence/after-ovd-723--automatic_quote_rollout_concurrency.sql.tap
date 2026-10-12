@@ -3,5 +3,5 @@
  1..2
 (1 row)
 
-psql:/tmp/ovd635-window1-WU1YMF/suites-ovd-462+ovd-723/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database
+psql:/tmp/ovd635-window1-gpyt9y/suites-ovd-462+ovd-723/automatic_quote_rollout_concurrency.sql:80: ERROR:  OVD-314 concurrency tests require a freshly reset disposable local database
 CONTEXT:  PL/pgSQL function inline_code_block line 23 at RAISE

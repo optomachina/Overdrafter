@@ -1,6 +1,6 @@
 {
   "format": "ovd.window1.manifest.v1",
-  "window": "Migration window 1 (target Wed Oct 21, 2026)",
+  "window": "Migration window 1 (date set by Blaine)",
   "base": {
     "ref": "origin/main",
     "sha": "e254d032842523a59c53128a072611c1b7985079"
@@ -48,7 +48,7 @@
       "id": "ovd-722",
       "title": "Provider kill switch (expand only: tables, RPCs, permit insert triggers)",
       "pr": 676,
-      "sha": "8c3fc133aae7fa67d8efca009bab7dde468271ef",
+      "sha": "9b90e8601556416082fa70d496b1d33374e62cea",
       "slug": "ovd722_provider_kill_switch",
       "draft": {
         "path": "docs/migration-drafts/ovd-722.sql"
