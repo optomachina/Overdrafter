@@ -601,7 +601,9 @@ Internal review implementation boundary:
   per mode remains enabled for new Checkout Sessions
 - the authenticated `billing-sessions` Edge Function accepts only an
   organization ID plus `checkout` or `portal`; the server owns the Stripe
-  Customer, single $49 monthly Price ID, mode, and return URLs
+  Customer, the Pro monthly catalog Price ID ($99, lookup key
+  `od_pro_month_v1`, validated against
+  `supabase/functions/_shared/billingCatalogPrices.json`), mode, and return URLs
 - the oldest active organization membership is the launch billing owner;
   internal organization administrators also retain billing-owner access, while
   later members and cross-organization callers are denied server-side

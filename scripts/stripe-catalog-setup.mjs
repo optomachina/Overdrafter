@@ -212,14 +212,79 @@ export async function syncStripeCatalog({
   return { created, drift, dryRun, existing, livemode: false };
 }
 
+export const STRIPE_API_BASE_URL = "https://api.stripe.com";
+export const STRIPE_API_VERSION = "2024-11-20.acacia";
+
+/** Encodes nested params the way Stripe's form API expects (a[b]=c, a[]=d). */
+export function encodeStripeForm(params, prefix = "", out = new URLSearchParams()) {
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    const name = prefix ? `${prefix}[${key}]` : key;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        out.append(`${name}[]`, String(item));
+      }
+    } else if (typeof value === "object") {
+      encodeStripeForm(value, name, out);
+    } else {
+      out.append(name, String(value));
+    }
+  }
+  return out;
+}
+
+/**
+ * Minimal Stripe REST client over fetch, exposing only the calls this script
+ * makes. No SDK dependency. Errors never echo the secret.
+ */
+export function createFetchStripeClient(secret, {
+  baseUrl = STRIPE_API_BASE_URL,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  async function request(method, path, params = {}) {
+    const form = encodeStripeForm(params).toString();
+    const url = method === "GET" && form ? `${baseUrl}${path}?${form}` : `${baseUrl}${path}`;
+    const response = await fetchImpl(url, {
+      body: method === "GET" ? undefined : form,
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Stripe-Version": STRIPE_API_VERSION,
+      },
+      method,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const type = typeof body?.error?.type === "string" ? body.error.type : "unknown";
+      throw new Error(`stripe_api_error:${response.status}:${type}`);
+    }
+    return body;
+  }
+
+  return {
+    balance: { retrieve: () => request("GET", "/v1/balance") },
+    prices: {
+      create: (params) => request("POST", "/v1/prices", params),
+      list: (params) => request("GET", "/v1/prices", params),
+    },
+    products: {
+      create: (params) => request("POST", "/v1/products", params),
+      search: (params) => request("GET", "/v1/products/search", params),
+    },
+  };
+}
+
 export async function runStripeCatalogSetup(argv, env, options = {}) {
   assertNotCi(env);
   const args = parseSetupArgs(argv);
   const secret = assertTestModeSecret(env.STRIPE_SECRET_KEY);
-  const client = options.client ?? await options.createClient?.(secret);
-  if (!client) {
-    throw new Error("stripe_catalog_client_missing");
-  }
+  const client = options.client ??
+    createFetchStripeClient(secret, {
+      baseUrl: options.baseUrl,
+      fetchImpl: options.fetchImpl,
+    });
   await assertTestModeAccount(client);
 
   return syncStripeCatalog({
@@ -235,22 +300,12 @@ function redactSecret(value) {
   return `${value.slice(0, 7)}…`;
 }
 
-async function defaultCreateClient(secret) {
-  const { default: Stripe } = await import("stripe");
-  return new Stripe(secret, {
-    apiVersion: "2024-11-20.acacia",
-    typescript: false,
-  });
-}
-
 const isMain = import.meta.url === `file://${process.argv[1]}` ||
   process.argv[1]?.endsWith("stripe-catalog-setup.mjs");
 
 if (isMain && process.env.OVD_STRIPE_CATALOG_SKIP_MAIN !== "1") {
   try {
-    const result = await runStripeCatalogSetup(process.argv.slice(2), process.env, {
-      createClient: defaultCreateClient,
-    });
+    const result = await runStripeCatalogSetup(process.argv.slice(2), process.env);
     console.log(JSON.stringify({
       created: result.created,
       drift: result.drift,

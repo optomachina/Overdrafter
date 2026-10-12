@@ -266,12 +266,35 @@ export function canPurchaseFoundingTeam(slotsUsed: number): boolean {
     slotsUsed < FOUNDING_TEAM_MAX_SLOTS;
 }
 
+/**
+ * "expanded": Checkout retrieves the Price with `expand: ["product"]`, so the
+ * product's own active and deleted state is checked.
+ * "id": webhook payloads carry `price.product` as a `prod_` ID string. The
+ * product's state is not in the event, so only the ID shape is checked;
+ * Checkout re-validates with the expanded product before any sale.
+ */
+export type CatalogProductMode = "expanded" | "id";
+
+function productFailures(product: unknown, mode: CatalogProductMode): string[] {
+  if (isExpandedProduct(product)) {
+    if (product.deleted === true) {
+      return ["product_deleted"];
+    }
+    return product.active === true ? [] : ["product_inactive"];
+  }
+  if (mode === "id") {
+    return typeof product === "string" && /^prod_[A-Za-z0-9]+$/.test(product)
+      ? []
+      : ["product_id_invalid"];
+  }
+  return ["product_not_expanded"];
+}
+
 function catalogGuardFailures(
   price: CatalogPriceLike,
   expected: CatalogPrice,
-  options: { expectedLivemode: boolean },
+  options: { expectedLivemode: boolean; productMode?: CatalogProductMode },
 ): string[] {
-  const product = isExpandedProduct(price.product) ? price.product : null;
   const metadata = price.metadata ?? {};
   const checks: Array<[boolean, string]> = [
     [expected.amountCents == null, "catalog_amount_tbd"],
@@ -287,9 +310,9 @@ function catalogGuardFailures(
       "interval_mismatch",
     ],
     [price.unit_amount !== expected.amountCents, "amount_mismatch"],
-    [product === null, "product_not_expanded"],
-    [product?.deleted === true, "product_deleted"],
-    [product?.active !== true, "product_inactive"],
+    ...productFailures(price.product, options.productMode ?? "expanded").map(
+      (reason): [boolean, string] => [true, reason],
+    ),
     [metadata.od_tier !== expected.tier, "tier_metadata_mismatch"],
     [metadata.od_interval !== expected.interval, "interval_metadata_mismatch"],
     [metadata.od_catalog_version !== String(BILLING_CATALOG_VERSION), "catalog_version_mismatch"],
@@ -300,7 +323,7 @@ function catalogGuardFailures(
 export function assertCatalogPrice(
   price: CatalogPriceLike,
   expected: CatalogPrice,
-  options: { expectedLivemode: boolean },
+  options: { expectedLivemode: boolean; productMode?: CatalogProductMode },
 ): { ok: true } | { ok: false; reason: string } {
   const [reason] = catalogGuardFailures(price, expected, options);
   return reason ? { ok: false, reason } : { ok: true };
@@ -382,6 +405,7 @@ export function evaluateCatalogWebhookEvent(
 
   const verdict = assertCatalogPrice(price, expected, {
     expectedLivemode: options.expectedLivemode,
+    productMode: "id",
   });
   if (verdict.ok && parsed.livemode === options.expectedLivemode) {
     return { action: "ok", entitlementsChanged: false, lookupKey };

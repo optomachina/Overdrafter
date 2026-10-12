@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,8 +10,10 @@ import {
   assertTestModeAccount,
   assertTestModeSecret,
   BILLING_CATALOG_PRICES,
+  encodeStripeForm,
   parseSetupArgs,
   runStripeCatalogSetup,
+  STRIPE_API_VERSION,
   syncStripeCatalog,
 } from "./stripe-catalog-setup.mjs";
 
@@ -192,10 +195,12 @@ test("draft SQL revokes authenticated, keeps disabled markers, and caps founding
     draftSql,
     /on conflict \(lookup_key\) do update[\s\S]{0,200}disabled_at = null/,
   );
-  assert.match(draftSql, /create or replace function public\.api_claim_founding_team_slot\(\)/);
-  assert.match(draftSql, /and slots_used < 8/);
-  assert.doesNotMatch(draftSql, /slots_used < 12|1\.\.12/);
-  assert.match(draftSql, /the ninth founding slot is refused/);
+  assert.match(draftSql, /create function public\.api_claim_founding_team_slot\(p_organization_id uuid\)/);
+  assert.match(draftSql, /create function public\.api_release_founding_team_slot\(p_organization_id uuid\)/);
+  assert.match(draftSql, /if v_slots >= 8 then/);
+  assert.doesNotMatch(draftSql, /slots_used < 12|1\.\.12|>= 12/);
+  assert.match(draftSql, /the ninth organization is refused/);
+  assert.match(draftSql, /configure refuses a webhook-disabled catalog key/);
   assert.match(draftSql, /has_function_privilege\(\s+'authenticated'/);
 });
 
@@ -203,8 +208,14 @@ test("migration draft lives outside supabase/migrations with a rollback and the 
   const draft = readFileSync(join(root, "docs/migration-drafts/ovd-725-stripe-catalog.sql"), "utf8");
   assert.match(draft, /DRAFT ONLY/);
   assert.match(draft, /ROLLBACK/);
-  assert.match(draft, /and slots_used < 8/);
-  assert.doesNotMatch(draft, /slots_used < 12/);
+  assert.match(draft, /if v_slots >= 8 then/);
+  assert.doesNotMatch(draft, />= 12/);
+  const draftSql = readFileSync(join(root, "supabase/tests/ovd725_stripe_catalog_draft.sql"), "utf8");
+  const ddl = (text, start) => text.slice(
+    text.indexOf("create table private.stripe_catalog_price_allowlist", start),
+    text.indexOf("  to service_role;\n", text.indexOf("api_release_founding_team_slot(uuid)\n  to service_role")) ,
+  );
+  assert.equal(ddl(draftSql), ddl(draft), "pgTAP proof DDL must match the migration draft");
 });
 
 test("example env names the catalog flags without values", () => {
@@ -241,29 +252,154 @@ test("second apply against a mock creates zero objects and reports drift", async
   assert.equal(state.prices[0].unit_amount, 999);
 });
 
-test("runStripeCatalogSetup uses the injected mock and never a live key", async () => {
-  const { client, state } = createMockStripe();
-  let createdWith;
-  const result = await runStripeCatalogSetup(
-    ["--apply"],
-    { STRIPE_SECRET_KEY: '  "sk_test_ovd725"  ' },
-    {
-      createClient: (secret) => {
-        createdWith = secret;
-        return client;
-      },
-    },
-  );
-  assert.equal(createdWith, "sk_test_ovd725");
-  assert.equal(result.created.prices, BILLING_CATALOG_PRICES.length);
-  assert.ok(state.networkCalls > 0);
+function startStripeStub() {
+  const requests = [];
+  const prices = [];
+  const products = [];
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => {
+      const url = new URL(req.url, "http://127.0.0.1");
+      const form = new URLSearchParams(req.method === "GET" ? url.search : raw);
+      requests.push({
+        authorization: req.headers.authorization,
+        contentType: req.headers["content-type"],
+        form,
+        method: req.method,
+        path: url.pathname,
+        version: req.headers["stripe-version"],
+      });
+      const send = (status, body) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.headers.authorization !== "Bearer sk_test_ovd725") {
+        send(401, { error: { type: "invalid_request_error" } });
+      } else if (req.method === "GET" && url.pathname === "/v1/balance") {
+        send(200, { livemode: false, object: "balance" });
+      } else if (req.method === "GET" && url.pathname === "/v1/prices") {
+        const keys = form.getAll("lookup_keys[]");
+        send(200, { data: prices.filter((price) => keys.includes(price.lookup_key)) });
+      } else if (req.method === "GET" && url.pathname === "/v1/products/search") {
+        send(200, { data: products });
+      } else if (req.method === "POST" && url.pathname === "/v1/products") {
+        const product = { active: true, id: `prod_stub${products.length + 1}`, name: form.get("name") };
+        products.push(product);
+        send(200, product);
+      } else if (req.method === "POST" && url.pathname === "/v1/prices") {
+        const product = products.find((item) => item.id === form.get("product"));
+        const price = {
+          active: true,
+          currency: form.get("currency"),
+          id: `price_stub${prices.length + 1}`,
+          livemode: false,
+          lookup_key: form.get("lookup_key"),
+          metadata: {
+            od_catalog_version: form.get("metadata[od_catalog_version]"),
+            od_interval: form.get("metadata[od_interval]"),
+            od_kind: form.get("metadata[od_kind]"),
+            od_tier: form.get("metadata[od_tier]"),
+          },
+          product,
+          recurring: {
+            interval: form.get("recurring[interval]"),
+            interval_count: Number(form.get("recurring[interval_count]")),
+          },
+          type: "recurring",
+          unit_amount: Number(form.get("unit_amount")),
+        };
+        prices.push(price);
+        send(200, price);
+      } else {
+        send(404, { error: { type: "invalid_request_error" } });
+      }
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      resolve({
+        baseUrl: `http://127.0.0.1:${server.address().port}`,
+        close: () => new Promise((done) => server.close(done)),
+        prices,
+        products,
+        requests,
+      });
+    });
+  });
+}
 
-  await assert.rejects(
-    () => runStripeCatalogSetup(["--apply"], { STRIPE_SECRET_KEY: "sk_live_nope" }, {
-      createClient: () => {
-        throw new Error("must_not_construct_live_client");
-      },
-    }),
-    /stripe_catalog_live_key_refused/,
+test("encodes nested Stripe form params", () => {
+  assert.equal(
+    encodeStripeForm({
+      expand: ["data.product"],
+      lookup_keys: ["a", "b"],
+      metadata: { od_tier: "pro" },
+      recurring: { interval: "month", interval_count: 1 },
+      skipped: undefined,
+    }).toString(),
+    "expand%5B%5D=data.product&lookup_keys%5B%5D=a&lookup_keys%5B%5D=b" +
+      "&metadata%5Bod_tier%5D=pro&recurring%5Binterval%5D=month&recurring%5Binterval_count%5D=1",
   );
+});
+
+test("the real fetch client builds correct Stripe requests against a local stub", async () => {
+  const stub = await startStripeStub();
+  try {
+    const env = { STRIPE_SECRET_KEY: '  "sk_test_ovd725"  ' };
+    const dry = await runStripeCatalogSetup([], env, { baseUrl: stub.baseUrl });
+    assert.equal(dry.dryRun, true);
+    assert.equal(dry.created.prices, BILLING_CATALOG_PRICES.length);
+    assert.ok(stub.requests.every((request) => request.method === "GET"));
+    assert.ok(stub.requests.every((request) => request.authorization === "Bearer sk_test_ovd725"));
+    assert.ok(stub.requests.every((request) => request.version === STRIPE_API_VERSION));
+    const list = stub.requests.find((request) => request.path === "/v1/prices");
+    assert.deepEqual(
+      list.form.getAll("lookup_keys[]"),
+      BILLING_CATALOG_PRICES.map((entry) => entry.lookupKey),
+    );
+    assert.deepEqual(list.form.getAll("expand[]"), ["data.product"]);
+
+    stub.requests.length = 0;
+    const applied = await runStripeCatalogSetup(["--apply"], env, { baseUrl: stub.baseUrl });
+    assert.equal(applied.dryRun, false);
+    assert.equal(stub.products.length, 4);
+    assert.equal(stub.prices.length, BILLING_CATALOG_PRICES.length);
+    const priceCreates = stub.requests.filter(
+      (request) => request.method === "POST" && request.path === "/v1/prices",
+    );
+    assert.ok(priceCreates.every((request) =>
+      request.contentType === "application/x-www-form-urlencoded"
+    ));
+    const pro = priceCreates.find((request) => request.form.get("lookup_key") === "od_pro_month_v1");
+    assert.equal(pro.form.get("unit_amount"), "9900");
+    assert.equal(pro.form.get("currency"), "usd");
+    assert.equal(pro.form.get("recurring[interval]"), "month");
+    assert.equal(pro.form.get("recurring[interval_count]"), "1");
+    assert.equal(pro.form.get("metadata[od_tier]"), "pro");
+    assert.match(pro.form.get("product"), /^prod_stub\d+$/);
+
+    const again = await runStripeCatalogSetup(["--apply"], env, { baseUrl: stub.baseUrl });
+    assert.equal(again.created.prices, 0);
+    assert.equal(again.drift.length, 0);
+
+    stub.requests.length = 0;
+    await assert.rejects(
+      () => runStripeCatalogSetup(["--apply"], { STRIPE_SECRET_KEY: "sk_live_nope" }, {
+        baseUrl: stub.baseUrl,
+      }),
+      /stripe_catalog_live_key_refused/,
+    );
+    await assert.rejects(
+      () => runStripeCatalogSetup([], { STRIPE_SECRET_KEY: "sk_test_wrong" }, {
+        baseUrl: stub.baseUrl,
+      }),
+      (error) => error.message === "stripe_api_error:401:invalid_request_error",
+    );
+    assert.equal(stub.requests.length, 1);
+  } finally {
+    await stub.close();
+  }
 });

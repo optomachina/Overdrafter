@@ -28,7 +28,7 @@ function approvedPrice(
     livemode: false,
     lookup_key: lookupKey,
     metadata: catalogPriceMetadata(entry),
-    product: { active: true },
+    product: "prod_OVD725",
     recurring: { interval: entry.interval, interval_count: 1 },
     type: "recurring",
     unit_amount: entry.amountCents,
@@ -139,37 +139,78 @@ Deno.test("founding checkout is refused at the 9th slot", () => {
 
 Deno.test("price guard rejects TBD, unknown keys, and livemode mismatches", () => {
   const entry = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY)!;
+  const expanded = approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, {
+    product: { active: true, id: "prod_OVD725" },
+  });
   assertEquals(
-    assertCatalogPrice(approvedPrice(), { ...entry, amountCents: null }, {
+    assertCatalogPrice(expanded, { ...entry, amountCents: null }, {
       expectedLivemode: false,
     }),
     { ok: false, reason: "catalog_amount_tbd" },
   );
   assertEquals(
-    assertCatalogPrice(approvedPrice(), entry, { expectedLivemode: false }),
+    assertCatalogPrice(expanded, entry, { expectedLivemode: false }),
     { ok: true },
   );
   assertEquals(
     assertCatalogPrice(
-      approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, { lookup_key: "od_unknown_v1" }),
+      { ...expanded, lookup_key: "od_unknown_v1" },
       entry,
       { expectedLivemode: false },
     ),
     { ok: false, reason: "lookup_key_mismatch" },
   );
   assertEquals(
-    assertCatalogPrice(approvedPrice(), entry, { expectedLivemode: true }),
+    assertCatalogPrice(expanded, entry, { expectedLivemode: true }),
     { ok: false, reason: "livemode_mismatch" },
   );
   assertEquals(
     assertCatalogPrice(
-      approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, {
-        recurring: { interval: "year", interval_count: 1 },
-      }),
+      { ...expanded, recurring: { interval: "year", interval_count: 1 } },
       entry,
       { expectedLivemode: false },
     ),
     { ok: false, reason: "interval_mismatch" },
+  );
+});
+
+Deno.test("checkout requires an expanded active product; webhooks accept the product ID", () => {
+  const entry = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY)!;
+  const webhookShape = approvedPrice();
+  assertEquals(
+    assertCatalogPrice(webhookShape, entry, { expectedLivemode: false }),
+    { ok: false, reason: "product_not_expanded" },
+  );
+  assertEquals(
+    assertCatalogPrice(webhookShape, entry, { expectedLivemode: false, productMode: "id" }),
+    { ok: true },
+  );
+  assertEquals(
+    assertCatalogPrice(
+      { ...webhookShape, product: "not_a_product" },
+      entry,
+      { expectedLivemode: false, productMode: "id" },
+    ),
+    { ok: false, reason: "product_id_invalid" },
+  );
+  assertEquals(
+    assertCatalogPrice(
+      { ...webhookShape, product: { active: false, id: "prod_OVD725" } },
+      entry,
+      { expectedLivemode: false, productMode: "id" },
+    ),
+    { ok: false, reason: "product_inactive" },
+  );
+});
+
+Deno.test("a matching price.updated with a product ID string is ok", () => {
+  assertEquals(
+    evaluateCatalogWebhookEvent({
+      data: { object: approvedPrice() },
+      livemode: false,
+      type: "price.updated",
+    }, { expectedLivemode: false, replayed: false }),
+    { action: "ok", entitlementsChanged: false, lookupKey: DEFAULT_CHECKOUT_LOOKUP_KEY },
   );
 });
 

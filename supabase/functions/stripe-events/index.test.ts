@@ -316,7 +316,7 @@ Deno.test("price.updated amount mismatch disables the catalog key without changi
         livemode: false,
         lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
         metadata: catalogPriceMetadata(APPROVED_PRO),
-        product: { active: true },
+        product: "prod_OVD725",
         recurring: { interval: "month", interval_count: 1 },
         type: "recurring",
         unit_amount: 200,
@@ -367,7 +367,7 @@ Deno.test("does not log catalog price disabled when disable fails", async () => 
         livemode: false,
         lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
         metadata: catalogPriceMetadata(APPROVED_PRO),
-        product: { active: true },
+        product: "prod_OVD725",
         recurring: { interval: "month", interval_count: 1 },
         type: "recurring",
         unit_amount: 200,
@@ -398,7 +398,10 @@ Deno.test("does not log catalog price disabled when disable fails", async () => 
   console.error = (...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
   };
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(
+    (name) => name === "BILLING_TIER_CATALOG_ENABLED" ? "true" : "configured",
+    () => runtime,
+  );
 
   try {
     const response = await handler(signedRequest(JSON.stringify(event)));
@@ -408,6 +411,48 @@ Deno.test("does not log catalog price disabled when disable fails", async () => 
   }
 
   assertEquals(logs.some((line) => line.includes("catalog price disabled")), false);
+  assertEquals(logs.some((line) => line.includes("catalog price disable failed")), true);
+});
+
+Deno.test("a matching price.updated with a product ID string does not disable the key", async () => {
+  const event = makeEvent({
+    data: {
+      object: {
+        active: true,
+        currency: "usd",
+        id: "price_OVD725",
+        livemode: false,
+        lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+        metadata: catalogPriceMetadata(APPROVED_PRO),
+        object: "price",
+        product: "prod_OVD725",
+        recurring: { interval: "month", interval_count: 1 },
+        type: "recurring",
+        unit_amount: APPROVED_PRO.amountCents,
+      } as unknown as Stripe.Price,
+    },
+    type: "price.updated",
+  });
+  const calls: string[] = [];
+  const runtime = makeRuntime(event, (functionName) => {
+    calls.push(functionName);
+    if (functionName === "api_ingest_stripe_event") {
+      return Promise.resolve({
+        data: { state: "pending", duplicate: false },
+        error: null,
+      });
+    }
+    return Promise.resolve({
+      data: { state: "processed", replayed: false, attemptCount: 1 },
+      error: null,
+    });
+  });
+  const handler = createStripeEventHandler(() => "configured", () => runtime);
+
+  const response = await handler(signedRequest(JSON.stringify(event)));
+
+  assertEquals(response.status, 200);
+  assertEquals(calls, ["api_ingest_stripe_event", "api_process_stripe_event"]);
 });
 
 Deno.test("replaying price.updated is a no-op for catalog disable", async () => {
