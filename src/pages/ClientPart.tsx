@@ -67,6 +67,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { toPanelDeadline } from "@/features/quotes/api/part-deadline-api";
 import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
@@ -950,7 +951,7 @@ const ClientPart = () => {
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
-                    deadline={partDeadline ? { date: partDeadline.activeDate, state: partDeadline.state } : null}
+                    deadline={toPanelDeadline(partDeadline)}
                     requestCompletion={{
                       request: partDetail.latestQuoteRequest
                         ? {

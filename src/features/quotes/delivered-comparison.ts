@@ -129,7 +129,12 @@ function toArrival(arrival: {
   arrivalDate: string | null;
   shipDate: string | null;
   provenance: "confirmed" | "estimated" | "unknown";
+  fixedDatePassed: boolean;
 }): DeliveredArrival {
+  // A provider date already in the past is stale, not an arrival to plot or rank first.
+  if (arrival.fixedDatePassed) {
+    return { kind: "unknown" };
+  }
   if (arrival.arrivalDate && arrival.provenance !== "unknown") {
     return { kind: "arrival", date: arrival.arrivalDate, provenance: arrival.provenance };
   }
@@ -174,11 +179,6 @@ function otdPlotAmount(otd: DeliveredOtd): number | null {
   return null;
 }
 
-/**
- * On time only when a projected arrival is on or before the deadline. A ship
- * date after the deadline is provably late; every other missing value stays
- * unconfirmed rather than being guessed either way.
- */
 const UNKNOWN_COMPONENT_DISPLAY_ORDER: readonly CostComponentKey[] = ["shipping", "tax", "fees", "parts"];
 
 /** Human order for the still-unknown OTD components, e.g. "shipping, tax, fees". */
@@ -186,6 +186,11 @@ export function formatUnknownCostComponents(components: readonly CostComponentKe
   return UNKNOWN_COMPONENT_DISPLAY_ORDER.filter((key) => components.includes(key)).join(", ");
 }
 
+/**
+ * On time only when a projected arrival is on or before the deadline. A ship
+ * date after the deadline is provably late; every other missing value stays
+ * unconfirmed rather than being guessed either way.
+ */
 export function getDeadlineStatus(
   row: Pick<DeliveredComparisonRow, "arrival">,
   deadline: IsoCalendarDate | null,
@@ -197,7 +202,7 @@ export function getDeadlineStatus(
     return row.arrival.date <= deadline ? "on_time" : "late";
   }
   if (row.arrival.kind === "ships_by") {
-    return row.arrival.shipDate >= deadline ? "late" : "unconfirmed";
+    return row.arrival.shipDate > deadline ? "late" : "unconfirmed";
   }
   return "unconfirmed";
 }

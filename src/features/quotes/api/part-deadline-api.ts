@@ -44,3 +44,18 @@ export async function fetchPartDeadline(partId: string): Promise<PartDeadline> {
   const { data, error } = await callRpc("api_get_part_deadline", { p_part_id: partId });
   return parsePartDeadline(ensureData(data, error));
 }
+
+/**
+ * Deadline for the comparison panel. An expired confirmed deadline has no active
+ * date, so surface its recorded date to let the panel label it expired instead
+ * of treating it as an unconfirmed one.
+ */
+export function toPanelDeadline(deadline: PartDeadline | null): { date: string | null; state: PartDeadlineState } | null {
+  if (!deadline) {
+    return null;
+  }
+  return {
+    date: deadline.activeDate ?? (deadline.state === "expired" ? deadline.recordedDate : null),
+    state: deadline.state,
+  };
+}

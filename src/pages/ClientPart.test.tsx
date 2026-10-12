@@ -1324,6 +1324,29 @@ describe("ClientPart", () => {
       queryClient.clear();
     });
 
+    it("never persists a selection when a preset or the sourcing toggle is applied", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result } = renderHook(
+        () => useClientPartController("job-1", { warmNavigation: false }),
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      act(() => result.current.handlePresetSelection("cheapest_global"));
+      act(() => result.current.handlePresetSelection("balanced_domestic"));
+
+      expect(result.current.activePreset).toBe("balanced_domestic");
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+      expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
     it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
       api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
       renderWithClient("/parts/job-1");
@@ -1462,6 +1485,9 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global");
     });
+    // The sourcing toggle only filters and reorders; it must not persist a hidden winner.
+    expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
     api.persistClientQuoteSelection.mockClear();
     await act(async () => {
       const onSelect = lastQuoteDecisionPanelProps?.onSelect as

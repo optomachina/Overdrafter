@@ -77,7 +77,7 @@ for (const { name, width, touch } of [
       await expect(row(page, "sendcutsend-unknown")).toContainText("≥ $40.00");
       await expect(row(page, "fictiv-lead")).toContainText("After Thu, Oct 15, 2026");
       await expect(page.getByText(/pick$/)).toHaveCount(0);
-      await expect(page.getByText("Recommended starting point")).toHaveCount(0);
+      await expect(page.getByTestId("selected-option-summary")).toHaveCount(0);
       await expect(page.getByTestId("quote-vendor-table").locator("[aria-selected='true']")).toHaveCount(0);
       // Concealed overseas result is not shown anywhere.
       await expect(page.getByText("RapidDirect")).toHaveCount(0);

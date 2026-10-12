@@ -66,7 +66,6 @@ import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/fea
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { describeClientPresetUnavailableReason } from "@/features/quotes/client-workspace-state";
 import {
   logArchivedDeleteFailure,
   toArchivedDeleteError,
@@ -90,7 +89,6 @@ import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
   resolveStoredQuoteSelection,
-  pickPresetOption,
   sortQuoteOptionsForPreset,
   summarizeQuoteDiagnostics,
   type ClientQuoteSelectionOption,
@@ -1467,23 +1465,9 @@ export function useClientPartController(
     selectOfferMutation.mutate(option);
   };
 
+  /** Presets and the sourcing toggle reorder or filter the table only; selecting stays an explicit buyer action. */
   const handlePresetSelection = (preset: QuotePreset) => {
     setActivePreset(preset);
-
-    const nextOption = pickPresetOption(rankedQuoteOptions, preset);
-
-    if (!nextOption?.persistedOfferId) {
-      toast.error(
-        describeClientPresetUnavailableReason({
-          options: rankedQuoteOptions,
-          preset,
-          requestedByDate: requestSummaryRequestedByDate,
-        }),
-      );
-      return;
-    }
-
-    selectOfferMutation.mutate(nextOption);
   };
 
   const handleToggleVendorExclusion = (vendorKey: VendorName, shouldExclude: boolean) => {

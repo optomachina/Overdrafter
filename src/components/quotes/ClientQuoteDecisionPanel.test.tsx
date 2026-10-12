@@ -148,7 +148,7 @@ describe("ClientQuoteDecisionPanel when the previous choice is gone", () => {
     expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent("none");
     expect(screen.queryByText("Current selection")).not.toBeInTheDocument();
     // OVD-571 removed the recommendation fallback, so nothing stands in for the lost choice.
-    expect(screen.queryByText("Recommended starting point")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("selected-option-summary")).not.toBeInTheDocument();
     expect(screen.queryAllByRole("row", { selected: true })).toHaveLength(0);
     expect(onSelect).not.toHaveBeenCalled();
 

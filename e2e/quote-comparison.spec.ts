@@ -514,7 +514,7 @@ test.describe("client quote comparison after the stored choice lapses", { tag: "
     await expect(selectedRow(panel)).toHaveCount(0);
     await expect(panel.getByText("Current selection", { exact: true })).toHaveCount(0);
     // OVD-571 removed the recommendation fallback, so nothing stands in for the lost choice.
-    await expect(panel.getByText("Recommended starting point", { exact: true })).toHaveCount(0);
+    await expect(panel.getByTestId("selected-option-summary")).toHaveCount(0);
 
     await quoteRow(panel, "US Standard").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toHaveCount(1);
