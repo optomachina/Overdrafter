@@ -60,6 +60,29 @@ without `fictiv` routes the task to manual follow-up. Permit rows stay
 recorded until they expire. To refuse a specific permit regardless of the
 switches, revoke it with `private.revoke_provider_dispatch_permit`.
 
+## Known gaps before admission
+
+- **No written consent recorded.** Fictiv's terms require prior written
+  consent for applications that interact with its services. The provider
+  permissions matrix keeps `enabled_for_paid_automation` false for Fictiv
+  until that consent is recorded. Outreach is a draft only.
+- **Admission is not recorded.** The admission policy for `fictiv` stays
+  `disabled`. The revision template below is not applied, and the inputs in
+  the next section do not exist yet.
+- **No session captured.** No Fictiv account is approved for automated
+  quote-only use and no storage state exists, so no live attempt has run.
+- **Egress is undecided.** Shared Xometry egress or a separate Fictiv service
+  is Blaine's choice. A separate service needs new infrastructure outside the
+  governed tuple.
+- **Not certified.** No authorized live quote has run through the Fictiv
+  live-evaluation harness. Until Fictiv is on
+  `PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS`, results are recommendations, not
+  certified live offers.
+- **Default-deny test is not on the kit-shaped harness.** Fictiv has no
+  `worker/src/adapters/fictivProductionPortal.test.ts`. `provider:check`
+  carries a dated exception for it (OVD-673, expires 2026-12-31). After that
+  date the gap fails the check.
+
 ## Inputs only Blaine can provide
 
 These steps are protected actions, so this repository cannot perform them.
@@ -120,3 +143,13 @@ where provider = 'fictiv'::public.vendor_name;
 Rollback: record a new revision with `admission_state = 'disabled'`,
 `generic_dispatch_enabled = false`, and `change_reason = 'policy_disabled'`.
 Then revoke any issued permits.
+
+## Permissions matrix (OVD-724)
+
+Fictiv paid automated quoting is not cleared until written consent is recorded.
+See the provider permissions matrix
+([`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#fictiv))
+and the Fictiv acceptance row in
+[`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
+A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](../runbooks/provider-cease-and-desist.md)).
