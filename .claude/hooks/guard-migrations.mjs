@@ -17,8 +17,9 @@
  * then run later with no supabase/migration path in the command text;
  * git commit -F of a non-supabase file whose contents mention supabase;
  * substitution that does not appear as $(, backticks, or <( ; >( )
- * process substitution; and reader write/exec options not in the listed
- * set. Those remain Blaine's merge and apply gate.
+ * process substitution; base64 piped into perl/python3/node; and reader
+ * write/exec options not in the listed set. Those remain Blaine's merge
+ * and apply gate.
  *
  * Tests inject a fake gh via OVD_GUARD_GH_BIN.
  */
@@ -223,18 +224,68 @@ function hasFindWriteOption(argv) {
   );
 }
 
+function sortOutputPaths(argv) {
+  const paths = [];
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--output" || arg === "-o") {
+      if (argv[i + 1]) paths.push(argv[++i]);
+      continue;
+    }
+    if (arg.startsWith("--output=")) {
+      paths.push(arg.slice("--output=".length));
+      continue;
+    }
+    if (!arg.startsWith("-") || arg.startsWith("--") || arg === "-") continue;
+    const body = arg.slice(1);
+    const oAt = body.indexOf("o");
+    if (oAt === -1) continue;
+    const attached = body.slice(oAt + 1);
+    if (attached) paths.push(attached);
+    else if (argv[i + 1]) paths.push(argv[++i]);
+  }
+  return paths;
+}
+
 function hasSortWriteOption(argv) {
-  return argv.some(
-    (arg) => arg === "-o" || (arg.startsWith("-o") && !arg.startsWith("--")) || arg === "--output" || arg.startsWith("--output="),
-  );
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--output" || arg.startsWith("--output=") || arg === "-o") return true;
+    if (arg.startsWith("-") && !arg.startsWith("--") && arg !== "-" && arg.slice(1).includes("o")) return true;
+  }
+  return false;
 }
 
 function hasGitDiffWriteOption(argv) {
   return argv.some((arg) => arg === "--output" || arg.startsWith("--output="));
 }
 
+function uniqPositionals(argv) {
+  const positionals = [];
+  for (const arg of argv.slice(1)) {
+    if (arg === "--") continue;
+    if (arg === "-" || !arg.startsWith("-")) positionals.push(arg);
+  }
+  return positionals;
+}
+
+function uniqOutputPath(argv) {
+  const positionals = uniqPositionals(argv);
+  return positionals.length >= 2 ? positionals[1] : null;
+}
+
 function hasUniqWriteOption(argv) {
-  return argv.slice(1).filter((arg) => arg !== "--" && !arg.startsWith("-")).length >= 2;
+  return uniqPositionals(argv).length >= 2;
+}
+
+function optionOutputPaths(argv) {
+  const cmd = baseCmd(argv[0]);
+  if (cmd === "sort") return sortOutputPaths(argv);
+  if (cmd === "uniq") {
+    const output = uniqOutputPath(argv);
+    return output ? [output] : [];
+  }
+  return [];
 }
 
 function hasFileWriteOption(argv) {
@@ -653,7 +704,7 @@ export function writeishTouchesSupabase(command, cwd = process.cwd()) {
       current = nextCwd(current, argv[1]);
       continue;
     }
-    if (pathsTouchSupabase([...redirects, ...pathishArgs(argv)], current)) return true;
+    if (pathsTouchSupabase([...redirects, ...pathishArgs(argv), ...optionOutputPaths(argv)], current)) return true;
     if ((isWriteishArgv(argv) || redirects.length > 0) && isSupabaseTreePath(current, cwd)) return true;
   }
   return false;
@@ -749,10 +800,12 @@ function tokensTouchMigrationPath(command, cwd) {
       if (pathsTouchSupabase([...redirects, ...commitFileArgs(argv)], current)) return true;
       continue;
     }
-    if (pathsTouchSupabase([...redirects, ...argv], current) && argv.some((arg) => isMigrationPath(arg, current) || /[*?]/.test(arg))) {
+    const outputs = optionOutputPaths(stripWrappers(argv));
+    if (pathsTouchSupabase([...redirects, ...argv, ...outputs], current) && argv.some((arg) => isMigrationPath(arg, current) || /[*?]/.test(arg))) {
       return true;
     }
     if (redirects.some((target) => isMigrationPath(target, current))) return true;
+    if (outputs.some((target) => isMigrationPath(target, current))) return true;
     if (argv.some((arg) => isMigrationPath(arg, current))) return true;
   }
   return false;

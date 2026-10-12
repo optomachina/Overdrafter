@@ -385,6 +385,13 @@ test("sort -o or --output on migrations is blocked", () => {
   }
 });
 
+test("sort short-flag clusters and attached -o values are treated as output", () => {
+  for (const command of ["sort -osupabase/migrations/out /tmp/in", "sort -uo supabase/migrations/out /tmp/in"]) {
+    assert.equal(isReadOnlyAllowlisted(command), false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
 test("git diff --output on migrations is blocked", () => {
   for (const command of ["git diff --output=/tmp/out -- supabase/migrations", "git diff --output /tmp/out -- supabase/migrations"]) {
     assert.equal(isReadOnlyAllowlisted(command), false, command);
@@ -394,6 +401,12 @@ test("git diff --output on migrations is blocked", () => {
 
 test("uniq with an output file on migrations is blocked", () => {
   const command = "uniq supabase/migrations/a.sql /tmp/out";
+  assert.equal(isReadOnlyAllowlisted(command), false);
+  assert.equal(blocked(bash(command)).allow, false);
+});
+
+test("uniq treats the second positional as output even when the first is '-'", () => {
+  const command = "uniq - supabase/migrations/out";
   assert.equal(isReadOnlyAllowlisted(command), false);
   assert.equal(blocked(bash(command)).allow, false);
 });
@@ -454,6 +467,13 @@ test("npx vitest on a migration test file is allowed", () => {
 
 test("accepted residuals: bare apply/patch/tar and an indirect script stay unblocked", () => {
   for (const command of ["git apply /tmp/x.patch", "git am /tmp/x.patch", "patch < /tmp/x.patch", "tar -x -f /tmp/x.tar", "unzip /tmp/x.zip", "bash /tmp/created-elsewhere.sh"]) {
+    assert.deepEqual(blocked(bash(command)), { allow: true }, command);
+  }
+});
+
+test("accepted residual: base64 piped into perl, python3, or node stays unblocked", () => {
+  for (const command of ["echo YQ== | base64 -d | perl", "base64 -d | python3", "base64 -d | node"]) {
+    assert.equal(pipesIntoShell(command), false, command);
     assert.deepEqual(blocked(bash(command)), { allow: true }, command);
   }
 });
