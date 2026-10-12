@@ -24,6 +24,7 @@ import { VendorAdapter } from "./base.js";
 import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   buildFinishSearchTerms,
@@ -1408,6 +1409,7 @@ export class FictivAdapter extends VendorAdapter {
     finishTerms: string[],
     prerequisites: FictivLivePrerequisites,
   ): Promise<FictivLiveSelection> {
+    await input.providerKillSwitchCheckpoint?.("before_navigation");
     await navigateToQuoteSurface(page);
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "landing");
@@ -1447,6 +1449,7 @@ export class FictivAdapter extends VendorAdapter {
 
     let uploadSelector: string | null = null;
     if (selectedProcessBeforeUpload) {
+      await input.providerKillSwitchCheckpoint?.("before_upload");
       const uploadResult = await setFilesOnUpload(page, uploadFiles);
       uploadSelector = uploadResult.selector;
       await appendArtifacts(artifacts, page, runDir, "uploaded");
@@ -1459,6 +1462,7 @@ export class FictivAdapter extends VendorAdapter {
 
     // Configuration edits the provider-side quote. A landing page that already
     // shows a quote skips the upload above, so mark the mutation here as well.
+    await input.providerKillSwitchCheckpoint?.("before_configure");
     markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
@@ -1845,6 +1849,8 @@ export class FictivAdapter extends VendorAdapter {
         traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
       }
 
+      // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
+      if (error instanceof ProviderKillSwitchError) throw error;
       if (error instanceof VendorAutomationError) {
         throw this.mergeVendorErrorArtifacts(error, artifacts);
       }

@@ -9,6 +9,7 @@ import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
 import { createProviderMutationPhase, runInProviderMutationPhase } from "../providerMutationPhase";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
@@ -1119,5 +1120,50 @@ describe("provider portal finite states and offers", () => {
       url: "https://quickquote.quickparts.com/",
       textSummary: { present: true },
     });
+  });
+});
+
+describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", () => {
+  it("refuses before navigation when the switch is engaged: the page is never loaded", async () => {
+    const fake = fakeBrowser();
+    const checkpoints: string[] = [];
+    // Authorized by identity, so the checkpoint is attached to the same object.
+    const approved = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        checkpoints.push(checkpoint);
+        throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    const error = await runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderKillSwitchError);
+    expect(checkpoints).toEqual(["before_navigation"]);
+    expect(fake.page.goto).not.toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.context.close).toHaveBeenCalledOnce();
+  });
+
+  it("a running task flipped off mid-flight stops at the next checkpoint before any upload or configuration", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    let engaged = false;
+    // Authorized by identity, so the checkpoint is attached to the same object.
+    const approved = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+        engaged = true; // the admin flips the switch right after navigation is allowed
+      },
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(fake.page.goto).toHaveBeenCalledOnce();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.fill).not.toHaveBeenCalled();
+    expect(phase.started).toBe(false);
   });
 });

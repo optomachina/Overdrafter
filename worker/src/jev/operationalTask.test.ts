@@ -83,7 +83,9 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
     const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
-        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" } : null;
+        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" }
+          : name === "api_worker_provider_kill_switch_state" ? { schema: "provider-kill-switch-state.v1",
+            provider: (args as { p_provider: string }).p_provider, engaged: false, globalEngaged: false } : null;
     const result = Promise.resolve({ data, error: null });
     return Object.assign(result, { abortSignal: () => result });
   };

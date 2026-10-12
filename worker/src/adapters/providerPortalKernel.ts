@@ -20,6 +20,7 @@ import {
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
 import {
@@ -1303,7 +1304,8 @@ async function captureTerminalPortalState(
 async function uploadAuthorizedPortalFiles(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult | null> {
-  const { definition, files, session } = interaction;
+  const { definition, files, input, session } = interaction;
+  await input.providerKillSwitchCheckpoint?.("before_upload");
   const cadInput = session.page.locator(definition.selectors.cadUpload).first();
   const cadInputCount = await cadInput.count();
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1336,6 +1338,7 @@ async function uploadAuthorizedDrawing(
 
 async function configureProviderPortalQuote(interaction: ProviderPortalInteraction): Promise<void> {
   const { definition, config, input, session } = interaction;
+  await input.providerKillSwitchCheckpoint?.("before_configure");
   if (definition.selectors.quantity) {
     const quantityInput = session.page.locator(definition.selectors.quantity).first();
     const quantityInputCount = await quantityInput.count();
@@ -1408,7 +1411,8 @@ async function extractProviderPortalOffers(
 async function runProviderPortalInteraction(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult> {
-  const { definition, config, session } = interaction;
+  const { definition, config, input, session } = interaction;
+  await input.providerKillSwitchCheckpoint?.("before_navigation");
   await runIntentionalPortalRetry({
     operation: () => session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
     maxAttempts: 2,
@@ -1439,7 +1443,9 @@ function translatePortalKernelError(
   definition: ProviderPortalDefinition,
   boundary: PortalBoundaryState,
   error: unknown,
-): VendorAutomationError {
+): VendorAutomationError | ProviderKillSwitchError {
+  // OVD-722: a kill-switch refusal is never re-labelled as a provider failure.
+  if (error instanceof ProviderKillSwitchError) return error;
   if (error instanceof VendorAutomationError) {
     if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
       error.payload.providerMutationPossible = true;
@@ -1498,6 +1504,7 @@ export async function runProviderPortalKernel(
   } catch (error) {
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
     const translated = translatePortalKernelError(definition, boundary, error);
+    if (translated instanceof ProviderKillSwitchError) throw translated;
     if (dependencies.operationalJev) {
       const { scope } = dependencies.operationalJev;
       await observeBoundOperationalFailure(dependencies.operationalJev, { ...scope, provider: definition.provider,

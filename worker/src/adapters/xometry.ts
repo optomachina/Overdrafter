@@ -49,6 +49,7 @@ import {
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
@@ -2718,6 +2719,8 @@ export class XometryAdapter extends VendorAdapter {
     let drawingUploadVerification: string | null = null;
     let quoteResult: VendorQuoteAdapterOutput | null = null;
     let pendingError: VendorAutomationError | null = null;
+    // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
+    let killSwitchError: ProviderKillSwitchError | null = null;
     let snapshotError: VendorAutomationError | null = null;
 
     try {
@@ -2803,6 +2806,7 @@ export class XometryAdapter extends VendorAdapter {
       }
 
       const page = await browserContext.newPage();
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
       await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "load" });
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await waitForAuthenticatedDashboardHydration(
@@ -2833,6 +2837,7 @@ export class XometryAdapter extends VendorAdapter {
       const uploadedFileNames = liveEvaluationUploadFiles
         ? [liveEvaluationUploadFiles.cad.name]
         : [input.stagedCadFile.localPath];
+      await input.providerKillSwitchCheckpoint?.("before_upload");
       const uploadResult = await setFilesOnApprovedUploadTarget(
         page,
         uploadFiles,
@@ -2904,6 +2909,7 @@ export class XometryAdapter extends VendorAdapter {
             : null;
         selectedTolerance = requestedTolerance.tier;
       } else {
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         await openPartConfigurationIfNeeded(
           page,
           this.config.browserTimeoutMs,
@@ -2968,6 +2974,7 @@ export class XometryAdapter extends VendorAdapter {
             },
           );
         }
+        await input.providerKillSwitchCheckpoint?.("before_upload");
         const drawingFallbackResult = await attachDrawingFallback(
           page,
           liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
@@ -3228,7 +3235,9 @@ export class XometryAdapter extends VendorAdapter {
     } catch (error) {
       if (this.operationalJev) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
         provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
-      if (error instanceof VendorAutomationError) {
+      if (error instanceof ProviderKillSwitchError) {
+        killSwitchError = error;
+      } else if (error instanceof VendorAutomationError) {
         pendingError = new VendorAutomationError(
           error.message,
           error.code,
@@ -3313,6 +3322,7 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (killSwitchError) throw killSwitchError;
     if (pendingError) {
       // The quote failure is the primary cause; a teardown snapshot failure is
       // secondary diagnostic evidence and must not mask it.

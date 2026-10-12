@@ -43,6 +43,12 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
   const rpc = vi.fn().mockResolvedValue(rpcResult);
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
   const onAuthorized = vi.fn();
+  const killSwitchReader = vi.fn(async (provider: VendorName) => ({
+    schema: "provider-kill-switch-state.v1",
+    provider,
+    engaged: false,
+    globalEngaged: false,
+  }));
   const run = (input: {
     vendor: VendorName;
     workerMode?: "live" | "simulate";
@@ -60,9 +66,10 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
       adapter: { quote },
       quoteInput: { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput,
       onAuthorized,
+      killSwitchReader,
     });
   };
-  return { rpc, quote, onAuthorized, run };
+  return { rpc, quote, onAuthorized, run, killSwitchReader };
 }
 
 const xometryAuthorized = {

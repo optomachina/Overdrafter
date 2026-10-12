@@ -93,6 +93,12 @@ import {
   dispatchAuthorizationFailure,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting.js";
+import {
+  cancelVendorTaskForDisabledProvider,
+  checkProviderKillSwitchAtClaim,
+  isProviderKillSwitchEngaged,
+  sweepProviderDisabledTasks,
+} from "./providerKillSwitch.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1096,6 +1102,22 @@ export async function handleVendorQuoteTask(
 
   const retryCount = retryCountForAttempts(task.attempts);
 
+  // OVD-722: a switched-off provider's queued task ends truthfully at claim,
+  // before the lane is marked running or anything is staged.
+  if (
+    config.workerMode === "live" &&
+    (await checkProviderKillSwitchAtClaim({
+      supabase,
+      task,
+      vendor,
+      vendorQuoteResultId: currentResult.id,
+      requestedQuantity: currentResult.requested_quantity,
+    })) === "cancelled"
+  ) {
+    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    return;
+  }
+
   await supabase
     .from("vendor_quote_results")
     .update({
@@ -1368,6 +1390,19 @@ export async function handleVendorQuoteTask(
     });
   } catch (error) {
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
+    // OVD-722: an engaged switch at any checkpoint (before launch, or inside
+    // the adapter before navigation/upload/configure) ends the task as
+    // cancelled_provider_disabled, never as a provider failure or a retry.
+    if (isProviderKillSwitchEngaged(error)) {
+      await cancelVendorTaskForDisabledProvider(supabase, task, {
+        vendorQuoteResultId: currentResult.id,
+        error,
+        requestedQuantity: currentResult.requested_quantity,
+        providerMutationPossible: providerMutationEvidence().providerMutationPossible === true,
+      });
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      return;
+    }
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
     const dispatchAuthorizationError = dispatchAuthorizationFailure(error);
@@ -1393,8 +1428,10 @@ export async function handleVendorQuoteTask(
       ? dispatchAuthorizationError.reasonCode
       : failureCodeForError(error);
     const failureMessage = summarizeWorkerError(error);
+    // An unreadable kill switch is retryable only before any provider mutation.
     const retryableDispatchAuthorizationError =
-      dispatchAuthorizationError?.retryable === true;
+      dispatchAuthorizationError?.retryable === true &&
+      (dispatchAuthorizationError.boundary !== "kill_switch" || isRetryableVendorTaskError(error));
     const requiresManualVendorFollowUp =
       vendorError?.code === "not_implemented" ||
       Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
@@ -1416,7 +1453,11 @@ export async function handleVendorQuoteTask(
       resultStatus = "queued";
     }
     let failureNote = failureMessage;
-    if (dispatchAuthorizationError?.boundary === "provider") {
+    if (dispatchAuthorizationError?.boundary === "kill_switch") {
+      failureNote = retryableDispatchAuthorizationError && retryAt
+        ? `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`
+        : `${vendor} kill switch state could not be confirmed, so automation stopped; manual follow-up is required.`;
+    } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
         : `Automatic ${vendor} dispatch authorization was denied before adapter launch; manual follow-up is required.`;
@@ -1914,6 +1955,31 @@ export async function main(operationalHost?: OperationalJevHost) {
           message: `Dead-task reaper failed: ${summarizeWorkerError(reaperError)}`,
           error: reaperError,
         });
+      }
+      // OVD-722: cancel queued lanes for switched-off providers so none stay
+      // parked. Claim-time and pre-launch checks still refuse on their own.
+      if (config.workerMode === "live") {
+        try {
+          const { cancelled, quoteRuns } = await sweepProviderDisabledTasks(supabase);
+          for (const run of quoteRuns) {
+            await syncJobStatusAfterVendorUpdate(supabase, run.jobId, run.quoteRunId);
+          }
+          if (cancelled > 0) {
+            logWorkerEvent(runtimeState, {
+              level: "warn",
+              source: "worker.kill_switch",
+              message: `Cancelled ${cancelled} queued task(s) for switched-off providers.`,
+              context: { cancelled },
+            });
+          }
+        } catch (sweepError) {
+          logWorkerEvent(runtimeState, {
+            level: "error",
+            source: "worker.kill_switch",
+            message: `Kill-switch sweep failed: ${summarizeWorkerError(sweepError)}`,
+            error: sweepError,
+          });
+        }
       }
     }
 

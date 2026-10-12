@@ -26,6 +26,8 @@ const BOUNDED_DENIAL_REASON_CODES = new Set([
   "dispatch_provider_configuration_changed",
   "dispatch_staged_scope_changed",
   "dispatch_current_scope_changed",
+  // OVD-722: the Xometry or global kill switch is engaged. Terminal.
+  "provider_kill_switch_engaged",
 ]);
 
 type WorkerPreflightDecision = {
