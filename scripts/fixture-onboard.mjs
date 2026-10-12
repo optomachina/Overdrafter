@@ -73,14 +73,39 @@ function admitDir(key) {
   return `provider-integrations/${key}/admit`;
 }
 
-/** Parses the worker's LIVE_AUTOMATION_VENDORS tuple; a live stub's provider type requires membership. */
+function unwrapExpression(expression) {
+  let current = expression;
+  while (
+    ts.isAsExpression(current)
+    || ts.isSatisfiesExpression(current)
+    || ts.isParenthesizedExpression(current)
+    || ts.isTypeAssertionExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** Parses the worker's LIVE_AUTOMATION_VENDORS tuple from the TypeScript AST (comments are ignored); a live stub's provider type requires membership. */
 export async function readLiveAutomationVendors(rootDir) {
   const source = await fs.readFile(path.join(rootDir, "worker/src/types.ts"), "utf8");
-  const match = /export const LIVE_AUTOMATION_VENDORS\s*=\s*\[([^\]]*)\]/.exec(source);
-  if (!match) {
-    throw new Error("could not locate worker LIVE_AUTOMATION_VENDORS");
+  const sourceFile = ts.createSourceFile("worker/src/types.ts", source, ts.ScriptTarget.Latest, true);
+  if (sourceFile.parseDiagnostics.length > 0) {
+    const first = sourceFile.parseDiagnostics[0];
+    const message = ts.flattenDiagnosticMessageText(first.messageText, "\n");
+    throw new Error(`could not parse worker/src/types.ts: ${message}`);
   }
-  return [...match[1].matchAll(/"([a-z][a-z0-9]+)"/g)].map((item) => item[1]);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== "LIVE_AUTOMATION_VENDORS") continue;
+      const initializer = declaration.initializer && unwrapExpression(declaration.initializer);
+      if (!initializer || !ts.isArrayLiteralExpression(initializer)) break;
+      return initializer.elements.filter(ts.isStringLiteral).map((element) => element.text);
+    }
+  }
+  throw new Error("could not locate worker LIVE_AUTOMATION_VENDORS");
 }
 
 function addOneHour(timestamp) {
