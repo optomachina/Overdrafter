@@ -98,6 +98,7 @@ describe("Playwright execution lane configuration", () => {
       VITE_SUPABASE_PUBLISHABLE_KEY: "must-not-use-key",
     });
 
+    expect(config.expect.timeout).toBe(15_000);
     expect(config.use.baseURL).toBe("http://127.0.0.1:4173");
     expect(config.webServer.url).toBe(config.use.baseURL);
     expect(config.webServer.command).toBe("npm run dev -- --host 127.0.0.1 --port 4173");
