@@ -9,30 +9,47 @@
 //   node scripts/ovd651-isolation-race-proof.mjs [--source-rev <git rev>]
 // With --source-rev the staged files are read from that revision, so a
 // pre-fix revision is expected to reproduce the unsafe outcomes.
+// Binaries are absolute paths (default /usr/bin), never a PATH lookup;
+// override with absolute OVD651_PSQL and OVD651_GIT.
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 
+const binary = (name, fallback) => {
+  const value = process.env[name] ?? fallback;
+  if (!isAbsolute(value)) throw new Error(`ovd651_race_requires_absolute_binary:${name}`);
+  return value;
+};
+const psqlBin = binary("OVD651_PSQL", "/usr/bin/psql");
+const gitBin = binary("OVD651_GIT", "/usr/bin/git");
+
+// libpq would let PGHOSTADDR or a service file silently pick another server,
+// so both are refused and host and port are passed explicitly.
+if (process.env.PGHOSTADDR || process.env.PGSERVICE || process.env.PGSERVICEFILE) {
+  throw new Error("ovd651_race_refuses_pghostaddr_or_pgservice");
+}
 const host = process.env.PGHOST ?? "";
-if (!(host.startsWith("/") || host === "localhost" || host === "127.0.0.1")) {
+const port = process.env.PGPORT ?? "5432";
+if (!(host.startsWith("/") || host === "localhost" || host === "127.0.0.1") || !/^\d+$/.test(port)) {
   throw new Error("ovd651_race_requires_local_disposable_postgres");
 }
 const revIndex = process.argv.indexOf("--source-rev");
 const sourceRev = revIndex > 0 ? process.argv[revIndex + 1] : null;
 const source = (path) => sourceRev
-  ? execFileSync("git", ["show", `${sourceRev}:${path}`], { encoding: "utf8" })
+  ? execFileSync(gitBin, ["show", `${sourceRev}:${path}`], { encoding: "utf8" })
   : readFileSync(path, "utf8");
 
 const database = `ovd651_race_${randomBytes(4).toString("hex")}`;
-const psqlArgs = (db) => ["-X", "-q", "-At", "-v", "ON_ERROR_STOP=1", "-d", db];
+const psqlArgs = (db) => ["-h", host, "-p", port, "-X", "-q", "-At", "-v", "ON_ERROR_STOP=1", "-d", db];
 const admin = (sql, db = "postgres") =>
-  execFileSync("psql", [...psqlArgs(db), "-c", sql], { encoding: "utf8" }).trim();
-const run = (sql) => execFileSync("psql", psqlArgs(database), { input: sql, encoding: "utf8" }).trim();
+  execFileSync(psqlBin, [...psqlArgs(db), "-c", sql], { encoding: "utf8" }).trim();
+const run = (sql) => execFileSync(psqlBin, psqlArgs(database), { input: sql, encoding: "utf8" }).trim();
 
 // An interactive session: SQL is written incrementally and \echo markers
 // synchronize with the harness. ON_ERROR_STOP ends the process on error.
 function session(name, env = {}) {
-  const child = spawn("psql", psqlArgs(database), { env: { ...process.env, ...env } });
+  const child = spawn(psqlBin, psqlArgs(database), { env: { ...process.env, ...env } });
   let out = ""; let err = ""; let marker = 0;
   child.stdout.on("data", (chunk) => { out += chunk; });
   child.stderr.on("data", (chunk) => { err += chunk; });
@@ -136,6 +153,9 @@ const stepState = () => run(`select coalesce(to_regclass('engineering_private.na
 
 // Narrow stand-ins for every relation and helper the admission writer reads.
 const readerFixture = `
+create function engineering_private.register_native_result_object(uuid,uuid,uuid,uuid,bigint,uuid,uuid,text,text,text,uuid,text,timestamptz,bigint,text)
+  returns void language sql as 'select';
+create function engineering_private.finalize_native_result(text,text,text,uuid) returns jsonb language sql as 'select null::jsonb';
 create function engineering_private.reject_engineering_history_mutation() returns trigger
   language plpgsql as $$begin raise exception 'history immutable' using errcode='55000'; end$$;
 create table public.organization_memberships (user_id uuid, organization_id uuid);
@@ -299,6 +319,19 @@ for (const [label, change] of [
     });
   }
 }
+// Forward preflight: a second application and a missing prerequisite refuse.
+await scenario("reader_forward_preflight", readerFixture, async () => {
+  run(reader);
+  const refusals = [];
+  for (const prepare of ["", "drop table engineering_private.native_result_read_bindings cascade; drop function engineering_private.finalize_native_result(text,text,text,uuid);"]) {
+    if (prepare) run(prepare);
+    const applier = session("applier");
+    applier.send(reader);
+    const { code, stderr } = await applier.finish();
+    refusals.push(code !== 0 && /native_result_binding_preflight_failed/.test(stderr));
+  }
+  return { refusals, safe: refusals.every(Boolean) };
+});
 // Positive control: with nothing revoked, READ COMMITTED admission succeeds once.
 await scenario("reader_admission_positive_control", readerFixture, async () => {
   run(reader);

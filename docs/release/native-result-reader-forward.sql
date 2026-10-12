@@ -1,9 +1,26 @@
 -- STAGED SOURCE ONLY. Purpose: independently admitted filesystem handles bound
 -- to existing qualified observer evidence, for the seven-role result verifier.
--- Prerequisites: OVD575/576/577, staged OVD558/560. No grants, roles or seeds.
+-- Prerequisites: OVD575/576/577, staged OVD558/560/561. No grants, roles or seeds.
 -- Owner must obtain filesystem identities independently; worker reports are NOT
 -- admission inputs. qualification_sha256 names that retained independent proof.
 begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
+do $preflight$
+begin
+  if current_user <> 'postgres'
+    or to_regclass('engineering_private.native_stop_qualifications') is null
+    or to_regclass('engineering_private.native_observer_evidence') is null
+    or to_regprocedure('engineering_private.reject_engineering_history_mutation()') is null
+    or to_regprocedure('engineering_private.engineering_actor_access(uuid,uuid,uuid)') is null
+    or to_regprocedure('engineering_private.native_observer_has_keys(jsonb,text[])') is null
+    or to_regprocedure('engineering_private.native_observer_valid_windows_path(text,boolean)') is null
+    or to_regprocedure('engineering_private.register_native_result_object(uuid,uuid,uuid,uuid,bigint,uuid,uuid,text,text,text,uuid,text,timestamptz,bigint,text)') is null
+    or to_regprocedure('engineering_private.finalize_native_result(text,text,text,uuid)') is null
+    or to_regclass('engineering_private.native_result_read_bindings') is not null then
+    raise exception 'native_result_binding_preflight_failed';
+  end if;
+end $preflight$;
 create table engineering_private.native_result_read_bindings (
  attempt_id uuid primary key references public.engineering_execution_attempts(id),
  evidence_id uuid not null unique references engineering_private.native_stop_qualifications(evidence_id),

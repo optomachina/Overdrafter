@@ -38,9 +38,11 @@ Cancellation propagates to active registered-object readers. An interrupted
 write is uncertain and requires exact reconciliation, not a rollback claim.
 
 The deterministic tests use synthetic registered bytes, generated in-memory keys
-and injected persistence/SQL functions. A production durable-envelope adapter,
-qualified-stop/registry integration and the owner-only transaction executor are
-still separate missing implementation/provisioning gates. The source bridge
+and injected persistence/SQL functions. The durable-envelope adapter
+(`native-result-persistence.ts`) and the owner-only transaction executor
+(`native-result-executor.ts`) are implemented as source, unqualified: their SQL
+is staged and unapplied. Qualified-stop/registry integration and provisioning
+remain separate gates. The source bridge
 does not establish deployed transport, native execution or successor dispatch.
 
 The transaction requires READ COMMITTED; repeatable-read and serializable

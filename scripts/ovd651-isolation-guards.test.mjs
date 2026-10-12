@@ -41,6 +41,9 @@ const cases = [
     "drop table engineering_private.native_step_reviews;", "commit;",
   ]],
   ["native-result-reader-forward.sql", [
+    "begin;", "set local lock_timeout = '5s';", "set local statement_timeout = '30s';",
+    "or to_regclass('engineering_private.native_result_read_bindings') is not null then raise exception 'native_result_binding_preflight_failed';",
+    "create table engineering_private.native_result_read_bindings (",
     "if current_user<>'postgres' then raise exception 'native_result_binding_owner_required'",
     readerIsolation, readerFirstRead,
     "lock table engineering_private.native_admission_revocations",
@@ -69,6 +72,10 @@ describe("OVD-651 staged result SQL isolation guards", () => {
     ["reader isolation guard after authority read", "native-result-reader-forward.sql",
       (sql) => sql.replace(/ -- SHARE locks[\s\S]*?using errcode='42501'; end if;\n/, "")
         .replace("p_task for update;\n", `p_task for update;\n ${readerIsolation}\n`)],
+    ["reader forward preflight removed", "native-result-reader-forward.sql",
+      (sql) => sql.replace("raise exception 'native_result_binding_preflight_failed';", "null;")],
+    ["reader forward unbounded lock wait", "native-result-reader-forward.sql",
+      (sql) => sql.replace("set local lock_timeout = '5s';", "")],
   ];
 
   it.each(mutations)("rejects %s", (_name, file, mutate) => {
