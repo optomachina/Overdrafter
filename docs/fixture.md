@@ -87,6 +87,13 @@ read the registry's generated projections. Never edit generated files
 `worker/scripts/generated/provider-secrets.sh`, or the provider catalogs);
 `provider:check` fails on drift.
 
+Once a provider's envelope is in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
+`provider:check` runs its `<key>ProductionPortal.test.ts` with vitest and fails
+unless every test the shared `productionPortalDefaultDeny` registrar registers
+is reported as passed (not skipped, todo, or missing). It also validates every
+readiness doc path that exists: HTML comments are ignored, and each required
+section needs real content ("None." is accepted for known gaps and inputs).
+
 ## Stage 3: `--stage=admit`
 
 Requires the live stage's envelope fixture and authorization binding. Fixture writes the following

@@ -2,6 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 
+import { assertReadinessDoc } from "./provider-readiness-doc.mjs";
+
+/**
+ * Static artifact checks for reviewed provider envelopes. The default-deny
+ * placement rules here are only a fast first signal: syntax cannot prove a
+ * test ran. Proof that the suite executed and passed comes from
+ * default-deny-execution.mjs, which provider:check runs on every reviewed
+ * provider's default-deny file.
+ */
+
 export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope";
 export const PROVIDER_DISPATCH_FIXTURE_JSON_DIR = "test-fixtures/provider-dispatch-envelope";
 export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
@@ -65,7 +75,7 @@ export const REVIEWED_ENVELOPE_EXCEPTIONS = Object.freeze([
 ]);
 
 export function formatReviewedEnvelopeGap(key, artifact, expectedPath) {
-  return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run provider:onboard -- ${key} --stage=live`;
+  return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run fixture:onboard -- ${key} --stage=live`;
 }
 
 export function dispatchFixtureJsonPath(key, version) {
@@ -124,6 +134,7 @@ export function isActiveReviewedEnvelopeException(exception, today) {
  * resolved statically fails closed.
  */
 export function parseCodeReviewedEnvelopes(source, fileName = REVIEWED_ENVELOPE_SOURCE) {
+  assertEnvelopeSourceParses(source, fileName);
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const initializer = findTopLevelConstInitializer(sourceFile, REVIEWED_ENVELOPE_EXPORT);
   if (!initializer) {
@@ -157,6 +168,21 @@ export function parseCodeReviewedEnvelopes(source, fileName = REVIEWED_ENVELOPE_
   });
 }
 
+/** Fails closed on syntax errors so a broken registry never reads as "no envelopes". */
+function assertEnvelopeSourceParses(source, fileName) {
+  const { diagnostics = [] } = ts.transpileModule(source, {
+    fileName,
+    reportDiagnostics: true,
+    compilerOptions: { target: ts.ScriptTarget.Latest },
+  });
+  const first = diagnostics.find((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
+  if (first) {
+    throw new Error(
+      `provider:check: cannot read reviewed envelopes from ${fileName}: ${ts.flattenDiagnosticMessageText(first.messageText, " ")}`,
+    );
+  }
+}
+
 export function parseCodeReviewedGenericProviders(source) {
   const keys = parseCodeReviewedEnvelopes(source)
     .filter((entry) => entry.requiredAdmission === "generic_dispatch")
@@ -183,6 +209,19 @@ export async function assertReviewedEnvelopeCompleteness(options) {
   }
   const reviewed = await readReviewedEnvelopes(options.rootDir);
   return { reviewedProviders: reviewed.map((envelope) => envelope.key) };
+}
+
+/**
+ * Default-deny test files that exist for reviewed providers. A provider under
+ * a dated exception may have none; any file that exists is still executed.
+ */
+export async function reviewedDefaultDenySuites(rootDir) {
+  const reviewed = await readReviewedEnvelopes(rootDir);
+  const suites = await Promise.all(reviewed.map(async ({ key }) => {
+    const file = REVIEWED_ENVELOPE_ARTIFACTS.defaultDenyTest.expectedPath(key);
+    return (await lstatIfPresent(path.join(rootDir, file))) ? { key, file } : null;
+  }));
+  return suites.filter(Boolean);
 }
 
 function isPlainObject(value) {
@@ -268,12 +307,18 @@ async function readReviewedEnvelopes(rootDir) {
     byKey.set(envelope.key, existing ?? { ...envelope, source });
   };
 
-  const envelopeSource = await readTextIfPresent(path.join(rootDir, REVIEWED_ENVELOPE_SOURCE));
-  if (envelopeSource !== null) {
-    for (const entry of parseCodeReviewedEnvelopes(envelopeSource)) {
-      if (entry.requiredAdmission === "generic_dispatch") {
-        add({ key: entry.provider, id: entry.id, version: entry.version }, REVIEWED_ENVELOPE_SOURCE);
-      }
+  let envelopeSource;
+  try {
+    envelopeSource = await readTextIfPresent(path.join(rootDir, REVIEWED_ENVELOPE_SOURCE));
+  } catch (error) {
+    throw new Error(`provider:check: cannot read reviewed envelopes from ${REVIEWED_ENVELOPE_SOURCE}: ${error.message}`);
+  }
+  if (envelopeSource === null) {
+    throw new Error(`provider:check: cannot read reviewed envelopes from ${REVIEWED_ENVELOPE_SOURCE}: file is missing`);
+  }
+  for (const entry of parseCodeReviewedEnvelopes(envelopeSource)) {
+    if (entry.requiredAdmission === "generic_dispatch") {
+      add({ key: entry.provider, id: entry.id, version: entry.version }, REVIEWED_ENVELOPE_SOURCE);
     }
   }
   for (const { name, envelope } of await readReviewedEnvelopeDocuments(rootDir)) {
@@ -366,11 +411,18 @@ function gap(envelope, artifactId) {
   };
 }
 
+/** Every candidate readiness doc that exists must conform, not just the first. */
 async function hasReadinessDoc(rootDir, envelope) {
-  const contents = await Promise.all(
-    readinessDocPaths(envelope.key, envelope.fixture).map((relative) => readTextIfPresent(path.join(rootDir, relative))),
-  );
-  return contents.some((text) => text !== null && text.trim().length > 0);
+  const paths = readinessDocPaths(envelope.key, envelope.fixture);
+  const contents = await Promise.all(paths.map((relative) => readTextIfPresent(path.join(rootDir, relative))));
+  let found = false;
+  contents.forEach((text, index) => {
+    if (text !== null) {
+      assertReadinessDoc(text, paths[index]);
+      found = true;
+    }
+  });
+  return found;
 }
 
 /**
@@ -422,12 +474,81 @@ async function hasDefaultDenyTest(rootDir, envelope) {
   if (localNames.size === 0) {
     return false;
   }
-  return findNodes(sourceFile, ts.isCallExpression).some((call) => (
+  const calls = findNodes(sourceFile, ts.isCallExpression).filter((call) => (
     ts.isIdentifier(call.expression)
     && localNames.has(call.expression.text)
     && call.arguments.length === 1
     && harnessBindsEnvelope(sourceFile, call.arguments[0], envelope)
   ));
+  const violations = [];
+  for (const call of calls) {
+    const violation = unconditionalPlacementViolation(call);
+    if (violation === null) {
+      return true;
+    }
+    violations.push(violation);
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `provider:check: ${envelope.key} default-deny registrar call in ${relative} is not unconditional (inside ${violations[0]}); `
+      + "call it at the top level or directly in a describe block",
+    );
+  }
+  return false;
+}
+
+/**
+ * Default-deny: the call must be an expression statement whose ancestors are
+ * only the SourceFile and plain `describe` callback bodies. Returns null
+ * when allowed, otherwise the SyntaxKind name of the first offending node.
+ */
+function unconditionalPlacementViolation(call) {
+  let node = call;
+  for (;;) {
+    const statement = node.parent;
+    if (!statement || !ts.isExpressionStatement(statement) || statement.expression !== node) {
+      return kindName(statement);
+    }
+    const container = statement.parent;
+    if (ts.isSourceFile(container)) {
+      return null;
+    }
+    if (!ts.isBlock(container)) {
+      return kindName(container);
+    }
+    const fn = container.parent;
+    if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) || fn.body !== container) {
+      return kindName(fn ?? container);
+    }
+    const describeCall = fn.parent;
+    if (
+      !describeCall
+      || !ts.isCallExpression(describeCall)
+      || !describeCall.arguments.includes(fn)
+      || !isAllowedDescribeCallee(describeCall.expression)
+    ) {
+      return kindName(fn);
+    }
+    // `describe(name, fn)` only: an options object ({ skip: true }, { todo:
+    // true }) in either position can drop the suite.
+    if (describeCall.arguments.length !== 2 || describeCall.arguments[1] !== fn) {
+      return "describe options argument";
+    }
+    node = describeCall;
+  }
+}
+
+/**
+ * Default-deny may sit in a plain `describe` only. `describe.each`,
+ * `describe.skip`, `.todo`, `.skipIf`, `.only`, and similar wrappers do not
+ * count — an empty `describe.each([])` would otherwise drop the suite.
+ */
+function isAllowedDescribeCallee(expression) {
+  return ts.isIdentifier(expression) && expression.text === "describe";
+}
+
+function kindName(node) {
+  return node ? ts.SyntaxKind[node.kind] : "unknown";
 }
 
 function harnessBindsEnvelope(sourceFile, argument, envelope) {

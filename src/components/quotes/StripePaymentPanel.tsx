@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -168,7 +169,7 @@ function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
     });
 
     if (error) {
-      setCardError(error.message ?? "Payment failed. Please try again.");
+      setCardError(getUserFacingErrorMessage(error, "Payment failed. Please try again."));
       setIsSubmitting(false);
       return;
     }

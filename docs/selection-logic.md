@@ -42,7 +42,13 @@ separate connectivity proof.
 - `Cheapest`: eligible options sorted by total price ascending, then lead time.
 - `Fastest`: eligible options sorted by resolved delivery date / lead time ascending, then total price.
 - `Domestic`: eligible domestic options sorted by total price ascending, then lead time.
+- Presets and the sourcing toggle only reorder or filter the table. They never persist a selection; only an explicit buyer click or keypress selects.
 - If no candidate exists for a preset, the current manual selection is preserved.
+
+## Stored Selection
+- The active selection is only the stored choice (`jobs.selected_vendor_quote_offer_id` or the published selection) when it still resolves to a selectable current option.
+- When the stored choice is missing, expired, invalidated, or absent from the current options, no option is shown as selected and no other offer is substituted. The comparison panel says the previous choice is no longer available, and the client chooses again (`OVD-733`).
+- No surface shows a recommendation or starting point. Nothing is marked or handed off as the selection until the buyer explicitly chooses an option (`OVD-733`).
 
 ## Sourcing Views
 

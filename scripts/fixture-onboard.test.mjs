@@ -18,6 +18,7 @@ import {
 } from "./fixture-onboard.mjs";
 import { sessionSecretMarker } from "./fixture-onboard-templates.mjs";
 import { scaffoldProvider } from "./provider-add.mjs";
+import { REQUIRED_READINESS_HEADINGS, validateReadinessDoc } from "./provider-readiness-doc.mjs";
 import {
   PROVIDER_MANIFEST_FILE,
   WEB_CATALOG_RELATIVE_PATH,
@@ -38,7 +39,18 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-const XOMETRY_ENTRY = { key: "xometry", liveAdapter: true, sessionSecrets: [], egress: "stable_nat" };
+const XOMETRY_ENTRY = {
+  key: "xometry",
+  liveAdapter: true,
+  sessionSecrets: [{
+    secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
+    mountEnv: "XOMETRY_STORAGE_STATE_JSON",
+    requiredWhenListed: false,
+    manualDeploy: true,
+  }],
+  egress: "stable_nat",
+  sessionlessJustification: "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper.",
+};
 const SYNCED_OUTPUTS = [
   WEB_CATALOG_RELATIVE_PATH,
   WORKER_CATALOG_RELATIVE_PATH,
@@ -290,6 +302,8 @@ describe("fixture:onboard --stage=live", () => {
     expect(readiness).toContain("Then run `npm run provider:sync`");
     expect(readiness).toContain("Do not\n   hand-edit `worker/src/runtimeSecrets.ts`, `worker/scripts/deploy-cloud-run.sh`");
     expect(readiness).toContain("never edit the generated");
+    expect(readiness.split("\n").filter((line) => line.startsWith("## "))).toEqual([...REQUIRED_READINESS_HEADINGS]);
+    expect(validateReadinessDoc(readiness)).toEqual([]);
 
     const env = await read(paths.sessionSecret);
     expect(env.startsWith("WORKER_MODE=simulate\n# fixture:onboard shopname session")).toBe(true);
@@ -356,6 +370,7 @@ describe("fixture:onboard --stage=admit", () => {
     expect(admissionSql).toContain("accepted_file_extensions = array['step', 'stp']");
     expect(admissionSql).toMatch(/<reviewer user uuid>/);
     const runbook = await read(result.created[2]);
+    expect(runbook).toContain("(../../../docs/checklists/provider-go-live-checklist.md)");
     for (const step of ["automatic_quote_collection", "Organization enablement", "WORKER_LIVE_ADAPTERS", "SHOPNAME_STORAGE_STATE_SECRET_NAME", "Certification run"]) {
       expect(runbook).toContain(step);
     }

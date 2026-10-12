@@ -714,6 +714,8 @@ describe("WorkspaceAccountMenu", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/\$49/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Subscription tiers")).not.toBeInTheDocument();
+    expect(screen.queryByText("Price TBD")).not.toBeInTheDocument();
     expect(billingMocks.openBillingPortal).not.toHaveBeenCalled();
   });
 

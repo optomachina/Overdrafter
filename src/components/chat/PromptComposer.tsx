@@ -6,6 +6,7 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { ArrowUp, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { FileChip } from "@/components/FileChip";
@@ -38,20 +39,7 @@ type PromptComposerProps = {
 };
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  if (
-    error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
-  ) {
-    return (error as { message: string }).message;
-  }
-
-  return "Unable to submit this part right now.";
+  return getUserFacingErrorMessage(error, "Unable to submit this part right now.");
 }
 
 function getStagedFileKey(file: File): string {

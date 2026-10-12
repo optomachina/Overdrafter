@@ -98,6 +98,7 @@ describe("Playwright execution lane configuration", () => {
       VITE_SUPABASE_PUBLISHABLE_KEY: "must-not-use-key",
     });
 
+    expect(config.expect.timeout).toBe(15_000);
     expect(config.use.baseURL).toBe("http://127.0.0.1:4173");
     expect(config.webServer.url).toBe(config.use.baseURL);
     expect(config.webServer.command).toBe("npm run dev -- --host 127.0.0.1 --port 4173");
@@ -200,9 +201,13 @@ describe("Playwright execution lane configuration", () => {
   it("wires both explicit lanes into the required CI job", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.scripts.e2e).toBe("npm run e2e:authenticated");
+    // The OVD-571 delivered-comparison spec needs its synthetic-only server, so
+    // the fixture lane runs its config after the main fixture suite.
     expect(pkg.scripts["e2e:fixture"]).toBe(
-      "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture",
+      "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture"
+        + " && playwright test --config e2e/delivered-comparison.config.ts",
     );
+    expect(loadConfig().testIgnore).toEqual(["delivered-comparison.spec.ts"]);
     expect(pkg.scripts["e2e:authenticated"]).toBe("playwright test --grep-invert @fixture");
     const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
     expect(ci).toContain("run: npm run e2e:fixture");

@@ -111,3 +111,7 @@ provider_registry_stable_egress_canonical_adapters() {
   done
   printf '%s' "$canonical"
 }
+
+provider_registry_stable_egress_restriction_message() {
+  printf '%s\n' 'Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.'
+}

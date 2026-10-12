@@ -10,6 +10,24 @@ import {
   validateProviderManifest,
 } from "./provider-manifest.mjs";
 
+const SECRET_VALUE_SHAPES = Object.freeze({
+  jwt: "eyJhbGciOiJIUzI1NiJ9xx",
+  akia: "AKIAIOSFODNN7EXAMPLE",
+  ghp: "ghp_01234567890123456789",
+  openai: "sk-abcdefghijklmnopqrstuv",
+  entropy: "n7Q2vL9xR4mP8wK3tY6bC1hF5jD0sA2u",
+  hex32: "0123456789abcdef0123456789abcdef",
+  hex40: "0123456789abcdef0123456789abcdef01234567",
+  hex64: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  base32: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+  lowerAlnum32: "abcd1234efgh5678ijkl9012mnop3456",
+  lowerAlnum50: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5",
+  awsSecret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  dotted: "Zm9vYmFyQmF6UXV4.Q29ycmVjdEhvcnNl.U3RhcGxlQmF0dGVyeQ",
+  slackBot: "xoxb-123456789012-abcdefghijkl",
+  slackUser: "xoxp-123456789012-abcdefghijkl",
+});
+
 describe("provider hostname identity", () => {
   it("derives a stable registrable identity from an application subdomain", () => {
     expect(deriveRegistrableDomain("app.shopname.com")).toBe("shopname.com");
@@ -86,4 +104,36 @@ describe("provider capability bounds", () => {
 
     expect(validateProviderManifest(manifest)).toBe(manifest);
   });
+});
+
+describe("provider manifest secret-value scan", () => {
+  function shopnameManifest() {
+    return createProviderManifest({
+      key: "shopname",
+      displayName: "Shopname",
+      officialUrl: "https://shopname.com/",
+    });
+  }
+
+  it.each(Object.entries(SECRET_VALUE_SHAPES))(
+    "rejects a %s token in displayName, URLs, and other string fields",
+    (_shape, token) => {
+      const displayName = shopnameManifest();
+      displayName.displayName = token;
+      expect(() => validateProviderManifest(displayName)).toThrow("secret-value-like string");
+
+      const officialUrl = shopnameManifest();
+      officialUrl.official.urls = [`https://shopname.com/${token}`];
+      expect(() => validateProviderManifest(officialUrl)).toThrow("secret-value-like string");
+
+      const evidenceUrl = shopnameManifest();
+      evidenceUrl.evidence.firstPartyUrls = [`https://shopname.com/docs/${token}`];
+      evidenceUrl.evidence.reviewedAt = "2026-09-28";
+      expect(() => validateProviderManifest(evidenceUrl)).toThrow("secret-value-like string");
+
+      const processFamily = shopnameManifest();
+      processFamily.integration.processFamily = token;
+      expect(() => validateProviderManifest(processFamily)).toThrow("secret-value-like string");
+    },
+  );
 });

@@ -134,6 +134,16 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   authentication, SQL admission or provider execution. Every unexpected request
   is aborted before send; no CAD/PDF bytes or saved auth state are used. See
   `e2e/quote-confirmation/README.md` for the matrix and recovery boundaries.
+- `npx playwright test --config e2e/delivered-comparison.config.ts` is the
+  `OVD-571` static-fixture lane for the actual `ClientQuoteDecisionPanel`:
+  delivered-date and expected-delivered-cost axes, overlap and late options, Cheapest/Fastest order,
+  deadline keyboard/mouse/touch control (grip only; points under the line stay
+  clickable), arrival-time selection, focus and viewport preservation (no
+  scroll on a user reorder), and the terminal request notice at desktop and
+  mobile widths. `npm run e2e:fixture` runs it after the main fixture suite, so
+  the required CI browser job executes it; the main config ignores this spec. Quotes, deadline intent and provider results are synthetic; every
+  non-loopback request is aborted. It does not exercise the OVD-570 RPC, quote
+  polling, or provider execution.
 - `npm run e2e:fixture` selects only `@fixture` tests, skips auth preparation,
   forces a fresh loopback-only app server with an inert backend, and ignores
   ambient backend/base-URL overrides. It must not load saved auth state.
@@ -758,6 +768,20 @@ fixture is a database contract test, not a Windows observer or production
 qualification. The registry inserts no stop admission and makes no occupancy or
 result-eligibility transition. The existing native-ownership tests and current
 repository gate remain separate integration checks.
+
+With `--staged-replay` it also loads the staged OVD-649 replacement in
+`scripts/native/stop-observer/sql/` and proves exact receipt recovery, that a
+concurrent admission revocation either waits for an in-flight ingestion or
+causes it to be denied, that two concurrent identical READ COMMITTED
+ingestions return one retained UUID, and that REPEATABLE READ and SERIALIZABLE
+ingestion is refused. It then runs the generated paired restoration
+(`store-native-observer-evidence-restore.staged.sql`): non READ COMMITTED runs
+are refused with 0A000, the restoration waits on the shared (510,2) advisory
+lock, returns the exact OVD-575 definition, OID, owner and grants, refuses a
+second run unchanged, and survives reapply and restore. The disposable OVD-510
+chain (`--ovd563`) adds stage `ovd649_window_order`, which proves the window 2
+order in `docs/release/ovd-649-window-2-order.md` against the verbatim OVD-558
+reverse preflight. The staged SQL is not a migration.
 
 ### OVD-562 retained parent integration
 

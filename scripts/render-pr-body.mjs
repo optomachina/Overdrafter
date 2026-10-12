@@ -2,7 +2,14 @@ import fs from "node:fs/promises";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { formatValidationErrors, validatePrBody } from "./validate-pr-body.mjs";
+import {
+  PROVIDER_GO_LIVE_GROUPS,
+  PROVIDER_GO_LIVE_HEADING,
+  PROVIDER_GO_LIVE_REQUIRED_ITEMS,
+  formatValidationErrors,
+  validatePrBody,
+  validateProviderGoLive,
+} from "./validate-pr-body.mjs";
 
 function usage() {
   return "Usage: npm run render:pr-body -- <path-to-json> | --stdin";
@@ -112,6 +119,58 @@ function normalizeDocumentation(value) {
   };
 }
 
+function normalizeProviderGoLive(value) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("providerGoLive must be an object keyed by checklist item id");
+  }
+
+  const known = new Set(PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => item.id));
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) {
+      throw new Error(`providerGoLive.${key} is not a checklist item (${[...known].join(", ")})`);
+    }
+  }
+
+  return Object.fromEntries(
+    PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => {
+      const entry = value[item.id];
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(`providerGoLive.${item.id} must be an object with evidence or na`);
+      }
+
+      if (entry.na !== undefined) {
+        return [item.id, { na: assertNonEmptyString(entry.na, `providerGoLive.${item.id}.na`) }];
+      }
+
+      return [item.id, { evidence: assertNonEmptyString(entry.evidence, `providerGoLive.${item.id}.evidence`) }];
+    }),
+  );
+}
+
+function renderProviderGoLive(entries) {
+  const lines = ["", `## ${PROVIDER_GO_LIVE_HEADING}`, ""];
+
+  for (const group of PROVIDER_GO_LIVE_GROUPS) {
+    lines.push(`### ${group}`, "");
+    for (const item of PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((candidate) => candidate.group === group)) {
+      const entry = entries[item.id];
+      const base = item.text.replace(/:$/, "").replace(/\s*Evidence$/, "");
+      lines.push(
+        entry.na !== undefined
+          ? formatCheckboxLine(true, `${base} N/A: ${entry.na}`)
+          : formatCheckboxLine(true, `${item.text} ${entry.evidence}`),
+      );
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 function normalizeInput(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("PR body input must be a JSON object");
@@ -126,6 +185,7 @@ function normalizeInput(value) {
     migrationNotes: normalizeChoiceSection(value.migrationNotes, "migrationNotes"),
     rollbackRisks: normalizeStringList(value.rollbackRisks, "rollbackRisks"),
     documentation: normalizeDocumentation(value.documentation),
+    providerGoLive: normalizeProviderGoLive(value.providerGoLive),
   };
 }
 
@@ -223,13 +283,16 @@ export function renderPrBody(input) {
     documentationDetails,
     "",
   ].join("\n");
+  const bodyWithGoLive = normalized.providerGoLive ? `${body}${renderProviderGoLive(normalized.providerGoLive)}` : body;
 
-  const validation = validatePrBody(body);
-  if (!validation.ok) {
-    throw new Error(`Rendered PR body failed validation:\n${formatValidationErrors(validation.errors)}`);
+  const validation = validatePrBody(bodyWithGoLive);
+  const goLiveErrors = normalized.providerGoLive ? validateProviderGoLive(bodyWithGoLive) : [];
+  const errors = [...validation.errors, ...goLiveErrors];
+  if (errors.length > 0) {
+    throw new Error(`Rendered PR body failed validation:\n${formatValidationErrors(errors)}`);
   }
 
-  return body;
+  return bodyWithGoLive;
 }
 
 async function readStdin() {

@@ -14,10 +14,13 @@ const DEPLOYED_CHROMIUM_LAUNCHERS = [
   "tools/probeXometryProfileAuth.ts",
 ];
 
-// The headed operator auth tools and the synthetic browser-recovery comparison
-// harness ignore PLAYWRIGHT_DISABLE_SANDBOX, so Playwright launches them with
-// --no-sandbox. Whether they should request the sandbox is decided in OVD-610.
-// Changing this list also needs the worker README exception list updated.
+// The headed operator auth tools ignore PLAYWRIGHT_DISABLE_SANDBOX, so
+// Playwright launches them with --no-sandbox. Whether they should request the
+// sandbox is decided in OVD-610. The synthetic browser-recovery comparison
+// harness also skips the helper but passes chromiumSandbox: true itself, as do
+// the fixture launchers, so the sandbox is required there. The list name is
+// historical: it is the set of launchers outside the helper.
+// Changing this list also needs the worker README text updated.
 const UNSANDBOXED_OPERATOR_LAUNCHERS = [
   "recovery/comparison.ts",
   "tools/fictivAuth.ts",

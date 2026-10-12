@@ -49,6 +49,10 @@ const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_
 const EngineeringInbox = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
   ? lazy(() => import("./pages/EngineeringInbox"))
   : null;
+// Hosted admin entry: compiled out unless the public build flag is exactly "1"; the server allowlist still decides access.
+const EngineeringAdminRoute = import.meta.env.VITE_ENABLE_ENGINEERING_ADMIN_ROUTE === "1"
+  ? lazy(() => import("./pages/EngineeringAdminRoute"))
+  : null;
 
 function formatTargetName(value: unknown) {
   if (typeof value === "string") {
@@ -144,7 +148,8 @@ const App = () => {
           <AppErrorBoundary>
             <Routes>
               {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
-                && <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />}
+                ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
+                : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />

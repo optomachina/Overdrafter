@@ -83,3 +83,39 @@ Deno.test("stalled authenticated body ends before any reservation", async () => 
   assertEquals((await response.json()).state, "timed_out");
   assertEquals(calls, []);
 });
+function defaultAdapterRuntime(message: string, enabled = true) {
+  const finished: Record<string, unknown>[] = [];
+  const handler = createEngineeringInterpretationHandler({
+    enabled: () => enabled, serviceKey: () => key,
+    rpc: async (name, args) => {
+      if (name === "api_reserve_prepared_interpretation") {
+        return { data: {
+          state: "reserved", invoke: true, text: message, contextText, inputSnapshotId: snapshotId,
+          contextSha256: await nativeDigest(contextText), inputSha256: await nativeDigest(message),
+          organizationId, projectId, priorClarification: null,
+        }, error: null };
+      }
+      if (name === "api_finish_prepared_interpretation") finished.push(args);
+      return { data: { requestId, outcome: "prepared_change" }, error: null };
+    },
+  });
+  return { handler, finished };
+}
+Deno.test("default adapter finishes the 7 mm message as exactly 7 mm", async () => {
+  const { handler, finished } = defaultAdapterRuntime("Set the depth to 7 mm");
+  assertEquals((await handler(request())).status, 200);
+  assertEquals(finished.length, 1);
+  assertEquals(finished[0].p_outcome, "prepared_change");
+  assertEquals(finished[0].p_depth_mm, 7);
+});
+Deno.test("default adapter records an unsupported request without a depth", async () => {
+  const { handler, finished } = defaultAdapterRuntime("Set the depth to 7 inches");
+  assertEquals((await handler(request())).status, 200);
+  assertEquals(finished[0].p_outcome, "no_change");
+  assertEquals(finished[0].p_depth_mm, null);
+});
+Deno.test("default adapter stays disabled when the flag is off", async () => {
+  const { handler, finished } = defaultAdapterRuntime("Set the depth to 7 mm", false);
+  assertEquals((await handler(request())).status, 503);
+  assertEquals(finished, []);
+});
