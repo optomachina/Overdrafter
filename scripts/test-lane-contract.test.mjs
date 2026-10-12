@@ -18,6 +18,7 @@ const portableSuites = [
   "scripts/migration-timestamp.node-test.mjs",
   "scripts/stripe-catalog-setup.node-test.mjs",
   "scripts/verify-migration-lineage.node-test.mjs",
+  "scripts/provider-permissions-verify.node-test.mjs",
 ];
 
 function portableCommand() {
@@ -120,6 +121,7 @@ test('synthetic portable contract', () => {
 
   it("retains the provider gate and includes the omitted payment safety suite", () => {
     expect(packageJson.scripts.verify).toContain("npm run provider:check");
+    expect(packageJson.scripts.verify).toContain("npm run provider:permissions");
     expect(packageJson.scripts["test:functions"]).toContain(
       "supabase/functions/create-payment-intent/index.test.ts",
     );

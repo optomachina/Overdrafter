@@ -57,6 +57,8 @@ type ClientQuoteDecisionPanelProps = {
   description?: string;
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
+  /** The stored choice no longer resolves to a selectable option, so nothing is selected. */
+  previousSelectionUnavailable?: boolean;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   requestedByDate: string | null;
   quoteDataStatus?: QuoteDataStatus;
@@ -782,7 +784,6 @@ function renderDecisionPanelContent({
   const topRankedKeys = getTopRankedQuoteOptionKeys(rankedOptions, activeRankingPreset);
   const recommendedOption = rankedOptions.find((option) => topRankedKeys.has(option.key)) ?? null;
   const activeOption = selectedOption ?? recommendedOption;
-  const activeKey = activeOption?.key ?? null;
 
   return (
     <div className="mt-4 space-y-3">
@@ -799,7 +800,7 @@ function renderDecisionPanelContent({
         <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
           <ClientQuoteComparisonChart
             options={options}
-            selectedKey={activeKey}
+            selectedKey={selectedOption?.key ?? null}
             hoveredKey={hoveredKey}
             partId={partId}
             organizationId={organizationId}
@@ -851,6 +852,7 @@ export function ClientQuoteDecisionPanel({
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",
   options,
   selectedOption,
+  previousSelectionUnavailable = false,
   onSelect,
   requestedByDate,
   quoteDataStatus = "available",
@@ -892,6 +894,14 @@ export function ClientQuoteDecisionPanel({
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
       />
+      {previousSelectionUnavailable && !selectedOption ? (
+        <output
+          className="mt-4 block border-l-2 border-border bg-ws-inset px-4 py-3 text-sm text-foreground"
+          data-testid="previous-selection-unavailable"
+        >
+          Your previous quote choice is no longer available. Choose a quote to continue.
+        </output>
+      ) : null}
       {renderDecisionPanelContent({
         options: visibleOptions,
         selectedOption: visibleSelectedOption,

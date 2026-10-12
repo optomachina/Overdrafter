@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 
+import { assertNoSecretValues } from "./provider-registry.mjs";
+
 export const PROVIDER_MANIFEST_VERSION = 1;
 export const PROVIDER_MANIFEST_FILE = "manifest.v1.json";
 export const PROVIDER_SCHEMA_FILE = "provider-manifest.v1.schema.json";
@@ -298,6 +300,7 @@ function parseReviewDate(value, label, today) {
  */
 export function validateProviderManifest(manifest, options = {}) {
   const value = requireObject(manifest, "manifest");
+  assertNoSecretValues(value, "manifest");
   assertExactKeys(value, [
     "$schema",
     "schemaVersion",
