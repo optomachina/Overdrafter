@@ -486,6 +486,11 @@ function unconditionalPlacementViolation(call) {
       return kindName(statement);
     }
     const container = statement.parent;
+    if (ts.isSourceFile(container) || ts.isBlock(container)) {
+      if (container.statements.slice(0, container.statements.indexOf(statement)).some(terminates)) {
+        return "UnreachableCode";
+      }
+    }
     if (ts.isSourceFile(container)) {
       return null;
     }
@@ -501,7 +506,7 @@ function unconditionalPlacementViolation(call) {
       !describeCall
       || !ts.isCallExpression(describeCall)
       || !describeCall.arguments.includes(fn)
-      || !isDescribeCallee(describeCall.expression)
+      || !isPlainDescribeCallee(describeCall.expression)
     ) {
       return kindName(fn);
     }
@@ -509,17 +514,44 @@ function unconditionalPlacementViolation(call) {
   }
 }
 
-function isDescribeCallee(expression) {
+/** True when control never reaches the statement after this one. */
+function terminates(statement) {
+  if (
+    ts.isReturnStatement(statement)
+    || ts.isThrowStatement(statement)
+    || ts.isBreakStatement(statement)
+    || ts.isContinueStatement(statement)
+  ) {
+    return true;
+  }
+  if (ts.isBlock(statement)) {
+    return statement.statements.some(terminates);
+  }
+  if (ts.isIfStatement(statement)) {
+    return statement.elseStatement !== undefined
+      && terminates(statement.thenStatement)
+      && terminates(statement.elseStatement);
+  }
+  return false;
+}
+
+/**
+ * Only `describe(...)` and `describe.each(...)(...)` / describe.each`...`
+ * run their bodies unconditionally; every other modifier (skip, todo, only,
+ * skipIf, runIf, concurrent, sequential, ...) is rejected.
+ */
+function isPlainDescribeCallee(expression) {
   if (ts.isIdentifier(expression)) {
     return expression.text === "describe";
   }
-  if (ts.isPropertyAccessExpression(expression)) {
-    return isDescribeCallee(expression.expression);
-  }
-  if (ts.isCallExpression(expression) || ts.isTaggedTemplateExpression(expression)) {
-    return isDescribeCallee(ts.isCallExpression(expression) ? expression.expression : expression.tag);
-  }
-  return false;
+  const factory = ts.isCallExpression(expression)
+    ? expression.expression
+    : ts.isTaggedTemplateExpression(expression) ? expression.tag : null;
+  return factory !== null
+    && ts.isPropertyAccessExpression(factory)
+    && factory.name.text === "each"
+    && ts.isIdentifier(factory.expression)
+    && factory.expression.text === "describe";
 }
 
 function kindName(node) {

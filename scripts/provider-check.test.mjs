@@ -825,7 +825,7 @@ describe("default-deny registrar call placement", () => {
     ["describe", `describe("a", () => { ${call}; });`],
     ["nested describe", `describe("a", () => { describe("b", function () { ${call}; }); });`],
     ["describe.each", `describe.each([1])("a", () => { ${call}; });`],
-    ["describe.skip", `describe.skip("a", () => { ${call}; });`],
+    ["describe.each template", "describe.each`\na\n${1}\n`(\"a\", () => { " + call + "; });"],
   ])("accepts a call at %s", async (_name, body) => {
     await expect(checkWithBody(body)).resolves.toEqual({ reviewedProviders: ["acme"] });
   });
@@ -843,6 +843,22 @@ describe("default-deny registrar call placement", () => {
     ["&& expression", `(globalThis as any).x && ${call};`, "BinaryExpression"],
     ["|| expression", `(globalThis as any).x || ${call};`, "BinaryExpression"],
     ["if inside describe", `describe("a", () => { if (false) { ${call}; } });`, "IfStatement"],
+    ["describe.skip", `describe.skip("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.todo", `describe.todo("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.skipIf", `describe.skipIf(true)("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.runIf", `describe.runIf(false)("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.only", `describe.only("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.concurrent", `describe.concurrent("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.sequential", `describe.sequential("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.shuffle", `describe.shuffle("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.skip.each", `describe.skip.each([1])("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.each.skip", `describe.each([1]).skip("a", () => { ${call}; });`, "ArrowFunction"],
+    ["xdescribe", `xdescribe("a", () => { ${call}; });`, "ArrowFunction"],
+    ["after return in describe", `describe("a", () => { return; ${call}; });`, "UnreachableCode"],
+    ["after throw in describe", `describe("a", () => { throw new Error("x"); ${call}; });`, "UnreachableCode"],
+    ["after return in nested block", `describe("a", () => { { return; } ${call}; });`, "UnreachableCode"],
+    ["after if/else returns", `describe("a", () => { if (x) { return; } else { return; } ${call}; });`, "UnreachableCode"],
+    ["after return in outer describe", `describe("a", () => { return; describe("b", () => { ${call}; }); });`, "UnreachableCode"],
   ])("rejects a call under %s and names %s", async (_name, body, kind) => {
     await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
   });
@@ -893,7 +909,85 @@ describe("readiness doc structure", () => {
     );
   });
 
+  it("does not count HTML comments or whitespace as section content", () => {
+    const [first, ...others] = REQUIRED_READINESS_HEADINGS;
+    const rest = others.map((heading) => `${heading}\n\nbody\n`).join("\n");
+    for (const filler of [
+      "<!-- todo -->",
+      "<!--\nmulti\nline\n-->",
+      "  <!-- a --> \t <!-- b -->  ",
+      "\u00a0\u200b",
+    ]) {
+      expect(validateReadinessDoc(`${first}\n\n${filler}\n\n${rest}`)).toEqual([`empty section: ${first}`]);
+    }
+  });
+
+  it("treats an unterminated HTML comment as swallowing the rest of the doc", () => {
+    const [first, ...others] = REQUIRED_READINESS_HEADINGS;
+    const rest = others.map((heading) => `${heading}\n\nbody\n`).join("\n");
+    const problems = validateReadinessDoc(`${first}\n\nbody\n\n<!-- oops\n${rest}`);
+    expect(problems).toContain(`missing heading: ${others[0]}`);
+  });
+
+  it("counts text around an HTML comment as content and ignores headings inside comments", () => {
+    const [first, ...others] = REQUIRED_READINESS_HEADINGS;
+    const rest = others.map((heading) => `${heading}\n\nbody\n`).join("\n");
+    expect(validateReadinessDoc(`${first}\n\n<!-- x --> real\n\n${rest}`)).toEqual([]);
+    expect(validateReadinessDoc(`${first}\n\n<!--\n${others[0]}\n-->\nbody\n\n${rest}`)).toEqual([]);
+  });
+
   it("fails a one-character doc as malformed", async () => {
     await expect(checkWithDoc("x\n")).rejects.toThrow(`readiness doc ${docPath} is malformed`);
+  });
+});
+
+describe("registry sessionSecrets mountPath", () => {
+  async function checkWithSecret(overrides) {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    const registryPath = path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH);
+    const registry = JSON.parse(await fs.readFile(registryPath, "utf8"));
+    const entry = registry.providers.find((candidate) => candidate.key === "acme");
+    entry.sessionSecrets = [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      requiredWhenListed: true,
+      ...overrides,
+    }];
+    await fs.writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    return assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" });
+  }
+  const deployGap = { message: /deploy wiring/ };
+
+  it("accepts a valid /var/secrets/<name>/storage-state.json mountPath", async () => {
+    await expect(checkWithSecret({ mountPath: "/var/secrets/acme-state/storage-state.json" }))
+      .resolves.toEqual({ reviewedProviders: ["acme"] });
+  });
+
+  it.each([
+    ["wrong file name", "/var/secrets/acme/other.json"],
+    ["wrong root", "/etc/secrets/acme/storage-state.json"],
+    ["relative", "var/secrets/acme/storage-state.json"],
+    ["traversal", "/var/secrets/../etc/storage-state.json"],
+    ["nested", "/var/secrets/a/b/storage-state.json"],
+    ["uppercase name", "/var/secrets/ACME/storage-state.json"],
+    ["empty name", "/var/secrets//storage-state.json"],
+    ["trailing newline", "/var/secrets/acme/storage-state.json\n"],
+  ])("rejects an invalid mountPath: %s", async (_name, mountPath) => {
+    await expect(checkWithSecret({ mountPath })).rejects.toThrow(deployGap.message);
+  });
+
+  it("rejects a secret that sets both mountEnv and mountPath", async () => {
+    await expect(checkWithSecret({
+      mountEnv: "ACME_STORAGE_STATE_JSON",
+      mountPath: "/var/secrets/acme/storage-state.json",
+    })).rejects.toThrow(deployGap.message);
+  });
+
+  it("rejects a secret that sets neither mountEnv nor mountPath", async () => {
+    await expect(checkWithSecret({})).rejects.toThrow(deployGap.message);
+  });
+
+  it("rejects a non-string mountPath", async () => {
+    await expect(checkWithSecret({ mountPath: 5 })).rejects.toThrow(deployGap.message);
   });
 });

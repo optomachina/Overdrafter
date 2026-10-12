@@ -18,7 +18,8 @@ export const RECOMMENDED_READINESS_HEADINGS = Object.freeze([
 /**
  * Returns a list of problems (empty when the doc conforms). Required `## `
  * lines must appear in order, each with a non-empty body before the next
- * `## ` heading. Fenced code blocks are not scanned for headings.
+ * `## ` heading. HTML comments (including multi-line) and whitespace do not
+ * count as content. Fenced code blocks are not scanned for headings.
  */
 export function validateReadinessDoc(text) {
   const problems = [];
@@ -35,7 +36,7 @@ export function validateReadinessDoc(text) {
       continue;
     }
     cursor = index + 1;
-    if (sections[index].body.trim().length === 0) {
+    if (sections[index].body.replace(/[\s\u200b-\u200d\u2060\ufeff]/g, "").length === 0) {
       problems.push(`empty section: ${heading}`);
     }
   }
@@ -52,9 +53,14 @@ export function assertReadinessDoc(text, relativePath) {
 function readSections(text) {
   const sections = [];
   let inFence = false;
-  for (const line of text.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) {
+  let inComment = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    let line = rawLine;
+    if (!inComment && /^\s*(```|~~~)/.test(line)) {
       inFence = !inFence;
+    }
+    if (!inFence) {
+      ({ line, inComment } = stripHtmlComments(line, inComment));
     }
     if (!inFence && /^## /.test(line)) {
       sections.push({ heading: line.trimEnd(), body: "" });
@@ -63,4 +69,30 @@ function readSections(text) {
     }
   }
   return sections;
+}
+
+function stripHtmlComments(line, inComment) {
+  let out = "";
+  let rest = line;
+  let open = inComment;
+  while (rest.length > 0) {
+    if (open) {
+      const end = rest.indexOf("-->");
+      if (end === -1) {
+        return { line: out, inComment: true };
+      }
+      rest = rest.slice(end + 3);
+      open = false;
+    } else {
+      const start = rest.indexOf("<!--");
+      if (start === -1) {
+        out += rest;
+        break;
+      }
+      out += rest.slice(0, start);
+      rest = rest.slice(start + 4);
+      open = true;
+    }
+  }
+  return { line: out, inComment: open };
 }
