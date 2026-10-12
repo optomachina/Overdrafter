@@ -15,20 +15,20 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `c1fbcd71` (723 EXPAND), #676 `b623890a`. Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `414bc441` (723 EXPAND), #676 `8302da98` (722 expand only). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
 | `ovd-462-only/` | 462 | **PASS, every gate** | 154 s |
-| `recommended/` | 462, 723, 722 | **PASS, every gate** | 293 s |
+| `recommended/` | 462, 723, 722 | **PASS, every gate** | 291 s |
 
 Per migration (recommended run; first apply / reapply):
 
 | | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 22/24 ms | 128/128 | 128/128 | ok 16 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
-| OVD-723 EXPAND | ok, 30/27 ms | 94/94 | 94/94 | ok 16 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 94/94 |
-| OVD-722 | ok, 22/26 ms | 56/56 | 56/56 | ok 16 ms with the packet rollback, which byte matches the draft's guarded rollback section | ok; 56/56 |
+| OVD-462 | ok, 28/23 ms | 128/128 | 128/128 | ok 16 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
+| OVD-723 EXPAND | ok, 27/40 ms | 94/94 | 94/94 | ok 18 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 94/94 |
+| OVD-722 (expand only) | ok, 27/24 ms | 53/53 | 53/53 | ok 26 ms with the packet rollback, which byte matches the draft's guarded rollback section | ok; 53/53 |
 
 Main suites: none regresses after any migration. A main suite that a PR edits lands with its migration. So after each migration the runner uses that PR's version: #675 edits `provider_session_leases.sql`, #677 edits 6 suites, #676 edits none. At earlier heads 10 main suites failed; the workers fixed them (see the review status table).
 
@@ -42,7 +42,7 @@ Expected diffs (`ovd602-expected/`):
 
 * **462 only:** 6 new SECURITY DEFINER functions, all `service_role` only, all `search_path=""`; 2 new tables with RLS enabled and forced, no policies, no grants. **0 flags.**
 * **462, 723:** 15 new functions, 7 tables, 5 policies, 6 flags (`ovd602-expected/ovd-462+ovd-723.json`).
-* **462, 723, 722:** 25 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 10 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 12 flags, every one listed in the file.
+* **462, 723, 722:** 23 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 10 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 9 flags, every one listed in the file.
 
 ## Reproduce
 

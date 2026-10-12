@@ -1,6 +1,6 @@
  plan  
 -------
- 1..56
+ 1..53
 (1 row)
 
                           is                          
@@ -68,9 +68,9 @@
  ok 13 - the sweep is service_role only
 (1 row)
 
-                                                         ok                                                         
---------------------------------------------------------------------------------------------------------------------
- ok 14 - the preserved pre-OVD-722 preflights cannot be called directly; the wrappers keep search_path = pg_catalog
+                                    ok                                     
+---------------------------------------------------------------------------
+ ok 14 - expand only: OVD-722 renames, wraps or edits no dispatch function
 (1 row)
 
                                                  ok                                                 
@@ -218,39 +218,29 @@
  ok 38 - TRUNCATE on the audit table fails
 (1 row)
 
-                                                  is                                                   
--------------------------------------------------------------------------------------------------------
- ok 39 - generic preflight denies a switched-off provider with provider_kill_switch_engaged (terminal)
-(1 row)
-
-                             isnt                             
---------------------------------------------------------------
- ok 40 - another provider reaches its normal preflight checks
-(1 row)
-
                                throws_ok                               
 -----------------------------------------------------------------------
- ok 41 - a new fictiv permit (enqueue) is refused by the guard trigger
+ ok 39 - a new fictiv permit (enqueue) is refused by the guard trigger
 (1 row)
 
                                       throws_ok                                       
 --------------------------------------------------------------------------------------
- ok 42 - a quickparts permit passes the guard and reaches the table's own constraints
+ ok 40 - a quickparts permit passes the guard and reaches the table's own constraints
 (1 row)
 
                             is                             
 -----------------------------------------------------------
- ok 43 - the sweep cancels at least the queued fictiv task
+ ok 41 - the sweep cancels at least the queued fictiv task
 (1 row)
 
                             ok                            
 ----------------------------------------------------------
- ok 44 - the fictiv task ends cancelled_provider_disabled
+ ok 42 - the fictiv task ends cancelled_provider_disabled
 (1 row)
 
                     is                    
 ------------------------------------------
- ok 45 - the quickparts task is untouched
+ ok 43 - the quickparts task is untouched
 (1 row)
 
  ovd722_as 
@@ -260,27 +250,22 @@
 
                          is                         
 ----------------------------------------------------
- ok 46 - a platform admin engages the global switch
+ ok 44 - a platform admin engages the global switch
 (1 row)
 
                                ok                                
 -----------------------------------------------------------------
- ok 47 - with the global switch engaged every provider is denied
-(1 row)
-
-                              is                              
---------------------------------------------------------------
- ok 48 - the Xometry preflight denies under the global switch
+ ok 45 - with the global switch engaged every provider is denied
 (1 row)
 
                         is                         
 ---------------------------------------------------
- ok 49 - the worker read reports the global switch
+ ok 46 - the worker read reports the global switch
 (1 row)
 
                                  throws_ok                                 
 ---------------------------------------------------------------------------
- ok 50 - a new Xometry permit (enqueue) is refused under the global switch
+ ok 47 - a new Xometry permit (enqueue) is refused under the global switch
 (1 row)
 
  ovd722_as 
@@ -290,36 +275,36 @@
 
                  throws_ok                 
 -------------------------------------------
- ok 51 - a stale global release is refused
+ ok 48 - a stale global release is refused
 (1 row)
 
                                      is                                     
 ----------------------------------------------------------------------------
- ok 52 - a platform admin releases the global switch at the current version
+ ok 49 - a platform admin releases the global switch at the current version
 (1 row)
 
                                    ok                                   
 ------------------------------------------------------------------------
- ok 53 - releasing the global switch restores each provider's own state
+ ok 50 - releasing the global switch restores each provider's own state
 (1 row)
 
                              is                             
 ------------------------------------------------------------
- ok 54 - both global flips are audited with a null provider
+ ok 51 - both global flips are audited with a null provider
 (1 row)
 
                                 ok                                
 ------------------------------------------------------------------
- ok 55 - a provider with no kill-switch row is treated as engaged
+ ok 52 - a provider with no kill-switch row is treated as engaged
 (1 row)
 
                             ok                            
 ----------------------------------------------------------
- ok 56 - an unknown provider string is treated as engaged
+ ok 53 - an unknown provider string is treated as engaged
 (1 row)
 
  finish 
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-hOI4Ya/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:29: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-8soR2B/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:29: NOTICE:  extension "pgtap" already exists, skipping

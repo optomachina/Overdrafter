@@ -5,18 +5,6 @@
       {
         "definer": true,
         "execute": [],
-        "search_path": "pg_catalog",
-        "signature": "private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"
-      },
-      {
-        "definer": true,
-        "execute": [],
-        "search_path": "pg_catalog",
-        "signature": "private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"
-      },
-      {
-        "definer": true,
-        "execute": [],
         "search_path": "\"\"",
         "signature": "private.provider_kill_switch_engaged(public.vendor_name)"
       },
@@ -29,7 +17,7 @@
       {
         "definer": true,
         "execute": [],
-        "search_path": "pg_catalog",
+        "search_path": "\"\"",
         "signature": "private.provider_kill_switch_permit_guard()"
       },
       {
@@ -340,9 +328,6 @@
     "DEFINER_EXECUTABLE_BY authenticated added public.api_get_job_export_control_status(uuid)",
     "DEFINER_EXECUTABLE_BY authenticated added public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text,uuid)",
     "DEFINER_EXECUTABLE_BY authenticated added public.api_review_export_control_block(uuid,text,text)",
-    "DEFINER_EXECUTABLE_BY authenticated added public.current_user_has_export_cleared_upload(text,text)",
-    "DEFINER_NONEMPTY_SEARCH_PATH added private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone) search_path=pg_catalog",
-    "DEFINER_NONEMPTY_SEARCH_PATH added private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone) search_path=pg_catalog",
-    "DEFINER_NONEMPTY_SEARCH_PATH added private.provider_kill_switch_permit_guard() search_path=pg_catalog"
+    "DEFINER_EXECUTABLE_BY authenticated added public.current_user_has_export_cleared_upload(text,text)"
   ]
 }

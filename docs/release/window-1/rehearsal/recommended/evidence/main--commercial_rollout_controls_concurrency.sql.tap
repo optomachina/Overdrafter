@@ -3,5 +3,5 @@
  1..3
 (1 row)
 
-psql:/tmp/ovd635-window1-hOI4Ya/src-main/supabase/tests/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database
+psql:/tmp/ovd635-window1-8soR2B/src-main/supabase/tests/commercial_rollout_controls_concurrency.sql:29: ERROR:  OVD-313 concurrency tests require a freshly reset disposable local database
 CONTEXT:  PL/pgSQL function inline_code_block line 17 at RAISE

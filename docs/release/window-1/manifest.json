@@ -45,9 +45,9 @@
     },
     {
       "id": "ovd-722",
-      "title": "Provider kill switch (expand + enforce wrappers)",
+      "title": "Provider kill switch (expand only: tables, RPCs, permit insert triggers)",
       "pr": 676,
-      "sha": "b623890a4499eea412dbbbf5b5ac616cb8df301b",
+      "sha": "8302da984036352ad21b9ce86827682f275657a5",
       "slug": "ovd722_provider_kill_switch",
       "draft": {
         "path": "docs/migration-drafts/ovd-722.sql"
@@ -72,13 +72,13 @@
       "id": "ovd-723",
       "title": "ITAR/EAR export control, EXPAND (window 1); contract is a later window",
       "pr": 677,
-      "sha": "c1fbcd71e96b02af12a42b679818cfba46cdcb64",
+      "sha": "414bc4418117849792039e84f6f0b99be29714fd",
       "slug": "ovd723_export_control_upload_block",
       "draft": {
         "path": "docs/migration-drafts/ovd-723.sql"
       },
       "rollback": {
-        "sha": "c1fbcd71e96b02af12a42b679818cfba46cdcb64",
+        "sha": "414bc4418117849792039e84f6f0b99be29714fd",
         "path": "docs/migration-drafts/ovd-723.rollback.sql",
         "singleTransaction": true
       },

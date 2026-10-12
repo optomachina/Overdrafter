@@ -6,12 +6,17 @@ Target: Wed Oct 21, 2026. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `c
 
 | Migration | PR | Rehearsal | Verdict |
 | --- | --- | --- | --- |
-| OVD-462 provider session lease | #675 @ `42d5cc61` | apply 22 ms, pgTAP 128/128, 602 diff exact (0 flags), rollback refuses under a concurrent writer then succeeds, reapply: all pass; no main suite regresses | **GO** |
-| OVD-723 export control, EXPAND (contract is a later window) | #677 @ `c1fbcd71` | apply 30 ms, pgTAP 94/94, 602 diff exact, guarded rollback (keeps audit tables) and reapply pass; no main suite regresses with the 6 suites the PR updates | **GO on evidence; Blaine decides the dispatch hold below** |
-| OVD-722 provider kill switch | #676 @ `b623890a` | apply 22 ms, pgTAP 56/56, 602 diff exact, guarded rollback and reapply pass; no main suite regresses | **GO on evidence; needs Blaine's expand only exception** |
+| OVD-462 provider session lease | #675 @ `42d5cc61` | apply 22 ms, pgTAP 128/128, 602 diff exact (0 flags), rollback refuses under a concurrent writer then succeeds, reapply: all pass; no main suite regresses | **GO; Blaine confirms the operator RPC role below** |
+| OVD-723 export control, EXPAND (contract is a later window) | #677 @ `414bc441` | apply 27 ms, pgTAP 94/94, 602 diff exact, guarded rollback (keeps audit tables) and reapply pass; no main suite regresses with the 6 suites the PR updates | **GO on evidence; Blaine decides the dispatch hold below** |
+| OVD-722 provider kill switch (expand only) | #676 @ `8302da98` | apply 27 ms, pgTAP 53/53, 602 diff exact, guarded rollback and reapply pass; no main suite regresses | **GO** |
 | OVD-725 Stripe catalog | #671 | no migration draft (only a test file) | not in window 1 |
 
 Evidence: `rehearsal/ovd-462-only/summary.json` (the GO path) and `rehearsal/recommended/summary.json` (all three, order 462, 723, 722: every gate passes). Findings: [review-722-723.md](review-722-723.md) and [rehearsal/REPORT.md](rehearsal/REPORT.md). If any PR head moves, update the SHA in `manifest.json` and rerun `node scripts/window-1/rehearse.mjs --order ovd-462` (about 2 minutes, local only).
+
+## Blaine decides before the window
+
+1. **OVD-462 operator RPCs.** `revoke_provider_session_binding` and `clear_provider_session_binding_block` are granted to `service_role` like the worker RPCs (called only from the admin server path). The draft recommends keeping `service_role` for 1.0 and moving them to a dedicated operator database role in 1.1. Confirm, or ask for the role now.
+2. **OVD-723 dispatch hold.** Once the new worker ships, every existing job with files is held until its owner declares (details in migration 2).
 
 ## Before the window (any day, read only)
 
@@ -108,9 +113,9 @@ Then close the PR unmerged. The rollback locks both lease tables and refuses if 
 
 **Decide first.** Expand is additive (new tables, RPCs, one extra Storage policy; legacy upload RPCs, the old policy and both preflights unchanged). But it backfills a `missing` declaration for every existing job with files, and the new 723 worker refuses dispatch for a job without a clean declaration and clean scans. Once that worker ships, every existing job waits until its owner declares. Old clients and direct calls to the legacy upload RPCs are not blocked until the contract migration (a later window).
 
-**Promote:** as in migration 1, with slug `ovd723_export_control_upload_block`, source `git show c1fbcd71:docs/migration-drafts/ovd-723.sql`, sha256 `22d6b4b8794868220d5562a32aba2d9ed76b123400399b32a13c5108fb0765ac`. The same PR must carry #677's edits to the 6 main suites (`empty_file_upload_rejection`, `founding_beta_file_boundaries`, `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency`, `xometry_beta_dispatch_permits`) and rename the pending suite to `supabase/tests/ovd723_export_control_upload_block.sql`.
+**Promote:** as in migration 1, with slug `ovd723_export_control_upload_block`, source `git show 414bc441:docs/migration-drafts/ovd-723.sql`, sha256 `22d6b4b8794868220d5562a32aba2d9ed76b123400399b32a13c5108fb0765ac`. The same PR must carry #677's edits to the 6 main suites (`empty_file_upload_rejection`, `founding_beta_file_boundaries`, `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency`, `xometry_beta_dispatch_permits`) and rename the pending suite to `supabase/tests/ovd723_export_control_upload_block.sql`.
 
-**Apply:** the same two `supabase db push` lines. Rehearsed apply time: about 30 ms. Deploy order after it: web client, then worker.
+**Apply:** the same two `supabase db push` lines. Rehearsed apply time: about 27 ms. Deploy order after it: web client, then worker.
 
 **Read back:**
 ```sql
@@ -127,23 +132,23 @@ Expected: `backfilled` equals `declarations` and equals the number of jobs that 
 
 **Rollback:** `psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f docs/migration-drafts/ovd-723.rollback.sql` (from the PR branch), then `supabase migration repair --db-url "$DB_URL" --status reverted <timestamp>`. It refuses if the contract is applied, and keeps the audit tables (including the backfilled rows). Roll the client and worker back first: they fail closed without these RPCs. Rehearsed: about 16 ms; only the 4 audit tables and their 4 read policies remain; reapply passes.
 
-## Migration 3: OVD-722 (needs Blaine's expand only exception)
+## Migration 3: OVD-722 (GO)
 
-**Decide first.** PHASE 1 is additive. PHASE 2 wraps the two worker preflights and adds a permit insert trigger; with every switch off (the seeded state) behavior is unchanged, but it changes existing objects, so the window rule needs your exception. Without it, ask #676 to split PHASE 2 into a later window.
+Expand only: new tables, RPCs and a BEFORE INSERT trigger on both permit tables (it refuses with `provider_kill_switch_engaged` only when a switch is engaged). No existing function is renamed, wrapped or edited.
 
-**Promote:** slug `ovd722_provider_kill_switch`, source `git show b623890a:docs/migration-drafts/ovd-722.sql`, sha256 `59a145170bd31cbcb34b93d849cfbadfe30a18ecb9f1c2ff9247de4c407a1d6b`; rename the pending suite to `supabase/tests/ovd722_provider_kill_switch.sql` in the same PR.
+**Promote:** slug `ovd722_provider_kill_switch`, source `git show 8302da98:docs/migration-drafts/ovd-722.sql`, sha256 `19c6622e685a871c79219c81685e6e7fedce58031ac46e0fd178c93c959a8cf1`; rename the pending suite to `supabase/tests/ovd722_provider_kill_switch.sql` in the same PR.
 
-**Apply:** the same two `supabase db push` lines; about 22 ms. Deploy the 722 worker after it (that worker refuses every live dispatch while the switch RPC is missing).
+**Apply:** the same two `supabase db push` lines; about 27 ms. Deploy the 722 worker after it (that worker refuses every live dispatch while the switch RPC is missing).
 
-**Read back** (as a platform admin in the app, or): `select provider, engaged from private.provider_kill_switches order by 1;` and `select engaged from private.provider_global_kill_switch;`. Expected: one row per provider, all `false`; global `false`.
+**Read back:** `select provider, engaged from private.provider_kill_switches order by 1;` and `select engaged from private.provider_global_kill_switch;`. Expected: one row per provider, all `false`; global `false`.
 
-**602 diff:** `--expect docs/release/window-1/ovd602-expected/ovd-462+ovd-723+ovd-722.json` (25 functions, 10 tables, 5 policies in total; 12 flags, all deliberate).
+**602 diff:** `--expect docs/release/window-1/ovd602-expected/ovd-462+ovd-723+ovd-722.json` (23 definer functions, 10 tables, 5 policies in total; no existing function changed; 9 flags, all deliberate `authenticated` grants).
 
-**Rollback:** `psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f docs/release/window-1/rollback/ovd-722.rollback.sql` (it carries its own transaction; derived byte for byte from the draft), then `supabase migration repair ... --status reverted <timestamp>`. It refuses if any switch is engaged, if the role cannot bypass RLS, or if 722 is not the outermost wrapper. Roll the worker back first. Rehearsed: about 16 ms, inventory back exactly; reapply passes.
+**Rollback:** `psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f docs/release/window-1/rollback/ovd-722.rollback.sql` (it carries its own transaction; derived byte for byte from the draft), then `supabase migration repair --db-url "$DB_URL" --status reverted <timestamp>`. It refuses while a switch is engaged or if the role cannot bypass RLS. Roll the worker back first. Rehearsed: about 26 ms, inventory back exactly; reapply passes.
 
 ## Order and rollback
 
-Apply in the order 462, 723, 722 (kill switch outermost), one promotion PR at a time, each merged only after its readback and 602 diff pass. Roll back strictly in reverse order. If you skip 723, rerun `node scripts/window-1/rehearse.mjs --order ovd-462,ovd-722 --write-expected --skip-main-suites` first to get the matching expected diff.
+Apply in the order 462, 723, 722 (the order rehearsed), one promotion PR at a time, each merged only after its readback and 602 diff pass. Roll back strictly in reverse order. If you skip 723, rerun `node scripts/window-1/rehearse.mjs --order ovd-462,ovd-722 --write-expected --skip-main-suites` first to get the matching expected diff.
 
 ## After the window
 
