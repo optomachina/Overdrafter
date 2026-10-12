@@ -6,6 +6,7 @@ import {
   markTaskCancelled,
   markTaskCompleted,
   markTaskFailed,
+  markTaskQueuedForRetry,
   reapStaleTasks,
   reconcileTerminalFreeQuoteTasks,
 } from "./queue";
@@ -286,4 +287,43 @@ describe("terminal free quote reconciliation", () => {
       await expect(reconcileTerminalFreeQuoteTasks(client as never)).rejects.toThrow("free_quote_reconciliation_response_invalid");
     },
   );
+});
+
+describe("markTaskQueuedForRetry", () => {
+  function requeueStub(rows: { id: string }[]) {
+    const filters: [string, string, unknown][] = [];
+    const select = vi.fn().mockResolvedValue({ data: rows, error: null });
+    const query = {
+      eq: vi.fn((column: string, value: unknown) => { filters.push(["eq", column, value]); return query; }),
+      is: vi.fn((column: string, value: unknown) => { filters.push(["is", column, value]); return query; }),
+      select,
+    };
+    const update = vi.fn(() => query);
+    return { client: { from: vi.fn(() => ({ update })) }, update, filters };
+  }
+
+  it("requeues only while the row is still running under this worker's lock", async () => {
+    const stub = requeueStub([{ id: "task-1" }]);
+
+    const requeued = await markTaskQueuedForRetry(stub.client as never, makeQueuedTask(), "boom", "2026-10-12T00:00:00Z");
+
+    expect(requeued).toBe(true);
+    expect(stub.update).toHaveBeenCalledWith(expect.objectContaining({ status: "queued", locked_by: null }));
+    expect(stub.filters).toEqual([
+      ["eq", "id", "task-1"],
+      ["eq", "status", "running"],
+      ["eq", "locked_by", "worker-1"],
+    ]);
+  });
+
+  it("zero matched rows (already cancelled or settled elsewhere) logs and does not throw", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const stub = requeueStub([]);
+
+    await expect(
+      markTaskQueuedForRetry(stub.client as never, makeQueuedTask(), "boom", "2026-10-12T00:00:00Z"),
+    ).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("worker.task.requeue_skipped"));
+    warn.mockRestore();
+  });
 });

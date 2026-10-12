@@ -720,6 +720,18 @@ describe("provider kill switch (OVD-722)", () => {
     expect(h.persist).not.toHaveBeenCalled();
   });
 
+  it("a before_launch refusal records adapterStarted false on the outcome and the lane", async () => {
+    const h = harness({ quote: async () => { throw engaged("before_launch"); } });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "cancelled_provider_disabled", adapterStarted: false });
+    const record = providerTaskFailureRecord("fictiv", outcome, { retryCount: 0, requestedQuantity: 1 });
+    expect(record.raw_payload).toMatchObject({
+      adapterStarted: false,
+      providerMutationPossible: false,
+      killSwitchCheckpoint: "before_launch",
+    });
+  });
+
   it("an engaged checkpoint after the upload started: cancelled with providerMutationPossible, never manual or requeued", async () => {
     const h = harness({
       quote: async () => {

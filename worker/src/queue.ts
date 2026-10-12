@@ -145,15 +145,23 @@ export async function markTaskCancelled(
   }
 }
 
-/** Requeues a task for a later retry and clears the current worker lock. */
+/**
+ * Requeues a task for a later retry and clears the current worker lock.
+ *
+ * Conditional on the row still being `running` under this worker's lock, so a
+ * retry can never revive a task that was cancelled (for example by the OVD-722
+ * kill switch), completed, failed, or reaped and reclaimed in the meantime.
+ * Zero matched rows means the task was already settled elsewhere: it is
+ * logged and left as it is. Returns whether the row was requeued.
+ */
 export async function markTaskQueuedForRetry(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   errorMessage: string,
   availableAt: string,
   payloadPatch: Record<string, unknown> = {},
-) {
-  const { error } = await supabase
+): Promise<boolean> {
+  const update = supabase
     .from("work_queue")
     .update({
       status: "queued",
@@ -163,11 +171,27 @@ export async function markTaskQueuedForRetry(
       locked_by: null,
       last_error: errorMessage,
     })
-    .eq("id", task.id);
+    .eq("id", task.id)
+    .eq("status", "running");
+  const held = task.locked_by === null ? update.is("locked_by", null) : update.eq("locked_by", task.locked_by);
+  const { data, error } = await held.select("id");
 
   if (error) {
     throw error;
   }
+
+  if (!data || data.length === 0) {
+    console.warn(JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.task.requeue_skipped",
+      message: "Did not requeue the task: it is no longer running under this worker's lock.",
+      context: { taskId: task.id, lockedBy: task.locked_by },
+    }));
+    return false;
+  }
+
+  return true;
 }
 
 // Reaps tasks that have been stuck in "running" for more than staleness_minutes.

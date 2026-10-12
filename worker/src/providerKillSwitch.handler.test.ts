@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { handleVendorQuoteTask } from "./index";
+import { cleanupPaths } from "./files";
+import { createWorkerRuntimeState } from "./httpServer";
+import { handleVendorQuoteTask, processClaimedTask } from "./index";
 import { XometryAdapter } from "./adapters/xometry";
 import { createProviderMutationPhase, markProviderMutationStarted, runInProviderMutationPhase } from "./providerMutationPhase";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "./types";
@@ -35,9 +37,19 @@ function database() {
   const switches = { xometry: false, global: false };
   let failResultUpdates = false;
   const writes: Record<string, unknown>[] = [];
+  // The claimed queue row; updates apply only when every filter matches, as in Postgres.
+  const queueRow: Record<string, unknown> = { id: "task", status: "running", locked_by: "worker" };
   const from = (table: string) => {
     let columns = ""; let mutation = false;
+    let patch: Record<string, unknown> | null = null;
+    const filters: ((row: Record<string, unknown>) => boolean)[] = [];
     const response = () => {
+      if (mutation && table === "work_queue") {
+        const matched = filters.every((filter) => filter(queueRow));
+        if (matched && patch) Object.assign(queueRow, patch);
+        patch = null;
+        return { data: matched ? [{ id: queueRow.id }] : [], error: null };
+      }
       if (mutation) return { data: null, error: table === "vendor_quote_results" && failResultUpdates ? { message: "db down" } : null };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
@@ -48,9 +60,15 @@ function database() {
     };
     const query = {
       select(value: string) { columns = value; return query; },
-      eq() { return query; }, neq() { return query; }, in() { return query; },
+      eq(column: string, value: unknown) { filters.push((row) => row[column] === value); return query; },
+      neq(column: string, value: unknown) { filters.push((row) => row[column] !== value); return query; },
+      is(column: string, value: unknown) { filters.push((row) => row[column] === value); return query; },
+      in() { return query; },
       single: async () => response(), maybeSingle: async () => response(),
-      update(value: unknown) { mutation = true; writes.push({ table, update: structuredClone(value) }); return query; },
+      update(value: unknown) {
+        mutation = true; patch = structuredClone(value) as Record<string, unknown>;
+        writes.push({ table, update: structuredClone(value) }); return query;
+      },
       insert(value: unknown) { mutation = true; writes.push({ table, insert: structuredClone(value) }); return query; },
       then(resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) {
         return Promise.resolve(response()).then(resolve, reject);
@@ -80,7 +98,7 @@ function database() {
   };
   const rpcNames = () => writes.flatMap((write) => (typeof write.rpc === "string" ? [write.rpc] : []));
   return {
-    client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames,
+    client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, queueRow,
     flipDuringPreflight: () => { onPreflight = () => { switches.xometry = true; }; },
     denyPreflight: (decision: unknown) => { preflight = decision; },
     unreadableAfter: (reads: number) => { readableStateReads = reads; },
@@ -154,6 +172,27 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(db.writes).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "failed" }) }),
     ]));
+  });
+
+  it("a retryable error after the kill switch cancel never requeues the cancelled task (no revival)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.denyPreflight({ authorized: false, reasonCode: "provider_kill_switch_engaged" });
+    // The handler's finally block fails with a retryable network error after the cancel was written.
+    vi.mocked(cleanupPaths).mockRejectedValueOnce(new Error("network unreachable"));
+    const claimed = { ...task, locked_by: "worker" } as QueueTaskRecord;
+
+    await processClaimedTask(db.client, claimed, live, createWorkerRuntimeState());
+
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.writes).toEqual(expect.arrayContaining([cancelledTaskWrite]));
+    // The outer loop tried to requeue, but the row is no longer running under this lock.
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }),
+    ]));
+    expect(db.queueRow.status).toBe("cancelled");
   });
 
   it("a running task stops at its next adapter checkpoint and ends cancelled_provider_disabled", async () => {

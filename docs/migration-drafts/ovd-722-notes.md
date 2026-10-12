@@ -286,7 +286,7 @@ Round 4 additions:
 
 Round 5 changes:
 
-* **A second before_configure read added ahead of overlay dismissal.** In `fictiv.ts` a new `before_configure` read now runs right before `dismissOverlayModals`, so the overlay close clicks after the post upload poll are guarded. The existing read before the configuration drawer stays where it was.
+* **A second before_configure read added ahead of overlay dismissal.** In `fictiv.ts` a second `before_configure` read was added right before `dismissOverlayModals` (about `fictiv.ts:1501` at round 6), so the overlay close clicks after the post upload poll are guarded. Nothing moved: the first read, before the configuration drawer opens, is still in place.
 * **Two new tests in `fictiv.test.ts`.** One engages the switch while the process dropdown opens and asserts the process option is never clicked (it fails without the recheck). One engages the switch during the post upload poll and asserts no overlay close click happens.
 * The SQL draft `ovd-722.sql` is unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
 
@@ -300,16 +300,23 @@ Round 5 changes:
 * **Handler tests on the generic route.** `providerKillSwitch.genericRoute.test.ts` runs a Fictiv generic permit task through `handleVendorQuoteTask` and the real pipeline: switch engaged before launch (no adapter call, cancelled, no requeue) and engaged mid run after the upload (the adapter stops at its next checkpoint, cancelled with `providerMutationPossible` true, no requeue).
 * The SQL draft `ovd-722.sql` is unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
 
+## Review round 7 (PR #676)
+
+* **A retry never revives a cancelled or terminal task.** `markTaskQueuedForRetry` in `queue.ts` now requeues only while the row is still `running` under the lock this worker holds (`status` and `locked_by`). Zero matched rows means the task was settled elsewhere: the worker logs `worker.task.requeue_skipped`, does not throw, and schedules nothing. Before this, an error after a kill switch cancel (for example in the handler's `finally`) could flip the cancelled row back to `queued`, and a later claim could dispatch it once the provider was re enabled. Audit of the other writers: `markTaskCompleted` and `markTaskFailed` already skip a `cancelled` row; they can still overwrite a `completed` or `failed` row, but that keeps the row terminal and cannot dispatch it, so they are unchanged. `markTaskCancelled` is by id only; it can only move a row to `cancelled`, so it is unchanged.
+* **Fictiv auto configuration Continue.** `dismissAutoConfigLoadingModal` reads the switch (`before_configure`) right before the hide checkbox and again right before Continue. The read is registered per page when the live quote starts, so every `detectBlockingState` poll and the extraction step are covered, and the callers' catch now rethrows a `ProviderKillSwitchError` instead of swallowing it.
+* **A before_launch refusal records `adapterStarted` false.** The guard wrapping the adapter refuses before anything launched, so the pipeline clears `adapterStarted` for that refusal. The lane and the handler no longer mark a provider mutation for it.
+* The SQL draft `ovd-722.sql` and its rollback are unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
+
 ## Policy
 
 No new provider task starts after the switch flips. A task in flight stops at the next phase boundary: before navigation, before upload, before configuration, and before any quote request or submit. Clicks inside one configuration phase may race by milliseconds to a few seconds. Those are accepted residuals, because none of them can upload a file, request or submit a quote, or place an order.
 
 Accepted residual sites:
 
-* Fictiv modal dismissals: `dismissAutoConfigLoadingModal` clicks (about `fictiv.ts:908` and `:912`) from `detectBlockingState` polls.
 * Fictiv quantity fill (about `fictiv.ts:643`). The Enter that may submit it is now rechecked (round 6).
 * Xometry quantity fill and material or finish selection after opening (`xometry.ts` about `:2964` and `:1769`). The quantity Enter is now rechecked (round 6).
-* Xometry entry state new quote clicks: the dashboard upload button (about `xometry.ts:698`) and the legacy start new quote button (about `xometry.ts:876`) in `resolveXometryEntryState`. They are covered only by the `before_navigation` read taken before `page.goto`, and the dashboard hydration wait sits between that read and the click. The click opens an uploader or a new empty quote route; it does not upload a file or request a quote, and the `before_upload` read runs before any file is selected.
+* Xometry entry state new quote clicks, inside the navigation phase: the dashboard new quote (upload) button (about `xometry.ts:698`) and the legacy start new quote button (about `xometry.ts:876`) in `resolveXometryEntryState`. They are covered only by the `before_navigation` read taken before `page.goto`, and the dashboard hydration wait sits between that read and the click. The click opens an uploader or a new empty quote route; it does not upload a file or request a quote, and the `before_upload` read runs before any file is selected.
 * Portal kernel configuration recovery (`providerPortalKernel.ts` about `:1191` with `browserRecovery.ts` about `:239`), up to about 5 s.
+* Portal kernel injectable recovery path (`recoverMissingConfiguration`, `providerPortalKernel.ts` about `:1191`). The switch is read before recovery starts, but the later `beforeMutation` callback handed to the recovery has no fresh read of its own. No production adapter enables action recovery today.
 
 Live operator tools (smoke, quantity sweeps, live eval) do not read the switch yet. That work is OVD-751. The C&D runbook tells operators not to run them against a switched off provider.

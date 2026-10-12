@@ -2161,12 +2161,19 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         retryCount,
       );
       const message = failureEvidence.failureMessage;
+      let settledElsewhere = false;
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+        // False when the row was already settled elsewhere (cancelled, say):
+        // it stays as it is and nothing is scheduled.
+        const requeued = await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
           ...failureEvidence.payload,
           nextRetryAt: retryAt,
         });
+        if (!requeued) {
+          retryAt = null;
+          settledElsewhere = true;
+        }
       } else {
         await markTaskFailed(
           supabase,
@@ -2181,11 +2188,13 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
       runtimeState.lastFailedTask = taskSummary;
       runtimeState.lastError = message;
       logWorkerEvent(runtimeState, {
-        level: retryAt ? "warn" : "error",
-        source: retryAt ? "worker.task.retry" : "worker.task.failure",
+        level: retryAt || settledElsewhere ? "warn" : "error",
+        source: retryAt ? "worker.task.retry" : settledElsewhere ? "worker.task.requeue_skipped" : "worker.task.failure",
         message: retryAt
           ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
-          : `Failed ${task.task_type} ${task.id}: ${message}`,
+          : settledElsewhere
+            ? `Did not retry ${task.task_type} ${task.id}; it was already settled elsewhere: ${message}`
+            : `Failed ${task.task_type} ${task.id}: ${message}`,
         context: {
           ...buildTaskContext(task),
           task_duration_ms: Date.now() - taskStartMs,

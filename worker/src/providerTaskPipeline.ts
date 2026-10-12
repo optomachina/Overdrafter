@@ -865,6 +865,11 @@ async function executeValidateAndPersist(
           collectedAt = new Date(now()).toISOString();
           return output;
         } catch (error) {
+          // OVD-722: a before_launch refusal comes from the guard wrapping the
+          // adapter, before anything launched; the adapter never started.
+          if (error instanceof ProviderKillSwitchError && error.checkpoint === "before_launch") {
+            state.adapterStarted = false;
+          }
           state.adapterError = { error };
           throw error;
         }

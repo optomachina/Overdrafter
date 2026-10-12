@@ -665,7 +665,7 @@ async function detectBlockingState(page: Page, runDir: string) {
     );
   }
 
-  await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+  await dismissAutoConfigLoadingModal(page).catch(ignoreUnlessKillSwitch);
 
   const bodyText = await readBodyText(page);
   const signal = detectBlockingStateSignal({
@@ -897,18 +897,37 @@ async function dismissOverlayModals(page: Page) {
   }
 }
 
+/**
+ * OVD-722: the kill switch checkpoint for the auto configuration Continue
+ * click, keyed by page. The modal is dismissed from every blocking state poll,
+ * so the checkpoint is registered once per page rather than threaded through
+ * each poll helper.
+ */
+const autoConfigContinueCheckpoints = new WeakMap<Page, () => Promise<void>>();
+
+/** Ignores a failed modal dismissal, but never a kill switch refusal. */
+function ignoreUnlessKillSwitch(error: unknown) {
+  if (error instanceof ProviderKillSwitchError) throw error;
+  return undefined;
+}
+
 async function dismissAutoConfigLoadingModal(page: Page) {
   const continueButton = page.locator(FICTIV_LOCATORS.autoConfigModalContinue[0]).first();
   if (!(await continueButton.isVisible().catch(() => false))) {
     return false;
   }
 
+  // Continue applies Fictiv's auto configuration to the provider side quote.
+  // The read sits outside every catch below so a refusal propagates.
+  const checkpoint = autoConfigContinueCheckpoints.get(page);
+  await checkpoint?.();
   const hideCheckbox = page.locator(FICTIV_LOCATORS.autoConfigModalHideCheckbox[0]).first();
   if (await hideCheckbox.isVisible().catch(() => false)) {
     await hideCheckbox.click({ timeout: 2000 }).catch(() => undefined);
     await page.waitForTimeout(200).catch(() => undefined);
   }
 
+  await checkpoint?.();
   await continueButton.click({ timeout: 2000 }).catch(() => undefined);
   await page.waitForTimeout(200).catch(() => undefined);
   return true;
@@ -1567,7 +1586,7 @@ export class FictivAdapter extends VendorAdapter {
       .first()
       .waitFor({ state: "attached", timeout: this.config.browserTimeoutMs })
       .catch(() => undefined);
-    await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+    await dismissAutoConfigLoadingModal(page).catch(ignoreUnlessKillSwitch);
 
     const bodyText = await readBodyText(page);
     const priceResult = await extractParsedValue(
@@ -1773,6 +1792,10 @@ export class FictivAdapter extends VendorAdapter {
       browser = session.browser;
       browserContext = session.browserContext;
       const page = session.page;
+      if (input.providerKillSwitchCheckpoint) {
+        const checkpoint = input.providerKillSwitchCheckpoint;
+        autoConfigContinueCheckpoints.set(page, () => checkpoint("before_configure"));
+      }
       const selection = await this.uploadAndConfigureQuote(
         page,
         input,

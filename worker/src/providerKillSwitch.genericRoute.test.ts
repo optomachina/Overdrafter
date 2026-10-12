@@ -188,6 +188,7 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
       raw_payload: expect.objectContaining({
         failureCode: "cancelled_provider_disabled",
         killSwitchCheckpoint: "before_launch",
+        adapterStarted: false,
         providerMutationPossible: false,
         retryScheduledFor: null,
       }),
@@ -233,24 +234,51 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
     expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "queued" })]));
   });
 
-  it("disengaged: the adapter receives the kill switch checkpoint and the launch read happens first", async () => {
+  it("disengaged: every checkpoint is read, the launch read happens first, and the adapter runs to the normal persisted result", async () => {
     const db = database();
     const order: string[] = [];
     const rpc = db.client.rpc.bind(db.client);
     (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
       if (name === "api_worker_provider_kill_switch_state") order.push("switch_read");
+      if (name === "reconcile_vendor_quote_offers") order.push("persist");
       return rpc(name, args);
     }) as typeof rpc;
-    vi.spyOn(FictivAdapter.prototype, "quote").mockImplementation(async (input: VendorQuoteAdapterInput) => {
+    const adapterCheckpoints = ["before_navigation", "before_upload", "before_configure", "before_save"] as const;
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote").mockImplementation(async (input: VendorQuoteAdapterInput) => {
       order.push("adapter");
       expect(typeof input.providerKillSwitchCheckpoint).toBe("function");
-      throw new Error("stop after launch");
+      for (const checkpoint of adapterCheckpoints) {
+        await input.providerKillSwitchCheckpoint?.(checkpoint);
+        order.push(checkpoint);
+      }
+      return {
+        vendor: "fictiv",
+        status: "instant_quote_received",
+        unitPriceUsd: 12,
+        totalPriceUsd: 12,
+        leadTimeBusinessDays: 8,
+        quoteUrl: "https://app.fictiv.com/quotes/abc",
+        dfmIssues: [],
+        notes: [],
+        artifacts: [],
+        rawPayload: { source: "fictiv-live-adapter", requestedQuantity: ENVELOPE.scope.requestedQuantity },
+      };
     });
 
     await handleVendorQuoteTask(db.client, task, live);
 
-    // claim read, then the before_launch read, then the adapter.
-    expect(order).toEqual(["switch_read", "switch_read", "adapter"]);
-    expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([cancelledTask]));
+    expect(quote).toHaveBeenCalledOnce();
+    // claim read, then the before_launch read, then one fresh read before each adapter checkpoint passes.
+    expect(order).toEqual([
+      "switch_read", "switch_read", "adapter",
+      "switch_read", "before_navigation", "switch_read", "before_upload",
+      "switch_read", "before_configure", "switch_read", "before_save",
+      "persist",
+    ]);
+    expect(db.updates("work_queue")).toEqual([expect.objectContaining({ status: "completed" })]);
+    expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "failed" }),
+      expect.objectContaining({ status: "manual_vendor_followup" }),
+    ]));
   });
 });

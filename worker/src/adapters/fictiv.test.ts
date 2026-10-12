@@ -1315,6 +1315,19 @@ describe("FictivAdapter", () => {
       expect(close).not.toHaveBeenCalled();
     });
 
+    it("engaged between upload analysis and the auto configuration Continue: Continue is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      let uploaded = false;
+      const continueClick = vi.fn();
+      const page = flowPage({ upload: () => { uploaded = true; state.engaged = true; } }, {
+        [FICTIV_LOCATORS.autoConfigModalContinue[0]]: { count: () => (uploaded ? 1 : 0), click: continueClick },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(continueClick).not.toHaveBeenCalled();
+    });
+
     it("engaged during the failed radio click wait: the process dropdown fallback is never opened", async () => {
       const { state, providerKillSwitchCheckpoint } = killSwitch();
       const process = vi.fn();

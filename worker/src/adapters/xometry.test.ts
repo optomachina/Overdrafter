@@ -1545,6 +1545,61 @@ describe("XometryAdapter", () => {
       expect(fallbackContinue).not.toHaveBeenCalled();
     });
 
+    it("engaged as the reviewed export control modal appears: the reviewed negative answer is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const reviewedNo = vi.fn();
+      const reviewedContinue = vi.fn();
+      const page = createFakePage({
+        bodyText: "Are any parts subject to export control?",
+        uploadRedirectUrl: XOMETRY_URLS.quoteHome,
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: {
+            count: 1,
+            getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+            setInputFiles: vi.fn(),
+          },
+          // The admin flips the switch while the modal poll is looking at the reviewed Continue.
+          [XOMETRY_LOCATORS.exportControlContinue[0]]: { count: () => { state.engaged = true; return 1; }, click: reviewedContinue },
+          [XOMETRY_LOCATORS.exportControlNo[0]]: { count: 1, click: reviewedNo },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint }))
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(reviewedNo).not.toHaveBeenCalled();
+      expect(reviewedContinue).not.toHaveBeenCalled();
+    });
+
+    it("engaged as the fallback export control modal appears: the fallback negative answer is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const fallbackNo = vi.fn();
+      const fallbackContinue = vi.fn();
+      const page = createFakePage({
+        bodyText: "Are any parts subject to export control?",
+        uploadRedirectUrl: XOMETRY_URLS.quoteHome,
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: {
+            count: 1,
+            getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+            setInputFiles: vi.fn(),
+          },
+          [XOMETRY_LOCATORS.exportControlContinue[1]]: { count: () => { state.engaged = true; return 1; }, click: fallbackContinue },
+          [XOMETRY_LOCATORS.exportControlNo[1]]: { count: 1, click: fallbackNo },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint }))
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(fallbackNo).not.toHaveBeenCalled();
+      expect(fallbackContinue).not.toHaveBeenCalled();
+    });
+
     it("engaged between the quantity fill and Enter: Enter is never pressed", async () => {
       let engaged = false;
       const press = vi.fn();
