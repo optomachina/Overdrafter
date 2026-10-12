@@ -2,10 +2,14 @@
  * disposable PostgreSQL container. No hosted target or real principal is used. */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { buildRestoreSql, restorePath } from './native/stop-observer/sql/generate-restore-sql.mjs';
 
+const stagedReplay=process.argv.includes('--staged-replay');
+if(process.argv.slice(2).some(value=>value!=='--staged-replay'))throw new Error('Unsupported fixture argument');
+const stagedSource='scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql';
 const owner='ovd575-observer-registry-test';
 const suffix=randomUUID().slice(0,8);
 const network=`ovd575-registry-${suffix}`;
@@ -29,6 +33,50 @@ function sql(statement) {
 function file(path) {
   return run(['exec','-i',container,'psql','-U','postgres','-X','-q','-v','ON_ERROR_STOP=1'],
     {input:readFileSync(path),timeout:60_000});
+}
+/** Concurrent fixture session: one psql process and one backend per call. */
+function concurrent(statement) {
+  return new Promise(resolve=>{
+    const child=spawn(docker,['exec','-i',container,'psql','-U','postgres','-X','-Atq','-v','ON_ERROR_STOP=1',
+      '-v','VERBOSITY=verbose','-c',statement],{stdio:['ignore','pipe','pipe']});
+    let stdout='',stderr='';
+    child.stdout.on('data',chunk=>{stdout+=chunk;});
+    child.stderr.on('data',chunk=>{stderr+=chunk;});
+    child.on('close',code=>resolve({code,stdout:stdout.trim(),stderr}));
+  });
+}
+/** Whole multi-statement script on stdin; returns the psql exit and stderr. */
+function script(text) {
+  try {
+    run(['exec','-i',container,'psql','-U','postgres','-X','-q','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'],
+      {input:text,timeout:60_000});
+    return {code:0,stderr:''};
+  } catch(error) {return {code:error.status??1,stderr:String(error.stderr)};}
+}
+function concurrentScript(text) {
+  return new Promise(resolve=>{
+    const child=spawn(docker,['exec','-i',container,'psql','-U','postgres','-X','-q','-v','ON_ERROR_STOP=1',
+      '-v','VERBOSITY=verbose'],{stdio:['pipe','pipe','pipe']});
+    let stderr='';
+    child.stdout.resume();
+    child.stderr.on('data',chunk=>{stderr+=chunk;});
+    child.on('close',code=>resolve({code,stderr}));
+    child.stdin.end(text);
+  });
+}
+async function untilWaiting(event) {
+  for(let i=0;i<200;i++) {
+    if(Number(sql(`select count(*) from pg_stat_activity where wait_event=${q(event)}`))>=1)return;
+    await delay(50);
+  }
+  throw new Error(`Concurrent fixture session did not wait on ${event}`);
+}
+async function untilSleeping(count=1) {
+  for(let i=0;i<200;i++) {
+    if(Number(sql(`select count(*) from pg_stat_activity where wait_event='PgSleep'`))>=count)return;
+    await delay(50);
+  }
+  throw new Error('Concurrent fixture session did not reach its hold point');
 }
 function q(value) {return `'${String(value).replaceAll("'","''")}'`;}
 function hash(value) {return createHash('sha256').update(value).digest('hex');}
@@ -124,8 +172,10 @@ function rechain(manifest,journal) {
   return {manifest,journal};
 }
 try {
+  // Fixture lane admits cached images only; never pull implicitly.
+  run(['image','inspect',image]);
   networkId=run(['network','create','--internal','--label',`ovd575.owner=${owner}`,network]);
-  containerId=run(['run','-d','--name',container,'--label',`ovd575.owner=${owner}`,
+  containerId=run(['run','--pull','never','-d','--name',container,'--label',`ovd575.owner=${owner}`,
     '--network',network,'--cpus','2','--memory','3g','--pids-limit','256',
     '--tmpfs','/var/lib/postgresql/data:rw,size=1g','--tmpfs','/tmp:rw,size=256m',
     '-e',`POSTGRES_PASSWORD=${randomBytes(24).toString('hex')}`,image]);
@@ -147,6 +197,17 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
+  const functionState=`select json_build_object('body',encode(sha256(convert_to(p.prosrc,'UTF8')),'hex'),'definition',md5(pg_get_functiondef(p.oid)),
+    'oid',p.oid,'owner',pg_get_userbyid(p.proowner),'acl',p.proacl::text,'secdef',p.prosecdef,
+    'config',p.proconfig,'identity',pg_get_function_identity_arguments(p.oid))::text from pg_proc p
+    where p.oid=to_regprocedure('engineering_private.store_native_observer_evidence(uuid,bytea,bytea)')`;
+  const migrationState=sql(functionState);
+  let replacementState=null;
+  if(stagedReplay) {
+    file(stagedSource);
+    replacementState=sql(functionState);
+    check(replacementState!==migrationState,'staged replacement changes the function definition');
+  }
   equal(canonical({a:1,_:2,A:3}),'{"A":3,"_":2,"a":1}',
     'test oracle keeps ordinal JSON key order');
   equal(sql('select engineering_private.native_observer_json_string(chr(128512))'),
@@ -178,6 +239,7 @@ try {
   const job=JSON.stringify({jobId:manifest.binding.jobId,contextSha256:manifest.contextSha256});
   sql(`insert into auth.users(id) values (${q(actor)}),(${q(other)});
     insert into engineering_private.native_runtime_admissions(id) values(${q(runtime)});
+    insert into engineering_private.native_input_admissions(id) values(${q(input)});
     insert into public.engineering_workers(id,current_boot_id) values(${q(worker)},${q(boot)});
     insert into public.engineering_execution_attempts(id,task_id,organization_id,project_id,
       worker_id,installation_id,boot_id,session_id,runtime_admission_id,input_admission_id,
@@ -291,14 +353,134 @@ try {
     Buffer.from(canonical(manifest)).toString('hex'),'exact canonical manifest bytes retained');
   equal(sql(`select encode(journal_bytes,'hex') from engineering_private.native_observer_evidence where id=${q(receipt)}`),
     Buffer.from(canonical(journal)).toString('hex'),'exact canonical journal bytes retained');
-  fail(ingest(profile,manifest,journal),/23505/,'duplicate attempt evidence denied');
+  if(stagedReplay) {
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'exact response-loss replay recovers original UUID');
+    equal(sql('select count(*) from engineering_private.native_observer_evidence'),'1','replay inserts no second evidence');
+    fail(ingest(randomUUID(),manifest,journal),/PT409/,'changed profile cannot recover receipt');
+    fail(ingest(profile,changed(manifest,value=>{value.observerRunId=randomUUID();}),journal),/PT409/,'changed canonical manifest cannot recover receipt');
+    sql(`update engineering_private.native_observer_validator_actors set admitted_by=${q(other)}`);
+    fail(ingest(profile,manifest,journal),/PT409/,'changed actor cannot recover receipt');
+    sql(`update engineering_private.native_observer_validator_actors set admitted_by=${q(actor)},enabled=false`);
+    fail(ingest(profile,manifest,journal),/42501/,'disabled actor cannot recover receipt');
+    sql('update engineering_private.native_observer_validator_actors set enabled=true');
+    sql(`update public.engineering_workers set current_boot_id=${q(randomUUID())} where id=${q(worker)}`);
+    fail(ingest(profile,manifest,journal),/PT409/,'changed current boot cannot recover receipt');
+    sql(`update public.engineering_workers set current_boot_id=${q(boot)} where id=${q(worker)}`);
+    sql(`insert into engineering_private.native_admission_revocations(id,input_admission_id) values(${q(randomUUID())},${q(input)})`);
+    fail(ingest(profile,manifest,journal),/PT409/,'revoked admission cannot recover receipt');
+    sql(`delete from engineering_private.native_admission_revocations where input_admission_id=${q(input)}`);
+    sql(`update public.engineering_execution_attempts set phase='awaiting_result',stopped_at=clock_timestamp(),lease_expires_at=clock_timestamp()-interval '1 minute' where id=${q(attempt)};
+      update engineering_private.native_slots set active_attempt_id=null where organization_id=${q(organization)}`);
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'historical exact receipt recovery creates no new authority');
+    equal(sql(`select active_attempt_id is null from engineering_private.native_slots where organization_id=${q(organization)}`),'t','historical replay does not reclaim slot');
+    // Fresh running attempt with its own slot, worker and input admission,
+    // sharing the admitted runtime and profile.
+    const seed=()=>{
+      const ids={attempt:randomUUID(),task:randomUUID(),organization:randomUUID(),project:randomUUID(),
+        worker:randomUUID(),installation:randomUUID(),boot:randomUUID(),session:randomUUID(),input:randomUUID()};
+      const bound=structuredClone(manifest),chain=structuredClone(journal);
+      bound.observerRunId=randomUUID();
+      Object.assign(bound.binding,{attemptId:ids.attempt,taskId:ids.task,organizationId:ids.organization,
+        projectId:ids.project,workerId:ids.worker,installationId:ids.installation,bootId:ids.boot});
+      chain.binding=structuredClone(bound.binding);
+      const rebound=rechain(bound,chain);
+      sql(`insert into engineering_private.native_input_admissions(id) values(${q(ids.input)});
+        insert into public.engineering_workers(id,current_boot_id) values(${q(ids.worker)},${q(ids.boot)});
+        insert into public.engineering_execution_attempts(id,task_id,organization_id,project_id,
+          worker_id,installation_id,boot_id,session_id,runtime_admission_id,input_admission_id,
+          fence,job_text,job_sha256,claimed_at,deadline_at,lease_expires_at,phase,result_eligible) values
+          (${q(ids.attempt)},${q(ids.task)},${q(ids.organization)},${q(ids.project)},${q(ids.worker)},
+           ${q(ids.installation)},${q(ids.boot)},${q(ids.session)},${q(runtime)},${q(ids.input)},1,${q(job)},
+           ${q(manifest.binding.jobSha256)},${q(claimed)},${q(deadline)},
+           ${q(new Date(Date.now()+60_000).toISOString())},'running',true);
+        insert into engineering_private.native_slots(organization_id,active_attempt_id)
+          values(${q(ids.organization)},${q(ids.attempt)});`);
+      return {...ids,...rebound};
+    };
+    const evidenceFor=id=>sql(`select count(*) from engineering_private.native_observer_evidence where attempt_id=${q(id)}`);
+    const revoke=id=>`insert into engineering_private.native_admission_revocations(id,input_admission_id) values(${q(randomUUID())},${q(id)})`;
+    {
+      // Validator first: an uncommitted ingestion holds its admission rows,
+      // so a revocation cannot commit between the check and the evidence.
+      const run=seed();
+      const holder=concurrent(ingest(profile,run.manifest,run.journal).replace(/commit;$/,'select pg_sleep(3);commit;'));
+      await untilSleeping();
+      fail(`set lock_timeout='500ms';${revoke(run.input)}`,/55P03/,'revocation waits for in-flight evidence ingestion');
+      const held=await holder;
+      equal(held.code,0,`held ingestion commits: ${held.stderr.slice(0,300)}`);
+      equal(evidenceFor(run.attempt),'1','evidence committed before any revocation');
+    }
+    {
+      // Revocation first: ingestion waits on the revocation's key share and
+      // then observes the committed revocation instead of retaining evidence.
+      const run=seed();
+      const revoker=concurrent(`begin;${revoke(run.input)};select pg_sleep(1);commit;`);
+      await untilSleeping();
+      fail(ingest(profile,run.manifest,run.journal),/PT409/,'ingestion after concurrent revocation commit denied');
+      equal((await revoker).code,0,'concurrent revocation commits');
+      equal(evidenceFor(run.attempt),'0','no evidence retained under revoked authority');
+    }
+    {
+      const run=seed();
+      for(const level of ['repeatable read','serializable'])
+        fail(ingest(profile,run.manifest,run.journal).replace('begin;',`begin isolation level ${level};`),
+          /0A000/,`${level} ingestion rejected`);
+      equal(evidenceFor(run.attempt),'0','unsupported isolation retains nothing');
+      // Two identical concurrent READ COMMITTED ingestions: the second waits
+      // on the attempt lock and recovers the first committed UUID.
+      const first=concurrent(ingest(profile,run.manifest,run.journal).replace(/commit;$/,'select pg_sleep(1);commit;'));
+      await untilSleeping();
+      const second=concurrent(ingest(profile,run.manifest,run.journal));
+      const [a,b]=await Promise.all([first,second]);
+      equal(a.code+b.code,0,`concurrent identical ingestions succeed: ${(a.stderr+b.stderr).slice(0,300)}`);
+      equal(b.stdout.split('\n').filter(line=>/^[0-9a-f-]{36}$/.test(line)).at(-1),
+        a.stdout.split('\n').filter(line=>/^[0-9a-f-]{36}$/.test(line)).at(-1),'concurrent replay returns the retained UUID');
+      equal(evidenceFor(run.attempt),'1','concurrent replay inserts one evidence row');
+    }
+    // Paired restoration: generated source, guards, lock order, exact
+    // prior definition, refusal of any other current body, and reapply.
+    const {sql:restoreSql,pins}=buildRestoreSql();
+    equal(readFileSync(restorePath,'utf8'),restoreSql,'committed restoration matches its generator');
+    equal(JSON.parse(replacementState).body,pins.replacementBodySha256,'restoration pins the live replacement body');
+    equal(JSON.parse(migrationState).body,pins.originalBodySha256,'restoration pins the OVD-575 migration body');
+    for(const level of ['repeatable read','serializable']) {
+      const refused=script(restoreSql.replace('\nbegin;\n',`\nbegin isolation level ${level};\n`));
+      check(refused.code!==0&&/0A000/.test(refused.stderr)&&/ovd649_restore_read_committed_required/.test(refused.stderr),
+        `${level} restoration refused: ${refused.stderr.slice(0,300)}`);
+      equal(sql(functionState),replacementState,`${level} restoration leaves the replacement`);
+    }
+    // The shared OVD-510 advisory lock comes before any relation or catalog change.
+    const lockHolder=concurrent('begin;select pg_advisory_xact_lock(510,2);select pg_sleep(1.5);commit;');
+    await untilSleeping();
+    const restoring=concurrentScript(restoreSql);
+    const waitObserved=untilWaiting('advisory').then(()=>true,()=>false);
+    const [held,restored,waited]=await Promise.all([lockHolder,restoring,waitObserved]);
+    equal(held.code,0,'advisory lock holder commits');
+    check(waited,'restoration waits on the shared (510,2) advisory lock');
+    equal(restored.code,0,`restoration applies: ${restored.stderr.slice(0,300)}`);
+    equal(sql(functionState),migrationState,'restoration returns the exact OVD-575 definition, OID, owner and grants');
+    const retained=sql('select count(*) from engineering_private.native_observer_evidence');
+    fail(ingest(profile,manifest,journal),/ERROR:\s+(23505|PT409)/,'restored OVD-575 body no longer recovers a retained receipt');
+    equal(sql('select count(*) from engineering_private.native_observer_evidence'),retained,'restored body retains nothing new');
+    const again=script(restoreSql);
+    check(again.code!==0&&/ovd649_restore_unexpected_current_state/.test(again.stderr),
+      `restoration refuses a body that is not the replacement: ${again.stderr.slice(0,300)}`);
+    equal(sql(functionState),migrationState,'refused restoration changes nothing');
+    file(stagedSource);
+    equal(sql(functionState),replacementState,'replacement reapplies to the same definition');
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'reapplied replacement recovers the retained UUID');
+    equal(script(restoreSql).code,0,'second restoration applies');
+    equal(sql(functionState),migrationState,'second restoration returns the exact OVD-575 definition');
+  } else {
+    fail(ingest(profile,manifest,journal),/23505/,'duplicate attempt evidence denied');
+  }
   fail(`begin;set local role ovd575_observer_validator;insert into engineering_private.native_observer_evidence(id) values(gen_random_uuid());commit;`,/42501/,'direct validator DML denied');
   fail(`update engineering_private.native_observer_evidence set verdict='complete_in_job_envelope' where id=${q(receipt)}`,/55000/,'evidence update denied');
   fail(`delete from engineering_private.native_observer_evidence where id=${q(receipt)}`,/55000/,'evidence deletion denied');
   fail(`update engineering_private.native_observer_profiles set observer_version='windows-job-observer/1' where id=${q(profile)}`,/55000/,'profile update denied');
   equal(sql(`select count(*) from engineering_private.native_stop_admissions`),'0','registry creates no stop admission');
   report={schema:'overdrafter.ovd575-registry-test.v1',assertions,
-    sourceMigration:migration,containerImage:image,fixtureOnly:true,stopAdmission:false,
+    sourceMigration:migration,stagedReplaySource:stagedReplay?stagedSource:null,containerImage:image,fixtureOnly:true,stopAdmission:false,
     resultEligibilityChanged:false,cleanup:'pending'};
 } finally {
   const cleanupErrors=[];
