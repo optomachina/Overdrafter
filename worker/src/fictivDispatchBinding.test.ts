@@ -89,6 +89,9 @@ async function authorizationFor(quoteInput: VendorQuoteAdapterInput): Promise<Ve
     scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "fictiv" },
     adapter: { quote },
     quoteInput,
+    killSwitchReader: async (provider) => ({
+      schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
+    }),
   });
   return quote.mock.calls[0][0] as VendorQuoteAdapterInput;
 }
