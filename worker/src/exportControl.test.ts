@@ -37,6 +37,7 @@ import {
   scanStagedDrawingForExportMarkings,
   scanPartStepHeaderForExtraction,
   exportScanOutcomesPayload,
+  scanDrawingForExtraction,
   type ExportScanOutcomes,
   STEP_HEADER_SCAN_BYTES,
   scanStepHeaderForExportMarkings,
@@ -518,15 +519,13 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     const body = run.slice(0, run.indexOf("\nasync function handleExtractTask("));
     const modelAt = body.indexOf("await runHybridExtraction(");
     expect(modelAt).toBeGreaterThan(-1);
-    expect(body).toContain("const drawingTextRead = isDrawingTextFullyRead(pdfText);");
-    expect(body).toContain("textRead: drawingTextRead,");
-    expect(body).not.toContain("textRead: pdfText !== null");
-    expect(body.indexOf("throw new ExportControlDrawingUnreadError({")).toBeGreaterThan(-1);
-    expect(body.indexOf("throw new ExportControlDrawingUnreadError({")).toBeLessThan(modelAt);
+    // The scan itself (unread drawing throws, clean drawing records) is
+    // pinned behaviorally on scanDrawingForExtraction in the round 9 tests.
+    const scanAt = body.indexOf("await scanDrawingForExtraction(supabase, {");
+    expect(scanAt).toBeGreaterThan(-1);
+    expect(scanAt).toBeLessThan(modelAt);
     expect(body.indexOf("await assertExportControlExtractionAllowed(supabase, { jobId: task.job_id });")).toBeLessThan(modelAt);
-    expect(body.indexOf("await assertExportControlExtractionAllowed(")).toBeGreaterThan(
-      body.indexOf("await enforceAndRecordExportControlScan("),
-    );
+    expect(body.indexOf("await assertExportControlExtractionAllowed(")).toBeGreaterThan(scanAt);
     // The debug lab preview sends the drawing to a model too, behind the same gate.
     const lab = readFileSync(new URL("./extraction/debugLab.ts", import.meta.url), "utf8");
     const preview = lab.slice(lab.indexOf("export async function previewStoredPartExtraction("));
@@ -574,7 +573,6 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(scanAt).toBeGreaterThan(-1);
     expect(scanAt).toBeLessThan(reuse.indexOf("reusedCanonicalPartVersion: true"));
     expect(workerIndex).toContain("await enforceAndRecordStepHeaderScan(supabase, {");
-    expect(workerIndex).toMatch(/source: drawingTextScanSource\(pdfText\),\s+scan: scanDrawingTextForExportMarkings\(pdfText\)/);
     // Every clean scan carries the hash of the bytes the worker staged.
     expect(workerIndex).toContain("contentSha256: stagedDrawingFile?.trustedContentSha256");
     expect(workerIndex).toContain("contentSha256: identityStagedDrawing.trustedContentSha256");
@@ -1317,11 +1315,22 @@ describe("OVD-723 review round 3: OCR text is recorded as drawing_ocr", () => {
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "drawing_ocr" }));
   });
 
-  it("wires extraction to the OCR aware source", () => {
-    const run = workerIndex.slice(workerIndex.indexOf("async function runDrawingExtractionForTask("));
-    const body = run.slice(0, run.indexOf("\nasync function handleExtractTask("));
-    expect(body).toContain("source: drawingTextScanSource(pdfText),");
-    expect(body).not.toContain('source: "drawing_text",');
+  it("wires extraction to the OCR aware source", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await scanDrawingForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1" },
+      contentSha256: "d".repeat(64),
+      pdfText: {
+        pageCount: 1,
+        pageCountKnown: true,
+        drawingFullyRead: true,
+        ocr: true,
+        pages: [{ text: CLEAN_DRAWING, ocrText: CLEAN_DRAWING, ocrStatus: "ok" }],
+      },
+    });
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "drawing_ocr" }));
   });
 });
 
@@ -1819,13 +1828,23 @@ describe("OVD-723 review round 8: an OCR environment failure is retryable, not f
     expect(exportScanOutcomesPayload(error)).toEqual({
       exportScanOutcomes: { "drawing-1": { contentSha256: sha, outcome: "drawing_ocr_failed" } },
     });
-    expect(workerIndex).toContain("drawingUnreadOutcome(pdfText)");
+    const extraction = await scanDrawingForExtraction({ rpc: vi.fn() } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1" },
+      contentSha256: sha,
+      pdfText: unreadBy("unavailable"),
+    }).catch((caught: unknown) => caught);
+    expect(exportScanOutcomesPayload(extraction)).toEqual({
+      exportScanOutcomes: { "drawing-1": { contentSha256: sha, outcome: "drawing_ocr_failed" } },
+    });
   });
 
-  it("treats only drawing_unread and step_header_incomplete as final in SQL", () => {
+  it("treats drawing_ocr_failed as final in SQL only at the recheck cap", () => {
     const outcome = sqlFunctionBody("private.export_rescan_final_outcome");
-    expect(outcome).toContain("where latest.outcome in ('drawing_unread', 'step_header_incomplete');");
-    expect(outcome).not.toContain("drawing_ocr_failed");
+    expect(outcome).toMatch(
+      /when latest\.outcome = 'drawing_ocr_failed' then\s+case\s+when \(select pg_catalog\.count\(\*\) from outcomes where outcomes\.outcome = 'drawing_ocr_failed'\) >= 3\s+then 'drawing_recheck_limit'\s+end/,
+    );
   });
 });
 
@@ -1883,5 +1902,151 @@ describe("OVD-723 review round 8: STEP header text is normalized before matching
     // Decoded this reads "AITAR", which has no word boundary before ITAR.
     expect(detectExportControlMarkings(decodeStepStringEscapes("\\X2\\0041\\X0\\ITAR"))).toEqual([]);
     expect(detectStepHeaderMarkings("\\X2\\0041\\X0\\ITAR")).toEqual(["itar"]);
+  });
+});
+
+describe("OVD-723 review round 9: decoded STEP text is scanned before normalization too", () => {
+  it("detects ITAR followed by a zero width space that normalization would join", () => {
+    // Decoded: "ITAR\u200BX" matches; with the format character removed it
+    // reads "ITARX", which has no word boundary after ITAR.
+    expect(detectStepHeaderMarkings("'\\X2\\0049005400410052200B0058\\X0\\'")).toEqual(["itar"]);
+  });
+
+  it("detects ITAR followed by a fullwidth X that NFKC would fold", () => {
+    expect(detectStepHeaderMarkings("'\\X2\\0049005400410052FF38\\X0\\'")).toEqual(["itar"]);
+    expect(detectStepHeaderMarkings(Buffer.from("'ITARＸ'", "utf8").toString("latin1"))).toEqual(["itar"]);
+  });
+
+  it("detects ITAR when a format character sits inside it and a fullwidth letter follows", () => {
+    expect(detectStepHeaderMarkings("'\\X2\\00490054200B00410052FF38\\X0\\'")).toEqual(["itar"]);
+  });
+});
+
+describe("OVD-723 review round 9: escapes are checked inside each string", () => {
+  const header = (body: string) => `ISO-10303-21;\nHEADER;\n${body}\nENDSEC;\nDATA;\nENDSEC;\n`;
+
+  it.each([
+    ["a terminal \\S\\ that would take the closing quote", "FILE_DESCRIPTION(('\\S\\'),'2;1');"],
+    ["a terminal \\X\\ with one hex digit", "FILE_DESCRIPTION(('\\X\\4'),'2;1');"],
+    ["a terminal \\X\\", "FILE_DESCRIPTION(('ab\\X\\'),'2;1');"],
+    ["a terminal \\P\\ directive", "FILE_DESCRIPTION(('ab\\PA'),'2;1');"],
+    ["a lone \\X2\\ high surrogate", "FILE_DESCRIPTION(('\\X2\\D800\\X0\\'),'2;1');"],
+    ["a lone \\X2\\ low surrogate", "FILE_DESCRIPTION(('\\X2\\DC00\\X0\\'),'2;1');"],
+    ["a reversed \\X2\\ surrogate pair", "FILE_DESCRIPTION(('\\X2\\DC00D800\\X0\\'),'2;1');"],
+  ])("marks the header incomplete for %s", (_label, body) => {
+    expect(readStepHeader(header(body)).complete).toBe(false);
+  });
+
+  it("keeps an escaped quote after \\S\\ and a valid \\X2\\ surrogate pair complete", () => {
+    expect(readStepHeader(header("FILE_DESCRIPTION(('a\\S\\''b'),'2;1');")).complete).toBe(true);
+    expect(readStepHeader(header("FILE_DESCRIPTION(('\\X2\\D83DDE00\\X0\\'),'2;1');")).complete).toBe(true);
+  });
+
+  it("still marks an unescaped Windows path segment that starts a directive incomplete (fail closed)", () => {
+    expect(readStepHeader(header("FILE_NAME('D:\\X\\part.step','2026',(''),(''),'','','');")).complete).toBe(false);
+  });
+});
+
+describe("OVD-723 review round 9: deterministic OCR limits are final", () => {
+  const sha = "9".repeat(64);
+  const stage = vi.fn(async () => ({ localPath: "/stage/f", trustedContentSha256: sha }));
+  const readPage = { text: CLEAN_DRAWING, ocrText: "SHEET", ocrStatus: "ok" };
+  const tooManyPages = {
+    pageCount: 14,
+    pageCountKnown: true,
+    drawingFullyRead: false,
+    pages: [
+      ...Array.from({ length: 12 }, () => readPage),
+      { text: "", ocrText: "", ocrStatus: "not_read", ocrLimit: "page_cap" as const },
+      { text: "", ocrText: "", ocrStatus: "not_read", ocrLimit: "page_cap" as const },
+    ],
+  };
+  const sheetTooLarge = {
+    pageCount: 2,
+    pageCountKnown: true,
+    drawingFullyRead: false,
+    pages: [readPage, { text: "", ocrText: "", ocrStatus: "failed", ocrLimit: "pixel_cap" as const }],
+  };
+
+  it("classifies a page past the page cap as drawing_too_many_pages", () => {
+    expect(drawingUnreadOutcome(tooManyPages)).toBe("drawing_too_many_pages");
+  });
+
+  it("classifies a page over the pixel cap as drawing_sheet_too_large", () => {
+    expect(drawingUnreadOutcome(sheetTooLarge)).toBe("drawing_sheet_too_large");
+  });
+
+  it("prefers the final page cap over a transient failure on another page", () => {
+    const mixed = { ...tooManyPages, pages: [{ ...readPage, ocrStatus: "failed" }, ...tooManyPages.pages.slice(1)] };
+    expect(drawingUnreadOutcome(mixed)).toBe("drawing_too_many_pages");
+  });
+
+  it("keeps transient failures without a cap retryable", () => {
+    for (const ocrStatus of ["failed", "not_read", "unavailable"]) {
+      expect(drawingUnreadOutcome({ ...sheetTooLarge, pages: [readPage, { text: "", ocrText: "", ocrStatus }] }))
+        .toBe("drawing_ocr_failed");
+    }
+  });
+
+  it("a rescan records the final cap outcome with no scan", async () => {
+    const rpc = vi.fn();
+    await expect(runExportMarkingRescan({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      file: { id: "drawing-1", original_name: "d.pdf", file_kind: "drawing" },
+      stage,
+      extractText: async () => sheetTooLarge,
+    })).resolves.toBe("drawing_sheet_too_large");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("extraction throws the unread error with the final cap outcome before any model call", async () => {
+    const rpc = vi.fn();
+    const error = await scanDrawingForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1" },
+      contentSha256: sha,
+      pdfText: tooManyPages,
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ExportControlDrawingUnreadError);
+    expect(exportScanOutcomesPayload(error)).toEqual({
+      exportScanOutcomes: { "drawing-1": { contentSha256: sha, outcome: "drawing_too_many_pages" } },
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("extraction records a clean scan for a fully read drawing and returns", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await expect(scanDrawingForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: { id: "drawing-1" },
+      contentSha256: sha,
+      pdfText: { pageCount: 1, pageCountKnown: true, drawingFullyRead: true, pages: [readPage] },
+    })).resolves.toBeUndefined();
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({
+      p_job_file_id: "drawing-1",
+      p_content_sha256: sha,
+    }));
+  });
+
+  it("extraction does nothing when the part has no drawing", async () => {
+    const rpc = vi.fn();
+    await expect(scanDrawingForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      drawingFile: null,
+      contentSha256: "",
+      pdfText: null,
+    })).resolves.toBeUndefined();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("treats the cap outcomes as final in SQL and caps rechecks of the same bytes", () => {
+    const outcome = sqlFunctionBody("private.export_rescan_final_outcome");
+    expect(outcome).toContain("'drawing_too_many_pages'");
+    expect(outcome).toContain("'drawing_sheet_too_large'");
+    expect(outcome).toContain("'drawing_recheck_limit'");
   });
 });

@@ -422,6 +422,7 @@ describe("actual worker operational advisory seam", () => {
       raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_control_lookup_failed",
         providerMutationPossible: true, retryScheduledFor: null }) }) }));
     expect(JSON.stringify(laneWrites)).not.toContain("may already have reached it");
+    expect(EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE).toContain("will not be retried automatically");
   });
 
   it("holds a generic lane with the after start note when the lookup fails once the adapter marked a mutation (OVD-723)", async () => {

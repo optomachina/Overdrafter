@@ -16,18 +16,36 @@ export type JobExportControlStatus = {
   /**
    * Whether every drawing and STEP file has a clean scan of its current bytes.
    * `missing`: nothing will scan a file on its own (a rescan failed for good),
-   * so the owner can recheck it. `drawing_unread` and `step_header_incomplete`:
-   * the same bytes cannot pass, so the file must be replaced. Null when the
-   * server did not report it.
+   * so the owner can recheck it. `drawing_unread`, `drawing_too_many_pages`,
+   * `drawing_sheet_too_large`, `drawing_recheck_limit`, and
+   * `step_header_incomplete`: the same bytes cannot pass, so the file must be
+   * replaced. Null when the server did not report it.
    */
   scanState?: ExportScanState | null;
 };
 
-export type ExportScanState = "complete" | "pending" | "missing" | "drawing_unread" | "step_header_incomplete";
+export type ExportScanState =
+  | "complete"
+  | "pending"
+  | "missing"
+  | "drawing_unread"
+  | "drawing_too_many_pages"
+  | "drawing_sheet_too_large"
+  | "drawing_recheck_limit"
+  | "step_header_incomplete";
 
 const ANSWERS = new Set(["not_controlled", "controlled", "unsure", "missing"]);
 const REVIEW_STATES = new Set(["clear", "blocked_pending_review", "confirmed_controlled"]);
-const SCAN_STATES = new Set(["complete", "pending", "missing", "drawing_unread", "step_header_incomplete"]);
+const SCAN_STATES = new Set([
+  "complete",
+  "pending",
+  "missing",
+  "drawing_unread",
+  "drawing_too_many_pages",
+  "drawing_sheet_too_large",
+  "drawing_recheck_limit",
+  "step_header_incomplete",
+]);
 
 /** Strict parse: anything unexpected is an error, never a clean status. */
 export function parseJobExportControlStatus(value: unknown): JobExportControlStatus {

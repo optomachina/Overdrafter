@@ -74,12 +74,32 @@ describe("getExportControlNoticeCopy", () => {
     const missing = getExportControlNoticeCopy({ ...base, scanState: "missing" });
     expect(missing).toMatchObject({ action: "Recheck files", actionKind: "rescan" });
     expect(missing?.detail).toContain("Do not request a manual quote for this part while it is held.");
-    for (const scanState of ["pending", "drawing_unread", "step_header_incomplete"] as const) {
+    for (const scanState of [
+      "pending",
+      "drawing_unread",
+      "drawing_too_many_pages",
+      "drawing_sheet_too_large",
+      "drawing_recheck_limit",
+      "step_header_incomplete",
+    ] as const) {
       const copy = getExportControlNoticeCopy({ ...base, scanState });
       expect(copy?.action).toBeNull();
       expect(copy?.detail).toMatch(/supplier automatically/);
     }
-    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_unread" })?.detail).toMatch(/Replace it/);
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_unread" })?.detail).toMatch(/replace the drawing/);
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_too_many_pages" })?.title).toBe("Drawing has more than 12 pages");
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_too_many_pages" })?.detail).toMatch(/Split it/);
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_sheet_too_large" })?.title).toBe("A sheet is too large to read");
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_recheck_limit" })?.detail).toMatch(/Replace the drawing/);
+  });
+
+  // Review round 9: OCR reads every page, so selectable text alone does not
+  // release a drawing; the copy must not say it does.
+  it("tells the owner what every page needs instead of promising selectable text", () => {
+    const base = { jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear" } as const;
+    const detail = getExportControlNoticeCopy({ ...base, scanState: "drawing_unread" })?.detail ?? "";
+    expect(detail).not.toMatch(/selected|selectable/);
+    expect(detail).toContain("Every page needs upright, readable text: remove blank pages, rotate sideways sheets, and split drawings over 12 pages.");
     expect(getExportControlNoticeCopy({ ...base, scanState: "complete" })).toBeNull();
   });
 
@@ -165,7 +185,16 @@ describe("ExportControlStatusNotice", () => {
   it("polls only while the files are being checked", () => {
     const base = { jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear" } as const;
     expect(exportControlStatusRefetchInterval({ ...base, scanState: "pending" })).toBe(EXPORT_CONTROL_CHECKING_REFETCH_MS);
-    for (const scanState of ["complete", "missing", "drawing_unread", "step_header_incomplete", null] as const) {
+    for (const scanState of [
+      "complete",
+      "missing",
+      "drawing_unread",
+      "drawing_too_many_pages",
+      "drawing_sheet_too_large",
+      "drawing_recheck_limit",
+      "step_header_incomplete",
+      null,
+    ] as const) {
       expect(exportControlStatusRefetchInterval({ ...base, scanState })).toBe(false);
     }
     expect(exportControlStatusRefetchInterval(undefined)).toBe(false);

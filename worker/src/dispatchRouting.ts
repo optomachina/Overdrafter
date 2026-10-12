@@ -241,7 +241,7 @@ export const EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE =
  */
 export const EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE =
   "Held because the export-control check could not be read before any file was sent to this supplier. "
-  + "Nothing was sent to this supplier. This lane is held for review and must not be quoted manually.";
+  + "Nothing was sent to this supplier. This lane will not be retried automatically, is held for review, and must not be quoted manually.";
 
 /**
  * Picks the hold note for a lane. `providerMutationStarted` is the lane's

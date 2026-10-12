@@ -1525,11 +1525,13 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- after a clean declaration, by the job owner through
 -- api_request_export_marking_rescan, and by the service role through
 -- api_queue_export_marking_rescan. A file whose last scan of the same bytes
--- (a rescan, or the part's extraction) ended drawing_unread or
--- step_header_incomplete is not queued again (the answer would not change).
+-- (a rescan, or the part's extraction) ended drawing_unread,
+-- drawing_too_many_pages, drawing_sheet_too_large, or step_header_incomplete
+-- is not queued again (the answer would not change).
 -- drawing_ocr_failed (OCR failed, timed out, ran out of budget, or was
 -- unavailable) is not final: the environment failed, not the bytes, so the
--- file stays missing and the owner can queue it again (Recheck files).
+-- file stays missing and the owner can queue it again (Recheck files), until
+-- the recheck cap below.
 -- Extraction (extract_part) scans the part's drawing and STEP header itself,
 -- so a new upload needs no rescan. Returns the number of tasks queued.
 -- Final outcome of the latest scan of one file's bytes in its job: a
@@ -1541,9 +1543,16 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- STEP header that ended before ENDSEC; or holds a malformed string escape
 -- (step_header_incomplete) gives the same answer for the same bytes, so
 -- neither is queued again for that hash; replacing the file (a new hash)
--- queues a fresh rescan. Any other latest outcome, drawing_ocr_failed among
--- them, is not final and returns null, so a recheck can read the same bytes
--- once OCR works. Null when there is no such outcome. The job and
+-- queues a fresh rescan. Review round 9: two fixed OCR limits are final the
+-- same way, since no recheck of the same bytes can pass them:
+-- drawing_too_many_pages (a page past the worker's OCR page cap, 12) and
+-- drawing_sheet_too_large (a page over the worker's pixel cap). A latest
+-- drawing_ocr_failed is not final and returns null, so a recheck can read the
+-- same bytes once OCR works, until those bytes have 3 drawing_ocr_failed
+-- outcomes: then it returns drawing_recheck_limit, final until the bytes
+-- change, so the owner cannot spend the OCR budget on the same bytes in a
+-- loop. Any other latest outcome returns null. Null when there is no such
+-- outcome. The job and
 -- task type predicates use work_queue_job_task_type_idx below, so a status
 -- read only touches this job's tasks instead of every completed task.
 --
@@ -1569,12 +1578,15 @@ language sql
 stable
 set search_path = ''
 as $$
-  select latest.outcome
-  from (
-    select coalesce(
-      queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'outcome',
-      queue.payload ->> 'exportScanOutcome'
-    ) as outcome
+  with outcomes as (
+    select
+      coalesce(
+        queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'outcome',
+        queue.payload ->> 'exportScanOutcome'
+      ) as outcome,
+      queue.updated_at,
+      queue.created_at,
+      queue.id
     from public.work_queue queue
     where queue.job_id = p_job_id
       and (
@@ -1590,10 +1602,29 @@ as $$
           and queue.payload -> 'exportScanOutcomes' -> p_job_file_id::text ->> 'contentSha256' = p_content_sha256
         )
       )
-    order by queue.updated_at desc, queue.created_at desc, queue.id desc
+  ),
+  latest as (
+    select outcomes.outcome
+    from outcomes
+    order by outcomes.updated_at desc, outcomes.created_at desc, outcomes.id desc
     limit 1
-  ) latest
-  where latest.outcome in ('drawing_unread', 'step_header_incomplete');
+  )
+  select case
+    when latest.outcome = 'drawing_ocr_failed' then
+      case
+        when (select pg_catalog.count(*) from outcomes where outcomes.outcome = 'drawing_ocr_failed') >= 3
+          then 'drawing_recheck_limit'
+      end
+    else latest.outcome
+  end
+  from latest
+  where latest.outcome in (
+    'drawing_unread',
+    'drawing_too_many_pages',
+    'drawing_sheet_too_large',
+    'drawing_ocr_failed',
+    'step_header_incomplete'
+  );
 $$;
 
 revoke all on function private.export_rescan_final_outcome(uuid, uuid, text)
@@ -1610,6 +1641,12 @@ revoke all on function private.export_rescan_final_outcome(uuid, uuid, text)
 --   drawing_unread          the last rescan of these bytes could not read
 --                           every page (replace the drawing); an OCR failure
 --                           (drawing_ocr_failed) shows as missing instead;
+--   drawing_too_many_pages  the drawing has more pages than OCR reads (split
+--                           it into drawings of 12 pages or fewer);
+--   drawing_sheet_too_large a sheet is over the OCR pixel cap (split or
+--                           replace the drawing);
+--   drawing_recheck_limit   OCR failed on these bytes 3 times (replace the
+--                           drawing);
 --   step_header_incomplete  the last rescan of these bytes found no complete
 --                           STEP header (replace the STEP file);
 --   missing                 nothing will scan the file on its own (a failed
@@ -1673,8 +1710,11 @@ as $$
       order by case unscanned.state
         when 'missing' then 1
         when 'drawing_unread' then 2
-        when 'step_header_incomplete' then 3
-        else 4
+        when 'drawing_too_many_pages' then 3
+        when 'drawing_sheet_too_large' then 4
+        when 'drawing_recheck_limit' then 5
+        when 'step_header_incomplete' then 6
+        else 7
       end
       limit 1
     ),

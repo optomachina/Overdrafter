@@ -88,20 +88,16 @@ import { isProductionEnvironment, shouldWarnSimulateModeInProduction } from "./r
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import {
   assertExportControlExtractionAllowed,
-  drawingTextScanSource,
-  enforceAndRecordExportControlScan,
   enforceAndRecordStepHeaderScan,
   ExportControlDrawingUnreadError,
   ExportControlLookupError,
   exportControlModelAttemptGuard,
   exportScanOutcomesPayload,
   type ExportScanOutcomes,
-  drawingUnreadOutcome,
-  isDrawingTextFullyRead,
   isStepFileName,
   readStagedStepHeaderPrefix,
   runExportMarkingRescan,
-  scanDrawingTextForExportMarkings,
+  scanDrawingForExtraction,
   scanPartStepHeaderForExtraction,
   ExportControlStepScanRetryableError,
   scanStagedDrawingForExportMarkings,
@@ -610,29 +606,17 @@ async function runDrawingExtractionForTask(
     // OVD-723: a marking hit records a blocked_pending_review block and fails
     // the task before any model call; a clean result records a clean scan,
     // which dispatch requires. A failed record also fails the task.
-    if (context.drawingFile) {
-      // The clean scan is bound to the hash of the staged bytes; without a
-      // staged file there is no hash, and a record attempt fails closed.
-      // A drawing with any page that yielded no text is unread: no clean
-      // scan is recorded and the task stops before any model call.
-      const drawingTextRead = isDrawingTextFullyRead(pdfText);
-      await enforceAndRecordExportControlScan(supabase, {
-        jobId: task.job_id,
-        partId: task.part_id,
-        jobFileId: context.drawingFile.id,
-        // OCR text (no text layer) is recorded as drawing_ocr.
-        source: drawingTextScanSource(pdfText),
-        scan: scanDrawingTextForExportMarkings(pdfText),
-        textRead: drawingTextRead,
-        contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
-      });
-      if (!drawingTextRead) {
-        throw new ExportControlDrawingUnreadError({
-          jobFileId: context.drawingFile.id,
-          contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
-        }, drawingUnreadOutcome(pdfText));
-      }
-    }
+    // The clean scan is bound to the hash of the staged bytes; without a
+    // staged file there is no hash, and a record attempt fails closed. A
+    // drawing with any unread page gets no clean scan and the task stops
+    // before any model call.
+    await scanDrawingForExtraction(supabase, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      drawingFile: context.drawingFile,
+      contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
+      pdfText,
+    });
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
     if (stagedDrawingFile && pdfText) {

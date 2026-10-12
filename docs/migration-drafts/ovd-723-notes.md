@@ -251,11 +251,19 @@ no declaration, so dispatch still denies it.
   exceed the 60 s tesseract timeout; that page is then not read and the
   drawing is held (since round 8 as `drawing_ocr_failed`, which the owner
   can recheck).
-- Some OCR failures repeat on the same bytes: a page past
-  `PDF_OCR_MAX_PAGES`, or a CropBox over the pixel cap, is reported as
-  `not_read` or `failed` like a timeout. Round 8 makes every such outcome
-  retryable through Recheck files, so a recheck of such a drawing holds it
-  again; the owner then replaces it.
+- Since round 9 a page past `PDF_OCR_MAX_PAGES` or a CropBox over the pixel
+  cap is final for its bytes (`drawing_too_many_pages`,
+  `drawing_sheet_too_large`), and OCR failures stop being retryable after 3
+  on the same bytes (`drawing_recheck_limit`). Other repeatable OCR failures
+  (a page that always times out) use up those 3 rechecks first.
+- Content drawn sideways on a page without a `/Rotate` entry gives empty OCR
+  text. The drawing is held as `drawing_unread`, which is final (the safe
+  direction); the owner rotates the sheet and replaces it.
+- An unescaped Windows path segment that starts an escape directive
+  (`D:\X\part.step`) makes the STEP header incomplete. It fails closed: the
+  file is held until it is exported again.
+- Combining marks and homoglyphs (a Cyrillic `I` in `ITAR`) are crafted
+  evasions that the scan does not detect. NFKC does not fold them.
 - The local smoke and eval tools (`worker/src/tools/extractDrawingSmoke.ts`,
   `worker/src/tools/extractEvalGate.ts`) call extraction without the export
   gate. They are operator only and never run on customer jobs.
@@ -705,3 +713,49 @@ fallback and its optional `ocr` field are dropped; #710's `ocr` meaning
 7. **Residuals** (above): the smoke and eval tools, content outside the
    CropBox, and repeatable OCR failures.
 
+
+## Review round 9 (cross review after the round 8 APPROVE at fd2a2d48)
+
+1. **Normalization made a false clean.** `\X2\0049005400410052200B0058\X0\`
+   decodes to `ITAR`, a zero width space, and `X`, which matches, but with
+   the format character removed it reads `ITARX`, which does not; a
+   fullwidth `X` folds the same way under NFKC. The decoded STEP text is now
+   scanned as decoded, with format characters removed, with NFKC, and with
+   both, on top of the raw text. A marking in any form counts.
+2. **Escapes are checked inside each string.** A terminal `\S\` took the
+   closing quote as its character, so `FILE_DESCRIPTION(('\S\'),'2;1');` was
+   complete with no markings. Each quoted string's content is now checked on
+   its own as well, so an escape truncated at the end of a string (`\S\`,
+   `\X\4`, `\PA`) marks the header incomplete. A `\X2\` with a lone or
+   reversed surrogate (`\X2\D800\X0\`) does too, like `\X4\` surrogates.
+3. **Fixed OCR limits are final; rechecks are capped.** `extractPdfText` sets
+   `ocrLimit` on a page past the page cap (`page_cap`) or over the pixel cap
+   (`pixel_cap`). Such a drawing records `drawing_too_many_pages` or
+   `drawing_sheet_too_large`, which
+   `private.export_rescan_final_outcome` treats as final for its bytes. A
+   timeout, a spent budget, or a missing tesseract stays
+   `drawing_ocr_failed` (retryable), but once the same bytes have 3
+   `drawing_ocr_failed` outcomes the function returns
+   `drawing_recheck_limit`, final until the bytes change, so a recheck loop
+   cannot spend the OCR budget. The part page shows each state with its own
+   guidance. `ovd-723.sql` is still expand only; the rollback is unchanged
+   (it drops both functions). The pgTAP suite has 11 new assertions (167).
+4. **Customer copy.** The `drawing_unread` notice and the help page no
+   longer say selectable text releases the part, or that OCR runs only on
+   pages with no text layer. They say every page needs upright, readable
+   text: remove blank pages, rotate sideways sheets, split drawings over 12
+   pages. The lookup hold note says again that the lane will not be retried
+   automatically.
+5. **Residuals** (above): sideways content without `/Rotate`, Windows path
+   segments that start a directive, combining marks and homoglyphs, and the
+   smoke and eval tools.
+6. **Tests.** The extract_part drawing scan moved into
+   `scanDrawingForExtraction`, which is tested behaviorally (unread drawing
+   throws with its outcome, clean drawing records a scan, OCR source). The
+   worker test keeps only a check that the call comes before the model call.
+
+Verification (disposable Docker `supabase/postgres:17.6.1.095`, all 148 main
+migrations with a minimal Auth and Storage shim, 2026-10-12): window 1 suite
+167/167, and 167/167 after expand rollback and reapply; the round 8 draft
+fails 6 of the new assertions. Contract suite 103/103 after expand and
+contract; contract rollback and expand rollback apply cleanly.

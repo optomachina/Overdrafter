@@ -18,6 +18,9 @@ export type ExportControlNoticeCopy = {
  */
 const NO_MANUAL_QUOTE = "Do not request a manual quote for this part while it is held.";
 
+/** The worker reads at most this many drawing pages (PDF_OCR_MAX_PAGES). */
+const OCR_MAX_PAGES = 12;
+
 /**
  * Plain explanation of an OVD-723 hold. Returns null when the part is clear
  * (declared not_controlled with no open or confirmed marking block).
@@ -91,7 +94,31 @@ function getExportScanNoticeCopy(scanState: JobExportControlStatus["scanState"])
       return {
         title: "Drawing could not be read",
         detail:
-          `We could not read the text on every page of this part's drawing, so it cannot be checked for export-control markings and is not sent to any supplier automatically. Replace it with a PDF whose text can be selected to release the part. ${NO_MANUAL_QUOTE}`,
+          `We could not read the text on every page of this part's drawing, so it cannot be checked for export-control markings and is not sent to any supplier automatically. Every page needs upright, readable text: remove blank pages, rotate sideways sheets, and split drawings over ${OCR_MAX_PAGES} pages. Then replace the drawing to release the part. ${NO_MANUAL_QUOTE}`,
+        action: null,
+        actionKind: null,
+      };
+    case "drawing_too_many_pages":
+      return {
+        title: `Drawing has more than ${OCR_MAX_PAGES} pages`,
+        detail:
+          `We read at most ${OCR_MAX_PAGES} pages of a drawing, so this part's drawing cannot be checked for export-control markings and is not sent to any supplier automatically. Split it into drawings of ${OCR_MAX_PAGES} pages or fewer, or replace it with only the sheets for this part, to release the part. ${NO_MANUAL_QUOTE}`,
+        action: null,
+        actionKind: null,
+      };
+    case "drawing_sheet_too_large":
+      return {
+        title: "A sheet is too large to read",
+        detail:
+          `A sheet in this part's drawing is too large for us to read, so it cannot be checked for export-control markings and is not sent to any supplier automatically. Export the drawing again at a standard sheet size, or split the large sheet out, and replace the drawing to release the part. ${NO_MANUAL_QUOTE}`,
+        action: null,
+        actionKind: null,
+      };
+    case "drawing_recheck_limit":
+      return {
+        title: "Drawing could not be read after several tries",
+        detail:
+          `We tried to read this part's drawing several times and could not, so it cannot be checked for export-control markings and is not sent to any supplier automatically. Replace the drawing to release the part. Every page needs upright, readable text. ${NO_MANUAL_QUOTE}`,
         action: null,
         actionKind: null,
       };

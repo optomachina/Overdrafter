@@ -42,13 +42,22 @@ could not finish, the page says the files are waiting for a check; choose
 
 ## Drawings that cannot be read
 
-If OverDrafter cannot read the text on every page of a drawing (for example a
-scanned drawing), it cannot check that drawing for markings. The drawing is
-not sent to any manufacturer or to any automated reader. Replace it with a PDF
-whose text can be selected to release the part.
+OverDrafter reads every page of a drawing as an image (OCR), even when the
+page also has text you can select, so a stamp that is only an image is read
+too. If it cannot read text on every page, it cannot check that drawing for
+markings. The drawing is not sent to any manufacturer or to any automated
+reader. To release the part, replace the drawing with one where:
 
-A stamp or marking that is only an image on a page that also has normal text
-is not read, because OCR runs only when a page has no text layer.
+- every page has upright, readable text;
+- there are no blank pages;
+- sideways sheets are rotated upright;
+- there are 12 pages or fewer (split a longer drawing);
+- no sheet is larger than a standard drawing size.
+
+A drawing with more than 12 pages, or with a sheet too large to read, is held
+until you replace it; checking it again cannot release it. If a check could
+not finish for a reason on our side, "Recheck files" runs it again, up to
+three times for the same drawing. After that, replace the drawing.
 
 ## STEP files
 

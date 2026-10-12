@@ -42,7 +42,7 @@
 --      not hold the scan state
 begin;
 
-select plan(156);
+select plan(167);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -1476,6 +1476,143 @@ select is(
   private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072fb', 'fictiv'),
   'export_scan_missing',
   'B2: the part with the unread drawing stays held'
+);
+
+-- Review round 9: a fixed OCR limit (a page past the page cap, a sheet over
+-- the pixel cap) is final for the bytes, and OCR failures on the same bytes
+-- stop being retryable after 3 (drawing_recheck_limit), so a recheck loop
+-- cannot spend the OCR budget.
+insert into public.work_queue (
+  id, organization_id, job_id, part_id, task_type, status, last_error, payload, created_at, updated_at
+)
+select '00000000-0000-4000-8000-000000007301', organization_id, fresh_job_id,
+  '00000000-0000-4000-8000-0000000072f3', 'extract_part', 'failed', 'export_scan_unread',
+  pg_catalog.jsonb_build_object('failureCode', 'export_scan_unread', 'exportScanOutcomes', pg_catalog.jsonb_build_object(
+    '00000000-0000-4000-8000-0000000072fd',
+    pg_catalog.jsonb_build_object('contentSha256', repeat('56', 32), 'outcome', 'drawing_too_many_pages'))),
+  now() + interval '2 seconds', now() + interval '2 seconds'
+from ovd723_ctx;
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  'drawing_too_many_pages',
+  'round 9: a page past the OCR page cap is final for the bytes'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select fresh_job_id from ovd723_ctx)) ->> 'scanState',
+  'drawing_too_many_pages',
+  'round 9: the part shows that the drawing has too many pages'
+);
+select is(
+  public.api_request_export_marking_rescan((select fresh_job_id from ovd723_ctx)),
+  0,
+  'round 9: Recheck files does not queue a drawing over the page cap'
+);
+reset role;
+
+update public.work_queue
+set payload = pg_catalog.jsonb_set(payload, '{exportScanOutcomes,00000000-0000-4000-8000-0000000072fd,outcome}', '"drawing_sheet_too_large"')
+where id = '00000000-0000-4000-8000-000000007301';
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  'drawing_sheet_too_large',
+  'round 9: a sheet over the OCR pixel cap is final for the bytes'
+);
+
+-- Two OCR failures on the same bytes: still retryable.
+update public.work_queue
+set payload = pg_catalog.jsonb_set(payload, '{exportScanOutcomes,00000000-0000-4000-8000-0000000072fd,outcome}', '"drawing_ocr_failed"')
+where id = '00000000-0000-4000-8000-000000007301';
+insert into public.work_queue (
+  id, organization_id, job_id, part_id, task_type, status, payload, created_at, updated_at
+)
+select '00000000-0000-4000-8000-000000007302', organization_id, fresh_job_id,
+  '00000000-0000-4000-8000-0000000072f3', 'export_marking_rescan', 'completed',
+  pg_catalog.jsonb_build_object('jobFileId', '00000000-0000-4000-8000-0000000072fd',
+    'contentSha256', repeat('56', 32), 'exportScanOutcome', 'drawing_ocr_failed'),
+  now() + interval '3 seconds', now() + interval '3 seconds'
+from ovd723_ctx;
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  null,
+  'round 9: two OCR failures on the same bytes stay retryable'
+);
+
+-- A failure on other bytes of the same file does not count toward the cap.
+insert into public.work_queue (
+  id, organization_id, job_id, part_id, task_type, status, payload, created_at, updated_at
+)
+select '00000000-0000-4000-8000-000000007303', organization_id, fresh_job_id,
+  '00000000-0000-4000-8000-0000000072f3', 'export_marking_rescan', 'completed',
+  pg_catalog.jsonb_build_object('jobFileId', '00000000-0000-4000-8000-0000000072fd',
+    'contentSha256', repeat('57', 32), 'exportScanOutcome', 'drawing_ocr_failed'),
+  now() + interval '4 seconds', now() + interval '4 seconds'
+from ovd723_ctx;
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  null,
+  'round 9: an OCR failure on other bytes does not count toward the recheck cap'
+);
+
+-- The third OCR failure on the same bytes reaches the cap.
+update public.work_queue
+set payload = pg_catalog.jsonb_set(payload, '{contentSha256}', pg_catalog.to_jsonb(repeat('56', 32)))
+where id = '00000000-0000-4000-8000-000000007303';
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  'drawing_recheck_limit',
+  'round 9: the third OCR failure on the same bytes is final (drawing_recheck_limit)'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select fresh_job_id from ovd723_ctx)) ->> 'scanState',
+  'drawing_recheck_limit',
+  'round 9: the part shows the recheck limit, not missing'
+);
+select is(
+  public.api_request_export_marking_rescan((select fresh_job_id from ovd723_ctx)),
+  0,
+  'round 9: Recheck files does not queue the same bytes past the recheck cap'
+);
+reset role;
+
+-- A later final outcome is the latest again, and the cap no longer applies
+-- to it. The work_queue trigger sets updated_at to now(), the same as the B2
+-- task's, so created_at orders them.
+update public.work_queue
+set created_at = now() - interval '1 day', updated_at = now() - interval '1 day'
+where id in ('00000000-0000-4000-8000-000000007301', '00000000-0000-4000-8000-000000007302',
+             '00000000-0000-4000-8000-000000007303');
+
+select is(
+  private.export_rescan_final_outcome(
+    (select fresh_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072fd', repeat('56', 32)),
+  'drawing_unread',
+  'round 9: a later final outcome is still the answer after earlier OCR failures'
+);
+
+delete from public.work_queue
+where id in ('00000000-0000-4000-8000-000000007301', '00000000-0000-4000-8000-000000007302',
+             '00000000-0000-4000-8000-000000007303');
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072fb', 'fictiv'),
+  'export_scan_missing',
+  'round 9: the part with the unread drawing stays held'
 );
 
 -- B2 reproduction: the old drawing rep-scan.pdf ended drawing_unread; the

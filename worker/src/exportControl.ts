@@ -308,13 +308,30 @@ const STEP_ESCAPE_DIRECTIVE_AT = /\\(?:X[024]?\\|S\\|P[^\\]\\)/iy;
  * that is not a Unicode scalar value, an `\X2\` or `\X4\` with no `\X0\`
  * before the string ends, an escape split across two strings, or a stray
  * `\X0\`. Read left to right, so `\\` is one backslash and never starts a
- * directive.
+ * directive. Each quoted string is also checked on its own, so an escape
+ * truncated at the end of a string (`'\S\'`, `'\X\4'`, `'\PA'`) or a
+ * `\X2\` with a lone surrogate is malformed too.
  */
 export function stepHeaderEscapesWellFormed(text: string): boolean {
+  if (!escapesWellFormedIn(text)) return false;
+  // Round 9: each string's content is checked on its own too, so an escape
+  // cannot borrow the closing quote (a terminal `\S\` would take it as its
+  // character) or run into the next string. A truncated escape at the end
+  // of a string makes the header incomplete.
+  const strings = stepQuotedStrings(text);
+  return strings !== null
+    && strings.every((content) => escapesWellFormedIn(content) && !STEP_TRUNCATED_DIRECTIVE_AT_END.test(content));
+}
+
+/** A directive cut off by the end of its string: `\X`, `\X2`, `\S`, `\PA`. */
+const STEP_TRUNCATED_DIRECTIVE_AT_END = /\\(?:X[024]?|S|P[A-I]?)$/i;
+
+function escapesWellFormedIn(text: string): boolean {
   for (let index = text.indexOf("\\"); index >= 0; index = text.indexOf("\\", index)) {
     STEP_STRING_ESCAPE_AT.lastIndex = index;
     const match = STEP_STRING_ESCAPE_AT.exec(text);
     if (match) {
+      if (match[1] !== undefined && !isWellFormedUtf16(hexGroups(match[1], 4))) return false;
       if (match[2] !== undefined && !hexGroups(match[2], 8).every(isUnicodeScalarValue)) return false;
       index = STEP_STRING_ESCAPE_AT.lastIndex;
       continue;
@@ -322,6 +339,58 @@ export function stepHeaderEscapesWellFormed(text: string): boolean {
     STEP_ESCAPE_DIRECTIVE_AT.lastIndex = index;
     if (STEP_ESCAPE_DIRECTIVE_AT.test(text)) return false;
     index += 1;
+  }
+  return true;
+}
+
+/**
+ * The contents of every quoted string in `text`, outside comments, as the
+ * exporter wrote them (a doubled `''` stays doubled). Null when a string or
+ * comment is not closed.
+ */
+function stepQuotedStrings(text: string): string[] | null {
+  const strings: string[] = [];
+  let index = 0;
+  while (index < text.length) {
+    if (text[index] === "'") {
+      const start = index + 1;
+      index = start;
+      for (;;) {
+        if (index >= text.length) return null;
+        if (text[index] === "'") {
+          if (text[index + 1] === "'") {
+            index += 2;
+            continue;
+          }
+          break;
+        }
+        index += 1;
+      }
+      strings.push(text.slice(start, index));
+      index += 1;
+      continue;
+    }
+    if (text[index] === "/" && text[index + 1] === "*") {
+      const close = text.indexOf("*/", index + 2);
+      if (close < 0) return null;
+      index = close + 2;
+      continue;
+    }
+    index += 1;
+  }
+  return strings;
+}
+
+/** True when the UTF-16 code units hold no lone or reversed surrogate. */
+function isWellFormedUtf16(units: number[]): boolean {
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index];
+    if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = units[index + 1];
+      if (next === undefined || next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    }
   }
   return true;
 }
@@ -341,22 +410,32 @@ function hexGroups(hex: string, width: number): number[] {
 /**
  * Marking ids found in STEP header text, raw or with its string escapes
  * decoded. The raw text is always scanned too, so a malformed escape never
- * hides text that was readable before decoding. The decoded text is
- * normalized (NFKC, format characters such as a zero width space removed)
- * before matching, so fullwidth `ＩＴＡＲ` or `IT\u200BAR` still matches. The
+ * hides text that was readable before decoding. The decoded text is scanned
+ * as is and normalized (NFKC, format characters such as a zero width space
+ * removed), so fullwidth `ＩＴＡＲ` or `IT\u200BAR` still matches. The
  * header is read as latin1; it is also read as UTF-8, which nonconforming
  * exporters write into strings directly.
  */
 export function detectStepHeaderMarkings(text: string): string[] {
-  const candidates = new Set([text, normalizeStepHeaderText(decodeStepStringEscapes(text))]);
+  const candidates = new Set([text]);
   const utf8 = Buffer.from(text, "latin1").toString("utf8");
-  if (utf8 !== text) candidates.add(normalizeStepHeaderText(decodeStepStringEscapes(utf8)));
+  for (const read of utf8 === text ? [text] : [text, utf8]) {
+    for (const candidate of stepHeaderTextForms(decodeStepStringEscapes(read))) candidates.add(candidate);
+  }
   const found = new Set([...candidates].flatMap((candidate) => detectExportControlMarkings(candidate)));
   return EXPORT_CONTROL_MARKING_PATTERNS.map(({ id }) => id).filter((id) => found.has(id));
 }
 
-function normalizeStepHeaderText(text: string): string {
-  return text.normalize("NFKC").replace(/\p{Cf}/gu, "");
+/**
+ * Round 9: normalization can also join a marking to the next letter
+ * (`ITAR\u200BX` becomes `ITARX`, `ITARＸ` becomes `ITARX` under NFKC), so
+ * the decoded text is scanned as decoded, with format characters removed,
+ * with NFKC, and with both. A marking found in any form counts.
+ */
+function stepHeaderTextForms(decoded: string): string[] {
+  const withoutFormat = decoded.replace(/\p{Cf}/gu, "");
+  const nfkc = decoded.normalize("NFKC");
+  return [decoded, withoutFormat, nfkc, nfkc.replace(/\p{Cf}/gu, ""), withoutFormat.normalize("NFKC")];
 }
 
 /**
@@ -394,7 +473,7 @@ export type DrawingTextForExportScan = {
   pageCountKnown?: boolean;
   drawingFullyRead?: boolean | null;
   ocr?: boolean;
-  pages: ReadonlyArray<{ text: string; ocrText?: string; ocrStatus?: string }>;
+  pages: ReadonlyArray<{ text: string; ocrText?: string; ocrStatus?: string; ocrLimit?: string }>;
 };
 
 /**
@@ -417,18 +496,29 @@ export function isDrawingTextFullyRead(pdfText: DrawingTextForExportScan | null 
 /** OCR statuses that say the OCR environment failed, not the page. */
 const RETRYABLE_OCR_STATUSES: ReadonlySet<string> = new Set(["failed", "not_read", "unavailable"]);
 
+/** Why an unread drawing was not read, as recorded for its bytes. */
+export type DrawingUnreadOutcome =
+  | "drawing_unread"
+  | "drawing_ocr_failed"
+  | "drawing_too_many_pages"
+  | "drawing_sheet_too_large";
+
 /**
- * The outcome for a drawing `isDrawingTextFullyRead` rejects.
+ * The outcome for a drawing `isDrawingTextFullyRead` rejects. A fixed OCR
+ * limit comes first, because no recheck of the same bytes can pass it and it
+ * is final for those bytes: `drawing_too_many_pages` when a page is past the
+ * OCR page cap (`ocrLimit: "page_cap"`), `drawing_sheet_too_large` when a
+ * page is over the pixel cap (`ocrLimit: "pixel_cap"`). Then
  * `drawing_ocr_failed` when any page's OCR failed, timed out, ran out of
  * budget, or was unavailable: the environment, not the bytes, so a recheck
- * of the same bytes may read it and the database does not treat it as final.
- * Otherwise `drawing_unread` (OCR ran and read nothing, the page count is
- * unknown, or a text layer failed), which is final for those bytes.
+ * may read it and the database does not treat it as final (up to its recheck
+ * cap). Otherwise `drawing_unread` (OCR ran and read nothing, the page count
+ * is unknown, or a text layer failed), which is final for those bytes.
  */
-export function drawingUnreadOutcome(
-  pdfText: DrawingTextForExportScan | null | undefined,
-): "drawing_unread" | "drawing_ocr_failed" {
+export function drawingUnreadOutcome(pdfText: DrawingTextForExportScan | null | undefined): DrawingUnreadOutcome {
   const pages = Array.isArray(pdfText?.pages) ? pdfText.pages : [];
+  if (pages.some((page) => page.ocrLimit === "page_cap")) return "drawing_too_many_pages";
+  if (pages.some((page) => page.ocrLimit === "pixel_cap")) return "drawing_sheet_too_large";
   return pages.some((page) => typeof page.ocrStatus === "string" && RETRYABLE_OCR_STATUSES.has(page.ocrStatus))
     ? "drawing_ocr_failed"
     : "drawing_unread";
@@ -541,7 +631,7 @@ export class ExportControlDrawingUnreadError extends Error {
 
   constructor(
     drawing?: { jobFileId: string; contentSha256: string },
-    outcome: "drawing_unread" | "drawing_ocr_failed" = "drawing_unread",
+    outcome: DrawingUnreadOutcome = "drawing_unread",
   ) {
     super("Export-control scan could not read every drawing page; the drawing is held and not sent to any model.");
     this.name = "ExportControlDrawingUnreadError";
@@ -550,20 +640,16 @@ export class ExportControlDrawingUnreadError extends Error {
 }
 
 /** What one scan of one file's bytes found, as recorded in a task payload. */
-export type ExportScanOutcome =
-  | "clean"
-  | "admin_cleared"
-  | "drawing_unread"
-  | "drawing_ocr_failed"
-  | "step_header_incomplete";
+export type ExportScanOutcome = "clean" | "admin_cleared" | DrawingUnreadOutcome | "step_header_incomplete";
 
 /**
  * Per file outcomes an extract_part task records in its payload
  * (`exportScanOutcomes`, keyed by job file id, with the hash of the scanned
- * bytes). The database reads `drawing_unread` and `step_header_incomplete`
- * from it as final for those bytes; `drawing_ocr_failed` is not final, so the
- * file shows as missing and Recheck files queues it again. A clean outcome
- * also has its scan of record, which is what dispatch checks.
+ * bytes). The database reads `drawing_unread`, `drawing_too_many_pages`,
+ * `drawing_sheet_too_large`, and `step_header_incomplete` from it as final
+ * for those bytes; `drawing_ocr_failed` is not final until the recheck cap,
+ * so the file shows as missing and Recheck files queues it again. A clean
+ * outcome also has its scan of record, which is what dispatch checks.
  */
 export type ExportScanOutcomes = Record<string, { contentSha256: string; outcome: ExportScanOutcome }>;
 
@@ -843,6 +929,44 @@ export async function scanStagedDrawingForExportMarkings(
 }
 
 /**
+ * The drawing scan extract_part runs on text it already extracted, before any
+ * model call: a hit records a block and throws, a fully read drawing records
+ * a clean scan, and an unread drawing throws `ExportControlDrawingUnreadError`
+ * carrying its outcome for the task payload. `contentSha256` is the hash of
+ * the staged bytes; without staged bytes it is empty and a record fails
+ * closed. Nothing happens when the part has no drawing.
+ */
+export async function scanDrawingForExtraction(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    drawingFile: { id: string } | null;
+    contentSha256: string;
+    pdfText: DrawingTextForExportScan | null;
+  },
+): Promise<void> {
+  if (!input.drawingFile) return;
+  const textRead = isDrawingTextFullyRead(input.pdfText);
+  await enforceAndRecordExportControlScan(supabase, {
+    jobId: input.jobId,
+    partId: input.partId,
+    jobFileId: input.drawingFile.id,
+    // OCR text (no text layer) is recorded as drawing_ocr.
+    source: drawingTextScanSource(input.pdfText),
+    scan: scanDrawingTextForExportMarkings(input.pdfText),
+    textRead,
+    contentSha256: input.contentSha256,
+  });
+  if (!textRead) {
+    throw new ExportControlDrawingUnreadError(
+      { jobFileId: input.drawingFile.id, contentSha256: input.contentSha256 },
+      drawingUnreadOutcome(input.pdfText),
+    );
+  }
+}
+
+/**
  * OVD-723: asked before any CAD or drawing content goes to an extraction
  * model (`api_check_export_control_extraction`, service role). The job's
  * latest declaration must be not_controlled with no open or confirmed marking
@@ -903,8 +1027,7 @@ export type ExportMarkingRescanOutcome =
   | "clean"
   | "admin_cleared"
   | "blocked"
-  | "drawing_unread"
-  | "drawing_ocr_failed"
+  | DrawingUnreadOutcome
   | "step_header_incomplete"
   | "not_scannable";
 

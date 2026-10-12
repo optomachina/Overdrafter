@@ -27,6 +27,10 @@ describe("export-control api", () => {
     expect(parseJobExportControlStatus({ jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "missing" }).scanState)
       .toBe("missing");
     expect(() => parseJobExportControlStatus({ jobId: "j", exportReviewState: "clear", scanState: "done" })).toThrow();
+    // Review round 9: the final OCR limit states and the recheck cap.
+    for (const scanState of ["drawing_too_many_pages", "drawing_sheet_too_large", "drawing_recheck_limit"]) {
+      expect(parseJobExportControlStatus({ jobId: "j", exportReviewState: "clear", scanState }).scanState).toBe(scanState);
+    }
   });
 
   it("requeues rescans through the owner RPC", async () => {
