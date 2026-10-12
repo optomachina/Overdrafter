@@ -3,13 +3,14 @@ import {
   isProviderSessionIdentity,
   isProviderSessionOperatorAudit,
   isProviderSessionTaskRef,
-  PROVIDER_SESSION_BLOCKING_OUTCOMES,
+  PROVIDER_SESSION_REPORTABLE_OUTCOMES,
   type ProviderSessionBindingKey,
   type ProviderSessionBlockingOutcome,
   type ProviderSessionIdentity,
   type ProviderSessionLeaseOperatorAudit,
   type ProviderSessionLeaseOperatorStore,
   type ProviderSessionLeaseOwnedRequest,
+  type ProviderSessionReportableOutcome,
   type ProviderSessionLeaseStore,
   type ProviderSessionLeaseStoreAcquireRequest,
   type ProviderSessionLeaseStoreAcquireResponse,
@@ -189,10 +190,10 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
     },
 
     async reportOutcome(
-      request: ProviderSessionLeaseOwnedRequest & { outcome: ProviderSessionBlockingOutcome },
+      request: ProviderSessionLeaseOwnedRequest & { outcome: ProviderSessionReportableOutcome },
     ): Promise<ProviderSessionLeaseStoreReportResponse> {
       if (!isProviderSessionIdentity(request.identity)) return { status: "rejected", reason: "invalid_identity" };
-      if (!(PROVIDER_SESSION_BLOCKING_OUTCOMES as readonly string[]).includes(request.outcome)) {
+      if (!(PROVIDER_SESSION_REPORTABLE_OUTCOMES as readonly string[]).includes(request.outcome)) {
         return { status: "rejected", reason: "invalid_outcome" };
       }
       const row = findOwned(request);

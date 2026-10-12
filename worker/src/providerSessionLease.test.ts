@@ -490,6 +490,21 @@ describe("AC5: session failures map to bounded terminal/manual-follow-up outcome
       .toEqual({ status: "rejected", reason: "invalid_outcome" });
   });
 
+  it("rejects a self-reported owner_revoked as invalid_outcome; only the operator may revoke", async () => {
+    const memory = createProviderSessionLeaseMemoryStore();
+    const identity = identityFor();
+    await memory.acquire({ identity, taskRef: "task-a", holderToken: nextToken(), ttlSeconds: 30, maxRenewals: 1, maxDurationSeconds: 60 });
+    const holderToken = memory.rows()[0].holderToken!;
+    expect(await memory.reportOutcome({ identity, taskRef: "task-a", holderToken, generation: 1, outcome: "owner_revoked" as never }))
+      .toEqual({ status: "rejected", reason: "invalid_outcome" });
+    expect(memory.rows().map((row) => [row.state, row.outcome])).toEqual([["active", null]]);
+
+    const { manager } = setup();
+    const lease = await mustAcquire(manager, identityFor(), "task-b");
+    await expect(lease.reportOutcome("owner_revoked" as never)).rejects.toThrow("Unknown provider session outcome.");
+    expect(lease.isHeld()).toBe(true);
+  });
+
   it("does not record an outcome after the lease was already lost", async () => {
     const { manager, clock, memory } = setup();
     const lease = await mustAcquire(manager, identityFor(), "task-a");

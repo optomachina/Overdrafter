@@ -91,6 +91,12 @@ acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──►
 A blocked binding answers every acquire with `manual_follow_up` until an
 operator clears that exact generation (`clear_provider_session_binding_block`).
 
+A holder may report only `missing_session`, `login_required`,
+`challenge_required` and `corrupt_state`
+(`PROVIDER_SESSION_REPORTABLE_OUTCOMES`). `report_provider_session_lease_outcome`
+and the memory store reject `owner_revoked` with `invalid_outcome`, so only the
+operator revoke RPC can set that fence.
+
 Operator actions (`revokeBinding`, `clearBlock`) are built only by
 `createProviderSessionLeaseOperatorRpcStore`; the worker factory
 `createProviderSessionLeaseRpcStore` exposes acquire, renew, release and report
@@ -98,9 +104,14 @@ only. Both operator RPCs require an `actorRef` and `reasonRef` (opaque, task-ref
 format, never names or e-mail addresses), and the row records them
 (`revoked_by_ref`/`revoke_reason_ref`, `cleared_by_ref`/`clear_reason_ref`).
 Revocation must name the holder's `sessionBindingRef`, otherwise it is rejected
-with `binding_mismatch`. The operator RPCs are still granted to `service_role`;
-a dedicated operator database role is a follow-up if the worker credential must
-lose the ability to call them at all.
+with `binding_mismatch`.
+
+**Operator RPC decision for 1.0 (pending Blaine's confirmation).** The operator
+RPCs (`revoke_provider_session_binding`, `clear_provider_session_binding_block`)
+stay granted to `service_role` only and are called from the admin server path,
+never from the worker. Each call requires opaque actor and reason references,
+which the row records. A dedicated operator database role is deferred to 1.1,
+because it adds a new credential and new deploy wiring.
 
 ## Redaction
 
@@ -141,15 +152,31 @@ by hand, use `psql --single-transaction -v ON_ERROR_STOP=1`.
 - `worker/src/providerSessionLease.test.ts` and
   `worker/src/providerSessionLeaseRpcStore.test.ts`: the root `npm test`
   (vitest) runs them.
-- `supabase/tests/provider_session_leases.sql` has 118 pgTAP assertions covering
+- `supabase/tests/provider_session_leases.sql` has 119 pgTAP assertions covering
   catalog, grants, RLS denial, owner `BYPASSRLS`, lock settings, the binding
   registry backstop, contention, isolation, wrong-owner and null fencing inputs,
   bounded renewal and the hard cap, crash/expiry recovery, idempotent release,
   blocking outcomes, cleared and revoked generations, operator attribution,
   generation monotonicity after history deletion, input rejection and the
   rollback (with the operator override; the refusal path is asserted by the
-  node test). Cross-connection races are not exercised (the runner forbids
-  dblink); the registry primary key and foreign key are the tested backstop.
+  node test). pgTAP runs in one session, so it cannot exercise races between
+  connections; the next item does.
+- `scripts/ovd462-lease-race.mjs` races two independent psql connections
+  against the draft in a scratch database (dropped afterwards). A postgres
+  coordinator holds an advisory lock as a start gate, waits until both racers
+  are blocked on it, then releases them together, and checks the stored rows
+  after every iteration. Scenarios: (a) same key acquire, 30 iterations: one
+  `acquired`, the other `contended` or 55P03, never two active rows; (b) a
+  holder keeps the key lock in an open transaction, 20 iterations: the
+  contender is observed waiting on that lock and fails with 55P03 after about
+  2s; (c) one `session_binding_ref` under two keys, 30 iterations: one grant,
+  the other `binding_mismatch`, one registry row; (d) expiry, 30 iterations:
+  a stale renew races a new acquire, the stale holder gets `lost` or
+  `not_owner`, a second renew and a release change nothing, and the generation
+  strictly increases. CI runs it against the local Supabase stack from
+  `scripts/run-supabase-policy-tests.mjs` after pg_prove. Locally,
+  `node scripts/ovd462-lease-race.mjs --target docker` runs it against a
+  disposable pinned postgres container with no published port.
   - **CI without the migration.** CI stages only `supabase/tests`, and
     `scripts/run-supabase-policy-tests.mjs` rejects skipped TAP. So the test
     does not skip. It installs `fixtures/ovd462_provider_session_leases.inc`

@@ -30,6 +30,18 @@ export const PROVIDER_SESSION_BLOCKING_OUTCOMES = [
   "corrupt_state",
 ] as const;
 export type ProviderSessionBlockingOutcome = (typeof PROVIDER_SESSION_BLOCKING_OUTCOMES)[number];
+
+/**
+ * Outcomes a lease holder may report about itself. `owner_revoked` is set only by
+ * the operator revoke RPC; a worker that reports it is rejected as invalid_outcome.
+ */
+export const PROVIDER_SESSION_REPORTABLE_OUTCOMES = [
+  "missing_session",
+  "login_required",
+  "challenge_required",
+  "corrupt_state",
+] as const satisfies readonly ProviderSessionBlockingOutcome[];
+export type ProviderSessionReportableOutcome = (typeof PROVIDER_SESSION_REPORTABLE_OUTCOMES)[number];
 export type ProviderSessionTerminalOutcome = ProviderSessionBlockingOutcome | "lease_lost";
 
 export const PROVIDER_SESSION_OUTCOME_DISPOSITION: Readonly<
@@ -249,7 +261,7 @@ export interface ProviderSessionLeaseStore {
   renew(request: ProviderSessionLeaseOwnedRequest): Promise<ProviderSessionLeaseStoreRenewResponse>;
   release(request: ProviderSessionLeaseOwnedRequest): Promise<ProviderSessionLeaseStoreReleaseResponse>;
   reportOutcome(
-    request: ProviderSessionLeaseOwnedRequest & { outcome: ProviderSessionBlockingOutcome },
+    request: ProviderSessionLeaseOwnedRequest & { outcome: ProviderSessionReportableOutcome },
   ): Promise<ProviderSessionLeaseStoreReportResponse>;
 }
 
@@ -283,20 +295,20 @@ export class ProviderSessionLeaseLostError extends Error {
 
 /** Adapters throw this to report a session condition that needs manual follow-up. */
 export class ProviderSessionOutcomeError extends Error {
-  constructor(readonly outcome: ProviderSessionBlockingOutcome) {
+  constructor(readonly outcome: ProviderSessionReportableOutcome) {
     super("Provider session requires manual follow-up.");
     this.name = "ProviderSessionOutcomeError";
   }
 }
 
-const VENDOR_ERROR_OUTCOMES: Partial<Record<VendorAutomationErrorCode, ProviderSessionBlockingOutcome>> = {
+const VENDOR_ERROR_OUTCOMES: Partial<Record<VendorAutomationErrorCode, ProviderSessionReportableOutcome>> = {
   login_required: "login_required",
   captcha: "challenge_required",
   anti_detection_block: "challenge_required",
 };
 
 /** Maps existing adapter failures and explicit outcome errors to a bounded session outcome. */
-export function providerSessionOutcomeForError(error: unknown): ProviderSessionBlockingOutcome | null {
+export function providerSessionOutcomeForError(error: unknown): ProviderSessionReportableOutcome | null {
   if (error instanceof ProviderSessionOutcomeError) return error.outcome;
   if (error instanceof VendorAutomationError) return VENDOR_ERROR_OUTCOMES[error.code] ?? null;
   return null;
@@ -467,8 +479,8 @@ export class ProviderSessionLease {
   }
 
   /** Records a blocking outcome for the binding and ends this lease. */
-  async reportOutcome(outcome: ProviderSessionBlockingOutcome): Promise<ProviderSessionLeaseReportResult> {
-    if (!(PROVIDER_SESSION_BLOCKING_OUTCOMES as readonly string[]).includes(outcome)) {
+  async reportOutcome(outcome: ProviderSessionReportableOutcome): Promise<ProviderSessionLeaseReportResult> {
+    if (!(PROVIDER_SESSION_REPORTABLE_OUTCOMES as readonly string[]).includes(outcome)) {
       throw new Error("Unknown provider session outcome.");
     }
     if (!this.isHeld()) {

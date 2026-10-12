@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(118);
+select plan(119);
 
 -- OVD-462 is a proposed migration that is intentionally NOT in supabase/migrations
 -- yet (needs migration window 1). fixtures/ holds a byte copy of
@@ -241,6 +241,8 @@ select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test'
   '{"status":"lost","reason":"blocked","outcome":"login_required"}'::jsonb, 'blocked holder cannot renew');
 select is(public.report_provider_session_lease_outcome('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-d', pg_temp.tok(4), 4, 'not_an_outcome'),
   '{"status":"rejected","reason":"invalid_outcome"}'::jsonb, 'unknown outcome vocabulary rejected as invalid_outcome');
+select is(public.report_provider_session_lease_outcome('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-d', pg_temp.tok(4), 4, 'owner_revoked'),
+  '{"status":"rejected","reason":"invalid_outcome"}'::jsonb, 'a holder cannot self-report owner_revoked; only the operator revoke RPC sets it');
 select is(public.clear_provider_session_binding_block('xometry', pg_temp.acct(1), 'test', 4, '', 'OVD-462-runbook'),
   '{"status":"rejected","reason":"invalid_actor"}'::jsonb, 'clear without an actor ref is rejected');
 select is(public.clear_provider_session_binding_block('xometry', pg_temp.acct(1), 'test', 4, 'ops-oncall-1', null),

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { stagePolicyTests, admitCi, admitPgProve, LEGACY } from './run-supabase-policy-tests.mjs';
+import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, callResult, readDraft, ITERATIONS, MIN_ITERATIONS }
+  from './ovd462-lease-race.mjs';
 const source = fileURLToPath(new URL('../supabase/tests', import.meta.url));
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'ovd-policy-selector-'));
@@ -87,4 +89,54 @@ test('OVD-462 rollback refuses to drop occupants before any drop runs', () => {
   assert.match(rollback, /state in \('active', 'blocked'\)/);
   assert.match(rollback, /current_setting\('ovd462\.rollback_discard_occupants', true\), ''\) <> 'confirmed'/);
   assert(!/^\s*(?:begin|commit)\s*;/im.test(rollback), 'the runner owns the transaction');
+});
+
+const ok = result => ({ result, sqlstate: null, elapsed_ms: 1 });
+const err = (sqlstate, elapsed_ms = 1) => ({ result: null, sqlstate, elapsed_ms });
+const acquired = (generation = 1) => ok({ status: 'acquired', generation, idempotent: false, expires_in_ms: 60000, renewals_remaining: 5 });
+test('OVD-462 race test runs every scenario at least 20 times against the byte-identical draft', () => {
+  for (const count of Object.values(ITERATIONS)) assert(count >= MIN_ITERATIONS);
+  assert.deepEqual(Object.keys(ITERATIONS).sort(), ['binding', 'expiry', 'lockTimeout', 'sameKey']);
+  assert.match(readDraft(fileURLToPath(new URL('..', import.meta.url))), /create function public\.acquire_provider_session_lease/);
+  const main = readFileSync(new URL('./run-supabase-policy-tests.mjs', import.meta.url), 'utf8');
+  assert.match(main, /await runAgainstSupabase\(root\)/, 'CI policy step must run the race test');
+});
+test('OVD-462 race result parsing admits exactly one of result or SQLSTATE', () => {
+  assert.deepEqual(callResult('{"result":{"status":"acquired"},"sqlstate":null,"elapsed_ms":3}\n').result, { status: 'acquired' });
+  assert.equal(callResult('{"result":null,"sqlstate":"55P03","elapsed_ms":2000}\n').sqlstate, '55P03');
+  assert.throws(() => callResult('{"result":null,"sqlstate":null,"elapsed_ms":1}\n'));
+  assert.throws(() => callResult('{"result":{},"sqlstate":"55P03","elapsed_ms":1}\n'));
+  assert.throws(() => callResult('{"result":{"status":"acquired"},"sqlstate":null,"elapsed_ms":1}\n{}\n'));
+});
+test('OVD-462 same-key race rejects two grants, a leaked error, or a second active row', () => {
+  const contended = ok({ status: 'contended', retry_after_ms: 1000 });
+  assert.equal(acceptSameKeyRace([acquired(), contended], { active: 1, total: 1 }), 'contended');
+  assert.equal(acceptSameKeyRace([err('55P03'), acquired()], { active: 1, total: 1 }), '55P03');
+  assert.throws(() => acceptSameKeyRace([acquired(), acquired()], { active: 1, total: 1 }));
+  assert.throws(() => acceptSameKeyRace([acquired(), err('23505')], { active: 1, total: 1 }));
+  assert.throws(() => acceptSameKeyRace([acquired(), contended], { active: 2, total: 2 }));
+});
+test('OVD-462 lock-timeout race requires a bounded 55P03 while blocked by the holder', () => {
+  assert.equal(acceptLockTimeout(acquired(), err('55P03', 2001), 2100, true, { active: 1, total: 1 }), 2001);
+  assert.throws(() => acceptLockTimeout(acquired(), ok({ status: 'contended', retry_after_ms: 1 }), 10, true, { active: 1, total: 1 }));
+  assert.throws(() => acceptLockTimeout(acquired(), err('55P03', 9000), 9100, true, { active: 1, total: 1 }));
+  assert.throws(() => acceptLockTimeout(acquired(), err('55P03', 2001), 2100, false, { active: 1, total: 1 }));
+});
+test('OVD-462 binding race requires binding_mismatch and one registered key', () => {
+  const mismatch = ok({ status: 'rejected', reason: 'binding_mismatch' });
+  const rows = { bindings: 1, bindingOwnerIsWinner: true, leases: 1, active: 1 };
+  assert.equal(acceptBindingRace([mismatch, acquired()], rows), 'binding_mismatch');
+  assert.throws(() => acceptBindingRace([acquired(), acquired()], rows));
+  assert.throws(() => acceptBindingRace([acquired(), mismatch], { ...rows, bindingOwnerIsWinner: false }));
+  assert.throws(() => acceptBindingRace([acquired(), mismatch], { ...rows, leases: 2 }));
+});
+test('OVD-462 expiry race requires the stale holder fenced and the generation advanced', () => {
+  const lost = ok({ status: 'lost', reason: 'expired', outcome: null });
+  const after = { renew: lost, release: ok({ status: 'released', changed: false, final_state: 'expired' }) };
+  const rows = { active: 1, activeGeneration: 2, staleState: 'expired' };
+  assert.equal(acceptExpiryRace(1, lost, acquired(2), after, rows), 'lost/expired');
+  assert.throws(() => acceptExpiryRace(1, ok({ status: 'renewed', expires_in_ms: 1, renewals_remaining: 1 }), acquired(2), after, rows));
+  assert.throws(() => acceptExpiryRace(2, lost, acquired(2), after, rows));
+  assert.throws(() => acceptExpiryRace(1, lost, acquired(2), { ...after, release: ok({ status: 'released', changed: true, final_state: 'released' }) }, rows));
+  assert.throws(() => acceptExpiryRace(1, lost, acquired(2), after, { ...rows, active: 2 }));
 });

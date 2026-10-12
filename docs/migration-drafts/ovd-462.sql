@@ -468,8 +468,10 @@ begin
   if not private.provider_session_lease_identity_ok(p_provider, p_account_ref, p_environment, p_session_binding_ref) then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_identity');
   end if;
+  -- owner_revoked is not reportable by a holder: only the operator revoke RPC
+  -- below may set it, so a worker cannot forge an operator fence.
   if p_outcome is null
-     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'owner_revoked', 'corrupt_state') then
+     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'corrupt_state') then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_outcome');
   end if;
 

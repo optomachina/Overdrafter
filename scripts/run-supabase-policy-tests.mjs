@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runAgainstSupabase } from './ovd462-lease-race.mjs';
 
 export const LEGACY = 'capability_runtime_persistence_concurrency.sql';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -59,7 +60,7 @@ export function admitCi(env) {
   assert.equal(env.OVD591_PSQL_QUALIFIED, 'success', 'same-head prerequisite must pass');
   assert(isAbsolute(env.RUNNER_TEMP ?? ''), 'owned runner temporary root required');
 }
-function main() {
+async function main() {
   admitCi(process.env);
   assert.equal(process.argv.length, 2, 'no external database or path arguments accepted');
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -77,6 +78,9 @@ function main() {
     process.stderr.write(result.stderr ?? '');
     assert(!result.error && result.status === 0, 'Supabase test process failed');
     console.log(JSON.stringify(admitPgProve(result.stdout, receipt.selectedSql.length)));
+    // OVD-462: two independent connections race the draft in a scratch database,
+    // which pgTAP's single session cannot do. The scratch database is dropped.
+    console.log(JSON.stringify({ ovd462LeaseRace: 'PASS', ...await runAgainstSupabase(root) }));
   } finally {
     const current = lstatSync(owned);
     assert(!current.isSymbolicLink() && current.ino === identity.ino && current.dev === identity.dev,
@@ -84,4 +88,6 @@ function main() {
     rmSync(owned, { recursive: true });
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch(error => { console.error(error); process.exitCode = 1; });
+}
