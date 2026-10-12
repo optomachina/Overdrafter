@@ -47,7 +47,11 @@ export function isLocalTarget(url) {
   if (!["postgres:", "postgresql:"].includes(parsed.protocol)) return false;
   // hostaddr or service could redirect the connection away from the named host.
   if (parsed.searchParams.has("hostaddr") || parsed.searchParams.has("service")) return false;
-  const queryHost = parsed.searchParams.get("host");
+  // libpq uses the last of repeated keys and tries every comma separated host,
+  // so either could reach a remote server after a local value passed the check.
+  const queryHosts = parsed.searchParams.getAll("host");
+  if (queryHosts.length > 1 || queryHosts.some((h) => h.includes(",")) || parsed.hostname.includes(",")) return false;
+  const queryHost = queryHosts[0] ?? null;
   if (parsed.hostname === "" && queryHost) return queryHost.startsWith("/");
   if (queryHost && !queryHost.startsWith("/") && !LOCAL_HOSTS.has(queryHost)) return false;
   return LOCAL_HOSTS.has(parsed.hostname);

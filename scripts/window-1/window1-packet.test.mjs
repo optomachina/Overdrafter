@@ -140,6 +140,15 @@ describe("window 1 restore check", async () => {
     expect(isLocalTarget("not a url")).toBe(false);
   });
 
+  it("refuses URLs that libpq could send to a remote host", () => {
+    expect(isLocalTarget("postgresql://postgres:postgres@127.0.0.1:54322/postgres")).toBe(true);
+    expect(isLocalTarget("postgresql:///postgres?host=/tmp")).toBe(true);
+    expect(isLocalTarget("postgresql://localhost/postgres?host=localhost&host=db.example.com")).toBe(false);
+    expect(isLocalTarget("postgresql:///postgres?host=/tmp,db.example.com")).toBe(false);
+    expect(isLocalTarget("postgresql://localhost/postgres?host=localhost,db.example.com")).toBe(false);
+    expect(isLocalTarget("postgresql://db.example.com/postgres")).toBe(false);
+  });
+
   it("reports every count that differs, including tables missing on one side", () => {
     expect(compareCounts({ a: 1, b: 2 }, { a: 1, b: 2 })).toEqual([]);
     expect(compareCounts({ a: 1, b: 2 }, { a: 1, b: 3, c: 0 })).toEqual(["b: production 2 restore 3", "c: production undefined restore 0"]);

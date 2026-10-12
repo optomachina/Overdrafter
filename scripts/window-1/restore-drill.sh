@@ -31,9 +31,9 @@ start() {
   "${as_owner[@]}" "$bin/initdb" -D "$work/$1" -U postgres -A trust --no-sync -E UTF8 --locale=C.UTF-8 >/dev/null
   "${as_owner[@]}" "$bin/pg_ctl" -D "$work/$1" -l "$work/$1.log" -w \
     -o "-c listen_addresses='' -c unix_socket_directories=$work/$1.s -c fsync=off" start >/dev/null
-  [ "$(psql -X -At -h "$work/$1.s" -U postgres -d postgres -c 'show listen_addresses')" = "" ]
+  [ "$("$bin/psql" -X -At -h "$work/$1.s" -U postgres -d postgres -c 'show listen_addresses')" = "" ]
 }
-q() { local c="$1"; shift; psql -X -q -v ON_ERROR_STOP=1 -h "$work/$c.s" -U postgres -d postgres "$@"; }
+q() { local c="$1"; shift; "$bin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/$c.s" -U postgres -d postgres "$@"; }
 
 start prod
 start target
@@ -58,13 +58,13 @@ SQL
 dump="$work/dump"
 mkdir -p "$dump"
 apps=(-n public -n private -n engineering_private)
-pg_dump -h "$work/prod.s" -U postgres -d postgres --schema-only "${apps[@]}" -f "$dump/schema.sql"
-pg_dump -h "$work/prod.s" -U postgres -d postgres --data-only "${apps[@]}" -n auth -n storage -f "$dump/data.sql"
-psql -X -A -t -q -h "$work/prod.s" -U postgres -d postgres -f scripts/window-1/smoke-counts.sql > "$dump/counts.prod.json"
-psql -X -A -t -q -h "$work/prod.s" -U postgres -d postgres -f scripts/window-1/storage-policies.sql > "$dump/storage-policies.sql"
+"$bin/pg_dump" -h "$work/prod.s" -U postgres -d postgres --schema-only "${apps[@]}" -f "$dump/schema.sql"
+"$bin/pg_dump" -h "$work/prod.s" -U postgres -d postgres --data-only "${apps[@]}" -n auth -n storage -f "$dump/data.sql"
+"$bin/psql" -X -A -t -q -h "$work/prod.s" -U postgres -d postgres -f scripts/window-1/smoke-counts.sql > "$dump/counts.prod.json"
+"$bin/psql" -X -A -t -q -h "$work/prod.s" -U postgres -d postgres -f scripts/window-1/storage-policies.sql > "$dump/storage-policies.sql"
 echo "production counts: $(cat "$dump/counts.prod.json")"
 
 # Real Supabase schema dumps omit the public schema itself; the empty target already has it.
 sed -i -E '/^CREATE SCHEMA public;$/d; /^COMMENT ON SCHEMA public IS/d' "$dump/schema.sql"
 
-node scripts/window-1/restore-check.mjs --target "postgresql:///postgres?host=$work/target.s&user=postgres" --dump "$dump"
+OVD_PSQL="$bin/psql" node scripts/window-1/restore-check.mjs --target "postgresql:///postgres?host=$work/target.s&user=postgres" --dump "$dump"
