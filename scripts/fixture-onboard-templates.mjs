@@ -440,7 +440,8 @@ export function sessionSecretMarker(key) {
 
 export function sessionSecretBlock({ key, displayName }) {
   const C = constantCase(key);
-  return `${sessionSecretMarker(key)} (${GENERATOR_ISSUE}; default-off, no value)
+  return `${sessionSecretMarker(key)}
+# (${GENERATOR_ISSUE}; default-off, no value)
 # ${displayName} reads its session from the generic vendor map, e.g.
 # QUOTE_VENDOR_STORAGE_STATE_PATHS={"${key}":"/abs/path/${key}-storage-state.json"}.
 # A live deploy would also need ${C}_STORAGE_STATE_SECRET_NAME (Secret Manager name only).
