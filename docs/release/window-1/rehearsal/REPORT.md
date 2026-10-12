@@ -15,7 +15,7 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `414bc441` (723 EXPAND), #676 `8302da98` (722 expand only). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `cc9a5fe8` (its `supabase/` tree is identical to `3e27c254` and to the current `e0ffe743`), #675 `42d5cc61`, #677 `414bc441` (723 EXPAND), #676 `8302da98` (722 expand only). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
