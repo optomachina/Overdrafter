@@ -18,7 +18,10 @@ process stop, scoped snapshots, private Storage bucket and exact object
 generation. An identical retry returns `false` without rewriting history. A
 changed replay, stale attempt or fence, foreign tenant, public bucket, or
 changed Storage generation rejects. Update and delete triggers reject registry
-mutation. The reverse script refuses a nonempty registry.
+mutation. The reverse script takes an ACCESS EXCLUSIVE lock on the registry
+first, refuses any isolation level other than READ COMMITTED, and only then
+refuses a nonempty registry, so a registration that commits while the reverse
+waits is seen and retained (OVD-651 race proof).
 
 The private source registration service reads the actual uploaded object by
 trusted Storage ID, bounds the stream by role and time, and measures SHA-256 and

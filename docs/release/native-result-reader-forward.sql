@@ -28,6 +28,10 @@ declare
  records jsonb; native_process jsonb; helper_process jsonb; process jsonb; directory jsonb;
 begin
  if current_user<>'postgres' then raise exception 'native_result_binding_owner_required' using errcode='42501'; end if;
+ -- SHARE locks wait for in-flight revocation and membership writers, but only a
+ -- READ COMMITTED statement snapshot taken after the lock sees their commits.
+ if current_setting('transaction_isolation')<>'read committed' then
+  raise exception 'native_result_binding_read_committed_required' using errcode='42501'; end if;
  select * into a from public.engineering_execution_attempts where id=p_attempt and task_id=p_task for update;
  lock table engineering_private.native_admission_revocations, engineering_private.engineering_operators,
   public.organization_memberships,public.project_memberships,public.projects in share mode;

@@ -3,8 +3,15 @@
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '30s';
+-- Lock first so no registration can commit between the emptiness check and the
+-- column drops. READ COMMITTED gives the check a snapshot taken after the lock;
+-- an older REPEATABLE READ or SERIALIZABLE snapshot could miss a committed row.
+lock table engineering_private.native_verifier_registered_objects in access exclusive mode;
 do $preflight$
 begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd560_reverse_requires_read_committed';
+  end if;
   if current_user <> 'postgres'
     or to_regprocedure('engineering_private.register_native_result_object(uuid,uuid,uuid,uuid,bigint,uuid,uuid,text,text,text,uuid,text,timestamptz,bigint,text)') is null
     or (select count(*) from engineering_private.native_verifier_registered_objects) <> 0 then
