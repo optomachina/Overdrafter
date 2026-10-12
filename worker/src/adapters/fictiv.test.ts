@@ -1275,6 +1275,34 @@ describe("FictivAdapter", () => {
       expect(radio).toHaveBeenCalledTimes(1);
     });
 
+    it("engaged while the process dropdown opens: the process option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = createFakePage({
+        bodyText: "Select process to continue",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "Process", click: vi.fn(() => { state.engaged = true; }) },
+        },
+        optionTexts: ["CNC"],
+      });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /CNC/.test(name))).toBe(false);
+    });
+
+    it("engaged during the post upload poll: the overlay close click is never made", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const close = vi.fn();
+      const page = flowPage({ upload: () => { state.engaged = true; } }, {
+        [FICTIV_LOCATORS.modalCloseButtons[0]]: { count: 1, click: close },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(close).not.toHaveBeenCalled();
+    });
+
     it("engaged during the failed radio click wait: the process dropdown fallback is never opened", async () => {
       const { state, providerKillSwitchCheckpoint } = killSwitch();
       const process = vi.fn();

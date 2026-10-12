@@ -274,3 +274,31 @@ and no rollback order guard.
   switch code.
 * The pgTAP suite and the race check were run on a local throwaway
   PostgreSQL 17.11 with the full main schema; see the PR comment for results.
+
+## Review round 4 and 5 (PR #676)
+
+Round 4 additions:
+
+* **Post upload CNC closure.** The pre upload CNC selection recheck now covers the clicks that follow the post upload poll.
+* **Process fallback and choose rechecks.** Fictiv re-reads the switch before the process dropdown fallback is opened and before the process option is chosen.
+* **Rechecks after each dropdown opens.** Material, finish and end use each re-read the switch between opening the dropdown and choosing the option.
+* **End use recheck outside the try.** The end use recheck runs outside the try block, so a kill switch error is never swallowed as a selector failure.
+
+Round 5 changes:
+
+* **before_configure moved above overlay dismissal.** In `fictiv.ts` the `before_configure` checkpoint now runs before `dismissOverlayModals`, so the overlay close clicks after the post upload poll are guarded.
+* **Two new tests in `fictiv.test.ts`.** One engages the switch while the process dropdown opens and asserts the process option is never clicked (it fails without the recheck). One engages the switch during the post upload poll and asserts no overlay close click happens.
+* The SQL draft `ovd-722.sql` is unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
+
+## Policy
+
+No new provider task starts after the switch flips. A task in flight stops at the next phase boundary: before navigation, before upload, before configuration, and before any quote request or submit. Clicks inside one configuration phase may race by milliseconds to a few seconds. Those are accepted residuals, because none of them can upload a file, request or submit a quote, or place an order.
+
+Accepted residual sites:
+
+* Fictiv modal dismissals: `dismissAutoConfigLoadingModal` clicks (about `fictiv.ts:901` and `:905`) from `detectBlockingState` polls.
+* Fictiv quantity fill then Enter (about `fictiv.ts:640`).
+* Xometry quantity change and material or finish selection after opening (`xometry.ts` about `:2943` and `:1765`).
+* Portal kernel configuration recovery (`providerPortalKernel.ts` about `:1191` with `browserRecovery.ts` about `:239`), up to about 5 s.
+
+Live operator tools (smoke, quantity sweeps, live eval) do not read the switch yet. That work is OVD-751. The C&D runbook tells operators not to run them against a switched off provider.

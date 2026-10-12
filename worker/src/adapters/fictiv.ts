@@ -1497,6 +1497,8 @@ export class FictivAdapter extends VendorAdapter {
 
       await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
       await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+      // OVD-722: overlay close clicks follow a long poll; read the switch first.
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       await dismissOverlayModals(page);
     }
 
