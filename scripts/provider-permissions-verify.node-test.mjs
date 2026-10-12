@@ -22,7 +22,8 @@ test('the vitest-based permissions test is not wired into a node --test lane', (
   }
 });
 
-test('CI runs provider:permissions directly as its own step', () => {
-  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  assert.match(ci, /^        run: npm run provider:permissions\s*$/m);
+test('the unit lane runs the real CLI through scripts/provider-permissions-check.test.mjs', () => {
+  const lane = readFileSync(new URL('./provider-permissions-check.test.mjs', import.meta.url), 'utf8');
+  assert.match(lane, /provider-permissions-check\.mjs/);
+  assert.match(lane, /real CLI/);
 });

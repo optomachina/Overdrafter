@@ -28,7 +28,7 @@ export const WORKER_LIVE_ADAPTERS_UPDATE_COMMAND = [
   "  --region \"${CLOUD_RUN_REGION:-us-west1}\" \\",
   "  --update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>",
 ].join("\n");
-export const ADMISSION_ADMIN_PATH_TBD = "TBD pending OVD-722";
+export const ADMISSION_FOLLOW_UP_PHRASE = "reviewed migration";
 const KILL_COMMAND_PATTERN = /^npm run provider:kill -- (?:<provider_key>|[a-z][a-z0-9]{1,49}) --on --reason ".+"$/m;
 
 export const REQUIRED_NOT_1_0_KEYS = Object.freeze(["protolabs"]);
@@ -579,6 +579,24 @@ function playbookSection(playbook, headingPrefix) {
   return body.join("\n");
 }
 
+function fencedBlocks(text) {
+  const blocks = [];
+  let current = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      if (current === null) {
+        current = [];
+      } else {
+        blocks.push(current.join("\n"));
+        current = null;
+      }
+    } else if (current !== null) {
+      current.push(line);
+    }
+  }
+  return blocks;
+}
+
 function collectStringLiterals(sourceFile) {
   const values = new Set();
   const visit = (node) => {
@@ -677,11 +695,12 @@ export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = fal
   if (fallback === null) {
     throw new Error("playbook must include a Manual fallback section");
   }
-  if (!fallback.includes("gcloud run services update overdrafter-cad-worker")) {
-    throw new Error("playbook Manual fallback must give the gcloud command that removes a key from WORKER_LIVE_ADAPTERS");
+  const fallbackCommands = fencedBlocks(fallback).join("\n");
+  if (!fallbackCommands.includes("gcloud run services update overdrafter-cad-worker")) {
+    throw new Error("playbook Manual fallback must give the gcloud command that removes a key from WORKER_LIVE_ADAPTERS in a fenced code block");
   }
-  if (!fallback.includes("--update-env-vars WORKER_LIVE_ADAPTERS=")) {
-    throw new Error("playbook Manual fallback must name --update-env-vars WORKER_LIVE_ADAPTERS=");
+  if (!fallbackCommands.includes("--update-env-vars WORKER_LIVE_ADAPTERS=")) {
+    throw new Error("playbook Manual fallback must name --update-env-vars WORKER_LIVE_ADAPTERS= in a fenced code block");
   }
   if (!/new revision/i.test(fallback)) {
     throw new Error("playbook Manual fallback must say a Cloud Run env change creates a new revision");
@@ -689,8 +708,8 @@ export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = fal
   if (/\bwithout a deploy\b/i.test(fallback) || /config change only/i.test(fallback)) {
     throw new Error("playbook Manual fallback must not claim a Cloud Run env change needs no deploy");
   }
-  if (!fallback.includes(ADMISSION_ADMIN_PATH_TBD)) {
-    throw new Error("playbook Manual fallback must name the admission admin path or mark it TBD pending OVD-722");
+  if (!fallback.includes(ADMISSION_FOLLOW_UP_PHRASE)) {
+    throw new Error(`playbook Manual fallback must say admission changes go through a ${ADMISSION_FOLLOW_UP_PHRASE}, not hand run SQL`);
   }
   if (!killSwitchShipped && !visibleMarkdownLines(playbook).some((line) => line.trim() === PLAYBOOK_PENDING_MARKER)) {
     throw new Error("playbook must carry the pending OVD-722 headline until kill_switch_shipped is true");

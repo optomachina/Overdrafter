@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -99,6 +100,13 @@ async function writeTempRepo(overrides = {}) {
 }
 
 describe("OVD-724 provider permissions matrix lint", () => {
+  it("passes the real CLI (npm run provider:permissions) against the committed files in the unit lane", () => {
+    const result = spawnSync(process.execPath, ["scripts/provider-permissions-check.mjs"], { cwd: repoRoot, encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, providerCount: 9 });
+  });
+
   it("accepts the committed matrix, outreach drafts, legal review, and playbook", async () => {
     const result = await checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11" });
     expect(result.ok).toBe(true);
@@ -339,12 +347,10 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).rejects.toThrow("protolabs must be marked not in 1.0");
   });
 
-  it("is wired into npm run verify and CI", async () => {
+  it("is wired into npm run verify", async () => {
     const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
     expect(packageJson.scripts["provider:permissions"]).toBe("node scripts/provider-permissions-check.mjs");
     expect(packageJson.scripts.verify).toContain("provider:permissions");
-    const ci = await fs.readFile(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
-    expect(ci).toMatch(/^        run: npm run provider:permissions\s*$/m);
   });
 
   it("keeps an expected 1.0 key out of the lint script", async () => {
@@ -695,11 +701,16 @@ describe("OVD-728 playbook structure and pending marker", () => {
     expect(text).toContain("gcloud run services update overdrafter-cad-worker");
     expect(text).toContain("--update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>");
     expect(text).toMatch(/new revision/i);
-    expect(text).toContain("TBD pending OVD-722");
+    expect(text).toContain("reviewed migration");
     const withoutSection = text.replace(/## Manual fallback until OVD-722 ships[\s\S]*?(?=\n## Step 2:)/, "");
     expect(() => assertCeaseAndDesistPlaybook(withoutSection)).toThrow("Manual fallback section");
     const noCommand = text.replace(/gcloud run services update overdrafter-cad-worker/, "echo skip");
     expect(() => assertCeaseAndDesistPlaybook(noCommand)).toThrow("gcloud command");
+    const unfenced = text.replace(/```bash\n(gcloud run services update[\s\S]*?)```/, "$1");
+    expect(unfenced).not.toBe(text);
+    expect(() => assertCeaseAndDesistPlaybook(unfenced)).toThrow("fenced code block");
+    const noAdmission = text.replaceAll("reviewed migration", "later change");
+    expect(() => assertCeaseAndDesistPlaybook(noAdmission)).toThrow("reviewed migration");
   });
 
   it("rejects kill_switch_shipped true unless the OVD-722 switch exists in code", async () => {

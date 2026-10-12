@@ -72,9 +72,10 @@ gcloud run services update overdrafter-cad-worker \
 Replace `<remaining_comma_separated_keys>` with the current list minus the
 provider being stopped. An empty remainder means no live adapters.
 
-2. Set that provider's admission policy to `disabled`. Admin path: **TBD pending OVD-722**
-   (no platform-admin admission control exists yet). Do not invent a second kill
-   switch and do not apply an unreviewed SQL update.
+2. Admission policy lives in `private.quote_provider_admission_policies`, which no
+   admin role can write. There is no command to paste for it. Do not run SQL by
+   hand. The `gcloud` step above is what stops traffic. Open a **reviewed migration**
+   that sets that provider's `admission_state` to `disabled` as the durable follow-up.
 
 Record what was done and when, then continue with Step 2.
 
