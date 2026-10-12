@@ -190,16 +190,19 @@ export function useClientHomeController() {
     },
   });
 
-  const bootstrapErrorMessage =
-    bootstrapAccountMutation.error instanceof Error
-      ? getUserFacingErrorMessage(bootstrapAccountMutation.error)
-      : null;
+  // Raw text feeds membership matching and operator diagnostics; the sanitized text is the only
+  // value that leaves this hook for customer facing readiness copy.
+  const rawBootstrapErrorMessage =
+    bootstrapAccountMutation.error instanceof Error ? bootstrapAccountMutation.error.message : null;
+  const bootstrapErrorMessage = bootstrapAccountMutation.error instanceof Error
+    ? getUserFacingErrorMessage(bootstrapAccountMutation.error)
+    : null;
   const shouldRecoverMembership =
     Boolean(user) &&
     isVerifiedAuth &&
     !activeMembership &&
     (bootstrapAccountMutation.status === "success" ||
-      (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+      (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(rawBootstrapErrorMessage)));
 
   const canBootstrapSelfServiceOrganization =
     Boolean(user) &&
@@ -411,7 +414,7 @@ export function useClientHomeController() {
       return;
     }
 
-    const recoveryKey = `${user.id}:${bootstrapAccountMutation.status}:${bootstrapErrorMessage ?? ""}`;
+    const recoveryKey = `${user.id}:${bootstrapAccountMutation.status}:${rawBootstrapErrorMessage ?? ""}`;
     if (membershipRecoveryKeyRef.current === recoveryKey) {
       return;
     }
@@ -431,7 +434,7 @@ export function useClientHomeController() {
       {
         userId: user.id,
         bootstrapStatus: bootstrapAccountMutation.status,
-        bootstrapErrorMessage,
+        bootstrapErrorMessage: rawBootstrapErrorMessage,
       },
     );
 
@@ -498,7 +501,7 @@ export function useClientHomeController() {
         {
           userId: user.id,
           bootstrapStatus: bootstrapAccountMutation.status,
-          bootstrapErrorMessage,
+          bootstrapErrorMessage: rawBootstrapErrorMessage,
           attempts: MEMBERSHIP_RECOVERY_DELAYS_MS.length,
         },
       );
@@ -512,7 +515,7 @@ export function useClientHomeController() {
   }, [
     activeMembership,
     bootstrapAccountMutation.status,
-    bootstrapErrorMessage,
+    rawBootstrapErrorMessage,
     isVerifiedAuth,
     queryClient,
     shouldRecoverMembership,

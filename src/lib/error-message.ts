@@ -30,18 +30,30 @@ export const DENY_PATTERNS: readonly RegExp[] = Object.freeze([
   /\b(?:set-)?cookie\s*:\s*[^\s=;]+=/i,
   // V8 stack frames with a path or URL: "at fn (https://x.invalid/a.js:1:2)" or "at /srv/app.ts:12:3".
   /\bat (?:[^\s()]+ ){0,4}\(?(?:[^\s()/\\]*[/\\])+[^\s()/\\:]*:\d+:\d+/,
-  // Internal hostnames: cluster and private DNS suffixes, loopback or RFC 1918 addresses, and the
+  // Internal hostnames: cluster and private DNS suffixes (not followed by another label, so a
+  // user filename such as housing.local.step is left alone), loopback or RFC 1918 addresses, and the
   // direct Supabase database host. Public marketing domains and support addresses are not matched.
-  /(?:^|[^\w-])[a-z\d](?:[a-z\d.-]{0,60})\.(?:internal|local|localdomain|svc|cluster\.local|corp|lan)\b/i,
+  /(?:^|[^\w-])[a-z\d](?:[a-z\d.-]{0,60})\.(?:internal|local|localdomain|cluster\.local|svc|corp|lan)(?!\.?[\w-])/i,
   /\bdb\.[a-z\d]{8,40}\.supabase\.co\b/i,
   /(?:^|[^\d.])(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?![\d.]*\d)/,
   /\blocalhost:\d{2,5}\b/i,
-  // SQL error internals: row values and schema objects from Postgres DETAIL lines, plus statement fragments.
+  // SQL error internals: row values from Postgres DETAIL lines, missing or duplicate schema objects
+  // (quoted or bare, including function signatures), and syntax errors.
   /\bKey \([^)]{1,80}\)=\([^)]{0,200}\)/,
-  /\b(?:relation|column|function|schema|constraint) "[^"]{1,80}" (?:of relation "[^"]{1,80}" )?(?:does not exist|already exists)/i,
+  /\b(?:relation|column|function|schema|table|constraint) "?[\w.]{1,80}"?(?:\([^)]{0,200}\))? (?:of relation "?[\w.]{1,80}"? )?(?:does not exist|already exists)/i,
   /\bsyntax error at or near\b/i,
   /\bSQLSTATE\b/,
-  /\b(?:select\s[^;]{1,200}\sfrom|insert\s+into|update\s+[\w."]{1,80}\s+set|delete\s+from)\s/i,
+  // SQL statement text, matched by shape (column list plus a qualified or filtered relation) so
+  // ordinary copy such as "Select a part from the list" or "Delete from this project" is kept.
+  /\bselect\s+(?:\*|[\w."()]{1,80}(?:\s*,\s*[\w."()]{1,80}){0,10})\s+from\s+(?:"[^"]{1,80}"|\w{1,60}\.\w{1,60}|\w{1,60}\s+(?:where|limit|order|join|group)\b)/i,
+  /\binsert\s+into\s+(?:"[^"]{1,80}"|\w{1,60}\.\w{1,60}|\w{1,60}\s*\()/i,
+  /\bupdate\s+(?:"[^"]{1,80}"|[\w.]{1,80})\s+set\s+\w{1,60}\s*=/i,
+  /\bdelete\s+from\s+(?:"[^"]{1,80}"|\w{1,60}\.\w{1,60}|\w{1,60}\s+where\b)/i,
+  // Stripe style secret keys and webhook signing secrets.
+  /(?:^|[^\w])(?:sk|rk)_(?:live|test)_/,
+  /(?:^|[^\w])whsec_/,
+  // Firefox and Safari stack frames: "fn@https://x.invalid/a.js:1:2".
+  /(?:^|[^\w$])[\w$.<>/-]{0,80}@(?:https?:\/\/|file:\/\/|\/)[^\s@]{1,200}:\d+:\d+/,
 ]);
 
 export function containsSensitiveErrorDetail(text: string): boolean {
@@ -86,57 +98,6 @@ function isOpaqueSerializedRecord(value: string): boolean {
     return isRecord(parsed) && hasOnlyOpaqueStorageMarkers(parsed);
   } catch {
     return false;
-  }
-}
-
-function compactRecord(value: Record<string, unknown>, seen: Set<unknown>): Record<string, unknown> {
-  if (seen.has(value)) {
-    return {};
-  }
-
-  seen.add(value);
-
-  const compacted = Object.entries(value).reduce<Record<string, unknown>>((result, [key, entry]) => {
-    if (key === "stack") {
-      return result;
-    }
-
-    const normalizedString = normalizeMessageCandidate(entry);
-    if (normalizedString) {
-      result[key] = normalizedString;
-      return result;
-    }
-
-    if (typeof entry === "number" || typeof entry === "boolean") {
-      result[key] = entry;
-      return result;
-    }
-
-    if (Array.isArray(entry) && entry.length > 0) {
-      result[key] = entry;
-      return result;
-    }
-
-    if (isRecord(entry)) {
-      const nested = compactRecord(entry, seen);
-      if (Object.keys(nested).length > 0) {
-        result[key] = nested;
-      }
-    }
-
-    return result;
-  }, {});
-
-  seen.delete(value);
-  return compacted;
-}
-
-function safeJsonStringify(value: unknown): string | null {
-  try {
-    const serialized = JSON.stringify(value);
-    return serialized && serialized !== "{}" ? serialized : null;
-  } catch {
-    return null;
   }
 }
 
@@ -191,23 +152,10 @@ function getRecordErrorMessage(
     return nestedMessage;
   }
 
+  // A record without a string message is never serialized into customer copy: nested payloads such
+  // as Stripe payment intents carry client secrets, so the caller's fixed fallback applies.
   seen.delete(error);
-  const compacted = compactRecord(error, new Set(seen));
-  const compactedKeys = Object.keys(compacted);
-
-  if (compactedKeys.length === 0) {
-    return null;
-  }
-
-  if (compactedKeys.length === 1 && compactedKeys[0] === "name") {
-    return null;
-  }
-
-  if (hasOnlyOpaqueStorageMarkers(compacted)) {
-    return null;
-  }
-
-  return safeJsonStringify(compacted);
+  return null;
 }
 
 function getMessageCandidate(error: unknown): string | null {

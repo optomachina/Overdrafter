@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -555,10 +556,11 @@ export function useClientProjectController() {
     ...workspaceDetailQueryOptions,
   });
   let focusedVendorPreferencesErrorMessage: string | null = null;
-  if (focusedVendorPreferenceQuery.error instanceof Error) {
-    focusedVendorPreferencesErrorMessage = focusedVendorPreferenceQuery.error.message;
-  } else if (focusedVendorPreferenceQuery.error) {
-    focusedVendorPreferencesErrorMessage = "Failed to load vendor preference controls.";
+  if (focusedVendorPreferenceQuery.error) {
+    focusedVendorPreferencesErrorMessage = getUserFacingErrorMessage(
+      focusedVendorPreferenceQuery.error,
+      "Failed to load vendor preference controls.",
+    );
   }
   const focusedSummary =
     focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);

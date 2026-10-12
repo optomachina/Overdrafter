@@ -21,10 +21,16 @@ const SENSITIVE_MESSAGES: ReadonlyArray<readonly [label: string, message: string
   ["private IP address", "connect ETIMEDOUT 10.4.7.19"],
   ["localhost with port", "fetch failed: localhost:54321 refused"],
   ["SQL row detail", 'duplicate key value violates unique constraint "jobs_pkey". Key (id)=(0b1e5c7a-synthetic) already exists.'],
-  ["SQL missing object", 'relation "private_provider_accounts" does not exist'],
+  ["SQL missing object", 'relation "private_provider_accounts" does not exist or function private.provider_secret(uuid) does not exist'],
   ["SQL syntax error", 'syntax error at or near "FROM"'],
   ["SQLSTATE code line", "ERROR: boom SQLSTATE 23505"],
-  ["SQL statement text", "failed query: select token from vault.secrets where id = 1"],
+  ["SQL select statement", "failed query: select token from vault.secrets where id = 1"],
+  ["SQL insert statement", "failed query: INSERT INTO public.jobs (id) values (1)"],
+  ["SQL update statement", "failed query: update public.jobs set status = 'x'"],
+  ["SQL delete statement", "failed query: DELETE FROM jobs WHERE id = 1"],
+  ["Stripe secret key", "No such customer for key sk_live_syntheticLeakSentinel"],
+  ["Stripe webhook secret", "Signature mismatch for whsec_syntheticLeakSentinel"],
+  ["Firefox or Safari stack frame", "boom\nfn@https://x.invalid/a.js:1:2"],
 ];
 
 describe("error-message", () => {
@@ -36,7 +42,7 @@ describe("error-message", () => {
     expect(getUserFacingErrorMessage({ message: "permission denied" }, "fallback")).toBe("permission denied");
   });
 
-  it("serializes PostgREST-style objects when needed", () => {
+  it("never serializes a record without a string message into customer copy", () => {
     expect(
       getUserFacingErrorMessage(
         {
@@ -46,7 +52,20 @@ describe("error-message", () => {
         },
         "fallback",
       ),
-    ).toBe('{"code":"42501","details":"new row violates row-level security policy","hint":"Check storage policies"}');
+    ).toBe("fallback");
+  });
+
+  it("gives a StripeError shaped record without a message the fixed fallback, never the client secret", () => {
+    const stripeError = {
+      type: "invalid_request_error",
+      code: "payment_intent_unexpected_state",
+      payment_intent: { id: "pi_synthetic", client_secret: "pi_synthetic_secret_leak_sentinel", status: "succeeded" },
+    };
+    const text = getUserFacingErrorMessage(stripeError, "Payment failed. Please try again.");
+
+    expect(text).toBe("Payment failed. Please try again.");
+    expect(text).not.toContain("client_secret");
+    expect(text).not.toContain("leak_sentinel");
   });
 
   it("falls back for empty objects", () => {
@@ -128,6 +147,10 @@ describe("customer-visible error deny list", () => {
       "new row violates row-level security policy",
       "permission denied",
       "File is larger than 50 MB.",
+      "Select a part from the list to continue.",
+      "Delete from this project to free up space.",
+      "Could not read housing.local.step",
+      "Update your settings to continue.",
     ]) {
       expect(containsSensitiveErrorDetail(message), message).toBe(false);
     }
