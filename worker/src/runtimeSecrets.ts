@@ -13,6 +13,15 @@ import {
   restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
 } from "./xometryProfileSnapshot.js";
+import { PRODUCTION_LIVE_ADAPTERS } from "./generated/providerRegistry.js";
+
+/**
+ * Adapters with a reviewed production dispatch path. The list is generated from
+ * provider-integrations/provider-registry.v1.json. Listing a generic provider
+ * here never admits it; the database policy, reviewed envelope, and rollout
+ * still decide every dispatch.
+ */
+export { PRODUCTION_LIVE_ADAPTERS };
 
 function parseStorageStateJson(input: string, source: string) {
   let parsedStorageState: unknown;
@@ -283,15 +292,6 @@ export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> 
   return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
 }
 
-/**
- * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
- * preflight and the generic provider preflight for Fictiv (OVD-673),
- * Quickparts (OVD-674) and Weerg (OVD-675). Listing a generic provider here
- * never admits it; the database admission, reviewed envelope, and rollout
- * still decide every dispatch.
- */
-export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts", "weerg"] as const;
-
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   if (config.workerMode !== "live") {
@@ -311,21 +311,27 @@ export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   ];
 }
 
+export const LIVE_ADAPTER_READINESS_CHECKS = {
+  xometry: validateXometryReadiness,
+  fictiv: validateFictivReadiness,
+  quickparts: validateQuickpartsReadiness,
+  weerg: validateWeergReadiness,
+} as const satisfies Record<
+  (typeof PRODUCTION_LIVE_ADAPTERS)[number],
+  (config: WorkerConfig) => Promise<string[]>
+>;
+
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, fictivIssues, quickpartsIssues, weergIssues, extractionIssues] = await Promise.all([
-    validateXometryReadiness(config),
-    validateFictivReadiness(config),
-    validateQuickpartsReadiness(config),
-    validateWeergReadiness(config),
+  const [adapterIssues, extractionIssues] = await Promise.all([
+    Promise.all(
+      PRODUCTION_LIVE_ADAPTERS.map((adapter) => LIVE_ADAPTER_READINESS_CHECKS[adapter](config)),
+    ),
     validateDrawingExtractionReadiness(config),
   ]);
 
   return [
     ...validateLiveAdapterReadiness(config),
-    ...xometryIssues,
-    ...fictivIssues,
-    ...quickpartsIssues,
-    ...weergIssues,
+    ...adapterIssues.flat(),
     ...extractionIssues,
   ];
 }
