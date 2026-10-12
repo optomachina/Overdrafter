@@ -863,7 +863,6 @@ describe("default-deny registrar call placement", () => {
     ["top level", `${call};`],
     ["describe", `describe("a", () => { ${call}; });`],
     ["nested describe", `describe("a", () => { describe("b", function () { ${call}; }); });`],
-    ["describe.each", `describe.each([1])("a", () => { ${call}; });`],
   ])("accepts a call at %s", async (_name, body) => {
     await expect(checkWithBody(body)).resolves.toEqual({ reviewedProviders: ["acme"] });
   });
@@ -885,6 +884,8 @@ describe("default-deny registrar call placement", () => {
     ["describe.todo", `describe.todo("a", () => { ${call}; });`, "ArrowFunction"],
     ["describe.skipIf", `describe.skipIf(true)("a", () => { ${call}; });`, "ArrowFunction"],
     ["describe.only", `describe.only("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.each with items", `describe.each([1])("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.each empty", `describe.each([])("a", () => { ${call}; });`, "ArrowFunction"],
   ])("rejects a call under %s and names %s", async (_name, body, kind) => {
     await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
   });
@@ -947,5 +948,42 @@ describe("readiness doc structure", () => {
       REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
     );
     await expect(checkWithDoc(commented)).rejects.toThrow("empty section:");
+  });
+
+  it.each(["TBD", "todo", "N/A", "tbd.", "n.a.", "(TODO)"])(
+    "treats a %s-only body as empty section content",
+    async (placeholder) => {
+      const doc = REQUIRED_READINESS_HEADINGS
+        .map((heading) => `${heading}\n\n${placeholder}\n`)
+        .join("");
+      expect(validateReadinessDoc(doc)).toEqual(
+        REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+      );
+      await expect(checkWithDoc(doc)).rejects.toThrow("empty section:");
+    },
+  );
+
+  it("treats a ###-only body as empty section content", async () => {
+    const headed = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n### Details\n`)
+      .join("");
+    expect(validateReadinessDoc(headed)).toEqual(
+      REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+    );
+    await expect(checkWithDoc(headed)).rejects.toThrow("empty section:");
+  });
+
+  it("keeps a section that has a sub-heading plus real body", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n### Details\n\nReal content.\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
+  });
+
+  it("keeps a section that mentions TBD among real content", () => {
+    const doc = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\nTBD pending a live login capture.\n`)
+      .join("");
+    expect(validateReadinessDoc(doc)).toEqual([]);
   });
 });

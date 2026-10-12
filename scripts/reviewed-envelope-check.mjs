@@ -4,6 +4,12 @@ import ts from "typescript";
 
 import { assertReadinessDoc } from "./provider-readiness-doc.mjs";
 
+/**
+ * Residuals this check does not close: a shadowed `const describe` binding,
+ * a literal `&nbsp;` entity as readiness-section body, and an early `return;`
+ * before the default-deny registrar (vitest fails that suite).
+ */
+
 export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope";
 export const PROVIDER_DISPATCH_FIXTURE_JSON_DIR = "test-fixtures/provider-dispatch-envelope";
 export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
@@ -475,7 +481,7 @@ async function hasDefaultDenyTest(rootDir, envelope) {
 
 /**
  * Default-deny: the call must be an expression statement whose ancestors are
- * only the SourceFile and describe / describe.* callback bodies. Returns null
+ * only the SourceFile and plain `describe` callback bodies. Returns null
  * when allowed, otherwise the SyntaxKind name of the first offending node.
  */
 function unconditionalPlacementViolation(call) {
@@ -510,24 +516,12 @@ function unconditionalPlacementViolation(call) {
 }
 
 /**
- * Default-deny may sit in `describe` or `describe.each(...)` only.
- * `describe.skip`, `.todo`, `.skipIf`, `.only`, and similar wrappers do not count.
+ * Default-deny may sit in a plain `describe` only. `describe.each`,
+ * `describe.skip`, `.todo`, `.skipIf`, `.only`, and similar wrappers do not
+ * count — an empty `describe.each([])` would otherwise drop the suite.
  */
 function isAllowedDescribeCallee(expression) {
-  if (ts.isIdentifier(expression)) {
-    return expression.text === "describe";
-  }
-  if (ts.isCallExpression(expression)) {
-    return isDescribeEachCallee(expression.expression);
-  }
-  return false;
-}
-
-function isDescribeEachCallee(expression) {
-  return ts.isPropertyAccessExpression(expression)
-    && ts.isIdentifier(expression.expression)
-    && expression.expression.text === "describe"
-    && expression.name.text === "each";
+  return ts.isIdentifier(expression) && expression.text === "describe";
 }
 
 function kindName(node) {
