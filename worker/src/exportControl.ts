@@ -361,3 +361,88 @@ export async function scanStagedDrawingForExportMarkings(
     textRead: pdfText !== null,
   });
 }
+
+export class ExportControlRescanIncompleteError extends Error {
+  constructor(public readonly reason: "drawing_unreadable" | "file_missing") {
+    super(
+      reason === "drawing_unreadable"
+        ? "Export-control rescan could not read the drawing text; no clean scan was recorded."
+        : "Export-control rescan could not find a file the part references; no clean scan was recorded.",
+    );
+    this.name = "ExportControlRescanIncompleteError";
+  }
+}
+
+export type ExportControlRescanResult = {
+  drawing: "none" | "clean";
+  cad: "none" | "clean" | "no_scanner";
+};
+
+/**
+ * Rescans one existing part (`export_rescan_part`): its own drawing text and,
+ * for STEP CAD, its header. A hit records a block and throws; a clean result
+ * records a clean scan of record. It never re-runs extraction. Fails closed:
+ * a referenced file that is missing, or a drawing whose text can't be read,
+ * records nothing for that file and throws, so the task fails and dispatch
+ * stays denied (`export_scan_missing`). The STEP header is still scanned
+ * first, so a marked header opens a block even when the drawing is unreadable.
+ * CAD formats without a scanner are reported as `no_scanner` and are not
+ * recorded.
+ */
+export async function rescanPartForExportMarkings(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string;
+    drawingFileId: string | null;
+    cadFileId: string | null;
+    drawingFile: { id: string; localPath: string } | null;
+    cadFile: { id: string; originalName: string; localPath: string } | null;
+    extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }> } | null>;
+    readStepHeader?: (localPath: string) => Promise<Uint8Array>;
+  },
+): Promise<ExportControlRescanResult> {
+  if (
+    (input.drawingFileId !== null && input.drawingFile?.id !== input.drawingFileId) ||
+    (input.cadFileId !== null && input.cadFile?.id !== input.cadFileId)
+  ) {
+    throw new ExportControlRescanIncompleteError("file_missing");
+  }
+
+  const result: ExportControlRescanResult = { drawing: "none", cad: "none" };
+
+  if (input.cadFile) {
+    if (isStepFileName(input.cadFile.originalName)) {
+      const header = await (input.readStepHeader ?? readStagedStepHeaderPrefix)(input.cadFile.localPath);
+      await enforceAndRecordExportControlScan(supabase, {
+        jobId: input.jobId,
+        partId: input.partId,
+        jobFileId: input.cadFile.id,
+        source: "step_header",
+        scan: scanStepHeaderForExportMarkings(header),
+        textRead: true,
+      });
+      result.cad = "clean";
+    } else {
+      result.cad = "no_scanner";
+    }
+  }
+
+  if (input.drawingFile) {
+    const pdfText = await input.extractText(input.drawingFile.localPath);
+    await enforceAndRecordExportControlScan(supabase, {
+      jobId: input.jobId,
+      partId: input.partId,
+      jobFileId: input.drawingFile.id,
+      source: "drawing_text",
+      scan: scanDrawingTextForExportMarkings(pdfText),
+      textRead: pdfText !== null,
+    });
+    if (pdfText === null) {
+      throw new ExportControlRescanIncompleteError("drawing_unreadable");
+    }
+    result.drawing = "clean";
+  }
+
+  return result;
+}

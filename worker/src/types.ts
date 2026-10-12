@@ -23,7 +23,8 @@ export type QueueTaskType =
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
-  | "repair_adapter_candidate";
+  | "repair_adapter_candidate"
+  | "export_rescan_part";
 
 export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type VendorName =

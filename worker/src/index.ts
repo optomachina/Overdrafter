@@ -86,6 +86,7 @@ import {
   isStepFileName,
   readStagedStepHeaderPrefix,
   scanDrawingTextForExportMarkings,
+  rescanPartForExportMarkings,
   scanStagedDrawingForExportMarkings,
   scanStepHeaderForExportMarkings,
 } from "./exportControl.js";
@@ -919,6 +920,47 @@ async function handleGenerateCadPreviewTask(
   }
 }
 
+// OVD-723: rescans an existing part's own files for export-control markings
+// (api_request_export_control_rescan). No extraction, no provider call.
+async function handleExportRescanTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
+  if (!task.part_id || !task.job_id) {
+    throw new Error(`${task.task_type} task is missing job_id or part_id.`);
+  }
+
+  const context = await fetchPartContext(supabase, task.part_id);
+  if (context.part.job_id !== task.job_id) {
+    throw new Error(`${task.task_type} task part ${task.part_id} is not in job ${task.job_id}.`);
+  }
+
+  const runDir = await createRunDir(config, ["export-rescan", task.id]);
+  try {
+    const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, runDir);
+    const stagedCadFile = await stageStorageObject(supabase, context.cadFile, runDir);
+    const exportRescan = await rescanPartForExportMarkings(supabase, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      drawingFileId: context.part.drawing_file_id,
+      cadFileId: context.part.cad_file_id,
+      drawingFile:
+        context.drawingFile && stagedDrawingFile
+          ? { id: context.drawingFile.id, localPath: stagedDrawingFile.localPath }
+          : null,
+      cadFile:
+        context.cadFile && stagedCadFile
+          ? {
+              id: context.cadFile.id,
+              originalName: context.cadFile.original_name,
+              localPath: stagedCadFile.localPath,
+            }
+          : null,
+      extractText: extractPdfText,
+    });
+    await markTaskCompleted(supabase, task, { exportRescan });
+  } finally {
+    await cleanupPaths([runDir]);
+  }
+}
+
 async function handleDebugExtractTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
@@ -1646,6 +1688,9 @@ async function processTask(
       return;
     case "repair_adapter_candidate":
       await handleRepairTask(supabase, task);
+      return;
+    case "export_rescan_part":
+      await handleExportRescanTask(supabase, task, config);
       return;
     case "poll_vendor_quote":
       await markTaskCompleted(supabase, task, {

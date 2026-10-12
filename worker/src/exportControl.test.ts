@@ -20,6 +20,8 @@ import {
   isStepFileName,
   readStagedStepHeaderPrefix,
   readStepHeaderText,
+  ExportControlRescanIncompleteError,
+  rescanPartForExportMarkings,
   scanDrawingTextForExportMarkings,
   scanStagedDrawingForExportMarkings,
   STEP_HEADER_SCAN_BYTES,
@@ -335,6 +337,131 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
   });
 });
 
+describe("existing-part rescan (export_rescan_part)", () => {
+  const encoder = new TextEncoder();
+  const base = {
+    jobId: "old-job",
+    partId: "old-part",
+    drawingFileId: "old-drawing",
+    cadFileId: "old-cad",
+    drawingFile: { id: "old-drawing", localPath: "/stage/drawing.pdf" },
+    cadFile: { id: "old-cad", originalName: "bracket.STEP", localPath: "/stage/bracket.step" },
+  };
+
+  it("records fresh clean drawing and STEP header scans for the part's own files", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const result = await rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      ...base,
+      extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
+      readStepHeader: vi.fn().mockResolvedValue(encoder.encode(STEP_CLEAN_HEADER_MARKED_DATA)),
+    });
+    expect(result).toEqual({ drawing: "clean", cad: "clean" });
+    expect(rpc.mock.calls).toEqual([
+      [
+        "api_record_export_control_clean_scan",
+        { p_job_id: "old-job", p_part_id: "old-part", p_job_file_id: "old-cad", p_source: "step_header" },
+      ],
+      [
+        "api_record_export_control_clean_scan",
+        { p_job_id: "old-job", p_part_id: "old-part", p_job_file_id: "old-drawing", p_source: "drawing_text" },
+      ],
+    ]);
+  });
+
+  it("opens a block on a marked drawing and records no clean drawing scan", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "id-1", error: null });
+    await expect(
+      rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        extractText: vi.fn().mockResolvedValue({ pages: [{ text: MARKING_FIXTURES.itarStamp }] }),
+        readStepHeader: vi.fn().mockResolvedValue(encoder.encode(STEP_CLEAN_HEADER_MARKED_DATA)),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+    expect(rpc).toHaveBeenLastCalledWith(
+      "api_record_export_control_marking_hits",
+      expect.objectContaining({ p_job_id: "old-job", p_job_file_id: "old-drawing", p_source: "drawing_text" }),
+    );
+    expect(rpc).not.toHaveBeenCalledWith(
+      "api_record_export_control_clean_scan",
+      expect.objectContaining({ p_job_file_id: "old-drawing" }),
+    );
+  });
+
+  it("opens a block on a marked STEP header before reading the drawing", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "block-1", error: null });
+    const extractText = vi.fn();
+    await expect(
+      rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        extractText,
+        readStepHeader: vi.fn().mockResolvedValue(encoder.encode(STEP_WITH_ITAR)),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual(["api_record_export_control_marking_hits"]);
+    expect(extractText).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the drawing text can't be read", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    await expect(
+      rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        cadFile: null,
+        cadFileId: null,
+        extractText: vi.fn().mockResolvedValue(null),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlRescanIncompleteError);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a referenced file is missing and records nothing", async () => {
+    const rpc = vi.fn();
+    for (const missing of [{ drawingFile: null }, { cadFile: null }, { drawingFile: { id: "other", localPath: "/x" } }]) {
+      await expect(
+        rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+          ...base,
+          ...missing,
+          extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
+          readStepHeader: vi.fn().mockResolvedValue(encoder.encode(STEP_CLEAN_HEADER_MARKED_DATA)),
+        }),
+      ).rejects.toBeInstanceOf(ExportControlRescanIncompleteError);
+    }
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a clean scan can't be recorded", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "down" } });
+    await expect(
+      rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+        ...base,
+        extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
+        readStepHeader: vi.fn().mockResolvedValue(encoder.encode(STEP_CLEAN_HEADER_MARKED_DATA)),
+      }),
+    ).rejects.toBeInstanceOf(ExportControlScanRecordError);
+  });
+
+  it("leaves CAD formats without a scanner unrecorded (unchanged policy)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+    const readStepHeader = vi.fn();
+    const result = await rescanPartForExportMarkings({ rpc } as unknown as SupabaseClient, {
+      ...base,
+      cadFile: { id: "old-cad", originalName: "bracket.sldprt", localPath: "/stage/bracket.sldprt" },
+      extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
+      readStepHeader,
+    });
+    expect(result).toEqual({ drawing: "clean", cad: "no_scanner" });
+    expect(readStepHeader).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("is dispatched by the worker task switch", () => {
+    expect(workerIndex).toMatch(/case "export_rescan_part":\s+await handleExportRescanTask\(/);
+    const handler = workerIndex.slice(workerIndex.indexOf("async function handleExportRescanTask("));
+    expect(handler.slice(0, handler.indexOf("\n}\n"))).toContain("rescanPartForExportMarkings(");
+    expect(handler.slice(0, handler.indexOf("\n}\n"))).not.toContain("runDrawingExtractionForTask");
+  });
+});
+
 describe("export-control dispatch rule (reference model of the SQL gate)", () => {
   const clean = { latestAnswer: "not_controlled" as const, markingBlocked: false };
 
@@ -574,6 +701,41 @@ describe("OVD-723 migration draft", () => {
       expect(draft).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to service_role;`));
     }
     expect(draft).toContain("private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry')");
+  });
+
+  it("adds an existing-job rescan RPC in PHASE 1 and documents why api_request_extraction can't rescan", () => {
+    const phase1 = sqlPhase("1");
+    expect(phase1).toContain("alter type public.queue_task_type add value if not exists 'export_rescan_part';");
+    expect(phase1).toContain("create or replace function public.api_request_export_control_rescan(p_job_id uuid)");
+    expect(phase1).toContain("api_request_extraction (20260812042000) only queues extract_part");
+    const rescan = sqlFunctionBody("public.api_request_export_control_rescan");
+    expect(rescan).toContain("perform public.require_verified_auth();");
+    expect(rescan).toMatch(/user_can_edit_job\(v_job\.id\)[\s\S]*elsif public\.is_platform_admin\(\)/);
+    expect(rescan).toContain("'rescan_requested'");
+    expect(rescan).not.toContain("drawing_extractions");
+    expect(draft).toMatch(
+      /revoke all on function public\.api_request_export_control_rescan\(uuid\) from public, anon;\s+grant execute on function public\.api_request_export_control_rescan\(uuid\) to authenticated;/,
+    );
+    const status = sqlFunctionBody("public.api_get_job_export_control_status");
+    expect(status).toContain("'partsMissingScan'");
+    expect(status).toContain("private.export_control_scan_denial(part.id)");
+  });
+
+  it("writes the PHASE 1 rollback grants as statements, not placeholders", () => {
+    const rollback = draft.slice(draft.indexOf("-- ROLLBACK\n"));
+    const r1 = rollback.slice(rollback.indexOf("-- R1 (undo PHASE 1"));
+    expect(r1).not.toMatch(/restate/i);
+    for (const fn of ["api_authorize_provider_worker_dispatch", "api_authorize_xometry_beta_worker_dispatch"]) {
+      expect(r1).toMatch(
+        new RegExp(`revoke all on function public\\.${fn}\\([\\s\\S]*?\\) from public, anon, authenticated, service_role;`),
+      );
+      expect(r1).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([\\s\\S]*?\\) to service_role;`));
+    }
+    for (const fn of ["api_prepare_job_file_upload", "api_finalize_job_file_upload"]) {
+      expect(r1).toMatch(new RegExp(`revoke all on function public\\.${fn}\\([\\s\\S]*?\\) from public, anon;`));
+      expect(r1).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([\\s\\S]*?\\) to authenticated;`));
+    }
+    expect(r1).toContain("drop function public.api_request_export_control_rescan(uuid);");
   });
 
   it("records marking hits through a service-role-only RPC and audits admin review", () => {

@@ -1378,8 +1378,19 @@ with check (
 --     rename to api_authorize_xometry_beta_worker_dispatch;
 --   alter function private.api_authorize_xometry_beta_worker_dispatch(uuid, uuid, jsonb, text, timestamptz)
 --     set schema public;
---   -- restate the original grants (service_role only) for both functions, as in
---   -- 20261003170000 and 20261002182910.
+--   -- original grants (service_role only), as in 20261003170000 and 20261002182910:
+--   revoke all on function public.api_authorize_provider_worker_dispatch(
+--     uuid, uuid, jsonb, text, timestamptz
+--   ) from public, anon, authenticated, service_role;
+--   grant execute on function public.api_authorize_provider_worker_dispatch(
+--     uuid, uuid, jsonb, text, timestamptz
+--   ) to service_role;
+--   revoke all on function public.api_authorize_xometry_beta_worker_dispatch(
+--     uuid, uuid, jsonb, text, timestamptz
+--   ) from public, anon, authenticated, service_role;
+--   grant execute on function public.api_authorize_xometry_beta_worker_dispatch(
+--     uuid, uuid, jsonb, text, timestamptz
+--   ) to service_role;
 --   -- upload RPCs (1.13):
 --   drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid);
 --   drop function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text, uuid);
@@ -1393,7 +1404,26 @@ with check (
 --     rename to api_finalize_job_file_upload;
 --   alter function private.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text)
 --     set schema public;
---   -- restate the revoke/grant pairs for both from 20261004110000.
+--   -- original grants (authenticated), as in 20261004110000:
+--   revoke all on function public.api_prepare_job_file_upload(
+--     uuid, text, public.job_file_kind, text, bigint, text
+--   ) from public, anon;
+--   grant execute on function public.api_prepare_job_file_upload(
+--     uuid, text, public.job_file_kind, text, bigint, text
+--   ) to authenticated;
+--   revoke all on function public.api_finalize_job_file_upload(
+--     uuid, text, text, text, public.job_file_kind, text, bigint, text
+--   ) from public, anon;
+--   grant execute on function public.api_finalize_job_file_upload(
+--     uuid, text, text, text, public.job_file_kind, text, bigint, text
+--   ) to authenticated;
+--   -- existing-job rescan (1.18). Queued rescans are cancelled so a worker
+--   -- without the handler never claims one. The enum value stays (Postgres
+--   -- can't drop one); nothing queues it once the RPC is gone.
+--   drop function public.api_request_export_control_rescan(uuid);
+--   update public.work_queue
+--     set status = 'cancelled'
+--     where task_type::text = 'export_rescan_part' and status = 'queued';
 --   drop function public.current_user_has_export_cleared_upload(text);
 --   drop function public.api_review_export_control_block(uuid, text, text);
 --   drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[]);
