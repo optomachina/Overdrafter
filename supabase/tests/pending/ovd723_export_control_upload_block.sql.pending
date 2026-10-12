@@ -21,9 +21,12 @@
 --   5. foreign providers have their own denial; Xometry and Fictiv are denied
 --   6. a preflight lookup that finds nothing denies (fail closed)
 --   7. cross-org reads fail, audit UPDATE/DELETE fail, anon cannot execute
+--   8. dispatch needs a clean scan of record for the part's own files; a
+--      reused file (same bytes, different job_file) is not covered by another
+--      file's scan
 begin;
 
-select plan(56);
+select plan(64);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -513,6 +516,118 @@ select is(
   private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
   null,
   'after admin clearance the clean declaration is admitted again'
+);
+
+-- 8. Clean scan of record (reused files and skipped extraction).
+reset role;
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select file.id, context.clean_job_id, context.organization_id, context.member_user_id,
+  file.sha, 'job-files', 'org-sha256/' || context.organization_id || '/' || file.sha || '/' || file.name,
+  file.name, file.name, file.kind::public.job_file_kind, 100
+from ovd723_ctx context
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072a1'::uuid, repeat('d', 64), 'part.step', 'cad'),
+  ('00000000-0000-4000-8000-0000000072a2'::uuid, repeat('e', 64), 'part.pdf', 'drawing'),
+  -- Reused copies: identical bytes attached as different job_files.
+  ('00000000-0000-4000-8000-0000000072a3'::uuid, repeat('d', 64), 'part-copy.step', 'cad'),
+  ('00000000-0000-4000-8000-0000000072a4'::uuid, repeat('e', 64), 'part-copy.pdf', 'drawing')
+) as file(id, sha, name, kind);
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select '00000000-0000-4000-8000-0000000072a5', other_job_id, other_organization_id, other_user_id,
+  repeat('f', 64), 'job-files', 'org-sha256/' || other_organization_id || '/' || repeat('f', 64) || '/other.step',
+  'other.step', 'other.step', 'cad', 100
+from ovd723_ctx;
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+select part.id, clean_job_id, organization_id, part.name, part.key, part.cad, part.drawing
+from ovd723_ctx
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072b1'::uuid, 'Scanned part', 'scanned-part',
+    '00000000-0000-4000-8000-0000000072a1'::uuid, '00000000-0000-4000-8000-0000000072a2'::uuid),
+  ('00000000-0000-4000-8000-0000000072b2'::uuid, 'Reused part', 'reused-part',
+    '00000000-0000-4000-8000-0000000072a3'::uuid, '00000000-0000-4000-8000-0000000072a4'::uuid)
+) as part(id, name, key, cad, drawing);
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select task.id, organization_id, clean_job_id, task.part_id, 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072c1'::uuid, '00000000-0000-4000-8000-0000000072b1'::uuid),
+  ('00000000-0000-4000-8000-0000000072c2'::uuid, '00000000-0000-4000-8000-0000000072b2'::uuid)
+) as task(id, part_id);
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a clean, unblocked job is still denied while its part files have no clean scan'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)', 'execute')
+  and has_function_privilege('service_role', 'public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)', 'execute'),
+  'only the service role can record a clean scan'
+);
+
+set local role service_role;
+
+select throws_ok(
+  format($$select public.api_record_export_control_clean_scan(%L::uuid, null, '00000000-0000-4000-8000-0000000072a5', 'step_header')$$,
+    (select clean_job_id from ovd723_ctx)),
+  'P0001', 'export_scan_invalid',
+  'a clean scan cannot be recorded against a file from another job'
+);
+
+select lives_ok(
+  $$select public.api_record_export_control_clean_scan(
+    (select clean_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072b1',
+    '00000000-0000-4000-8000-0000000072a2', 'drawing_text')$$,
+  'the worker records a clean drawing scan'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a scanned drawing is not enough while the STEP header has no clean scan'
+);
+
+set local role service_role;
+select public.api_record_export_control_clean_scan(
+  (select clean_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072b1',
+  '00000000-0000-4000-8000-0000000072a1', 'step_header');
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  null,
+  'with both files scanned clean, the part is admitted'
+);
+
+set local role service_role;
+
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-0000000072c2', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
+  ) ->> 'denial',
+  'export_scan_missing',
+  'a reused copy of the same bytes is denied: another file''s scan never vouches for it'
+);
+
+reset role;
+
+select throws_ok(
+  $$delete from private.job_file_export_scans$$,
+  '42501', 'export_control_audit_append_only',
+  'clean scan records cannot be deleted'
 );
 
 -- 7. Isolation and audit immutability.
