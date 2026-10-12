@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
+  "sourceRevision": "2e9c4499b10c18d3f72052f50894456b0be5b6f2",
+  "reverseSha256": "6445f5e1136f0146ea34221895e3fec6579132716772b48ed25181d9f24185b3",
+  "repeatable_read": "refused_0A000",
+  "serializable": "refused_0A000",
+  "writerCommittedDuringWait": "reverse_refused_row_retained",
+  "writerAfterLock": "waited_then_committed_after_rollback",
+  "lockTimeoutWriter": "55P03",
+  "registryFirstVerifierRead": "deadlock_40P01",
+  "verifierReadDuringLock": "read_completed_reverse_waited_then_proceeded"
+}

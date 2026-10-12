@@ -103,6 +103,19 @@ function configuration, explicit grant provenance, and effective caller
 matrices for 13 non-system roles. All replay resources were removed by fixture
 identity.
 
+**Window 2 rebaseline (OVD-743, October 12).** The manifest now binds a fresh
+replay of main `26b0b76e` with all 148 repository migrations (the production
+ledger): 452 functions, 10 schemas, 132 policies, 158 relations, 12 sequences
+and 15 non-system roles (adding `ovd575_observer_validator` and
+`ovd576_stop_validator`); SHA-256
+`854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296`. The source scan
+found 118 literal RPC calls, 13 dynamic sites (9 new, each with a reviewed rule
+in the manifest) and 3 calls to RPCs that only staged window 2 SQL creates. The
+OVD-558 forward and reverse were regenerated from it (prechange
+`68f1d7d9…`, post change `82a28af7…`). The September 24 values above are history;
+`docs/release/window-2/manifest.json` records the old and new pins.
+
+
 | Schema | Functions | Owner | `PUBLIC EXECUTE` | Direct grants to application roles |
 | --- | ---: | --- | ---: | --- |
 | `public` | 181 | `postgres` | 77 | The 77 `anon`, 127 `authenticated`, and 149 `service_role` effective executions are already direct grants. |

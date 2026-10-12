@@ -1,0 +1,1935 @@
+{
+  "format": "ovd602.diff.v1",
+  "added": {
+    "functions": [
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "engineering_private.complete_native_verification(uuid,text)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "engineering_private.load_native_verification(uuid,uuid)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "engineering_private.native_verifier_can_read_object(text,text)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "engineering_private.reject_native_verification(uuid,jsonb)"
+      }
+    ],
+    "relations": [
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "engineering_private.native_verifier_registered_objects",
+        "rls": true
+      }
+    ],
+    "policies": [
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "ovd510_verifier_registered_permissive",
+        "permissive": "PERMISSIVE",
+        "roles": [
+          "engineering_native_verifier"
+        ],
+        "table": "storage.objects",
+        "using_md5": "d85f83cbdf33e4052c222d653f4db9f4"
+      },
+      {
+        "check_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "cmd": "SELECT",
+        "name": "ovd510_verifier_registered_restrictive",
+        "permissive": "RESTRICTIVE",
+        "roles": [
+          "engineering_native_verifier"
+        ],
+        "table": "storage.objects",
+        "using_md5": "d85f83cbdf33e4052c222d653f4db9f4"
+      }
+    ]
+  },
+  "removed": {},
+  "changed": {
+    "functions": [
+      {
+        "key": "public.api_accept_project_invite(text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_accept_project_invite(text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_accept_project_invite(text)"
+        }
+      },
+      {
+        "key": "public.api_admin_list_all_jobs()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_jobs()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_jobs()"
+        }
+      },
+      {
+        "key": "public.api_admin_list_all_projects()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_projects()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_projects()"
+        }
+      },
+      {
+        "key": "public.api_admin_list_all_users()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_users()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_all_users()"
+        }
+      },
+      {
+        "key": "public.api_admin_list_organizations()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_organizations()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_admin_list_organizations()"
+        }
+      },
+      {
+        "key": "public.api_approve_job_requirements(uuid,jsonb)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_approve_job_requirements(uuid,jsonb)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_approve_job_requirements(uuid,jsonb)"
+        }
+      },
+      {
+        "key": "public.api_archive_job(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_archive_job(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_archive_job(uuid)"
+        }
+      },
+      {
+        "key": "public.api_archive_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_archive_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_archive_project(uuid)"
+        }
+      },
+      {
+        "key": "public.api_assign_job_to_project(uuid,uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_assign_job_to_project(uuid,uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_assign_job_to_project(uuid,uuid)"
+        }
+      },
+      {
+        "key": "public.api_cancel_quote_request(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_cancel_quote_request(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_cancel_quote_request(uuid)"
+        }
+      },
+      {
+        "key": "public.api_create_project(text,text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_create_project(text,text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_create_project(text,text)"
+        }
+      },
+      {
+        "key": "public.api_create_self_service_organization(text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_create_self_service_organization(text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_create_self_service_organization(text)"
+        }
+      },
+      {
+        "key": "public.api_delete_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_delete_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_delete_project(uuid)"
+        }
+      },
+      {
+        "key": "public.api_dissolve_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_dissolve_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_dissolve_project(uuid)"
+        }
+      },
+      {
+        "key": "public.api_get_client_intake_compatibility()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_get_client_intake_compatibility()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_get_client_intake_compatibility()"
+        }
+      },
+      {
+        "key": "public.api_get_is_platform_admin()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_get_is_platform_admin()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.api_get_is_platform_admin()"
+        }
+      },
+      {
+        "key": "public.api_get_quote_run_readiness(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_get_quote_run_readiness(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_get_quote_run_readiness(uuid)"
+        }
+      },
+      {
+        "key": "public.api_invite_project_member(uuid,text,public.project_role)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_invite_project_member(uuid,text,public.project_role)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_invite_project_member(uuid,text,public.project_role)"
+        }
+      },
+      {
+        "key": "public.api_list_client_activity_events(uuid[],integer)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_activity_events(uuid[],integer)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_activity_events(uuid[],integer)"
+        }
+      },
+      {
+        "key": "public.api_list_client_part_metadata(uuid[])",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_part_metadata(uuid[])"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_part_metadata(uuid[])"
+        }
+      },
+      {
+        "key": "public.api_list_client_quote_workspace(uuid[])",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_quote_workspace(uuid[])"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_list_client_quote_workspace(uuid[])"
+        }
+      },
+      {
+        "key": "public.api_list_organization_memberships(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_list_organization_memberships(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_list_organization_memberships(uuid)"
+        }
+      },
+      {
+        "key": "public.api_list_project_assignee_profiles(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_list_project_assignee_profiles(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.api_list_project_assignee_profiles(uuid)"
+        }
+      },
+      {
+        "key": "public.api_publish_quote_package(uuid,uuid,text,boolean)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_publish_quote_package(uuid,uuid,text,boolean)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_publish_quote_package(uuid,uuid,text,boolean)"
+        }
+      },
+      {
+        "key": "public.api_reconcile_job_parts(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_reconcile_job_parts(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_reconcile_job_parts(uuid)"
+        }
+      },
+      {
+        "key": "public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)"
+        }
+      },
+      {
+        "key": "public.api_remove_job_from_project(uuid,uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_remove_job_from_project(uuid,uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_remove_job_from_project(uuid,uuid)"
+        }
+      },
+      {
+        "key": "public.api_remove_project_member(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_remove_project_member(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_remove_project_member(uuid)"
+        }
+      },
+      {
+        "key": "public.api_request_debug_extraction(uuid,text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_request_debug_extraction(uuid,text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_request_debug_extraction(uuid,text)"
+        }
+      },
+      {
+        "key": "public.api_request_extraction(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_request_extraction(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_request_extraction(uuid)"
+        }
+      },
+      {
+        "key": "public.api_reset_client_part_property_overrides(uuid,text[])",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_reset_client_part_property_overrides(uuid,text[])"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_reset_client_part_property_overrides(uuid,text[])"
+        }
+      },
+      {
+        "key": "public.api_start_quote_run(uuid,boolean)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_start_quote_run(uuid,boolean)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_start_quote_run(uuid,boolean)"
+        }
+      },
+      {
+        "key": "public.api_unarchive_job(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_unarchive_job(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_unarchive_job(uuid)"
+        }
+      },
+      {
+        "key": "public.api_unarchive_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_unarchive_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_unarchive_project(uuid)"
+        }
+      },
+      {
+        "key": "public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb)"
+        }
+      },
+      {
+        "key": "public.api_update_organization_membership_role(uuid,public.app_role)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_organization_membership_role(uuid,public.app_role)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_organization_membership_role(uuid,public.app_role)"
+        }
+      },
+      {
+        "key": "public.api_update_project(uuid,text,text)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_project(uuid,text,text)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.api_update_project(uuid,text,text)"
+        }
+      },
+      {
+        "key": "public.apply_markup(numeric,numeric,numeric)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.apply_markup(numeric,numeric,numeric)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.apply_markup(numeric,numeric,numeric)"
+        }
+      },
+      {
+        "key": "public.build_org_file_blob_storage_path(uuid,text,text)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_org_file_blob_storage_path(uuid,text,text)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_org_file_blob_storage_path(uuid,text,text)"
+        }
+      },
+      {
+        "key": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric)"
+        }
+      },
+      {
+        "key": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric,text,text)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric,text,text)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.build_project_part_property_snapshot(jsonb,jsonb,jsonb,text,timestamp with time zone,text,text,text,text,text,numeric,text,text)"
+        }
+      },
+      {
+        "key": "public.current_user_has_verified_auth()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.current_user_has_verified_auth()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth",
+          "signature": "public.current_user_has_verified_auth()"
+        }
+      },
+      {
+        "key": "public.current_user_home_organization_id()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.current_user_home_organization_id()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.current_user_home_organization_id()"
+        }
+      },
+      {
+        "key": "public.is_internal_user(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_internal_user(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_internal_user(uuid)"
+        }
+      },
+      {
+        "key": "public.is_internal_user_any_org()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_internal_user_any_org()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_internal_user_any_org()"
+        }
+      },
+      {
+        "key": "public.is_org_admin(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_org_admin(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.is_org_admin(uuid)"
+        }
+      },
+      {
+        "key": "public.is_platform_admin()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.is_platform_admin()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public, auth, private",
+          "signature": "public.is_platform_admin()"
+        }
+      },
+      {
+        "key": "public.job_part_file_set(uuid)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.job_part_file_set(uuid)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.job_part_file_set(uuid)"
+        }
+      },
+      {
+        "key": "public.load_editable_project_part_context(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.load_editable_project_part_context(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.load_editable_project_part_context(uuid)"
+        }
+      },
+      {
+        "key": "public.normalize_file_basename(text)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_file_basename(text)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_file_basename(text)"
+        }
+      },
+      {
+        "key": "public.normalize_positive_integer_array(integer[],integer)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.normalize_positive_integer_array(integer[],integer)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.normalize_positive_integer_array(integer[],integer)"
+        }
+      },
+      {
+        "key": "public.normalize_primary_service_kind(text[],text)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_primary_service_kind(text[],text)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_primary_service_kind(text[],text)"
+        }
+      },
+      {
+        "key": "public.normalize_project_part_threads(jsonb)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.normalize_project_part_threads(jsonb)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.normalize_project_part_threads(jsonb)"
+        }
+      },
+      {
+        "key": "public.normalize_requested_service_kinds(text[],text)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_requested_service_kinds(text[],text)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.normalize_requested_service_kinds(text[],text)"
+        }
+      },
+      {
+        "key": "public.require_verified_auth()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.require_verified_auth()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.require_verified_auth()"
+        }
+      },
+      {
+        "key": "public.resolve_project_part_property_values(jsonb,jsonb)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.resolve_project_part_property_values(jsonb,jsonb)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.resolve_project_part_property_values(jsonb,jsonb)"
+        }
+      },
+      {
+        "key": "public.seed_project_part_property_defaults(public.approved_part_requirements,jsonb,jsonb)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.seed_project_part_property_defaults(public.approved_part_requirements,jsonb,jsonb)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.seed_project_part_property_defaults(public.approved_part_requirements,jsonb,jsonb)"
+        }
+      },
+      {
+        "key": "public.seed_revision_and_process_property_defaults(public.approved_part_requirements,jsonb,jsonb)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.seed_revision_and_process_property_defaults(public.approved_part_requirements,jsonb,jsonb)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.seed_revision_and_process_property_defaults(public.approved_part_requirements,jsonb,jsonb)"
+        }
+      },
+      {
+        "key": "public.spend_default_daily_ceiling_usd()",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.spend_default_daily_ceiling_usd()"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.spend_default_daily_ceiling_usd()"
+        }
+      },
+      {
+        "key": "public.spend_default_per_run_ceiling_usd()",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.spend_default_per_run_ceiling_usd()"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.spend_default_per_run_ceiling_usd()"
+        }
+      },
+      {
+        "key": "public.sync_quote_request_status_from_vendor_result()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.sync_quote_request_status_from_vendor_result()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.sync_quote_request_status_from_vendor_result()"
+        }
+      },
+      {
+        "key": "public.sync_service_request_line_item_status_from_quote_request()",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.sync_service_request_line_item_status_from_quote_request()"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.sync_service_request_line_item_status_from_quote_request()"
+        }
+      },
+      {
+        "key": "public.to_vendor_name_array(jsonb)",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.to_vendor_name_array(jsonb)"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.to_vendor_name_array(jsonb)"
+        }
+      },
+      {
+        "key": "public.touch_updated_at()",
+        "from": {
+          "definer": false,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.touch_updated_at()"
+        },
+        "to": {
+          "definer": false,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": null,
+          "signature": "public.touch_updated_at()"
+        }
+      },
+      {
+        "key": "public.user_can_access_job(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_job(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_job(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_access_job_via_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_job_via_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_job_via_project(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_access_org(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_org(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_org(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_access_package(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_package(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_package(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_access_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_access_project(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_destructively_edit_job(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_destructively_edit_job(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_destructively_edit_job(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_edit_job(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_edit_job(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_edit_job(uuid)"
+        }
+      },
+      {
+        "key": "public.user_can_edit_project(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_edit_project(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_can_edit_project(uuid)"
+        }
+      },
+      {
+        "key": "public.user_is_project_owner(uuid)",
+        "from": {
+          "definer": true,
+          "execute": [
+            "PUBLIC",
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_is_project_owner(uuid)"
+        },
+        "to": {
+          "definer": true,
+          "execute": [
+            "anon",
+            "authenticated",
+            "service_role"
+          ],
+          "search_path": "public",
+          "signature": "public.user_is_project_owner(uuid)"
+        }
+      }
+    ]
+  },
+  "flags": [
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_accept_project_invite(text)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_jobs()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_projects()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_users()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_organizations()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_approve_job_requirements(uuid,jsonb)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_archive_job(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_archive_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_assign_job_to_project(uuid,uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_cancel_quote_request(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_create_project(text,text)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_create_self_service_organization(text)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_delete_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_dissolve_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_client_intake_compatibility()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_is_platform_admin()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_quote_run_readiness(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_invite_project_member(uuid,text,public.project_role)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_activity_events(uuid[],integer)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_part_metadata(uuid[])",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_quote_workspace(uuid[])",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_organization_memberships(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_project_assignee_profiles(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_publish_quote_package(uuid,uuid,text,boolean)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_reconcile_job_parts(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_remove_job_from_project(uuid,uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_remove_project_member(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_request_debug_extraction(uuid,text)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_request_extraction(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_reset_client_part_property_overrides(uuid,text[])",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_start_quote_run(uuid,boolean)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_unarchive_job(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_unarchive_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_organization_membership_role(uuid,public.app_role)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_project(uuid,text,text)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.current_user_has_verified_auth()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.current_user_home_organization_id()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_internal_user(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_internal_user_any_org()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_org_admin(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_platform_admin()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.load_editable_project_part_context(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.require_verified_auth()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.sync_quote_request_status_from_vendor_result()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.sync_service_request_line_item_status_from_quote_request()",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_job(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_job_via_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_org(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_package(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_destructively_edit_job(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_edit_job(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_edit_project(uuid)",
+    "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_is_project_owner(uuid)",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_accept_project_invite(text) search_path=public, auth",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_jobs() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_projects() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_users() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_organizations() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_approve_job_requirements(uuid,jsonb) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_archive_job(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_archive_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_assign_job_to_project(uuid,uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_cancel_quote_request(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_create_project(text,text) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_create_self_service_organization(text) search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_delete_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_dissolve_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_client_intake_compatibility() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_is_platform_admin() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_quote_run_readiness(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_invite_project_member(uuid,text,public.project_role) search_path=public, auth",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_activity_events(uuid[],integer) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_part_metadata(uuid[]) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_quote_workspace(uuid[]) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_organization_memberships(uuid) search_path=public, auth",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_project_assignee_profiles(uuid) search_path=public, auth",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_publish_quote_package(uuid,uuid,text,boolean) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_reconcile_job_parts(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_remove_job_from_project(uuid,uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_remove_project_member(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_request_debug_extraction(uuid,text) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_request_extraction(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_reset_client_part_property_overrides(uuid,text[]) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_start_quote_run(uuid,boolean) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_unarchive_job(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_unarchive_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_organization_membership_role(uuid,public.app_role) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_project(uuid,text,text) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.current_user_has_verified_auth() search_path=public, auth",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.current_user_home_organization_id() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_internal_user(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_internal_user_any_org() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_org_admin(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_platform_admin() search_path=public, auth, private",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.load_editable_project_part_context(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.require_verified_auth() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.sync_quote_request_status_from_vendor_result() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.sync_service_request_line_item_status_from_quote_request() search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_job(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_job_via_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_org(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_package(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_destructively_edit_job(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_edit_job(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_edit_project(uuid) search_path=public",
+    "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_is_project_owner(uuid) search_path=public"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "format": "ovd602.diff.v1",
+  "added": {
+    "functions": [
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_read_native_step_review(uuid,uuid,uuid)"
+      }
+    ],
+    "relations": [
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "engineering_private.native_step_reviews",
+        "rls": true
+      }
+    ]
+  },
+  "removed": {},
+  "changed": {},
+  "flags": [
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_read_native_step_review(uuid,uuid,uuid)"
+  ]
+}

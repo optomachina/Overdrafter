@@ -28,9 +28,13 @@ roles, credentials or active migrations are added. Both tables have RLS, no
 runtime grants, and immutable update/delete triggers. Both scripts set local
 five second lock and thirty second statement timeouts. The staged reverse script
 requires READ COMMITTED, takes the shared window 2 reverse lock
-`pg_advisory_xact_lock(510, 2)`, locks `storage.objects` and `storage.buckets`
-and then both tables before checking emptiness (mapping preparation reads storage
-before writing a mapping), then refuses nonempty mappings. These scripts require existing ownership and staged
+`pg_advisory_xact_lock(510, 2)`, locks the attempt and admission parents, then
+`storage.objects` and `storage.buckets`, then both tables before checking
+emptiness (mapping preparation locks the admission and reads storage before
+writing a mapping), then refuses nonempty mappings. The forward takes the same
+READ COMMITTED check and (510, 2) lock first. `native-artifact-mapping-reverse.sql`
+drops the mapping writer functions before this reverse. Window 2 order:
+`docs/release/window-2/README.md`. These scripts require existing ownership and staged
 OVD-560 schema and must be independently qualified in a disposable database.
 They have not been executed in this environment.
 

@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "fixtureId": "11d243a4-7fb5-45fd-ac28-4483ca504d11",
+  "sourceRevision": "2e9c4499b10c18d3f72052f50894456b0be5b6f2",
+  "proofSha256": "43c67dcefa53e08afd58676d437a2791745579766549c4a0f989e5d4aeb3a5e4",
+  "assertions": 24,
+  "syntheticOnly": true,
+  "evidenceBoundary": "synthetic disposable SQL; not native, Windows or production evidence"
+}

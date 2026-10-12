@@ -45,6 +45,8 @@ let stage = "starting";
 let result = null;
 let publish;
 const submittedInputs = [];
+let window2Inputs = null;
+let readOnlyDigest = null;
 mkdirSync(join(repositoryRoot, "output"), { recursive: true });
 mkdirSync(output, { recursive: false });
 
@@ -114,20 +116,62 @@ function captureBehavior() {
 
 const compatibilitySuites = ["engineering_inbox", "engineering_native_ownership",
   "quote_publication_helper_privileges", "mobile_auth_bridge", "cad_preview_storage_policy"];
-function runCompatibilitySuites(phase) {
-  return compatibilitySuites.map((name) => {
-    const source = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
-    const tempHelperAccess = `begin;
+function wrapSuite(source) {
+  const tempHelperAccess = `begin;
 create temporary table ovd558_suite_temp_namespace(id integer) on commit drop;
 do $ovd558_suite$ begin
   execute format('alter default privileges for role postgres in schema %I grant execute on functions to anon, authenticated, service_role',
-    (select nspname from pg_namespace where oid = pg_my_temp_schema()));
+  (select nspname from pg_namespace where oid = pg_my_temp_schema()));
 end $ovd558_suite$;`;
-    let sql = source.replace(/^begin;/i, tempHelperAccess);
-    if (!/create extension if not exists pgtap/i.test(source)) {
-      sql = sql.replace(tempHelperAccess,
-        `${tempHelperAccess}\ncreate extension if not exists pgtap with schema extensions;`);
+  let sql = source.replace(/^begin;/im, tempHelperAccess);
+  if (!/create extension if not exists pgtap/i.test(source)) {
+    sql = sql.replace(tempHelperAccess,
+      `${tempHelperAccess}\ncreate extension if not exists pgtap with schema extensions;`);
+  }
+  return sql;
+}
+// Window 2 (opt in, --window2-main-suites): every main pgTAP suite, each in its
+// own clone of the fixture database (concurrency suites commit and open dblink
+// sessions), recorded rather than thrown so the caller can gate on regressions.
+function runAllSuites(phase) {
+  const names = readdirSync(join(root, "supabase", "tests")).filter((name) => name.endsWith(".sql"))
+    .sort(compareNames).map((name) => name.slice(0, -4));
+  const admin = (sql, db = "template1") => call(["exec", "-i", "-e", `PGPASSWORD=${fixturePassword}`, container,
+    "psql", "-U", "supabase_admin", "-d", db, "-X", "-Atq", "-v", "ON_ERROR_STOP=1"], { input: sql, timeout: 120_000 });
+  const settings = admin(`select coalesce(string_agg(format('alter database w2_suite set %I = %L;',
+      split_part(c, '=', 1), substring(c from position('=' in c) + 1)), E'\\n'), '')
+    from pg_db_role_setting s cross join unnest(s.setconfig) c
+    where s.setdatabase = (select oid from pg_database where datname = 'postgres') and s.setrole = 0;`).stdout.trim();
+  const results = {};
+  for (const name of names) {
+    admin(`alter database postgres allow_connections false;
+select count(pg_terminate_backend(pid)) from pg_stat_activity where datname = 'postgres';
+create database w2_suite template postgres;
+alter database postgres allow_connections true;
+${settings}
+alter database w2_suite set ovd.test_conninfo = 'host=/var/run/postgresql dbname=w2_suite user=postgres password=${fixturePassword}';`);
+    try {
+      const source = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
+      const run = call(["exec", "-i", "-e", `PGPASSWORD=${fixturePassword}`, container,
+        "psql", "-U", "postgres", "-d", "w2_suite", "-X", "-Atq", "-v", "ON_ERROR_STOP=1"],
+      { input: wrapSuite(source), timeout: 240_000, allowFailure: true });
+      const transcript = `${run.stdout}${run.stderr}`;
+      writeFileSync(join(output, `suite-${phase}-${name}.txt`), transcript);
+      const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
+      const passed = transcript.match(/^ok\b/gm)?.length ?? 0;
+      const failed = transcript.match(/^not ok\b/gm)?.length ?? 0;
+      results[name] = { planned, passed, failed, exit: run.status,
+        pass: run.status === 0 && Number.isInteger(planned) && planned > 0 && passed === planned && failed === 0 };
+    } finally {
+      admin("drop database if exists w2_suite with (force);");
     }
+  }
+  return results;
+}
+function runCompatibilitySuites(phase, names = compatibilitySuites) {
+  return names.map((name) => {
+    const source = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
+    const sql = wrapSuite(source);
     const transcript = psql(sql, 240_000);
     writeFileSync(join(output, `compatibility-${phase}-${name}.txt`), `${transcript}\n`);
     const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
@@ -559,6 +603,11 @@ rollback;`;
         adminSha256: sha(Buffer.from(adminRaw)),
         equal: adminRaw === catalogText,
       });
+      if (process.argv.includes("--ovd563")) {
+        const { checkReadOnlyDigest } = await import("./ovd510-window2-chain.mjs");
+        readOnlyDigest = checkReadOnlyDigest({ psql, catalogSql, root });
+        save("window2-read-only-digest.json", { status: "passed", ...readOnlyDigest });
+      }
       const forwardPath = join(root, "docs", "release", "ovd-558-verifier-authority-forward.sql");
       const forwardBytes = readFileSync(forwardPath);
       const forwardSql = forwardBytes.toString("utf8");
@@ -797,15 +846,9 @@ end $ovd560_temp$;`;
               const { runOvd520StagedProof } = await import("./ovd520-staged-proof.mjs");
               runOvd520StagedProof({ psql, catalogSql, root, output, save, fixturePrefix, proof561, proof563,
                 catalog563, fixtureId, sourceRevision: revision.stdout.trim() });
-              // OVD-649 window 2 order: the staged observer replacement applies after
-              // this chain and its paired restoration runs before any reverse below.
-              stage = "ovd649_window_order";
-              const { runOvd649WindowOrderProof } = await import("./ovd510-ovd649-window-order.mjs");
-              const windowOrder = await runOvd649WindowOrderProof({ dockerExecutable, container,
-                password: fixturePassword, psql, catalogSql, root, suffix, sourceCatalog: catalog563,
-                reverse558: readFileSync(join(root, "docs/release/ovd-558-verifier-authority-reverse.sql"), "utf8") });
-              save("ovd649-window-order-proof.json", { status: "passed", fixtureId,
-                sourceRevision: revision.stdout.trim(), ...windowOrder });
+              // The OVD-649 window order (real OVD-558 pins) runs in the
+              // window 2 chain stage below, after the chain returns to baseline.
+              window2Inputs = { fixturePrefix, proofs: { p560: proof.toString("utf8"), p561: proof561, p563: proof563 } };
               stage = "ovd563_step_review";
               psql(reverse563);
               if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
@@ -916,6 +959,16 @@ end $ovd560_temp$;`;
         save("durable-reapply.json", { status: "passed", fixtureId,
           forwardCatalogSha256: sha(Buffer.from(reappliedRaw)),
           reversedCatalogSha256: sha(Buffer.from(reReversedRaw)) });
+        if (window2Inputs) {
+          // OVD-743: the whole window 2 Jarvis chain in run sheet order, from the
+          // reviewed baseline, with every reverse and a reapply.
+          stage = "window2_chain";
+          const { runWindow2Chain } = await import("./ovd510-window2-chain.mjs");
+          const mainSuites = process.argv.includes("--window2-main-suites") ? runAllSuites : null;
+          await runWindow2Chain({ dockerExecutable, container, password: fixturePassword, psql, catalogSql,
+            root, output, save, ...window2Inputs, readOnlyDigest, runSuites: runCompatibilitySuites, mainSuites,
+            writeExpected: process.argv.includes("--window2-write-expected") });
+        }
       }
     }
     if (process.argv.includes("--authority-proof")) {

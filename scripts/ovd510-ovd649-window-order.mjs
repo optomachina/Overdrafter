@@ -1,122 +1,92 @@
-/** OVD-649 window 2 order proof inside the owned OVD-510 fixture. A clone of the
- * post OVD-558/560/561/563 database takes the current-main migration suffix
- * (which creates the OVD-575 function), then the staged observer replacement.
- * The OVD-558 reverse preflight, run verbatim with its pin moved to the clone's
- * own pre-replacement digest, must refuse while the replacement is live and
- * accept again after the paired restoration. The source database is untouched. */
-import assert from "node:assert/strict";
+/** OVD-649 window 2 order proof with #702's real pins, inside the owned OVD-510
+ * fixture on the reviewed 148 migration baseline (OVD-575 and OVD-576 included).
+ * Called by scripts/ovd510-window2-chain.mjs at the two moments the OVD-558
+ * pins are read:
+ *  - forward side, on the baseline: with the observer replacement live the
+ *    verbatim OVD-558 forward refuses (its pinned prechange catalog), and the
+ *    paired restoration returns the exact baseline catalog;
+ *  - reverse side, right after the OVD-558 forward: with the replacement live
+ *    the verbatim OVD-558 reverse refuses (its pinned post change catalog);
+ *    after the restoration it runs, and the forward reapplies to the same catalog.
+ * No pin is moved or substituted. Each refusal must carry its SQLSTATE. */
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { buildRestoreSql, replacementPath, restorePath } from "./native/stop-observer/sql/generate-restore-sql.mjs";
 
-const database = "ovd649_window";
-function session({ dockerExecutable, container, password }, role, db, sql) {
+/** One SQLSTATE and message from a psql failure; VERBOSITY=verbose prints both. */
+export function sqlError(error) {
+  const match = String(error).match(/ERROR:\s+([0-9A-Z]{5}):\s+([^\n]+)/);
+  return match ? { sqlstate: match[1], message: match[2].trim() } : { sqlstate: null, message: String(error).slice(0, 400) };
+}
+
+/** True only when the failure carries exactly this SQLSTATE and this message prefix. */
+export function refusedWith(error, sqlstate, message) {
+  if (!error) return false;
+  const parsed = sqlError(error);
+  return parsed.sqlstate === sqlstate && parsed.message.startsWith(message);
+}
+
+const repeatableRead = (sql) => {
+  if (sql.split("\nbegin;\n").length !== 2) throw new Error("ovd649_transaction_marker_drift");
+  return sql.replace("\nbegin;\n", "\nbegin isolation level repeatable read;\n");
+};
+
+function session({ dockerExecutable, container, password }, role, sql) {
   const child = spawn(dockerExecutable, ["exec", "-i", "-e", `PGPASSWORD=${password}`, container,
-    "psql", "-U", role, "-d", db, "-X", "-Atq", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"],
-  { stdio: ["pipe", "pipe", "pipe"], timeout: 240_000 });
-  let stdout = "", stderr = "";
-  child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
+    "psql", "-U", role, "-d", "postgres", "-X", "-Atq", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"],
+  { stdio: ["pipe", "pipe", "pipe"], timeout: 120_000 });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdout.resume();
   child.stdin.end(sql);
   return new Promise((resolve, reject) => {
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout: stdout.trim(), stderr: stderr.slice(-2000) }));
+    child.on("close", (code) => resolve({ code, stderr: stderr.slice(-2000) }));
   });
 }
 
-export async function runOvd649WindowOrderProof(options) {
-  const { psql, catalogSql, root, suffix, reverse558, sourceCatalog } = options;
-  const run = (role, sql) => session(options, role, database, sql);
-  const ok = async (role, sql, label) => {
-    const result = await run(role, sql);
-    assert.equal(result.code, 0, `${label}: ${result.stderr}`);
-    return result.stdout;
-  };
-  const catalog = async () => (await ok("postgres", catalogSql, "catalog")).split("\n")
-    .find((line) => line.startsWith("{"));
-  const { sql: restoreSql, pins } = buildRestoreSql();
-  if (readFileSync(join(root, restorePath), "utf8") !== restoreSql) throw new Error("ovd649_restore_source_drift");
-  const replacementSql = readFileSync(join(root, replacementPath), "utf8");
-  const start = reverse558.indexOf("do $ovd558_reverse_preflight$");
-  const end = reverse558.indexOf("end $ovd558_reverse_preflight$;");
-  if (start < 0 || end < start) throw new Error("ovd649_ovd558_reverse_preflight_marker_drift");
-  const preflight = reverse558.slice(start, end + "end $ovd558_reverse_preflight$;".length);
-  const pinned = preflight.match(/if actual is distinct from '([0-9a-f]{64})' then\n\s+raise exception 'ovd558_unknown_postchange_catalog/);
-  if (!pinned || preflight.split(pinned[1]).length !== 2) throw new Error("ovd649_ovd558_reverse_pin_drift");
-  // The verbatim OVD-558 reverse preflight, inside a rolled back transaction.
-  const reversePreflight = (pin) => run("supabase_admin",
-    `begin;\n${preflight.replace(pinned[1], pin)}\nrollback;`);
-  const digestOf = async () => {
-    const probe = await reversePreflight("0".repeat(64));
-    const digest = probe.stderr.match(/ovd558_unknown_postchange_catalog:([0-9a-f]{64})/)?.[1];
-    if (probe.code === 0 || !digest) throw new Error(`ovd649_digest_probe_failed:${probe.stderr}`);
-    return digest;
-  };
+/** Forward side, on the baseline catalog. */
+export async function proveForwardSide(ctx) {
+  const { psql, catalog, refused, gate, sql } = ctx;
+  const base = catalog();
+  const rrReplacement = refused(repeatableRead(sql.replacement), "postgres");
+  gate("observer replacement refuses REPEATABLE READ with 0A000",
+    refusedWith(rrReplacement, "0A000", "ovd649_replay_read_committed_required"), sqlError(rrReplacement).message);
+  gate("refused replacement changes nothing", catalog() === base);
+  // The replacement waits on a held (510, 2) lock, as every window 2 script does.
+  const holder = session(ctx, "postgres", "begin; select pg_advisory_xact_lock(510, 2); select pg_sleep(3); commit;");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const started = Date.now();
+  psql(sql.replacement, 60_000, "postgres");
+  const waitedMs = Date.now() - started;
+  gate("observer replacement waits on a held (510, 2) lock", (await holder).code === 0 && waitedMs >= 1500, `${waitedMs} ms`);
+  gate("replacement changes the catalog", catalog() !== base);
+  const forwardRefusal = refused(sql.forward558, "supabase_admin");
+  gate("verbatim OVD-558 forward refuses while the replacement is live (real prechange pin)",
+    refusedWith(forwardRefusal, "P0001", "ovd558_prechange_catalog_mismatch"), sqlError(forwardRefusal).message);
+  const rrRestore = refused(repeatableRead(sql.restore), "postgres");
+  gate("restoration refuses REPEATABLE READ with 0A000",
+    refusedWith(rrRestore, "0A000", "ovd649_restore_read_committed_required"), sqlError(rrRestore).message);
+  psql(sql.restore, 60_000, "postgres");
+  gate("restoration returns the exact baseline catalog", catalog() === base);
+  const second = refused(sql.restore, "postgres");
+  gate("a second restoration refuses and changes nothing",
+    refusedWith(second, "P0001", "ovd649_restore_unexpected_current_state") && catalog() === base, sqlError(second).message);
+  return { replacementWaitedMs: waitedMs, ovd558ForwardRefusal: sqlError(forwardRefusal) };
+}
 
-  const preexistingRoles = new Set(psql("select rolname from pg_roles;").split("\n"));
-  const cloned = await session(options, "supabase_admin", "template1", `alter database postgres allow_connections false;
-    select pg_terminate_backend(pid) from pg_stat_activity where datname='postgres';
-    create database ${database} owner postgres template postgres; alter database postgres allow_connections true;`);
-  if (cloned.code !== 0) {
-    await session(options, "supabase_admin", "template1", "alter database postgres allow_connections true;");
-    throw new Error(`ovd649_clone_failed:${cloned.stderr}`);
-  }
-  let evidence;
-  try {
-    await ok("postgres", suffix.map((entry) => entry.sql).join("\n"), "current-main suffix");
-    const beforeReplacement = await catalog();
-    const before = await digestOf();
-    const accepted = await reversePreflight(before);
-    assert.equal(accepted.code, 0, `ovd558 reverse preflight accepts the pre-replacement catalog: ${accepted.stderr}`);
-
-    // Window 2 forward, last step: the staged replacement.
-    await ok("postgres", replacementSql, "staged replacement");
-    const withReplacement = await catalog();
-    assert.notEqual(withReplacement, beforeReplacement, "replacement changes the catalog");
-    const replaced = await digestOf();
-    assert.notEqual(replaced, before, "replacement moves the OVD-558 catalog digest");
-    const refused = await reversePreflight(before);
-    assert.notEqual(refused.code, 0);
-    assert.match(refused.stderr, /ovd558_unknown_postchange_catalog/,
-      "ovd558 reverse refuses while the replacement is live");
-
-    // Window 2 rollback, first step: the paired restoration.
-    const repeatable = await run("supabase_admin",
-      restoreSql.replace("\nbegin;\n", "\nbegin isolation level repeatable read;\n"));
-    assert.notEqual(repeatable.code, 0);
-    assert.match(repeatable.stderr, /0A000.*ovd649_restore_read_committed_required|ovd649_restore_read_committed_required/s);
-    assert.equal(await catalog(), withReplacement, "refused restoration changes nothing");
-    await ok("supabase_admin", restoreSql, "paired restoration");
-    const restored = await catalog();
-    assert.equal(restored, beforeReplacement, "restoration returns the exact pre-replacement catalog");
-    assert.equal(await digestOf(), before, "restoration returns the OVD-558 digest");
-    const reaccepted = await reversePreflight(before);
-    assert.equal(reaccepted.code, 0, `ovd558 reverse preflight accepts after restoration: ${reaccepted.stderr}`);
-    const second = await run("supabase_admin", restoreSql);
-    assert.notEqual(second.code, 0);
-    assert.match(second.stderr, /ovd649_restore_unexpected_current_state/);
-    assert.equal(await catalog(), beforeReplacement, "second restoration changes nothing");
-
-    // Reapply, then reverse again.
-    await ok("postgres", replacementSql, "replacement reapply");
-    assert.equal(await catalog(), withReplacement, "reapplied replacement matches the first application");
-    await ok("supabase_admin", restoreSql, "restoration after reapply");
-    assert.equal(await catalog(), beforeReplacement, "second restoration returns the exact catalog");
-    evidence = { preReplacementDigest: before, replacementDigest: replaced,
-      replacementBodySha256: pins.replacementBodySha256, originalBodySha256: pins.originalBodySha256,
-      suffixMigrations: suffix.length, reverse558PreflightRefusedWithReplacement: true,
-      reverse558PreflightAcceptedAfterRestore: true, repeatableReadRestoreRefused: true,
-      secondRestoreRefused: true, reapplyThenRestore: true };
-  } finally {
-    psql(`drop database if exists ${database} with (force);`);
-    // Roles are cluster-wide; drop only roles the suffix created in the clone.
-    for (const role of psql("select rolname from pg_roles;").split("\n")) {
-      if (!preexistingRoles.has(role)) psql(`drop role if exists "${role.replaceAll('"', '""')}";`);
-    }
-  }
-  const after = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
-  if (after !== sourceCatalog) throw new Error("ovd649_source_database_catalog_drift");
-  return evidence;
+/** Reverse side, on the catalog right after the OVD-558 forward. */
+export function proveReverseSide(ctx) {
+  const { psql, catalog, refused, gate, sql, baseCatalog } = ctx;
+  const post = catalog();
+  psql(sql.replacement, 60_000, "postgres");
+  const reverseRefusal = refused(sql.reverse558, "supabase_admin");
+  gate("verbatim OVD-558 reverse refuses while the replacement is live (real post change pin)",
+    refusedWith(reverseRefusal, "P0001", "ovd558_unknown_postchange_catalog"), sqlError(reverseRefusal).message);
+  psql(sql.restore, 60_000, "postgres");
+  gate("restoration returns the exact post OVD-558 catalog", catalog() === post);
+  psql(sql.reverse558, 240_000, "supabase_admin");
+  gate("verbatim OVD-558 reverse runs after the restoration and returns the baseline", catalog() === baseCatalog);
+  psql(sql.forward558, 240_000, "supabase_admin");
+  gate("OVD-558 forward reapplies to the same post change catalog", catalog() === post);
+  return { ovd558ReverseRefusal: sqlError(reverseRefusal), reverseAfterRestore: true };
 }
