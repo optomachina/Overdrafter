@@ -17,6 +17,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** Code unit order, the same order Array#sort uses without a comparator, made explicit. */
+export const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 export const INVENTORY_FORMAT = "ovd602.inventory.v1";
 export const DIFF_FORMAT = "ovd602.diff.v1";
 const API_ROLES = ["PUBLIC", "anon", "authenticated"];
@@ -62,7 +65,7 @@ export function formatInventory(inventory) {
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.keys(value).sort().map((k) => [k, canonical(value[k])]));
+    return Object.fromEntries(Object.keys(value).sort(byCodeUnit).map((k) => [k, canonical(value[k])]));
   }
   return value;
 }
@@ -74,11 +77,11 @@ export function diffInventories(pin, current) {
   for (const [section, key] of Object.entries(SECTIONS)) {
     const before = new Map(pin[section].map((e) => [key(e), e]));
     const after = new Map(current[section].map((e) => [key(e), e]));
-    const added = [...after.keys()].filter((k) => !before.has(k)).sort().map((k) => canonical(after.get(k)));
-    const removed = [...before.keys()].filter((k) => !after.has(k)).sort().map((k) => canonical(before.get(k)));
+    const added = [...after.keys()].filter((k) => !before.has(k)).sort(byCodeUnit).map((k) => canonical(after.get(k)));
+    const removed = [...before.keys()].filter((k) => !after.has(k)).sort(byCodeUnit).map((k) => canonical(before.get(k)));
     const changed = [...after.keys()]
       .filter((k) => before.has(k) && !same(before.get(k), after.get(k)))
-      .sort()
+      .sort(byCodeUnit)
       .map((k) => ({ key: k, from: canonical(before.get(k)), to: canonical(after.get(k)) }));
     if (added.length) diff.added[section] = added;
     if (removed.length) diff.removed[section] = removed;
@@ -114,7 +117,7 @@ export function flagsFor(diff) {
   }
   for (const c of diff.changed.policies ?? []) flags.push(`POLICY_CHANGED ${c.key}`);
   for (const p of diff.removed.policies ?? []) flags.push(`POLICY_REMOVED ${p.table} ${p.name}`);
-  return flags.sort();
+  return flags.sort(byCodeUnit);
 }
 
 export function isEmptyDiff(diff) {

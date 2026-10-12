@@ -26,9 +26,9 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { diffInventories, isEmptyDiff, parseInventory, renderDiff } from "./ovd602-diff.mjs";
+import { byCodeUnit, diffInventories, isEmptyDiff, parseInventory, renderDiff } from "./ovd602-diff.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const CLEAR_DEFAULT_PRIVILEGES = [
@@ -54,7 +54,7 @@ export function isLocalTarget(url) {
 }
 
 export function compareCounts(prod, restored) {
-  const keys = [...new Set([...Object.keys(prod), ...Object.keys(restored)])].sort();
+  const keys = [...new Set([...Object.keys(prod), ...Object.keys(restored)])].sort(byCodeUnit);
   return keys.filter((k) => prod[k] !== restored[k]).map((k) => `${k}: production ${prod[k]} restore ${restored[k]}`);
 }
 
@@ -64,7 +64,7 @@ export function repoRoles(migrationsDir = join(ROOT, "supabase/migrations")) {
   for (const f of readdirSync(migrationsDir).filter((x) => x.endsWith(".sql"))) {
     for (const m of readFileSync(join(migrationsDir, f), "utf8").matchAll(/\bcreate role ([a-z0-9_]+)\s+nologin\b/gi)) names.add(m[1].toLowerCase());
   }
-  return [...names].sort();
+  return [...names].sort(byCodeUnit);
 }
 
 function parseArgs(argv) {
@@ -78,10 +78,28 @@ function parseArgs(argv) {
   return options;
 }
 
+// Standard psql install locations (apt, Homebrew, libpq, Postgres.app). No PATH lookup.
+export const PSQL_CANDIDATES = [
+  "/usr/bin/psql", "/usr/local/bin/psql", "/opt/homebrew/bin/psql",
+  "/opt/homebrew/opt/libpq/bin/psql", "/usr/local/opt/libpq/bin/psql",
+  "/Applications/Postgres.app/Contents/Versions/latest/bin/psql",
+];
+
+/** Absolute psql path: OVD_PSQL if set (must be absolute), else the first standard location that exists. */
+export function resolvePsql(env = process.env, exists = existsSync) {
+  if (env.OVD_PSQL) {
+    if (!isAbsolute(env.OVD_PSQL) || !exists(env.OVD_PSQL)) throw new Error("OVD_PSQL must be an absolute path to psql");
+    return env.OVD_PSQL;
+  }
+  const found = PSQL_CANDIDATES.find((p) => exists(p));
+  if (!found) throw new Error(`psql not found in ${PSQL_CANDIDATES.join(", ")}; set OVD_PSQL to its absolute path`);
+  return found;
+}
+
 function psql(target, args, { input } = {}) {
   // The URL is passed as an argument, so inherited PG* settings cannot redirect it.
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, PGCONNECT_TIMEOUT: "10" };
-  const r = spawnSync("psql", [target, "-X", "-v", "ON_ERROR_STOP=1", ...args], { encoding: "utf8", env, input, maxBuffer: 1_000_000_000 });
+  const r = spawnSync(resolvePsql(), [target, "-X", "-v", "ON_ERROR_STOP=1", ...args], { encoding: "utf8", env, input, maxBuffer: 1_000_000_000 });
   return { rc: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 

@@ -21,7 +21,7 @@ Evidence: `rehearsal/ovd-462-only/summary.json` and `rehearsal/recommended/summa
 
 ## What you need
 
-* This packet merged to `main` (it carries `scripts/window-1/`), Node 20, the Supabase CLI, Docker (for the local restore), and `psql` 16 or newer. The local rehearsal also needs PostgreSQL 16 server binaries and pgTAP; on macOS point `OVD_PG_BIN` at them.
+* This packet merged to `main` (it carries `scripts/window-1/`), Node 20, the Supabase CLI, Docker (for the local restore), and `psql` 16 or newer. The local rehearsal also needs PostgreSQL 16 server binaries and pgTAP; on macOS point `OVD_PG_BIN` at them. `restore-check.mjs` finds `psql` in the standard install locations (apt, Homebrew, libpq, Postgres.app); anywhere else, set `OVD_PSQL` to its absolute path.
 * `DB_URL`: Dashboard, **Connect > Session pooler**, copy the URI. In your shell only: `export DB_URL='postgresql://...'`. Never paste it anywhere else, never commit it.
 
 ## Pre-window dry run (Oct 19 or 20, read only)

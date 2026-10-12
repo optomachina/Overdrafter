@@ -211,12 +211,24 @@ describe("window 1 safeguards", async () => {
 
   it("extracts each migration's readback SQL from the run sheet", () => {
     const blocks = readmeReadbacks(read("docs/release/window-1/README.md"));
-    expect(Object.keys(blocks).sort()).toEqual(["ovd-462", "ovd-722", "ovd-723"]);
+    expect(Object.keys(blocks).sort((a, b) => a.localeCompare(b))).toEqual(["ovd-462", "ovd-722", "ovd-723"]);
     for (const sqls of Object.values(blocks)) expect(sqls.length).toBeGreaterThan(0);
   });
 
   it("rejects hostaddr and service parameters on a restore target", () => {
     expect(isLocalTarget("postgresql://u@127.0.0.1/db?hostaddr=10.0.0.5")).toBe(false);
     expect(isLocalTarget("postgresql://u@127.0.0.1/db?service=prod")).toBe(false);
+  });
+});
+
+describe("window 1 psql resolution", async () => {
+  const { resolvePsql, PSQL_CANDIDATES } = await import("./restore-check.mjs");
+
+  it("uses an absolute OVD_PSQL, else the first standard location, never a PATH lookup", () => {
+    expect(resolvePsql({ OVD_PSQL: "/opt/pg/bin/psql" }, (p) => p === "/opt/pg/bin/psql")).toBe("/opt/pg/bin/psql");
+    expect(() => resolvePsql({ OVD_PSQL: "psql" }, () => true)).toThrow(/absolute/);
+    expect(resolvePsql({}, (p) => p === PSQL_CANDIDATES[2])).toBe(PSQL_CANDIDATES[2]);
+    expect(() => resolvePsql({}, () => false)).toThrow(/OVD_PSQL/);
+    for (const p of PSQL_CANDIDATES) expect(p.startsWith("/")).toBe(true);
   });
 });

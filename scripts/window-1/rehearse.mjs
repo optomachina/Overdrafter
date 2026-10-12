@@ -33,7 +33,7 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { diffInventories, formatInventory, isEmptyDiff, parseInventory, renderDiff } from "./ovd602-diff.mjs";
+import { byCodeUnit, diffInventories, formatInventory, isEmptyDiff, parseInventory, renderDiff } from "./ovd602-diff.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const MANIFEST = "docs/release/window-1/manifest.json";
@@ -124,7 +124,7 @@ function residualKeys(diff) {
   for (const [section, entries] of Object.entries(diff.removed)) for (const e of entries) keys.push(`${section}:${id[section](e)}`);
   for (const [section, entries] of Object.entries(diff.added)) for (const e of entries) keys.push(`+${section}:${id[section](e)}`);
   for (const [section, entries] of Object.entries(diff.changed)) for (const e of entries) keys.push(`~${section}:${e.key}`);
-  return keys.sort();
+  return keys.sort(byCodeUnit);
 }
 
 // ------------------------------------------------------------------ runner
@@ -378,7 +378,7 @@ class Rehearsal {
       });
 
       const migrationsDir = join(mainSrc, "supabase/migrations");
-      const migrations = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+      const migrations = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort(byCodeUnit);
       summary.mainMigrations = await this.step(`main migrations (${migrations.length})`, () => {
         const timings = [];
         for (const f of migrations) {
@@ -407,7 +407,7 @@ class Rehearsal {
       };
 
       const testsDir = join(mainSrc, "supabase/tests");
-      const mainSuites = readdirSync(testsDir).filter((f) => f.endsWith(".sql")).sort();
+      const mainSuites = readdirSync(testsDir).filter((f) => f.endsWith(".sql")).sort(byCodeUnit);
       if (!this.options.skipMainSuites) {
         summary.mainSuitesBaseline = await this.step(`pgTAP: main suites on main (${mainSuites.length})`, () => this.runSuites(testsDir, mainSuites, "main"));
       }
@@ -571,7 +571,7 @@ class Rehearsal {
         const residual = residualKeys(back);
         rec(mig.id).rollback.residual = residual;
         this.gate(`rollback ${mig.id} restores the prior inventory (except declared residuals)`,
-          JSON.stringify(residual) === JSON.stringify([...expectedResidual].sort()), residual.join(", ") || "none");
+          JSON.stringify(residual) === JSON.stringify([...expectedResidual].sort(byCodeUnit)), residual.join(", ") || "none");
       }
       const afterRollback = diffInventories(pin, this.inventory());
       this.log("ovd602-after-rollback-vs-pin.txt", renderDiff(afterRollback));
