@@ -5,7 +5,7 @@ lead engineer uses to size review, one JSON object per line: PR, head SHA,
 deterministic tier from the sensitive path list in `AGENTS.md`, Jev's tier,
 confidence and incident probability, the final tier, and latency.
 
-Rules the log encodes:
+Rules the log encodes, and the review each tier gets:
 
 * Jev can only raise risk. The final tier is the higher of the deterministic
   tier and Jev's tier.
@@ -15,6 +15,12 @@ Rules the log encodes:
   independent Sonnet review, `risky` gets an independent Opus review.
   Anything on Blaine's hard list (migrations, RLS, SECURITY DEFINER, CI
   workflows, secrets, auth, deploy) also needs his explicit yes to merge.
+* Provider dispatch, retry, kill switch, export control and migration window
+  PRs also get a Codex cross review. When the two reviews disagree, or Codex
+  raises a finding the Opus review did not, a skeptic agent per finding tries
+  to refute it with a running test before the merge decision. Learned on
+  Oct 12: an Opus APPROVE on #699 missed a retry path that could create two
+  provider quotes for one permit; Codex found it and skeptics reproduced it.
 
 Screen a batch:
 
