@@ -2,9 +2,9 @@
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LIVE_AUTOMATION_VENDORS } from "../types.js";
-import { createRmfgHttpTransport, RMFG_API_ORIGIN } from "./rmfgHttpTransport.js";
+import { createRmfgHttpTransport, resetRmfgProcessStateForTests, RMFG_API_ORIGIN } from "./rmfgHttpTransport.js";
 import { runRmfgQuoteOnly, type RmfgQuoteInput } from "./rmfgQuoteTransport.js";
 
 const API_KEY = "synthetic-key-not-a-secret";
@@ -53,6 +53,8 @@ const happyPath = (request: IncomingMessage) => {
   return { status: 404, body: {} };
 };
 
+beforeEach(() => resetRmfgProcessStateForTests());
+
 afterEach(async () => {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   server = undefined;
@@ -61,7 +63,7 @@ afterEach(async () => {
 describe("RMFG HTTP transport against a local stub", () => {
   it("runs the documented quote path with a bearer key and idempotency keys only", async () => {
     const { seen, baseUrl } = await stub(happyPath);
-    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl });
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
     const outcome = await runRmfgQuoteOnly(input, transport);
     expect(outcome).toMatchObject({ state: "ready", offer: { totalPriceUsd: 125, currency: "USD" } });
     expect(seen.map((entry) => `${entry.method} ${entry.url}`)).toEqual([
@@ -78,7 +80,7 @@ describe("RMFG HTTP transport against a local stub", () => {
     "stops on HTTP %i and never retries or makes another request",
     async (status, reason) => {
       const { seen, baseUrl } = await stub(() => ({ status, body: { error: "synthetic" } }));
-      const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl });
+      const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
       const first = await runRmfgQuoteOnly(input, transport);
       expect(first).toMatchObject({ state: "error", reason });
       expect(seen).toHaveLength(1);
@@ -92,7 +94,7 @@ describe("RMFG HTTP transport against a local stub", () => {
   it("enforces the daily quote cap locally and resets on a new UTC day", async () => {
     const { seen, baseUrl } = await stub(happyPath);
     let clock = new Date("2026-10-12T10:00:00Z");
-    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, dailyQuoteCap: 2, now: () => clock });
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true, dailyQuoteCap: 2, now: () => clock });
     for (const n of [1, 2]) {
       expect((await runRmfgQuoteOnly({ ...input, analyzeKey: `a${n}`, quoteKey: `q${n}` }, transport)).state).toBe("ready");
     }
@@ -106,7 +108,7 @@ describe("RMFG HTTP transport against a local stub", () => {
 
   it("makes no request while the kill switch or export block callback is set", async () => {
     const { seen, baseUrl } = await stub(happyPath);
-    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, isBlocked: () => true });
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true, isBlocked: () => true });
     expect((await runRmfgQuoteOnly(input, transport)).state).toBe("error");
     expect(seen).toHaveLength(0);
   });
@@ -124,7 +126,7 @@ describe("RMFG HTTP transport against a local stub", () => {
       response.end();
     });
     try {
-      const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: origin.baseUrl });
+      const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: origin.baseUrl, allowInsecureLoopbackForTests: true });
       expect((await runRmfgQuoteOnly(input, transport)).state).toBe("error");
       expect(origin.seen).toHaveLength(1);
       expect(target.seen).toHaveLength(0);
@@ -135,7 +137,7 @@ describe("RMFG HTTP transport against a local stub", () => {
 
   it("rejects a hostile request path before any request is made", async () => {
     const { seen, baseUrl } = await stub(happyPath);
-    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl });
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
     for (const path of [".attacker.example/", "//attacker.example/v1/quotes/x", "/v1/checkout", "/v1/quotes/a/b"]) {
       const outcome = await transport({ endpoint: "quote_status", method: "GET", path, quoteId: "x" });
       expect(outcome).toEqual({ status: 0, body: null });
@@ -150,5 +152,71 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: "http://api.rmfg.com" })).toThrow("origin");
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: RMFG_API_ORIGIN })).not.toThrow();
     expect(LIVE_AUTOMATION_VENDORS).not.toContain("rmfg");
+  });
+
+  it.each([NaN, -1, 0, 1.5, Infinity, 21, 1000])("rejects daily cap %s at construction", (dailyQuoteCap) => {
+    expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).toThrow("daily quote cap");
+  });
+
+  it("accepts daily caps from 1 to 20", () => {
+    for (const dailyQuoteCap of [1, 20]) {
+      expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).not.toThrow();
+    }
+  });
+
+  it.each(["a\u0000b", "a\u007fb", "a\tb", "a\u0085b", " key", "key ", "key\n", "\u0000"])(
+    "rejects API key %j with control characters or surrounding whitespace",
+    (apiKey) => {
+      expect(() => createRmfgHttpTransport({ apiKey })).toThrow("API key");
+    },
+  );
+
+  it("requires https unless the explicit test flag is passed", () => {
+    for (const baseUrl of ["http://127.0.0.1:8080", "http://localhost:8080"]) {
+      expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl })).toThrow("origin");
+      expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true })).not.toThrow();
+    }
+    expect(() => createRmfgHttpTransport({
+      apiKey: API_KEY, baseUrl: "http://api.rmfg.com", allowInsecureLoopbackForTests: true,
+    })).toThrow("origin");
+  });
+
+  it("shares the block latch and daily count across transport instances", async () => {
+    const { seen, baseUrl } = await stub(() => ({ status: 429, body: {} }));
+    const first = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
+    expect((await runRmfgQuoteOnly(input, first)).state).toBe("error");
+    expect(seen).toHaveLength(1);
+    const second = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
+    expect(second.blockedReason()).toBe("rate_limited");
+    expect((await runRmfgQuoteOnly({ ...input, analyzeKey: "a2", quoteKey: "q2" }, second)).state).toBe("error");
+    expect(seen).toHaveLength(1);
+    resetRmfgProcessStateForTests();
+    expect(second.blockedReason()).toBeNull();
+  });
+
+  it("shares the daily cap across instances", async () => {
+    const { seen, baseUrl } = await stub(happyPath);
+    const options = { apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true, dailyQuoteCap: 1 };
+    expect((await runRmfgQuoteOnly(input, createRmfgHttpTransport(options))).state).toBe("ready");
+    const requests = seen.length;
+    const over = await runRmfgQuoteOnly({ ...input, analyzeKey: "a2", quoteKey: "q2" }, createRmfgHttpTransport(options));
+    expect(over).toMatchObject({ state: "error", reason: "rate_limited" });
+    expect(seen).toHaveLength(requests);
+  });
+
+  it("awaits an async isBlocked hook before every request and reads it fresh", async () => {
+    const { seen, baseUrl } = await stub(happyPath);
+    let blocked = false;
+    let reads = 0;
+    const transport = createRmfgHttpTransport({
+      apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true,
+      isBlocked: async () => { reads += 1; await Promise.resolve(); return blocked; },
+    });
+    expect((await runRmfgQuoteOnly(input, transport)).state).toBe("ready");
+    expect(reads).toBe(seen.length);
+    blocked = true;
+    const before = seen.length;
+    expect((await runRmfgQuoteOnly({ ...input, analyzeKey: "a2", quoteKey: "q2" }, transport)).state).toBe("error");
+    expect(seen).toHaveLength(before);
   });
 });
