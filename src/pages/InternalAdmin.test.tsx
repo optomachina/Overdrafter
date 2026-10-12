@@ -63,6 +63,9 @@ vi.mock("@/hooks/use-app-session", () => ({
 vi.mock("@/components/admin/ManualQuoteRequestInbox", () => ({
   ManualQuoteRequestInbox: () => <div>Manual request inbox fixture</div>,
 }));
+vi.mock("@/components/admin/ProviderKillSwitchCard", () => ({
+  ProviderKillSwitchCard: () => <div>Provider kill switch</div>,
+}));
 vi.mock("@/components/admin/FoundingBetaEnrollmentCard", () => ({
   FoundingBetaEnrollmentCard: ({
     organizations,
