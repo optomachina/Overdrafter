@@ -9,6 +9,23 @@
 -- supabase/tests/pending/ovd722_provider_kill_switch.sql.pending is renamed to
 -- supabase/tests/ovd722_provider_kill_switch.sql in the same change.
 --
+-- Companion changes that MUST land in the same window/PR as the migration:
+--   * Retarget the prosrc/proconfig postconditions in these existing suites
+--     from the public RPC to the preserved private.*_pre_ovd722 body (the
+--     public name becomes the thin kill-switch wrapper below):
+--       supabase/tests/provider_dispatch_admission_serialization.sql
+--         (public.api_request_provider_dispatch)
+--       supabase/tests/xometry_beta_dispatch_admission_serialization.sql
+--         (public.api_request_xometry_beta_dispatch)
+--       supabase/tests/job_service_detail_privileges.sql
+--         (:dispatch_signature = public.api_request_xometry_beta_dispatch)
+--   * Promote supabase/tests/pending/ovd722_provider_kill_switch.sql.pending.
+--
+-- Deploy ordering: apply this migration BEFORE (or together with) the worker
+-- build containing OVD-722. That worker fails closed: without
+-- api_worker_provider_kill_switch_state every live dispatch is refused with
+-- provider_kill_switch_unavailable (retried, then manual follow-up).
+--
 -- Purpose: stop all automated traffic to one provider (or to every provider)
 -- with a data flip. No deploy, no worker restart, no caching: every server
 -- preflight and every worker checkpoint reads the current row.
