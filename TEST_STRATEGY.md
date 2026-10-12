@@ -134,6 +134,14 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   authentication, SQL admission or provider execution. Every unexpected request
   is aborted before send; no CAD/PDF bytes or saved auth state are used. See
   `e2e/quote-confirmation/README.md` for the matrix and recovery boundaries.
+- `npx playwright test --config e2e/delivered-comparison.config.ts` is the
+  `OVD-571` static-fixture lane for the actual `ClientQuoteDecisionPanel`:
+  delivered-date/OTD axes, overlap and late options, Cheapest/Fastest order,
+  deadline keyboard/mouse/touch control, arrival-time selection, focus and
+  viewport preservation, and the terminal request notice at desktop and mobile
+  widths. Quotes, deadline intent and provider results are synthetic; every
+  non-loopback request is aborted. It does not exercise the OVD-570 RPC, quote
+  polling, or provider execution.
 - `npm run e2e:fixture` selects only `@fixture` tests, skips auth preparation,
   forces a fresh loopback-only app server with an inert backend, and ignores
   ambient backend/base-URL overrides. It must not load saved auth state.
