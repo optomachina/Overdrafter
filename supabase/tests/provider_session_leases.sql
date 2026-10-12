@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(119);
+select plan(122);
 
 -- OVD-462 is a proposed migration that is intentionally NOT in supabase/migrations
 -- yet (needs migration window 1). fixtures/ holds a byte copy of
@@ -177,9 +177,19 @@ select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test'
 select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-a', pg_temp.tok(1), 1) - 'expires_in_ms',
   '{"status":"renewed","renewals_remaining":0}'::jsonb, 'owner renews up to the bound');
 select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-a', pg_temp.tok(1), 1),
-  '{"status":"lost","reason":"renewal_exhausted","outcome":null}'::jsonb, 'renewal beyond the bound ends the lease');
+  '{"status":"lost","reason":"renewal_exhausted","outcome":null}'::jsonb, 'renewal beyond the bound is denied');
 select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-a', pg_temp.tok(1), 1),
-  '{"status":"lost","reason":"expired","outcome":null}'::jsonb, 'a lost lease stays lost');
+  '{"status":"lost","reason":"renewal_exhausted","outcome":null}'::jsonb, 'a denied renewal stays denied');
+select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-b', pg_temp.tok(2), 60, 5, 600)->>'status',
+  'contended', 'an exhausted holder keeps the binding until its advertised expiry, so no second owner starts early');
+reset role;
+select is((select array_agg(state) from public.provider_session_leases
+           where provider = 'xometry' and account_ref = pg_temp.acct(1) and environment = 'test'),
+          array['active'], 'renewal exhaustion does not end the row before expires_at');
+-- The exhausted holder's advertised expiry passes.
+update public.provider_session_leases set expires_at = clock_timestamp() - interval '1 second'
+ where account_ref = pg_temp.acct(1) and provider = 'xometry' and environment = 'test' and generation = 1;
+set local role service_role;
 
 -- ---------------------------------------------------------------- crash / expiry recovery and fencing
 select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-b', pg_temp.tok(2), 60, 5, 600)->>'generation',
@@ -268,11 +278,13 @@ select is(public.revoke_provider_session_binding('xometry', pg_temp.acct(1), 'te
 select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-e', pg_temp.tok(5), 5) - 'expires_in_ms',
   '{"status":"renewed","renewals_remaining":4}'::jsonb, 'rejected revocations leave the holder in place');
 select is(public.revoke_provider_session_binding('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'ops-oncall-1', 'OVD-462-runbook'),
-  '{"status":"blocked","outcome":"owner_revoked","generation":5}'::jsonb, 'operator revokes the active owner');
+  '{"status":"blocked","outcome":"owner_revoked","generation":6}'::jsonb, 'operator revokes the active owner under a fresh generation');
 select is(public.renew_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-e', pg_temp.tok(5), 5),
-  '{"status":"lost","reason":"blocked","outcome":"owner_revoked"}'::jsonb, 'revoked owner loses the lease on its next heartbeat');
+  '{"status":"lost","reason":"revoked","outcome":"owner_revoked"}'::jsonb, 'revoked owner loses the lease on its next heartbeat');
 select is(public.release_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-e', pg_temp.tok(5), 5),
-  '{"status":"released","changed":false,"final_state":"blocked"}'::jsonb, 'revoked owner release is a no-op that keeps the block');
+  '{"status":"released","changed":false,"final_state":"revoked"}'::jsonb, 'revoked owner release is a no-op that keeps the block');
+select is(public.clear_provider_session_binding_block('xometry', pg_temp.acct(1), 'test', 5, 'ops-oncall-1', 'OVD-462-runbook'),
+  '{"status":"rejected","reason":"not_blocked"}'::jsonb, 'the revoked holder''s generation is not the block');
 select is(public.revoke_provider_session_binding('fictiv', pg_temp.acct(4), 'production', pg_temp.sb(4), 'ops-oncall-1', 'OVD-462-incident-7'),
   '{"status":"blocked","outcome":"owner_revoked","generation":1}'::jsonb, 'revocation without a holder still blocks future grants');
 select is(public.acquire_provider_session_lease('fictiv', pg_temp.acct(4), 'production', pg_temp.sb(4), 'task-f', pg_temp.tok(6), 60, 5, 600),
@@ -280,22 +292,22 @@ select is(public.acquire_provider_session_lease('fictiv', pg_temp.acct(4), 'prod
 reset role;
 select is((select array_agg(row(generation, state, revoked_by_ref, revoke_reason_ref, cleared_by_ref, clear_reason_ref)::text order by generation)
            from public.provider_session_leases
-           where provider = 'xometry' and account_ref = pg_temp.acct(1) and environment = 'test' and generation in (4, 5)),
-          array['(4,cleared,,,ops-oncall-1,OVD-462-runbook)', '(5,blocked,ops-oncall-1,OVD-462-runbook,,)'],
+           where provider = 'xometry' and account_ref = pg_temp.acct(1) and environment = 'test' and generation in (4, 5, 6)),
+          array['(4,cleared,,,ops-oncall-1,OVD-462-runbook)', '(5,revoked,,,,)', '(6,blocked,ops-oncall-1,OVD-462-runbook,,)'],
           'operator revoke and clear record their actor and reason refs');
 select is((select count(*)::integer from public.provider_session_bindings where session_binding_ref = pg_temp.sb(12)),
           0, 'a rejected revocation registers nothing');
 set local role service_role;
 
 -- ---------------------------------------------------------------- generation survives history retention (L2)
-select is(public.clear_provider_session_binding_block('xometry', pg_temp.acct(1), 'test', 5, 'ops-oncall-1', 'OVD-462-runbook'),
+select is(public.clear_provider_session_binding_block('xometry', pg_temp.acct(1), 'test', 6, 'ops-oncall-1', 'OVD-462-runbook'),
   '{"status":"cleared"}'::jsonb, 'operator clears the revocation');
 reset role;
 -- Simulated retention that deletes all lease history for the binding.
 delete from public.provider_session_leases where provider = 'xometry' and account_ref = pg_temp.acct(1) and environment = 'test';
 set local role service_role;
 select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(1), 'test', pg_temp.sb(1), 'task-h', pg_temp.tok(8), 60, 5, 600)->>'generation',
-  '6', 'generation stays strictly increasing after lease history is deleted');
+  '7', 'generation stays strictly increasing after lease history is deleted');
 
 -- ---------------------------------------------------------------- hard cap, expiry and null fencing inputs
 select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(10), 'test', pg_temp.sb(10), 'task-i', pg_temp.tok(10), 60, 5, 600)->>'generation',

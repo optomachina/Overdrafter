@@ -25,6 +25,11 @@
 -- no deadlock cycle is possible. Each RPC sets lock_timeout = 2s: a stuck holder
 -- makes callers fail with 55P03 (lock_not_available), which the worker treats as
 -- an unconfirmed store call and fails closed, instead of waiting without bound.
+--
+-- Invariant: one lease RPC per transaction. Advisory transaction locks are held
+-- until commit, so two of these RPCs in one transaction could take locks in an
+-- order the rule above does not cover. PostgREST runs every RPC call in its own
+-- transaction, which is the only supported caller.
 -- ===========================================================================
 
 -- Storage backstop for "a session binding belongs to exactly one
@@ -99,7 +104,7 @@ create table public.provider_session_leases (
     check (owner_task_ref is null or owner_task_ref ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$'),
   constraint provider_session_leases_generation_positive check (generation > 0),
   constraint provider_session_leases_state_known
-    check (state in ('active', 'released', 'expired', 'blocked', 'cleared')),
+    check (state in ('active', 'released', 'expired', 'blocked', 'cleared', 'revoked')),
   constraint provider_session_leases_outcome_known
     check (outcome is null or outcome in
       ('missing_session', 'login_required', 'challenge_required', 'owner_revoked', 'corrupt_state')),
@@ -110,8 +115,12 @@ create table public.provider_session_leases (
       acquired_at, expires_at, hard_expires_at) in (0, 7)),
   constraint provider_session_leases_granted_states_have_lease
     check (state not in ('active', 'released', 'expired') or holder_token is not null),
+  -- 'revoked' is the ended row of a holder an operator revoked; the block itself
+  -- is a separate 'blocked' row with a fresh generation.
   constraint provider_session_leases_outcome_matches_state
-    check ((state in ('blocked', 'cleared')) = (outcome is not null)),
+    check ((state in ('blocked', 'cleared', 'revoked')) = (outcome is not null)),
+  constraint provider_session_leases_revoked_state_is_owner_revoked
+    check (state <> 'revoked' or (outcome = 'owner_revoked' and holder_token is not null)),
   constraint provider_session_leases_ended_matches_state
     check ((state = 'active') = (ended_at is null)),
   constraint provider_session_leases_ttl_bounded
@@ -369,13 +378,11 @@ begin
     return jsonb_build_object('status', 'lost', 'reason', 'expired', 'outcome', null);
   end if;
 
-  -- renewal_exhausted is reported once; the row is stored as 'expired', so later
-  -- calls for this generation report reason 'expired'. Both are terminal
-  -- lease_lost for the worker.
+  -- The renewal is denied (terminal lease_lost for the worker), but the lease
+  -- stays active until its current expires_at: the holder may still be running
+  -- up to the deadline it was given, so nobody else may be granted the binding
+  -- before then. Expiry recovery or the holder's release ends the row.
   if v_row.renewal_count >= v_row.max_renewals or v_row.hard_expires_at <= v_now then
-    update public.provider_session_leases l
-       set state = 'expired', ended_at = v_now, updated_at = v_now
-     where l.id = v_row.id;
     return jsonb_build_object('status', 'lost', 'reason', 'renewal_exhausted', 'outcome', null);
   end if;
 
@@ -513,13 +520,15 @@ $$;
 -- this session binding and blocks new grants until
 -- clear_provider_session_binding_block runs. Requires and records opaque actor
 -- and reason references. Revoking with a session binding that is not the current
--- holder's is rejected (binding_mismatch). With no holder, the session binding is
--- registered to this key and the block is recorded on it.
+-- holder's is rejected (binding_mismatch). A current holder's row ends as
+-- 'revoked'; the block is always a new 'blocked' row with a fresh generation,
+-- which is what this returns and what the clear RPC takes. With no holder, the
+-- session binding is registered to this key first.
 --
--- Operator RPCs are granted to service_role like the worker RPCs; the worker
--- code path cannot construct them (separate TS factory) and every use is
--- attributable. A dedicated operator database role is a follow-up if the
--- service_role credential must stop being able to call them at all.
+-- Operator RPCs are granted to service_role like the worker RPCs, for 1.0; they
+-- are called from the admin server path, the worker code path cannot construct
+-- them (separate TS factory) and every use is attributable. A dedicated
+-- operator database role is deferred to 1.1.
 create function public.revoke_provider_session_binding(
   p_provider text,
   p_account_ref text,
@@ -574,12 +583,13 @@ begin
     return jsonb_build_object('status', 'blocked', 'outcome', v_row.outcome, 'generation', v_row.generation);
   end if;
 
+  -- The revoked holder's row ends as 'revoked' (its renew, report and release
+  -- see owner_revoked); the block below gets a fresh generation, so revoked and
+  -- pre-revocation authority are always distinguishable.
   if found then
     update public.provider_session_leases l
-       set state = 'blocked', outcome = 'owner_revoked', ended_at = v_now, updated_at = v_now,
-           revoked_by_ref = p_actor_ref, revoke_reason_ref = p_reason_ref
+       set state = 'revoked', outcome = 'owner_revoked', ended_at = v_now, updated_at = v_now
      where l.id = v_row.id;
-    return jsonb_build_object('status', 'blocked', 'outcome', 'owner_revoked', 'generation', v_row.generation);
   end if;
 
   insert into public.provider_session_bindings (session_binding_ref, provider, account_ref, environment, created_at, updated_at)
@@ -700,7 +710,7 @@ grant execute on function public.clear_provider_session_binding_block(text, text
 --   -- monotonic because they come from provider_session_bindings.next_generation,
 --   -- which retention must never delete or lower.
 --   -- delete from public.provider_session_leases
---   --  where state in ('released', 'expired', 'cleared')
+--   --  where state in ('released', 'expired', 'cleared', 'revoked')
 --   --    and ended_at < now() - interval '30 days';
 --
 --   -- If a later design replaces operator revocation with an approval table:

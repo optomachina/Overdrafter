@@ -196,8 +196,8 @@ export type ProviderSessionLeaseStoreAcquireRequest = ProviderSessionLeaseOwner 
 };
 
 export type ProviderSessionLeaseRejectReason = "invalid_identity" | "invalid_policy" | "binding_mismatch" | "not_owner";
-export type ProviderSessionLeaseLostReason = "released" | "expired" | "blocked" | "cleared" | "renewal_exhausted";
-export type ProviderSessionLeaseEndedState = "released" | "expired" | "blocked" | "cleared";
+export type ProviderSessionLeaseLostReason = "released" | "expired" | "blocked" | "cleared" | "revoked" | "renewal_exhausted";
+export type ProviderSessionLeaseEndedState = "released" | "expired" | "blocked" | "cleared" | "revoked";
 
 export type ProviderSessionLeaseStoreAcquireResponse =
   | { status: "acquired"; generation: number; idempotent: boolean; expiresInMs: number; renewalsRemaining: number }
@@ -455,7 +455,9 @@ export class ProviderSessionLease {
       return { kind: "renewed", renewalsRemaining: response.renewalsRemaining };
     }
     const outcome: ProviderSessionTerminalOutcome =
-      response.status === "lost" && response.reason === "blocked" && response.outcome ? response.outcome : "lease_lost";
+      response.status === "lost" && (response.reason === "blocked" || response.reason === "revoked") && response.outcome
+        ? response.outcome
+        : "lease_lost";
     this.#markLost(outcome, response.reason);
     return { kind: "lost", outcome };
   }

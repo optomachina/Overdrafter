@@ -85,8 +85,8 @@ function bool(value: unknown): boolean {
 }
 
 const OUTCOMES = PROVIDER_SESSION_BLOCKING_OUTCOMES;
-const LOST_REASONS = ["released", "expired", "blocked", "cleared", "renewal_exhausted"] as const;
-const ENDED = ["released", "expired", "blocked", "cleared"] as const;
+const LOST_REASONS = ["released", "expired", "blocked", "cleared", "revoked", "renewal_exhausted"] as const;
+const ENDED = ["released", "expired", "blocked", "cleared", "revoked"] as const;
 
 function statusOf(value: unknown): string {
   if (value === null || typeof value !== "object" || Array.isArray(value)) malformed();

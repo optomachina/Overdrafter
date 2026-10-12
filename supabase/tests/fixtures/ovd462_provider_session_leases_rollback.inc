@@ -9,7 +9,7 @@
 -- `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-462.rollback.sql`.
 --
 -- Safety: the expand phase created only new objects, so rollback drops only
--- those objects. Lease history (released / expired / cleared rows) is
+-- those objects. Lease history (released / expired / cleared / revoked rows) is
 -- ephemeral. Occupant rows are NOT: an 'active' row is a live owner, and a
 -- 'blocked' row records a manual-follow-up fence (login_required,
 -- challenge_required, corrupt_state, missing_session, operator owner_revoked).
@@ -28,10 +28,20 @@
 
 do $$
 begin
-  -- Nested so the occupant query is only planned when the table exists.
-  if pg_catalog.to_regclass('public.provider_session_leases') is not null
-     and coalesce(pg_catalog.current_setting('ovd462.rollback_discard_occupants', true), '') <> 'confirmed' then
-    if exists (select 1 from public.provider_session_leases where state in ('active', 'blocked')) then
+  -- Nested so the lock and the occupant query only run when the table exists.
+  if pg_catalog.to_regclass('public.provider_session_leases') is not null then
+    -- RLS is forced and has no policies, so a role without BYPASSRLS would see
+    -- zero occupants and pass the check below.
+    if not exists (select 1 from pg_catalog.pg_roles r
+                   where r.rolname = current_user and (r.rolsuper or r.rolbypassrls)) then
+      raise exception 'OVD-462 rollback refused: the running role must bypass RLS to see occupants'
+        using errcode = 'P0001';
+    end if;
+    -- Block every lease RPC until this transaction ends, so no occupant can be
+    -- committed between the check and the drops below.
+    lock table public.provider_session_leases, public.provider_session_bindings in access exclusive mode;
+    if coalesce(pg_catalog.current_setting('ovd462.rollback_discard_occupants', true), '') <> 'confirmed'
+       and exists (select 1 from public.provider_session_leases where state in ('active', 'blocked')) then
       raise exception 'OVD-462 rollback refused: provider_session_leases has active or blocked occupants'
         using errcode = 'P0001',
               hint = 'Resolve or export the occupants, or set local ovd462.rollback_discard_occupants = ''confirmed''.';

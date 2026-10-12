@@ -24,8 +24,10 @@ import { PsqlSession, oneJson } from './ovd591-psql-concurrency.mjs';
 
 export const DRAFT_PATH = 'docs/migration-drafts/ovd-462.sql';
 export const FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases.inc';
+export const ROLLBACK_PATH = 'docs/migration-drafts/ovd-462.rollback.sql';
+export const ROLLBACK_FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc';
 export const DOCKER_IMAGE = 'postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94';
-export const ITERATIONS = Object.freeze({ sameKey: 30, lockTimeout: 20, binding: 30, expiry: 30 });
+export const ITERATIONS = Object.freeze({ sameKey: 30, lockTimeout: 20, binding: 30, expiry: 30, rollback: 20 });
 export const MIN_ITERATIONS = 20;
 const LOCK_TIMEOUT_MS = 2000;
 const TTL_SECONDS = 5;
@@ -54,8 +56,17 @@ exception when others then
     'elapsed_ms', floor(extract(epoch from (pg_catalog.clock_timestamp() - v_start)) * 1000));
 end;
 $$;
-grant usage on schema race to service_role;
-grant execute on function race.try_json(text) to service_role;
+-- Same for statements that return nothing (the rollback guard), keeping the message.
+create function race.try_exec(p_sql text) returns jsonb language plpgsql as $$
+begin
+  execute p_sql;
+  return jsonb_build_object('sqlstate', null, 'message', null);
+exception when others then
+  return jsonb_build_object('sqlstate', sqlstate, 'message', sqlerrm);
+end;
+$$;
+grant usage on schema race to service_role, authenticated;
+grant execute on function race.try_json(text), race.try_exec(text) to service_role, authenticated;
 `;
 
 export function acquireSql(key, taskRef, holderToken, { ttl = 60, renewals = 5, duration = 600 } = {}) {
@@ -138,9 +149,40 @@ export function acceptExpiryRace(staleGeneration, renew, contender, after, rows)
   return renew.result.status === 'lost' ? `lost/${renew.result.reason}` : 'not_owner';
 }
 
+/** Splits the rollback into its guard (which takes the table locks) and the drops after it. */
+export function splitRollback(rollbackSql) {
+  const at = rollbackSql.indexOf('\ndrop ');
+  assert(at > 0, 'rollback drops missing');
+  const guard = rollbackSql.slice(0, at + 1), drops = rollbackSql.slice(at + 1);
+  assert.match(guard, /lock table public\.provider_session_leases, public\.provider_session_bindings in access exclusive mode;/);
+  assert(!/\ndrop /.test(guard) && /^drop /.test(drops));
+  return { guard, drops };
+}
+
+/** (e) A revoke racing an open rollback cannot commit a fence that the drops would destroy. */
+export function acceptRollbackRace(revoke, observedWaiter, dropped) {
+  assert.equal(revoke.sqlstate, '55P03', `revoke must wait on the rollback lock and time out, got ${label(revoke)}`);
+  assert(revoke.elapsed_ms >= LOCK_TIMEOUT_MS - 100 && revoke.elapsed_ms < LOCK_TIMEOUT_MS + 1500, `revoke waited ${revoke.elapsed_ms}ms`);
+  assert.equal(observedWaiter, true, 'revoke was not observed waiting on the rollback transaction');
+  assert.equal(dropped, true, 'rollback did not drop both tables');
+  return 'revoke_timed_out_rollback_committed';
+}
+
+/** (f) The guard refuses a role that cannot see occupants through forced RLS, with or without the override. */
+export function acceptRollbackRoleGuard(results, tablesIntact) {
+  assert.equal(results.length, 2);
+  for (const result of results) {
+    assert.equal(result.sqlstate, 'P0001', `guard must refuse, got ${result.sqlstate ?? 'success'}`);
+    assert.match(result.message, /must bypass RLS/);
+  }
+  assert.equal(tablesIntact, true);
+  return 'refused';
+}
+
 const tally = (counts, key) => { counts[key] = (counts[key] ?? 0) + 1; };
 
-export async function runLeaseRaces(makeSession, draftSql, { iterations = ITERATIONS, log = () => {} } = {}) {
+export async function runLeaseRaces(makeSession, draftSql, rollbackSql, { iterations = ITERATIONS, log = () => {} } = {}) {
+  const rollback = splitRollback(rollbackSql);
   for (const count of Object.values(iterations)) assert(count >= MIN_ITERATIONS, `at least ${MIN_ITERATIONS} iterations required`);
   const sessions = {};
   const receipt = { iterations: { ...iterations }, scenarios: {} };
@@ -268,6 +310,39 @@ export async function runLeaseRaces(makeSession, draftSql, { iterations = ITERAT
     await noDoubleOwner();
     receipt.scenarios.expiry = counts;
     log(`(d) expiry: ${JSON.stringify(counts)}`);
+
+    // (f) rollback guard run by a role without BYPASSRLS (occupants exist here)
+    const tablesExist = async () => (await coordinator.request(`select pg_catalog.to_regclass('public.provider_session_leases') is not null
+        and pg_catalog.to_regclass('public.provider_session_bindings') is not null;`)).trim() === 't';
+    await a.request('reset role;\nset role authenticated;');
+    const guardResults = [];
+    for (const override of ['', 'confirmed']) {
+      await a.request(`select pg_catalog.set_config('ovd462.rollback_discard_occupants', ${quote(override)}, false);`);
+      guardResults.push(oneJson(await a.request(`select race.try_exec(${quote(rollback.guard)});`)));
+    }
+    await a.request("reset role;\nselect pg_catalog.set_config('ovd462.rollback_discard_occupants', '', false);");
+    receipt.scenarios.rollbackRoleGuard = acceptRollbackRoleGuard(guardResults, await tablesExist());
+    log(`(f) rollback guard without BYPASSRLS: ${receipt.scenarios.rollbackRoleGuard}`);
+
+    // (e) rollback holds its table locks from the guard to commit; a concurrent revoke cannot slip in
+    counts = {};
+    for (let i = 0; i < iterations.rollback; i += 1) {
+      const key = { provider: 'xometry', account: acct(), environment: 'test', binding: sb() };
+      await a.request(`begin;\nset local ovd462.rollback_discard_occupants = 'confirmed';\n${rollback.guard}`);
+      const started = Date.now();
+      const revoking = b.request(tryCall(`select public.revoke_provider_session_binding(${quote(key.provider)}, ${quote(key.account)}, `
+        + `${quote(key.environment)}, ${quote(key.binding)}, 'race-operator', 'race-reason')`));
+      let observedWaiter = false;
+      while (!observedWaiter && Date.now() - started < LOCK_TIMEOUT_MS - 500) {
+        observedWaiter = (await coordinator.request(`select ${pids.a} = any (pg_catalog.pg_blocking_pids(${pids.b}));`)).trim() === 't';
+      }
+      const revoke = callResult(await revoking);
+      await a.request(`${rollback.drops}commit;`);
+      tally(counts, acceptRollbackRace(revoke, observedWaiter, !(await tablesExist())));
+      await coordinator.request(draftSql);
+    }
+    receipt.scenarios.rollback = counts;
+    log(`(e) rollback race: ${JSON.stringify(counts)}`);
     return receipt;
   } catch (error) {
     const stderr = Object.entries(sessions).filter(([, session]) => session.record.stderr)
@@ -318,10 +393,10 @@ export async function runAgainstSupabase(root, { log = console.log } = {}) {
   const projectId = readFileSync(join(root, 'supabase/config.toml'), 'utf8').match(/^project_id = "([a-z0-9_-]+)"$/m)?.[1];
   assert(projectId, 'project_id missing from supabase/config.toml');
   const container = `supabase_db_${projectId}`;
-  const draft = readDraft(root);
+  const draft = readDraft(root), rollback = readRollback(root);
   return withScratchDatabase(container, decodeURIComponent(url.password), (factory, database) => {
     log(`ovd462 race: local Supabase container ${container}, scratch database ${database}`);
-    return runLeaseRaces(factory, draft, { log });
+    return runLeaseRaces(factory, draft, rollback, { log });
   });
 }
 
@@ -345,10 +420,10 @@ export async function runAgainstDocker(root, { log = console.log } = {}) {
     const setup = psqlFactory(id, 'postgres', password)('setup');
     await setup.request('create role anon nologin; create role authenticated nologin; create role service_role nologin;');
     await setup.close();
-    const draft = readDraft(root);
+    const draft = readDraft(root), rollback = readRollback(root);
     return await withScratchDatabase(id, password, (factory, database) => {
       log(`ovd462 race: fixture container ${id} (${DOCKER_IMAGE}), scratch database ${database}`);
-      return runLeaseRaces(factory, draft, { log });
+      return runLeaseRaces(factory, draft, rollback, { log });
     });
   } finally {
     if (created.container) spawnSync('docker', ['rm', '-f', created.container], { encoding: 'utf8' });
@@ -360,6 +435,11 @@ export function readDraft(root) {
   const draft = readFileSync(join(root, DRAFT_PATH), 'utf8');
   assert.equal(readFileSync(join(root, FIXTURE_PATH), 'utf8'), draft, 'pgTAP fixture must be a byte copy of the draft');
   return draft;
+}
+export function readRollback(root) {
+  const rollback = readFileSync(join(root, ROLLBACK_PATH), 'utf8');
+  assert.equal(readFileSync(join(root, ROLLBACK_FIXTURE_PATH), 'utf8'), rollback, 'pgTAP fixture must be a byte copy of the rollback');
+  return rollback;
 }
 
 async function main() {

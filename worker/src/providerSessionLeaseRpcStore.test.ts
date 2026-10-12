@@ -123,6 +123,10 @@ describe("provider session lease RPC store", () => {
       .toEqual({ status: "renewed", expiresInMs: 29_000, renewalsRemaining: 1 });
     expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "lost", reason: "blocked", outcome: "owner_revoked" }).client).renew(owned))
       .toEqual({ status: "lost", reason: "blocked", outcome: "owner_revoked" });
+    expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "lost", reason: "revoked", outcome: "owner_revoked" }).client).renew(owned))
+      .toEqual({ status: "lost", reason: "revoked", outcome: "owner_revoked" });
+    expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "released", changed: false, final_state: "revoked" }).client).release(owned))
+      .toEqual({ status: "released", changed: false, finalState: "revoked" });
     expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "released", changed: false, final_state: "expired" }).client).release(owned))
       .toEqual({ status: "released", changed: false, finalState: "expired" });
     expect(await createProviderSessionLeaseRpcStore(fixedClient({ status: "blocked", outcome: "corrupt_state", generation: 1 }).client)

@@ -48,9 +48,9 @@ derivation and never returned.
 acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──► active
               │                                               │
               ├─ release ──► released (idempotent)            │
-              ├─ expiry / renewal exhausted ──► expired ◄─────┘
+              ├─ expiry (also after renewal is denied) ──► expired ◄─┘
               ├─ reportOutcome(outcome) ──► blocked ──operator clear──► cleared
-              └─ operator revoke ──► blocked (owner_revoked)
+              └─ operator revoke ──► revoked, plus a new blocked row (owner_revoked)
 ```
 
 - **Acquire.** Atomic per binding key (Postgres: transaction advisory lock and
@@ -62,14 +62,20 @@ acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──►
   A repeated acquire with the same holder token is idempotent. The manager uses
   this to retry a lost response once without creating an orphan lease.
 - **Renew.** Bounded by `ttlSeconds` (5–300), `maxRenewals` (0–720) and
-  `maxDurationSeconds` (≤ 4 h). These limits are enforced on both sides. The
-  renewal past the budget ends the lease. That call reports
-  `renewal_exhausted`; the row is stored as `expired`, so later calls for the
-  generation report `expired`. Both are terminal `lease_lost`.
+  `maxDurationSeconds` (≤ 4 h). These limits are enforced on both sides. A
+  renewal past the budget is denied with `renewal_exhausted` (terminal
+  `lease_lost`; the worker stops), but the row stays `active` until its current
+  `expires_at`. The holder may still be running up to the deadline it was given,
+  so no one else is granted the binding before then; expiry recovery or the
+  holder's release then ends the row.
 - **Local deadline.** It is `request start + server expires_in_ms − safetyMarginMs`,
   which makes it immune to clock skew. The local holder therefore stops before
   the server could grant the binding to anyone else. Store errors during renew
   are *unconfirmed* and the lease stays usable only until that deadline.
+- **One RPC per transaction.** Deadlock freedom (key lock first, then at most
+  one session binding lock) assumes each lease RPC runs in its own
+  transaction. PostgREST does this for every RPC call, and it is the only
+  supported caller.
 - **Release.** Idempotent for the exact owner. A stale owner's release after a
   regrant is a no-op.
 - **`runWithLease`.** Acquires the lease and sends a heartbeat every
@@ -90,6 +96,12 @@ acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──►
 
 A blocked binding answers every acquire with `manual_follow_up` until an
 operator clears that exact generation (`clear_provider_session_binding_block`).
+
+Revoking an active holder ends the holder's row as `revoked` (its renew,
+report and release see `owner_revoked`) and records the block as a new
+`blocked` row with a fresh generation. Revoke returns that generation, and it
+is the one the clear RPC takes, so revoked authority and the authority before
+revocation never share a generation.
 
 A holder may report only `missing_session`, `login_required`,
 `challenge_required` and `corrupt_state`
@@ -144,15 +156,19 @@ and is not executable by any API role.
 The rollback refuses to run while any `active` or `blocked` row exists, because
 blocked rows are manual-follow-up fences. Resolve or export them first, or set
 `set local ovd462.rollback_discard_occupants = 'confirmed'` in the same
-transaction. The rollback relies on the migration runner's transaction wrapper;
-by hand, use `psql --single-transaction -v ON_ERROR_STOP=1`.
+transaction. The guard first refuses any running role without `BYPASSRLS` (or
+superuser), because forced RLS would hide the occupants from it. It then takes
+`ACCESS EXCLUSIVE` locks on both tables before the occupant check, so no lease
+RPC can commit a new occupant between the check and the drops. The rollback
+relies on the migration runner's transaction wrapper; by hand, use
+`psql --single-transaction -v ON_ERROR_STOP=1`.
 
 ## Verification
 
 - `worker/src/providerSessionLease.test.ts` and
   `worker/src/providerSessionLeaseRpcStore.test.ts`: the root `npm test`
   (vitest) runs them.
-- `supabase/tests/provider_session_leases.sql` has 119 pgTAP assertions covering
+- `supabase/tests/provider_session_leases.sql` has 122 pgTAP assertions covering
   catalog, grants, RLS denial, owner `BYPASSRLS`, lock settings, the binding
   registry backstop, contention, isolation, wrong-owner and null fencing inputs,
   bounded renewal and the hard cap, crash/expiry recovery, idempotent release,
@@ -173,7 +189,11 @@ by hand, use `psql --single-transaction -v ON_ERROR_STOP=1`.
   the other `binding_mismatch`, one registry row; (d) expiry, 30 iterations:
   a stale renew races a new acquire, the stale holder gets `lost` or
   `not_owner`, a second renew and a release change nothing, and the generation
-  strictly increases. CI runs it against the local Supabase stack from
+  strictly increases; (e) rollback, 20 iterations: while a rollback
+  transaction holds its table locks between the guard and the drops, a
+  concurrent revoke waits and fails with 55P03 instead of committing a fence
+  the drops would destroy; (f) the rollback guard refuses a role without
+  `BYPASSRLS`, with or without the override. CI runs it against the local Supabase stack from
   `scripts/run-supabase-policy-tests.mjs` after pg_prove. Locally,
   `node scripts/ovd462-lease-race.mjs --target docker` runs it against a
   disposable pinned postgres container with no published port.

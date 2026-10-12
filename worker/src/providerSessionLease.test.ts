@@ -317,6 +317,20 @@ describe("AC4: renewal is finite and lease loss stops execution without fallback
     expect(() => lease.assertHeld()).toThrow(ProviderSessionLeaseLostError);
   });
 
+  it("keeps an exhausted lease occupied until its advertised expiry, so no second owner starts early", async () => {
+    const { manager, memory, clock } = setup({ policy: { maxRenewals: 0 } });
+    const identity = identityFor();
+    const lease = await mustAcquire(manager, identity, "task-a");
+    clock.advance(10_000);
+    expect(await lease.renew()).toEqual({ kind: "lost", outcome: "lease_lost" });
+    expect(memory.rows().map((row) => row.state)).toEqual(["active"]);
+    expect((await manager.acquire({ identity, taskRef: "task-b" })).kind).toBe("contended");
+    clock.advance(20_000);
+    const next = await manager.acquire({ identity, taskRef: "task-b" });
+    expect(next.kind).toBe("acquired");
+    expect(memory.rows().map((row) => [row.generation, row.state])).toEqual([[1, "expired"], [2, "active"]]);
+  });
+
   it("enforces the hard lifetime cap even with renewals left", async () => {
     const { manager, clock } = setup({ policy: { ttlSeconds: 30, maxRenewals: 100, maxDurationSeconds: 60 } });
     const lease = await mustAcquire(manager, identityFor(), "task-a");
@@ -455,11 +469,17 @@ describe("AC5: session failures map to bounded terminal/manual-follow-up outcome
     const { manager, memory } = setup();
     const identity = identityFor();
     const lease = await mustAcquire(manager, identity, "task-a");
-    expect(await memory.revokeBinding(identity, OPERATOR)).toEqual({ status: "blocked", outcome: "owner_revoked", generation: 1 });
-    expect(memory.rows()[0].revokedBy).toEqual(OPERATOR);
+    expect(await memory.revokeBinding(identity, OPERATOR)).toEqual({ status: "blocked", outcome: "owner_revoked", generation: 2 });
+    expect(memory.rows().map((row) => [row.generation, row.state, row.outcome, row.revokedBy])).toEqual([
+      [1, "revoked", "owner_revoked", null],
+      [2, "blocked", "owner_revoked", OPERATOR],
+    ]);
     expect(await lease.renew()).toEqual({ kind: "lost", outcome: "owner_revoked" });
     expect(() => lease.assertHeld()).toThrow(expect.objectContaining({ outcome: "owner_revoked" }));
     expect(await manager.acquire({ identity, taskRef: "task-b" })).toEqual({ kind: "manual_follow_up", outcome: "owner_revoked" });
+    expect(await memory.clearBlock(identity, 1, OPERATOR)).toEqual({ status: "rejected", reason: "not_blocked" });
+    expect(await memory.clearBlock(identity, 2, OPERATOR)).toEqual({ status: "cleared" });
+    expect((await mustAcquire(manager, identity, "task-b")).generation).toBe(3);
   });
 
   it("requires opaque operator attribution and the holder's session binding to revoke", async () => {

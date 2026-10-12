@@ -29,7 +29,7 @@ import {
  * local fakes only; it is not a cross-process lock.
  */
 
-type LeaseRowState = "active" | "released" | "expired" | "blocked" | "cleared";
+type LeaseRowState = "active" | "released" | "expired" | "blocked" | "cleared" | "revoked";
 
 export type ProviderSessionLeaseMemoryRow = {
   provider: string;
@@ -171,8 +171,9 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
         row.state = "expired";
         return { status: "lost", reason: "expired", outcome: null };
       }
+      // Denied, but the row stays active until its current expiresAt: the holder
+      // may still run until the deadline it was given.
       if (row.renewalCount >= row.maxRenewals! || row.hardExpiresAt! <= at) {
-        row.state = "expired";
         return { status: "lost", reason: "renewal_exhausted", outcome: null };
       }
       row.renewalCount += 1;
@@ -220,11 +221,10 @@ export function createProviderSessionLeaseMemoryStore(options: { now?: () => num
         return { status: "rejected", reason: "binding_mismatch" };
       }
       if (current?.state === "blocked") return { status: "blocked", outcome: current.outcome!, generation: current.generation };
+      // The revoked holder's row ends as "revoked"; the block gets a fresh generation.
       if (current) {
-        current.state = "blocked";
+        current.state = "revoked";
         current.outcome = "owner_revoked";
-        current.revokedBy = { ...audit };
-        return { status: "blocked", outcome: "owner_revoked", generation: current.generation };
       }
       register(identity);
       const generation = nextGeneration(identity);
