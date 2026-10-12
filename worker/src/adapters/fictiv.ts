@@ -630,13 +630,20 @@ async function setFilesOnUpload(
   );
 }
 
-async function setQuantity(page: Page, quantity: number) {
+async function setQuantity(
+  page: Page,
+  quantity: number,
+  beforeSubmit: () => Promise<void> = async () => undefined,
+) {
   const match = await firstWorkingLocator(page, FICTIV_LOCATORS.quantityInputs);
   if (!match) {
     return null;
   }
 
   await match.locator.fill(String(quantity));
+  // OVD-722: Enter can submit the form; read the switch again between the
+  // fill and the key press, outside the catch below.
+  await beforeSubmit();
   await match.locator.press("Enter").catch(() => undefined);
   return match.selector;
 }
@@ -1512,7 +1519,9 @@ export class FictivAdapter extends VendorAdapter {
     )) ?? selectedProcessBeforeUpload;
     // OVD-722: fresh read before each configuration step, not only the first.
     await input.providerKillSwitchCheckpoint?.("before_configure");
-    const quantitySelector = await setQuantity(page, normalizedQuantity(input));
+    const quantitySelector = await setQuantity(page, normalizedQuantity(input), async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
     await input.providerKillSwitchCheckpoint?.("before_configure");
     const selectionResult = await trySetMaterialAndFinish(
       page,

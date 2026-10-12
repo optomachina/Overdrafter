@@ -23,7 +23,7 @@
   - `Fastest`
   - `Domestic`
 - Presets ignore excluded vendors and any quote that cannot satisfy the requested due date.
-- Manual row or chart selection clears the active preset and persists through `api_set_job_selected_vendor_quote_offer`.
+- Presets and the sourcing toggle only reorder and filter the comparison; they never persist a selection. Manual row or chart selection leaves the active preset in place and persists through `api_set_job_selected_vendor_quote_offer`. If persisting fails, the local selection rolls back to the last persisted one.
 - Vendor labels use real vendor names, and comparison rows keep the stored lane and sourcing text visible to the client.
 
 ## Preview Panels

@@ -286,8 +286,18 @@ Round 4 additions:
 
 Round 5 changes:
 
-* **before_configure moved above overlay dismissal.** In `fictiv.ts` the `before_configure` checkpoint now runs before `dismissOverlayModals`, so the overlay close clicks after the post upload poll are guarded.
+* **A second before_configure read added ahead of overlay dismissal.** In `fictiv.ts` a new `before_configure` read now runs right before `dismissOverlayModals`, so the overlay close clicks after the post upload poll are guarded. The existing read before the configuration drawer stays where it was.
 * **Two new tests in `fictiv.test.ts`.** One engages the switch while the process dropdown opens and asserts the process option is never clicked (it fails without the recheck). One engages the switch during the post upload poll and asserts no overlay close click happens.
+* The SQL draft `ovd-722.sql` is unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
+
+## Review round 6 (PR #676)
+
+* **Merged main after OVD-464 (#699).** On main, `handleVendorQuoteTask` sends every live non Xometry task that carries a generic permit to `runGenericProviderTask` and returns, so `quoteWithRoutedDispatchPreflight` is reached only for Xometry and simulate mode. The merge keeps main's `resultPersisted` settle and lost acknowledgement handling first in the catch, then the kill switch cancel for the Xometry path.
+* **Generic route wiring.** The handler now wraps the adapter it passes to `runGenericProviderTask` with `guardProviderQuote` (in `providerKillSwitch.ts`, also used by `quoteWithRoutedDispatchPreflight`). Inside the pipeline's adapter step, after the seam admitted the permit, the wrapper reads the switch at `before_launch` and then calls the adapter with `providerKillSwitchCheckpoint` bound to the same guard. Fictiv, Quickparts and Weerg therefore get every adapter and portal kernel checkpoint on this route, not only the claim check, the sweep and the permit trigger. The spend estimate is charged only once the `before_launch` read passed.
+* **Pipeline outcome.** `providerTaskPipeline.ts` maps an engaged `ProviderKillSwitchError` thrown by the adapter, and a server preflight denial `provider_kill_switch_engaged` (checkpoint `server_preflight`), to the new disposition `cancelled_provider_disabled`. It is never classed as a provider failure, never manual follow up, and never requeued. `providerMutationPossible` is true only when the adapter's mutation phase had started before the refusal, so a refusal at `before_launch` or `before_navigation` records false and one after the upload records true. An unreadable switch inside the adapter is `failed` with code `provider_kill_switch_unavailable` before any mutation, and manual follow up with the same code after one; neither requeues.
+* **Recording keeps the OVD-464 invariants.** `recordGenericProviderOutcome` writes the cancel record (the same fields the Xometry path writes) through the compare and set lane write. A lane that was already persisted settles as `persist_ack_lost`, a lane settled elsewhere as `lane_already_settled`, and only a written lane marks the task `cancelled` with reason `cancelled_provider_disabled`. No requeue follows an adapter start.
+* **New rechecks from the cross review.** Xometry reads the switch again right before each export control Continue, after the negative answer click, outside the catches that relabel errors as `export_control_state_ambiguous` (reviewed control and fallback controls). Fictiv and Xometry read it again between the quantity fill and the Enter key, since Enter can submit the form. Each has a test that fails without the recheck.
+* **Handler tests on the generic route.** `providerKillSwitch.genericRoute.test.ts` runs a Fictiv generic permit task through `handleVendorQuoteTask` and the real pipeline: switch engaged before launch (no adapter call, cancelled, no requeue) and engaged mid run after the upload (the adapter stops at its next checkpoint, cancelled with `providerMutationPossible` true, no requeue).
 * The SQL draft `ovd-722.sql` is unchanged (blob c702f4c9e0779e0d0133f8f14909c0d3120efcd9).
 
 ## Policy
@@ -296,9 +306,10 @@ No new provider task starts after the switch flips. A task in flight stops at th
 
 Accepted residual sites:
 
-* Fictiv modal dismissals: `dismissAutoConfigLoadingModal` clicks (about `fictiv.ts:901` and `:905`) from `detectBlockingState` polls.
-* Fictiv quantity fill then Enter (about `fictiv.ts:640`).
-* Xometry quantity change and material or finish selection after opening (`xometry.ts` about `:2943` and `:1765`).
+* Fictiv modal dismissals: `dismissAutoConfigLoadingModal` clicks (about `fictiv.ts:908` and `:912`) from `detectBlockingState` polls.
+* Fictiv quantity fill (about `fictiv.ts:643`). The Enter that may submit it is now rechecked (round 6).
+* Xometry quantity fill and material or finish selection after opening (`xometry.ts` about `:2964` and `:1769`). The quantity Enter is now rechecked (round 6).
+* Xometry entry state new quote clicks: the dashboard upload button (about `xometry.ts:698`) and the legacy start new quote button (about `xometry.ts:876`) in `resolveXometryEntryState`. They are covered only by the `before_navigation` read taken before `page.goto`, and the dashboard hydration wait sits between that read and the click. The click opens an uploader or a new empty quote route; it does not upload a file or request a quote, and the `before_upload` read runs before any file is selected.
 * Portal kernel configuration recovery (`providerPortalKernel.ts` about `:1191` with `browserRecovery.ts` about `:239`), up to about 5 s.
 
 Live operator tools (smoke, quantity sweeps, live eval) do not read the switch yet. That work is OVD-751. The C&D runbook tells operators not to run them against a switched off provider.

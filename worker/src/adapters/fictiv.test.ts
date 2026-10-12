@@ -1222,6 +1222,18 @@ describe("FictivAdapter", () => {
       expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
     };
 
+    it("engaged between the quantity fill and Enter: Enter is never pressed", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const press = vi.fn();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(() => { state.engaged = true; }), press },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(press).not.toHaveBeenCalled();
+    });
+
     it("engaged while the material is selected: the material option and the finish are never clicked", async () => {
       const { state, providerKillSwitchCheckpoint } = killSwitch();
       const finish = vi.fn();

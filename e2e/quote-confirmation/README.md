@@ -46,6 +46,7 @@ quote, file transfer, provider execution, payment behavior, or release readiness
 | Explicit stale-scope/free-allowance denial | No create; refreshed scope shown, consent reset; fresh confirmation has new key and scope | Stale confirmation automatically reused after denial |
 | Unknown recovery explicitly denied while access blocked | No create, no fresh consent, no request/recovery action after closing | Recovery privilege survives definitive denial |
 | Close before submit, reopen, Escape | Unsubmitted consent discarded; no dispatch or stale dialog | Accidental submit or stale consent |
+| Scope 400, dispatch 500 or quote-access 401 whose body carries JWT, `service_role`, `storageState`, stack-frame and email sentinels (`errors.browser.ts`) | Bounded copy with Retry scope check, Close then Check previous quote request, or reload; no sentinel in body text, toasts, dialogs or markup | Server error text or secrets forwarded to customers |
 
 Source review identified and this bounded repair addresses an existing recovery
 edge: closing an uncertain confirmation after quote access becomes blocked had

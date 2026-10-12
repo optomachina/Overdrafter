@@ -46,7 +46,9 @@ npm run db:push
 # Regenerate TypeScript types from DB schema
 npm run db:types
 
-# Seed dev fixtures
+# Seed dev fixtures (needs the PostgreSQL client: psql is found in fixed system
+# directories, or set SEED_PSQL_PATH to its absolute path, for example for
+# keg only libpq or Postgres.app)
 npm run seed:dev
 ```
 

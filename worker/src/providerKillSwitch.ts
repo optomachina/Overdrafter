@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { markTaskCancelled } from "./queue.js";
-import type { QueueTaskRecord, VendorName } from "./types.js";
+import type { QueueTaskRecord, VendorName, VendorQuoteAdapterInput } from "./types.js";
 
 /**
  * OVD-722 worker side of the per-provider and global kill switch.
@@ -142,6 +142,56 @@ export function isProviderKillSwitchEngaged(error: unknown): error is ProviderKi
 }
 
 /**
+ * Wraps an adapter's quote so the final kill-switch read sits immediately
+ * before the launch, and hands the same guard to the adapter for its own
+ * navigation, upload, configuration, and save checkpoints. `onLaunch` fires
+ * only once the before_launch read passed.
+ */
+export function guardProviderQuote<T>(
+  guard: ProviderKillSwitchGuard,
+  quote: (input: VendorQuoteAdapterInput) => Promise<T>,
+  onLaunch?: () => void,
+): (input: VendorQuoteAdapterInput) => Promise<T> {
+  return async (input) => {
+    await guard("before_launch");
+    onLaunch?.();
+    return quote({ ...input, providerKillSwitchCheckpoint: guard });
+  };
+}
+
+/** Lane record for a task cancelled by the switch. Customer note only; other providers' lanes are untouched. */
+export function providerDisabledResultRecord(input: {
+  error: ProviderKillSwitchError;
+  requestedQuantity: number;
+  providerMutationPossible?: boolean;
+}): { status: "failed"; notes: string[]; raw_payload: Record<string, unknown> } {
+  return {
+    status: "failed",
+    notes: [PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE],
+    raw_payload: {
+      failureCode: CANCELLED_PROVIDER_DISABLED,
+      killSwitchReasonCode: input.error.reasonCode,
+      killSwitchCheckpoint: input.error.checkpoint,
+      providerMutationPossible: input.providerMutationPossible === true,
+      requestedQuantity: input.requestedQuantity,
+      retryScheduledFor: null,
+    },
+  };
+}
+
+/** Marks the queue task `cancelled` with reason `cancelled_provider_disabled`. */
+export function markTaskCancelledForDisabledProvider(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  error: ProviderKillSwitchError,
+): Promise<void> {
+  return markTaskCancelled(supabase, task, `${CANCELLED_PROVIDER_DISABLED}: ${error.message}`, {
+    cancellationReason: CANCELLED_PROVIDER_DISABLED,
+    killSwitchCheckpoint: error.checkpoint,
+  });
+}
+
+/**
  * Ends a claimed vendor task in the truthful terminal state for a switched-off
  * provider: the queue task is `cancelled` with reason
  * `cancelled_provider_disabled`, and the customer-visible result reads
@@ -159,25 +209,11 @@ export async function cancelVendorTaskForDisabledProvider(
 ): Promise<void> {
   const { error: resultError } = await supabase
     .from("vendor_quote_results")
-    .update({
-      status: "failed",
-      notes: [PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE],
-      raw_payload: {
-        failureCode: CANCELLED_PROVIDER_DISABLED,
-        killSwitchReasonCode: input.error.reasonCode,
-        killSwitchCheckpoint: input.error.checkpoint,
-        providerMutationPossible: input.providerMutationPossible === true,
-        requestedQuantity: input.requestedQuantity,
-        retryScheduledFor: null,
-      },
-    })
+    .update(providerDisabledResultRecord(input))
     .eq("id", input.vendorQuoteResultId);
   if (resultError) throw resultError;
 
-  await markTaskCancelled(supabase, task, `${CANCELLED_PROVIDER_DISABLED}: ${input.error.message}`, {
-    cancellationReason: CANCELLED_PROVIDER_DISABLED,
-    killSwitchCheckpoint: input.error.checkpoint,
-  });
+  await markTaskCancelledForDisabledProvider(supabase, task, input.error);
 }
 
 /**

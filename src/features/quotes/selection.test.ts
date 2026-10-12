@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeClientPresetUnavailableReason, getClientQuoteOptionStateReasons } from "@/features/quotes/client-workspace-state";
+import { getClientQuoteOptionStateReasons } from "@/features/quotes/client-workspace-state";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
@@ -868,8 +868,6 @@ describe("customer quote commercial-validity acceptance", () => {
       expect(getClientQuoteOptionStateReasons({ option })).toContainEqual({
         id: "needs_review", tone: "blocked", label: "Needs review before selection",
       });
-      expect(describeClientPresetUnavailableReason({ options, preset: "cheapest_global" }))
-        .toBe("Quote responses need review before this preset can apply.");
     },
   );
 

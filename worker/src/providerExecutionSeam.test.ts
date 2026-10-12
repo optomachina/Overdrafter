@@ -398,6 +398,19 @@ describe("replay, guards, lease composition and expiry", () => {
     }
   });
 
+  it("rebuilds a terminal session outcome matched only by name through toLeaseError", async () => {
+    const lookalike = Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "provider_blocked" });
+    const { adapter, execute } = spyAdapter<string>(async () => {
+      throw lookalike;
+    });
+    const toLeaseError = vi.fn((o: string) => new FakeSessionOutcomeError(LEASE_OUTCOMES[o]));
+    const thrown = await run(build(), adapter, { toLeaseError }).catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(FakeSessionOutcomeError);
+    expect(thrown).not.toBe(lookalike);
+    expect(toLeaseError).toHaveBeenCalledWith("blocked");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it("rethrows an adapter's own session outcome error unchanged, including lease only outcomes", async () => {
     const own = Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "corrupt_state" });
     const { adapter } = spyAdapter<string>(async () => {

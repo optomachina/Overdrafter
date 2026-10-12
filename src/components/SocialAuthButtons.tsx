@@ -1,4 +1,5 @@
 import { useState, type ReactElement, type SVGProps } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import type { Provider } from "@supabase/supabase-js";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +46,7 @@ type SocialAuthButtonsProps = {
 };
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Authentication failed.";
+  return error instanceof Error ? getUserFacingErrorMessage(error, "Authentication failed.") : "Authentication failed.";
 }
 
 export function SocialAuthButtons({

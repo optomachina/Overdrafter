@@ -1139,6 +1139,23 @@ async function navigateToQuoteConfigurationPage(
           ambiguityArtifacts,
         );
       }
+      const exportControlAnswerUnverified = async () => {
+        const ambiguityArtifacts = await capturePageArtifacts(
+          page,
+          runDir,
+          "export-control-ambiguous",
+        ).catch(() => []);
+        return new VendorAutomationError(
+          "Xometry's reviewed export-control answer could not be verified.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "export_control_state_ambiguous",
+            url: page.url(),
+          },
+          ambiguityArtifacts,
+        );
+      };
       try {
         await reviewedNo.evaluate((element) => {
           if (!(element instanceof HTMLInputElement)) {
@@ -1150,6 +1167,13 @@ async function navigateToQuoteConfigurationPage(
         if (!reviewedNoChecked) {
           throw new Error("reviewed non-export-controlled action was not selected");
         }
+      } catch {
+        throw await exportControlAnswerUnverified();
+      }
+      // OVD-722: Continue submits the answer, so the switch is read again
+      // right before it, outside the catches that relabel errors.
+      await beforeSubmit();
+      try {
         await reviewedContinue.evaluate((element) => {
           if (!(element instanceof HTMLButtonElement)) {
             throw new TypeError("reviewed export-control submit is not a button");
@@ -1158,21 +1182,7 @@ async function navigateToQuoteConfigurationPage(
         });
         modalSelector = reviewedContinueSelector;
       } catch {
-        const ambiguityArtifacts = await capturePageArtifacts(
-          page,
-          runDir,
-          "export-control-ambiguous",
-        ).catch(() => []);
-        throw new VendorAutomationError(
-          "Xometry's reviewed export-control answer could not be verified.",
-          "unexpected_ui_state",
-          {
-            vendor: "xometry",
-            reason: "export_control_state_ambiguous",
-            url: page.url(),
-          },
-          ambiguityArtifacts,
-        );
+        throw await exportControlAnswerUnverified();
       }
       break;
     }
@@ -1212,6 +1222,9 @@ async function navigateToQuoteConfigurationPage(
           ambiguityArtifacts,
         );
       }
+      // OVD-722: Continue submits the negative answer; read the switch again
+      // right before it, outside the catch below.
+      await beforeSubmit();
       try {
         await locator.click();
         modalSelector = selector;
@@ -1857,7 +1870,12 @@ async function saveConfiguration(
   );
 }
 
-export async function setQuantity(page: Page, quantity: number, binding?: OperationalJevBinding) {
+export async function setQuantity(
+  page: Page,
+  quantity: number,
+  binding?: OperationalJevBinding,
+  beforeSubmit: () => Promise<void> = async () => undefined,
+) {
   const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
 
   if (!match) {
@@ -1892,6 +1910,9 @@ export async function setQuantity(page: Page, quantity: number, binding?: Operat
   }
 
   await match.locator.fill(String(quantity));
+  // OVD-722: Enter can submit the form; read the switch again between the
+  // fill and the key press.
+  await beforeSubmit();
   await match.locator.press("Enter");
 }
 
@@ -2941,7 +2962,8 @@ export class XometryAdapter extends VendorAdapter {
           this.config.browserTimeoutMs,
         );
         await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
-          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined);
+          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
         await input.providerKillSwitchCheckpoint?.("before_configure");
         selectedMaterial = await configureRequiredOption(

@@ -7,6 +7,7 @@ import {
 } from "./providerDispatchPreflight.js";
 import {
   createProviderKillSwitchGuard,
+  guardProviderQuote,
   PROVIDER_KILL_SWITCH_ENGAGED,
   ProviderKillSwitchError,
   supabaseProviderKillSwitchReader,
@@ -32,7 +33,11 @@ import {
  * - a live non-Xometry task carrying a generic permit (both
  *   `providerDispatchPermitId` and `providerDispatchEnvelopeFingerprint` as
  *   strings, as written by `api_request_provider_dispatch`) goes through the
- *   provider-neutral `quoteWithProviderDispatchPreflight`
+ *   provider-neutral `quoteWithProviderDispatchPreflight`. The worker's
+ *   `handleVendorQuoteTask` sends those tasks to the OVD-464 ordered pipeline
+ *   (`providerTaskPipeline.ts`) instead and reaches this function only for
+ *   Xometry and simulate mode. That route wraps its adapter with the same
+ *   `guardProviderQuote` kill-switch guard used here
  * - any other live non-Xometry task stays on the specialized path, which
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *
@@ -92,11 +97,12 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   // Wraps the adapter so the final kill-switch read sits between the admitted
   // authorization and the launch; onAuthorized fires only once it passes.
   const adapter: Pick<VendorAdapter, "quote"> = {
-    quote: async (quoteInput) => {
-      if (guard) await guard("before_launch");
-      input.onAuthorized?.();
-      return input.adapter.quote(guard ? { ...quoteInput, providerKillSwitchCheckpoint: guard } : quoteInput);
-    },
+    quote: guard
+      ? guardProviderQuote(guard, (quoteInput) => input.adapter.quote(quoteInput), input.onAuthorized)
+      : async (quoteInput) => {
+          input.onAuthorized?.();
+          return input.adapter.quote(quoteInput);
+        },
   };
   const claim =
     input.config.workerMode === "live"

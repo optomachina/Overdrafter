@@ -169,7 +169,7 @@ export async function loadStoredPdfObjectUrl(file: StoredFileLike): Promise<stri
       resolvedUrl: access.sanitizedUrl,
       reportedMimeType: file.mime_type ?? null,
       viewerMode,
-      error: getUserFacingErrorMessage(error, "Network or CORS failure."),
+      error: error instanceof Error ? error.message : String(error),
     });
     throw new Error("Unable to load drawing preview due to a network or CORS error.");
   }
