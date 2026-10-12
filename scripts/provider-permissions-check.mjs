@@ -547,14 +547,36 @@ function visibleMarkdownLines(text) {
 }
 
 function playbookSection(playbook, headingPrefix) {
-  const lines = visibleMarkdownLines(playbook);
-  const start = lines.findIndex((line) => line.trimStart().startsWith(headingPrefix));
+  const lines = String(playbook).split(/\r?\n/);
+  let inFence = false;
+  let start = -1;
+  for (const [index, line] of lines.entries()) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && line.trimStart().startsWith(headingPrefix)) {
+      start = index;
+      break;
+    }
+  }
   if (start < 0) {
     return null;
   }
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^## /.test(line));
-  return rest.slice(0, end < 0 ? undefined : end).join("\n");
+  const body = [];
+  inFence = false;
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      body.push(line);
+      continue;
+    }
+    if (!inFence && /^## /.test(line)) {
+      break;
+    }
+    body.push(line);
+  }
+  return body.join("\n");
 }
 
 function collectStringLiterals(sourceFile) {
@@ -898,11 +920,11 @@ export async function checkProviderPermissions({
     resolvedRegistry,
     manifests ?? await readProviderManifests(rootDir, { today }),
   );
+  assertRequiredProviderCoverage(document.providers, required10Keys);
   assertOneDotZeroMatchesReviewedSet(
     resolvedRegistry.oneDotZero,
     document.providers.filter((row) => row.in_1_0 === true).map((row) => row.key),
   );
-  assertRequiredProviderCoverage(document.providers, required10Keys);
   assertEnabledDerivation(document.providers, today);
   assertPaidAutomationGate(document.providers);
 
