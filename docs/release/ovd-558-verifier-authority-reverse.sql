@@ -1,6 +1,6 @@
 -- OVD-558 separate source-only reverse migration.
--- Exact forward SQL SHA-256: 9a60a19f734da9e46384df9ab6e27911d10eafacc240c2993d3dc000ea75bb5f
--- Pinned prechange manifest SHA-256: 718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac
+-- Exact forward SQL SHA-256: 8c1709d2886c48ee2d154ddac5558b6aeb7750530f027ed943cf0e8ba2573e95
+-- Pinned prechange manifest SHA-256: 854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296
 -- Only storage function raw proacl null-to-explicit normalization is permitted.
 -- READ COMMITTED and the registry lock come first so the emptiness check reads
 -- a snapshot taken after every concurrent registry writer has finished.
@@ -126,7 +126,7 @@ select jsonb_build_object(
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )::text) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from 'b5a5bbd163458c2ea4a519846ba6c25b3860e069900c788a01b48150a3e24d92' then
+  if actual is distinct from '82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c' then
     raise exception 'ovd558_unknown_postchange_catalog:%', actual;
   end if;
 end $ovd558_reverse_preflight$;
@@ -157,6 +157,8 @@ drop role engineering_native_verifier;
 set role "postgres";
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "supabase_privileged_role";
@@ -165,6 +167,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FR
 REVOKE EXECUTE ON FUNCTION "public"."api_accept_project_invite"(p_token text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "supabase_privileged_role";
@@ -173,6 +177,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "supabase_r
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_jobs"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "supabase_privileged_role";
@@ -181,6 +187,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "supaba
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_projects"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "supabase_privileged_role";
@@ -189,6 +197,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "supabase_
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_all_users"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "supabase_privileged_role";
@@ -197,6 +207,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "supab
 REVOKE EXECUTE ON FUNCTION "public"."api_admin_list_organizations"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "supabase_privileged_role";
@@ -205,6 +217,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid
 REVOKE EXECUTE ON FUNCTION "public"."api_approve_job_requirements"(p_job_id uuid, p_requirements jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -213,6 +227,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "supab
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_job"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -221,6 +237,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FRO
 REVOKE EXECUTE ON FUNCTION "public"."api_archive_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_privileged_role";
@@ -229,6 +247,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p
 REVOKE EXECUTE ON FUNCTION "public"."api_assign_job_to_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "supabase_privileged_role";
@@ -237,6 +257,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid
 REVOKE EXECUTE ON FUNCTION "public"."api_cancel_quote_request"(p_request_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "supabase_privileged_role";
@@ -245,30 +267,18 @@ REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_descript
 REVOKE EXECUTE ON FUNCTION "public"."api_create_project"(p_name text, p_description text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_privileged_role";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_read_only_user";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_replication_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_create_self_service_organization"(p_organization_name text) FROM "supabase_storage_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "authenticator";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_auth_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_privileged_role";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_replication_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_job"(p_job_id uuid) FROM "supabase_storage_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "authenticator";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_auth_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_privileged_role";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_replication_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_delete_archived_jobs"(p_job_ids uuid[]) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -277,6 +287,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM
 REVOKE EXECUTE ON FUNCTION "public"."api_delete_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -285,6 +297,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FR
 REVOKE EXECUTE ON FUNCTION "public"."api_dissolve_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "supabase_privileged_role";
@@ -293,6 +307,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM
 REVOKE EXECUTE ON FUNCTION "public"."api_get_client_intake_compatibility"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "supabase_privileged_role";
@@ -301,6 +317,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "supabase
 REVOKE EXECUTE ON FUNCTION "public"."api_get_is_platform_admin"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "supabase_privileged_role";
@@ -309,6 +327,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id
 REVOKE EXECUTE ON FUNCTION "public"."api_get_quote_run_readiness"(p_quote_run_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "supabase_privileged_role";
@@ -317,6 +337,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uui
 REVOKE EXECUTE ON FUNCTION "public"."api_invite_project_member"(p_project_id uuid, p_email text, p_role project_role) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "supabase_privileged_role";
@@ -325,6 +347,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids 
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_activity_events"(p_job_ids uuid[], p_limit_per_job integer) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "supabase_privileged_role";
@@ -333,6 +357,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uu
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_part_metadata"(p_job_ids uuid[]) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "supabase_privileged_role";
@@ -341,6 +367,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids 
 REVOKE EXECUTE ON FUNCTION "public"."api_list_client_quote_workspace"(p_job_ids uuid[]) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "supabase_privileged_role";
@@ -349,6 +377,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organi
 REVOKE EXECUTE ON FUNCTION "public"."api_list_organization_memberships"(p_organization_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -357,6 +387,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_proje
 REVOKE EXECUTE ON FUNCTION "public"."api_list_project_assignee_profiles"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "supabase_privileged_role";
@@ -365,6 +397,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p
 REVOKE EXECUTE ON FUNCTION "public"."api_publish_quote_package"(p_job_id uuid, p_quote_run_id uuid, p_client_summary text, p_force boolean) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -373,6 +407,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FRO
 REVOKE EXECUTE ON FUNCTION "public"."api_reconcile_job_parts"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "supabase_privileged_role";
@@ -381,6 +417,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uu
 REVOKE EXECUTE ON FUNCTION "public"."api_record_manual_vendor_quote"(p_job_id uuid, p_part_id uuid, p_vendor vendor_name, p_status vendor_status, p_summary_note text, p_source_text text, p_quote_url text, p_offers jsonb, p_artifacts jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_privileged_role";
@@ -389,6 +427,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid,
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_job_from_project"(p_job_id uuid, p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "supabase_privileged_role";
@@ -397,6 +437,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_member
 REVOKE EXECUTE ON FUNCTION "public"."api_remove_project_member"(p_project_membership_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "supabase_privileged_role";
@@ -405,6 +447,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uui
 REVOKE EXECUTE ON FUNCTION "public"."api_request_debug_extraction"(p_part_id uuid, p_model text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -413,22 +457,18 @@ REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM
 REVOKE EXECUTE ON FUNCTION "public"."api_request_extraction"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_privileged_role";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_read_only_user";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_replication_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) FROM "supabase_storage_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "authenticator";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_auth_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_privileged_role";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_replication_admin";
-REVOKE EXECUTE ON FUNCTION "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "supabase_privileged_role";
@@ -437,6 +477,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_
 REVOKE EXECUTE ON FUNCTION "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -445,6 +487,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "sup
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_job"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -453,6 +497,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) F
 REVOKE EXECUTE ON FUNCTION "public"."api_unarchive_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "supabase_privileged_role";
@@ -461,6 +507,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uu
 REVOKE EXECUTE ON FUNCTION "public"."api_update_client_part_request"(p_job_id uuid, p_requested_service_kinds text[], p_primary_service_kind text, p_service_notes text, p_description text, p_part_number text, p_revision text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_process text, p_notes text, p_quantity integer, p_requested_quote_quantities integer[], p_requested_by_date date, p_shipping jsonb, p_certifications jsonb, p_sourcing jsonb, p_release jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "supabase_privileged_role";
@@ -469,6 +517,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_
 REVOKE EXECUTE ON FUNCTION "public"."api_update_organization_membership_role"(p_membership_id uuid, p_role app_role) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "supabase_privileged_role";
@@ -477,6 +527,8 @@ REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_na
 REVOKE EXECUTE ON FUNCTION "public"."api_update_project"(p_project_id uuid, p_name text, p_description text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "supabase_privileged_role";
@@ -485,6 +537,8 @@ REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_marku
 REVOKE EXECUTE ON FUNCTION "public"."apply_markup"(p_raw_amount numeric, p_markup_percent numeric, p_minor_unit numeric) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "supabase_privileged_role";
@@ -493,6 +547,8 @@ REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organiz
 REVOKE EXECUTE ON FUNCTION "public"."build_org_file_blob_storage_path"(p_organization_id uuid, p_content_sha256 text, p_original_name text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "supabase_privileged_role";
@@ -501,6 +557,8 @@ REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spe
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric, p_revision text, p_process text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "supabase_privileged_role";
@@ -509,6 +567,8 @@ REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spe
 REVOKE EXECUTE ON FUNCTION "public"."build_project_part_property_snapshot"(p_spec_snapshot jsonb, p_defaults jsonb, p_overrides jsonb, p_created_at text, p_updated_at timestamp with time zone, p_description text, p_part_number text, p_material text, p_finish text, p_threads text, p_tightest_tolerance_inch numeric) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "supabase_privileged_role";
@@ -517,6 +577,8 @@ REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "sup
 REVOKE EXECUTE ON FUNCTION "public"."current_user_has_verified_auth"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "supabase_privileged_role";
@@ -525,6 +587,8 @@ REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "
 REVOKE EXECUTE ON FUNCTION "public"."current_user_home_organization_id"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "supabase_privileged_role";
@@ -533,6 +597,8 @@ REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "supabase_
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user_any_org"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "supabase_privileged_role";
@@ -541,6 +607,8 @@ REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) F
 REVOKE EXECUTE ON FUNCTION "public"."is_internal_user"(p_organization_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "supabase_privileged_role";
@@ -549,6 +617,8 @@ REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM 
 REVOKE EXECUTE ON FUNCTION "public"."is_org_admin"(p_organization_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "supabase_privileged_role";
@@ -557,6 +627,8 @@ REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "supabase_replica
 REVOKE EXECUTE ON FUNCTION "public"."is_platform_admin"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -565,22 +637,18 @@ REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "sup
 REVOKE EXECUTE ON FUNCTION "public"."job_part_file_set"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_privileged_role";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_read_only_user";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_replication_admin";
 REVOKE EXECUTE ON FUNCTION "public"."load_editable_project_part_context"(p_job_id uuid) FROM "supabase_storage_admin";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "authenticator";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "dashboard_user";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_auth_admin";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_etl_admin";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_privileged_role";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_read_only_user";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_replication_admin";
-REVOKE EXECUTE ON FUNCTION "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "supabase_privileged_role";
@@ -589,6 +657,8 @@ REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) F
 REVOKE EXECUTE ON FUNCTION "public"."normalize_file_basename"(input_name text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "supabase_privileged_role";
@@ -597,6 +667,8 @@ REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values 
 REVOKE EXECUTE ON FUNCTION "public"."normalize_positive_integer_array"(p_values integer[], p_fallback integer) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_privileged_role";
@@ -605,6 +677,8 @@ REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested
 REVOKE EXECUTE ON FUNCTION "public"."normalize_primary_service_kind"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "supabase_privileged_role";
@@ -613,6 +687,8 @@ REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extractio
 REVOKE EXECUTE ON FUNCTION "public"."normalize_project_part_threads"(p_extraction jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_privileged_role";
@@ -621,6 +697,8 @@ REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_reques
 REVOKE EXECUTE ON FUNCTION "public"."normalize_requested_service_kinds"(p_requested_service_kinds text[], p_primary_service_kind text) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "supabase_privileged_role";
@@ -629,6 +707,8 @@ REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "supabase_rep
 REVOKE EXECUTE ON FUNCTION "public"."require_verified_auth"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "supabase_privileged_role";
@@ -637,6 +717,8 @@ REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_def
 REVOKE EXECUTE ON FUNCTION "public"."resolve_project_part_property_values"(p_defaults jsonb, p_overrides jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_privileged_role";
@@ -645,6 +727,8 @@ REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requ
 REVOKE EXECUTE ON FUNCTION "public"."seed_project_part_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_privileged_role";
@@ -653,6 +737,8 @@ REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults
 REVOKE EXECUTE ON FUNCTION "public"."seed_revision_and_process_property_defaults"(p_requirement approved_part_requirements, p_extraction jsonb, p_defaults jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "supabase_privileged_role";
@@ -661,6 +747,8 @@ REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "su
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_daily_ceiling_usd"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "supabase_privileged_role";
@@ -669,6 +757,8 @@ REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "
 REVOKE EXECUTE ON FUNCTION "public"."spend_default_per_run_ceiling_usd"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "supabase_privileged_role";
@@ -677,6 +767,8 @@ REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_resul
 REVOKE EXECUTE ON FUNCTION "public"."sync_quote_request_status_from_vendor_result"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "supabase_privileged_role";
@@ -685,6 +777,8 @@ REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_
 REVOKE EXECUTE ON FUNCTION "public"."sync_service_request_line_item_status_from_quote_request"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "supabase_privileged_role";
@@ -693,6 +787,8 @@ REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "
 REVOKE EXECUTE ON FUNCTION "public"."to_vendor_name_array"(payload jsonb) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "supabase_privileged_role";
@@ -701,6 +797,8 @@ REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "supabase_replicat
 REVOKE EXECUTE ON FUNCTION "public"."touch_updated_at"() FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -709,6 +807,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id u
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job_via_project"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -717,6 +817,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "s
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_job"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "supabase_privileged_role";
@@ -725,6 +827,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_org"(p_organization_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "supabase_privileged_role";
@@ -733,6 +837,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid)
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_package"(p_package_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -741,6 +847,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid)
 REVOKE EXECUTE ON FUNCTION "public"."user_can_access_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -749,6 +857,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id u
 REVOKE EXECUTE ON FUNCTION "public"."user_can_destructively_edit_job"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "supabase_privileged_role";
@@ -757,6 +867,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "sup
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_job"(p_job_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -765,6 +877,8 @@ REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) F
 REVOKE EXECUTE ON FUNCTION "public"."user_can_edit_project"(p_project_id uuid) FROM "supabase_storage_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "authenticator";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "dashboard_user";
+REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "ovd575_observer_validator";
+REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "ovd576_stop_validator";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "supabase_auth_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "supabase_etl_admin";
 REVOKE EXECUTE ON FUNCTION "public"."user_is_project_owner"(p_project_id uuid) FROM "supabase_privileged_role";
@@ -987,18 +1101,6 @@ grant execute on function "public"."api_create_self_service_organization"(p_orga
 grant execute on function "public"."api_create_self_service_organization"(p_organization_name text) to anon;
 grant execute on function "public"."api_create_self_service_organization"(p_organization_name text) to authenticated;
 grant execute on function "public"."api_create_self_service_organization"(p_organization_name text) to service_role;
-revoke execute on function "public"."api_delete_archived_job"(p_job_id uuid) from public, postgres, anon, authenticated, service_role;
-grant execute on function "public"."api_delete_archived_job"(p_job_id uuid) to public;
-grant execute on function "public"."api_delete_archived_job"(p_job_id uuid) to postgres;
-grant execute on function "public"."api_delete_archived_job"(p_job_id uuid) to anon;
-grant execute on function "public"."api_delete_archived_job"(p_job_id uuid) to authenticated;
-grant execute on function "public"."api_delete_archived_job"(p_job_id uuid) to service_role;
-revoke execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) from public, postgres, anon, authenticated, service_role;
-grant execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) to public;
-grant execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) to postgres;
-grant execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) to anon;
-grant execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) to authenticated;
-grant execute on function "public"."api_delete_archived_jobs"(p_job_ids uuid[]) to service_role;
 revoke execute on function "public"."api_delete_project"(p_project_id uuid) from public, postgres, anon, authenticated, service_role;
 grant execute on function "public"."api_delete_project"(p_project_id uuid) to public;
 grant execute on function "public"."api_delete_project"(p_project_id uuid) to postgres;
@@ -1113,12 +1215,6 @@ grant execute on function "public"."api_reset_client_part_property_overrides"(p_
 grant execute on function "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) to anon;
 grant execute on function "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) to authenticated;
 grant execute on function "public"."api_reset_client_part_property_overrides"(p_job_id uuid, p_fields text[]) to service_role;
-revoke execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) from public, postgres, anon, authenticated, service_role;
-grant execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) to public;
-grant execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) to postgres;
-grant execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) to anon;
-grant execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) to authenticated;
-grant execute on function "public"."api_select_quote_option"(p_package_id uuid, p_option_id uuid, p_note text) to service_role;
 revoke execute on function "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) from public, postgres, anon, authenticated, service_role;
 grant execute on function "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) to public;
 grant execute on function "public"."api_start_quote_run"(p_job_id uuid, p_auto_publish_requested boolean) to postgres;
@@ -1227,12 +1323,6 @@ grant execute on function "public"."load_editable_project_part_context"(p_job_id
 grant execute on function "public"."load_editable_project_part_context"(p_job_id uuid) to anon;
 grant execute on function "public"."load_editable_project_part_context"(p_job_id uuid) to authenticated;
 grant execute on function "public"."load_editable_project_part_context"(p_job_id uuid) to service_role;
-revoke execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) from public, postgres, anon, authenticated, service_role;
-grant execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) to public;
-grant execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) to postgres;
-grant execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) to anon;
-grant execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) to authenticated;
-grant execute on function "public"."log_audit_event"(p_organization_id uuid, p_event_type text, p_payload jsonb, p_job_id uuid, p_package_id uuid) to service_role;
 revoke execute on function "public"."normalize_file_basename"(input_name text) from public, postgres, anon, authenticated, service_role;
 grant execute on function "public"."normalize_file_basename"(input_name text) to public;
 grant execute on function "public"."normalize_file_basename"(input_name text) to postgres;
@@ -1515,7 +1605,7 @@ select jsonb_build_object(
   'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
   'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )) snapshot(catalog_value)) as digest(digest_value);
-  if actual is distinct from 'ee81feb70d8a72cb1baa3c73109c311504b9079603b51954a3f6d50a8a763dc1' then
+  if actual is distinct from '68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930' then
     raise exception 'ovd558_reverse_catalog_mismatch:%', actual;
   end if;
 end $ovd558_reverse_postflight$;
