@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +15,13 @@ const PASSWORD = "Overdrafter123!";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const BETA_ACCESS_FIXTURE = "e2e/fixtures/beta-access.sql";
+const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 
 const ids = {
   organization: uuid(1),
+  outsiderOrganization: uuid(2),
+  unenrolledOrganization: uuid(3),
   pricingPolicy: uuid(10),
   cleanupProject: uuid(20),
   quotedProject: uuid(21),
@@ -37,6 +42,8 @@ const ids = {
   organizationMembershipClient: uuid(310),
   organizationMembershipEstimator: uuid(311),
   organizationMembershipAdmin: uuid(312),
+  organizationMembershipOutsider: uuid(313),
+  organizationMembershipUnenrolled: uuid(314),
   projectJobCleanup: uuid(400),
   projectJobQuotedA: uuid(401),
   projectJobQuotedB: uuid(402),
@@ -102,6 +109,20 @@ const userSpecs = [
     name: "Demo Admin",
     role: "internal_admin",
   },
+  // Access-scope browser fixtures: a client of another organization, and a
+  // client whose organization has an entitlement but no Founding Beta enrollment.
+  {
+    key: "outsider",
+    email: "outsider.demo@overdrafter.local",
+    name: "Demo Outsider",
+    role: "client",
+  },
+  {
+    key: "unenrolled",
+    email: "unenrolled.demo@overdrafter.local",
+    name: "Demo Unenrolled Client",
+    role: "client",
+  },
 ];
 
 const assetSpecs = [
@@ -142,8 +163,19 @@ const legacyFixtureStoragePaths = [
 
 async function main() {
   const allowRemote = process.argv.includes("--allow-remote");
-  const { supabaseUrl, serviceRoleKey, anonKey } = resolveCredentials();
+  const { supabaseUrl, serviceRoleKey, anonKey, dbUrl } = resolveCredentials();
   ensureLocalProject(supabaseUrl, allowRemote);
+
+  // Decide before any write: the private fixture needs a local database and psql.
+  const betaAccessPlan = planBetaAccessFixture({
+    supabaseUrl,
+    dbUrl: dbUrl ?? (allowRemote ? undefined : readSupabaseStatus().DB_URL),
+    allowRemote,
+  });
+
+  if (betaAccessPlan.apply) {
+    ensurePsqlAvailable();
+  }
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -155,7 +187,7 @@ async function main() {
   const users = {};
 
   for (const spec of userSpecs) {
-    users[spec.role] = await upsertUser(admin, spec);
+    users[spec.key ?? spec.role] = await upsertUser(admin, spec);
   }
 
   await ensureBucket(admin, "job-files");
@@ -165,11 +197,21 @@ async function main() {
   await cleanupExistingSeedData(admin);
   const selectOffers = (selections) => selectOffersAsClient(supabaseUrl, anonKey, userSpecs[0].email, selections);
   await insertSeedData(admin, users, assetFiles, selectOffers);
+  await upsertAccessScopeOrganizations(admin, users);
+
+  if (betaAccessPlan.apply) {
+    applyBetaAccessFixture(betaAccessPlan.dbUrl);
+    console.log(`Applied ${BETA_ACCESS_FIXTURE} to the local database.`);
+  } else {
+    console.log(`Skipped ${BETA_ACCESS_FIXTURE}: ${betaAccessPlan.reason}`);
+  }
 
   console.log("Seeded local debug data.");
   console.log(`Client: ${userSpecs[0].email}`);
   console.log(`Estimator: ${userSpecs[1].email}`);
   console.log(`Admin: ${userSpecs[2].email}`);
+  console.log(`Other-organization client: ${userSpecs[3].email}`);
+  console.log(`Unenrolled client: ${userSpecs[4].email}`);
   console.log(`Password: ${PASSWORD}`);
 }
 
@@ -181,11 +223,31 @@ function resolveCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY;
   const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY;
+  const dbUrl = process.env.SUPABASE_DB_URL ?? process.env.DB_URL;
 
   if (supabaseUrl && serviceRoleKey && anonKey) {
-    return { supabaseUrl, serviceRoleKey, anonKey };
+    return { supabaseUrl, serviceRoleKey, anonKey, dbUrl };
   }
 
+  const parsed = readSupabaseStatus();
+  const resolvedUrl = parsed.API_URL ?? parsed.SUPABASE_URL;
+  const resolvedServiceRoleKey = parsed.SERVICE_ROLE_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
+  const resolvedAnonKey = parsed.ANON_KEY ?? parsed.SUPABASE_ANON_KEY;
+
+  if (!resolvedUrl || !resolvedServiceRoleKey || !resolvedAnonKey) {
+    throw new Error("Supabase status did not include API_URL, SERVICE_ROLE_KEY and ANON_KEY.");
+  }
+
+  return {
+    supabaseUrl: resolvedUrl,
+    serviceRoleKey: resolvedServiceRoleKey,
+    anonKey: resolvedAnonKey,
+    dbUrl: parsed.DB_URL ?? parsed.SUPABASE_DB_URL,
+  };
+}
+
+/** Reads `supabase status -o env` for the local stack as a key/value map. */
+function readSupabaseStatus() {
   let output;
 
   try {
@@ -195,7 +257,7 @@ function resolveCredentials() {
     });
   } catch (error) {
     throw new Error(
-      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY.",
+      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY and SUPABASE_DB_URL.",
       { cause: error },
     );
   }
@@ -217,28 +279,77 @@ function resolveCredentials() {
       parsed[rawKey.trim()] = rawValue.replace(/^['"]|['"]$/g, "");
     });
 
-  const resolvedUrl = parsed.API_URL ?? parsed.SUPABASE_URL;
-  const resolvedServiceRoleKey = parsed.SERVICE_ROLE_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
-  const resolvedAnonKey = parsed.ANON_KEY ?? parsed.SUPABASE_ANON_KEY;
-
-  if (!resolvedUrl || !resolvedServiceRoleKey || !resolvedAnonKey) {
-    throw new Error("Supabase status did not include API_URL, SERVICE_ROLE_KEY and ANON_KEY.");
-  }
-
-  return {
-    supabaseUrl: resolvedUrl,
-    serviceRoleKey: resolvedServiceRoleKey,
-    anonKey: resolvedAnonKey,
-  };
+  return parsed;
 }
 
 function ensureLocalProject(supabaseUrl, allowRemote) {
   const hostname = new URL(supabaseUrl).hostname;
 
-  if (!allowRemote && hostname !== "127.0.0.1" && hostname !== "localhost") {
+  if (!allowRemote && !LOCAL_HOSTNAMES.has(hostname)) {
     throw new Error(
       `Refusing to seed non-local Supabase project ${supabaseUrl}. Re-run with --allow-remote to override.`,
     );
+  }
+}
+
+/**
+ * Decides whether the private Founding Beta fixture may be written. Its rows
+ * bypass the admin RPC, so they are only ever written to a local stack: never
+ * under --allow-remote, and never to a non-local database URL.
+ */
+export function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
+  if (allowRemote) {
+    return {
+      apply: false,
+      reason: `--allow-remote is set; ${BETA_ACCESS_FIXTURE} writes private rows only to a local stack.`,
+    };
+  }
+
+  ensureLocalProject(supabaseUrl, false);
+
+  if (!dbUrl) {
+    throw new Error(
+      `Unable to resolve the local database URL for ${BETA_ACCESS_FIXTURE}. Run \`npm run db:start\` or set SUPABASE_DB_URL (or DB_URL).`,
+    );
+  }
+
+  let hostname;
+
+  try {
+    hostname = new URL(dbUrl).hostname;
+  } catch (error) {
+    throw new Error(`The database URL for ${BETA_ACCESS_FIXTURE} is not a valid PostgreSQL URL.`, { cause: error });
+  }
+
+  if (!LOCAL_HOSTNAMES.has(hostname)) {
+    throw new Error(`Refusing to write Founding Beta fixture rows to non-local database ${hostname}.`);
+  }
+
+  return { apply: true, dbUrl };
+}
+
+function ensurePsqlAvailable() {
+  try {
+    execFileSync("psql", ["--version"], { stdio: "ignore" });
+  } catch (error) {
+    throw new Error(
+      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
+      { cause: error },
+    );
+  }
+}
+
+/** Writes the Founding Beta rows as postgres; service_role cannot reach those tables. */
+function applyBetaAccessFixture(dbUrl) {
+  try {
+    execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
+      cwd: repoRoot,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  } catch (error) {
+    throw new Error(`psql failed to apply ${BETA_ACCESS_FIXTURE} (exit ${error.status ?? error.code}).`, {
+      cause: error,
+    });
   }
 }
 
@@ -401,6 +512,43 @@ async function cleanupExistingSeedData(admin) {
   await deleteRows(admin, "pricing_policies", "organization_id", ids.organization);
   await deleteRows(admin, "organization_memberships", "organization_id", ids.organization);
   await deleteRows(admin, "organizations", "id", ids.organization);
+}
+
+/** Two client-only organizations for cross-organization and enrollment checks. */
+async function upsertAccessScopeOrganizations(admin, users) {
+  await upsertRows(admin, "organizations", [
+    {
+      id: ids.outsiderOrganization,
+      name: "Outsider Fixture Co.",
+      slug: "outsider-fixture-co",
+      created_at: FIXTURE_TIMESTAMP,
+      updated_at: FIXTURE_TIMESTAMP,
+    },
+    {
+      id: ids.unenrolledOrganization,
+      name: "Unenrolled Fixture Co.",
+      slug: "unenrolled-fixture-co",
+      created_at: FIXTURE_TIMESTAMP,
+      updated_at: FIXTURE_TIMESTAMP,
+    },
+  ]);
+
+  await upsertRows(admin, "organization_memberships", [
+    {
+      id: ids.organizationMembershipOutsider,
+      organization_id: ids.outsiderOrganization,
+      user_id: users.outsider.id,
+      role: "client",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+    {
+      id: ids.organizationMembershipUnenrolled,
+      organization_id: ids.unenrolledOrganization,
+      user_id: users.unenrolled.id,
+      role: "client",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+  ]);
 }
 
 async function deleteRows(admin, table, column, value) {
@@ -1179,7 +1327,10 @@ async function selectOffersAsClient(supabaseUrl, anonKey, email, selections) {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+// Run only as a script, so the guard above can be imported by unit tests.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
