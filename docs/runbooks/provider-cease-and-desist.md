@@ -6,10 +6,10 @@ OVD-722 per-provider switch.
 This is an operations playbook, not legal advice. Escalate to paid counsel if any
 financial demand is made.
 
-Target: 1 hour, no deploy, **pending OVD-722** (until the kill switch ships, follow the manual fallback below)
+Target: 1 hour, no code deploy (a Cloud Run env change creates a new revision), **pending OVD-722** (until the kill switch ships, follow the manual fallback below)
 
 Turn the named provider off **within 1 hour** of receiving a cease-and-desist,
-by flipping the OVD-722 config switch. The flip needs **no deploy**. Latency is
+by flipping the OVD-722 config switch. The flip needs **no code deploy**. Latency is
 the next preflight or worker check, typically a few seconds. There is no cache.
 
 Until OVD-722 lands, the command and RPC below are the planned interface from
@@ -51,12 +51,30 @@ Confirm immediately:
 5. Other providers continue unless the global switch was used.
 6. Customers see "provider temporarily unavailable".
 
-No deploy, no admission-policy edit, and no envelope withdrawal is required for
+No code deploy, no admission-policy edit, and no envelope withdrawal is required for
 the emergency stop. Envelope withdrawal remains the durable follow-up.
 
 ## Manual fallback until OVD-722 ships
 
-If `provider:kill` or the RPC does not exist yet, Blaine stops traffic by hand within the same hour, without a deploy: remove the provider key from `WORKER_LIVE_ADAPTERS` on the Cloud Run worker (config change only) and set the provider's admission policy to `disabled` through the existing admin path. Record what was done and when, then continue with Step 2. Do not build a second kill switch.
+If `provider:kill` or the RPC does not exist yet, Blaine stops traffic by hand within the same hour. No code is deployed, but changing a Cloud Run env var creates a new Cloud Run revision, so allow a few minutes for it to roll out. Do not build a second kill switch.
+
+1. Read the current list. The worker is the Cloud Run service `overdrafter-cad-worker` in project `overdrafter-worker-9133`, region `us-west1`
+   (see `docs/workflows/ovd410-stable-egress.md` and `worker/scripts/deploy-cloud-run.sh`, which sets `WORKER_LIVE_ADAPTERS`):
+
+   ```bash
+   gcloud run services describe overdrafter-cad-worker --project overdrafter-worker-9133 --region us-west1 --format=json | grep -A1 WORKER_LIVE_ADAPTERS
+   ```
+
+2. Set it again without the provider key. This example drops `fictiv` from `xometry,fictiv,quickparts,weerg`. The `^@^` prefix is needed because the list contains commas:
+
+   ```bash
+   gcloud run services update overdrafter-cad-worker --project overdrafter-worker-9133 --region us-west1 --update-env-vars "^@^WORKER_LIVE_ADAPTERS=xometry,quickparts,weerg"
+   ```
+
+   The deploy script refuses an empty list, so if the C&D provider is the only adapter (for example `xometry`), stop and escalate to Blaine. The manual path for that case is TBD pending OVD-722.
+3. Admission policy `disabled`: the repo shows no admin RPC or CLI for this. Admission is currently set by reviewed migrations
+   (for example `supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql`). The admin path is TBD pending OVD-722. Step 1 above is the supported route once it ships.
+4. Record what was done and when, then continue with Step 2.
 
 ## Step 2: Preserve evidence
 

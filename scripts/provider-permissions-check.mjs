@@ -13,11 +13,29 @@ export const PLAYBOOK_RELATIVE_PATH = "docs/runbooks/provider-cease-and-desist.m
 export const ACCEPTANCE_TABLES_RELATIVE_PATH = "docs/providers/acceptance-tables.md";
 export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
 export const MAX_ENABLED_AGE_DAYS = 90;
-export const PLAYBOOK_PENDING_MARKER = "Target: 1 hour, no deploy, **pending OVD-722** (until the kill switch ships, follow the manual fallback below)";
+export const PLAYBOOK_PENDING_MARKER = "Target: 1 hour, no code deploy (a Cloud Run env change creates a new revision), **pending OVD-722** (until the kill switch ships, follow the manual fallback below)";
 export const OUTREACH_DRAFT_ONLY_LINE = "> DRAFT ONLY. Nothing is sent without Blaine's approval.";
 export const OUTREACH_STATUSES = Object.freeze(["draft", "approved_by_blaine", "sent_by_blaine", "replied"]);
 export const PLAYBOOK_STEP_ONE_HEADING = "## Step 1: Engage the OVD-722 kill switch";
+export const PLAYBOOK_MANUAL_FALLBACK_HEADING = "## Manual fallback";
+export const KILL_SWITCH_CLI_SCRIPT = "provider:kill";
+export const KILL_SWITCH_RPC = "api_admin_set_provider_kill_switch";
 const KILL_COMMAND_PATTERN = /^npm run provider:kill -- (?:<provider_key>|[a-z][a-z0-9]{1,49}) --on --reason ".+"$/m;
+
+/**
+ * Reviewed cross-check for the registry's `oneDotZero` list. Dropping or adding a 1.0 provider
+ * in the registry must be matched by a reviewed edit here; the scope itself still comes from the registry.
+ */
+export const REVIEWED_ONE_DOT_ZERO_KEYS = Object.freeze([
+  "fictiv",
+  "geomiq",
+  "oshcut",
+  "quickparts",
+  "rmfg",
+  "sendcutsend",
+  "weerg",
+  "xometry",
+]);
 
 export const REQUIRED_NOT_1_0_KEYS = Object.freeze(["protolabs"]);
 
@@ -58,6 +76,44 @@ export function deriveRequired10Keys(registry, manifests = []) {
     throw new Error("no 1.0 providers are declared; add them to oneDotZero in provider-integrations/provider-registry.v1.json");
   }
   return Object.freeze([...keys].sort(compareKeys));
+}
+
+export function assertReviewedOneDotZero(registry) {
+  const declared = isObject(registry) && Array.isArray(registry.oneDotZero) ? [...registry.oneDotZero].sort(compareKeys) : [];
+  const reviewed = [...REVIEWED_ONE_DOT_ZERO_KEYS];
+  const missing = reviewed.filter((key) => !declared.includes(key));
+  const extra = declared.filter((key) => !reviewed.includes(key));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `registry oneDotZero differs from the reviewed 1.0 set (missing: ${missing.join(",") || "none"}; unreviewed: ${extra.join(",") || "none"})`,
+    );
+  }
+}
+
+/** The OVD-722 switch exists only when the provider:kill script and its file are present and name the RPC. */
+export async function assertKillSwitchShipped(rootDir) {
+  const fail = (reason) => {
+    throw new Error(`kill_switch_shipped is true but the OVD-722 kill switch is not in code: ${reason}`);
+  };
+  let scripts;
+  try {
+    scripts = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8")).scripts;
+  } catch {
+    return fail("package.json is unreadable");
+  }
+  const command = isObject(scripts) ? scripts[KILL_SWITCH_CLI_SCRIPT] : undefined;
+  const scriptPath = typeof command === "string" ? command.match(/^node (\S+\.m?js)\b/)?.[1] : undefined;
+  if (!scriptPath) {
+    return fail(`package.json has no ${KILL_SWITCH_CLI_SCRIPT} script that runs a node file`);
+  }
+  const source = await readOptionalFile(path.resolve(rootDir, scriptPath));
+  if (source === null) {
+    return fail(`${scriptPath} does not exist`);
+  }
+  if (!source.includes(KILL_SWITCH_RPC)) {
+    return fail(`${scriptPath} does not call ${KILL_SWITCH_RPC}`);
+  }
+  return undefined;
 }
 
 export const TOS_STANCES = Object.freeze(["allowed", "prior-consent", "prohibited", "silent"]);
@@ -504,13 +560,67 @@ export function assertRegistryParity(matrixKeys, registryKeys, required10Keys) {
   }
 }
 
+/** Lines tagged with fenced-code state; HTML comments are blanked outside fences. */
+function scanMarkdown(markdown) {
+  let fence = null;
+  let inComment = false;
+  return markdown.split(/\r?\n/).map((raw) => {
+    const delimiter = raw.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (fence) {
+      if (delimiter && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(raw.slice(raw.indexOf(delimiter) + delimiter.length))) {
+        fence = null;
+      }
+      return { text: raw, inFence: true };
+    }
+    if (!inComment && delimiter) {
+      fence = delimiter;
+      return { text: raw, inFence: true };
+    }
+    let text = "";
+    let rest = raw;
+    for (;;) {
+      if (inComment) {
+        const close = rest.indexOf("-->");
+        if (close < 0) {
+          break;
+        }
+        rest = rest.slice(close + 3);
+        inComment = false;
+      }
+      const open = rest.indexOf("<!--");
+      if (open < 0) {
+        text += rest;
+        break;
+      }
+      text += rest.slice(0, open);
+      rest = rest.slice(open + 4);
+      inComment = true;
+    }
+    return { text, inFence: false };
+  });
+}
+
+function extractManualFallbackSection(playbook) {
+  const lines = scanMarkdown(playbook);
+  const start = lines.findIndex((line) => !line.inFence && line.text.startsWith(PLAYBOOK_MANUAL_FALLBACK_HEADING));
+  if (start < 0) {
+    throw new Error(`playbook must keep a "${PLAYBOOK_MANUAL_FALLBACK_HEADING}" section`);
+  }
+  const length = lines.slice(start + 1).findIndex((line) => !line.inFence && /^## /.test(line.text));
+  const body = lines.slice(start + 1, length < 0 ? undefined : start + 1 + length).map((line) => line.text).join("\n");
+  if (body.trim().length === 0) {
+    throw new Error(`playbook "${PLAYBOOK_MANUAL_FALLBACK_HEADING}" section must not be empty`);
+  }
+  return body;
+}
+
 export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = false } = {}) {
   if (typeof playbook !== "string" || playbook.trim().length === 0) {
     throw new Error("cease-and-desist playbook is missing");
   }
   const requiredSnippets = [
     ["within 1 hour", "playbook must state the 1-hour off-switch target"],
-    ["no deploy", "playbook must state that the flip needs no deploy"],
+    ["no code deploy", "playbook must state that the flip needs no code deploy"],
     ["npm run provider:kill --", "playbook must use the OVD-722 CLI"],
     ["--on --reason", "playbook must include the exact on/reason flags"],
     ["api_admin_set_provider_kill_switch", "playbook must name the OVD-722 RPC"],
@@ -524,6 +634,22 @@ export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = fal
       throw new Error(message);
     }
   }
+  const fallback = extractManualFallbackSection(playbook);
+  const fallbackText = fallback.replace(/\s+/g, " ");
+  const fallbackSnippets = [
+    ["gcloud run services update overdrafter-cad-worker", "manual fallback must name the exact Cloud Run service update command"],
+    ["--project overdrafter-worker-9133", "manual fallback must name the Cloud Run project"],
+    ["--region us-west1", "manual fallback must name the Cloud Run region"],
+    ["--update-env-vars", "manual fallback must change WORKER_LIVE_ADAPTERS with --update-env-vars"],
+    ["WORKER_LIVE_ADAPTERS", "manual fallback must name WORKER_LIVE_ADAPTERS"],
+    ["new Cloud Run revision", "manual fallback must say the env change creates a new Cloud Run revision"],
+    ["TBD pending OVD-722", "manual fallback must mark the admission-policy disable path TBD pending OVD-722"],
+  ];
+  for (const [snippet, message] of fallbackSnippets) {
+    if (!fallbackText.includes(snippet)) {
+      throw new Error(message);
+    }
+  }
   const headings = playbook.split(/\r?\n/).filter((line) => /^## /.test(line));
   if (headings[0]?.trimEnd() !== PLAYBOOK_STEP_ONE_HEADING) {
     throw new Error(`playbook must open with "${PLAYBOOK_STEP_ONE_HEADING}" as its first ## heading`);
@@ -533,7 +659,7 @@ export function assertCeaseAndDesistPlaybook(playbook, { killSwitchShipped = fal
   if (!firstFence || !KILL_COMMAND_PATTERN.test(firstFence[1].trim())) {
     throw new Error("playbook step one's first code block must be the exact provider:kill flip command");
   }
-  if (!killSwitchShipped && !playbook.split(/\r?\n/).some((line) => line.trim() === PLAYBOOK_PENDING_MARKER)) {
+  if (!killSwitchShipped && !scanMarkdown(playbook).some((line) => !line.inFence && line.text.trim() === PLAYBOOK_PENDING_MARKER)) {
     throw new Error("playbook must carry the pending OVD-722 headline until kill_switch_shipped is true");
   }
 }
@@ -575,10 +701,22 @@ export function parseOutreachFrontMatter(contents) {
   for (const line of match[1].split(/\r?\n/)) {
     const separator = line.indexOf(":");
     if (separator > 0) {
-      fields[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+      const name = line.slice(0, separator).trim();
+      if (Object.hasOwn(fields, name)) {
+        throw new Error(`outreach front matter repeats key ${name}`);
+      }
+      fields[name] = line.slice(separator + 1).trim();
     }
   }
   return { fields, body: contents.slice(match[0].length) };
+}
+
+const SEND_INSTRUCTION_PATTERN = /mailto:|send this email|submit this form|call the API now/i;
+
+export function assertNoSendInstructions(contents, label) {
+  if (SEND_INSTRUCTION_PATTERN.test(contents)) {
+    throw new Error(`${label} must not include send or vendor-call instructions`);
+  }
 }
 
 export function assertOutreachDraft(contents, providerKey) {
@@ -608,9 +746,7 @@ export function assertOutreachDraft(contents, providerKey) {
       `outreach draft for ${providerKey} must have "${OUTREACH_DRAFT_ONLY_LINE}" as the first line under the H1`,
     );
   }
-  if (/mailto:|send this email|submit this form|call the API now/i.test(contents)) {
-    throw new Error(`outreach draft for ${providerKey} must not include send or vendor-call instructions`);
-  }
+  assertNoSendInstructions(contents, `outreach draft for ${providerKey}`);
   if (providerKey === "rmfg" && !/Oct 23/i.test(contents)) {
     throw new Error("RMFG outreach must reference the Oct 23 checkpoint instead of duplicating it");
   }
@@ -679,7 +815,11 @@ async function loadOutreachDrafts(rootDir, outreachFiles) {
   if (outreachFiles) {
     return outreachFiles;
   }
-  await assertOutreachDirectoryContents(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH));
+  const directory = path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH);
+  await assertOutreachDirectoryContents(directory);
+  for (const name of await fs.readdir(directory)) {
+    assertNoSendInstructions(await fs.readFile(path.join(directory, name), "utf8"), `outreach file ${name}`);
+  }
   const entries = await Promise.all(
     REQUIRED_OUTREACH_DRAFT_KEYS.map(async (key) => {
       const contents = await readOptionalFile(path.join(rootDir, OUTREACH_DIR_RELATIVE_PATH, `${key}.md`));
@@ -743,8 +883,11 @@ export async function checkProviderPermissions({
     document.providers,
     parseMarkdownReplyCounts(resolvedMarkdown),
   );
+  const resolvedRegistryDocument = registryDocument
+    ?? await readJson(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH), "provider registry");
+  assertReviewedOneDotZero(resolvedRegistryDocument);
   const required10Keys = deriveRequired10Keys(
-    registryDocument ?? await readJson(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH), "provider registry"),
+    resolvedRegistryDocument,
     manifests ?? await readProviderManifests(rootDir, { today }),
   );
   assertRequiredProviderCoverage(document.providers, required10Keys);
@@ -764,6 +907,9 @@ export async function checkProviderPermissions({
     document.providers,
     parseAdmissionPolicyFixtures(await loadAdmissionSql(rootDir, admissionSql)),
   );
+  if (document.kill_switch_shipped) {
+    await assertKillSwitchShipped(rootDir);
+  }
   assertCeaseAndDesistPlaybook(
     playbook ?? await fs.readFile(path.join(rootDir, PLAYBOOK_RELATIVE_PATH), "utf8"),
     { killSwitchShipped: document.kill_switch_shipped },

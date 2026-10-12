@@ -54,6 +54,10 @@ describe("explicit test execution lanes", () => {
     const testJob = lines.slice(start, end < 0 ? undefined : end).join("\n");
     expect(testJob).toMatch(/^        run: npm run test:portable-node\s*$/m);
     expect(testJob).toMatch(/^        run: npm run test:agent-control-plane\s*$/m);
+    const permissionsStep = testJob.split(/^      - /m)
+      .find((step) => /^        run: npm run provider:permissions\s*$/m.test(step));
+    expect(permissionsStep).toBeDefined();
+    expect(permissionsStep).not.toMatch(/^        (?:continue-on-error|if):/m);
     const portableStep = testJob.split(/^      - /m)
       .find((step) => /^        run: npm run test:portable-node\s*$/m.test(step));
     expect(portableStep).not.toMatch(/^        (?:continue-on-error|if):/m);

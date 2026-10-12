@@ -15,10 +15,13 @@ import {
   MATRIX_MARKDOWN_RELATIVE_PATH,
   MATRIX_SCHEMA_RELATIVE_PATH,
   OUTREACH_DIR_RELATIVE_PATH,
+  PLAYBOOK_PENDING_MARKER,
   PLAYBOOK_RELATIVE_PATH,
   REQUIRED_NOT_1_0_KEYS,
   REQUIRED_OUTREACH_DRAFT_KEYS,
+  REVIEWED_ONE_DOT_ZERO_KEYS,
   assertCeaseAndDesistPlaybook,
+  assertKillSwitchShipped,
   assertMarkdownAgreesWithJson,
   assertNoAdmittedProviderIsProhibitedOrCd,
   assertOutreachDirectoryContents,
@@ -339,10 +342,12 @@ describe("OVD-724 provider permissions matrix lint", () => {
     expect(packageJson.scripts.verify).toContain("provider:permissions");
   });
 
-  it("keeps an expected 1.0 key out of the lint script", async () => {
+  it("keeps 1.0 keys out of the lint script except the explicit reviewed cross-check", async () => {
     const source = await fs.readFile(path.join(repoRoot, "scripts/provider-permissions-check.mjs"), "utf8");
     expect(source).not.toMatch(/REQUIRED_1_0_KEYS/);
-    expect(source).not.toMatch(/"sendcutsend"/);
+    expect(source.match(/"sendcutsend"/g)).toHaveLength(1);
+    expect(source).toMatch(/REVIEWED_ONE_DOT_ZERO_KEYS = Object\.freeze\(\[[^\]]*"sendcutsend"/);
+    expect([...REVIEWED_ONE_DOT_ZERO_KEYS]).toEqual([...EXPECTED_1_0_KEYS].sort());
   });
 
   it("still validates fixture copies of the committed docs", async () => {
@@ -382,7 +387,7 @@ describe("OVD-724 cease-and-desist playbook uses the OVD-722 switch", () => {
     const playbook = await fs.readFile(path.join(repoRoot, PLAYBOOK_RELATIVE_PATH), "utf8");
     assertCeaseAndDesistPlaybook(playbook);
     expect(playbook).toMatch(/within 1 hour/);
-    expect(playbook).toMatch(/no deploy/);
+    expect(playbook).toMatch(/no code deploy/);
     expect(playbook).toContain("npm run provider:kill -- <provider_key> --on --reason");
     expect(playbook).toContain("api_admin_set_provider_kill_switch");
     const command = extractPlaybookKillCommand(playbook, "fictiv");
@@ -624,14 +629,122 @@ describe("OVD-728 playbook structure and pending marker", () => {
     expect(() => assertCeaseAndDesistPlaybook(text)).not.toThrow();
   });
 
+  async function killSwitchFixture({ script = true, file = true, rpc = true } = {}) {
+    const { temporaryRoot } = await writeTempRepo();
+    const scripts = script ? { "provider:kill": "node scripts/provider-kill.mjs" } : {};
+    await fs.writeFile(path.join(temporaryRoot, "package.json"), JSON.stringify({ scripts }));
+    if (file) {
+      await fs.mkdir(path.join(temporaryRoot, "scripts"), { recursive: true });
+      await fs.writeFile(
+        path.join(temporaryRoot, "scripts/provider-kill.mjs"),
+        rpc ? "// calls api_admin_set_provider_kill_switch\n" : "// nothing\n",
+      );
+    }
+    return temporaryRoot;
+  }
+
   it("drives the full lint from the matrix kill_switch_shipped flag", async () => {
     const { document, markdown } = await readRepoMatrix();
     expect(document.kill_switch_shipped).toBe(false);
+    const root = await killSwitchFixture();
     const text = (await playbook()).replace("**pending OVD-722**", "ready");
     const shipped = { ...clone(document), kill_switch_shipped: true };
-    await expect(checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11", playbook: text, markdown }))
+    await expect(checkProviderPermissions({ rootDir: root, today: "2026-10-11", playbook: text, markdown }))
       .rejects.toThrow("pending OVD-722");
-    await expect(checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11", playbook: text, markdown, matrixDocument: shipped }))
+    await expect(checkProviderPermissions({ rootDir: root, today: "2026-10-11", playbook: text, markdown, matrixDocument: shipped }))
+      .resolves.toMatchObject({ ok: true });
+  });
+
+  it("rejects kill_switch_shipped=true unless the provider:kill script, its file, and the RPC exist", async () => {
+    const { document, markdown } = await readRepoMatrix();
+    const shipped = { ...clone(document), kill_switch_shipped: true };
+    const text = (await playbook()).replace("**pending OVD-722**", "ready");
+    const run = (rootDir) => checkProviderPermissions({ rootDir, today: "2026-10-11", playbook: text, markdown, matrixDocument: shipped });
+    await expect(run(repoRoot)).rejects.toThrow("kill switch is not in code");
+    await expect(run(await killSwitchFixture({ script: false }))).rejects.toThrow("no provider:kill script");
+    await expect(run(await killSwitchFixture({ file: false }))).rejects.toThrow("does not exist");
+    await expect(run(await killSwitchFixture({ rpc: false }))).rejects.toThrow("does not call api_admin_set_provider_kill_switch");
+    await expect(assertKillSwitchShipped(await killSwitchFixture())).resolves.toBeUndefined();
+    await expect(run(await killSwitchFixture())).resolves.toMatchObject({ ok: true });
+  });
+
+  it("counts the pending marker only outside code fences and HTML comments", async () => {
+    const text = await playbook();
+    const marker = PLAYBOOK_PENDING_MARKER;
+    const stripped = text.replace(marker, "Target: 1 hour");
+    expect(() => assertCeaseAndDesistPlaybook(stripped)).toThrow("pending OVD-722");
+    expect(() => assertCeaseAndDesistPlaybook(`${stripped}\n\`\`\`text\n${marker}\n\`\`\`\n`)).toThrow("pending OVD-722");
+    expect(() => assertCeaseAndDesistPlaybook(`${stripped}\n<!--\n${marker}\n-->\n`)).toThrow("pending OVD-722");
+    expect(() => assertCeaseAndDesistPlaybook(`${stripped}\n<!-- ${marker} -->\n`)).toThrow("pending OVD-722");
+    expect(() => assertCeaseAndDesistPlaybook(`${stripped}\n${marker}\n`)).not.toThrow();
+  });
+
+  it("requires a non-empty Manual fallback section with an executable env change", async () => {
+    const text = await playbook();
+    const heading = "## Manual fallback until OVD-722 ships";
+    expect(() => assertCeaseAndDesistPlaybook(text.replace(heading, "## Something else"))).toThrow("Manual fallback");
+    expect(() => assertCeaseAndDesistPlaybook(text.replace(heading, `<!--\n${heading}\n-->`))).toThrow("Manual fallback");
+    const start = text.indexOf(heading);
+    const end = text.indexOf("## Step 2");
+    const emptied = `${text.slice(0, start + heading.length)}\n\n${text.slice(end)}`;
+    expect(() => assertCeaseAndDesistPlaybook(emptied)).toThrow("must not be empty");
+    const noCommand = text.replace("gcloud run services update overdrafter-cad-worker", "ask someone");
+    expect(() => assertCeaseAndDesistPlaybook(noCommand)).toThrow("Cloud Run service update command");
+    expect(() => assertCeaseAndDesistPlaybook(text.replace("new Cloud Run revision", "new thing"))).toThrow("new Cloud Run revision");
+    expect(() => assertCeaseAndDesistPlaybook(text.replaceAll("TBD pending OVD-722", "see admin"))).toThrow("TBD pending OVD-722");
+  });
+});
+
+describe("OVD-728 registry cross-checks and outreach scanning", () => {
+  async function withRegistry(mutate) {
+    const { temporaryRoot } = await writeTempRepo();
+    const file = path.join(temporaryRoot, "provider-integrations/provider-registry.v1.json");
+    const registry = JSON.parse(await fs.readFile(file, "utf8"));
+    mutate(registry);
+    await fs.writeFile(file, `${JSON.stringify(registry, null, 2)}\n`);
+    return temporaryRoot;
+  }
+
+  it("fails when weerg is dropped from oneDotZero", async () => {
+    const root = await withRegistry((registry) => {
+      registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "weerg");
+    });
+    await expect(checkProviderPermissions({ rootDir: root, today: "2026-10-11" }))
+      .rejects.toThrow("differs from the reviewed 1.0 set (missing: weerg");
+  });
+
+  it("fails when oneDotZero gains an unreviewed key", async () => {
+    const root = await withRegistry((registry) => {
+      registry.oneDotZero = [...registry.oneDotZero, "protolabs"].sort();
+    });
+    await expect(checkProviderPermissions({ rootDir: root, today: "2026-10-11" }))
+      .rejects.toThrow("unreviewed: protolabs");
+  });
+
+  it("falls back to the manifest glob when the registry declares providers: []", async () => {
+    const root = await withRegistry((registry) => {
+      registry.providers = [];
+    });
+    const result = await checkProviderPermissions({ rootDir: root, today: "2026-10-11" });
+    expect(result.registrySource).toBe("provider-integrations/*/manifest.v1.json");
+  });
+
+  it("rejects duplicate front-matter keys, including auto_send", () => {
+    const extra = (line) => buildDraft({ fields: [...FRONT_MATTER, line] });
+    expect(() => assertOutreachDraft(extra("auto_send: true"), "xometry")).toThrow("repeats key auto_send");
+    expect(() => assertOutreachDraft(extra("auto_send: false"), "xometry")).toThrow("repeats key auto_send");
+    const reversed = buildDraft({ fields: ["auto_send: true", ...FRONT_MATTER] });
+    expect(() => assertOutreachDraft(reversed, "xometry")).toThrow("repeats key auto_send");
+  });
+
+  it("scans every .md in the outreach directory for send instructions", async () => {
+    const { temporaryRoot } = await writeTempRepo();
+    const extra = path.join(temporaryRoot, OUTREACH_DIR_RELATIVE_PATH, "extra-notes.md");
+    await fs.writeFile(extra, "# Notes\n\n[email them](mailto:sales@example.com)\n");
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
+      .rejects.toThrow("outreach file extra-notes.md must not include send or vendor-call instructions");
+    await fs.writeFile(extra, "# Notes\n\nNothing to send.\n");
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
       .resolves.toMatchObject({ ok: true });
   });
 });
