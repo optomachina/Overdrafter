@@ -10,10 +10,11 @@ Rules the log encodes:
 * Jev can only raise risk. The final tier is the higher of the deterministic
   tier and Jev's tier.
 * A failed or low confidence Jev call raises the tier to at least `normal`.
-* `low` stops after QA, `normal` gets an independent Sonnet review, `risky`
-  gets an independent Opus review. Anything on Blaine's hard list (migrations,
-  RLS, SECURITY DEFINER, CI workflows, secrets, auth, deploy) also needs his
-  explicit yes to merge.
+* An unknown deterministic tier counts as `risky`.
+* `low` stops after an independent QA or Sonnet review, `normal` gets an
+  independent Sonnet review, `risky` gets an independent Opus review.
+  Anything on Blaine's hard list (migrations, RLS, SECURITY DEFINER, CI
+  workflows, secrets, auth, deploy) also needs his explicit yes to merge.
 
 Screen a batch:
 
