@@ -149,7 +149,7 @@ being denied.
   foreign-provider list exactly equals `FOREIGN_JURISDICTION_PROVIDERS`), plus
   updated existing upload tests and `worker/src/jev/operationalTask.test.ts`.
 - pgTAP: `supabase/tests/pending/ovd723_export_control_upload_block.sql.pending`
-  targets the draft. **Executed locally, 91/91 pass** (2026-10-12) on a
+  targets the draft. **Executed locally, 95/95 pass** (2026-10-12) on a
   disposable Docker `supabase/postgres:17.6.1.095` with all 148 migrations
   plus the draft, applied in one transaction and rolled back. The Storage and
   GoTrue services were not run, so `storage.objects`, `storage.buckets`, and
@@ -175,7 +175,7 @@ reproduced on a disposable local database before the fix.
 | # | Finding | Verified | Fix |
 | --- | --- | --- | --- |
 | 1 | Storage authorization raced declaration changes (helper STABLE, no lock) | Yes. An insert committed while a `controlled` declaration held the exclusive lock. | The helper is VOLATILE, takes the shared lock for the job, then reads in a new statement. Writers take the lock exclusively. Finalize and dispatch check again under the same lock. |
-| 2 | Grant covered an org/hash namespace; bytes never checked | Yes. After preparing `safe.step`, an `evil.pdf` under the same org/hash was accepted and finalized with the safe hash. | The grant names one bucket and path, hash, size, user, job, declaration; single use (`finalized_at`). Finalize needs an object this user wrote at that path inside the grant window with the granted size. The hash is verified by the worker (below). |
+| 2 | Grant covered an org/hash namespace; bytes never checked | Yes. After preparing `safe.step`, an `evil.pdf` under the same org/hash was accepted and finalized with the safe hash. | The grant names one bucket and path, hash, size, user, job, declaration; single use (`finalized_at`). Finalize needs an object this user owns at that path, written before the grant expired, with the granted size. The hash is verified by the worker (below). |
 | 3 | Phase 1 left the legacy RPCs and Storage policy open | Yes. After declaring `controlled`, legacy prepare returned `upload_required` and legacy finalize registered the file. | One window: legacy signatures raise, the Storage policy is replaced in the same migration. |
 | 4 | Clean scans not bound to job or content | Yes, for the internal org roles (`internal_estimator`, `internal_admin`; `job_files_update_internal`). A `client` member cannot update `job_files`. A repointed CAD row and a drawing moved to another job kept the part admitted. | Scans store the scanned hash; dispatch matches file id, current job, and current hash, and the part and file must be in the task's job. |
 
@@ -212,7 +212,7 @@ no declaration, so dispatch still denies it.
   deleting orphans needs the Storage API with the service role (not built).
 - **Content hash.** SQL cannot read object bytes, so finalize cannot compare
   the hash. It checks owner, exact path, size (Storage metadata), and time
-  window. The SHA-256 is checked when the worker first stages the file
+  window (written before the grant expired). The SHA-256 is checked when the worker first stages the file
   (`api_register_trusted_file_hash` records the staged hash), before any scan
   or dispatch: a clean scan is refused (`export_content_hash_mismatch`) and
   dispatch denies (`export_scan_missing`) unless the staged hash equals the
@@ -223,10 +223,69 @@ no declaration, so dispatch still denies it.
 
 - Orphaned objects from a declaration change during a transfer, or from a
   finalize that never ran, stay in Storage until a cleanup job deletes them.
-- A user whose earlier upload of the same file wrote the object but never
-  finalized can retry within the grant window; after it, the retry fails with
-  `file_upload_grant_missing` until the file is renamed (new path) or the
-  orphan is deleted.
+- An object this user wrote earlier at the same path (a retry, or an orphan
+  from before window 1) can be finalized under a new grant and a fresh clean
+  declaration. Its hash is still verified by the worker before any scan or
+  dispatch.
 - Native CAD formats are verified by hash but not scanned for markings.
 - The internal org roles can still edit `job_files` and `parts`; edits only
   remove admission, they cannot create it.
+
+## Window 1 rehearsal follow up
+
+The window 1 rehearsal (packet PR #687) applied head `673fbe33` and found six
+main pgTAP suites that pass on main and fail after the draft. Each was
+reproduced on a disposable local database, and the cause was split into
+behavior and fixtures.
+
+Behavior fixed in the draft:
+
+- **Wrapper order.** The dispatch wrappers ran the export gate before the
+  core, so an unknown task answered `export_declaration_missing` instead of
+  the core's `scope_mismatch` or `dispatch_task_not_running`, and every core
+  denial lost precedence. The wrappers now call the core first, inside a
+  subtransaction. A core denial is returned unchanged. When the core
+  authorizes and the export gate denies, the wrapper raises SQLSTATE `OV723`,
+  which rolls back everything the core wrote (for example a consumed permit),
+  and returns the export denial. The wrappers keep `search_path = pg_catalog`,
+  as on main.
+- **Finalize order.** The new finalize now runs the core first, so empty
+  file, path, missing object and Founding Beta denials keep their codes. The
+  grant check follows; when it fails, the whole call rolls back.
+- **Grant time check.** Finalize no longer requires the object to be written
+  after the grant was created (owner, exact path, size and the expiry bound
+  remain). A same user retry or pre window orphan can then be finalized under
+  a new grant and a clean declaration, and the worker still verifies its hash.
+- **Lock timeout.** `set local lock_timeout = '3s'` precedes the
+  `storage.objects` policy swap.
+
+Fixtures updated in the suites (no assertion changed or removed):
+`provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency`,
+`xometry_beta_dispatch_permits` and `free_confirmed_quote_access` seed a clean
+declaration, verified hashes and clean scans just before their authorization
+assertions. `empty_file_upload_rejection` and `founding_beta_file_boundaries`
+route prepare and finalize through `pg_temp` helpers that use the declaring
+overloads with a seeded clean declaration, and issue a grant before a Storage
+write that must succeed. Every seeding block checks
+`to_regclass('private.job_export_declarations')` first, so on main (draft not
+applied) it does nothing and the suites run exactly as before.
+
+### Decision for Blaine: the backfill
+
+Window 1 backfills a `missing` declaration for every existing job with files.
+Undeclared counts as uncertain, so each of those jobs is refused dispatch
+until its owner declares, and (because no scans exist before the new worker)
+until extraction runs again. Count the affected jobs on production before the
+window (read only):
+
+```sql
+select count(*) as jobs_refused_dispatch_until_declared,
+       count(distinct job.organization_id) as organizations
+from public.jobs job
+where exists (select 1 from public.job_files file where file.job_id = job.id);
+```
+
+Local check (disposable Docker, all 148 migrations, 2026-10-12): every main
+suite was run without and with the draft (draft committed, so the dblink
+concurrency suites see it). No suite that passes without the draft fails with
+it. The OVD-723 pending suite passes 95/95.

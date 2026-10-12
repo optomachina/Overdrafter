@@ -31,7 +31,7 @@
 --      (finding 4)
 begin;
 
-select plan(91);
+select plan(95);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -350,7 +350,7 @@ select throws_ok(
     (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
     (select clean_hash from ovd723_ctx),
     (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
-  'P0001', 'file_upload_grant_missing',
+  'P0001', 'file_upload_object_missing',
   'finalize before the granted object exists is rejected'
 );
 
@@ -379,7 +379,7 @@ select throws_ok(
     (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
     (select clean_hash from ovd723_ctx),
     (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
-  'P0001', 'file_upload_grant_missing',
+  'P0001', 'file_upload_path_mismatch',
   'finalize under a name other than the granted object is rejected'
 );
 
@@ -406,7 +406,7 @@ select throws_ok(
     (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
     (select clean_hash from ovd723_ctx),
     (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
-  'P0001', 'file_upload_grant_missing',
+  'P0001', 'A matching file is already attached to this job.',
   'a consumed grant cannot finalize a second time'
 );
 
@@ -563,14 +563,14 @@ set local role service_role;
 
 select is(
   public.api_authorize_provider_worker_dispatch(gen_random_uuid(), gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()) ->> 'denial',
-  'export_declaration_missing',
-  'the provider preflight denies before the core when the export lookup finds nothing'
+  'scope_mismatch',
+  'a core denial of an unknown task is returned unchanged by the provider wrapper'
 );
 
 select is(
   public.api_authorize_xometry_beta_worker_dispatch(gen_random_uuid(), gen_random_uuid(), '{"vendor":"xometry"}'::jsonb, 'worker-1', now()) ->> 'reasonCode',
-  'export_declaration_missing',
-  'the Xometry preflight denies before the core when the export lookup finds nothing'
+  'dispatch_task_not_running',
+  'a core denial of an unknown task is returned unchanged by the Xometry wrapper'
 );
 
 -- 4. Marking hit.
@@ -779,17 +779,11 @@ select is(
   'with both files scanned clean, the part is admitted'
 );
 
-set local role service_role;
-
 select is(
-  public.api_authorize_provider_worker_dispatch(
-    '00000000-0000-4000-8000-0000000072c2', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
-  ) ->> 'denial',
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c2', 'fictiv'),
   'export_scan_missing',
   'a reused copy of the same bytes is denied: another file''s scan never vouches for it'
 );
-
-reset role;
 
 -- Finding 4: a scan stops vouching once its row changes. The internal org
 -- role may update job_files (job_files_update_internal).
@@ -932,6 +926,60 @@ select is(
   null,
   'a native CAD file with a verified hash is admitted (no scanner for the format yet)'
 );
+
+-- Wrapper order: the core runs first; when it authorizes and the export gate
+-- denies, everything the core wrote is rolled back. A stub core records each
+-- call so the rollback is observable.
+create temporary table ovd723_core_calls (task_id uuid not null) on commit drop;
+grant insert, select on ovd723_core_calls to service_role;
+
+create or replace function private.provider_worker_dispatch_core(
+  p_work_queue_task_id uuid,
+  p_vendor_quote_result_id uuid,
+  p_scope_snapshot jsonb,
+  p_expected_worker_name text,
+  p_expected_claimed_at timestamptz
+)
+returns jsonb
+language plpgsql
+as $$
+begin
+  insert into ovd723_core_calls values (p_work_queue_task_id);
+  return pg_catalog.jsonb_build_object('schema', 'provider-dispatch-authorization.v1', 'authorized', true);
+end;
+$$;
+
+set local role service_role;
+
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-0000000072c2', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
+  ) ->> 'denial',
+  'export_scan_missing',
+  'an export denial replaces a core authorization'
+);
+
+select is(
+  (select count(*)::integer from ovd723_core_calls),
+  0,
+  'the core''s writes are rolled back when the export gate denies'
+);
+
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-0000000072c1', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
+  ) ->> 'authorized',
+  'true',
+  'a core authorization passes through when the export gate admits'
+);
+
+select is(
+  (select count(*)::integer from ovd723_core_calls),
+  1,
+  'the admitted core call keeps its writes'
+);
+
+reset role;
 
 select throws_ok(
   $$delete from private.job_file_export_scans$$,

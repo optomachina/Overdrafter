@@ -885,11 +885,13 @@ begin
 end;
 $$;
 
--- Finalize registers the object only when this user inserted it at the exact
--- granted path, within the grant window, with the granted size, and the job's
--- latest declaration is still the clean one (checked under the shared lock).
--- The grant is then consumed. A mismatch raises file_upload_grant_missing and
--- writes nothing; the object stays unreferenced (see notes, "Orphans").
+-- Finalize registers the object only when this user owns the object at the
+-- exact granted path, it was written before the grant expired, its size is
+-- the granted size, and the job's latest declaration is still the clean one
+-- (checked under the shared lock). The core runs first so its own denials
+-- (empty file, path, missing object, Founding Beta) keep their precedence; a
+-- missing grant then raises file_upload_grant_missing, which rolls back
+-- everything the core wrote. The grant is consumed on success.
 create or replace function public.api_finalize_job_file_upload(
   p_job_id uuid,
   p_storage_bucket text,
@@ -925,6 +927,11 @@ begin
 
   perform private.require_clean_export_declaration(v_job.id, p_export_declaration_id);
 
+  v_file_id := private.job_file_finalize_core(
+    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+    p_mime_type, p_size_bytes, p_content_sha256
+  );
+
   if v_hash ~ '^[0-9a-f]{64}$' then
     v_expected_path := public.build_org_file_blob_storage_path(
       v_job.organization_id, v_hash, p_original_name
@@ -946,7 +953,6 @@ begin
     and grant_row.size_bytes = p_size_bytes
     and grant_row.finalized_at is null
     and coalesce(object_row.owner_id, object_row.owner::text) = auth.uid()::text
-    and object_row.created_at >= grant_row.created_at
     and object_row.created_at <= grant_row.expires_at
     and (
       object_row.metadata ->> 'size' is null
@@ -958,11 +964,6 @@ begin
       errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
       message = 'file_upload_grant_missing';
   end if;
-
-  v_file_id := private.job_file_finalize_core(
-    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
-    p_mime_type, p_size_bytes, p_content_sha256
-  );
 
   update private.export_cleared_upload_grants grant_row
   set finalized_at = pg_catalog.clock_timestamp(),
@@ -1240,9 +1241,15 @@ revoke all on function private.export_control_file_denial(uuid, uuid, text[])
   from public, anon, authenticated, service_role;
 
 -- 1.16 Dispatch preflights. The existing bodies move unchanged to private
--- cores; the public names become wrappers that run the export gate first,
--- holding the shared per-job export lock until commit so a declaration or a
--- marking block cannot interleave with the decision.
+-- cores; the public names become wrappers. Each wrapper runs the core first,
+-- inside a subtransaction. A core denial is returned unchanged, so every
+-- existing denial keeps its code and precedence. When the core authorizes,
+-- the export gate runs (taking the shared per-job export lock, held until
+-- commit, so a declaration or marking block cannot interleave); if it denies,
+-- the wrapper raises SQLSTATE OV723 to roll back everything the core did
+-- (for example a consumed permit) and returns the export denial instead. Any
+-- other error propagates, as before. The wrappers keep the original
+-- search_path = pg_catalog and qualify every reference.
 alter function public.api_authorize_xometry_beta_worker_dispatch(
   uuid, uuid, jsonb, text, timestamptz
 ) set schema private;
@@ -1273,19 +1280,27 @@ create or replace function public.api_authorize_xometry_beta_worker_dispatch(
 returns jsonb
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog
 as $$
 declare
+  v_result jsonb;
   v_denial text;
 begin
-  v_denial := private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry');
-  if v_denial is not null then
+  begin
+    v_result := private.xometry_beta_worker_dispatch_core(
+      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
+      p_expected_worker_name, p_expected_claimed_at
+    );
+    if v_result ->> 'authorized' = 'true' then
+      v_denial := private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry');
+      if v_denial is not null then
+        raise exception using errcode = 'OV723', message = v_denial;
+      end if;
+    end if;
+  exception when sqlstate 'OV723' then
     return pg_catalog.jsonb_build_object('authorized', false, 'reasonCode', v_denial);
-  end if;
-  return private.xometry_beta_worker_dispatch_core(
-    p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-    p_expected_worker_name, p_expected_claimed_at
-  );
+  end;
+  return v_result;
 end;
 $$;
 
@@ -1299,9 +1314,10 @@ create or replace function public.api_authorize_provider_worker_dispatch(
 returns jsonb
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog
 as $$
 declare
+  v_result jsonb;
   v_denial text;
 begin
   -- Xometry keeps its legacy response shape; its wrapper applies the gate.
@@ -1312,17 +1328,24 @@ begin
     );
   end if;
 
-  v_denial := private.export_control_dispatch_denial_for_task(
-    p_work_queue_task_id,
-    p_scope_snapshot ->> 'vendor'
-  );
-  if v_denial is not null then
+  begin
+    v_result := private.provider_worker_dispatch_core(
+      p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
+      p_expected_worker_name, p_expected_claimed_at
+    );
+    if v_result ->> 'authorized' = 'true' then
+      v_denial := private.export_control_dispatch_denial_for_task(
+        p_work_queue_task_id,
+        p_scope_snapshot ->> 'vendor'
+      );
+      if v_denial is not null then
+        raise exception using errcode = 'OV723', message = v_denial;
+      end if;
+    end if;
+  exception when sqlstate 'OV723' then
     return private.provider_dispatch_authorization_denial(v_denial);
-  end if;
-  return private.provider_worker_dispatch_core(
-    p_work_queue_task_id, p_vendor_quote_result_id, p_scope_snapshot,
-    p_expected_worker_name, p_expected_claimed_at
-  );
+  end;
+  return v_result;
 end;
 $$;
 
@@ -1358,7 +1381,11 @@ where declaration.answer = 'missing';
 -- 1.18 Storage: no job-files object is written without an exact,
 -- declaration-backed grant (1.14). Replaces the policy from 20260815093000
 -- in the same migration, so there is no window where the RPCs are gated but
--- Storage is not.
+-- Storage is not. Both statements take ACCESS EXCLUSIVE on storage.objects;
+-- the lock timeout makes the migration fail fast (and roll back whole) rather
+-- than queue every Storage read and write behind a long running query. On a
+-- timeout, rerun the migration at lower traffic.
+set local lock_timeout = '3s';
 drop policy if exists "job_files_storage_insert" on storage.objects;
 create policy "job_files_storage_insert"
 on storage.objects

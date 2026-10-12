@@ -648,6 +648,25 @@ describe("OVD-723 migration draft", () => {
       expect(draft).toMatch(new RegExp(`grant execute on function public\\.${fn}\\([^)]*\\) to service_role;`));
     }
     expect(draft).toContain("private.export_control_dispatch_denial_for_task(p_work_queue_task_id, 'xometry')");
+    // The core decides first, so its denials keep their codes; an export
+    // denial after a core authorization rolls the core's writes back (OV723).
+    for (const [fn, core] of [
+      ["public.api_authorize_xometry_beta_worker_dispatch", "private.xometry_beta_worker_dispatch_core("],
+      ["public.api_authorize_provider_worker_dispatch", "private.provider_worker_dispatch_core("],
+    ]) {
+      const body = sqlFunctionBody(fn);
+      expect(body).toContain("set search_path = pg_catalog");
+      expect(body.indexOf(core)).toBeLessThan(body.indexOf("private.export_control_dispatch_denial_for_task("));
+      expect(body).toContain("raise exception using errcode = 'OV723'");
+      expect(body).toContain("exception when sqlstate 'OV723' then");
+    }
+  });
+
+  it("bounds the storage.objects policy swap with a lock timeout", () => {
+    const window1 = sqlWindow1();
+    const timeoutAt = window1.indexOf("set local lock_timeout = '3s';");
+    expect(timeoutAt).toBeGreaterThan(-1);
+    expect(timeoutAt).toBeLessThan(window1.indexOf('drop policy if exists "job_files_storage_insert" on storage.objects;'));
   });
 
   it("records marking hits through a service-role-only RPC and audits admin review", () => {
