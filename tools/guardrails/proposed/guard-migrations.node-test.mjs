@@ -95,13 +95,17 @@ writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 // Two git repositories for the push and alias rows: gitmain has main checked out, gitfeat a feature branch and some aliases.
 // git is run from a fixed install location, as the hook does, rather than looked up on PATH.
-const GIT = ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"].find((candidate) => existsSync(candidate));
+const GIT_CANDIDATES =
+  process.platform === "darwin"
+    ? ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]
+    : ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"];
+const GIT = GIT_CANDIDATES.find((candidate) => existsSync(candidate));
 const git = (sub, ...args) => {
   if (!GIT) throw new Error("git not found in a fixed install location");
   const result = spawnSync(GIT, ["-C", join(FIXTURE, sub), ...args], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
 };
-for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"]]) {
+for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"], ["gitincl", "feature/x"]]) {
   mkdirSync(join(FIXTURE, sub));
   git(sub, "init", "-q");
   git(sub, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
@@ -111,6 +115,10 @@ git("gitfeat", "config", "alias.pm", "push origin main");
 git("gitfeat", "config", "alias.hop", "pm");
 git("gitfeat", "config", "alias.st", "status");
 git("gitfeat", "config", "alias.lg", "log --oneline");
+// An alias file reached only through include.path: gitincl includes it in its config, the other rows name it with -c or git config.
+writeFileSync(join(FIXTURE, "alias.gitconfig"), "[alias]\n\tx = !git push origin HEAD:main\n\ty = push origin HEAD:main\n");
+git("gitincl", "config", "include.path", join(FIXTURE, "alias.gitconfig"));
+writeFileSync(join(FIXTURE, "gitfeat/notes.md"), "notes\n");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
 const mcp = (tool_name, tool_input) => ({ tool_name, tool_input });
@@ -541,11 +549,13 @@ pass | git push origin HEAD:feature/x
 pass | git push -u origin feature/x
 pass | git -C $FIXTURE/gitfeat push -u origin HEAD
 block | git -C $FIXTURE/gitmain push -u origin HEAD
-# 2. --repo names the repository, so the first positional argument is a refspec.
-block | git push --repo origin HEAD:main
-block | git push --repo=origin HEAD:main
-block | git push --repo origin main
-pass | git push --repo origin HEAD:feature/x
+# 2. As in git, the first positional argument is the repository even with --repo (it overrides --repo), and the rest
+# are refspecs; with none, the current branch is pushed. (Rewritten in round 16: the earlier rows read it the other way.)
+block | git push --repo=origin origin HEAD:main
+block fixture:gitmain | git push --repo origin HEAD:feature/x
+block fixture:gitmain | git push --repo=origin
+pass fixture:gitfeat | git push --repo origin HEAD:feature/x
+pass fixture:gitfeat | git push --repo origin main
 pass fixture:gitfeat | git push --repo=origin
 # 3. curl --expand-<option> is <option>: --expand-json and --expand-data send a body.
 block | curl --expand-json '{}' --expand-url https://abc.supabase.co/rest/v1/jobs
@@ -621,7 +631,8 @@ block sql | select public.archive_old_jobs()
 block sql | select private.rotate_keys(1)
 block sql | select * from app.enqueue_job('x')
 block sql | select "public"."archive_old_jobs"()
-block sql | select auth.uid()
+block sql | select auth.sign_up('x')
+pass sql | select auth.uid()
 pass sql | select pg_catalog.pg_get_functiondef('f'::regproc)
 pass sql | select pg_catalog.format_type(23, null)
 pass sql | select extensions.uuid_generate_v4()
@@ -635,6 +646,131 @@ residual (git reset, stash, pull and clean change local files only and are not i
 residual (git reset, stash, pull and clean change local files only and are not inspected) | git pull origin main
 residual (git reset, stash, pull and clean change local files only and are not inspected) | git clean -fdx
 `;
+
+// Round 16: the third polish round before install. Every fix has a block row and every false positive fix an allow row.
+const ROUND_16 = String.raw`
+# 1. A push of the current branch follows git checkout, git switch and git branch -m earlier in the same command (in the
+# same repository, -C included); a branch that cannot be resolved there makes the push fail closed.
+block fixture:gitfeat | git checkout main && git merge --ff-only feature/x && git push
+block fixture:gitfeat | git switch main && git push origin HEAD
+block fixture:gitfeat | git checkout -t origin/main && git push
+block fixture:gitfeat | git branch -m main && git push -u origin HEAD
+block fixture:gitfeat | git checkout "$(cat /tmp/branch)" && git push
+block fixture:gitfeat | git checkout $BRANCH && git push
+block fixture:gitfeat | git switch - && git push
+block fixture:gitfeat | git switch --detach && git push
+block | git -C $FIXTURE/gitfeat checkout main && git -C $FIXTURE/gitfeat push
+block fixture:gitfeat | (git checkout main) && git push
+pass fixture:gitmain | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitmain | git switch -c feature/y && git commit -am wip && git push -u origin HEAD
+pass fixture:gitmain | git checkout -B feature/y origin/main && git push -u origin HEAD
+pass fixture:gitmain | git switch --create=feature/y && git push origin HEAD
+pass fixture:gitfeat | git checkout notes.md && git push -u origin HEAD
+pass fixture:gitfeat | git checkout main -- notes.md && git push origin HEAD
+pass fixture:gitfeat | git checkout main && git checkout feature/x && git push
+pass | git -C $FIXTURE/gitmain checkout main && git -C $FIXTURE/gitfeat push origin HEAD
+# 2. An empty destination names the source ref.
+block fixture:gitmain | git push origin HEAD:
+block fixture:gitfeat | git push origin main:
+pass fixture:gitfeat | git push origin HEAD:
+# 3. A wildcard refspec whose destination can match main.
+block fixture:gitfeat | git push origin 'refs/heads/*:refs/heads/*'
+block fixture:gitfeat | git push origin '*:*'
+block fixture:gitfeat | git push origin 'refs/heads/*'
+pass fixture:gitmain | git push origin 'refs/heads/feature/*:refs/heads/feature/*'
+pass fixture:gitmain | git push origin 'refs/tags/*:refs/tags/*'
+# 4. Aliases from include files: given with -c, set earlier with git config, or present in the repository config.
+block fixture:gitfeat | git -c include.path=$FIXTURE/alias.gitconfig x
+block fixture:gitfeat | git -c include.path=$FIXTURE/alias.gitconfig y
+block fixture:gitfeat | git config include.path $FIXTURE/alias.gitconfig && git x
+block fixture:gitfeat | git -c includeIf.onbranch:feature/x.path=$FIXTURE/alias.gitconfig x
+block fixture:gitincl | git x
+block fixture:gitincl | git y
+block fixture:gitfeat | printf '[alias]\n\tz = push origin HEAD:main\n' > /tmp/guard-new.gitconfig && git -c include.path=/tmp/guard-new.gitconfig z
+block fixture:gitfeat | git -c include.path=relative.gitconfig x
+pass fixture:gitfeat | git -c include.path=$FIXTURE/alias.gitconfig status
+pass fixture:gitfeat | git -c include.path=$FIXTURE/alias.gitconfig log --oneline -- supabase/migrations
+pass fixture:gitincl | git log --oneline -1
+# 5. Past the alias depth limit the call fails closed; a shorter chain is still expanded.
+block | git -c alias.a=b -c alias.b=c -c alias.c=d -c alias.d=e -c alias.e=f -c alias.f='push origin HEAD:main' a
+block | git -c alias.a=b -c alias.b=c -c alias.c=d -c alias.d=e -c alias.e=f -c alias.f=status a
+pass | git -c alias.a=b -c alias.b=c -c alias.c=status a
+# 6. A refspec built by substitution or a variable is the current branch.
+block fixture:gitmain | git push -u origin "$(git branch --show-current)"
+block fixture:gitmain | git push -u origin $(git rev-parse --abbrev-ref HEAD)
+block fixture:gitmain | git push origin "HEAD:$(git symbolic-ref --short HEAD)"
+block fixture:gitmain | git push origin "$BRANCH"
+pass fixture:gitfeat | git push -u origin "$(git branch --show-current)"
+pass fixture:gitfeat | git push -u origin $(git rev-parse --abbrev-ref HEAD)
+pass fixture:gitmain | git push origin "HEAD:refs/heads/$USER/fix"
+pass fixture:gitmain | git push origin "HEAD:fix/$(date +%s)"
+block fixture:gitmain | git push origin "HEAD:refs/heads/$BRANCH"
+# 7. Read only Supabase auth helpers pass in psql and execute_sql; other auth functions and app schemas stay blocked.
+pass | psql -h db.abc.supabase.co -c 'select auth.uid()'
+pass | psql -h db.abc.supabase.co -c 'select auth.role(), auth.jwt(), auth.email()'
+pass sql | select id from public.jobs where owner_id = auth.uid()
+block | psql -h db.abc.supabase.co -c 'select auth.sign_up()'
+block | psql -h db.abc.supabase.co -c 'select public.archive_old_jobs()'
+block | psql -h db.abc.supabase.co -c 'select private.rotate_keys(1)'
+# 8. A push of tags only leaves main alone.
+pass fixture:gitmain | git push --tags
+pass fixture:gitmain | git push origin --tags
+pass fixture:gitmain | git push origin tag main
+pass fixture:gitmain | git push origin tag v1.0
+block fixture:gitmain | git push origin --tags main
+block fixture:gitmain | git push origin tag v1.0 HEAD
+# 10. cd - returns to the directory before the last cd; with none known, the directory is unresolved.
+block fixture:gitfeat | cd $FIXTURE/gitmain && cd $FIXTURE/gitfeat && cd - && git push
+block fixture:gitmain | cd - && git push
+pass fixture:gitmain | cd $FIXTURE/gitfeat && cd $FIXTURE/gitmain && cd - && git push
+# 11. When -c text moves its positional values (shift, set --) or reads them with a default, each value is tried in
+# every earlier position, and the references are also read as unresolved variables.
+block fixture:gitfeat | bash -c 'shift; git push origin "$1"' _ x HEAD:main
+block fixture:gitfeat | bash -c 'git push origin "$\{1:-x}"' _ HEAD:main
+block fixture:gitfeat | bash -c 'git push origin "$\{1-x}"' _ HEAD:main
+block fixture:gitmain | bash -c 'set -- HEAD; git push origin "$1"' _
+block fixture:gitfeat | bash -c 'shift; cp /tmp/x "$1"' _ a supabase/migrations/x.sql
+pass fixture:gitfeat | bash -c 'shift; cat "$1"' _ a supabase/migrations/x.sql
+pass fixture:gitfeat | bash -c 'shift; git push origin "$1"' _ x HEAD:feature/x
+pass fixture:gitfeat | bash -c 'set -- HEAD; git push origin "$1"' _
+# 12. A quoted schema name is read as that name; git config failing with an error message fails closed.
+pass | psql -h db.abc.supabase.co -c 'select "pg_catalog"."now"()'
+pass sql | select "pg_catalog"."format_type"(23, null)
+block sql | select "public"."archive_old_jobs"()
+block fixture:gitfeat | git 'x y'
+# Normal review commands the lead runs; all pass.
+pass | git -C /tmp/wt log -- supabase/migrations
+pass | sed -n 1,80p supabase/migrations/x.sql
+pass | grep -rn "security definer" supabase/migrations 2>/dev/null
+pass | cat supabase/migrations/x.sql > /tmp/x.sql
+pass | npm run test:portable-node
+pass | gh pr diff 676
+pass | gh api repos/o/r/pulls/1
+pass fixture:gitfeat | git push -u origin HEAD
+# Residuals that stay: these change local files only, and deliberate evasions are not chased.
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git stash pop
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git pull origin main
+residual (git reset, stash, pull and clean change local files only and are not inspected) | git clean -fdx
+residual fixture:gitfeat (a refspec generated to spell main is read as the current branch; a deliberate evasion) | git push origin "$(echo main)"
+block fixture:gitfeat | git -c alias.sw='!git switch main' sw && git push
+block fixture:gitfeat | bash -c 'git checkout main' && git push
+residual fixture:gitfeat (a branch change made outside git checkout, switch or branch -m, such as gh pr checkout, is not followed) | gh pr checkout 1 && git push
+`;
+
+test("cd ~ is expanded from HOME, so a push is resolved in the right repository", () => {
+  const home = process.env.HOME;
+  process.env.HOME = FIXTURE;
+  try {
+    const run = (command) => decide({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, "gitfeat") }, { prFiles: fakePrFiles });
+    assert.ok(run("cd ~/gitmain && git push"), "cd ~/gitmain && git push should block");
+    assert.ok(run("cd ~ && cd gitmain && git push -u origin HEAD"), "cd ~ && cd gitmain && git push should block");
+    assert.equal(run("cd ~/gitfeat && git push"), null);
+    assert.ok(run("cd ~other/gitfeat && git push"), "cd ~other leaves the directory unresolved, so the push fails closed");
+  } finally {
+    process.env.HOME = home;
+  }
+});
 
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
@@ -1093,6 +1229,7 @@ const PROBES = [
   ...tableRows(13, ROUND_13),
   ...tableRows(14, ROUND_14),
   ...tableRows(15, ROUND_15),
+  ...tableRows(16, ROUND_16),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
