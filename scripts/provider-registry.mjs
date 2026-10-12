@@ -48,7 +48,7 @@ const AWS_SECRET_KEY_DETECTOR = Object.freeze({
     for (const run of String(text).match(/[A-Za-z0-9/+]{40,}/g) ?? []) {
       for (let start = 0; start + AWS_SECRET_KEY_LENGTH <= run.length; start += 1) {
         const window = run.slice(start, start + AWS_SECRET_KEY_LENGTH);
-        if (/[0-9]/.test(window) && /[a-z]/.test(window) && /[A-Z]/.test(window) && window.includes("/")) {
+        if (/\d/.test(window) && /[a-z]/.test(window) && /[A-Z]/.test(window) && window.includes("/")) {
           return true;
         }
       }
@@ -68,7 +68,7 @@ export const SECRET_VALUE_PATTERNS = Object.freeze([
   /\b[0-9a-fA-F]{40}\b/,
   /\b[0-9a-fA-F]{64}\b/,
   /\b[A-Z2-7]{32,}\b/,
-  /\b(?=[a-z0-9]*[0-9])(?=[a-z0-9]*[a-z])[a-z0-9]{32,50}\b/,
+  /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{32,50}\b/,
   AWS_SECRET_KEY_DETECTOR,
   /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/,
 ]);
@@ -165,7 +165,7 @@ function tokenLooksLikeSecret(token) {
   ) {
     return false;
   }
-  if (LOWERCASE_IDENTIFIER_PATTERN.test(token)) {
+  if (token.includes(".") && LOWERCASE_IDENTIFIER_PATTERN.test(token)) {
     return token.split(/[._-]/).some((label) => label.length >= HIGH_ENTROPY_MIN_LENGTH && shannonEntropy(label) >= HIGH_ENTROPY_THRESHOLD);
   }
   return shannonEntropy(token) >= HIGH_ENTROPY_THRESHOLD;
@@ -774,7 +774,7 @@ function renderStableEgressRestrictionMessageFn(registry, optionalEgress) {
   const message = formatStableEgressRestrictionMessage(registry.stableEgressRequiredKey, optionalEgress);
   return [
     "provider_registry_stable_egress_restriction_message() {",
-    `  printf '%s\\n' ${bashQuote(message)}`,
+    String.raw`  printf '%s\n' ${bashQuote(message)}`,
     "}",
   ].join("\n");
 }

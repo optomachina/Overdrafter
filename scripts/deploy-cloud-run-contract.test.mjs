@@ -1008,7 +1008,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(fourthMessage).toContain("Geomiq");
   });
 
-  it("keeps generated shell free of bash 4 only syntax and runs the helper under posix bash", async () => {
+  it("keeps generated shell free of bash 4 only syntax and prints the helper message in posix mode", async () => {
     const repoRoot = path.resolve(process.cwd());
     const registry = await readProviderRegistry(repoRoot);
     const script = renderProviderRegistryOutputs(registry)
@@ -1020,6 +1020,8 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(script).not.toMatch(/\b(?:mapfile|readarray)\b/);
     expect(script).not.toMatch(/\|&|&>>|;;&|;&/);
 
+    // The static checks above are the bash 3.2 guard. --posix under a newer bash
+    // does not prove 3.2 compatibility; a real bash 3.2 lane is a follow up.
     const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-posix-"));
     const scriptPath = path.join(dir, "provider-secrets.sh");
     await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);

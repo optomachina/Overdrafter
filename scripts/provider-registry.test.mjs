@@ -595,6 +595,8 @@ describe("provider registry hardening (OVD-727)", () => {
     expect(looksLikeSecretValue("storage-state.json")).toBe(false);
     expect(looksLikeSecretValue("https://www.xometry.com/capabilities/3d-printing-service/")).toBe(false);
     expect(looksLikeSecretValue("fictivstoragestatesecretname")).toBe(false);
+    expect(looksLikeSecretValue("aluminum_6061_cnc_milling_maximum_559x356x95.3_mm")).toBe(false);
+    expect(looksLikeSecretValue("a8f3k2_m9x7q1_z4c6v8_b2n5w0_p1o3i7")).toBe(true);
 
     expect(() => validateProviderRegistryEntry({
       key: "geomiq",
