@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { buildRestoreSql, restorePath } from './native/stop-observer/sql/generate-restore-sql.mjs';
 
 const stagedReplay=process.argv.includes('--staged-replay');
 if(process.argv.slice(2).some(value=>value!=='--staged-replay'))throw new Error('Unsupported fixture argument');
@@ -43,6 +44,32 @@ function concurrent(statement) {
     child.stderr.on('data',chunk=>{stderr+=chunk;});
     child.on('close',code=>resolve({code,stdout:stdout.trim(),stderr}));
   });
+}
+/** Whole multi-statement script on stdin; returns the psql exit and stderr. */
+function script(text) {
+  try {
+    run(['exec','-i',container,'psql','-U','postgres','-X','-q','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'],
+      {input:text,timeout:60_000});
+    return {code:0,stderr:''};
+  } catch(error) {return {code:error.status??1,stderr:String(error.stderr)};}
+}
+function concurrentScript(text) {
+  return new Promise(resolve=>{
+    const child=spawn(docker,['exec','-i',container,'psql','-U','postgres','-X','-q','-v','ON_ERROR_STOP=1',
+      '-v','VERBOSITY=verbose'],{stdio:['pipe','pipe','pipe']});
+    let stderr='';
+    child.stdout.resume();
+    child.stderr.on('data',chunk=>{stderr+=chunk;});
+    child.on('close',code=>resolve({code,stderr}));
+    child.stdin.end(text);
+  });
+}
+async function untilWaiting(event) {
+  for(let i=0;i<200;i++) {
+    if(Number(sql(`select count(*) from pg_stat_activity where wait_event=${q(event)}`))>=1)return;
+    await delay(50);
+  }
+  throw new Error(`Concurrent fixture session did not wait on ${event}`);
 }
 async function untilSleeping(count=1) {
   for(let i=0;i<200;i++) {
@@ -170,7 +197,17 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
-  if(stagedReplay)file(stagedSource);
+  const functionState=`select json_build_object('body',md5(p.prosrc),'definition',md5(pg_get_functiondef(p.oid)),
+    'oid',p.oid,'owner',pg_get_userbyid(p.proowner),'acl',p.proacl::text,'secdef',p.prosecdef,
+    'config',p.proconfig,'identity',pg_get_function_identity_arguments(p.oid))::text from pg_proc p
+    where p.oid=to_regprocedure('engineering_private.store_native_observer_evidence(uuid,bytea,bytea)')`;
+  const migrationState=sql(functionState);
+  let replacementState=null;
+  if(stagedReplay) {
+    file(stagedSource);
+    replacementState=sql(functionState);
+    check(replacementState!==migrationState,'staged replacement changes the function definition');
+  }
   equal(canonical({a:1,_:2,A:3}),'{"A":3,"_":2,"a":1}',
     'test oracle keeps ordinal JSON key order');
   equal(sql('select engineering_private.native_observer_json_string(chr(128512))'),
@@ -400,6 +437,40 @@ try {
         a.stdout.split('\n').filter(line=>/^[0-9a-f-]{36}$/.test(line)).at(-1),'concurrent replay returns the retained UUID');
       equal(evidenceFor(run.attempt),'1','concurrent replay inserts one evidence row');
     }
+    // Paired restoration: generated source, guards, lock order, exact
+    // prior definition, refusal of any other current body, and reapply.
+    const {sql:restoreSql,pins}=buildRestoreSql();
+    equal(readFileSync(restorePath,'utf8'),restoreSql,'committed restoration matches its generator');
+    equal(JSON.parse(replacementState).body,pins.replacementBodyMd5,'restoration pins the live replacement body');
+    equal(JSON.parse(migrationState).body,pins.originalBodyMd5,'restoration pins the OVD-575 migration body');
+    for(const level of ['repeatable read','serializable']) {
+      const refused=script(restoreSql.replace('\nbegin;\n',`\nbegin isolation level ${level};\n`));
+      check(refused.code!==0&&/0A000/.test(refused.stderr)&&/ovd649_restore_read_committed_required/.test(refused.stderr),
+        `${level} restoration refused: ${refused.stderr.slice(0,300)}`);
+      equal(sql(functionState),replacementState,`${level} restoration leaves the replacement`);
+    }
+    // The shared OVD-510 advisory lock comes before any relation or catalog change.
+    const lockHolder=concurrent('begin;select pg_advisory_xact_lock(510,2);select pg_sleep(1.5);commit;');
+    await untilSleeping();
+    const restoring=concurrentScript(restoreSql);
+    const waitObserved=untilWaiting('advisory').then(()=>true,()=>false);
+    const [held,restored,waited]=await Promise.all([lockHolder,restoring,waitObserved]);
+    equal(held.code,0,'advisory lock holder commits');
+    check(waited,'restoration waits on the shared (510,2) advisory lock');
+    equal(restored.code,0,`restoration applies: ${restored.stderr.slice(0,300)}`);
+    equal(sql(functionState),migrationState,'restoration returns the exact OVD-575 definition, OID, owner and grants');
+    const retained=sql('select count(*) from engineering_private.native_observer_evidence');
+    fail(ingest(profile,manifest,journal),/ERROR:\s+(23505|PT409)/,'restored OVD-575 body no longer recovers a retained receipt');
+    equal(sql('select count(*) from engineering_private.native_observer_evidence'),retained,'restored body retains nothing new');
+    const again=script(restoreSql);
+    check(again.code!==0&&/ovd649_restore_unexpected_current_state/.test(again.stderr),
+      `restoration refuses a body that is not the replacement: ${again.stderr.slice(0,300)}`);
+    equal(sql(functionState),migrationState,'refused restoration changes nothing');
+    file(stagedSource);
+    equal(sql(functionState),replacementState,'replacement reapplies to the same definition');
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'reapplied replacement recovers the retained UUID');
+    equal(script(restoreSql).code,0,'second restoration applies');
+    equal(sql(functionState),migrationState,'second restoration returns the exact OVD-575 definition');
   } else {
     fail(ingest(profile,manifest,journal),/23505/,'duplicate attempt evidence denied');
   }
