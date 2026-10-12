@@ -318,18 +318,18 @@ describe("worker re-check after authorization (OVD-722)", () => {
 });
 
 describe("server preflight denial is terminal (OVD-722)", () => {
-  it("Xometry preflight denial provider_kill_switch_engaged is preserved and not retryable", async () => {
+  it("Xometry preflight denial provider_kill_switch_engaged becomes a terminal kill-switch refusal", async () => {
     const store = killSwitchStore(SEEDED);
     const { client } = fakeSupabase(store, { preflight: { authorized: false, reasonCode: "provider_kill_switch_engaged" } });
     const quote = vi.fn();
     const error = await routedRun(client, quote).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(XometryDispatchAuthorizationError);
-    expect(error).toMatchObject({ reasonCode: "provider_kill_switch_engaged" });
+    expect(error).toBeInstanceOf(ProviderKillSwitchError);
+    expect(error).toMatchObject({ reasonCode: "provider_kill_switch_engaged", provider: "xometry", checkpoint: "server_preflight" });
     expect(isRetryableVendorTaskError(error, createProviderMutationPhase())).toBe(false);
     expect(quote).not.toHaveBeenCalled();
   });
 
-  it("generic preflight denial provider_kill_switch_engaged is preserved and not retryable", async () => {
+  it("generic preflight denial provider_kill_switch_engaged becomes a terminal kill-switch refusal", async () => {
     const store = killSwitchStore(SEEDED);
     const { client } = fakeSupabase(store, {
       preflight: { schema: "provider-dispatch-authorization.v1", authorized: false, denial: "provider_kill_switch_engaged", retryable: false },
@@ -350,9 +350,12 @@ describe("server preflight denial is terminal (OVD-722)", () => {
       adapter: { quote },
       quoteInput: {} as VendorQuoteAdapterInput,
     }).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(ProviderDispatchAuthorizationError);
-    expect(error).toMatchObject({ denial: "provider_kill_switch_engaged", retryable: false });
+    expect(error).toBeInstanceOf(ProviderKillSwitchError);
+    expect(error).toMatchObject({ reasonCode: "provider_kill_switch_engaged", provider: "fictiv", checkpoint: "server_preflight", retryable: false });
     expect(quote).not.toHaveBeenCalled();
+    // Other preflight denials are untouched.
+    expect(new ProviderDispatchAuthorizationError("permit_expired").retryable).toBe(false);
+    expect(new XometryDispatchAuthorizationError("dispatch_request_inactive")).not.toBeInstanceOf(ProviderKillSwitchError);
     // The admitted-response fixture still authorizes when the switch is off.
     expect(genericAuthorizedResponse()).toMatchObject({ authorized: true });
   });

@@ -7,6 +7,7 @@ import {
 } from "./providerDispatchPreflight.js";
 import {
   createProviderKillSwitchGuard,
+  PROVIDER_KILL_SWITCH_ENGAGED,
   ProviderKillSwitchError,
   supabaseProviderKillSwitchReader,
   type ProviderKillSwitchReader,
@@ -106,6 +107,30 @@ export async function quoteWithRoutedDispatchPreflight(input: {
         })
       : null;
 
+  try {
+    return await routeDispatchPreflight(input, claim, adapter);
+  } catch (error) {
+    // A server preflight that denied for the kill switch ends the same way as a
+    // worker checkpoint refusal: cancelled_provider_disabled, never retried.
+    if (serverKillSwitchDenial(error)) {
+      throw new ProviderKillSwitchError(PROVIDER_KILL_SWITCH_ENGAGED, input.vendor, "server_preflight");
+    }
+    throw error;
+  }
+}
+
+function serverKillSwitchDenial(error: unknown): boolean {
+  return (
+    (error instanceof XometryDispatchAuthorizationError && error.reasonCode === PROVIDER_KILL_SWITCH_ENGAGED) ||
+    (error instanceof ProviderDispatchAuthorizationError && error.denial === PROVIDER_KILL_SWITCH_ENGAGED)
+  );
+}
+
+function routeDispatchPreflight(
+  input: Parameters<typeof quoteWithRoutedDispatchPreflight>[0],
+  claim: ProviderDispatchClaim | null,
+  adapter: Pick<VendorAdapter, "quote">,
+): Promise<VendorQuoteAdapterOutput> {
   if (claim) {
     return quoteWithProviderDispatchPreflight({
       supabase: input.supabase,

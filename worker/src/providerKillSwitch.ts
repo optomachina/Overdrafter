@@ -34,6 +34,7 @@ export type ProviderKillSwitchReasonCode =
 
 export type ProviderKillSwitchCheckpointName =
   | "claim"
+  | "server_preflight"
   | "before_launch"
   | "before_navigation"
   | "before_upload"

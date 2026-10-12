@@ -57,12 +57,13 @@ function database() {
     return query;
   };
   let onPreflight = () => undefined as void;
+  let preflight: unknown = xometryAuthorized;
   const rpc = (name: string, args: Record<string, unknown>) => {
     writes.push({ rpc: name });
     if (name === "api_authorize_xometry_beta_worker_dispatch") onPreflight();
     const data = name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.xometry, globalEngaged: switches.global }
-      : name === "api_authorize_xometry_beta_worker_dispatch" ? xometryAuthorized
+      : name === "api_authorize_xometry_beta_worker_dispatch" ? preflight
         : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
           : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
             street: "s", city: "c", region: "WA", postalCode: "z", country: "US" } } : null;
@@ -73,6 +74,7 @@ function database() {
   return {
     client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames,
     flipDuringPreflight: () => { onPreflight = () => { switches.xometry = true; }; },
+    denyPreflight: (decision: unknown) => { preflight = decision; },
   };
 }
 
@@ -123,6 +125,23 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(db.writes).toEqual(expect.arrayContaining([unavailableResultWrite, cancelledTaskWrite]));
     expect(db.writes).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }),
+    ]));
+  });
+
+  it("the server preflight denying provider_kill_switch_engaged also ends cancelled_provider_disabled, not failed", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.denyPreflight({ authorized: false, reasonCode: "provider_kill_switch_engaged" });
+    await handleVendorQuoteTask(db.client, task, live);
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
+        raw_payload: expect.objectContaining({ failureCode: "cancelled_provider_disabled", killSwitchCheckpoint: "server_preflight" }),
+      }) }),
+      cancelledTaskWrite,
+    ]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "failed" }) }),
     ]));
   });
 
