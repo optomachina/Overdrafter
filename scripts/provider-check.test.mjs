@@ -963,6 +963,19 @@ describe("readiness doc structure", () => {
     },
   );
 
+  it.each(["TBD - later", "Coming soon", "None", "TBD TODO", "WIP", "TBC"])(
+    "treats a %s-only body as empty section content",
+    async (placeholder) => {
+      const doc = REQUIRED_READINESS_HEADINGS
+        .map((heading) => `${heading}\n\n${placeholder}\n`)
+        .join("");
+      expect(validateReadinessDoc(doc)).toEqual(
+        REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+      );
+      await expect(checkWithDoc(doc)).rejects.toThrow("empty section:");
+    },
+  );
+
   it("treats a ###-only body as empty section content", async () => {
     const headed = REQUIRED_READINESS_HEADINGS
       .map((heading) => `${heading}\n\n### Details\n`)

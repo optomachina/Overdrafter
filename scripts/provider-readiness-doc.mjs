@@ -22,8 +22,9 @@ export const RECOMMENDED_READINESS_HEADINGS = Object.freeze([
  * Returns a list of problems (empty when the doc conforms). Required `## `
  * lines must appear in order, each with a non-empty body before the next
  * `## ` heading. Fenced code blocks are not scanned for headings. A body that
- * is only an HTML comment, whitespace, a `###`+ sub-heading, or a
- * placeholder token (TBD / TODO / N/A) is empty.
+ * is only an HTML comment, whitespace, a `###`+ sub-heading, or
+ * placeholder words (tbd, tbc, todo, wip, none, na, n/a, coming soon,
+ * later, pending, placeholder) is empty.
  */
 export function validateReadinessDoc(text) {
   const problems = [];
@@ -54,12 +55,25 @@ export function assertReadinessDoc(text, relativePath) {
   }
 }
 
-const PLACEHOLDER_TOKENS = new Set(["tbd", "todo", "na"]);
+const PLACEHOLDER_WORDS = new Set([
+  "tbd",
+  "tbc",
+  "todo",
+  "wip",
+  "none",
+  "na",
+  "later",
+  "pending",
+  "placeholder",
+  "coming",
+  "soon",
+]);
 
 /**
- * HTML comments, whitespace, `###`+ sub-headings, and placeholder-only bodies
- * (TBD / TODO / N/A, case-insensitive, after stripping punctuation) are not
- * section content.
+ * HTML comments, whitespace, `###`+ sub-headings, and bodies made only of
+ * placeholder words (tbd, tbc, todo, wip, none, na, n/a, coming soon, later,
+ * pending, placeholder — case-insensitive, ignoring punctuation and
+ * whitespace) are not section content.
  */
 export function sectionHasVisibleContent(body) {
   const visible = String(body)
@@ -67,8 +81,27 @@ export function sectionHasVisibleContent(body) {
     .split(/\r?\n/)
     .filter((line) => !/^\s*#{3,}(\s|$)/.test(line))
     .join("\n");
-  const token = visible.replace(/[\s\p{P}\p{S}]+/gu, "").toLowerCase();
-  return token.length > 0 && !PLACEHOLDER_TOKENS.has(token);
+  const words = placeholderWords(visible);
+  return words.some((word) => !PLACEHOLDER_WORDS.has(word));
+}
+
+function placeholderWords(text) {
+  const raw = String(text)
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const words = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw[i] === "n" && raw[i + 1] === "a") {
+      words.push("na");
+      i += 1;
+    } else {
+      words.push(raw[i]);
+    }
+  }
+  return words;
 }
 
 function readSections(text) {
