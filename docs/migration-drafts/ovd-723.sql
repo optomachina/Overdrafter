@@ -47,6 +47,7 @@
 --   export_review_pending
 --   export_foreign_provider_requires_clean_declaration
 --   export_control_lookup_failed
+--   export_scan_missing
 --
 -- pgTAP: supabase/tests/pending/ovd723_export_control_upload_block.sql.pending
 -- (parked; rename to supabase/tests/ovd723_export_control_upload_block.sql in
@@ -92,7 +93,8 @@ create table if not exists private.export_control_events (
     'marking_block_opened',
     'marking_block_cleared',
     'marking_block_confirmed_controlled',
-    'declaration_backfilled_missing'
+    'declaration_backfilled_missing',
+    'file_scan_recorded_clean'
   )),
   detail jsonb not null default '{}'::jsonb
 );
@@ -534,6 +536,92 @@ revoke all on function public.api_record_export_control_marking_hits(uuid, uuid,
 grant execute on function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[])
   to service_role;
 
+-- 1.11b Clean marking scans, recorded by the worker (service role only).
+-- Dispatch requires a clean scan of record for the dispatched part's own files
+-- (1.15). This covers paths that skip extraction: a part that reuses another
+-- part's trusted artifacts (api_reuse_trusted_part_version_artifacts), a file
+-- reused from the org blob store, or a part extracted before OVD-723. None of
+-- them has a scan in its own job until the worker scans it. Hits are not
+-- stored here. They open a block (1.11). Rows are keyed on the job_file id,
+-- so a scan in one job never vouches for the same bytes in another job.
+create table if not exists private.job_file_export_scans (
+  id uuid primary key default gen_random_uuid(),
+  job_file_id uuid not null,
+  job_id uuid not null,
+  organization_id uuid not null,
+  part_id uuid null,
+  source text not null check (source in ('drawing_text', 'drawing_ocr', 'step_header')),
+  scanned_at timestamptz not null default clock_timestamp()
+);
+
+create index if not exists job_file_export_scans_file_idx
+  on private.job_file_export_scans (job_file_id, source);
+
+drop trigger if exists job_file_export_scans_append_only on private.job_file_export_scans;
+create trigger job_file_export_scans_append_only
+  before update or delete on private.job_file_export_scans
+  for each row execute function private.reject_export_control_audit_mutation();
+
+drop trigger if exists job_file_export_scans_no_truncate on private.job_file_export_scans;
+create trigger job_file_export_scans_no_truncate
+  before truncate on private.job_file_export_scans
+  for each statement execute function private.reject_export_control_audit_mutation();
+
+alter table private.job_file_export_scans enable row level security;
+
+drop policy if exists job_file_export_scans_member_read on private.job_file_export_scans;
+create policy job_file_export_scans_member_read
+  on private.job_file_export_scans
+  for select to authenticated
+  using (public.user_can_access_org(organization_id) or public.is_platform_admin());
+
+revoke all on private.job_file_export_scans from public, anon, authenticated;
+
+create or replace function public.api_record_export_control_clean_scan(
+  p_job_id uuid,
+  p_part_id uuid,
+  p_job_file_id uuid,
+  p_source text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_file public.job_files%rowtype;
+  v_scan_id uuid;
+begin
+  if p_source is null or p_source not in ('drawing_text', 'drawing_ocr', 'step_header') then
+    raise exception using errcode = 'P0001', message = 'export_scan_invalid';
+  end if;
+
+  select file_row.* into v_file from public.job_files file_row where file_row.id = p_job_file_id;
+  if v_file.id is null or v_file.job_id is distinct from p_job_id then
+    raise exception using errcode = 'P0001', message = 'export_scan_invalid';
+  end if;
+
+  perform private.lock_job_export_state(v_file.job_id, true);
+
+  insert into private.job_file_export_scans (job_file_id, job_id, organization_id, part_id, source)
+  values (v_file.id, v_file.job_id, v_file.organization_id, p_part_id, p_source)
+  returning id into v_scan_id;
+
+  insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
+  values (
+    v_file.organization_id, v_file.job_id, p_part_id, null, 'file_scan_recorded_clean',
+    pg_catalog.jsonb_build_object('scanId', v_scan_id, 'source', p_source, 'jobFileId', v_file.id)
+  );
+
+  return v_scan_id;
+end;
+$$;
+
+revoke all on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)
+  to service_role;
+
 -- 1.12 Admin review. Users cannot clear a block; only platform admins can,
 -- with a mandatory note, and every decision is an audit event.
 create or replace function public.api_review_export_control_block(
@@ -828,7 +916,9 @@ grant execute on function public.current_user_has_export_cleared_upload(text) to
 
 -- 1.15 Dispatch gate evaluation (used by the 1.16 preflight wrappers).
 -- Returns null only when the job's latest declaration is not_controlled and
--- no marking block is open or confirmed. Foreign providers are checked first,
+-- no marking block is open or confirmed. The task-level check then also
+-- requires a clean scan of record for the part's files
+-- (export_control_scan_denial). Foreign providers are checked first,
 -- as their own explicit rule with their own reason code. Any lookup error is
 -- a denial.
 create or replace function private.export_control_dispatch_denial(
@@ -884,6 +974,57 @@ exception when others then
 end;
 $$;
 
+-- Scan rule: every file the dispatched part sends must have a clean scan of
+-- record in its own job. The drawing needs a drawing scan, and a STEP CAD file
+-- needs a header scan. A missing part or file reference is a denial. Other CAD
+-- formats have no scanner yet, so this rule doesn't cover them (see notes).
+create or replace function private.export_control_scan_denial(p_part_id uuid)
+returns text
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  v_part public.parts%rowtype;
+  v_cad public.job_files%rowtype;
+begin
+  if p_part_id is null then
+    return 'export_scan_missing';
+  end if;
+
+  select part_row.* into v_part from public.parts part_row where part_row.id = p_part_id;
+  if v_part.id is null then
+    return 'export_scan_missing';
+  end if;
+
+  if v_part.drawing_file_id is not null and not exists (
+    select 1
+    from private.job_file_export_scans scan
+    where scan.job_file_id = v_part.drawing_file_id
+      and scan.source in ('drawing_text', 'drawing_ocr')
+  ) then
+    return 'export_scan_missing';
+  end if;
+
+  if v_part.cad_file_id is not null then
+    select file_row.* into v_cad from public.job_files file_row where file_row.id = v_part.cad_file_id;
+    if v_cad.id is null then
+      return 'export_scan_missing';
+    end if;
+    if pg_catalog.lower(pg_catalog.btrim(v_cad.original_name)) ~ '\.(step|stp)$' and not exists (
+      select 1
+      from private.job_file_export_scans scan
+      where scan.job_file_id = v_cad.id
+        and scan.source = 'step_header'
+    ) then
+      return 'export_scan_missing';
+    end if;
+  end if;
+
+  return null;
+end;
+$$;
+
 create or replace function private.export_control_dispatch_denial_for_task(
   p_work_queue_task_id uuid,
   p_provider text
@@ -894,14 +1035,20 @@ set search_path = ''
 as $$
 declare
   v_job_id uuid;
+  v_part_id uuid;
   v_vendor text;
+  v_denial text;
 begin
-  select task_row.job_id, task_row.payload ->> 'vendor'
-  into v_job_id, v_vendor
+  select task_row.job_id, task_row.part_id, task_row.payload ->> 'vendor'
+  into v_job_id, v_part_id, v_vendor
   from public.work_queue task_row
   where task_row.id = p_work_queue_task_id;
 
-  return private.export_control_dispatch_denial(v_job_id, coalesce(v_vendor, p_provider));
+  v_denial := private.export_control_dispatch_denial(v_job_id, coalesce(v_vendor, p_provider));
+  if v_denial is not null then
+    return v_denial;
+  end if;
+  return private.export_control_scan_denial(v_part_id);
 exception when others then
   return 'export_control_lookup_failed';
 end;
@@ -910,6 +1057,8 @@ $$;
 revoke all on function private.export_control_dispatch_denial(uuid, text)
   from public, anon, authenticated, service_role;
 revoke all on function private.export_control_dispatch_denial_for_task(uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function private.export_control_scan_denial(uuid)
   from public, anon, authenticated, service_role;
 
 -- 1.16 Dispatch preflights. The existing bodies move unchanged to private
@@ -1139,9 +1288,11 @@ with check (
 --   drop function public.current_user_has_export_cleared_upload(text);
 --   drop function public.api_review_export_control_block(uuid, text, text);
 --   drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[]);
+--   drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text);
 --   drop function public.api_get_job_export_control_status(uuid);
 --   drop function public.api_declare_job_export_status(uuid, text, text, uuid);
 --   drop function private.export_control_dispatch_denial_for_task(uuid, text);
+--   drop function private.export_control_scan_denial(uuid);
 --   drop function private.export_control_dispatch_denial(uuid, text);
 --   drop function private.require_clean_export_declaration(uuid, uuid);
 --   drop function private.job_export_upload_denial(uuid, uuid);
@@ -1150,4 +1301,5 @@ with check (
 --   drop function private.export_control_terms_version();
 --   drop table private.export_cleared_upload_grants;
 --   -- keep private.job_export_declarations, private.export_control_events,
---   -- private.job_export_marking_blocks and their triggers (audit retention).
+--   -- private.job_export_marking_blocks, private.job_file_export_scans and
+--   -- their triggers (audit retention).
