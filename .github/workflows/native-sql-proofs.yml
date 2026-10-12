@@ -16,10 +16,12 @@ on:
       - 'supabase/tests/quote_publication_helper_privileges.sql'
       - 'supabase/tests/mobile_auth_bridge.sql'
       - 'supabase/tests/cad_preview_storage_policy.sql'
+      - 'supabase/tests/ovd685_archived_job_delete_privileges.sql'
       - 'docs/release/ovd-5*'
       - 'scripts/ovd510-*.mjs'
       - 'scripts/ovd561-race-proof.mjs'
       - 'scripts/ovd520-*.mjs'
+      - 'scripts/ovd591-image-pull*.mjs'
       - '.github/workflows/native-sql-proofs.yml'
   push:
     branches: [main]
@@ -30,10 +32,12 @@ on:
       - 'supabase/tests/quote_publication_helper_privileges.sql'
       - 'supabase/tests/mobile_auth_bridge.sql'
       - 'supabase/tests/cad_preview_storage_policy.sql'
+      - 'supabase/tests/ovd685_archived_job_delete_privileges.sql'
       - 'docs/release/ovd-5*'
       - 'scripts/ovd510-*.mjs'
       - 'scripts/ovd561-race-proof.mjs'
       - 'scripts/ovd520-*.mjs'
+      - 'scripts/ovd591-image-pull*.mjs'
       - '.github/workflows/native-sql-proofs.yml'
   workflow_dispatch:
 
@@ -50,7 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      # The images pinned in scripts/ovd510-disposable-replay.mjs (lines 24-26).
+      # The images pinned in scripts/ovd510-replay-body.mjs (lines 27-29), which
+      # scripts/ovd510-disposable-replay.mjs launches.
       POSTGRES_IMAGE: public.ecr.aws/supabase/postgres:17.6.1.095
       STORAGE_IMAGE: public.ecr.aws/supabase/storage-api:v1.41.8
       AUTH_IMAGE: public.ecr.aws/supabase/gotrue:v2.187.0
@@ -118,23 +123,12 @@ jobs:
           fi
           docker info --format 'Docker {{.ServerVersion}}, storage driver {{.Driver}} {{json .DriverStatus}}'
 
-      - name: Pull the pinned images (3 attempts, 10 s then 20 s backoff)
-        run: |
-          for image in "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"; do
-            for attempt in 1 2 3; do
-              echo "docker pull $image (attempt $attempt of 3)"
-              if docker pull --quiet "$image"; then
-                break
-              fi
-              if [ "$attempt" -eq 3 ]; then
-                echo "::error::docker pull $image failed after 3 attempts"
-                exit 1
-              fi
-              backoff=$((attempt * 10))
-              echo "::warning::docker pull $image attempt $attempt failed; retrying in ${backoff}s"
-              sleep "$backoff"
-            done
-          done
+      # Shared helper: retries only the public ECR throttle, with bounded jittered backoff.
+      - name: Test the shared image pull helper offline
+        run: node --test scripts/ovd591-image-pull.node-test.mjs
+
+      - name: Pull the pinned images with the shared rate-limit-aware helper
+        run: node scripts/ovd591-image-pull.mjs pull "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"
 
       # Informational only: the runner is the gate and fails closed with
       # reviewed_prechange_catalog_or_toolchain_drift on any image ID mismatch.

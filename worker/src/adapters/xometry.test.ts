@@ -77,7 +77,14 @@ import {
   type WorkerConfig,
 } from "../types";
 import { sha256File } from "../liveEvaluationFiles";
-import { buildLiveEvaluationAdapterRegistry } from "./index";
+import {
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+} from "../providerMutationPhase";
+import { isRetryableVendorTaskError } from "../vendorTaskRetry";
+import { OperationalJevSession, OperationalJevObservations } from "../jev/operationalSession";
+import { JEV_MODEL } from "../jev/choice";
+import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
 import {
   XometryAdapter,
@@ -780,8 +787,8 @@ function createFakeContext(page: ReturnType<typeof createFakePage>) {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
-      start: vi.fn(),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     },
     async newPage() {
       return page;
@@ -796,6 +803,23 @@ async function makeTempDir() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-xometry-"));
   tempDirs.push(dir);
   return dir;
+}
+
+/** Runs one storage-state quote inside a tracked task phase and returns its failure. */
+async function quoteInTrackedMutationPhase(page: ReturnType<typeof createFakePage>) {
+  const workerTempDir = await makeTempDir();
+  launchMock.mockResolvedValue(createFakeBrowser(page));
+  const adapter = new XometryAdapter(
+    "xometry",
+    makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+    }),
+  );
+  const phase = createProviderMutationPhase();
+  const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+    .catch((error: unknown) => error);
+  return { failure, phase };
 }
 
 beforeEach(() => {
@@ -1172,7 +1196,40 @@ describe("XometryAdapter", () => {
     expect(persistentContextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("captures a live evaluation upload and instant quote without production authorization", async () => {
+  it.each([
+    { playwrightDisableSandbox: false, chromiumSandbox: true, args: ["--disable-dev-shm-usage"] },
+    {
+      playwrightDisableSandbox: true,
+      chromiumSandbox: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    },
+  ])("passes the Chromium sandbox decision explicitly on both launch paths (disable=$playwrightDisableSandbox)", async (
+    { playwrightDisableSandbox, chromiumSandbox, args },
+  ) => {
+    const workerTempDir = await makeTempDir();
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(createFakePage({ bodyText: "Configure part" })));
+    playwrightLaunchPersistentContextMock.mockResolvedValue(
+      createFakeContext(createFakePage({ bodyText: "Configure part" })),
+    );
+    const shared = { workerTempDir, xometryBrowserEngine: "playwright" as const, playwrightDisableSandbox };
+
+    await new XometryAdapter("xometry", makeConfig({
+      ...shared,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+    })).quote(makeInput()).catch(() => undefined);
+    await new XometryAdapter("xometry", makeConfig({
+      ...shared,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+    })).quote(makeInput()).catch(() => undefined);
+
+    expect(playwrightLaunchMock).toHaveBeenCalledWith({ headless: true, chromiumSandbox, args });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledWith(
+      path.join(workerTempDir, "profile"),
+      { headless: true, chromiumSandbox, args },
+    );
+  });
+
+  it.each([false, true])("captures a live evaluation upload and instant quote without production authorization (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
     const saveConfiguration = vi.fn();
@@ -1211,7 +1268,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Least Expensive $120.00 Lead time 5 business days",
+        "Least Expensive USD $120.00 Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
@@ -1264,7 +1321,7 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
-          text: "Least Expensive 5 business days $120.00",
+          text: "Least Expensive 5 business days USD $120.00",
         },
         [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
           count: 1,
@@ -1292,6 +1349,7 @@ describe("XometryAdapter", () => {
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
         xometryBrowserEngine: "playwright",
+        playwrightCaptureTrace: captureTrace,
       }),
     );
 
@@ -1335,7 +1393,28 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    expect(result.artifacts).toHaveLength(10);
+    // OVD-611: screenshots are no longer captured, so only the 5 HTML snapshots remain.
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
+      Array(5).fill("html_snapshot"),
+    );
+
+    // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
+    const browser = await playwrightLaunchMock.mock.results[0]?.value;
+    const context = await browser.newContext();
+    if (captureTrace) {
+      expect(context.tracing.start).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledWith();
+    } else {
+      expect(context.tracing.start).not.toHaveBeenCalled();
+    }
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+    const runDir = path.dirname(result.artifacts[0]!.localPath);
+    await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
   });
 
   it("uses a verified auto-configured quote summary without reopening material options", async () => {
@@ -1346,7 +1425,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1392,6 +1471,60 @@ describe("XometryAdapter", () => {
     });
   });
 
+  it("unmodified custom quote flow sends original collector evidence through the admitted registry consumer", async () => {
+    const workerTempDir = await makeTempDir();
+    const input = makeInput();
+    input.requirement = { ...input.requirement, updated_at: "2026-10-02T00:00:00Z", spec_snapshot: { process: "CNC" } };
+    const summary = "Quantity: 2 Material: Aluminum 6061-T6x Finish: Black Anodize Precision Tolerance: ±.005 Least Expensive 5 business days USD $120.00";
+    const source = "Least Expensive\nUSD $120.00\n5 business days\nFirm total USD 120.00 quantity: 2 revision: A\nReference: secret-full-source";
+    const config = makeConfig({ workerTempDir, workerLiveAdapters: ["xometry"],
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"), xometryBrowserEngine: "playwright" });
+    const scope = { organizationId: input.organizationId, quoteRunId: input.quoteRunId, taskId: "task", provider: "xometry" as const, sourceRevision: "a".repeat(40) };
+    const decide = vi.fn(async (q) => ({ model: JEV_MODEL, choice: "span_0", confidence: 1, inputTokens: 5, outputTokens: 5,
+      probabilities: Object.fromEntries(Object.keys(q.criteria).map((key) => [key, key === "span_0" ? 1 : 0])) }));
+    const authorize = vi.fn(async () => true);
+    const session = new OperationalJevSession({ mode: "shadow", admission: { scope, expiresAt: Date.now() + 60000,
+      uses: ["quote_evidence"], evidenceProfiles: ["quote_facts.v1"] }, capabilities: { authorize,
+      reserve: async () => ({ reservationId: "one", estimatedUsd: 0.1 }), settle: async () => undefined, audit: async () => true, decide } });
+    const observations = new OperationalJevObservations(); const results = [];
+    for (const binding of [undefined, { session, scope, observations }]) {
+      const page = createFakePage({ bodyText: summary, uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-SOURCE-0001",
+        selectorBehaviors: { [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: summary },
+          [XOMETRY_LOCATORS.offerContainers[0]]: { count: 1, text: source } } });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+      const result = await buildAdapterRegistry(config, binding).xometry!.quote(input);
+      results.push({ ...result, artifacts: result.artifacts.map(({ kind, label }) => ({ kind, label })) });
+    }
+    expect(results[1]).toEqual(results[0]); expect(authorize).not.toHaveBeenCalled();
+    await observations.drain();
+    expect(observations.localReview().get("quote_evidence")).toMatchObject({ receipt: { proposal: "span_0" },
+      result: { selected: { document: { text: source } }, publicationAllowed: false } });
+    expect(decide).toHaveBeenCalledOnce(); expect(JSON.stringify(decide.mock.calls)).not.toContain("secret");
+  });
+
+  it("captures original unstructured custom-adapter error before navigation translation", async () => {
+    const workerTempDir = await makeTempDir(); const input = makeInput();
+    const config = makeConfig({ workerTempDir, workerLiveAdapters: ["xometry"],
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"), xometryBrowserEngine: "playwright" });
+    const scope = { organizationId: input.organizationId, quoteRunId: input.quoteRunId, taskId: "task", provider: "xometry" as const, sourceRevision: "a".repeat(40) };
+    const decide = vi.fn(async (q) => ({ model: JEV_MODEL, choice: "expired_session", confidence: 1, inputTokens: 5, outputTokens: 5,
+      probabilities: Object.fromEntries(Object.keys(q.criteria).map((key) => [key, key === "expired_session" ? 1 : 0])) }));
+    const session = new OperationalJevSession({ mode: "shadow", admission: { scope, expiresAt: Date.now() + 60000,
+      uses: ["exception_routing"], evidenceProfiles: ["failure_words.v1"] }, capabilities: { authorize: async () => true,
+      reserve: async () => ({ reservationId: "one", estimatedUsd: 0.1 }), settle: async () => undefined, audit: async () => true, decide } });
+    const observations = new OperationalJevObservations(); const errors = [];
+    for (const binding of [undefined, { session, scope, observations }]) {
+      playwrightLaunchMock.mockRejectedValue(new Error("session expired secret-provider-error"));
+      const error = await buildAdapterRegistry(config, binding).xometry!.quote(input).catch((error) => error);
+      errors.push({ message: error.message, code: error.code, payload: error.payload });
+    }
+    expect(errors[1]).toEqual(errors[0]); expect(errors[0].code).toBe("navigation_failure");
+    expect(decide).not.toHaveBeenCalled(); await observations.drain();
+    expect(decide).toHaveBeenCalledOnce(); expect(JSON.stringify(decide.mock.calls)).not.toContain("secret-provider-error");
+  });
+
   it("fails closed when a trusted summary has no purchasable option containers", async () => {
     const workerTempDir = await makeTempDir();
     const summaryText = [
@@ -1399,7 +1532,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1458,7 +1591,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1522,7 +1655,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1583,7 +1716,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1652,7 +1785,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1732,7 +1865,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1964,7 +2097,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: () => {
@@ -2034,7 +2167,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2447,7 +2580,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2514,7 +2647,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: `${summaryText} Upload 3D Files`,
@@ -2602,7 +2735,7 @@ describe("XometryAdapter", () => {
             "Material: Aluminum 6061-T6x (Best Available)",
             "Finish: Black Anodize",
             "Precision Tolerance: ±.005",
-            "Least Expensive 5 business days $120.00",
+            "Least Expensive 5 business days USD $120.00",
           ].join(" "),
         },
       },
@@ -3016,7 +3149,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3099,11 +3232,9 @@ describe("XometryAdapter", () => {
         },
       });
       expect((error as VendorAutomationError).artifacts.map((artifact) => artifact.label)).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "post-modal-poll-screenshot",
         "post-modal-poll-dom",
-        "wait-for-url-timeout-screenshot",
         "wait-for-url-timeout-dom",
       ]);
     }
@@ -3168,9 +3299,8 @@ describe("XometryAdapter", () => {
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
       ).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "login-required-screenshot",
         "login-required-dom",
       ]);
     }
@@ -3223,10 +3353,25 @@ describe("XometryAdapter", () => {
     });
     const adapter = new XometryAdapter("xometry", config);
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-      code: "persistence_failure",
-      payload: { reason: "browser_close_failed", providerMutationPossible: true },
+    // The original quote failure surfaces first; the teardown failure stays
+    // attached as diagnostic evidence and keeps the error non-retryable.
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      code: "selector_failure",
+      payload: {
+        reason: "entry_state_unknown",
+        providerMutationPossible: true,
+        snapshotTeardownFailure: {
+          code: "persistence_failure",
+          reason: "browser_close_failed",
+        },
+      },
     });
+    expect((failure as Error).cause).toMatchObject({
+      code: "persistence_failure",
+      payload: { reason: "browser_close_failed" },
+    });
+    expect(isRetryableVendorTaskError(failure)).toBe(false);
     expect(config.xometryProfileSnapshotGeneration).toBeNull();
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
       code: "login_required",
@@ -3373,9 +3518,8 @@ describe("XometryAdapter", () => {
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
       ).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "export-control-ambiguous-screenshot",
         "export-control-ambiguous-dom",
       ]);
     }
@@ -3445,7 +3589,7 @@ describe("XometryAdapter", () => {
       "Finish: Type III Hard Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: Black Anodize",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3488,7 +3632,7 @@ describe("XometryAdapter", () => {
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: supplier code 303",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3540,7 +3684,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T651",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3610,7 +3754,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3700,7 +3844,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3797,7 +3941,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3851,7 +3995,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3911,7 +4055,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4067,7 +4211,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Least Expensive Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
+        "Least Expensive Spring sale! Orders over USD $19.99 ship free. Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
@@ -4383,6 +4527,70 @@ describe("XometryAdapter", () => {
     expect(fillQuantity).not.toHaveBeenCalled();
   });
 
+  it("makes a post-upload navigation failure non-retryable for the task", async () => {
+    const uploadCad = vi.fn();
+    const { failure, phase } = await quoteInTrackedMutationPhase(createFakePage({
+      bodyText: "Analyzing Geometry... Loading supported file extensions...",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-ANALYZING-0002",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: uploadCad,
+        },
+      },
+    }));
+
+    expect(uploadCad).toHaveBeenCalledOnce();
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    // Without the phase the transport-flavored code alone would be retried.
+    expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
+    expect(phase.started).toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
+  });
+
+  it("keeps a pre-upload navigation failure retryable", async () => {
+    const page = createFakePage({ bodyText: "Pick Up Where You Left Off", selectorBehaviors: {} });
+    page.goto = async () => {
+      throw new Error("page.goto: net::ERR_CONNECTION_RESET at https://www.xometry.com/quoting/home/");
+    };
+    const { failure, phase } = await quoteInTrackedMutationPhase(page);
+
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    expect(phase.started).toBe(false);
+    expect((failure as VendorAutomationError).payload.providerMutationPossible).not.toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(true);
+  });
+
+  it("redacts logged-in DOM captures before they are written", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part jane@customer.example token=xometry-session-secret",
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+
+    const htmlArtifacts = (failure as VendorAutomationError).artifacts
+      .filter((artifact) => artifact.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+    for (const artifact of htmlArtifacts) {
+      const html = await fs.readFile(artifact.localPath, "utf8");
+      expect(html).toContain("<body>");
+      expect(html).not.toContain("jane@customer.example");
+      expect(html).not.toContain("xometry-session-secret");
+      expect((await fs.stat(artifact.localPath)).mode & 0o777).toBe(0o600);
+    }
+  });
+
   it("fails closed when Save Configuration is absent", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
@@ -4437,7 +4645,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Standard",
         "Precision Tolerance: ±.010",
-        "Least Expensive $25.00 Lead time 5 business days",
+        "Least Expensive USD $25.00 Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
       selectorBehaviors: {
@@ -4513,7 +4721,7 @@ describe("XometryAdapter", () => {
   it("raises selector failures when the upload input is missing", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4538,12 +4746,12 @@ describe("XometryAdapter", () => {
     });
   });
 
-  it("preserves the workflow error when screenshot evidence capture fails", async () => {
+  it("does not attempt screenshot capture even when page.screenshot would fail", async () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
-      screenshotFails: true,
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      screenshotFails: true, // Would fail, but we don't capture screenshots anymore
       selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4565,16 +4773,15 @@ describe("XometryAdapter", () => {
         code: "selector_failure",
         payload: { reason: "entry_state_unknown" },
       });
+      // OVD-611: Only HTML snapshot captured now, no screenshot attempt
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) =>
           artifact.label
         ),
       ).toEqual(["landing-dom"]);
-      expect(warning).toHaveBeenCalledWith(
+      // OVD-611: No warning about missing screenshots since we don't capture them
+      expect(warning).not.toHaveBeenCalledWith(
         expect.stringContaining('"source":"vendor.artifact_capture_degraded"'),
-      );
-      expect(warning).toHaveBeenCalledWith(
-        expect.stringContaining('"missingArtifactKinds":["screenshot"]'),
       );
     } finally {
       warning.mockRestore();
@@ -4585,8 +4792,8 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
-      screenshotFails: true,
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      screenshotFails: true, // Would fail, but not attempted per OVD-611
       contentFails: true,
       selectorBehaviors: {},
     });
@@ -4610,10 +4817,9 @@ describe("XometryAdapter", () => {
         payload: { reason: "entry_state_unknown" },
         artifacts: [],
       });
+      // OVD-611: Only HTML capture is attempted now, so only that can fail
       expect(warning).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '"missingArtifactKinds":["screenshot","html_snapshot"]',
-        ),
+        expect.stringContaining('"missingArtifactKinds":["html_snapshot"]'),
       );
     } finally {
       warning.mockRestore();
@@ -4646,5 +4852,68 @@ describe("XometryAdapter", () => {
         failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
       },
     });
+  });
+
+  // OVD-611: Verify no screenshots or traces are captured
+  it("does not capture screenshots per OVD-611 evidence masking policy", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected selector failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(VendorAutomationError);
+      const artifacts = (error as VendorAutomationError).artifacts;
+      
+      // Verify no screenshot artifacts
+      const screenshotArtifacts = artifacts.filter(a => a.kind === "screenshot");
+      expect(screenshotArtifacts).toHaveLength(0);
+      
+      // Verify HTML snapshots are still captured
+      const htmlArtifacts = artifacts.filter(a => a.kind === "html_snapshot");
+      expect(htmlArtifacts.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("discards the trace on failure instead of writing or uploading it (OVD-611)", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      contentFails: true,
+      selectorBehaviors: {},
+    });
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        playwrightCaptureTrace: true,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    const error = await adapter.quote(makeInput()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(VendorAutomationError);
+    expect((error as VendorAutomationError).artifacts.map((a) => a.kind)).not.toContain("trace");
+    const context = await browser.newContext();
+    expect(context.tracing.start).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledWith();
   });
 });

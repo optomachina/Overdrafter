@@ -13,6 +13,7 @@ import {
   parseEngineeringQuery,
   type PartCollectionFilter,
 } from "@/features/quotes/quote-intelligence-view-model";
+import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useQuoteIntelligenceWorkspace } from "@/features/quotes/use-quote-intelligence-workspace";
 import type { CadPreviewAssetRecord } from "@/features/quotes/types";
@@ -252,7 +253,7 @@ export default function ClientParts() {
           return (
             <Link
               key={`${row.kind}:${row.id}`}
-              to={row.href}
+              to={withLocalFixtureContext(row.href)}
               className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
             >
               <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">

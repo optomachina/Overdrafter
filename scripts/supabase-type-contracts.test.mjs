@@ -31,7 +31,7 @@ const wrongRevision: Args = {...change,p_expected_revision:null};
       const program = ts.createProgram([consumer],{strict:true,noEmit:true,skipLibCheck:true,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.Bundler,types:[]});
       expect(ts.getPreEmitDiagnostics(program).map((d)=>ts.flattenDiagnosticMessageText(d.messageText,'\n'))).toEqual([]);
     } finally { await rm(directory,{recursive:true,force:true}); }
-  });
+  }, 10_000); // TypeScript compilation is CPU-intensive; 10s measured ceiling under SIGSTOP/SIGCONT stall harness
   it('fails visibly when the known function changes shape and leaves older schemas alone', () => {
     expect(applyEngineeringRpcNullability('type OlderDatabase = {}')).toBe('type OlderDatabase = {}');
     expect(()=>applyEngineeringRpcNullability('      api_resolve_engineering_request: {')).toThrow('argument boundary');

@@ -1,6 +1,6 @@
 # Quote-provider integration lifecycle
 
-Last updated: September 3, 2026
+Last updated: October 11, 2026
 
 ## Purpose
 
@@ -26,6 +26,14 @@ Each provider has one versioned manifest at `provider-integrations/<provider>/ma
 Capability values are tri-state: `supported`, `unsupported`, or `unknown`. Use the first two only when current public first-party evidence is direct. Missing or broad evidence remains `unknown`.
 
 Manifests are non-runtime source metadata. `provider:sync` projects display name, color, official RFQ URL, purchasing domains, and integration metadata into generated web and worker catalogs. The worker projection additionally carries the canonical capability envelope for pure offline eligibility checks; the web projection remains presentation-only. Neither projection contains an admission, permit, dispatch, certification, or production-authorization field. The manually reviewed production-certified allowlist remains separate.
+
+### Live-adapter registry
+
+`provider-integrations/provider-registry.v1.json` is the single source of truth for live-adapter listing, session-secret **names**, and stable-NAT egress. It holds names only, never secret values or default secret names.
+
+`provider:sync` generates `worker/src/generated/providerRegistry.ts` and `worker/scripts/generated/provider-secrets.sh`. `runtimeSecrets.ts`, `deploy-cloud-run.sh`, and the stable-egress contract read those projections or the registry itself. `provider:check` fails on drift or a hand edit of generated files.
+
+Every checked-in manifest has exactly one registry entry; `provider:check` fails on a manifest without an entry or an entry without a manifest. Generators (Fixture, OVD-687) add an entry with `withDefaultRegistryEntry` from `scripts/provider-registry.mjs`, which never changes an existing entry, then run `provider:sync`. New entries default to `liveAdapter: false`, `sessionSecrets: []`, and `egress: "none"`. Turning on `liveAdapter`, adding session-secret names, or setting `egress: "stable_nat"` is a reviewed edit to the registry file only, never to the generated files. `secretNameEnv` must end in `_SECRET_NAME` and must not collide with deploy-script variables (`WORKER_MODE`, `SUPABASE_*`, `PATH`, and the names `deploy-cloud-run.sh` assigns). `liveAdapter: true` requires at least one `requiredWhenListed: true` secret or a `sessionlessJustification`, plus an explicit `egress` of `stable_nat` or `none`. Optional secrets still get a generated apply step when the env var is set and a stale-binding remove when the adapter is not listed. `manualDeploy: true` is allowlisted to xometry only so the deploy script can own that binding; it never skips another provider's remove step or required-secret check. Manifest string fields are scanned with the same secret-value detector before catalog sync. `liveAdapter: true` only allows a live deploy to list the adapter. Registry presence is not production admission; the reviewed policy, envelope, and permit still decide every dispatch. Do not put admit SQL in `supabase/migrations/`.
 
 ### Identity and disabled admission
 
@@ -110,19 +118,25 @@ Build the integration kit as separate reviewable slices for the manifest/scaffol
 
 ## Add a provider offline
 
-Use the repo-local `add-quote-provider` skill for intake, live continuation, or repair.
+[Fixture](fixture.md) (`npm run fixture:onboard -- [<key>] --stage=envelope|live|admit`; the key is optional only for `--stage=envelope --url`) generates the default-off, review-only artifacts for each of the three stages below. `provider:add` is its `--stage=envelope` alias.
 
-For a list of providers, use the skill's batch-intake mode. It preflights duplicate identities, assigns one bounded writer to each provider-owned directory and evaluator/test set, and keeps shared indexes, generated catalogs, Linear changes, and final verification with one integrator. This permits parallel first-party research without concurrent edits to shared generated files. Batch intake remains offline; live evaluation still requires a separate exact-file approval per provider.
+Use the repo-local `add-quote-provider` skill for intake, live continuation, or repair. The skill drives Fixture at every stage instead of hand edits, and runs `npm run provider:check` after each stage.
+
+Provider config goes through one reviewed edit to the provider's entry in [the live-adapter registry](#live-adapter-registry) (`liveAdapter`, session-secret names, `egress`), followed by `npm run provider:sync` and `npm run provider:check`. Do not hand-edit `runtimeSecrets.ts`, `deploy-cloud-run.sh`, or egress settings; they read the registry's projections. Never edit generated files (`worker/src/generated/providerRegistry.ts`, `worker/scripts/generated/provider-secrets.sh`, or the generated catalogs). The other reviewed edits (the adapter list in `worker/src/adapters/index.ts`, `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, moving admit review files into migrations) also stay outside Fixture; the go-live checklist (OVD-690, not yet built) will sequence them.
+
+For a list of providers, use the skill's batch-intake mode. It preflights duplicate identities, assigns one bounded writer to each provider-owned directory and evaluator/test set, and keeps shared indexes, generated catalogs, Linear changes, and final verification with one integrator. Subagents only research and run the `--dry-run` envelope preview. The integrator runs each key's real `--stage=envelope` serially, because that stage reads, modifies, and writes the shared provider registry and runs `provider:sync`, and then runs one `provider:sync` for the wave. This permits parallel first-party research without concurrent edits to shared generated files or the registry. Batch intake remains offline; live evaluation still requires a separate exact-file approval per provider.
 
 For intake:
 
 1. Research only public first-party pages. Do not authenticate, upload, create accounts, accept terms, or contact the provider.
 2. Classify the integration as `api`, `declarative_portal`, `custom_portal`, or `guidance_only`. Classification describes the implementation shape only.
-3. Preview the deterministic scaffold:
+3. Preview the deterministic scaffold (`provider:add` is an alias of this stage):
 
    ```bash
-   npm run provider:add -- --url "<official-https-url>" --dry-run
+   npm run fixture:onboard -- [<key>] --stage=envelope --url "<official-https-url>" --dry-run
    ```
+
+   With `--url` the key is optional: the stage derives it, and refuses a key that disagrees with the URL.
 
 4. If the preview is safe and a new scaffold is required, rerun without `--dry-run`. Never overwrite an existing provider directory.
 5. Populate only evidence-backed manifest facts. Keep all unproved claims `unknown`; record the actual review date and every first-party evidence URL.
@@ -131,7 +145,7 @@ For intake:
    ```bash
    npm run provider:sync
    npm run provider:check
-   npm test -- scripts/provider-add.test.mjs scripts/provider-check.test.mjs
+   npm test -- scripts/provider-add.test.mjs scripts/fixture-onboard.test.mjs scripts/provider-check.test.mjs
    ```
 
 7. Create the provider parent and the three dependency-gated children below. No live provider interaction belongs in intake.
@@ -170,6 +184,8 @@ Public first-party research produces the manifest, conservative eligibility eval
 
 ### 2. Make `<provider>` live evaluation operational
 
+Generate the offline scaffold with `fixture:onboard --stage=live` (requires the manifest's supported CAD envelope and the reviewed enum change), then run `provider:check`.
+
 A declarative or custom adapter provides isolated session setup, exact allowed origins, provider-specific anchors, finite failures, scrubbed fixtures, normalized local evidence, and the shared adapter-contract proof. Authenticated interaction requires exact-file authorization. Completion means evaluation-ready/evaluated, not customer-enabled.
 
 Stage 2 depends on stage 1.
@@ -178,7 +194,19 @@ Stage 2 depends on stage 1.
 
 Production admission requires a reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization. Only this stage may update the production-certified allowlist or enable routing.
 
+Generate review-only admission artifacts with `fixture:onboard --stage=admit` under the stage 3 issue, then run `provider:check`; applying them is a protected, reviewed action.
+
 Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
+
+## Permissions matrix and paid-automation clearance
+
+Paid automated quoting is cleared only by
+[`docs/providers/permissions-matrix.md`](providers/permissions-matrix.md). A
+manifest, catalog entry, local evaluation, or admission seed does not clear a
+provider. The lint is `npm run provider:permissions`. Partner outreach lives as
+drafts in [`docs/providers/outreach/`](providers/outreach/README.md) and is never
+sent by an agent. A cease-and-desist uses the OVD-722 kill switch as step one
+([playbook](runbooks/provider-cease-and-desist.md)).
 
 ## Validation and rollback
 
@@ -188,7 +216,7 @@ The offline rollback is to revert the provider's manifest/catalog projection and
 
 ### Local evaluation wiring for Quickparts, Weerg and Geomiq
 
-The standalone evaluation registry uses the provider-specific offline definitions for Quickparts, Weerg and Geomiq. The production registry remains on its existing admission path. Exact file and provider approval checks precede eligibility; missing reviewed portal evidence terminates before session access or browser launch. Weerg derives only supplied package facts and keeps process, account access, tolerance and geometry unknown unless separately reviewed. Local result evidence reports the selected definition revisions and approved account mode; an account mode describes the requested scope, not proof of account access. These definitions do not establish operational readiness or authorize customer-offer persistence. See each provider’s `offline-evaluation.md` for remaining account, geometry, drawing and portal-binding prerequisites.
+The standalone evaluation registry uses the provider-specific offline definitions for Quickparts, Weerg and Geomiq. The production registry remains on its existing admission path; for Quickparts and Weerg that path is a default-off production definition, which launches only behind a generic provider-dispatch authorization (OVD-674, `docs/workflows/ovd674-quickparts-live-readiness.md`; OVD-675, `docs/workflows/ovd675-weerg-live-readiness.md`). Weerg's production path records native EUR quotes as non-comparable evidence and never converts them to USD. Exact file and provider approval checks precede eligibility; missing reviewed portal evidence terminates before session access or browser launch. Weerg derives only supplied package facts and keeps process, account access, tolerance and geometry unknown unless separately reviewed. Local result evidence reports the selected definition revisions and approved account mode; an account mode describes the requested scope, not proof of account access. These definitions do not establish operational readiness or authorize customer-offer persistence. See each provider’s `offline-evaluation.md` for remaining account, geometry, drawing and portal-binding prerequisites.
 
 ### Candidate envelope preflight in local evaluation
 
@@ -208,3 +236,10 @@ live entry point. Production adapters and the production allowlist are unchanged
 
 This is preparation for independently reviewed portal bindings and package
 evidence, not completion of a candidate's operational evaluation or admission.
+
+### Opt-in bounded selector recovery
+
+See [bounded Jev browser recovery](jev-browser-recovery.md) for the source-only
+configuration-selector fallback, observed-candidate controls, advisory exception
+routing, and synthetic comparison command. These injected capabilities remain off
+by default and do not change provider admission or exact-file approval.

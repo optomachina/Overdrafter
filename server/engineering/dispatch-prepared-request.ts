@@ -100,7 +100,7 @@ function validReservation(reservation: Reservation): boolean {
     && validPrior(reservation.priorClarification, reservation.contextSha256);
 }
 async function prepareInterpretation(reservation: Reservation, runtime: PreparedDispatchRuntime,
-  signal: AbortSignal): Promise<PreparedInterpretation> {
+  signal: AbortSignal, checkDeadline: () => void): Promise<PreparedInterpretation> {
   if (!validReservation(reservation)) throw new TypeError("Invalid reserved interpretation context.");
   const text = reservation.text!;
   const contextText = reservation.contextText!;
@@ -113,24 +113,34 @@ async function prepareInterpretation(reservation: Reservation, runtime: Prepared
     expectedContextSha256: contextSha256, organizationId: reservation.organizationId!,
     projectId: reservation.projectId!, priorClarification: reservation.priorClarification,
   });
+  // Hash validation may outlast the deadline; do not start an adapter call then.
+  checkDeadline();
   const candidate = await bounded(runtime.adapter({ text, contextText, contextSha256,
     priorClarification: reservation.priorClarification ?? null, signal }), signal);
   if (!proposal(candidate, interpretation)) throw new TypeError("Invalid model proposal.");
   return interpretation;
 }
 async function recordFailure(identity: DispatchIdentity, runtime: PreparedDispatchRuntime,
-  code: "timed_out" | "adapter_error" | "invalid_output" | "conflict"): Promise<boolean> {
+  code: "timed_out" | "adapter_error" | "invalid_output" | "conflict"): Promise<string | null> {
   try {
+    const deadlineAt = performance.now() + 5_000;
     const signal = AbortSignal.timeout(5_000);
-    await bounded(runtime.fail(identity, code, signal), signal);
-    return true;
+    if (performance.now() >= deadlineAt) return null;
+    const receipt = await bounded(runtime.fail(identity, code, signal), signal);
+    if (signal.aborted || performance.now() >= deadlineAt) return null;
+    // The database may replace the requested code when its own deadline elapsed.
+    if (!object(receipt) || receipt.requestId !== identity.requestId || receipt.state !== "failed"
+      || typeof receipt.failureCode !== "string"
+      || (receipt.failureCode !== code && receipt.failureCode !== "timed_out")) return null;
+    return receipt.failureCode;
   } catch {
-    return false;
+    return null;
   }
 }
 async function errorResult(identity: DispatchIdentity, runtime: PreparedDispatchRuntime,
   error: unknown, reserved: boolean, finishing: boolean, aborted: boolean): Promise<DispatchResult> {
   if (finishing) {
+    if (aborted) return { state: "unknown" };
     if (error instanceof Error && error.message === "PT409") {
       await recordFailure(identity, runtime, "conflict");
       return { state: "conflict" };
@@ -139,6 +149,7 @@ async function errorResult(identity: DispatchIdentity, runtime: PreparedDispatch
     return { state: "unknown" };
   }
   if (!reserved) {
+    if (aborted) return { state: "unknown" };
     if (error instanceof Error && error.message === "PT429") return { state: "budget_exhausted" };
     if (error instanceof Error && error.message === "PT409") return { state: "conflict" };
     return { state: "unknown" };
@@ -148,7 +159,7 @@ async function errorResult(identity: DispatchIdentity, runtime: PreparedDispatch
   else if (error instanceof TypeError) code = "invalid_output";
   else code = "adapter_error";
   const recorded = await recordFailure(identity, runtime, code);
-  return recorded ? { state: "failed", failureCode: code } : { state: "unknown", failureCode: code };
+  return recorded ? { state: "failed", failureCode: recorded } : { state: "unknown", failureCode: code };
 }
 
 /**
@@ -165,22 +176,36 @@ export async function dispatchPreparedRequest(identity: DispatchIdentity,
     throw new TypeError("Invalid interpretation deadline.");
   }
   const controller = new AbortController();
+  const deadlineAt = performance.now() + deadlineMs;
+  const expireIfElapsed = () => {
+    if (performance.now() >= deadlineAt) controller.abort();
+  };
+  const checkDeadline = () => {
+    expireIfElapsed();
+    controller.signal.throwIfAborted();
+  };
   const timer = setTimeout(() => controller.abort(), deadlineMs);
   let reserved = false;
   let finishing = false;
   try {
+    checkDeadline();
     const raw = await bounded(runtime.reserve(identity, controller.signal), controller.signal);
+    // An overdue reservation may have committed; leave delivery unknown.
+    checkDeadline();
     if (!object(raw) || (raw.state !== "reserved" && raw.state !== "completed"
       && raw.state !== "failed" && raw.state !== "timed_out")
       || typeof raw.invoke !== "boolean") return { state: "unknown" };
     const reservation = raw as Reservation;
     if (!reservation.invoke) return replayResult(reservation);
     reserved = true;
-    const interpretation = await prepareInterpretation(reservation, runtime, controller.signal);
+    const interpretation = await prepareInterpretation(reservation, runtime, controller.signal, checkDeadline);
+    checkDeadline();
     finishing = true;
     const receipt = await bounded(runtime.finish(identity, interpretation, controller.signal), controller.signal);
+    checkDeadline();
     return { state: "completed", receipt };
   } catch (error) {
+    expireIfElapsed();
     return errorResult(identity, runtime, error, reserved, finishing, controller.signal.aborted);
   } finally {
     clearTimeout(timer);

@@ -28,6 +28,7 @@ import {
 } from "../xometryAuthProbe.js";
 import { runVerifiedXometryCamoufoxRecovery } from "../xometryAuthRecovery.js";
 import { createOvd410RecoveryPhaseReporter } from "../ovd410RecoveryPhase.js";
+import { writePrivateStorageState } from "./privateStorageState.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
 
@@ -215,9 +216,7 @@ async function bootstrapStorageState(
     "Press Enter after the session is authenticated and ready...",
   );
 
-  await context.storageState({
-    path: outputPath,
-  });
+  await writePrivateStorageState(context, outputPath);
 
   const url = page.url();
 
@@ -412,7 +411,7 @@ async function bootstrapCamoufox(outputPath: string) {
     "Press Enter after the session is authenticated and ready...",
   );
 
-  await context.storageState({ path: outputPath });
+  await writePrivateStorageState(context, outputPath);
   const url = page.url();
 
   await browser.close();

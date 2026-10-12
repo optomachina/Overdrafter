@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientQuoteDetail from "@/pages/ClientQuoteDetail";
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createQuoteDisplayCode: vi.fn<(jobId: string) => string>(),
   useClientHomeController: vi.fn(),
   useClientPartController: vi.fn(),
+  decisionPanelProps: vi.fn(),
 }));
 
 vi.mock("@/features/quotes/quote-intelligence-view-model", async (importOriginal) => ({
@@ -43,7 +44,10 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
 }));
 
 vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
-  ClientQuoteDecisionPanel: () => <section>Supplier response comparison</section>,
+  ClientQuoteDecisionPanel: (props: { headerActions?: ReactNode }) => {
+    mocks.decisionPanelProps(props);
+    return <section>Supplier response comparison{props.headerActions}</section>;
+  },
 }));
 
 vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
@@ -185,6 +189,36 @@ describe("ClientQuoteDetail", () => {
     renderQuote("ABC234");
 
     expect(screen.getByText("Sep 10, 2026")).toBeInTheDocument();
+  });
+
+  it("does not hand off a substitute offer when the stored choice is gone", () => {
+    const remainingOffer = {
+      key: "option-2",
+      vendorKey: "xometry",
+      vendorLabel: "Xometry",
+      quoteUrl: "https://www.xometry.com/quoting/home/Q-123",
+      validUntil: "2026-09-10T23:59:59.999Z",
+      eligible: true,
+      isSelectable: true,
+    };
+    mocks.useClientPartController.mockReturnValue({
+      ...createPartState(),
+      rankedQuoteOptions: [remainingOffer],
+      selectedQuoteOption: null,
+      previousQuoteSelectionUnavailable: true,
+    });
+
+    renderQuote("ABC234");
+
+    expect(mocks.decisionPanelProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedOption: null,
+        previousSelectionUnavailable: true,
+      }),
+    );
+    expect(screen.queryByRole("link", { name: /Open selected vendor quote/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Vendor purchasing link unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Sep 10, 2026")).not.toBeInTheDocument();
   });
 
   it("fails closed when the code is not available to the account", () => {

@@ -51,23 +51,26 @@ function failure(status: number, code: string): Response {
     status, headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
-function bounded<T>(start: () => Promise<T>, signal: AbortSignal, discard?: (value: T) => void): Promise<T> {
+type TransferBudget = Readonly<{ signal: AbortSignal; deadline: number; check: () => void }>;
+function bounded<T>(start: () => Promise<T>, budget: TransferBudget, discard?: (value: T) => void): Promise<T> {
+  const { signal } = budget;
   return new Promise<T>((resolve, reject) => {
     const cleanup = () => signal.removeEventListener("abort", stop);
     const stop = () => { cleanup(); reject(new Error("interrupted")); };
     signal.addEventListener("abort", stop, { once: true });
-    if (signal.aborted) { stop(); return; }
+    try { budget.check(); } catch { stop(); return; }
     void (async () => {
       try {
         const value = await start();
         cleanup();
-        if (signal.aborted) { discard?.(value); stop(); } else resolve(value);
+        try { budget.check(); } catch (error) { discard?.(value); throw error; }
+        resolve(value);
       } catch (error) { cleanup(); reject(error); }
     })();
   });
 }
 async function measured(response: Response, expectedBytes: number, expectedSha: string,
-  signal: AbortSignal): Promise<Uint8Array> {
+  budget: TransferBudget): Promise<Uint8Array> {
   if (response.status !== 200 || response.redirected || !response.body
     || response.headers.get("content-encoding") || (response.headers.get("content-length") !== null
       && Number(response.headers.get("content-length")) !== expectedBytes)) throw new Error("invalid object response");
@@ -77,7 +80,7 @@ async function measured(response: Response, expectedBytes: number, expectedSha: 
   let size = 0, count = 0, complete = false;
   try {
     while (true) {
-      const part = await bounded(() => reader.read(), signal);
+      const part = await bounded(() => reader.read(), budget);
       if (part.done) { complete = true; break; }
       if (!(part.value instanceof Uint8Array) || part.value.byteLength === 0 || ++count > 4096) throw new Error("invalid object stream");
       size += part.value.byteLength;
@@ -90,6 +93,7 @@ async function measured(response: Response, expectedBytes: number, expectedSha: 
   if (size !== expectedBytes || hash.digest("hex") !== expectedSha) throw new Error("object mismatch");
   const bytes = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  budget.check();
   return bytes;
 }
 function parse(request: Request) {
@@ -129,28 +133,42 @@ function admissionMatches(admission: ArtifactAdmission | null, scope: NativeArti
     && admission.input.sha256 === transfer.expectedSha;
 }
 async function download(runtime: NativeArtifactRuntime, transfer: Transfer, admission: ArtifactAdmission,
-  authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
-  const bytes = await measured(await bounded(() => runtime.readInput(transfer.artifactId!, signal), signal,
+  authorize: () => Promise<ArtifactAdmission | null>, budget: TransferBudget): Promise<Response> {
+  const bytes = await measured(await bounded(() => runtime.readInput(transfer.artifactId!, budget.signal), budget,
     (late) => { void late.body?.cancel().catch(() => undefined); }),
-    transfer.expectedBytes, transfer.expectedSha, signal);
-  const fresh = await bounded(authorize, signal);
+    transfer.expectedBytes, transfer.expectedSha, budget);
+  const fresh = await bounded(authorize, budget);
   if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
   return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
     "content-length": String(bytes.byteLength), "x-overdrafter-sha256": transfer.expectedSha, "cache-control": "no-store" } });
 }
 async function upload(runtime: NativeArtifactRuntime, request: Request, scope: NativeArtifactScope, transfer: Transfer,
-  admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
+  admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, budget: TransferBudget): Promise<Response> {
   if (request.headers.get("content-type") !== "application/octet-stream"
     || (request.headers.get("content-length") !== null
       && Number(request.headers.get("content-length")) !== transfer.expectedBytes)) return failure(400, "invalid_transfer");
-  const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, signal);
-  const fresh = await bounded(authorize, signal);
+  const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, budget);
+  const fresh = await bounded(authorize, budget);
   if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-  await bounded(() => runtime.putImmutableOutput(scope, transfer.role!, bytes, signal), signal);
-  const stillCurrent = await bounded(authorize, signal);
+  await bounded(() => runtime.putImmutableOutput(scope, transfer.role!, bytes, budget.signal), budget);
+  const stillCurrent = await bounded(authorize, budget);
   if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
-  await bounded(() => registerMeasuredNativeResult({ taskId: scope.taskId, attemptId: scope.attemptId,
-    role: transfer.role!, repository: runtime.registration, signal }), signal);
+  // Registration has its own bounds, but its adapter calls must also consume
+  // this transfer's original budget rather than receive a fresh 30 seconds.
+  const registration: NativeRegistrationRepository = {
+    loadAdmission: (...args) => bounded(() => runtime.registration.loadAdmission(...args), budget),
+    readUploadedObject: (...args) => bounded(() => runtime.registration.readUploadedObject(...args), budget,
+      (late) => { void late.body?.cancel().catch(() => undefined); }),
+    registerMeasuredObject: (...args) => bounded(() => runtime.registration.registerMeasuredObject(...args), budget),
+  };
+  await bounded(() => {
+    // Registration accepts whole milliseconds only. Refuse a submillisecond
+    // remainder rather than round up and extend its internal read budget.
+    const timeoutMs = Math.floor(budget.deadline - performance.now());
+    if (timeoutMs < 1) throw new Error("interrupted");
+    return registerMeasuredNativeResult({ taskId: scope.taskId, attemptId: scope.attemptId,
+      role: transfer.role!, repository: registration, signal: budget.signal, timeoutMs });
+  }, budget);
   return new Response(JSON.stringify({ schema: NATIVE_ARTIFACT_SCHEMA, delivered: true, role: transfer.role }), {
     status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
@@ -169,6 +187,13 @@ export function createNativeArtifactHandler(runtime: NativeArtifactRuntime) {
     if (!transfer) return failure(400, "invalid_transfer");
     const requestedScope = structuredClone(subject.scope);
     const controller = new AbortController();
+    const deadline = performance.now() + DEADLINE_MS;
+    const budget: TransferBudget = { signal: controller.signal, deadline, check: () => {
+      // A timer cannot interrupt synchronous work or a microtask chain. Recheck
+      // elapsed time before dispatch and after settlement, and abort children.
+      if (performance.now() >= deadline) controller.abort();
+      if (controller.signal.aborted) throw new Error("interrupted");
+    } };
     const timer = setTimeout(() => controller.abort(), DEADLINE_MS);
     const disconnected = () => controller.abort();
     request.signal.addEventListener("abort", disconnected, { once: true });
@@ -176,11 +201,14 @@ export function createNativeArtifactHandler(runtime: NativeArtifactRuntime) {
     const authorize = () => runtime.authorize({ ...subject, scope: structuredClone(requestedScope), direction: transfer.direction,
       artifactId: transfer.artifactId, role: transfer.role });
     try {
-      const loaded = await bounded(authorize, controller.signal);
+      const loaded = await bounded(authorize, budget);
       const admission = loaded && structuredClone(loaded);
       if (!admissionMatches(admission, requestedScope, transfer)) return failure(403, "transfer_denied");
-      if (transfer.direction === "input") return await download(runtime, transfer, admission!, authorize, controller.signal);
-      return await upload(runtime, request, requestedScope, transfer, admission!, authorize, controller.signal);
+      const response = transfer.direction === "input"
+        ? await download(runtime, transfer, admission!, authorize, budget)
+        : await upload(runtime, request, requestedScope, transfer, admission!, authorize, budget);
+      budget.check();
+      return response;
     } catch {
       return failure(503, "transfer_unavailable");
     } finally {

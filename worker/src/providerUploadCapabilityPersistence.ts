@@ -78,6 +78,14 @@ function emit(sink: TelemetrySink | undefined, event: CapabilityTelemetry): void
 
 function timestamp(value: unknown): number | null {
   if (typeof value !== "string" || !ISO_TIMESTAMP.test(value)) return null;
+  // Date.parse normalizes impossible dates such as February 30. Validate the
+  // written calendar before parsing the offset; retain its original precision.
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -251,9 +259,20 @@ function parseCurrentRow(
   };
 }
 
+/** Read-only dependency; deliberately independent of an installed SDK class identity. */
+export type CapabilityObservationReader = {
+  rpc(name: "api_resolve_current_capability_observation", args: {
+    p_provider: string;
+    p_capability: "provider_upload";
+    p_route: string;
+    p_surface: string;
+    p_surface_revision: string;
+  }): { maybeSingle(): PromiseLike<{ data: unknown; error: unknown }> };
+};
+
 /** Resolve exactly one sanitized current row, then reuse the pure child-1 decision. */
 export async function resolveProviderUploadCapabilityObservation(
-  supabase: SupabaseClient,
+  supabase: CapabilityObservationReader,
   releaseEnvelope: ProviderUploadCapabilityEnvelope,
   admissionResolver: ProviderUploadCapabilityAdmissionResolverResult,
   telemetry?: TelemetrySink,

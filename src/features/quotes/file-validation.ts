@@ -17,6 +17,10 @@ export const ALLOWED_QUOTE_UPLOAD_EXTENSIONS = [
 
 export const MAX_QUOTE_UPLOAD_BYTES = 200 * 1024 * 1024;
 
+export function getEmptyQuoteFileMessage(fileName: string) {
+  return `${fileName} is empty. Choose a file with content.`;
+}
+
 export function validateQuoteFiles(files: File[]) {
   const accepted: File[] = [];
   const errors: string[] = [];
@@ -26,6 +30,11 @@ export function validateQuoteFiles(files: File[]) {
 
     if (!ALLOWED_QUOTE_UPLOAD_EXTENSIONS.includes(extension as (typeof ALLOWED_QUOTE_UPLOAD_EXTENSIONS)[number])) {
       errors.push(`${file.name} is not a supported CNC upload type.`);
+      return;
+    }
+
+    if (file.size === 0) {
+      errors.push(getEmptyQuoteFileMessage(file.name));
       return;
     }
 

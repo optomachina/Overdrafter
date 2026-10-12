@@ -112,9 +112,13 @@ export default defineConfig(({ mode }) => ({
   test: {
     globals: true,
     environment: "jsdom",
+    setupFiles: process.env.OVD_SOURCE_ONLY_TESTS === "1"
+      ? ["./scripts/test-support/source-only-network.setup.mjs"]
+      : [],
     include: [
       "api/**/*.test.ts",
       "server/**/*.test.ts",
+      "shared/**/*.test.ts",
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
       "worker/src/**/*.test.ts",

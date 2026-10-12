@@ -1,0 +1,255 @@
+{
+  "$schema": "./permissions-matrix.v1.schema.json",
+  "schemaVersion": 1,
+  "title": "ProviderPermissionsMatrixV1",
+  "checkedOn": "2026-10-11",
+  "kill_switch_shipped": false,
+  "killSwitch": {
+    "issue": "OVD-722",
+    "cli": "npm run provider:kill -- <key>|--all --on|--off --reason \"...\"",
+    "rpc": "api_admin_set_provider_kill_switch",
+    "note": "Runtime engaged/disengaged state lives in OVD-722. This matrix only points at that switch and never copies it."
+  },
+  "derivation": {
+    "enabledForPaidAutomation": "true only when in_1_0 is true, permission_status is not cease_and_desist, and either tos_stance is allowed or written_permission.recorded is true"
+  },
+  "providers": [
+    {
+      "key": "xometry",
+      "displayName": "Xometry",
+      "in_1_0": true,
+      "api_availability": "partner_or_request_only",
+      "tos_automation_clause": {
+        "quote": "You shall not or permit any third party to: use any manual or automated software devices or other processes (including but not limited to spiders, robots, scrapers, crawlers, avatars, data mining tools or the like) to “scrape” or download data from any web pages contained in the Website.",
+        "url": "https://www.xometry.com/service-agreement/",
+        "section": "7.1.2"
+      },
+      "tos_stance": "prohibited",
+      "partner_program": "Xometry Developer API exists for accepted jobs and a separately approved Job Board. Customer-side instant quoting is not a published public API.",
+      "contact": {
+        "role": "Developer API / website support",
+        "published_address": "support@xometry.com"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for xometry; flip with npm run provider:kill -- xometry --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Legacy controlled-beta admission is not a matrix clearance. Partner API access is supplier/job-board scoped; ask only if useful. Controlled-beta Xometry traffic remains a ToS-risk path until written permission or a C&D."
+    },
+    {
+      "key": "fictiv",
+      "displayName": "Fictiv / MISUMI",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "You will not or permit any third party to: ... develop or use any applications that interact with our Services without our prior written consent.",
+        "url": "https://www.fictiv.com/terms",
+        "section": "Use Restrictions (k)"
+      },
+      "tos_stance": "prior-consent",
+      "partner_program": "No public customer-quoting API found. Fictiv is part of MISUMI. Written consent is the stated path for any application that interacts with the services.",
+      "contact": {
+        "role": "Published terms contact",
+        "published_address": "help@fictiv.com"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for fictiv; flip with npm run provider:kill -- fictiv --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Stays false until written permission is recorded. Terms also prohibit scraping/downloading site data and using another user's account without authorization from that user and Fictiv."
+    },
+    {
+      "key": "quickparts",
+      "displayName": "Quickparts",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "Except as stated herein, none of the material may be copied, reproduced, distributed, republished, downloaded, displayed, posted or transmitted in any form or by any means ... without the prior written permission of Quickparts or the copyright owner. Permission is granted to display, copy, distribute and download the materials on this Site for personal, non-commercial use only.",
+        "url": "https://quickparts.com/terms-conditions/"
+      },
+      "tos_stance": "silent",
+      "partner_program": "No public quote API found. QuickQuote is an authenticated website tool, not a published partner API.",
+      "contact": {
+        "role": "Published website contact",
+        "published_url": "https://quickparts.com/contact/"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for quickparts; flip with npm run provider:kill -- quickparts --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Website terms restrict copying site materials. They do not expressly allow or ban authenticated automated quoting. Sales terms at https://quickparts.com/sales-terms-conditions/ also omit an automation clause. Outreach is optional but useful."
+    },
+    {
+      "key": "weerg",
+      "displayName": "Weerg",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "By accessing the website www.weerg.com you can use our services. By using our services, you signify your agreement to be bound by the general conditions of use. Weerg reserves the right to prevent you from accessing the site and/or your account ... if you are in breach of applicable laws, these General Conditions of Use or applicable guidelines or policies.",
+        "url": "https://www.weerg.com/faq/general-terms-and-conditions-for-the-purchase-of-services-and-supplies-supplier"
+      },
+      "tos_stance": "silent",
+      "partner_program": "No public quote API found. Instant quoting is a website configurator.",
+      "contact": {
+        "role": "Published company contact",
+        "published_address": "info@weerg.com"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for weerg; flip with npm run provider:kill -- weerg --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Published general conditions do not mention robots, scrapers, or partner APIs. Ask for partner API access and written permission."
+    },
+    {
+      "key": "geomiq",
+      "displayName": "Geomiq",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "Geomiq does not guarantee uninterrupted access or malware-free use. Users must not introduce harmful software or misuse the platform.",
+        "url": "https://geomiq.com/user-terms-conditions/"
+      },
+      "tos_stance": "silent",
+      "partner_program": "No public customer-quoting API found. Manufacturing-partner onboarding is a separate program and is not a customer quote API.",
+      "contact": {
+        "role": "Published support contact",
+        "published_address": "support@geomiq.com"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for geomiq; flip with npm run provider:kill -- geomiq --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "User terms mention Geomiq's own automated data extraction for quoting. They do not grant customers a right to automate the portal. Ask for partner API access and written permission."
+    },
+    {
+      "key": "rmfg",
+      "displayName": "RMFG",
+      "in_1_0": true,
+      "api_availability": "public_agent_api",
+      "tos_automation_clause": {
+        "quote": "We're building our manufacturing company API-first. ... The API will allow you to check if a design is manufacturable, give you instant pricing, and the ability to buy custom sheet metal parts. Connect to https://api.rmfg.com/mcp and sign in to RMFG. Your agent can upload STEP files, inspect parts, configure manufacturing, and prepare checkout.",
+        "url": "https://www.rmfg.com/docs/api"
+      },
+      "tos_stance": "allowed",
+      "partner_program": "Public REST and hosted MCP agent API for quote, DFM, and cart preparation. Payments require a separate consent scope. OverDrafter stays quote-only.",
+      "contact": {
+        "role": "Published developer / support contact",
+        "published_address": "support@rmfg.com"
+      },
+      "permission_status": "oct23_checkpoint_referenced",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for rmfg; flip with npm run provider:kill -- rmfg --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": true,
+      "replies": [],
+      "notes": "Matrix clears RMFG for paid automated quoting on the published agent/API path only. Runtime admission, OVD-678 live wiring, and the Oct 23 checkpoint asks remain separate. Do not duplicate those asks here. Cart, checkout, and payment stay unreachable."
+    },
+    {
+      "key": "oshcut",
+      "displayName": "OSH Cut",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "These Terms and Conditions govern the purchase and sale of products and services from OSH Cut Inc. These Terms, together with our Website Terms of Use and Privacy Policy, constitute the final and integrated agreement. No published clause addresses automated access, robots, or a customer quote API.",
+        "url": "https://www.oshcut.com/terms-of-service"
+      },
+      "tos_stance": "silent",
+      "partner_program": "No public quote API found. An affiliate rewards program exists and is not an API partnership.",
+      "contact": {
+        "role": "Published support contact",
+        "published_address": "support@oshcut.com"
+      },
+      "permission_status": "draft_outreach_prepared",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for oshcut; flip with npm run provider:kill -- oshcut --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Sales terms are silent on automation. Ask for partner API access and written permission."
+    },
+    {
+      "key": "sendcutsend",
+      "displayName": "SendCutSend",
+      "in_1_0": true,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "These terms and conditions ... govern your use of the “Services”, which include the website (www.sendcutsend.com), and the tools, content, features, and services offered through it. No published clause addresses automated access, robots, scrapers, or a public developer API.",
+        "url": "https://sendcutsend.com/terms-of-service/"
+      },
+      "tos_stance": "silent",
+      "partner_program": "No public developer API found. Marketplace is a seller program for individual accounts, not a quote API.",
+      "contact": {
+        "role": "Published website support",
+        "published_url": "https://sendcutsend.com/contact/"
+      },
+      "permission_status": "not_requested",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for sendcutsend; flip with npm run provider:kill -- sendcutsend --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Named in OVD-724. Not in the current outreach ask list. No partner-API draft is prepared until Blaine adds it."
+    },
+    {
+      "key": "protolabs",
+      "displayName": "Protolabs",
+      "in_1_0": false,
+      "api_availability": "none",
+      "tos_automation_clause": {
+        "quote": "You agree ... you will not use the Site or our services to: ... use software or automated agents or scripts to produce multiple accounts on the Site, or to generate automated searches, requests, or queries to (or to strip, scrape, or mine data from) the Site, including launching or using any automated means or process, such as “spiders”, “robots”, “load testers” etc., for retrieving or sending more communication than a natural person could reasonably produce or to create users accounts.",
+        "url": "https://www.protolabs.com/legal-notices/",
+        "section": "Use Restrictions (d)(vi)"
+      },
+      "tos_stance": "prohibited",
+      "partner_program": "Not in 1.0. No 1.0 partner-API outreach.",
+      "contact": {
+        "role": "Published legal notices",
+        "published_url": "https://www.protolabs.com/legal-notices/"
+      },
+      "permission_status": "not_in_1_0",
+      "date_checked": "2026-10-11",
+      "kill_switch_state": {
+        "source": "OVD-722",
+        "pointer": "private.provider_kill_switches row for protolabs; flip with npm run provider:kill -- protolabs --on|--off --reason \"...\""
+      },
+      "written_permission": null,
+      "enabled_for_paid_automation": false,
+      "replies": [],
+      "notes": "Kept in the matrix and marked not in 1.0. Portal automation is prohibited. This row never clears paid automated quoting."
+    }
+  ]
+}

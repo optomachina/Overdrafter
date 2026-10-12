@@ -1,0 +1,111 @@
+{
+  "dataClass": "synthetic",
+  "request": {
+    "material": "6061-T6",
+    "process": "CNC milling",
+    "quantity": 12,
+    "revision": "C",
+    "finish": "clear anodized"
+  },
+  "quote": {
+    "document": "Superseded offer: firm total USD 144.00 for 12 parts, revision C.\nReplacement offer: firm total USD 132.00 for 12 parts, revision C.",
+    "spans": [
+      {
+        "id": "superseded",
+        "start": 0,
+        "end": 65,
+        "text": "Superseded offer: firm total USD 144.00 for 12 parts, revision C.",
+        "amount": 144,
+        "currency": "USD",
+        "basis": "total",
+        "firmness": "firm",
+        "quantity": 12,
+        "revision": "C",
+        "source": "selector",
+        "selector": "#offer-0 .total"
+      },
+      {
+        "id": "replacement",
+        "start": 66,
+        "end": 132,
+        "text": "Replacement offer: firm total USD 132.00 for 12 parts, revision C.",
+        "amount": 132,
+        "currency": "USD",
+        "basis": "total",
+        "firmness": "firm",
+        "quantity": 12,
+        "revision": "C",
+        "source": "selector",
+        "selector": "#offer-1 .total"
+      }
+    ],
+    "requestedQuantity": 12,
+    "requestedRevision": "C",
+    "requestedCurrency": "USD"
+  },
+  "catalog": {
+    "requested": {
+      "material": "6061-T6",
+      "process": "CNC milling",
+      "quantity": 12,
+      "revision": "C",
+      "finish": "clear anodized"
+    },
+    "options": [
+      {
+        "id": "archived-listing",
+        "label": "Archived listing retained for historical reference",
+        "fields": {
+          "material": "6061-T6",
+          "process": "CNC milling",
+          "quantity": 12,
+          "revision": "C",
+          "finish": "clear anodized"
+        }
+      },
+      {
+        "id": "current-listing",
+        "label": "Current ordering listing replacing archived listing",
+        "fields": {
+          "material": "6061-T6",
+          "process": "CNC milling",
+          "quantity": 12,
+          "revision": "C",
+          "finish": "clear anodized"
+        }
+      }
+    ],
+    "approvedEquivalentIds": []
+  },
+  "clarification": {
+    "requestText": "The finish field says clear anodized. In the prose, leave every surface bare without any coating.",
+    "validationErrors": [],
+    "facts": []
+  },
+  "relevance": {
+    "query": "Review the current quote for 12 parts, revision C.",
+    "evidence": [
+      {
+        "id": "spec",
+        "text": "Material 6061-T6, revision C, quantity 12, clear anodized.",
+        "kind": "mandatory_spec"
+      },
+      {
+        "id": "authorization",
+        "text": "Review only; vendor submission has no authorization.",
+        "kind": "authorization"
+      },
+      {
+        "id": "unknown",
+        "text": "Customer attachment awaits classification.",
+        "kind": "unknown"
+      },
+      {
+        "id": "unrelated",
+        "text": "The office picnic is on Saturday by the lake.",
+        "kind": "optional",
+        "removableCategory": "social"
+      }
+    ]
+  }
+}

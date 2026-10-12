@@ -422,6 +422,7 @@ const ClientQuoteDetail = () => {
         description="Lead time runs left to right. Quoted manufacturing total runs bottom to top. Supplier identities remain private to this buyer workspace."
         options={controller.rankedQuoteOptions}
         selectedOption={controller.selectedQuoteOption}
+        previousSelectionUnavailable={controller.previousQuoteSelectionUnavailable}
         onSelect={controller.handleSelectQuoteOption}
         requestedByDate={controller.requestSummaryRequestedByDate}
         quoteDataStatus={controller.quoteDataStatus}

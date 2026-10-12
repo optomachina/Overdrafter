@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeClientPresetUnavailableReason, getClientQuoteOptionStateReasons } from "@/features/quotes/client-workspace-state";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
@@ -9,6 +10,7 @@ import {
   filterQuoteOptionsForScope,
   filterVisibleQuoteOptions,
   getSelectedOption,
+  resolveStoredQuoteSelection,
   getPresetMode,
   getPresetScope,
   pickPresetOption,
@@ -836,5 +838,117 @@ describe("selection helpers", () => {
     expect(
       getSelectedOption([publishedOption], "offer-1", "published-option-1"),
     ).toBeNull();
+  });
+});
+
+
+describe("customer quote commercial-validity acceptance", () => {
+  const now = new Date("2026-10-02T12:00:00.000Z");
+  const optionsFor = (validUntil: string | null) => {
+    const quote = makeQuoteAggregate();
+    quote.offers[0] = { ...quote.offers[0]!, valid_until: validUntil };
+    return buildClientQuoteSelectionOptions({ vendorQuotes: [quote], now });
+  };
+
+  it.each(["2026-10-02T11:59:59.999Z", "not-a-timestamp"])(
+    "keeps %s evidence visible but prevents active selection and presets",
+    (validUntil) => {
+      const options = optionsFor(validUntil);
+      expect(options).toHaveLength(1);
+      const option = options[0]!;
+      expect(option).toMatchObject({ validUntil, totalPriceUsd: 110, isSelectable: false, eligible: false });
+      expect(getSelectedOption(options, "offer-1")).toBeNull();
+      const published = { ...option, selectionTarget: {
+        kind: "published_quote_option" as const, packageId: "package-1", optionId: "published-1",
+      } };
+      expect(getSelectedOption([published], "offer-1", "published-1")).toBeNull();
+      expect(pickPresetOption(options, "cheapest_global")).toBeNull();
+      expect(applyBulkPresetSelection({ optionsByJobId: { "job-1": options },
+        currentSelectedOfferIdsByJobId: {}, preset: "cheapest_global" }).changes).toEqual([]);
+      expect(getClientQuoteOptionStateReasons({ option })).toContainEqual({
+        id: "needs_review", tone: "blocked", label: "Needs review before selection",
+      });
+      expect(describeClientPresetUnavailableReason({ options, preset: "cheapest_global" }))
+        .toBe("Quote responses need review before this preset can apply.");
+    },
+  );
+
+  it.each(["2026-10-02T12:00:00.000Z", "2026-10-02T12:00:00.001Z", null])(
+    "preserves selection for valid or unspecified commercial validity %s", (validUntil) => {
+      const options = optionsFor(validUntil);
+      expect(options[0]?.isSelectable).toBe(true);
+      expect(getSelectedOption(options, "offer-1")).toBe(options[0]);
+      expect(pickPresetOption(options, "cheapest_global")).toBe(options[0]);
+    },
+  );
+});
+
+describe("resolveStoredQuoteSelection never substitutes another offer", () => {
+  const now = new Date("2026-10-02T12:00:00.000Z");
+  const twoOffers = (firstOverrides: Record<string, unknown> = {}) => {
+    const base = makeQuoteAggregate().offers[0]!;
+    return buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            { ...base, ...firstOverrides },
+            { ...base, id: "offer-2", offer_key: "lane-2", total_price_usd: 90, unit_price_usd: 9 },
+          ],
+        }),
+      ],
+      now,
+    });
+  };
+
+  it("selects nothing and reports nothing when no choice is stored", () => {
+    const options = twoOffers();
+    expect(options.some((option) => option.eligible)).toBe(true);
+    expect(resolveStoredQuoteSelection(options, null, null)).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: false,
+    });
+  });
+
+  it("keeps a stored choice that is still current", () => {
+    const options = twoOffers();
+    const result = resolveStoredQuoteSelection(options, "offer-1", null);
+    expect(result.selectedOption?.persistedOfferId).toBe("offer-1");
+    expect(result.previousSelectionUnavailable).toBe(false);
+  });
+
+  it.each([
+    ["expired", { valid_until: "2026-10-01T00:00:00.000Z" }],
+    ["invalidated", { invalidated_at: "2026-10-01T00:00:00.000Z" }],
+  ])("selects nothing when the stored offer is %s", (_label, overrides) => {
+    const options = twoOffers(overrides);
+    expect(options).toHaveLength(2);
+    expect(options.find((option) => option.persistedOfferId === "offer-2")?.eligible).toBe(true);
+    expect(resolveStoredQuoteSelection(options, "offer-1", null)).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: true,
+    });
+  });
+
+  it("selects nothing when the stored offer is not among the current options", () => {
+    const options = twoOffers();
+    expect(resolveStoredQuoteSelection(options, "offer-from-older-run", null)).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: true,
+    });
+  });
+
+  it("selects nothing when the stored published option is missing", () => {
+    const options = twoOffers();
+    expect(resolveStoredQuoteSelection(options, null, "published-option-gone")).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: true,
+    });
+  });
+
+  it("selects nothing when there are no current options at all", () => {
+    expect(resolveStoredQuoteSelection([], "offer-1", null)).toEqual({
+      selectedOption: null,
+      previousSelectionUnavailable: true,
+    });
   });
 });

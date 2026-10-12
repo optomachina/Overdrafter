@@ -253,6 +253,36 @@ describe("stable egress evidence evaluation", () => {
     });
   });
 
+  it("accepts Fictiv alongside Xometry on the governed service (OVD-673)", () => {
+    const evidence = compliantEvidence();
+    evidence.service.spec.template.spec.containers[0].env.find(
+      (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+    ).value = "xometry,fictiv";
+    expect(evaluateStableEgressEvidence(evidence, EXPECTED).failures).not.toContain(
+      "service_live_adapters_not_xometry_only",
+    );
+  });
+
+  it.each([
+    ["xometry,quickparts", false, "OVD-674"],
+    ["xometry,fictiv,quickparts", false, "OVD-674"],
+    ["xometry,weerg", false, "OVD-675"],
+    ["xometry,fictiv,quickparts,weerg", false, "OVD-675"],
+    ["quickparts", true, "OVD-674"],
+    ["quickparts,xometry", true, "OVD-674"],
+    ["weerg", true, "OVD-675"],
+    ["weerg,xometry", true, "OVD-675"],
+    ["xometry,weerg,fictiv", true, "OVD-675"],
+  ])("admits only canonical xometry-first live-adapter values (%s, %s)", (value, blocked) => {
+    const evidence = compliantEvidence();
+    evidence.service.spec.template.spec.containers[0].env.find(
+      (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+    ).value = value;
+    const failures = evaluateStableEgressEvidence(evidence, EXPECTED).failures;
+    if (blocked) expect(failures).toContain("service_live_adapters_not_xometry_only");
+    else expect(failures).not.toContain("service_live_adapters_not_xometry_only");
+  });
+
   it("accepts the regional IPv4 address shape when ipVersion is omitted", () => {
     const evidence = compliantEvidence();
     delete evidence.address.ipVersion;
@@ -356,7 +386,7 @@ describe("stable egress evidence evaluation", () => {
     ] = "1";
     evidence.service.spec.template.spec.containers[0].env.find(
       (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-    ).value = "xometry,fictiv";
+    ).value = "fictiv";
     expect(evaluateStableEgressEvidence(evidence, EXPECTED).failures).toEqual(
       expect.arrayContaining([
         "job_subnet_mismatch",

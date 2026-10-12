@@ -47,6 +47,7 @@ export function useClientJobFilePicker({
   onFilesSelected,
 }: UseClientJobFilePickerOptions) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadPendingRef = useRef(false);
   const betaAccess = useFoundingBetaAccess({
     organizationId,
     userId,
@@ -65,6 +66,10 @@ export function useClientJobFilePicker({
   };
 
   const openFilePicker = async () => {
+    if (uploadPendingRef.current) {
+      toast.error("An upload is already in progress. Please wait before adding more files.");
+      return;
+    }
     if (!isSignedIn) {
       onRequireAuth?.();
       return;
@@ -92,18 +97,26 @@ export function useClientJobFilePicker({
       return;
     }
 
-    if (!(await requireUploadAccess())) {
+    if (uploadPendingRef.current) {
+      toast.error("An upload is already in progress. Please wait before adding more files.");
       return;
     }
 
-    const { accepted, errors } = validateQuoteFiles(incomingFiles);
-    errors.forEach((error) => toast.error(error));
-
-    if (accepted.length === 0) {
-      return;
-    }
-
+    // Claim the selection before any async access check so repeated input events
+    // cannot start overlapping intake attempts.
+    uploadPendingRef.current = true;
     try {
+      if (!(await requireUploadAccess())) {
+        return;
+      }
+
+      const { accepted, errors } = validateQuoteFiles(incomingFiles);
+      errors.forEach((error) => toast.error(error));
+
+      if (accepted.length === 0) {
+        return;
+      }
+
       await onFilesSelected(accepted);
     } catch (error) {
       if (isFoundingBetaEnforcementError(error)) {
@@ -115,6 +128,8 @@ export function useClientJobFilePicker({
       } else {
         toast.error(getErrorMessage(error));
       }
+    } finally {
+      uploadPendingRef.current = false;
     }
   };
 

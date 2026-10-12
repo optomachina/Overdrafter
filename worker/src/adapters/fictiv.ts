@@ -21,6 +21,10 @@ import {
   type ValueSource,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -402,29 +406,26 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
+ */
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
 
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
+  // Logged-in DOM carries session and account data; never persist it raw.
+  await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
+    encoding: "utf8",
+    mode: 0o600,
   });
 
-  await fs.writeFile(htmlPath, await page.content(), "utf8");
-
   return [
-    {
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    },
     {
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -600,6 +601,7 @@ async function setFilesOnUpload(
       if (count < 1) continue;
 
       try {
+        markProviderMutationStarted();
         await locator.setInputFiles(files);
         return { selector, attemptedSelectors };
       } catch {
@@ -1367,24 +1369,10 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
-  private buildLaunchArgs() {
-    const launchArgs: string[] = [];
-
-    if (this.config.playwrightDisableSandbox) {
-      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-
-    if (this.config.playwrightDisableDevShmUsage) {
-      launchArgs.push("--disable-dev-shm-usage");
-    }
-
-    return launchArgs;
-  }
-
   private async startLiveSession(prerequisites: FictivLivePrerequisites): Promise<FictivLiveSession> {
     const browser = await chromium.launch({
       headless: this.config.playwrightHeadless,
-      args: this.buildLaunchArgs(),
+      ...chromiumSandboxLaunchOptions(this.config),
     });
     let browserContext: BrowserContext | null = null;
     try {
@@ -1469,6 +1457,9 @@ export class FictivAdapter extends VendorAdapter {
       await dismissOverlayModals(page);
     }
 
+    // Configuration edits the provider-side quote. A landing page that already
+    // shows a quote skips the upload above, so mark the mutation here as well.
+    markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
@@ -1611,37 +1602,27 @@ export class FictivAdapter extends VendorAdapter {
     );
   }
 
-  private async stopTraceAndAttachArtifact(
-    browserContext: BrowserContext,
-    runDir: string,
-    artifacts: VendorArtifact[],
-  ) {
+  /**
+   * OVD-611: Traces hold unredacted DOM snapshots and request headers, so the
+   * recording is stopped without a path: discarded, never written or uploaded.
+   */
+  private async stopTraceDiscarding(browserContext: BrowserContext) {
     if (!this.config.playwrightCaptureTrace) {
       return false;
     }
 
-    const tracePath = path.join(runDir, "trace.zip");
-    await browserContext.tracing.stop({ path: tracePath });
-    artifacts.push({
-      kind: "trace",
-      label: "playwright-trace",
-      localPath: tracePath,
-      contentType: "application/zip",
-    });
+    await browserContext.tracing.stop();
     return true;
   }
 
   private async cleanupLiveSession(
     browserContext: BrowserContext | null,
     browser: Browser | null,
-    runDir: string,
     traceStopped: boolean,
   ) {
     if (browserContext) {
-      const maybeTracePath = path.join(runDir, "trace.zip");
-
       if (this.config.playwrightCaptureTrace && !traceStopped) {
-        await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+        await browserContext.tracing.stop().catch(() => undefined);
       }
 
       await browserContext.close().catch(() => undefined);
@@ -1761,7 +1742,7 @@ export class FictivAdapter extends VendorAdapter {
 
       const isInstantQuote = resultClassification === "instant_quote";
       await appendArtifacts(artifacts, page, runDir, "result");
-      traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
+      traceStopped = await this.stopTraceDiscarding(browserContext);
 
       const quoteUrl = await detectQuoteUrl(page);
       const offers = isInstantQuote
@@ -1861,9 +1842,7 @@ export class FictivAdapter extends VendorAdapter {
       };
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
-        traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts).catch(
-          () => false,
-        );
+        traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
       }
 
       if (error instanceof VendorAutomationError) {
@@ -1882,7 +1861,7 @@ export class FictivAdapter extends VendorAdapter {
         artifacts,
       );
     } finally {
-      await this.cleanupLiveSession(browserContext, browser, runDir, traceStopped);
+      await this.cleanupLiveSession(browserContext, browser, traceStopped);
     }
   }
 
@@ -1902,6 +1881,22 @@ export class FictivAdapter extends VendorAdapter {
             terminalState: "unsupported",
           },
         );
+      }
+
+      if (input.executionContext !== "live_evaluation") {
+        const denial = fictivDispatchAuthorizationDenial(input);
+        if (denial) {
+          throw new VendorAutomationError(
+            "Live Fictiv automation requires a current exact-scope provider dispatch authorization.",
+            "unexpected_ui_state",
+            {
+              vendor: "fictiv",
+              reason: denial,
+              terminalState: "unsupported",
+              providerInteractionAttempted: false,
+            },
+          );
+        }
       }
 
       const termResolution = this.resolveLiveTerms(input);

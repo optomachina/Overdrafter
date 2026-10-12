@@ -2,11 +2,26 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 import { withXometryProfileInterprocessLock } from "./adapters/persistentProfileLock.js";
+import {
+  resolveIsolatedProviderStorageState,
+  type ProviderPortalDefinition,
+} from "./adapters/providerPortalKernel.js";
+import { buildQuickpartsProductionPortalDefinition } from "./adapters/quickpartsPortal.js";
+import { buildWeergProductionPortalDefinition } from "./adapters/weergPortal.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import {
   restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
 } from "./xometryProfileSnapshot.js";
+import { PRODUCTION_LIVE_ADAPTERS } from "./generated/providerRegistry.js";
+
+/**
+ * Adapters with a reviewed production dispatch path. The list is generated from
+ * provider-integrations/provider-registry.v1.json. Listing a generic provider
+ * here never admits it; the database policy, reviewed envelope, and rollout
+ * still decide every dispatch.
+ */
+export { PRODUCTION_LIVE_ADAPTERS };
 
 function parseStorageStateJson(input: string, source: string) {
   let parsedStorageState: unknown;
@@ -247,35 +262,76 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
   return issues;
 }
 
-/** Production live mode is deliberately limited to the controlled Xometry lane. */
+/**
+ * A worker listing a production portal adapter must hold a session for it
+ * that the portal kernel can actually open (QUOTE_VENDOR_STORAGE_STATE_PATHS,
+ * _JSON or _DIR), resolved exactly as the kernel resolves it before launch.
+ */
+async function validatePortalSessionReadiness(
+  config: WorkerConfig,
+  definition: ProviderPortalDefinition,
+): Promise<string[]> {
+  if (config.workerMode !== "live" || !config.workerLiveAdapters.includes(definition.provider)) {
+    return [];
+  }
+  const storageState = await resolveIsolatedProviderStorageState(definition, config);
+  return storageState
+    ? []
+    : [
+        `Live mode with ${definition.provider} requires a readable ${definition.displayName} storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.`,
+      ];
+}
+
+/** OVD-674: Quickparts session readiness. */
+export function validateQuickpartsReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildQuickpartsProductionPortalDefinition());
+}
+
+/** OVD-675: Weerg session readiness. */
+export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
+}
+
+/** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   if (config.workerMode !== "live") {
     return [];
   }
 
+  const production = new Set<string>(PRODUCTION_LIVE_ADAPTERS);
   if (
-    config.workerLiveAdapters.length === 1 &&
-    config.workerLiveAdapters[0] === "xometry"
+    config.workerLiveAdapters.length > 0 &&
+    config.workerLiveAdapters.every((adapter) => production.has(adapter))
   ) {
     return [];
   }
 
   return [
-    "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+    `Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: ${PRODUCTION_LIVE_ADAPTERS.join(", ")}.`,
   ];
 }
 
+export const LIVE_ADAPTER_READINESS_CHECKS = {
+  xometry: validateXometryReadiness,
+  fictiv: validateFictivReadiness,
+  quickparts: validateQuickpartsReadiness,
+  weerg: validateWeergReadiness,
+} as const satisfies Record<
+  (typeof PRODUCTION_LIVE_ADAPTERS)[number],
+  (config: WorkerConfig) => Promise<string[]>
+>;
+
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, fictivIssues, extractionIssues] = await Promise.all([
-    validateXometryReadiness(config),
-    validateFictivReadiness(config),
+  const [adapterIssues, extractionIssues] = await Promise.all([
+    Promise.all(
+      PRODUCTION_LIVE_ADAPTERS.map((adapter) => LIVE_ADAPTER_READINESS_CHECKS[adapter](config)),
+    ),
     validateDrawingExtractionReadiness(config),
   ]);
 
   return [
     ...validateLiveAdapterReadiness(config),
-    ...xometryIssues,
-    ...fictivIssues,
+    ...adapterIssues.flat(),
     ...extractionIssues,
   ];
 }

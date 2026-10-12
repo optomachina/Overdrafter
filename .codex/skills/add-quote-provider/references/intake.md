@@ -2,6 +2,13 @@
 
 Use this mode for a new public provider URL or when an existing scaffold needs its evidence-backed envelope completed.
 
+## Which mode you are in
+
+This file serves two modes. Decide which one applies before running any command, and say so in your first progress note.
+
+- **Single intake:** the user named one provider, or you are the integrator handling one key. Run every step below, including the real envelope stage.
+- **Batch subagent:** `batch-intake.md` spawned you for one provider. Research, classify, and run only the `--dry-run` envelope preview, then return the proposed manifest values. Never run the envelope stage without `--dry-run`, never run `npm run provider:sync`, and never edit `provider-integrations/provider-registry.v1.json`. The real stage reads, modifies, and writes that shared registry and regenerates the shared catalogs, so parallel runs would drop each other's entries. The integrator runs it serially for each key. Leave Linear to the integrator and draft the issues only.
+
 ## Research boundary
 
 1. Confirm the OverDrafter workspace fingerprints in `AGENTS.md`, then read `docs/provider-integration.md`, the current manifest schema, and the provider CLI help/tests.
@@ -22,17 +29,17 @@ Use a conservative `processFamily`. Classification describes implementation shap
 
 ## Scaffold and populate
 
-Run the no-write preview first:
+Run the preview that writes nothing first (`provider:add` is an alias of this stage):
 
 ```bash
-npm run provider:add -- --url "<official-https-url>" --dry-run
+npm run fixture:onboard -- [<key>] --stage=envelope --url "<official-https-url>" --dry-run
 ```
 
-Review the derived key, canonical domain, collision result, and planned files. An exact existing provider is an idempotent no-op. A key/domain collision or existing unrelated directory is a stop condition; never overwrite provider work.
+With `--url` the key is optional. Omit it when it is unknown; the stage derives it from the URL and reports it. A key that disagrees with the derived one is refused before anything is written. Review the derived key, canonical domain, collision result, and planned files. An exact existing provider is an idempotent no-op. A key/domain collision or existing unrelated directory is a stop condition; never overwrite provider work.
 
-When a scaffold is needed, run the same command without `--dry-run`. For a genuinely new enum key, leave the generated migration files as review-only stubs. Do not apply them, edit an existing migration, or enable the admission row.
+A batch subagent stops here and reports the preview. In single intake, or as the integrator, when a scaffold is needed, run the same command without `--dry-run`. The stage also adds the key's default-off provider-registry entry (`liveAdapter: false`, `sessionSecrets: []`, `egress: "none"`) and runs `provider:sync`; the JSON result reports `registryEntry` (`added`/`unchanged`) and `synced`. An existing registry entry is never changed. With a key and no `--url` the stage requires the manifest and only adds a missing registry entry; a key that disagrees with `--url` is refused. For a genuinely new enum key, leave the generated migration files as review-only stubs. Do not apply them, edit an existing migration, or enable the admission row.
 
-Populate `manifest.v1.json` with:
+Populate `manifest.v1.json` (a batch subagent does this only after the integrator has scaffolded its key and handed it back) with:
 
 - stable key, display name, official URLs/domains, and presentation metadata;
 - adapter kind, process family, and descriptive implementation stage;
@@ -42,19 +49,19 @@ Populate `manifest.v1.json` with:
 
 For each envelope dimension, use `supported` or `unsupported` only when public first-party evidence is direct and unambiguous. Empty evidence is not negative evidence. Never translate broad marketing language into exact limits.
 
-Regenerate and validate offline:
+Regenerate and validate offline (single intake or the integrator; a batch subagent leaves `provider:sync` to the integrator):
 
 ```bash
 npm run provider:sync
 npm run provider:check
-npm test -- scripts/provider-add.test.mjs scripts/provider-check.test.mjs
+npm test -- scripts/fixture-onboard.test.mjs scripts/provider-add.test.mjs scripts/provider-check.test.mjs
 ```
 
 Do not edit the production-certified allowlist. Report unknown, unsupported, conflicting, or stale claims explicitly.
 
 ## Create the lifecycle hierarchy
 
-Create or update one provider parent, then create exactly the three children in [lifecycle.md](lifecycle.md). Make stage 2 depend on stage 1. Make stage 3 depend on successful stage 2 and the provider-neutral production controls. Keep future or dependency-sequenced stages in Backlog.
+In single intake, create or update one provider parent, then create exactly the three children in [lifecycle.md](lifecycle.md). A batch subagent drafts them instead and returns the drafts. Make stage 2 depend on stage 1. Make stage 3 depend on successful stage 2 and the provider-neutral production controls. Keep future or dependency-sequenced stages in Backlog.
 
 Maintain one rolling progress comment per issue using `AGENTS.md`. Do not mark evaluation-ready as customer-enabled, and do not let one provider's gaps block unrelated providers.
 

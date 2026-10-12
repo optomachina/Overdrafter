@@ -1,0 +1,44 @@
+name: Free-quote SQL qualification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  free-quote-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Set runner-local evidence path
+        shell: bash
+        run: echo "FREE_QUOTE_EVIDENCE=$RUNNER_TEMP/free-quote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-evidence" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify unchanged SQL inputs and offline runner contracts
+        run: |
+          node scripts/generate-free-quote-fixtures.mjs --check
+          node --test scripts/ovd591-image-pull.node-test.mjs scripts/generate-free-quote-fixtures.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-ci-provisioner.node-test.mjs scripts/free-quote-platform-sources.node-test.mjs scripts/free-quote-psql-races.node-test.mjs
+      - name: Qualify full139 schema, baseline126, atomicity132, free suites and eighteen races
+        run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
+      - name: Confirm exclusively owned cleanup
+        if: always()
+        shell: bash
+        run: |
+          if test -f "$FREE_QUOTE_EVIDENCE/owned-state.json"; then
+            node scripts/ovd591-ci-fixture.mjs cleanup "$FREE_QUOTE_EVIDENCE"
+          fi
+      - name: Retain synthetic SQL qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-quote-sql-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.FREE_QUOTE_EVIDENCE }}
+          if-no-files-found: warn
+          retention-days: 14
