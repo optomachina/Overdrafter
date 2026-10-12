@@ -18,6 +18,7 @@ import {
 } from "./fixture-onboard.mjs";
 import { sessionSecretMarker } from "./fixture-onboard-templates.mjs";
 import { scaffoldProvider } from "./provider-add.mjs";
+import { REQUIRED_READINESS_HEADINGS, validateReadinessDoc } from "./provider-readiness-doc.mjs";
 import {
   PROVIDER_MANIFEST_FILE,
   WEB_CATALOG_RELATIVE_PATH,
@@ -290,6 +291,8 @@ describe("fixture:onboard --stage=live", () => {
     expect(readiness).toContain("Then run `npm run provider:sync`");
     expect(readiness).toContain("Do not\n   hand-edit `worker/src/runtimeSecrets.ts`, `worker/scripts/deploy-cloud-run.sh`");
     expect(readiness).toContain("never edit the generated");
+    expect(readiness.split("\n").filter((line) => line.startsWith("## "))).toEqual([...REQUIRED_READINESS_HEADINGS]);
+    expect(validateReadinessDoc(readiness)).toEqual([]);
 
     const env = await read(paths.sessionSecret);
     expect(env.startsWith("WORKER_MODE=simulate\n# fixture:onboard shopname session")).toBe(true);
