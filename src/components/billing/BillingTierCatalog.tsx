@@ -1,31 +1,54 @@
-import { BILLING_CATALOG_PRICES } from "@/lib/billing-catalog";
+import { BILLING_TIERS, BILLING_USAGE_POLICY, type CatalogTier } from "@/lib/billing-catalog";
 import { isBillingTierCatalogUiEnabled } from "@/lib/billing-flags";
 
-const TIER_COPY = [
-  {
-    description: "Monthly and annual. One seat. Amount pending council approval.",
-    name: "Pro",
-    seats: "1 seat",
-    term: "Monthly or annual",
-    tier: "pro",
-  },
-  {
-    description:
-      "Monthly and annual. Included seats plus metered extra seats. Amounts pending council approval.",
-    name: "Team",
-    seats: "Included seats + extra seat price",
-    term: "Monthly or annual",
-    tier: "team",
-  },
-  {
-    description:
-      "Locked 12-month term. At most 12 teams. Not listed publicly. Amount pending council approval.",
-    name: "Founding Team",
-    seats: "Team entitlements plus founding badge",
-    term: "12-month lock",
-    tier: "founding_team",
-  },
-] as const;
+const TIER_ORDER: ReadonlyArray<{ name: string; tier: CatalogTier }> = [
+  { name: "Free", tier: "free" },
+  { name: "Pro", tier: "pro" },
+  { name: "Team", tier: "team" },
+  { name: "Founding Team", tier: "founding_team" },
+  { name: "Jarvis", tier: "jarvis" },
+];
+
+function dollars(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", {
+    maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+  })}`;
+}
+
+function priceLabel(tier: CatalogTier): string {
+  const limits = BILLING_TIERS[tier];
+  if (limits.priceCentsPerMonth === 0) {
+    return "Free";
+  }
+  const extraSeat = limits.extraSeatCentsPerMonth === null
+    ? ""
+    : `, +${dollars(limits.extraSeatCentsPerMonth)}/seat`;
+  return `${dollars(limits.priceCentsPerMonth)}/mo${extraSeat}`;
+}
+
+function capsLabel(tier: CatalogTier): string {
+  const limits = BILLING_TIERS[tier];
+  const seats = `${limits.seatsIncluded} ${limits.seatsIncluded === 1 ? "seat" : "seats"} included`;
+  if (limits.modelSpendCapCentsPerSeat !== null) {
+    return `${dollars(limits.modelSpendCapCentsPerSeat)} model usage cap per seat. Separate product.`;
+  }
+  if (limits.manualRunsPerMonth !== null) {
+    return `${seats}. ${limits.manualRunsPerMonth} manual runs per month. No automation.`;
+  }
+  const pooled = limits.pooledRuns ? " pooled" : "";
+  const parts = [
+    `${seats}.`,
+    `${limits.successfulRunsPerMonth}${pooled} successful runs and ${limits.providerAttemptsPerMonth} provider attempts per month.`,
+  ];
+  if (limits.maxTeams !== null) {
+    parts.push(`At most ${limits.maxTeams} teams. Rate held ${limits.rateHoldMonths} months.`);
+  }
+  if (limits.chargeAfterFirstSourcingSuccess) {
+    parts.push("Charged only after the first real sourcing success.");
+  }
+  return parts.join(" ");
+}
 
 type BillingTierCatalogProps = Readonly<{
   selfServiceEnabled?: string;
@@ -43,22 +66,18 @@ export function BillingTierCatalog({
   return (
     <section aria-label="Subscription tiers" className="space-y-3">
       <p className="text-sm leading-6 text-foreground/80">
-        Prices stay TBD until Blaine approves them. Free remains on the existing quote meter.
+        Billed monthly. No overage: we notify you at {BILLING_USAGE_POLICY.notifyAtPercent}% and
+        pause automation at {BILLING_USAGE_POLICY.pauseAutomationAtPercent}%. Failed runs and
+        provider outages do not count.
       </p>
       <ul className="space-y-3">
-        {TIER_COPY.map((tier) => {
-          const prices = BILLING_CATALOG_PRICES.filter((entry) => entry.tier === tier.tier);
-          return (
-            <li key={tier.tier} className="rounded border border-border bg-accent p-4">
-              <h3 className="text-[16px] font-medium text-foreground">{tier.name}</h3>
-              <p className="mt-1 font-mono text-sm text-foreground">Price TBD</p>
-              <p className="mt-2 text-sm leading-6 text-foreground/80">{tier.description}</p>
-              <p className="mt-1 text-xs leading-5 text-foreground/80">
-                {tier.seats}. {tier.term}. Lookup keys: {prices.map((entry) => entry.lookupKey).join(", ")}.
-              </p>
-            </li>
-          );
-        })}
+        {TIER_ORDER.map(({ name, tier }) => (
+          <li key={tier} className="rounded border border-border bg-accent p-4">
+            <h3 className="text-[16px] font-medium text-foreground">{name}</h3>
+            <p className="mt-1 font-mono text-sm text-foreground">{priceLabel(tier)}</p>
+            <p className="mt-2 text-sm leading-6 text-foreground/80">{capsLabel(tier)}</p>
+          </li>
+        ))}
       </ul>
     </section>
   );

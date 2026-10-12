@@ -1,25 +1,26 @@
 /**
  * OverDrafter Stripe tier catalog (OVD-725).
  *
- * Amounts stay null until Blaine approves them. This module is the single
- * source for lookup keys, metadata, entitlement mapping, the server price
- * guard, and webhook catalog evaluation. Free stays on the existing free
- * quote meter and is not a Stripe product.
+ * Amounts and caps match docs/business/business-model.md (locked October 11,
+ * 2026). This module is the single source for lookup keys, prices, caps,
+ * entitlement mapping, the server price guard, and webhook catalog
+ * evaluation. Monthly billing only at launch; the loader rejects any other
+ * interval. Free is not a Stripe product. Jarvis is a separate free product.
  */
 
 import catalogData from "./billingCatalogPrices.json" with { type: "json" };
 
 export const BILLING_CATALOG_VERSION = catalogData.version;
 export const BILLING_CATALOG_CURRENCY = catalogData.currency;
-export const FOUNDING_TEAM_MAX_SLOTS = catalogData.foundingTeamMaxSlots;
-export const PLACEHOLDER_AMOUNT_CENTS = catalogData.placeholderAmountCents;
 export const DEFAULT_CHECKOUT_LOOKUP_KEY = catalogData.defaultCheckoutLookupKey;
 
 export const BILLING_SELF_SERVICE_FLAG = "BILLING_SELF_SERVICE_ENABLED";
 export const BILLING_TIER_CATALOG_FLAG = "BILLING_TIER_CATALOG_ENABLED";
 
-export type BillingTier = "pro" | "team" | "founding_team";
-export type BillingInterval = "month" | "year";
+export type SourcingTier = "pro" | "team" | "founding_team";
+export type BillingTier = SourcingTier | "jarvis";
+export type CatalogTier = BillingTier | "free";
+export type BillingInterval = "month";
 export type CatalogPriceKind = "plan" | "extra_seat";
 
 export type CatalogPrice = {
@@ -32,6 +33,30 @@ export type CatalogPrice = {
   tier: BillingTier;
   /** Approved Stripe unit amount in cents. Null means TBD. */
   amountCents: number | null;
+};
+
+export type TierLimits = {
+  automation: boolean;
+  chargeAfterFirstSourcingSuccess: boolean;
+  extraSeatCentsPerMonth: number | null;
+  manualRunsPerMonth: number | null;
+  maxTeams: number | null;
+  modelSpendCapCentsPerSeat: number | null;
+  pooledRuns: boolean;
+  priceCentsPerMonth: number;
+  providerAttemptsPerMonth: number | null;
+  rateHoldMonths: number | null;
+  seatsIncluded: number;
+  separateProduct: boolean;
+  successfulRunsPerMonth: number | null;
+};
+
+export type UsagePolicy = {
+  failedRunsCount: boolean;
+  notifyAtPercent: number;
+  overage: boolean;
+  pauseAutomationAtPercent: number;
+  providerOffErrorsCount: boolean;
 };
 
 export type CatalogPriceLike = {
@@ -60,8 +85,11 @@ export type TierEntitlements = {
   automaticQuoteCollection: boolean;
   extraSeatsMetered: boolean;
   foundingBadge: boolean;
-  plan: "free" | BillingTier;
-  seatsIncluded: number | null;
+  manualRunsPerMonth: number | null;
+  plan: "free" | SourcingTier;
+  providerAttemptsPerMonth: number | null;
+  seatsIncluded: number;
+  successfulRunsPerMonth: number | null;
 };
 
 export type CatalogWebhookDecision = {
@@ -71,18 +99,81 @@ export type CatalogWebhookDecision = {
   reason?: string;
 };
 
+const CATALOG_TIERS: readonly CatalogTier[] = [
+  "free",
+  "pro",
+  "team",
+  "founding_team",
+  "jarvis",
+];
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function loadTierLimits(
+  tiers: Record<string, Record<string, unknown>>,
+): Readonly<Record<CatalogTier, TierLimits>> {
+  const entries = CATALOG_TIERS.map((tier): [CatalogTier, TierLimits] => {
+    const raw = tiers[tier];
+    if (!raw || typeof raw.priceCentsPerMonth !== "number" ||
+      typeof raw.seatsIncluded !== "number") {
+      throw new Error(`catalog_tier_missing:${tier}`);
+    }
+    return [tier, {
+      automation: raw.automation === true,
+      chargeAfterFirstSourcingSuccess: raw.chargeAfterFirstSourcingSuccess === true,
+      extraSeatCentsPerMonth: optionalNumber(raw.extraSeatCentsPerMonth),
+      manualRunsPerMonth: optionalNumber(raw.manualRunsPerMonth),
+      maxTeams: optionalNumber(raw.maxTeams),
+      modelSpendCapCentsPerSeat: optionalNumber(raw.modelSpendCapCentsPerSeat),
+      pooledRuns: raw.pooledRuns === true,
+      priceCentsPerMonth: raw.priceCentsPerMonth,
+      providerAttemptsPerMonth: optionalNumber(raw.providerAttemptsPerMonth),
+      rateHoldMonths: optionalNumber(raw.rateHoldMonths),
+      seatsIncluded: raw.seatsIncluded,
+      separateProduct: raw.separateProduct === true,
+      successfulRunsPerMonth: optionalNumber(raw.successfulRunsPerMonth),
+    }];
+  });
+  return Object.freeze(Object.fromEntries(entries) as Record<CatalogTier, TierLimits>);
+}
+
+export const BILLING_TIERS = loadTierLimits(catalogData.tiers);
+export const BILLING_USAGE_POLICY: Readonly<UsagePolicy> = Object.freeze({
+  ...catalogData.usagePolicy,
+});
+export const FOUNDING_TEAM_MAX_SLOTS = BILLING_TIERS.founding_team.maxTeams ?? 0;
+
+function isBillingTier(value: string): value is BillingTier {
+  return value === "pro" || value === "team" || value === "founding_team" ||
+    value === "jarvis";
+}
+
+function expectedTierAmount(tier: BillingTier, kind: CatalogPriceKind): number | null {
+  const limits = BILLING_TIERS[tier];
+  return kind === "plan" ? limits.priceCentsPerMonth : limits.extraSeatCentsPerMonth;
+}
+
 function loadCatalogPrices(
   prices: typeof catalogData.prices,
+  intervals: readonly string[],
 ): readonly CatalogPrice[] {
+  if (intervals.length !== 1 || intervals[0] !== "month") {
+    throw new Error("catalog_interval_invalid");
+  }
   return prices.map((entry) => {
-    if (entry.interval !== "month" && entry.interval !== "year") {
+    if (entry.interval !== "month") {
       throw new Error("catalog_interval_invalid");
     }
     if (entry.kind !== "plan" && entry.kind !== "extra_seat") {
       throw new Error("catalog_kind_invalid");
     }
-    if (entry.tier !== "pro" && entry.tier !== "team" && entry.tier !== "founding_team") {
+    if (!isBillingTier(entry.tier)) {
       throw new Error("catalog_tier_invalid");
+    }
+    if (entry.amountCents !== expectedTierAmount(entry.tier, entry.kind)) {
+      throw new Error(`catalog_amount_drift:${entry.lookupKey}`);
     }
     return {
       amountCents: entry.amountCents,
@@ -97,7 +188,10 @@ function loadCatalogPrices(
   });
 }
 
-export const BILLING_CATALOG_PRICES = loadCatalogPrices(catalogData.prices);
+export const BILLING_CATALOG_PRICES = loadCatalogPrices(
+  catalogData.prices,
+  catalogData.billingIntervals,
+);
 
 export function isBillingFlagEnabled(value: string | undefined): boolean {
   return value?.trim().toLowerCase() === "true";
@@ -141,64 +235,28 @@ export function catalogAmountsAreTbd(
   return catalog.some((entry) => entry.amountCents == null);
 }
 
-export function catalogPriceMetadata(entry: CatalogPrice, placeholder: boolean) {
+export function catalogPriceMetadata(entry: CatalogPrice) {
   return {
     od_catalog_version: String(BILLING_CATALOG_VERSION),
     od_interval: entry.interval,
     od_kind: entry.kind,
     od_tier: entry.tier,
-    placeholder: placeholder ? "true" : "false",
   };
 }
 
 export function mapTierToEntitlements(
-  tier: BillingTier | "free",
-  catalog: readonly CatalogPrice[] = BILLING_CATALOG_PRICES,
+  tier: SourcingTier | "free",
 ): TierEntitlements {
-  if (tier === "free") {
-    return {
-      automaticQuoteCollection: false,
-      extraSeatsMetered: false,
-      foundingBadge: false,
-      plan: "free",
-      seatsIncluded: 0,
-    };
-  }
-
-  const planEntry = catalog.find((entry) =>
-    entry.tier === (tier === "founding_team" ? "team" : tier) &&
-    entry.kind === "plan"
-  );
-  const teamSeats = catalog.find((entry) =>
-    entry.tier === "team" && entry.kind === "plan"
-  )?.seatsIncluded ?? null;
-
-  if (tier === "pro") {
-    return {
-      automaticQuoteCollection: true,
-      extraSeatsMetered: false,
-      foundingBadge: false,
-      plan: "pro",
-      seatsIncluded: planEntry?.seatsIncluded ?? 1,
-    };
-  }
-
-  if (tier === "team") {
-    return {
-      automaticQuoteCollection: true,
-      extraSeatsMetered: true,
-      foundingBadge: false,
-      plan: "team",
-      seatsIncluded: teamSeats,
-    };
-  }
-
+  const limits = BILLING_TIERS[tier];
   return {
-    automaticQuoteCollection: true,
-    extraSeatsMetered: true,
-    foundingBadge: true,
-    plan: "founding_team",
-    seatsIncluded: teamSeats,
+    automaticQuoteCollection: limits.automation,
+    extraSeatsMetered: limits.extraSeatCentsPerMonth !== null,
+    foundingBadge: tier === "founding_team",
+    manualRunsPerMonth: limits.manualRunsPerMonth,
+    plan: tier,
+    providerAttemptsPerMonth: limits.providerAttemptsPerMonth,
+    seatsIncluded: limits.seatsIncluded,
+    successfulRunsPerMonth: limits.successfulRunsPerMonth,
   };
 }
 
@@ -211,17 +269,12 @@ export function canPurchaseFoundingTeam(slotsUsed: number): boolean {
 function catalogGuardFailures(
   price: CatalogPriceLike,
   expected: CatalogPrice,
-  options: {
-    allowPlaceholder?: boolean;
-    expectedLivemode: boolean;
-  },
+  options: { expectedLivemode: boolean },
 ): string[] {
-  const expectedAmount = expected.amountCents ??
-    (options.allowPlaceholder === true ? PLACEHOLDER_AMOUNT_CENTS : null);
   const product = isExpandedProduct(price.product) ? price.product : null;
   const metadata = price.metadata ?? {};
   const checks: Array<[boolean, string]> = [
-    [expected.amountCents == null && options.allowPlaceholder !== true, "catalog_amount_tbd"],
+    [expected.amountCents == null, "catalog_amount_tbd"],
     [!price.id || !/^price_[A-Za-z0-9]+$/.test(price.id), "price_id_invalid"],
     [price.lookup_key !== expected.lookupKey, "lookup_key_mismatch"],
     [price.active !== true, "price_inactive"],
@@ -233,17 +286,13 @@ function catalogGuardFailures(
       price.recurring?.interval_count !== 1,
       "interval_mismatch",
     ],
-    [expectedAmount == null || price.unit_amount !== expectedAmount, "amount_mismatch"],
+    [price.unit_amount !== expected.amountCents, "amount_mismatch"],
     [product === null, "product_not_expanded"],
     [product?.deleted === true, "product_deleted"],
     [product?.active !== true, "product_inactive"],
     [metadata.od_tier !== expected.tier, "tier_metadata_mismatch"],
     [metadata.od_interval !== expected.interval, "interval_metadata_mismatch"],
     [metadata.od_catalog_version !== String(BILLING_CATALOG_VERSION), "catalog_version_mismatch"],
-    [
-      options.allowPlaceholder === true && metadata.placeholder !== "true",
-      "placeholder_metadata_missing",
-    ],
   ];
   return checks.filter(([failed]) => failed).map(([, reason]) => reason);
 }
@@ -251,10 +300,7 @@ function catalogGuardFailures(
 export function assertCatalogPrice(
   price: CatalogPriceLike,
   expected: CatalogPrice,
-  options: {
-    allowPlaceholder?: boolean;
-    expectedLivemode: boolean;
-  },
+  options: { expectedLivemode: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const [reason] = catalogGuardFailures(price, expected, options);
   return reason ? { ok: false, reason } : { ok: true };
@@ -347,11 +393,4 @@ export function evaluateCatalogWebhookEvent(
     lookupKey,
     reason: "reason" in verdict ? verdict.reason : "livemode_mismatch",
   };
-}
-
-export function withApprovedTestAmounts(
-  amountCents: number,
-  catalog: readonly CatalogPrice[] = BILLING_CATALOG_PRICES,
-): CatalogPrice[] {
-  return catalog.map((entry) => ({ ...entry, amountCents }));
 }

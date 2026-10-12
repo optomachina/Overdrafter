@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BILLING_CATALOG_PRICES,
+  BILLING_TIERS,
+  BILLING_USAGE_POLICY,
   canPurchaseFoundingTeam,
   catalogAmountsAreTbd,
   FOUNDING_TEAM_MAX_SLOTS,
@@ -36,13 +38,71 @@ const subscriptionWebhookSource = readFileSync(
 );
 
 describe("OVD-725 billing catalog contract", () => {
-  it("keeps every catalog amount TBD and does not invent prices", () => {
-    expect(catalogAmountsAreTbd()).toBe(true);
-    expect(BILLING_CATALOG_PRICES.every((entry) => entry.amountCents === null)).toBe(true);
-    expect(catalogPricesSource).not.toMatch(/"amountCents": [1-9]/);
-    expect(catalogSource).not.toMatch(/amountCents: [1-9]/);
-    expect(catalogSource).not.toMatch(/4_900|4900/);
-    expect(catalogPricesSource).not.toMatch(/4_900|4900/);
+  // Locked in docs/business/business-model.md. Change only with that document.
+  it("matches the locked tier prices and caps", () => {
+    expect(catalogAmountsAreTbd()).toBe(false);
+    expect(BILLING_TIERS).toEqual({
+      free: expect.objectContaining({
+        automation: false,
+        manualRunsPerMonth: 3,
+        priceCentsPerMonth: 0,
+        seatsIncluded: 1,
+      }),
+      pro: expect.objectContaining({
+        automation: true,
+        priceCentsPerMonth: 9_900,
+        providerAttemptsPerMonth: 300,
+        seatsIncluded: 1,
+        successfulRunsPerMonth: 40,
+      }),
+      team: expect.objectContaining({
+        extraSeatCentsPerMonth: 4_000,
+        pooledRuns: true,
+        priceCentsPerMonth: 34_900,
+        providerAttemptsPerMonth: 900,
+        seatsIncluded: 5,
+        successfulRunsPerMonth: 120,
+      }),
+      founding_team: expect.objectContaining({
+        chargeAfterFirstSourcingSuccess: true,
+        maxTeams: 8,
+        pooledRuns: true,
+        priceCentsPerMonth: 19_900,
+        providerAttemptsPerMonth: 900,
+        rateHoldMonths: 12,
+        seatsIncluded: 5,
+        successfulRunsPerMonth: 120,
+      }),
+      jarvis: expect.objectContaining({
+        modelSpendCapCentsPerSeat: 1_000,
+        priceCentsPerMonth: 0,
+        separateProduct: true,
+      }),
+    });
+    expect(
+      Object.fromEntries(BILLING_CATALOG_PRICES.map((entry) => [entry.lookupKey, entry.amountCents])),
+    ).toEqual({
+      od_founding_team_month_v1: 19_900,
+      od_jarvis_seat_month_v1: 0,
+      od_pro_month_v1: 9_900,
+      od_team_month_v1: 34_900,
+      od_team_seat_month_v1: 4_000,
+    });
+    expect(BILLING_USAGE_POLICY).toEqual({
+      failedRunsCount: false,
+      notifyAtPercent: 80,
+      overage: false,
+      pauseAutomationAtPercent: 100,
+      providerOffErrorsCount: false,
+    });
+    expect(catalogSource).not.toMatch(/(?<![\d_])4_?900(?!\d)/);
+    expect(catalogPricesSource).not.toMatch(/(?<![\d_])4_?900(?!\d)/);
+  });
+
+  it("has no annual price at launch", () => {
+    expect(BILLING_CATALOG_PRICES.every((entry) => entry.interval === "month")).toBe(true);
+    expect(catalogPricesSource).not.toMatch(/"year"|annual/i);
+    expect(JSON.parse(catalogPricesSource).billingIntervals).toEqual(["month"]);
   });
 
   it("maps Pro, Team, and Founding Team without touching the free quote meter", () => {
@@ -52,11 +112,13 @@ describe("OVD-725 billing catalog contract", () => {
       foundingBadge: false,
       plan: "pro",
       seatsIncluded: 1,
+      successfulRunsPerMonth: 40,
     });
     expect(mapTierToEntitlements("team").extraSeatsMetered).toBe(true);
     expect(mapTierToEntitlements("founding_team").foundingBadge).toBe(true);
-    expect(canPurchaseFoundingTeam(12)).toBe(false);
-    expect(FOUNDING_TEAM_MAX_SLOTS).toBe(12);
+    expect(canPurchaseFoundingTeam(7)).toBe(true);
+    expect(canPurchaseFoundingTeam(8)).toBe(false);
+    expect(FOUNDING_TEAM_MAX_SLOTS).toBe(8);
   });
 
   it("requires both flags before checkout or pricing UI can enable", () => {

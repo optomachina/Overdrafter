@@ -2,8 +2,10 @@
 /**
  * Stripe test-mode catalog setup for OVD-725.
  *
- * Never writes keys to files or logs. Refuses sk_live_ / rk_live_ secrets.
- * Amounts stay TBD unless --placeholder is passed in test mode.
+ * Dry run unless --apply is passed. Never writes keys to files or logs.
+ * Refuses sk_live_ / rk_live_ secrets, live accounts, and CI runners; there is
+ * no flag that enables live mode. Amounts come from billingCatalogPrices.json,
+ * the same file the app and edge functions read.
  */
 import { readFileSync } from "node:fs";
 import process from "node:process";
@@ -12,7 +14,6 @@ const catalogData = JSON.parse(
   readFileSync(new URL("../supabase/functions/_shared/billingCatalogPrices.json", import.meta.url), "utf8"),
 );
 
-export const PLACEHOLDER_AMOUNT_CENTS = catalogData.placeholderAmountCents;
 export const BILLING_CATALOG_VERSION = catalogData.version;
 export const BILLING_CATALOG_CURRENCY = catalogData.currency;
 export const BILLING_CATALOG_PRICES = catalogData.prices;
@@ -55,55 +56,68 @@ export async function assertTestModeAccount(client) {
   }
 }
 
+export function assertNotCi(env) {
+  const ci = String(env.CI ?? "").trim().toLowerCase();
+  if ((ci !== "" && ci !== "false" && ci !== "0") || env.GITHUB_ACTIONS === "true") {
+    throw new Error("stripe_catalog_ci_refused");
+  }
+}
+
 export function parseSetupArgs(argv) {
-  const args = { apply: false, dryRun: false, placeholder: false };
+  const args = { dryRun: true };
+  let apply = false;
+  let dryRun = false;
   for (const value of argv) {
     if (value === "--apply") {
-      args.apply = true;
+      apply = true;
     } else if (value === "--dry-run") {
-      args.dryRun = true;
-    } else if (value === "--placeholder") {
-      args.placeholder = true;
+      dryRun = true;
     } else if (value === "--live") {
       throw new Error("stripe_catalog_live_mode_refused");
     } else {
       throw new Error(`stripe_catalog_unknown_arg:${value}`);
     }
   }
-  if (args.apply === args.dryRun) {
-    throw new Error("stripe_catalog_mode_required");
+  if (apply && dryRun) {
+    throw new Error("stripe_catalog_mode_conflict");
   }
+  args.dryRun = !apply;
   return args;
 }
 
-export function catalogPriceMetadata(entry, placeholder) {
+export function catalogPriceMetadata(entry) {
   return {
     od_catalog_version: String(BILLING_CATALOG_VERSION),
     od_interval: entry.interval,
     od_kind: entry.kind,
     od_tier: entry.tier,
-    placeholder: placeholder ? "true" : "false",
   };
 }
 
-function priceMatchesCatalog(price, entry, amountCents, placeholder) {
+export function assertCatalogShape(catalog) {
+  for (const entry of catalog) {
+    if (entry.interval !== "month") {
+      throw new Error(`stripe_catalog_interval_refused:${entry.lookupKey}`);
+    }
+    if (!Number.isInteger(entry.amountCents) || entry.amountCents < 0) {
+      throw new Error(`stripe_catalog_amount_invalid:${entry.lookupKey}`);
+    }
+  }
+}
+
+function priceMatchesCatalog(price, entry) {
   const metadata = price.metadata ?? {};
-  const expected = catalogPriceMetadata(entry, placeholder);
+  const expected = catalogPriceMetadata(entry);
   return price.active === true &&
     price.livemode === false &&
     (price.currency ?? "").toLowerCase() === BILLING_CATALOG_CURRENCY &&
-    price.unit_amount === amountCents &&
+    price.unit_amount === entry.amountCents &&
     price.type === "recurring" &&
     price.recurring?.interval === entry.interval &&
     price.recurring?.interval_count === 1 &&
     metadata.od_tier === expected.od_tier &&
     metadata.od_interval === expected.od_interval &&
-    metadata.od_catalog_version === expected.od_catalog_version &&
-    metadata.placeholder === expected.placeholder;
-}
-
-function amountFor(entry) {
-  return entry.amountCents ?? PLACEHOLDER_AMOUNT_CENTS;
+    metadata.od_catalog_version === expected.od_catalog_version;
 }
 
 function rememberProduct(product, productName, productIds) {
@@ -114,7 +128,7 @@ function rememberProduct(product, productName, productIds) {
   return 0;
 }
 
-async function resolveProductId(client, entry, productIds, dryRun, placeholder) {
+async function resolveProductId(client, entry, productIds, dryRun) {
   const cached = productIds.get(entry.productName);
   if (cached) {
     return { created: false, existing: false, productId: cached };
@@ -136,7 +150,6 @@ async function resolveProductId(client, entry, productIds, dryRun, placeholder) 
       metadata: {
         od_catalog_version: String(BILLING_CATALOG_VERSION),
         od_tier: entry.tier,
-        placeholder: placeholder ? "true" : "false",
       },
     })).id;
   productIds.set(entry.productName, productId);
@@ -146,12 +159,9 @@ async function resolveProductId(client, entry, productIds, dryRun, placeholder) 
 export async function syncStripeCatalog({
   catalog = BILLING_CATALOG_PRICES,
   client,
-  dryRun,
-  placeholder = false,
+  dryRun = true,
 }) {
-  if (!placeholder && catalog.some((entry) => entry.amountCents == null)) {
-    throw new Error("stripe_catalog_amounts_tbd");
-  }
+  assertCatalogShape(catalog);
 
   const listed = await client.prices.list({
     expand: ["data.product"],
@@ -168,7 +178,7 @@ export async function syncStripeCatalog({
     }
     existing.prices += 1;
     existing.products += rememberProduct(current.product, entry.productName, productIds);
-    return priceMatchesCatalog(current, entry, amountFor(entry), placeholder)
+    return priceMatchesCatalog(current, entry)
       ? []
       : [{ lookupKey: entry.lookupKey, reason: "price_drift" }];
   });
@@ -176,7 +186,7 @@ export async function syncStripeCatalog({
   const missing = catalog.filter((entry) => !byKey.has(entry.lookupKey));
   const uniqueMissing = [...new Map(missing.map((entry) => [entry.productName, entry])).values()];
   const resolved = await Promise.all(
-    uniqueMissing.map((entry) => resolveProductId(client, entry, productIds, dryRun, placeholder)),
+    uniqueMissing.map((entry) => resolveProductId(client, entry, productIds, dryRun)),
   );
   const created = {
     prices: missing.length,
@@ -188,21 +198,22 @@ export async function syncStripeCatalog({
     await Promise.all(missing.map((entry) => client.prices.create({
       currency: BILLING_CATALOG_CURRENCY,
       lookup_key: entry.lookupKey,
-      metadata: catalogPriceMetadata(entry, placeholder),
+      metadata: catalogPriceMetadata(entry),
       nickname: entry.nickname,
       product: productIds.get(entry.productName),
       recurring: {
         interval: entry.interval,
         interval_count: 1,
       },
-      unit_amount: amountFor(entry),
+      unit_amount: entry.amountCents,
     })));
   }
 
-  return { created, drift, existing, livemode: false };
+  return { created, drift, dryRun, existing, livemode: false };
 }
 
 export async function runStripeCatalogSetup(argv, env, options = {}) {
+  assertNotCi(env);
   const args = parseSetupArgs(argv);
   const secret = assertTestModeSecret(env.STRIPE_SECRET_KEY);
   const client = options.client ?? await options.createClient?.(secret);
@@ -214,7 +225,6 @@ export async function runStripeCatalogSetup(argv, env, options = {}) {
   return syncStripeCatalog({
     client,
     dryRun: args.dryRun,
-    placeholder: args.placeholder,
   });
 }
 
@@ -244,6 +254,7 @@ if (isMain && process.env.OVD_STRIPE_CATALOG_SKIP_MAIN !== "1") {
     console.log(JSON.stringify({
       created: result.created,
       drift: result.drift,
+      dryRun: result.dryRun,
       existing: result.existing,
       livemode: result.livemode,
       key: redactSecret(process.env.STRIPE_SECRET_KEY),

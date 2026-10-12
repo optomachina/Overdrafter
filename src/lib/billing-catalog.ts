@@ -2,6 +2,8 @@ export {
   BILLING_CATALOG_PRICES,
   BILLING_SELF_SERVICE_FLAG,
   BILLING_TIER_CATALOG_FLAG,
+  BILLING_TIERS,
+  BILLING_USAGE_POLICY,
   canPurchaseFoundingTeam,
   catalogAmountsAreTbd,
   DEFAULT_CHECKOUT_LOOKUP_KEY,
@@ -13,5 +15,9 @@ export {
 export type {
   BillingTier,
   CatalogPrice,
+  CatalogTier,
+  SourcingTier,
   TierEntitlements,
+  TierLimits,
+  UsagePolicy,
 } from "../../supabase/functions/_shared/billingCatalog";

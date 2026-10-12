@@ -4,8 +4,6 @@ import {
   catalogPriceMetadata,
   DEFAULT_CHECKOUT_LOOKUP_KEY,
   getCatalogPrice,
-  PLACEHOLDER_AMOUNT_CENTS,
-  withApprovedTestAmounts,
 } from "../_shared/billingCatalog.ts";
 import {
   createStripeEventHandler,
@@ -14,8 +12,7 @@ import {
   type StripeEventServiceClient,
 } from "./index.ts";
 
-const APPROVED_CATALOG = withApprovedTestAmounts(PLACEHOLDER_AMOUNT_CENTS);
-const APPROVED_PRO = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, APPROVED_CATALOG)!;
+const APPROVED_PRO = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY)!;
 
 const WEBHOOK_SECRET = "whsec_ovd235";
 
@@ -318,7 +315,7 @@ Deno.test("price.updated amount mismatch disables the catalog key without changi
         id: "price_OVD725",
         livemode: false,
         lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
-        metadata: catalogPriceMetadata(APPROVED_PRO, false),
+        metadata: catalogPriceMetadata(APPROVED_PRO),
         product: { active: true },
         recurring: { interval: "month", interval_count: 1 },
         type: "recurring",
@@ -354,7 +351,7 @@ Deno.test("price.updated amount mismatch disables the catalog key without changi
     parameters: {
       p_lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
       p_livemode: false,
-      p_reason: "catalog_amount_tbd",
+      p_reason: "amount_mismatch",
       p_stripe_event_id: event.id,
     },
   });
@@ -369,7 +366,7 @@ Deno.test("does not log catalog price disabled when disable fails", async () => 
         id: "price_OVD725",
         livemode: false,
         lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
-        metadata: catalogPriceMetadata(APPROVED_PRO, false),
+        metadata: catalogPriceMetadata(APPROVED_PRO),
         product: { active: true },
         recurring: { interval: "month", interval_count: 1 },
         type: "recurring",

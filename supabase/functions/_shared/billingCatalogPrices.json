@@ -1,11 +1,10 @@
 {
+  "billingIntervals": ["month"],
   "currency": "usd",
   "defaultCheckoutLookupKey": "od_pro_month_v1",
-  "foundingTeamMaxSlots": 12,
-  "placeholderAmountCents": 100,
   "prices": [
     {
-      "amountCents": null,
+      "amountCents": 9900,
       "interval": "month",
       "kind": "plan",
       "lookupKey": "od_pro_month_v1",
@@ -15,37 +14,17 @@
       "tier": "pro"
     },
     {
-      "amountCents": null,
-      "interval": "year",
-      "kind": "plan",
-      "lookupKey": "od_pro_year_v1",
-      "nickname": "Pro annual",
-      "productName": "OverDrafter Pro",
-      "seatsIncluded": 1,
-      "tier": "pro"
-    },
-    {
-      "amountCents": null,
+      "amountCents": 34900,
       "interval": "month",
       "kind": "plan",
       "lookupKey": "od_team_month_v1",
       "nickname": "Team monthly",
       "productName": "OverDrafter Team",
-      "seatsIncluded": null,
+      "seatsIncluded": 5,
       "tier": "team"
     },
     {
-      "amountCents": null,
-      "interval": "year",
-      "kind": "plan",
-      "lookupKey": "od_team_year_v1",
-      "nickname": "Team annual",
-      "productName": "OverDrafter Team",
-      "seatsIncluded": null,
-      "tier": "team"
-    },
-    {
-      "amountCents": null,
+      "amountCents": 4000,
       "interval": "month",
       "kind": "extra_seat",
       "lookupKey": "od_team_seat_month_v1",
@@ -55,25 +34,86 @@
       "tier": "team"
     },
     {
-      "amountCents": null,
-      "interval": "year",
-      "kind": "extra_seat",
-      "lookupKey": "od_team_seat_year_v1",
-      "nickname": "Team extra seat annual",
-      "productName": "OverDrafter Team",
-      "seatsIncluded": null,
-      "tier": "team"
+      "amountCents": 19900,
+      "interval": "month",
+      "kind": "plan",
+      "lookupKey": "od_founding_team_month_v1",
+      "nickname": "Founding Team monthly",
+      "productName": "OverDrafter Founding Team",
+      "seatsIncluded": 5,
+      "tier": "founding_team"
     },
     {
-      "amountCents": null,
-      "interval": "year",
+      "amountCents": 0,
+      "interval": "month",
       "kind": "plan",
-      "lookupKey": "od_founding_team_year_v1",
-      "nickname": "Founding Team 12-month",
-      "productName": "OverDrafter Founding Team",
-      "seatsIncluded": null,
-      "tier": "founding_team"
+      "lookupKey": "od_jarvis_seat_month_v1",
+      "nickname": "Jarvis seat monthly",
+      "productName": "OverDrafter Jarvis",
+      "seatsIncluded": 1,
+      "tier": "jarvis"
     }
   ],
-  "version": 1
+  "tiers": {
+    "free": {
+      "automation": false,
+      "extraSeatCentsPerMonth": null,
+      "manualRunsPerMonth": 3,
+      "priceCentsPerMonth": 0,
+      "providerAttemptsPerMonth": 0,
+      "seatsIncluded": 1,
+      "successfulRunsPerMonth": 0
+    },
+    "pro": {
+      "automation": true,
+      "extraSeatCentsPerMonth": null,
+      "manualRunsPerMonth": null,
+      "priceCentsPerMonth": 9900,
+      "providerAttemptsPerMonth": 300,
+      "seatsIncluded": 1,
+      "successfulRunsPerMonth": 40
+    },
+    "team": {
+      "automation": true,
+      "extraSeatCentsPerMonth": 4000,
+      "manualRunsPerMonth": null,
+      "pooledRuns": true,
+      "priceCentsPerMonth": 34900,
+      "providerAttemptsPerMonth": 900,
+      "seatsIncluded": 5,
+      "successfulRunsPerMonth": 120
+    },
+    "founding_team": {
+      "automation": true,
+      "chargeAfterFirstSourcingSuccess": true,
+      "extraSeatCentsPerMonth": null,
+      "manualRunsPerMonth": null,
+      "maxTeams": 8,
+      "pooledRuns": true,
+      "priceCentsPerMonth": 19900,
+      "providerAttemptsPerMonth": 900,
+      "rateHoldMonths": 12,
+      "seatsIncluded": 5,
+      "successfulRunsPerMonth": 120
+    },
+    "jarvis": {
+      "automation": false,
+      "extraSeatCentsPerMonth": null,
+      "manualRunsPerMonth": null,
+      "modelSpendCapCentsPerSeat": 1000,
+      "priceCentsPerMonth": 0,
+      "providerAttemptsPerMonth": null,
+      "seatsIncluded": 1,
+      "separateProduct": true,
+      "successfulRunsPerMonth": null
+    }
+  },
+  "usagePolicy": {
+    "failedRunsCount": false,
+    "notifyAtPercent": 80,
+    "overage": false,
+    "pauseAutomationAtPercent": 100,
+    "providerOffErrorsCount": false
+  },
+  "version": 2
 }

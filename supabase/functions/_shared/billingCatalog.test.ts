@@ -2,6 +2,8 @@ import { assertEquals } from "@std/assert";
 import {
   assertCatalogPrice,
   BILLING_CATALOG_PRICES,
+  BILLING_TIERS,
+  BILLING_USAGE_POLICY,
   canPurchaseFoundingTeam,
   catalogAmountsAreTbd,
   catalogPriceMetadata,
@@ -12,49 +14,61 @@ import {
   isCheckoutCatalogEnabled,
   isLiveStripeSecret,
   mapTierToEntitlements,
-  PLACEHOLDER_AMOUNT_CENTS,
-  withApprovedTestAmounts,
 } from "./billingCatalog.ts";
-
-const APPROVED = withApprovedTestAmounts(PLACEHOLDER_AMOUNT_CENTS);
 
 function approvedPrice(
   lookupKey = DEFAULT_CHECKOUT_LOOKUP_KEY,
   overrides: Record<string, unknown> = {},
 ) {
-  const entry = getCatalogPrice(lookupKey, APPROVED)!;
+  const entry = getCatalogPrice(lookupKey)!;
   return {
     active: true,
     currency: "usd",
     id: "price_OVD725",
     livemode: false,
     lookup_key: lookupKey,
-    metadata: catalogPriceMetadata(entry, false),
+    metadata: catalogPriceMetadata(entry),
     product: { active: true },
     recurring: { interval: entry.interval, interval_count: 1 },
     type: "recurring",
-    unit_amount: PLACEHOLDER_AMOUNT_CENTS,
+    unit_amount: entry.amountCents,
     ...overrides,
   };
 }
 
-Deno.test("catalog amounts stay TBD and use the approved lookup keys", () => {
-  assertEquals(catalogAmountsAreTbd(), true);
+// Locked in docs/business/business-model.md. Change only with that document.
+Deno.test("catalog matches the locked prices and lookup keys", () => {
+  assertEquals(catalogAmountsAreTbd(), false);
   assertEquals(
-    BILLING_CATALOG_PRICES.map((entry) => entry.lookupKey),
+    BILLING_CATALOG_PRICES.map((entry) => [entry.lookupKey, entry.amountCents]),
     [
-      "od_pro_month_v1",
-      "od_pro_year_v1",
-      "od_team_month_v1",
-      "od_team_year_v1",
-      "od_team_seat_month_v1",
-      "od_team_seat_year_v1",
-      "od_founding_team_year_v1",
+      ["od_pro_month_v1", 9_900],
+      ["od_team_month_v1", 34_900],
+      ["od_team_seat_month_v1", 4_000],
+      ["od_founding_team_month_v1", 19_900],
+      ["od_jarvis_seat_month_v1", 0],
     ],
   );
+  assertEquals(getCatalogPrice("od_jarvis_seat_month_v1")?.productName, "OverDrafter Jarvis");
+  assertEquals(BILLING_TIERS.jarvis.separateProduct, true);
+  assertEquals(BILLING_TIERS.jarvis.modelSpendCapCentsPerSeat, 1_000);
+  assertEquals(FOUNDING_TEAM_MAX_SLOTS, 8);
+  assertEquals(BILLING_TIERS.founding_team.rateHoldMonths, 12);
+  assertEquals(BILLING_TIERS.founding_team.chargeAfterFirstSourcingSuccess, true);
+  assertEquals(BILLING_USAGE_POLICY, {
+    failedRunsCount: false,
+    notifyAtPercent: 80,
+    overage: false,
+    pauseAutomationAtPercent: 100,
+    providerOffErrorsCount: false,
+  });
+});
+
+Deno.test("catalog has no annual price", () => {
+  assertEquals(BILLING_CATALOG_PRICES.every((entry) => entry.interval === "month"), true);
   assertEquals(
-    BILLING_CATALOG_PRICES.every((entry) => entry.amountCents === null),
-    true,
+    BILLING_CATALOG_PRICES.some((entry) => /year|annual/i.test(entry.lookupKey + entry.nickname)),
+    false,
   );
 });
 
@@ -73,61 +87,89 @@ Deno.test("live Stripe secrets are refused", () => {
   assertEquals(isLiveStripeSecret("  'RK_LIVE_123'  "), true);
 });
 
-Deno.test("maps each paid tier and leaves free on the existing meter", () => {
+Deno.test("maps each sourcing tier to its locked caps", () => {
   assertEquals(mapTierToEntitlements("free"), {
     automaticQuoteCollection: false,
     extraSeatsMetered: false,
     foundingBadge: false,
+    manualRunsPerMonth: 3,
     plan: "free",
-    seatsIncluded: 0,
+    providerAttemptsPerMonth: 0,
+    seatsIncluded: 1,
+    successfulRunsPerMonth: 0,
   });
-  assertEquals(mapTierToEntitlements("pro").seatsIncluded, 1);
-  assertEquals(mapTierToEntitlements("pro").extraSeatsMetered, false);
-  assertEquals(mapTierToEntitlements("team").extraSeatsMetered, true);
-  assertEquals(mapTierToEntitlements("team").foundingBadge, false);
-  assertEquals(mapTierToEntitlements("founding_team"), {
+  assertEquals(mapTierToEntitlements("pro"), {
+    automaticQuoteCollection: true,
+    extraSeatsMetered: false,
+    foundingBadge: false,
+    manualRunsPerMonth: null,
+    plan: "pro",
+    providerAttemptsPerMonth: 300,
+    seatsIncluded: 1,
+    successfulRunsPerMonth: 40,
+  });
+  assertEquals(mapTierToEntitlements("team"), {
     automaticQuoteCollection: true,
     extraSeatsMetered: true,
+    foundingBadge: false,
+    manualRunsPerMonth: null,
+    plan: "team",
+    providerAttemptsPerMonth: 900,
+    seatsIncluded: 5,
+    successfulRunsPerMonth: 120,
+  });
+  assertEquals(mapTierToEntitlements("founding_team"), {
+    automaticQuoteCollection: true,
+    extraSeatsMetered: false,
     foundingBadge: true,
+    manualRunsPerMonth: null,
     plan: "founding_team",
-    seatsIncluded: null,
+    providerAttemptsPerMonth: 900,
+    seatsIncluded: 5,
+    successfulRunsPerMonth: 120,
   });
 });
 
-Deno.test("founding checkout is refused at the 13th slot", () => {
+Deno.test("founding checkout is refused at the 9th slot", () => {
   assertEquals(canPurchaseFoundingTeam(0), true);
-  assertEquals(canPurchaseFoundingTeam(11), true);
+  assertEquals(canPurchaseFoundingTeam(7), true);
   assertEquals(canPurchaseFoundingTeam(FOUNDING_TEAM_MAX_SLOTS), false);
-  assertEquals(canPurchaseFoundingTeam(13), false);
+  assertEquals(canPurchaseFoundingTeam(9), false);
 });
 
 Deno.test("price guard rejects TBD, unknown keys, and livemode mismatches", () => {
   const entry = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY)!;
   assertEquals(
-    assertCatalogPrice(approvedPrice(), entry, { expectedLivemode: false }).ok,
-    false,
+    assertCatalogPrice(approvedPrice(), { ...entry, amountCents: null }, {
+      expectedLivemode: false,
+    }),
+    { ok: false, reason: "catalog_amount_tbd" },
   );
   assertEquals(
     assertCatalogPrice(approvedPrice(), entry, { expectedLivemode: false }),
-    { ok: false, reason: "catalog_amount_tbd" },
-  );
-
-  const approvedEntry = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, APPROVED)!;
-  assertEquals(
-    assertCatalogPrice(approvedPrice(), approvedEntry, { expectedLivemode: false }),
     { ok: true },
   );
   assertEquals(
     assertCatalogPrice(
       approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, { lookup_key: "od_unknown_v1" }),
-      approvedEntry,
+      entry,
       { expectedLivemode: false },
     ),
     { ok: false, reason: "lookup_key_mismatch" },
   );
   assertEquals(
-    assertCatalogPrice(approvedPrice(), approvedEntry, { expectedLivemode: true }),
+    assertCatalogPrice(approvedPrice(), entry, { expectedLivemode: true }),
     { ok: false, reason: "livemode_mismatch" },
+  );
+  assertEquals(
+    assertCatalogPrice(
+      approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, {
+        recurring: { interval: "year", interval_count: 1 },
+      }),
+      entry,
+      { expectedLivemode: false },
+    ),
+    { ok: false, reason: "interval_mismatch" },
   );
 });
 
@@ -139,7 +181,6 @@ Deno.test("price.updated mismatch disables the key and replay is a no-op", () =>
     livemode: false,
     type: "price.updated",
   }, {
-    catalog: APPROVED,
     expectedLivemode: false,
     replayed: false,
   });
@@ -157,7 +198,6 @@ Deno.test("price.updated mismatch disables the key and replay is a no-op", () =>
     livemode: false,
     type: "price.updated",
   }, {
-    catalog: APPROVED,
     expectedLivemode: false,
     replayed: true,
   });

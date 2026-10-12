@@ -3,9 +3,10 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(8);
+select plan(9);
 
--- DRAFT ONLY. Not a migration. SECURITY DEFINER, pinned search_path.
+-- DRAFT ONLY. Not a migration. Mirrors docs/migration-drafts/ovd-725-stripe-catalog.sql.
+-- SECURITY DEFINER, pinned search_path. Founding Team cap is 8.
 -- EXECUTE revoked from PUBLIC, anon, and authenticated; grant to service_role only.
 
 create table if not exists private.stripe_catalog_price_allowlist (
@@ -19,7 +20,7 @@ create table if not exists private.stripe_catalog_price_allowlist (
 
 create table if not exists private.founding_team_slots (
   id boolean primary key default true check (id),
-  slots_used integer not null default 0 check (slots_used >= 0 and slots_used <= 12)
+  slots_used integer not null default 0 check (slots_used >= 0 and slots_used <= 8)
 );
 
 insert into private.founding_team_slots (id, slots_used)
@@ -37,7 +38,10 @@ security definer
 set search_path = pg_catalog
 as $$
 begin
-  if p_lookup_key is null or p_stripe_price_id !~ '^price_[A-Za-z0-9]+$' then
+  if p_lookup_key is null
+    or p_livemode is null
+    or p_stripe_price_id !~ '^price_[A-Za-z0-9]+$'
+  then
     raise exception using errcode = '22023', message = 'Invalid catalog price.';
   end if;
   insert into private.stripe_catalog_price_allowlist (
@@ -49,6 +53,9 @@ begin
     set stripe_price_id = excluded.stripe_price_id,
         livemode = excluded.livemode,
         updated_at = pg_catalog.now();
+  if trim(p_lookup_key) = 'od_pro_month_v1' then
+    perform public.api_configure_stripe_pro_price(trim(p_stripe_price_id), p_livemode);
+  end if;
 end;
 $$;
 
@@ -90,7 +97,7 @@ begin
   update private.founding_team_slots
   set slots_used = slots_used + 1
   where id
-    and slots_used < 12
+    and slots_used < 8
   returning slots_used into v_slots;
 
   if v_slots is null then
@@ -99,7 +106,7 @@ begin
       message = 'Founding Team is at capacity.';
   end if;
 
-  return pg_catalog.jsonb_build_object('slotsUsed', v_slots, 'maxSlots', 12);
+  return pg_catalog.jsonb_build_object('slotsUsed', v_slots, 'maxSlots', 8);
 end;
 $$;
 
@@ -221,9 +228,19 @@ select ok(
   'configure does not clear a webhook-disabled catalog price'
 );
 
+select ok(
+  exists (
+    select 1
+    from private.stripe_pro_price_allowlist
+    where stripe_price_id = 'price_OVD725B'
+      and livemode = false
+  ),
+  'the Pro lookup key mirrors into the existing Pro price allowlist'
+);
+
 do $$
 begin
-  for i in 1..12 loop
+  for i in 1..8 loop
     perform public.api_claim_founding_team_slot();
   end loop;
 end;
@@ -231,15 +248,15 @@ $$;
 
 select is(
   (select slots_used from private.founding_team_slots where id),
-  12,
-  'twelve founding slots can be claimed'
+  8,
+  'eight founding slots can be claimed'
 );
 
 select throws_ok(
   'select public.api_claim_founding_team_slot()',
   '22023',
   'Founding Team is at capacity.',
-  'the thirteenth founding slot is refused'
+  'the ninth founding slot is refused'
 );
 
 select ok(

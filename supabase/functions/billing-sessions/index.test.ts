@@ -5,8 +5,6 @@ import {
   catalogPriceMetadata,
   DEFAULT_CHECKOUT_LOOKUP_KEY,
   getCatalogPrice,
-  PLACEHOLDER_AMOUNT_CENTS,
-  withApprovedTestAmounts,
 } from "../_shared/billingCatalog.ts";
 import {
   type BillingRuntime,
@@ -16,7 +14,11 @@ import {
   createBillingSessionHandler,
 } from "./index.ts";
 
-const TEST_CATALOG = withApprovedTestAmounts(PLACEHOLDER_AMOUNT_CENTS);
+const TEST_CATALOG = BILLING_CATALOG_PRICES;
+const TBD_CATALOG = BILLING_CATALOG_PRICES.map((entry) => ({
+  ...entry,
+  amountCents: null,
+}));
 const TEST_CHECKOUT_ENTRY = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, TEST_CATALOG)!;
 
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000002281";
@@ -53,7 +55,7 @@ function validPrice(
     id: "price_OVD228Pro",
     livemode: false,
     lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
-    metadata: catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
+    metadata: catalogPriceMetadata(TEST_CHECKOUT_ENTRY),
     nickname: null,
     object: "price",
     product: {
@@ -88,8 +90,8 @@ function validPrice(
     tiers_mode: null,
     transform_quantity: null,
     type: "recurring",
-    unit_amount: PLACEHOLDER_AMOUNT_CENTS,
-    unit_amount_decimal: String(PLACEHOLDER_AMOUNT_CENTS),
+    unit_amount: TEST_CHECKOUT_ENTRY.amountCents,
+    unit_amount_decimal: String(TEST_CHECKOUT_ENTRY.amountCents),
     ...overrides,
   } as Stripe.Price;
 }
@@ -437,9 +439,9 @@ Deno.test("denies non-owner and cross-organization billing access", async () => 
   assertEquals(calls.checkout.length, 0);
 });
 
-Deno.test("refuses Checkout while catalog amounts remain TBD", async () => {
+Deno.test("refuses Checkout if any catalog amount is TBD", async () => {
   const { calls, runtime } = makeRuntime({
-    catalog: BILLING_CATALOG_PRICES,
+    catalog: TBD_CATALOG,
   });
   const handler = createBillingSessionHandler(
     enabledEnvironment,
@@ -542,14 +544,14 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
     organization_id: ORGANIZATION_ID,
     plan: "pro",
     stripe_price_id: "price_OVD228Pro",
-    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
+    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY),
   });
   assertEquals(calls.checkout[0].parameters.subscription_data?.metadata, {
     billing_interval: "month",
     lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
     organization_id: ORGANIZATION_ID,
     plan: "pro",
-    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY, false),
+    ...catalogPriceMetadata(TEST_CHECKOUT_ENTRY),
   });
   assertEquals(calls.checkout[0].options, {
     idempotencyKey:

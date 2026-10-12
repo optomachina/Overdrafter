@@ -804,7 +804,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
             organization_id: preparation.organizationId,
             plan: checkoutEntry.tier,
             stripe_price_id: proMonthlyPriceId,
-            ...catalogPriceMetadata(checkoutEntry, false),
+            ...catalogPriceMetadata(checkoutEntry),
           },
           mode: "subscription",
           subscription_data: {
@@ -813,7 +813,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
               lookup_key: checkoutEntry.lookupKey,
               organization_id: preparation.organizationId,
               plan: checkoutEntry.tier,
-              ...catalogPriceMetadata(checkoutEntry, false),
+              ...catalogPriceMetadata(checkoutEntry),
             },
           },
           success_url: buildReturnUrl(runtime.appBaseUrl, "success"),

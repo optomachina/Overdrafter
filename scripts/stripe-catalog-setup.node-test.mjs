@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  assertCatalogShape,
+  assertNotCi,
   assertTestModeAccount,
   assertTestModeSecret,
   BILLING_CATALOG_PRICES,
@@ -88,15 +90,60 @@ function createMockStripe(existingPrices = [], { livemode = false } = {}) {
   return { client, state };
 }
 
-test("catalog script lookup keys stay aligned with the TypeScript source and TBD amounts", () => {
-  for (const entry of BILLING_CATALOG_PRICES) {
-    assert.match(catalogPricesSource, new RegExp(`"lookupKey": "${entry.lookupKey}"`));
-    assert.equal(entry.amountCents, null);
-  }
-  assert.match(catalogPricesSource, /"amountCents": null/);
-  assert.doesNotMatch(catalogPricesSource, /"amountCents": [1-9]/);
-  assert.doesNotMatch(catalogSource, /amountCents: [1-9]/);
+const LOCAL_ENV = { STRIPE_SECRET_KEY: "sk_test_ovd725" };
+
+test("catalog script reads the locked monthly amounts from the shared JSON", () => {
+  assert.deepEqual(
+    Object.fromEntries(BILLING_CATALOG_PRICES.map((entry) => [entry.lookupKey, entry.amountCents])),
+    {
+      od_founding_team_month_v1: 19900,
+      od_jarvis_seat_month_v1: 0,
+      od_pro_month_v1: 9900,
+      od_team_month_v1: 34900,
+      od_team_seat_month_v1: 4000,
+    },
+  );
+  assert.ok(BILLING_CATALOG_PRICES.every((entry) => entry.interval === "month"));
+  assert.doesNotMatch(catalogPricesSource, /"year"|annual/i);
   assert.match(catalogSource, /billingCatalogPrices\.json/);
+});
+
+test("refuses an annual or missing amount before any Stripe call", async () => {
+  const annual = [{ ...BILLING_CATALOG_PRICES[0], interval: "year" }];
+  assert.throws(() => assertCatalogShape(annual), /stripe_catalog_interval_refused/);
+  const tbd = [{ ...BILLING_CATALOG_PRICES[0], amountCents: null }];
+  assert.throws(() => assertCatalogShape(tbd), /stripe_catalog_amount_invalid/);
+  const { client, state } = createMockStripe();
+  await assert.rejects(
+    () => syncStripeCatalog({ catalog: annual, client, dryRun: false }),
+    /stripe_catalog_interval_refused/,
+  );
+  assert.equal(state.networkCalls, 0);
+});
+
+test("defaults to dry run and refuses CI runners", async () => {
+  assert.deepEqual(parseSetupArgs([]), { dryRun: true });
+  assert.deepEqual(parseSetupArgs(["--dry-run"]), { dryRun: true });
+  assert.deepEqual(parseSetupArgs(["--apply"]), { dryRun: false });
+  assert.throws(() => parseSetupArgs(["--apply", "--dry-run"]), /stripe_catalog_mode_conflict/);
+  assert.throws(() => assertNotCi({ CI: "true" }), /stripe_catalog_ci_refused/);
+  assert.throws(() => assertNotCi({ CI: "1" }), /stripe_catalog_ci_refused/);
+  assert.throws(() => assertNotCi({ GITHUB_ACTIONS: "true" }), /stripe_catalog_ci_refused/);
+  assert.doesNotThrow(() => assertNotCi({}));
+  assert.doesNotThrow(() => assertNotCi({ CI: "false" }));
+
+  const { client, state } = createMockStripe();
+  await assert.rejects(
+    () => runStripeCatalogSetup(["--apply"], { ...LOCAL_ENV, CI: "true" }, { client }),
+    /stripe_catalog_ci_refused/,
+  );
+  assert.equal(state.networkCalls, 0);
+
+  const result = await runStripeCatalogSetup([], LOCAL_ENV, { client });
+  assert.equal(result.dryRun, true);
+  assert.equal(result.created.prices, BILLING_CATALOG_PRICES.length);
+  assert.equal(state.prices.length, 0);
+  assert.equal(state.products.length, 0);
 });
 
 test("refuses live secrets and --live without creating Stripe objects", () => {
@@ -113,9 +160,7 @@ test("refuses a Stripe account that reports live mode", async () => {
   const { client, state } = createMockStripe([], { livemode: true });
   await assert.rejects(() => assertTestModeAccount(client), /stripe_catalog_live_account_refused/);
   await assert.rejects(
-    () => runStripeCatalogSetup(["--apply", "--placeholder"], { STRIPE_SECRET_KEY: "sk_test_ovd725" }, {
-      client,
-    }),
+    () => runStripeCatalogSetup(["--apply"], LOCAL_ENV, { client }),
     /stripe_catalog_live_account_refused/,
   );
   assert.equal(state.prices.length, 0);
@@ -148,47 +193,40 @@ test("draft SQL revokes authenticated, keeps disabled markers, and caps founding
     /on conflict \(lookup_key\) do update[\s\S]{0,200}disabled_at = null/,
   );
   assert.match(draftSql, /create or replace function public\.api_claim_founding_team_slot\(\)/);
-  assert.match(draftSql, /and slots_used < 12/);
-  assert.match(draftSql, /the thirteenth founding slot is refused/);
+  assert.match(draftSql, /and slots_used < 8/);
+  assert.doesNotMatch(draftSql, /slots_used < 12|1\.\.12/);
+  assert.match(draftSql, /the ninth founding slot is refused/);
   assert.match(draftSql, /has_function_privilege\(\s+'authenticated'/);
 });
 
-test("example env keeps catalog flags off", () => {
-  const envExample = readFileSync(join(root, ".env.example"), "utf8");
-  assert.match(envExample, /^BILLING_TIER_CATALOG_ENABLED="false"$/m);
-  assert.match(envExample, /^VITE_BILLING_SELF_SERVICE_ENABLED="false"$/m);
-  assert.match(envExample, /^VITE_BILLING_TIER_CATALOG_ENABLED="false"$/m);
+test("migration draft lives outside supabase/migrations with a rollback and the 8 team cap", () => {
+  const draft = readFileSync(join(root, "docs/migration-drafts/ovd-725-stripe-catalog.sql"), "utf8");
+  assert.match(draft, /DRAFT ONLY/);
+  assert.match(draft, /ROLLBACK/);
+  assert.match(draft, /and slots_used < 8/);
+  assert.doesNotMatch(draft, /slots_used < 12/);
 });
 
-test("refuses TBD amounts even when a live key is not used", async () => {
-  const { client, state } = createMockStripe();
-  await assert.rejects(
-    () => syncStripeCatalog({ client, dryRun: false, placeholder: false }),
-    /stripe_catalog_amounts_tbd/,
-  );
-  assert.equal(state.prices.length, 0);
-  assert.equal(state.products.length, 0);
+test("example env names the catalog flags without values", () => {
+  const envExample = readFileSync(join(root, ".env.example"), "utf8");
+  assert.match(envExample, /^BILLING_TIER_CATALOG_ENABLED=""$/m);
+  assert.match(envExample, /^VITE_BILLING_SELF_SERVICE_ENABLED=""$/m);
+  assert.match(envExample, /^VITE_BILLING_TIER_CATALOG_ENABLED=""$/m);
 });
 
 test("second apply against a mock creates zero objects and reports drift", async () => {
   const { client, state } = createMockStripe();
-  const first = await syncStripeCatalog({
-    client,
-    dryRun: false,
-    placeholder: true,
-  });
+  const first = await syncStripeCatalog({ client, dryRun: false });
   assert.equal(first.created.prices, BILLING_CATALOG_PRICES.length);
-  assert.equal(first.created.products, 3);
+  assert.equal(first.created.products, 4);
+  assert.ok(state.products.some((product) => product.name === "OverDrafter Jarvis"));
+  assert.ok(state.prices.every((price) => price.recurring.interval === "month"));
   assert.equal(first.drift.length, 0);
   assert.equal(first.livemode, false);
 
   const createdPrices = state.prices.length;
   const createdProducts = state.products.length;
-  const second = await syncStripeCatalog({
-    client,
-    dryRun: false,
-    placeholder: true,
-  });
+  const second = await syncStripeCatalog({ client, dryRun: false });
   assert.equal(second.created.prices, 0);
   assert.equal(second.created.products, 0);
   assert.equal(second.existing.prices, BILLING_CATALOG_PRICES.length);
@@ -196,11 +234,7 @@ test("second apply against a mock creates zero objects and reports drift", async
   assert.equal(state.products.length, createdProducts);
 
   state.prices[0] = { ...state.prices[0], unit_amount: 999 };
-  const drifted = await syncStripeCatalog({
-    client,
-    dryRun: false,
-    placeholder: true,
-  });
+  const drifted = await syncStripeCatalog({ client, dryRun: false });
   assert.equal(drifted.created.prices, 0);
   assert.equal(drifted.drift.length, 1);
   assert.equal(drifted.drift[0].lookupKey, BILLING_CATALOG_PRICES[0].lookupKey);
@@ -211,7 +245,7 @@ test("runStripeCatalogSetup uses the injected mock and never a live key", async 
   const { client, state } = createMockStripe();
   let createdWith;
   const result = await runStripeCatalogSetup(
-    ["--apply", "--placeholder"],
+    ["--apply"],
     { STRIPE_SECRET_KEY: '  "sk_test_ovd725"  ' },
     {
       createClient: (secret) => {
@@ -225,7 +259,7 @@ test("runStripeCatalogSetup uses the injected mock and never a live key", async 
   assert.ok(state.networkCalls > 0);
 
   await assert.rejects(
-    () => runStripeCatalogSetup(["--apply", "--placeholder"], { STRIPE_SECRET_KEY: "sk_live_nope" }, {
+    () => runStripeCatalogSetup(["--apply"], { STRIPE_SECRET_KEY: "sk_live_nope" }, {
       createClient: () => {
         throw new Error("must_not_construct_live_client");
       },
