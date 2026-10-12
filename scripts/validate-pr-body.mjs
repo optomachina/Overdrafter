@@ -235,12 +235,33 @@ export const PROVIDER_GO_LIVE_DISPATCH_ENVELOPE_FILE = "worker/src/providerDispa
 
 export const PROVIDER_GO_LIVE_INTEGRATIONS_PREFIX = "provider-integrations/";
 
+export const PROVIDER_GO_LIVE_EXACT_PATHS = Object.freeze([
+  PROVIDER_GO_LIVE_DISPATCH_ENVELOPE_FILE,
+  "worker/src/generated/providerRegistry.ts",
+  "worker/src/generated/provider-catalog.ts",
+  "src/features/quotes/generated/provider-catalog.ts",
+  "worker/scripts/generated/provider-secrets.sh",
+  "worker/scripts/deploy-cloud-run.sh",
+]);
+
 export const PROVIDER_GO_LIVE_REVIEWED_MIGRATION =
   /^supabase\/migrations\/[^/]+_reviewed_dispatch_envelope\.sql$/;
 
+export const PROVIDER_GO_LIVE_ADMISSION_MIGRATION = /^supabase\/migrations\/[^/]*admission[^/]*\.sql$/;
+
 export const PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH = 12;
 
-export const PROVIDER_GO_LIVE_NA_PLACEHOLDERS = new Set(["", "x", "n/a", "na", "-", "tbd", "todo", "n.a"]);
+export const PROVIDER_GO_LIVE_NA_PLACEHOLDERS = new Set([
+  "",
+  "x",
+  "n/a",
+  "na",
+  "-",
+  "tbd",
+  "todo",
+  "none",
+  "n.a",
+]);
 
 export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
@@ -323,12 +344,15 @@ export function normalizeChangedFiles(changedFiles = []) {
  * Match a changed path by exact file, directory prefix, or glob — never by
  * substring. Protected go-live paths are:
  * - `worker/src/providerDispatchEnvelope.ts`
+ * - generated registry/catalog/secret files listed in PROVIDER_GO_LIVE_EXACT_PATHS
+ * - `worker/scripts/deploy-cloud-run.sh`
  * - `supabase/migrations/*_reviewed_dispatch_envelope.sql`
+ * - `supabase/migrations/*admission*.sql`
  * - `provider-integrations/**`
  */
 export function isProviderGoLivePath(file) {
   const normalized = String(file).replaceAll("\\", "/");
-  if (normalized === PROVIDER_GO_LIVE_DISPATCH_ENVELOPE_FILE) {
+  if (PROVIDER_GO_LIVE_EXACT_PATHS.includes(normalized)) {
     return true;
   }
 
@@ -336,7 +360,7 @@ export function isProviderGoLivePath(file) {
     return true;
   }
 
-  return PROVIDER_GO_LIVE_REVIEWED_MIGRATION.test(normalized);
+  return PROVIDER_GO_LIVE_REVIEWED_MIGRATION.test(normalized) || PROVIDER_GO_LIVE_ADMISSION_MIGRATION.test(normalized);
 }
 
 /**
@@ -366,6 +390,42 @@ function parseCheckboxLines(content) {
   return boxes;
 }
 
+function stripUrls(text) {
+  let result = "";
+  let index = 0;
+
+  while (index < text.length) {
+    const rest = text.slice(index).toLowerCase();
+    const schemeLength = rest.startsWith("https://") ? 8 : rest.startsWith("http://") ? 7 : 0;
+    if (schemeLength > 0) {
+      index += schemeLength;
+      while (index < text.length && !/[ \t\r\n]/.test(text[index])) {
+        index += 1;
+      }
+      result += " ";
+      continue;
+    }
+
+    result += text[index];
+    index += 1;
+  }
+
+  return result;
+}
+
+function stripEvidenceFromJustification(text) {
+  return stripUrls(text)
+    .replace(/`[^`]*`/g, " ")
+    .replace(/\bevidence:/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isPlaceholderToken(token) {
+  const normalized = token.toLowerCase().replace(/[.:]+$/g, "");
+  return PROVIDER_GO_LIVE_NA_PLACEHOLDERS.has(normalized);
+}
+
 function parseNaAnnotation(text) {
   const marker = text.search(/\bN\/A\b/i);
   if (marker === -1) {
@@ -378,28 +438,87 @@ function parseNaAnnotation(text) {
   }
 
   const reason = rest.trim();
-  const normalized = reason.toLowerCase().replace(/\.+$/, "");
-  if (PROVIDER_GO_LIVE_NA_PLACEHOLDERS.has(normalized) || reason.length < PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH) {
+  const stripped = stripEvidenceFromJustification(reason);
+  const realTokens = stripped.split(/[ \t,;]+/).filter((token) => token && !isPlaceholderToken(token));
+  const realText = realTokens.join(" ");
+  if (realText.length < PROVIDER_GO_LIVE_NA_MIN_REASON_LENGTH) {
     return { present: true, valid: false, reason };
   }
 
-  return { present: true, valid: true, reason };
+  return { present: true, valid: true, reason: realText };
+}
+
+function takeHttpsUrl(text, start) {
+  let end = start + 8;
+  while (end < text.length && !/[ \t\r\n]/.test(text[end])) {
+    end += 1;
+  }
+
+  return text.slice(start, end).replace(/[),.;]+$/g, "");
+}
+
+function isSpecificHttpsResource(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+
+    if (!parsed.hostname.includes(".")) {
+      return false;
+    }
+
+    return parsed.pathname.length > 1 || parsed.search.length > 1 || parsed.hash.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+function hasSpecificHttpsEvidence(text) {
+  const lower = text.toLowerCase();
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const start = lower.indexOf("https://", searchFrom);
+    if (start === -1) {
+      return false;
+    }
+
+    const url = takeHttpsUrl(text, start);
+    if (isSpecificHttpsResource(url)) {
+      return true;
+    }
+
+    searchFrom = start + 8;
+  }
+
+  return false;
+}
+
+function hasShaEvidence(text) {
+  if (/\b[a-f0-9]{40}\b/i.test(text)) {
+    return true;
+  }
+
+  if (!/\b[a-f0-9]{7,39}\b/i.test(text)) {
+    return false;
+  }
+
+  return /\b(?:commit|sha)\b/i.test(text);
+}
+
+function hasCommandResultEvidence(text) {
+  const command = /(?:npm run|npx|pnpm|yarn) [a-z0-9:@/_-]+/i.exec(text);
+  if (!command) {
+    return false;
+  }
+
+  const after = text.slice(command.index + command[0].length);
+  return /(?:->|=>|:)\s*(?:pass|passed|ok|success|green)\b/i.test(after);
 }
 
 function hasEvidence(text) {
-  if (/https?:\/\/\S+/i.test(text)) {
-    return true;
-  }
-
-  if (/\b[a-f0-9]{7,40}\b/i.test(text)) {
-    return true;
-  }
-
-  if (/(?:^|[\s`'(])(?:\.\/|\/)?(?:[\w.-]+\/)+[\w.-]+/.test(text)) {
-    return true;
-  }
-
-  return /(?:^|[\s`])(?:\$ |npm run |npx |pnpm |yarn |git )/.test(text);
+  return hasSpecificHttpsEvidence(text) || hasShaEvidence(text) || hasCommandResultEvidence(text);
 }
 
 function checkboxResult(box, requiredItem) {
@@ -419,7 +538,7 @@ function checkboxResult(box, requiredItem) {
     }
 
     if (!hasEvidence(box.text)) {
-      return { ok: false, error: `add evidence (link, command, SHA, or path) for "${requiredItem.label}"` };
+      return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${requiredItem.label}"` };
     }
 
     return { ok: true, error: null };
@@ -430,7 +549,7 @@ function checkboxResult(box, requiredItem) {
   }
 
   if (!hasEvidence(box.text)) {
-    return { ok: false, error: `add evidence (link, command, SHA, or path) for "${requiredItem.label}"` };
+    return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${requiredItem.label}"` };
   }
 
   return { ok: true, error: null };
@@ -450,7 +569,7 @@ function extraCheckboxResult(box) {
     }
 
     if (!hasEvidence(box.text)) {
-      return { ok: false, error: `add evidence (link, command, SHA, or path) for "${label}"` };
+      return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${label}"` };
     }
 
     return { ok: true, error: null };
@@ -461,7 +580,7 @@ function extraCheckboxResult(box) {
   }
 
   if (!hasEvidence(box.text)) {
-    return { ok: false, error: `add evidence (link, command, SHA, or path) for "${label}"` };
+    return { ok: false, error: `add evidence (https resource, commit SHA, or command result) for "${label}"` };
   }
 
   return { ok: true, error: null };
@@ -509,8 +628,8 @@ function validateProviderGoLiveSection(body) {
 /**
  * Validate that a PR body includes all required sections and obvious non-placeholder content.
  * The Provider go-live section is required only when `changedFiles` touch a
- * provider go-live path (`worker/src/providerDispatchEnvelope.ts`,
- * `supabase/migrations/*_reviewed_dispatch_envelope.sql`, or
+ * provider go-live path (reviewed envelope file, generated registry/catalog/
+ * secrets, deploy script, reviewed-envelope or admission migrations, or
  * `provider-integrations/**`).
  *
  * @param {string} body

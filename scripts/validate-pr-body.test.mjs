@@ -82,7 +82,7 @@ const CHECKED_GO_LIVE_ITEMS = [
   {
     id: "provider-check",
     admission: false,
-    text: "provider:check green. Evidence: `npm run provider:check` on abcdef1",
+    text: "provider:check green. Evidence: `npm run provider:check` -> pass",
   },
   {
     id: "envelope-reviewer",
@@ -102,7 +102,7 @@ const CHECKED_GO_LIVE_ITEMS = [
   {
     id: "worker-secret",
     admission: false,
-    text: "Worker adapter deployed and Secret Manager secret created (name only). Evidence: worker/scripts/generated/provider-secrets.sh",
+    text: "Worker adapter deployed and Secret Manager secret created (name only). Evidence: https://github.com/optomachina/Overdrafter/actions/runs/38185671103",
   },
   {
     id: "egress",
@@ -351,7 +351,7 @@ describe("validatePrBody", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain(
-      'add evidence (link, command, SHA, or path) for "envelope reviewed by a named reviewer"',
+      'add evidence (https resource, commit SHA, or command result) for "envelope reviewed by a named reviewer"',
     );
   });
 
@@ -397,6 +397,39 @@ ${CHECKED_GO_LIVE_ITEMS.map((item) => `- [x] ${item.text}`).join("\n")}
       `missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches a provider go-live path`,
     );
   });
+
+  it.each([
+    "N/A: x https://example.com/a",
+    "N/A: n/a https://example.com/a",
+    "N/A: TODO https://example.com/a",
+    "N/A:    https://example.com/a",
+  ])("rejects a ticked N/A whose leftover justification is %s", (placeholder) => {
+    const items = CHECKED_GO_LIVE_ITEMS.map((item) =>
+      item.id === "egress" ? { ...item, text: `Stable egress verified. ${placeholder}` } : item,
+    );
+    const result = validatePrBody(buildValidPrBody() + buildProviderGoLiveSection({ items }), {
+      changedFiles: GO_LIVE_FILES,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('mark N/A with a real justification for "stable egress verified"');
+  });
+
+  it.each(["and/or", "deadbeef", "git status"])("rejects weak evidence %s", (weakEvidence) => {
+    const items = CHECKED_GO_LIVE_ITEMS.map((item) =>
+      item.id === "envelope-reviewer"
+        ? { ...item, text: `Envelope reviewed by a named reviewer. Evidence: ${weakEvidence}` }
+        : item,
+    );
+    const result = validatePrBody(buildValidPrBody() + buildProviderGoLiveSection({ items }), {
+      changedFiles: GO_LIVE_FILES,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'add evidence (https resource, commit SHA, or command result) for "envelope reviewed by a named reviewer"',
+    );
+  });
 });
 
 describe("touchesProviderGoLivePaths", () => {
@@ -410,6 +443,23 @@ describe("touchesProviderGoLivePaths", () => {
     expect(
       touchesProviderGoLivePaths(["docs/supabase/migrations/copy_reviewed_dispatch_envelope.sql"]),
     ).toBe(false);
+    expect(touchesProviderGoLivePaths(["supabase/tests/quote_provider_admission_registry.sql"])).toBe(false);
+  });
+
+  it.each([
+    "worker/src/generated/providerRegistry.ts",
+    "worker/src/generated/provider-catalog.ts",
+    "src/features/quotes/generated/provider-catalog.ts",
+    "worker/scripts/generated/provider-secrets.sh",
+    "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql",
+    "worker/scripts/deploy-cloud-run.sh",
+  ])("requires the section when only %s changed", (changedFile) => {
+    expect(touchesProviderGoLivePaths([changedFile])).toBe(true);
+    const result = validatePrBody(buildValidPrBody(), { changedFiles: [changedFile] });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      `missing required section "${PROVIDER_GO_LIVE_HEADING}" for a PR that touches a provider go-live path`,
+    );
   });
 
   it("includes a rename source out of a protected path", () => {

@@ -12,12 +12,15 @@ storage-state contents.
 
 Use this checklist with the **Provider go-live** section in
 `.github/pull_request_template.md`. CI requires that section only for PRs that
-touch `worker/src/providerDispatchEnvelope.ts`,
-`supabase/migrations/*_reviewed_dispatch_envelope.sql`, or
-`provider-integrations/**`. Mark an item N/A only when it is checked `[x]` and
-has a real justification (not placeholders such as `N/A: x`, `n/a`, `-`, or
-`tbd`). Admission items cannot be N/A. Every item needs evidence: a link,
-command output, a SHA, or a path.
+touch `worker/src/providerDispatchEnvelope.ts`, generated registry/catalog/
+secret files, `worker/scripts/deploy-cloud-run.sh`,
+`supabase/migrations/*_reviewed_dispatch_envelope.sql`,
+`supabase/migrations/*admission*.sql`, or `provider-integrations/**`. Mark an
+item N/A only when it is checked `[x]` and has a real justification after links
+and evidence are removed (not placeholders such as `N/A: x`, `n/a`, `-`, `tbd`,
+`todo`, or `none`). Admission items cannot be N/A. Every item needs evidence: a
+GitHub PR/run/artifact or other https resource, a full SHA or short SHA with
+`commit`/`sha`, or a specific command plus its result.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those

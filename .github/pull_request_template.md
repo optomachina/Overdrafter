@@ -77,17 +77,21 @@ Baseline failures or exceptions:
 ## Provider go-live
 
 Required only when this PR touches `worker/src/providerDispatchEnvelope.ts`,
-`supabase/migrations/*_reviewed_dispatch_envelope.sql`, or
-`provider-integrations/**` (registry and manifests). Omit this section on
-unrelated PRs so the existing PR-body gate stays unchanged.
+generated registry/catalog/secret files, `worker/scripts/deploy-cloud-run.sh`,
+`supabase/migrations/*_reviewed_dispatch_envelope.sql`,
+`supabase/migrations/*admission*.sql`, or `provider-integrations/**`. Omit this
+section on unrelated PRs so the existing PR-body gate stays unchanged.
 
 A checked box grants no authority. Generated output stays disabled by default.
 Admission happens only when a human applies reviewed SQL; admit SQL never
 belongs in `supabase/migrations/`. Record Secret Manager secret names only.
 
-N/A must be checked `[x]` and include a real justification (not placeholders
-such as `N/A: x`, `n/a`, `-`, or `tbd`). Admission items cannot be N/A.
-Every item needs evidence: a link, command output, a SHA, or a path.
+N/A must be checked `[x]` and include a real justification after links and
+evidence are removed (not placeholders such as `N/A: x`, `n/a`, `-`, `tbd`,
+`todo`, or `none`). Admission items cannot be N/A. Every item needs evidence: a
+GitHub PR/run/artifact or other https resource, a full SHA or short SHA with
+`commit`/`sha`, or a specific command plus its result
+(`npm run provider:check` -> pass).
 See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Envelope
