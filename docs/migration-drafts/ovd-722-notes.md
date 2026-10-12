@@ -62,13 +62,21 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
    denies `provider_kill_switch_engaged`. The routing seam converts that into
    the same terminal `ProviderKillSwitchError` (checkpoint `server_preflight`)
    so the task also ends `cancelled_provider_disabled` rather than `failed`.
-6. **"Each RPC edit" means wrapping, not editing.** The existing preflight and
-   enqueue RPCs are large and pinned by pgTAP `prosrc` postconditions. The draft
-   renames each to `private.*_pre_ovd722` (byte-for-byte body preserved, all
-   grants revoked) and installs a same-signature public wrapper that checks the
-   switch first. Three existing suites must be retargeted to the private names
-   in the migration window (listed in the draft header). The generic preflight
-   already delegates Xometry to the Xometry RPC, so both wrappers cover it.
+6. **"Each RPC edit" means wrapping the preflights and a trigger for enqueue.**
+   The existing preflight and enqueue RPCs are large, and existing main pgTAP
+   suites pin their `prosrc` and `proconfig`. The two worker preflights move
+   unchanged to `private.*_pre_ovd722`, with all grants revoked, behind a
+   public wrapper of the same signature. Each wrapper checks the switch first
+   and keeps `search_path = pg_catalog`, like the RPC it wraps, so the
+   `proconfig` pins hold. The two request (enqueue) RPCs are not touched at
+   all: both insert exactly one permit row for every new dispatch, inside
+   their own transaction and with no exception handler, so a BEFORE INSERT
+   trigger on `private.provider_dispatch_permits` and
+   `private.xometry_beta_dispatch_permits` refuses with
+   `provider_kill_switch_engaged` and rolls back the lane and task created in
+   the same call. An idempotent replay of an existing permit inserts nothing
+   and is not refused there; the claim check and the preflights still stop
+   it. No existing suite needs retargeting (window 1 rehearsal, see below).
 7. **"Enqueue" is two RPCs**: `api_request_provider_dispatch` and
    `api_request_xometry_beta_dispatch` (the legacy Xometry path). Both are
    wrapped.
@@ -144,6 +152,30 @@ waiting on the row lock behind an engage is refused after the engage commits;
 `changedAt` is after the lock wait; the global switch follows the same rule;
 forced RLS hides rows from a mistakenly granted role while the RPCs still read
 them. Against the pre-fix draft it fails.
+
+## Window 1 rehearsal fixes
+
+The window 1 rehearsal (PR #687) ran the draft at f3ce78b3 and found 4 main
+suites broken (`job_service_detail_privileges`,
+`provider_dispatch_admission_serialization`, `provider_dispatch_permits`,
+`xometry_beta_dispatch_admission_serialization`), a nested `begin;`/`commit;`,
+and no rollback order guard.
+
+* The enqueue wrappers are replaced by the permit insert trigger (item 6), and
+  the preflight wrappers pin `search_path = pg_catalog`. All main suites keep
+  their original assertions.
+* The file has no transaction control of its own; the runner owns the
+  transaction. `begin;`/`commit;` remain only in the commented rollback.
+* The rollback starts with a guard modeled on OVD-462: it refuses a role that
+  cannot bypass RLS, takes ACCESS EXCLUSIVE on both switch tables (global
+  first) before checking, refuses while any switch is engaged unless
+  `set local ovd722.rollback_discard_engagements = 'confirmed'`, and refuses
+  unless the public preflights are the OVD-722 wrappers (rollback in reverse
+  order of apply only).
+* The worker state read takes the global row before the provider row, the
+  same order as the guard's lock, so the two cannot deadlock.
+* The sweep joins `vendor_quote_results` on its uuid key (indexable) and skips
+  queued tasks that carry no `vendor`.
 
 ## Acceptance criteria -> tests
 
