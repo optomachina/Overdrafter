@@ -4,6 +4,7 @@ import * as filesystem from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { compatibilityFixture } from "./ovd419-acquisition-test-fixtures.mjs";
 import { fullJobFixtures, fullServiceFixtures, completedExecutionFixtures, prefixEgressFixtures } from "./ovd419-reader-test-fixtures.mjs";
@@ -242,7 +243,16 @@ async function persistenceFixture(options = {}) {
   await filesystem.chmod(root, 0o700);
   const f = fixture(options);
   const reader = createSyntheticAcquisitionReader(f.input);
-  const handoff = await reader.read();
+  // The reader runs on the fixture's injected clock, but the catalogue and prefix readers it
+  // composes measure the same totalDurationMs against the real performance.now(). With the short
+  // budgets the persistence tests use (100 ms), a loaded runner could expire that budget during
+  // this in-memory setup read (prefix_total_timeout, read_timeout) before any persistence step
+  // runs. Hold that clock still for the setup read only, so the read observes the same frozen
+  // time as the injected clock and the persistence budgets start from a deterministic state.
+  const frozenNow = performance.now();
+  const realClock = vi.spyOn(performance, "now").mockImplementation(() => frozenNow);
+  let handoff;
+  try { handoff = await reader.read(); } finally { realClock.mockRestore(); }
   const prepared = reader.prepare(handoff, f.token);
   return { f, reader, prepared, root };
 }

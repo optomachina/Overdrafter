@@ -55,6 +55,17 @@ remain authoritative for claims, leases, fences and occupancy.
    database retry policy and a higher fence are separate owner actions; the
    companion never invents either.
 
+After a successful observed runner result, freeze all seven immutable output
+spools and their exact attempt/scope descriptor before any output send. Retention
+is local and cannot be lost merely because another session HTTP check fails.
+The task then awaits qualified stop admission. OVD-560 registry writes require
+that admission (`awaiting_result`, `result_eligible`, `stop_admission_id`); the
+companion must not upload-and-register before it. The separate default-off
+`replay-output.ps1` uses only the retained descriptor/spools and current session,
+and the server enforces stop eligibility at registration. A lost response replays
+identical bytes. Partial retention without a descriptor remains recovery-required;
+it cannot cause a second native launch or a mutable-source reconstruction.
+
 ## Stop evidence
 
 The connected runner requires a separately prepared runtime profile and its

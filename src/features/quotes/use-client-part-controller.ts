@@ -66,7 +66,6 @@ import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/fea
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { describeClientPresetUnavailableReason } from "@/features/quotes/client-workspace-state";
 import {
   logArchivedDeleteFailure,
   toArchivedDeleteError,
@@ -89,8 +88,7 @@ import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadat
 import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
-  getSelectedOption,
-  pickPresetOption,
+  resolveStoredQuoteSelection,
   sortQuoteOptionsForPreset,
   summarizeQuoteDiagnostics,
   type ClientQuoteSelectionOption,
@@ -330,6 +328,7 @@ export function useClientPartController(
     isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
   };
   const navigationModel = useWorkspaceNavigationModel({
+    accessScope: workspaceAccessScope,
     accessibleJobs,
     accessibleProjects,
     projectJobMemberships,
@@ -975,15 +974,14 @@ export function useClientPartController(
     sourcingCandidates,
     sourcingResult,
   ]);
-  const selectedQuoteOption =
-    getSelectedOption(
-      rankedQuoteOptions,
-      partDetail?.job.selected_vendor_quote_offer_id,
-      partDetail?.publishedQuoteSelection?.option_id,
-    ) ??
-    rankedQuoteOptions.find((option) => option.eligible) ??
-    rankedQuoteOptions[0] ??
-    null;
+  const {
+    selectedOption: selectedQuoteOption,
+    previousSelectionUnavailable: previousQuoteSelectionUnavailable,
+  } = resolveStoredQuoteSelection(
+    rankedQuoteOptions,
+    partDetail?.job.selected_vendor_quote_offer_id,
+    partDetail?.publishedQuoteSelection?.option_id,
+  );
   const eligibleQuoteCount = rankedQuoteOptions.filter((option) => option.eligible).length;
   const revisionOptions = useMemo(() => {
     if (!summary) {
@@ -1454,37 +1452,25 @@ export function useClientPartController(
     }
   };
 
-  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null) => {
+  /** `onFailure` lets the caller roll back an optimistic local selection when nothing was persisted. */
+  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null, onFailure?: () => void) => {
     if (option === null) {
-      selectOfferMutation.mutate(null);
+      selectOfferMutation.mutate(null, { onError: onFailure });
       return;
     }
 
     if (!option.persistedOfferId) {
       toast.error("This quote option is not ready to select yet.");
+      onFailure?.();
       return;
     }
 
-    selectOfferMutation.mutate(option);
+    selectOfferMutation.mutate(option, { onError: onFailure });
   };
 
+  /** Presets and the sourcing toggle reorder or filter the table only; selecting stays an explicit buyer action. */
   const handlePresetSelection = (preset: QuotePreset) => {
     setActivePreset(preset);
-
-    const nextOption = pickPresetOption(rankedQuoteOptions, preset);
-
-    if (!nextOption?.persistedOfferId) {
-      toast.error(
-        describeClientPresetUnavailableReason({
-          options: rankedQuoteOptions,
-          preset,
-          requestedByDate: requestSummaryRequestedByDate,
-        }),
-      );
-      return;
-    }
-
-    selectOfferMutation.mutate(nextOption);
   };
 
   const handleToggleVendorExclusion = (vendorKey: VendorName, shouldExclude: boolean) => {
@@ -1661,11 +1647,17 @@ export function useClientPartController(
   const sidebarJobs = navigationModel.parts;
   let quoteVendorScopeError: string | null = null;
   if (vendorPreferenceQuery.error instanceof Error) {
-    quoteVendorScopeError = vendorPreferenceQuery.error.message;
+    quoteVendorScopeError = getUserFacingErrorMessage(
+      vendorPreferenceQuery.error,
+      "Vendor scope could not be loaded.",
+    );
   } else if (vendorPreferenceQuery.error) {
     quoteVendorScopeError = "Vendor scope could not be loaded.";
   } else if (quoteLaneEligibilityQuery.error instanceof Error) {
-    quoteVendorScopeError = quoteLaneEligibilityQuery.error.message;
+    quoteVendorScopeError = getUserFacingErrorMessage(
+      quoteLaneEligibilityQuery.error,
+      "Quote eligibility could not be loaded.",
+    );
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
@@ -1798,6 +1790,7 @@ export function useClientPartController(
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    previousQuoteSelectionUnavailable,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,

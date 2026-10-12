@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,7 @@ type MfaStepUpDialogProps = {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error
-    ? error.message
+    ? getUserFacingErrorMessage(error, "Authenticator verification failed.")
     : "Authenticator verification failed.";
 }
 

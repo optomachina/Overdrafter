@@ -83,6 +83,7 @@ const schema = z.object({
   ANTHROPIC_API_KEY: optionalSetting(),
   OPENROUTER_API_KEY: optionalSetting(),
   WORKER_BUILD_VERSION: z.string().default("dev-local"),
+  WORKER_PROVIDER_SESSION_LEASE: z.enum(["off", "on"]).default("off"),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
   DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: optionalSetting(),
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
@@ -263,6 +264,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     anthropicApiKey: parsed.ANTHROPIC_API_KEY ?? null,
     openRouterApiKey: parsed.OPENROUTER_API_KEY ?? null,
     workerBuildVersion: parsed.WORKER_BUILD_VERSION,
+    providerSessionLease: parsed.WORKER_PROVIDER_SESSION_LEASE,
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,

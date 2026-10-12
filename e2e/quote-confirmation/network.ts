@@ -17,6 +17,8 @@ export class QuoteBrowserBackend {
   changed = false;
   nextReply: ReplyMode = "success";
   denialCode = "xometry_beta_scope_changed";
+  /** Optional status and PostgREST body for every failing RPC reply; null keeps the default P0001 400. */
+  failureReply: { status: number; body: Record<string, unknown> } | null = null;
   private pendingGate: Promise<void> | null = null;
 
   get dispatches() { return this.calls.filter(call => call.name === "api_request_xometry_beta_dispatch"); }
@@ -70,6 +72,7 @@ export class QuoteBrowserBackend {
     return route.fulfill({ status, json, headers: { ...cors, "cache-control": "no-store" } });
   }
   private denial(route: Route, message: string) {
+    if (this.failureReply) return this.json(route, this.failureReply.body, this.failureReply.status);
     return this.json(route, { code: "P0001", message, details: null, hint: null }, 400);
   }
   private async respond(route: Route, name: string, input: Record<string, unknown>) {
@@ -83,6 +86,10 @@ export class QuoteBrowserBackend {
         return this.json(route, { jobId: ID.job, organizationId: ID.organization, projectId: null,
           availableVendors: ["xometry"], projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
           jobVendorPreferences: { includedVendors: ["xometry"], excludedVendors: [] } });
+      case "api_get_part_deadline":
+        // OVD-571 comparison reads the persisted OVD-570 deadline intent; this part has none confirmed.
+        if (input.p_part_id !== ID.part) return this.denyUnexpected(route);
+        return this.json(route, { partId: ID.part, revision: null, recordedDate: null, activeDate: null, state: "inferred" });
       case "api_get_quote_lane_eligibility":
         return this.json(route, [{ vendor: "xometry", partId: ID.part, requestedQuantity: 1,
           state: "requestable", currentOfferId: null, validUntil: null, retryAt: null }]);

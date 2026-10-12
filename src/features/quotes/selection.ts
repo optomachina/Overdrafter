@@ -1055,3 +1055,28 @@ export function getSelectedOption(
     (option) => option.isSelectable && option.persistedOfferId === selectedOfferId,
   ) ?? null;
 }
+
+export type StoredQuoteSelection = {
+  selectedOption: ClientQuoteSelectionOption | null;
+  /** A stored choice exists but no longer resolves to a selectable current option. */
+  previousSelectionUnavailable: boolean;
+};
+
+/**
+ * Resolve the stored quote selection without substituting another offer. When
+ * the stored choice is expired, invalidated, or absent from the current options,
+ * nothing is selected and the caller is told the previous choice is gone.
+ */
+export function resolveStoredQuoteSelection(
+  options: readonly ClientQuoteSelectionOption[],
+  selectedOfferId: string | null | undefined,
+  selectedPublishedOptionId?: string | null,
+): StoredQuoteSelection {
+  const selectedOption = getSelectedOption(options, selectedOfferId, selectedPublishedOptionId);
+
+  return {
+    selectedOption,
+    previousSelectionUnavailable:
+      selectedOption === null && Boolean(selectedOfferId || selectedPublishedOptionId),
+  };
+}

@@ -218,9 +218,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       const preview = page.getByRole("region", { name: "Part preview" });
       const partInformation = page.getByRole("heading", { name: "Part information" });
       const quoteInformation = page.getByRole("region", { name: "Quote information" });
-      const quoteCriteria = page.getByRole("group", { name: "Quote preset" });
+      const quoteCriteria = page.getByLabel("Need by date", { exact: true });
       const scatterChart = page.getByRole("group", {
-        name: "Quote comparison by ready-to-ship working days and quoted total",
+        name: "Quote comparison by delivered date and expected delivered cost",
       });
 
       await expect(preview).toBeVisible();
@@ -239,9 +239,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
         const previewElement = document.querySelector('[aria-label="Part preview"]');
         const partInformationElement = document.querySelector("#part-information-heading");
         const quoteInformationElement = document.querySelector('[aria-label="Quote information"]');
-        const quoteCriteriaElement = document.querySelector('[aria-label="Quote preset"]');
+        const quoteCriteriaElement = document.querySelector("#quote-selection-due-by");
         const scatterChartElement = document.querySelector(
-          '[aria-label="Quote comparison by ready-to-ship working days and quoted total"]',
+          '[aria-label="Quote comparison by delivered date and expected delivered cost"]',
         );
 
         if (

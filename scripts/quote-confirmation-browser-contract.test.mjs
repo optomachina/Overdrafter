@@ -97,6 +97,21 @@ describe("Free quote browser fixture contracts (not browser acceptance)", () => 
     expect(backend.committed.size).toBe(1);
   });
 
+  it("applies an optional synthetic failure body and status only to failing replies", async () => {
+    const { backend, request } = await network();
+    const scopeCall = body => request(`${ORIGIN}/rest/v1/rpc/api_get_xometry_beta_dispatch_scope`, { method: "POST", body });
+    backend.failureReply = { status: 500, body: { code: "XX000", message: "synthetic failure" } };
+    expect((await scopeCall({ p_declared_model_units: "inch" })).fulfill.mock.calls[0][0]).toMatchObject({ status: 200, json: scope() });
+    backend.scopeMode = "error";
+    expect((await scopeCall({})).fulfill.mock.calls[0][0]).toMatchObject({ status: 500, json: { code: "XX000", message: "synthetic failure" } });
+    backend.nextReply = "denied";
+    const denied = await request(`${ORIGIN}/rest/v1/rpc/api_request_xometry_beta_dispatch`, { method: "POST", body: payload() });
+    expect(denied.fulfill.mock.calls[0][0]).toMatchObject({ status: 500, json: { code: "XX000" } });
+    expect(backend.committed.size).toBe(0);
+    backend.failureReply = null;
+    expect((await scopeCall({})).fulfill.mock.calls[0][0]).toMatchObject({ status: 400, json: { code: "P0001", message: "Synthetic scope lookup unavailable" } });
+  });
+
   it.each(["p_authority_to_share", "p_non_export_controlled", "p_quote_only"])("refuses missing %s even in the response fixture", async key => {
     const { backend, request } = await network();
     const route = await request(`${ORIGIN}/rest/v1/rpc/api_request_xometry_beta_dispatch`, { method: "POST", body: { ...payload(), [key]: false } });
@@ -128,6 +143,7 @@ describe("Free quote browser fixture contracts (not browser acceptance)", () => 
     expect(read("../e2e/quote-confirmation/fixture.tsx")).toContain('import ClientPart from "../../src/pages/ClientPart"');
     const spec = read("../e2e/quote-confirmation/quote.browser.ts");
     expect(spec).not.toMatch(/test\.(?:skip|fixme)\(/);
+    expect(read("../e2e/quote-confirmation/errors.browser.ts")).not.toMatch(/test\.(?:skip|fixme)\(/);
     const pkg = JSON.parse(read("../package.json"));
     expect(pkg.scripts["e2e:quote-confirmation"]).toContain("tsc --noEmit -p e2e/quote-confirmation/tsconfig.json && playwright test --config e2e/quote-confirmation/playwright.config.ts");
     const workflow = read("../.github/workflows/ci.yml");

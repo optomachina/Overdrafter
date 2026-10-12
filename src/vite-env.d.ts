@@ -2,10 +2,13 @@
 
 interface ImportMetaEnv {
   readonly VITE_APP_URL?: string;
+  readonly VITE_ENABLE_ENGINEERING_ADMIN_ROUTE?: string;
   readonly VITE_ENABLE_FIXTURE_MODE?: string;
   readonly VITE_WORKER_BASE_URL?: string;
   readonly VITE_SUPABASE_PUBLISHABLE_KEY: string;
   readonly VITE_SUPABASE_URL: string;
+  readonly VITE_BILLING_SELF_SERVICE_ENABLED?: string;
+  readonly VITE_BILLING_TIER_CATALOG_ENABLED?: string;
 }
 
 interface ImportMeta {

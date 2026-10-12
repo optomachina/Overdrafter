@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
@@ -88,9 +89,7 @@ const SharedInvite = () => {
             </p>
             {acceptInviteMutation.isError ? (
               <p className="mt-4 text-sm text-destructive">
-                {acceptInviteMutation.error instanceof Error
-                  ? acceptInviteMutation.error.message
-                  : "This invite could not be accepted."}
+                {getUserFacingErrorMessage(acceptInviteMutation.error, "This invite could not be accepted.")}
               </p>
             ) : null}
           </div>
