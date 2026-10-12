@@ -26,5 +26,14 @@ Each upload records a new answer, and the most recent answer applies to the
 part. If the most recent answer is anything other than "Not export-controlled",
 the part is not sent to any manufacturer.
 
+## Parts uploaded before this check
+
+Parts uploaded before the export-control check have no recorded answer, so
+they aren't sent to any manufacturer. On the part page, answer the same
+question for the part request. Then choose **Rescan files**. The rescan reads
+the drawing text and STEP header for markings again. Both steps are needed
+before the part can be quoted. "Export-controlled" and "I'm not sure" keep the
+part on hold.
+
 The answer is recorded with the version of the beta terms you accepted
 (`ovd-beta-export-control.v1`). See the beta terms at `/legal/terms`.

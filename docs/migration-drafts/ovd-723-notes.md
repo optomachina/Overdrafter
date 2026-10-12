@@ -118,10 +118,26 @@ Fix (fail closed):
   task completes (`scanStagedDrawingForExportMarkings`). A hit there opens a
   block on the target job. Every quote task scans the STEP header and records
   a clean scan before the preflight. A failed record fails the task.
-- **Remediation.** Parts extracted before the deploy have no drawing scan, so
-  they are denied with `export_scan_missing` until extraction runs again
-  (`api_request_extraction`). That covers every existing job, which the
-  backfill also marks `missing`.
+- **Remediation (existing jobs, 1.18).** Parts extracted before the deploy
+  have no drawing scan, so dispatch denies them with `export_scan_missing`.
+  The backfill also marks every existing job `missing`. Running
+  `api_request_extraction` again doesn't fix this. Its current body
+  (`20260812042000`) only queues `extract_part` for parts with no
+  `drawing_extractions` row, so an extracted part is never re-queued and never
+  scanned. Instead:
+  - A member declares on the existing job through `api_declare_job_export_status`,
+    using the same three answers with no default. `controlled` and `unsure` are
+    recorded and keep the job denied. The UI is `ExportControlJobStatusPanel`
+    on the part page.
+  - A member, or a platform admin from the internal job page, requests
+    `api_request_export_control_rescan`. It queues one `export_rescan_part`
+    task per part (a new `queue_task_type` value). The worker scans the
+    part's own drawing text and STEP header and records hits or clean scans.
+    It never re-runs extraction or calls a provider. An unreadable drawing or
+    a missing file records nothing and fails the task, so dispatch stays
+    denied.
+  - `api_get_job_export_control_status` now also returns `partsMissingScan`
+    and `rescansPending`.
 - **Known limits.** Only PDF drawings and STEP CAD headers have a scanner. The
   rule doesn't cover other CAD formats (for example `.sldprt`, `.x_t`, `.igs`),
   so it neither scans nor holds them. That is unchanged from before. Closing
@@ -131,8 +147,11 @@ Fix (fail closed):
 
 Tests: `worker/src/exportControl.test.ts` covers the reference model, the record
 and fail-closed behavior, the reuse-branch wiring, and draft assertions
-(per-file keying, the phase split, and the rollback). The pending pgTAP section
-8 covers the SQL rule, including a reused copy of the same bytes being denied.
+(per-file keying, the phase split, and the rollback), plus the existing-part
+rescan. The pending pgTAP section 8 covers the SQL rule, including a reused
+copy of the same bytes being denied. Section 9 covers an existing job: the
+declaration, the `api_request_extraction` skip, the rescan RPC, and admission
+after fresh clean scans.
 
 ## Verification status
 
