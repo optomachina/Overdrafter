@@ -9,6 +9,20 @@
 -- after the client that sends p_export_declaration_id is deployed). The
 -- ROLLBACK section at the end reverses both phases.
 --
+-- Phase split:
+--   PHASE 1 enforces dispatch. Both provider preflights
+--     (api_authorize_provider_worker_dispatch and
+--     api_authorize_xometry_beta_worker_dispatch) deny a job whose latest
+--     declaration is missing, controlled, or unsure, or that has a marking
+--     block pending review or confirmed controlled. Foreign providers (weerg,
+--     geomiq) and unknown providers have their own explicit rule. The gate
+--     lives only in the worker-facing preflights, so old browser clients keep
+--     uploading. Their new jobs have no declaration, so dispatch denies them
+--     until a declaration exists.
+--   PHASE 2 enforces upload only. The old upload RPC signatures raise
+--     export_declaration_missing, and the Storage insert policy requires a
+--     declaration-backed grant. Apply it after the declaring client is live.
+--
 -- Verified names this draft binds to (see ovd-723-notes.md):
 --   upload RPCs : public.api_prepare_job_file_upload(uuid, text, job_file_kind, text, bigint, text)
 --                 public.api_finalize_job_file_upload(uuid, text, text, text, job_file_kind, text, bigint, text)
@@ -39,7 +53,7 @@
 -- the same change that promotes this draft).
 
 -- =====================================================================
--- PHASE 1 - EXPAND (additive; existing clients keep working)
+-- PHASE 1 - EXPAND (old clients keep uploading; dispatch is gated)
 -- =====================================================================
 
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
@@ -812,7 +826,7 @@ $$;
 revoke all on function public.current_user_has_export_cleared_upload(text) from public, anon;
 grant execute on function public.current_user_has_export_cleared_upload(text) to authenticated;
 
--- 1.15 Dispatch gate evaluation (used by the PHASE 2 preflight wrappers).
+-- 1.15 Dispatch gate evaluation (used by the 1.16 preflight wrappers).
 -- Returns null only when the job's latest declaration is not_controlled and
 -- no marking block is open or confirmed. Foreign providers are checked first,
 -- as their own explicit rule with their own reason code. Any lookup error is
@@ -898,89 +912,7 @@ revoke all on function private.export_control_dispatch_denial(uuid, text)
 revoke all on function private.export_control_dispatch_denial_for_task(uuid, text)
   from public, anon, authenticated, service_role;
 
--- 1.16 One-time backfill: every existing job with files and no declaration
--- gets an explicit 'missing' row (denied until the user declares).
-insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
-select job_row.id, job_row.organization_id, null, 'missing', private.export_control_terms_version()
-from public.jobs job_row
-where exists (select 1 from public.job_files file_row where file_row.job_id = job_row.id)
-  and not exists (
-    select 1 from private.job_export_declarations declaration where declaration.job_id = job_row.id
-  );
-
-insert into private.export_control_events (organization_id, job_id, actor, event, detail)
-select declaration.organization_id, declaration.job_id, null, 'declaration_backfilled_missing',
-  pg_catalog.jsonb_build_object('declarationId', declaration.id)
-from private.job_export_declarations declaration
-where declaration.answer = 'missing';
-
--- =====================================================================
--- PHASE 2 - CONTRACT (apply only after the declaring client is deployed)
--- =====================================================================
-
--- 2.1 Old upload signatures fail closed: no declaration, no upload.
-create or replace function public.api_prepare_job_file_upload(
-  p_job_id uuid,
-  p_original_name text,
-  p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  raise exception using
-    errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
-    message = 'export_declaration_missing';
-end;
-$$;
-
-create or replace function public.api_finalize_job_file_upload(
-  p_job_id uuid,
-  p_storage_bucket text,
-  p_storage_path text,
-  p_original_name text,
-  p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
-)
-returns uuid
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  raise exception using
-    errcode = 'P0001',
-    message = 'export_declaration_missing';
-end;
-$$;
-
--- 2.2 Storage: no object is written without a declaration-backed grant.
-drop policy if exists "job_files_storage_insert" on storage.objects;
-create policy "job_files_storage_insert"
-on storage.objects
-for insert
-to authenticated
-with check (
-  bucket_id = 'job-files'
-  and name ~ '^org-sha256/[0-9a-f-]{36}/[0-9a-f]{64}/[a-z0-9._-]+$'
-  and exists (
-    select 1
-    from public.jobs job
-    where job.organization_id::text = split_part(name, '/', 2)
-      and public.user_can_edit_job(job.id)
-      and public.current_user_has_current_founding_beta_access(job.organization_id)
-  )
-  and public.current_user_has_export_cleared_upload(name)
-);
-
--- 2.3 Dispatch preflights. The existing bodies move unchanged to private
+-- 1.16 Dispatch preflights. The existing bodies move unchanged to private
 -- cores; the public names become wrappers that run the export gate first,
 -- holding the shared per-job export lock until commit so a declaration or a
 -- marking block cannot interleave with the decision.
@@ -1080,6 +1012,89 @@ grant execute on function public.api_authorize_provider_worker_dispatch(
   uuid, uuid, jsonb, text, timestamptz
 ) to service_role;
 
+-- 1.17 One-time backfill: every existing job with files and no declaration
+-- gets an explicit 'missing' row (denied until the user declares).
+insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+select job_row.id, job_row.organization_id, null, 'missing', private.export_control_terms_version()
+from public.jobs job_row
+where exists (select 1 from public.job_files file_row where file_row.job_id = job_row.id)
+  and not exists (
+    select 1 from private.job_export_declarations declaration where declaration.job_id = job_row.id
+  );
+
+insert into private.export_control_events (organization_id, job_id, actor, event, detail)
+select declaration.organization_id, declaration.job_id, null, 'declaration_backfilled_missing',
+  pg_catalog.jsonb_build_object('declarationId', declaration.id)
+from private.job_export_declarations declaration
+where declaration.answer = 'missing';
+
+-- =====================================================================
+-- PHASE 2 - CONTRACT (upload enforcement only; apply only after the
+-- declaring client is deployed. Dispatch is already gated by PHASE 1.)
+-- =====================================================================
+
+-- 2.1 Old upload signatures fail closed: no declaration, no upload.
+create or replace function public.api_prepare_job_file_upload(
+  p_job_id uuid,
+  p_original_name text,
+  p_file_kind public.job_file_kind,
+  p_mime_type text default null,
+  p_size_bytes bigint default null,
+  p_content_sha256 text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  raise exception using
+    errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
+    message = 'export_declaration_missing';
+end;
+$$;
+
+create or replace function public.api_finalize_job_file_upload(
+  p_job_id uuid,
+  p_storage_bucket text,
+  p_storage_path text,
+  p_original_name text,
+  p_file_kind public.job_file_kind,
+  p_mime_type text default null,
+  p_size_bytes bigint default null,
+  p_content_sha256 text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  raise exception using
+    errcode = 'P0001',
+    message = 'export_declaration_missing';
+end;
+$$;
+
+-- 2.2 Storage: no object is written without a declaration-backed grant.
+drop policy if exists "job_files_storage_insert" on storage.objects;
+create policy "job_files_storage_insert"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'job-files'
+  and name ~ '^org-sha256/[0-9a-f-]{36}/[0-9a-f]{64}/[a-z0-9._-]+$'
+  and exists (
+    select 1
+    from public.jobs job
+    where job.organization_id::text = split_part(name, '/', 2)
+      and public.user_can_edit_job(job.id)
+      and public.current_user_has_current_founding_beta_access(job.organization_id)
+  )
+  and public.current_user_has_export_cleared_upload(name)
+);
+
 -- =====================================================================
 -- ROLLBACK
 -- =====================================================================
@@ -1087,7 +1102,14 @@ grant execute on function public.api_authorize_provider_worker_dispatch(
 -- rollback keeps the tables (they are inert once nothing reads them). Drop
 -- them only with Blaine's explicit approval, after exporting them.
 --
--- R2 (undo PHASE 2):
+-- R2 (undo PHASE 2; upload enforcement only):
+--   -- restore "job_files_storage_insert" exactly as in 20260815093000 (without
+--   -- the current_user_has_export_cleared_upload clause).
+--   -- re-run the PHASE 1 section 1.13 old-signature delegating wrappers.
+--   -- dispatch stays gated: the 1.16 wrappers belong to PHASE 1.
+--
+-- R1 (undo PHASE 1; run R2 first if PHASE 2 was applied):
+--   -- dispatch preflight wrappers (1.16):
 --   drop function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
 --   alter function private.provider_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)
 --     rename to api_authorize_provider_worker_dispatch;
@@ -1100,11 +1122,7 @@ grant execute on function public.api_authorize_provider_worker_dispatch(
 --     set schema public;
 --   -- restate the original grants (service_role only) for both functions, as in
 --   -- 20261003170000 and 20261002182910.
---   -- restore "job_files_storage_insert" exactly as in 20260815093000 (without
---   -- the current_user_has_export_cleared_upload clause).
---   -- re-run the PHASE 1 section 1.13 old-signature delegating wrappers.
---
--- R1 (undo PHASE 1):
+--   -- upload RPCs (1.13):
 --   drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid);
 --   drop function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text, uuid);
 --   drop function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text);

@@ -3,6 +3,9 @@
 -- preflight denies without a clean latest declaration.
 --
 -- Targets the DRAFT docs/migration-drafts/ovd-723.sql (PHASE 1 and PHASE 2).
+-- Apply both phases before running it. The dispatch assertions (3, 5, 6, 8)
+-- need only PHASE 1. The upload assertions (1, 2) need PHASE 2, because
+-- PHASE 1 alone leaves the old upload signatures delegating.
 -- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
 -- carries a .pending suffix so the policy-test runner stages it but never
 -- executes it. In the approved window, the draft is promoted and this file is

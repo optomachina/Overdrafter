@@ -57,11 +57,28 @@
   Those answers are not recorded server-side on that path because there is no
   job yet. The RPC does accept and audit them when called for an existing job.
 - An upload with zero files doesn't ask.
-- Deploy order: PHASE 1 first. The new client calls `api_declare_job_export_status`
-  and the 7- and 9-argument upload overloads. Before PHASE 1, those calls fail and
-  the client fails closed, so uploads stop. PHASE 2 (old signatures raise
-  `export_declaration_missing`, storage grant required, preflight wrappers)
-  comes after the client is deployed.
+- Phase split. **PHASE 1 enforces dispatch.** It wraps both preflights
+  (`api_authorize_provider_worker_dispatch` and
+  `api_authorize_xometry_beta_worker_dispatch`). They deny a job whose latest
+  declaration is missing, controlled, or unsure, or that has a marking block
+  pending review or confirmed controlled. Foreign providers (weerg, geomiq) and
+  unknown providers have their own explicit rule. Only the worker calls these
+  preflights, so the gate doesn't break old browser clients. Jobs those clients
+  create have no declaration, though, so dispatch denies them until someone
+  declares. **PHASE 2 enforces upload only.** The old upload signatures raise
+  `export_declaration_missing`, and the Storage insert policy requires a
+  declaration-backed grant.
+- Deploy order: PHASE 1 first, then the client and worker together, then
+  PHASE 2. The new client calls `api_declare_job_export_status` and the 7- and
+  9-argument upload overloads. Before PHASE 1, those calls fail and the client
+  fails closed, so uploads stop. Deploy the worker *after* PHASE 1, because it
+  calls `api_record_export_control_marking_hits` and
+  `api_record_export_control_clean_scan`, and a failed record fails the task.
+  Between PHASE 1 and the worker deploy, the old worker records no scans, so
+  every dispatch is denied with `export_scan_missing`. That fails closed, but
+  keep the window short. The old worker doesn't know the new codes and reports
+  them as a generic terminal denial. PHASE 2 comes after the client is
+  deployed.
 - The worker reads at most 256 KB of a staged STEP file for the header scan
   (`readStagedStepHeaderPrefix`). If the read fails, the task fails.
 - Backfill: every existing job with files gets a `missing` declaration, so it is
