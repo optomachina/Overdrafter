@@ -193,8 +193,20 @@ export const BILLING_CATALOG_PRICES = loadCatalogPrices(
   catalogData.billingIntervals,
 );
 
+/** Strict "true" / "false" parsing. Anything else, including unset, is null. */
+export function parseBoolean(value: string | undefined): boolean | null {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return null;
+}
+
+/** Exact match only: the string "true" enables a flag, nothing else does. */
 export function isBillingFlagEnabled(value: string | undefined): boolean {
-  return value?.trim().toLowerCase() === "true";
+  return value === "true";
 }
 
 export function isCheckoutCatalogEnabled(
@@ -203,23 +215,6 @@ export function isCheckoutCatalogEnabled(
 ): boolean {
   return isBillingFlagEnabled(selfServiceEnabled) &&
     isBillingFlagEnabled(tierCatalogEnabled);
-}
-
-export function normalizeStripeSecret(secret: string | undefined): string {
-  if (typeof secret !== "string") {
-    return "";
-  }
-  let value = secret.trim();
-  const quote = value[0];
-  if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) {
-    value = value.slice(1, -1).trim();
-  }
-  return value;
-}
-
-export function isLiveStripeSecret(secret: string | undefined): boolean {
-  const value = normalizeStripeSecret(secret).toLowerCase();
-  return value.startsWith("sk_live_") || value.startsWith("rk_live_");
 }
 
 export function getCatalogPrice(
@@ -260,6 +255,12 @@ export function mapTierToEntitlements(
   };
 }
 
+/**
+ * Pure count helper for display and tests only. Checkout never calls it and it
+ * must not gate a Founding sale: only the database function
+ * api_claim_founding_team_slot may do that, because it serializes the claim
+ * against the cap. A count read outside that function is racy.
+ */
 export function canPurchaseFoundingTeam(slotsUsed: number): boolean {
   return Number.isInteger(slotsUsed) &&
     slotsUsed >= 0 &&
@@ -354,7 +355,8 @@ export function evaluateCatalogWebhookEvent(
   event: unknown,
   options: {
     catalog?: readonly CatalogPrice[];
-    expectedLivemode: boolean;
+    /** Null when STRIPE_EXPECTED_LIVEMODE is unset or malformed. */
+    expectedLivemode: boolean | null;
     replayed: boolean;
   },
 ): CatalogWebhookDecision {
@@ -400,6 +402,17 @@ export function evaluateCatalogWebhookEvent(
       entitlementsChanged: false,
       lookupKey,
       reason: "not_catalog_price",
+    };
+  }
+
+  // Without a known expected mode every price would look mismatched, so refuse
+  // to disable anything rather than disable on a lost secret.
+  if (options.expectedLivemode === null) {
+    return {
+      action: "noop",
+      entitlementsChanged: false,
+      lookupKey,
+      reason: "expected_livemode_unset",
     };
   }
 

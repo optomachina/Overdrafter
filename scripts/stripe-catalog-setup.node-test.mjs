@@ -181,6 +181,14 @@ test("draft SQL revokes authenticated, keeps disabled markers, and caps founding
   );
   assert.match(
     draftSql,
+    /revoke all on table private\.stripe_catalog_price_allowlist\s+from public, anon, authenticated, service_role/,
+  );
+  assert.match(
+    draftSql,
+    /revoke all on table private\.founding_team_claims\s+from public, anon, authenticated, service_role/,
+  );
+  assert.match(
+    draftSql,
     /revoke all on function public\.api_disable_stripe_catalog_price\(text, boolean, text, text\)\s+from public, anon, authenticated/,
   );
   assert.match(
@@ -241,8 +249,17 @@ test("second apply against a mock creates zero objects and reports drift", async
   assert.equal(second.created.prices, 0);
   assert.equal(second.created.products, 0);
   assert.equal(second.existing.prices, BILLING_CATALOG_PRICES.length);
+  // Team and extra seat prices share one product, so products are counted once.
+  assert.equal(second.existing.products, 4);
   assert.equal(state.prices.length, createdPrices);
   assert.equal(state.products.length, createdProducts);
+
+  const inactiveProduct = { ...state.prices[0], product: { ...state.prices[0].product, active: false } };
+  const original = state.prices[0];
+  state.prices[0] = inactiveProduct;
+  const inactive = await syncStripeCatalog({ client, dryRun: false });
+  assert.deepEqual(inactive.drift, [{ lookupKey: original.lookup_key, reason: "price_drift" }]);
+  state.prices[0] = original;
 
   state.prices[0] = { ...state.prices[0], unit_amount: 999 };
   const drifted = await syncStripeCatalog({ client, dryRun: false });

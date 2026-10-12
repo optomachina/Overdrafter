@@ -11,6 +11,7 @@ import {
   DEFAULT_CHECKOUT_LOOKUP_KEY,
   getCatalogPrice,
   isCheckoutCatalogEnabled,
+  parseBoolean,
 } from "../_shared/billingCatalog.ts";
 
 export const BILLING_STRIPE_API_VERSION =
@@ -150,16 +151,6 @@ function json(status: number, body: Record<string, unknown>) {
       "Content-Type": "application/json",
     },
   });
-}
-
-function parseBoolean(value: string | undefined): boolean | null {
-  if (value === "true") {
-    return true;
-  }
-  if (value === "false") {
-    return false;
-  }
-  return null;
 }
 
 function parseAppBaseUrl(value: string | undefined): URL | null {

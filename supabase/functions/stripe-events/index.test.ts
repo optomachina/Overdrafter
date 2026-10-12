@@ -16,6 +16,10 @@ const APPROVED_PRO = getCatalogPrice(DEFAULT_CHECKOUT_LOOKUP_KEY)!;
 
 const WEBHOOK_SECRET = "whsec_ovd235";
 
+function configuredEnv(name: string): string {
+  return name === "STRIPE_EXPECTED_LIVEMODE" ? "false" : "configured";
+}
+
 function makeEvent(
   overrides: Partial<Stripe.Event> = {},
 ): Stripe.Event {
@@ -120,7 +124,7 @@ Deno.test("rejects an invalid signature without persisting the event", async () 
     stripe,
     stripeWebhookSecret: WEBHOOK_SECRET,
   };
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest("{}", "invalid"));
 
@@ -150,7 +154,7 @@ Deno.test("rejects a correctly signed event outside Stripe's timestamp tolerance
     stripe,
     stripeWebhookSecret: WEBHOOK_SECRET,
   };
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(payload, oldSignature));
 
@@ -192,7 +196,7 @@ Deno.test("verifies the raw body before durable ingestion and processing", async
       assertEquals(secret, WEBHOOK_SECRET);
     },
   );
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(rawBody));
 
@@ -230,7 +234,7 @@ Deno.test("returns a retryable error when durable ingestion fails", async () => 
       error: { code: "XX000", message: "database unavailable" },
     });
   });
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(JSON.stringify(event)));
 
@@ -261,7 +265,7 @@ Deno.test("returns a retryable error when transactional processing fails", async
       error: null,
     });
   });
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(JSON.stringify(event)));
 
@@ -291,7 +295,7 @@ Deno.test("acknowledges safely replayed and ignored events", async () => {
       return Promise.resolve({ data: expected, error: null });
     });
     const handler = createStripeEventHandler(
-      () => "configured",
+      configuredEnv,
       () => runtime,
     );
 
@@ -341,7 +345,7 @@ Deno.test("price.updated amount mismatch disables the catalog key without changi
     }
     return Promise.resolve({ data: { disabled: true }, error: null });
   });
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(JSON.stringify(event)));
 
@@ -399,7 +403,7 @@ Deno.test("does not log catalog price disabled when disable fails", async () => 
     logs.push(args.map(String).join(" "));
   };
   const handler = createStripeEventHandler(
-    (name) => name === "BILLING_TIER_CATALOG_ENABLED" ? "true" : "configured",
+    (name) => name === "BILLING_TIER_CATALOG_ENABLED" ? "true" : configuredEnv(name),
     () => runtime,
   );
 
@@ -447,7 +451,7 @@ Deno.test("a matching price.updated with a product ID string does not disable th
       error: null,
     });
   });
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
 
   const response = await handler(signedRequest(JSON.stringify(event)));
 
@@ -481,7 +485,51 @@ Deno.test("replaying price.updated is a no-op for catalog disable", async () => 
       error: null,
     });
   });
-  const handler = createStripeEventHandler(() => "configured", () => runtime);
+  const handler = createStripeEventHandler(configuredEnv, () => runtime);
+
+  const response = await handler(signedRequest(JSON.stringify(event)));
+
+  assertEquals(response.status, 200);
+  assertEquals(calls, ["api_ingest_stripe_event", "api_process_stripe_event"]);
+});
+
+Deno.test("an unset STRIPE_EXPECTED_LIVEMODE never disables a live catalog key", async () => {
+  const event = makeEvent({
+    data: {
+      object: {
+        active: true,
+        currency: "usd",
+        id: "price_OVD725",
+        livemode: true,
+        lookup_key: DEFAULT_CHECKOUT_LOOKUP_KEY,
+        metadata: catalogPriceMetadata(APPROVED_PRO),
+        product: "prod_OVD725",
+        recurring: { interval: "month", interval_count: 1 },
+        type: "recurring",
+        unit_amount: APPROVED_PRO.amountCents,
+      } as unknown as Stripe.Price,
+    },
+    livemode: true,
+    type: "price.updated",
+  });
+  const calls: string[] = [];
+  const runtime = makeRuntime(event, (functionName) => {
+    calls.push(functionName);
+    if (functionName === "api_ingest_stripe_event") {
+      return Promise.resolve({
+        data: { state: "pending", duplicate: false },
+        error: null,
+      });
+    }
+    return Promise.resolve({
+      data: { state: "processed", replayed: false, attemptCount: 1 },
+      error: null,
+    });
+  });
+  const handler = createStripeEventHandler(
+    (name) => name === "STRIPE_EXPECTED_LIVEMODE" ? undefined : "configured",
+    () => runtime,
+  );
 
   const response = await handler(signedRequest(JSON.stringify(event)));
 

@@ -11,9 +11,10 @@ import {
   evaluateCatalogWebhookEvent,
   FOUNDING_TEAM_MAX_SLOTS,
   getCatalogPrice,
+  isBillingFlagEnabled,
   isCheckoutCatalogEnabled,
-  isLiveStripeSecret,
   mapTierToEntitlements,
+  parseBoolean,
 } from "./billingCatalog.ts";
 
 function approvedPrice(
@@ -79,12 +80,21 @@ Deno.test("checkout stays disabled unless both flags are explicitly true", () =>
   assertEquals(isCheckoutCatalogEnabled("true", "true"), true);
 });
 
-Deno.test("live Stripe secrets are refused", () => {
-  assertEquals(isLiveStripeSecret("sk_test_123"), false);
-  assertEquals(isLiveStripeSecret("sk_live_123"), true);
-  assertEquals(isLiveStripeSecret("rk_live_123"), true);
-  assertEquals(isLiveStripeSecret('  "SK_LIVE_123"  '), true);
-  assertEquals(isLiveStripeSecret("  'RK_LIVE_123'  "), true);
+Deno.test("billing flags match the exact string true only", () => {
+  assertEquals(isBillingFlagEnabled("true"), true);
+  assertEquals(isBillingFlagEnabled("TRUE"), false);
+  assertEquals(isBillingFlagEnabled(" true "), false);
+  assertEquals(isBillingFlagEnabled("1"), false);
+  assertEquals(isBillingFlagEnabled(undefined), false);
+  assertEquals(isCheckoutCatalogEnabled(" true", "true"), false);
+  assertEquals(isCheckoutCatalogEnabled("true", "True"), false);
+});
+
+Deno.test("parseBoolean is strict and returns null when unset", () => {
+  assertEquals(parseBoolean("true"), true);
+  assertEquals(parseBoolean("false"), false);
+  assertEquals(parseBoolean("TRUE"), null);
+  assertEquals(parseBoolean(undefined), null);
 });
 
 Deno.test("maps each sourcing tier to its locked caps", () => {
@@ -130,7 +140,7 @@ Deno.test("maps each sourcing tier to its locked caps", () => {
   });
 });
 
-Deno.test("founding checkout is refused at the 9th slot", () => {
+Deno.test("canPurchaseFoundingTeam count helper stops at the cap (display only, not a checkout gate)", () => {
   assertEquals(canPurchaseFoundingTeam(0), true);
   assertEquals(canPurchaseFoundingTeam(7), true);
   assertEquals(canPurchaseFoundingTeam(FOUNDING_TEAM_MAX_SLOTS), false);
@@ -247,4 +257,20 @@ Deno.test("price.updated mismatch disables the key and replay is a no-op", () =>
     entitlementsChanged: false,
     reason: "replayed",
   });
+});
+
+Deno.test("an unknown expected livemode is a no-op, never a disable", () => {
+  assertEquals(
+    evaluateCatalogWebhookEvent({
+      data: { object: approvedPrice(DEFAULT_CHECKOUT_LOOKUP_KEY, { livemode: true }) },
+      livemode: true,
+      type: "price.updated",
+    }, { expectedLivemode: null, replayed: false }),
+    {
+      action: "noop",
+      entitlementsChanged: false,
+      lookupKey: DEFAULT_CHECKOUT_LOOKUP_KEY,
+      reason: "expected_livemode_unset",
+    },
+  );
 });

@@ -109,6 +109,7 @@ function priceMatchesCatalog(price, entry) {
   const metadata = price.metadata ?? {};
   const expected = catalogPriceMetadata(entry);
   return price.active === true &&
+    price.product?.active === true &&
     price.livemode === false &&
     (price.currency ?? "").toLowerCase() === BILLING_CATALOG_CURRENCY &&
     price.unit_amount === entry.amountCents &&
@@ -123,9 +124,7 @@ function priceMatchesCatalog(price, entry) {
 function rememberProduct(product, productName, productIds) {
   if (product && typeof product === "object" && product.id) {
     productIds.set(productName, product.id);
-    return 1;
   }
-  return 0;
 }
 
 async function resolveProductId(client, entry, productIds, dryRun) {
@@ -171,13 +170,18 @@ export async function syncStripeCatalog({
   const byKey = new Map(listed.data.map((price) => [price.lookup_key, price]));
   const productIds = new Map();
   const existing = { prices: 0, products: 0 };
+  // Two prices can share one product, so count products by ID, not by price.
+  const existingProductIds = new Set();
   const drift = catalog.flatMap((entry) => {
     const current = byKey.get(entry.lookupKey);
     if (!current) {
       return [];
     }
     existing.prices += 1;
-    existing.products += rememberProduct(current.product, entry.productName, productIds);
+    rememberProduct(current.product, entry.productName, productIds);
+    if (current.product?.id) {
+      existingProductIds.add(current.product.id);
+    }
     return priceMatchesCatalog(current, entry)
       ? []
       : [{ lookupKey: entry.lookupKey, reason: "price_drift" }];
@@ -192,7 +196,12 @@ export async function syncStripeCatalog({
     prices: missing.length,
     products: resolved.filter((item) => item.created).length,
   };
-  existing.products += resolved.filter((item) => item.existing).length;
+  for (const item of resolved) {
+    if (item.existing) {
+      existingProductIds.add(item.productId);
+    }
+  }
+  existing.products = existingProductIds.size;
 
   if (!dryRun) {
     await Promise.all(missing.map((entry) => client.prices.create({

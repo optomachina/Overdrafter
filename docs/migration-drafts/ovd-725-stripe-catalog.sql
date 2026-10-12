@@ -1,6 +1,6 @@
 -- OVD-725 Stripe tier catalog: DRAFT ONLY. Not a migration.
 --
--- Joins migration window 1. Do not copy into supabase/migrations/ or apply to
+-- Planned for migration window 2, not window 1. Do not copy into supabase/migrations/ or apply to
 -- any hosted project without the window's own review and Blaine's approval.
 -- The edge functions on PR #671 call these RPCs:
 --   billing-sessions -> public.api_configure_stripe_catalog_price
@@ -56,8 +56,11 @@ declare
   v_lookup_key text := trim(p_lookup_key);
   v_disabled_at timestamptz;
 begin
-  if v_lookup_key is null
-    or p_livemode is null
+  if v_lookup_key is null or v_lookup_key = '' then
+    raise exception using errcode = '22023', message = 'Lookup key is required.';
+  end if;
+  if p_livemode is null
+    or p_stripe_price_id is null
     or p_stripe_price_id !~ '^price_[A-Za-z0-9]+$'
   then
     raise exception using errcode = '22023', message = 'Invalid catalog price.';
@@ -181,6 +184,10 @@ declare
   v_released boolean;
   v_slots integer;
 begin
+  if p_organization_id is null then
+    raise exception using errcode = '22023', message = 'Organization is required.';
+  end if;
+
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('founding_team_claims', 0)
   );
@@ -205,9 +212,9 @@ revoke all on function public.api_claim_founding_team_slot(uuid)
 revoke all on function public.api_release_founding_team_slot(uuid)
   from public, anon, authenticated;
 revoke all on table private.stripe_catalog_price_allowlist
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 revoke all on table private.founding_team_claims
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 grant execute on function public.api_configure_stripe_catalog_price(boolean, text, text)
   to service_role;
 grant execute on function public.api_disable_stripe_catalog_price(text, boolean, text, text)

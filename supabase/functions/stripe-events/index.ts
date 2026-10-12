@@ -1,6 +1,9 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
-import { evaluateCatalogWebhookEvent } from "../_shared/billingCatalog.ts";
+import {
+  evaluateCatalogWebhookEvent,
+  parseBoolean,
+} from "../_shared/billingCatalog.ts";
 
 export const STRIPE_EVENT_API_VERSION =
   "2024-11-20.acacia" as Stripe.LatestApiVersion;
@@ -181,8 +184,9 @@ export function createStripeEventHandler(
     }
 
     const catalogDecision = evaluateCatalogWebhookEvent(event, {
-      expectedLivemode: getEnvironmentVariable("STRIPE_EXPECTED_LIVEMODE") ===
-        "true",
+      expectedLivemode: parseBoolean(
+        getEnvironmentVariable("STRIPE_EXPECTED_LIVEMODE"),
+      ),
       replayed: result.replayed,
     });
     // The event is already recorded as processed, so a Stripe retry would be a

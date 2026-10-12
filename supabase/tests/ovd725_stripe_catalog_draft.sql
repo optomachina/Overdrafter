@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(20);
 
 -- DRAFT ONLY. Not a migration. The DDL below is generated together with
 -- docs/migration-drafts/ovd-725-stripe-catalog.sql and must stay identical.
@@ -40,8 +40,11 @@ declare
   v_lookup_key text := trim(p_lookup_key);
   v_disabled_at timestamptz;
 begin
-  if v_lookup_key is null
-    or p_livemode is null
+  if v_lookup_key is null or v_lookup_key = '' then
+    raise exception using errcode = '22023', message = 'Lookup key is required.';
+  end if;
+  if p_livemode is null
+    or p_stripe_price_id is null
     or p_stripe_price_id !~ '^price_[A-Za-z0-9]+$'
   then
     raise exception using errcode = '22023', message = 'Invalid catalog price.';
@@ -165,6 +168,10 @@ declare
   v_released boolean;
   v_slots integer;
 begin
+  if p_organization_id is null then
+    raise exception using errcode = '22023', message = 'Organization is required.';
+  end if;
+
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('founding_team_claims', 0)
   );
@@ -189,9 +196,9 @@ revoke all on function public.api_claim_founding_team_slot(uuid)
 revoke all on function public.api_release_founding_team_slot(uuid)
   from public, anon, authenticated;
 revoke all on table private.stripe_catalog_price_allowlist
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 revoke all on table private.founding_team_claims
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 grant execute on function public.api_configure_stripe_catalog_price(boolean, text, text)
   to service_role;
 grant execute on function public.api_disable_stripe_catalog_price(text, boolean, text, text)
@@ -434,6 +441,33 @@ select ok(
   and (select prosecdef from pg_proc
     where oid = 'public.api_configure_stripe_catalog_price(boolean,text,text)'::regprocedure),
   'catalog draft RPCs stay security definer'
+);
+
+select throws_ok(
+  $$select public.api_configure_stripe_catalog_price(false, '', 'price_OVD725C')$$,
+  '22023',
+  'Lookup key is required.',
+  'configure rejects an empty lookup key'
+);
+
+select throws_ok(
+  $$select public.api_configure_stripe_catalog_price(false, '   ', 'price_OVD725C')$$,
+  '22023',
+  'Lookup key is required.',
+  'configure rejects a blank lookup key'
+);
+
+select throws_ok(
+  $$select public.api_release_founding_team_slot(null)$$,
+  '22023',
+  'Organization is required.',
+  'release rejects a null organization'
+);
+
+select ok(
+  not has_table_privilege('service_role', 'private.stripe_catalog_price_allowlist', 'SELECT')
+  and not has_table_privilege('service_role', 'private.founding_team_claims', 'SELECT'),
+  'catalog draft tables are closed to service_role too'
 );
 
 select * from finish();
