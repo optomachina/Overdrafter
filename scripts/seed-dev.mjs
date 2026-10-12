@@ -13,10 +13,13 @@ import {
 
 const PASSWORD = "Overdrafter123!";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
+const BETA_ACCESS_FIXTURE = "e2e/fixtures/beta-access.sql";
+// psql is resolved only from these fixed system directories, never through PATH.
+const PSQL_DIRECTORIES = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin", "/usr/local/pgsql/bin"];
+const PSQL_VERSIONED_ROOTS = ["/usr/lib/postgresql", "/usr/local/pgsql"];
+const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const BETA_ACCESS_FIXTURE = "e2e/fixtures/beta-access.sql";
-const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 
 const ids = {
   organization: uuid(1),
@@ -44,6 +47,8 @@ const ids = {
   organizationMembershipAdmin: uuid(312),
   organizationMembershipOutsider: uuid(313),
   organizationMembershipUnenrolled: uuid(314),
+  organizationMembershipOwnerProbe: uuid(315),
+  organizationMembershipSwitchProbe: uuid(316),
   projectJobCleanup: uuid(400),
   projectJobQuotedA: uuid(401),
   projectJobQuotedB: uuid(402),
@@ -121,6 +126,22 @@ const userSpecs = [
     key: "unenrolled",
     email: "unenrolled.demo@overdrafter.local",
     name: "Demo Unenrolled Client",
+    role: "client",
+  },
+  // Further members of Fixture Machine Co. for the access-scope specs. Signing out
+  // revokes every session of the signed-in user (scope "global"), so specs that log
+  // out must not share an account with specs that run in parallel: smoke.spec.ts and
+  // intake.spec.ts use client.demo, access-scope.spec.ts uses these.
+  {
+    key: "ownerProbe",
+    email: "owner.demo@overdrafter.local",
+    name: "Demo Owner Probe",
+    role: "client",
+  },
+  {
+    key: "switchProbe",
+    email: "switch.demo@overdrafter.local",
+    name: "Demo Account Switch Client",
     role: "client",
   },
 ];
@@ -212,6 +233,8 @@ async function main() {
   console.log(`Admin: ${userSpecs[2].email}`);
   console.log(`Other-organization client: ${userSpecs[3].email}`);
   console.log(`Unenrolled client: ${userSpecs[4].email}`);
+  console.log(`Fixture Machine Co. read only client: ${userSpecs[5].email}`);
+  console.log(`Fixture Machine Co. sign out client: ${userSpecs[6].email}`);
   console.log(`Password: ${PASSWORD}`);
 }
 
@@ -282,16 +305,6 @@ function readSupabaseStatus() {
   return parsed;
 }
 
-function ensureLocalProject(supabaseUrl, allowRemote) {
-  const hostname = new URL(supabaseUrl).hostname;
-
-  if (!allowRemote && !LOCAL_HOSTNAMES.has(hostname)) {
-    throw new Error(
-      `Refusing to seed non-local Supabase project ${supabaseUrl}. Re-run with --allow-remote to override.`,
-    );
-  }
-}
-
 /**
  * Decides whether the private Founding Beta fixture may be written. Its rows
  * bypass the admin RPC, so they are only ever written to a local stack: never
@@ -313,12 +326,22 @@ export function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
     );
   }
 
-  let hostname;
+  let parsedUrl;
 
   try {
-    hostname = new URL(dbUrl).hostname;
+    parsedUrl = new URL(dbUrl);
   } catch (error) {
     throw new Error(`The database URL for ${BETA_ACCESS_FIXTURE} is not a valid PostgreSQL URL.`, { cause: error });
+  }
+
+  const { hostname } = parsedUrl;
+
+  // libpq lets host or hostaddr query parameters override the authority, so a local
+  // looking URL could still connect elsewhere.
+  for (const name of parsedUrl.searchParams.keys()) {
+    if (/^(host|hostaddr)$/i.test(name)) {
+      throw new Error(`Refusing a database URL for ${BETA_ACCESS_FIXTURE} that sets the ${name} query parameter.`);
+    }
   }
 
   if (!LOCAL_HOSTNAMES.has(hostname)) {
@@ -328,30 +351,62 @@ export function planBetaAccessFixture({ supabaseUrl, dbUrl, allowRemote }) {
   return { apply: true, dbUrl };
 }
 
-const PSQL_DIRECTORIES = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+/** Orders version directory names such as 9.6 and 16 numerically, newest first. */
+function compareVersionsDescending(left, right) {
+  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10) || 0);
 
-/** Finds psql in fixed system directories so the lookup never depends on a writable PATH entry. */
-function resolvePsql() {
-  const versioned = existsSync("/usr/lib/postgresql")
-    ? readdirSync("/usr/lib/postgresql").map((version) => `/usr/lib/postgresql/${version}/bin`)
-    : [];
-  const directory = [...PSQL_DIRECTORIES, ...versioned].find((candidate) => existsSync(path.join(candidate, "psql")));
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (rightParts[index] ?? 0) - (leftParts[index] ?? 0);
 
-  if (!directory) {
-    throw new Error(
-      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
-    );
+    if (difference !== 0) {
+      return difference;
+    }
   }
 
-  return path.join(directory, "psql");
+  return 0;
+}
+
+/**
+ * Resolves psql without consulting PATH. SEED_PSQL_PATH names an absolute binary for
+ * installs outside the fixed directories (keg only libpq, Postgres.app).
+ */
+export function findPsql(env = process.env) {
+  const override = env.SEED_PSQL_PATH;
+
+  if (override) {
+    if (!path.isAbsolute(override) || !existsSync(override)) {
+      throw new Error("SEED_PSQL_PATH must be an absolute path to an existing psql binary.");
+    }
+
+    return override;
+  }
+
+  const versioned = PSQL_VERSIONED_ROOTS.flatMap((root) => {
+    try {
+      return readdirSync(root)
+        .sort(compareVersionsDescending)
+        .map((version) => path.join(root, version, "bin"));
+    } catch {
+      return [];
+    }
+  });
+
+  return [...PSQL_DIRECTORIES, ...versioned].map((dir) => path.join(dir, "psql")).find((candidate) => existsSync(candidate));
 }
 
 function ensurePsqlAvailable() {
   try {
-    execFileSync(resolvePsql(), ["--version"], { stdio: "ignore" });
+    const psql = findPsql();
+
+    if (!psql) {
+      throw new Error("psql was not found in a fixed system directory or at SEED_PSQL_PATH.");
+    }
+
+    execFileSync(psql, ["--version"], { stdio: "ignore" });
   } catch (error) {
     throw new Error(
-      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) and re-run.`,
+      `psql is required to apply ${BETA_ACCESS_FIXTURE} to the local database. Install the PostgreSQL client (for example postgresql-client) or set SEED_PSQL_PATH to its absolute path, and re-run.`,
       { cause: error },
     );
   }
@@ -360,7 +415,7 @@ function ensurePsqlAvailable() {
 /** Writes the Founding Beta rows as postgres; service_role cannot reach those tables. */
 function applyBetaAccessFixture(dbUrl) {
   try {
-    execFileSync(resolvePsql(), [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
+    execFileSync(findPsql(), [dbUrl, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", BETA_ACCESS_FIXTURE], {
       cwd: repoRoot,
       stdio: ["ignore", "inherit", "inherit"],
     });
@@ -368,6 +423,16 @@ function applyBetaAccessFixture(dbUrl) {
     throw new Error(`psql failed to apply ${BETA_ACCESS_FIXTURE} (exit ${error.status ?? error.code}).`, {
       cause: error,
     });
+  }
+}
+
+function ensureLocalProject(supabaseUrl, allowRemote) {
+  const hostname = new URL(supabaseUrl).hostname;
+
+  if (!allowRemote && !LOCAL_HOSTNAMES.has(hostname)) {
+    throw new Error(
+      `Refusing to seed non-local Supabase project ${supabaseUrl}. Re-run with --allow-remote to override.`,
+    );
   }
 }
 
@@ -532,7 +597,7 @@ async function cleanupExistingSeedData(admin) {
   await deleteRows(admin, "organizations", "id", ids.organization);
 }
 
-/** Two client-only organizations for cross-organization and enrollment checks. */
+/** Two client-only organizations plus two more Fixture Machine Co. clients for the access-scope specs. */
 async function upsertAccessScopeOrganizations(admin, users) {
   await upsertRows(admin, "organizations", [
     {
@@ -563,6 +628,20 @@ async function upsertAccessScopeOrganizations(admin, users) {
       id: ids.organizationMembershipUnenrolled,
       organization_id: ids.unenrolledOrganization,
       user_id: users.unenrolled.id,
+      role: "client",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+    {
+      id: ids.organizationMembershipOwnerProbe,
+      organization_id: ids.organization,
+      user_id: users.ownerProbe.id,
+      role: "client",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+    {
+      id: ids.organizationMembershipSwitchProbe,
+      organization_id: ids.organization,
+      user_id: users.switchProbe.id,
       role: "client",
       created_at: FIXTURE_TIMESTAMP,
     },

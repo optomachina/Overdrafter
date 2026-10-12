@@ -492,4 +492,11 @@ describe("invalidateClientWorkspaceQueries", () => {
       queryKey: ["client-quote-workspace"],
     });
   });
+
+  it("invalidates the persisted part deadline so a request save reseeds the comparison", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["part-deadline", "part-1"], { activeDate: "2026-10-22", state: "confirmed" });
+    await invalidateClientWorkspaceQueries(queryClient, { jobId: "job-1" });
+    expect(queryClient.getQueryState(["part-deadline", "part-1"])?.isInvalidated).toBe(true);
+  });
 });

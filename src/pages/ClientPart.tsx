@@ -67,6 +67,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { usePartDeadline } from "@/features/quotes/use-part-deadline";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   buildScopedPreset,
@@ -263,6 +264,7 @@ const ClientPart = () => {
   });
 
   const storageScopeKey = user?.id ?? "anonymous";
+  const partDeadline = usePartDeadline(partDetail?.part?.id);
 
   const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(selectedQuoteOption?.key ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
@@ -933,7 +935,7 @@ const ClientPart = () => {
                 <ClientQuoteDecisionPanel
                     className="rounded-[12px]"
                     title="Quote comparison"
-                    description="Set the sourcing criteria, then compare every quote by price and lead time."
+                    description="Set the sourcing criteria, then compare every quote by delivered date and expected delivered cost."
                     options={rankedQuoteOptions}
                     selectedOption={
                       rankedQuoteOptions.find((option) => option.isSelectable && option.key === selectedOptionKey) ??
@@ -947,6 +949,25 @@ const ClientPart = () => {
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
+                    deadline={partDeadline ? { date: partDeadline.activeDate, state: partDeadline.state } : null}
+                    requestCompletion={{
+                      request: partDetail.latestQuoteRequest
+                        ? {
+                            id: partDetail.latestQuoteRequest.id,
+                            status: partDetail.latestQuoteRequest.status,
+                            requestedVendors: partDetail.latestQuoteRequest.requested_vendors,
+                          }
+                        : null,
+                      run: partDetail.latestQuoteRun
+                        ? { id: partDetail.latestQuoteRun.id, quoteRequestId: partDetail.latestQuoteRun.quote_request_id }
+                        : null,
+                      vendorResults: (partDetail.part?.vendorQuotes ?? []).map((quote) => ({
+                        id: quote.id,
+                        vendor: quote.vendor,
+                        quoteRunId: quote.quote_run_id,
+                        status: quote.status,
+                      })),
+                    }}
                     headerActions={
                       <Button
                         type="button"
@@ -961,7 +982,6 @@ const ClientPart = () => {
                     controls={
                       <QuoteSelectionFunctionBar
                         scope={partPresetScope}
-                        mode={partPresetMode}
                         requestedByDate={requestSummaryRequestedByDate}
                         matchingOptionCount={
                           requestSummaryRequestedByDate
@@ -970,7 +990,6 @@ const ClientPart = () => {
                         }
                         totalOptionCount={rankedQuoteOptions.length}
                         onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
-                        onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
                         onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
                         disabled={saveRequestMutation.isPending}
                         dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."

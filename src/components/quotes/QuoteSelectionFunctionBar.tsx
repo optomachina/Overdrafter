@@ -1,16 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import type { QuotePresetMode, QuotePresetScope } from "@/features/quotes/selection";
+import type { QuotePresetScope } from "@/features/quotes/selection";
 import { cn } from "@/lib/utils";
 import { Filter } from "lucide-react";
 
 type QuoteSelectionFunctionBarProps = {
   scope: QuotePresetScope;
-  mode: QuotePresetMode;
   requestedByDate: string | null;
   onScopeChange: (next: QuotePresetScope) => void;
-  onModeChange: (next: QuotePresetMode) => void;
   onRequestedByDateChange: (next: string | null) => void;
   disabled?: boolean;
   dueDateHelpText?: string;
@@ -91,10 +89,8 @@ function RoundGlobeIcon({ className }: { className?: string }) {
 
 export function QuoteSelectionFunctionBar({
   scope,
-  mode,
   requestedByDate,
   onScopeChange,
-  onModeChange,
   onRequestedByDateChange,
   disabled = false,
   dueDateHelpText = "Filters vendor options by the requested delivery date for this part.",
@@ -143,61 +139,6 @@ export function QuoteSelectionFunctionBar({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          <div
-            className="inline-flex items-center overflow-hidden rounded-full border border-border bg-muted p-0.5"
-            role="group"
-            aria-label="Quote preset"
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs",
-                mode === "balanced"
-                  ? "bg-primary text-primary-foreground hover:bg-accent"
-                  : "text-foreground hover:bg-accent",
-              )}
-              aria-pressed={mode === "balanced"}
-              onClick={() => onModeChange("balanced")}
-            >
-              Balanced
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs",
-                mode === "fastest"
-                  ? "bg-primary text-primary-foreground hover:bg-accent"
-                  : "text-foreground hover:bg-accent",
-              )}
-              aria-pressed={mode === "fastest"}
-              onClick={() => onModeChange("fastest")}
-            >
-              Fast
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs",
-                mode === "cheapest"
-                  ? "bg-primary text-primary-foreground hover:bg-accent"
-                  : "text-foreground hover:bg-accent",
-              )}
-              aria-pressed={mode === "cheapest"}
-              onClick={() => onModeChange("cheapest")}
-            >
-              Cheap
-            </Button>
-          </div>
 
           <div className="ml-auto flex items-center gap-2">
             <TooltipProvider delayDuration={150}>

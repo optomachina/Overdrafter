@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { planBetaAccessFixture } from "./seed-dev.mjs";
+import { findPsql, planBetaAccessFixture } from "./seed-dev.mjs";
 
 const LOCAL_API = "http://127.0.0.1:54321";
 const LOCAL_DB = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -53,4 +53,37 @@ describe("seed-dev Founding Beta fixture guard", () => {
       /DB_URL/,
     );
   });
+
+  it.each([
+    "postgresql://postgres:postgres@127.0.0.1:54322/postgres?host=db.example-project.supabase.co",
+    "postgresql://postgres:postgres@localhost:54322/postgres?hostaddr=203.0.113.9",
+    "postgresql://postgres:postgres@localhost:54322/postgres?sslmode=disable&HOST=db.example.com",
+  ])("refuses a local looking URL that overrides the host by query parameter (%s)", (dbUrl) => {
+    expect(() => planBetaAccessFixture({ supabaseUrl: LOCAL_API, dbUrl, allowRemote: false })).toThrow(
+      /host(addr)? query parameter/i,
+    );
+  });
+
+  it("still accepts harmless query parameters on a local URL", () => {
+    expect(
+      planBetaAccessFixture({
+        supabaseUrl: LOCAL_API,
+        dbUrl: `${LOCAL_DB}?sslmode=disable`,
+        allowRemote: false,
+      }).apply,
+    ).toBe(true);
+  });
+});
+
+describe("seed-dev psql resolution", () => {
+  it("uses SEED_PSQL_PATH when it names an existing absolute binary", () => {
+    expect(findPsql({ SEED_PSQL_PATH: process.execPath })).toBe(process.execPath);
+  });
+
+  it.each([{ SEED_PSQL_PATH: "psql" }, { SEED_PSQL_PATH: "/definitely/not/here/psql" }])(
+    "rejects an override that is relative or missing (%j)",
+    (env) => {
+      expect(() => findPsql(env)).toThrow(/SEED_PSQL_PATH must be an absolute path/);
+    },
+  );
 });

@@ -5,7 +5,9 @@
 -- Founding Beta evidence tables are revoked from service_role and append-only,
 -- so every statement is guarded and the file is safe to apply repeatedly.
 --
---   Fixture Machine Co.  (uuid 1): enrolled; client.demo accepted the notice.
+--   Fixture Machine Co.  (uuid 1): enrolled; client.demo, owner.demo and switch.demo
+--     accepted the notice (the last two give access-scope.spec.ts accounts that
+--     no other spec signs out).
 --   Outsider Fixture Co. (uuid 2): no Founding Beta rows (cross-org denial).
 --   Unenrolled Fixture Co. (uuid 3): complimentary entitlement, no enrollment.
 
@@ -18,6 +20,14 @@ select
   (select id from auth.users where email = 'admin.demo@overdrafter.local') as actor_user_id,
   (select id from auth.users where email = 'client.demo@overdrafter.local') as client_user_id,
   (select id from auth.users where email = 'unenrolled.demo@overdrafter.local') as unenrolled_user_id,
+  array(
+    select id from auth.users
+    where email in (
+      'client.demo@overdrafter.local',
+      'owner.demo@overdrafter.local',
+      'switch.demo@overdrafter.local'
+    )
+  ) as accepting_user_ids,
   private.current_founding_beta_notice() as notice;
 
 do $$
@@ -28,6 +38,7 @@ begin
     where actor_user_id is null
       or client_user_id is null
       or unenrolled_user_id is null
+      or cardinality(accepting_user_ids) <> 3
   ) then
     raise exception 'beta-access fixture needs the seed-dev users; run the REST seed first.';
   end if;
@@ -70,16 +81,17 @@ insert into private.founding_beta_notice_acceptances (
 )
 select
   fixture.enrolled_organization_id,
-  fixture.client_user_id,
+  accepting.user_id,
   fixture.notice ->> 'policyRevision',
   fixture.notice ->> 'termsPath',
   fixture.notice ->> 'privacyPath'
 from beta_access_fixture fixture
+cross join lateral unnest(fixture.accepting_user_ids) as accepting(user_id)
 where not exists (
   select 1
   from private.founding_beta_notice_acceptances acceptance
   where acceptance.organization_id = fixture.enrolled_organization_id
-    and acceptance.user_id = fixture.client_user_id
+    and acceptance.user_id = accepting.user_id
     and acceptance.policy_revision = fixture.notice ->> 'policyRevision'
 );
 
@@ -125,6 +137,16 @@ begin
 
   if v_enrolled_state is distinct from 'eligible' then
     raise exception 'beta-access fixture: client.demo is %, expected eligible.', v_enrolled_state;
+  end if;
+
+  if exists (
+    select 1
+    from beta_access_fixture fixture
+    cross join lateral unnest(fixture.accepting_user_ids) as accepting(user_id)
+    where private.resolve_founding_beta_access_state(fixture.enrolled_organization_id, accepting.user_id) ->> 'state'
+      is distinct from 'eligible'
+  ) then
+    raise exception 'beta-access fixture: a Fixture Machine Co. client is not eligible.';
   end if;
 
   if v_unenrolled_state is distinct from 'not_enrolled' then

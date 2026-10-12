@@ -4,8 +4,14 @@ import { test, expect } from "./test";
 
 // Authenticated lane only (no @fixture tag): these cases need the local stack
 // seeded by scripts/seed-dev.mjs, including e2e/fixtures/beta-access.sql.
+// Isolation under parallel workers: smoke.spec.ts logs client.demo out (a global
+// sign out) and intake.spec.ts counts Fixture Machine Co. jobs as client.demo. These
+// cases never sign in as client.demo and create no jobs in that organization; they
+// use owner.demo (read only) and switch.demo (the only one that signs out), both
+// members of the same organization with their own sessions.
 const PASSWORD = "Overdrafter123!";
-const CLIENT_EMAIL = "client.demo@overdrafter.local";
+const OWNER_PROBE_EMAIL = "owner.demo@overdrafter.local";
+const SWITCH_PROBE_EMAIL = "switch.demo@overdrafter.local";
 const OUTSIDER_EMAIL = "outsider.demo@overdrafter.local";
 const UNENROLLED_EMAIL = "unenrolled.demo@overdrafter.local";
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -264,7 +270,7 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
   test.describe.configure({ timeout: 120_000 });
 
   test("an enrolled client's intake control opens a file chooser", async ({ browser, baseURL }) => {
-    const actor = await openActor(browser, baseURL, CLIENT_EMAIL);
+    const actor = await openActor(browser, baseURL, OWNER_PROBE_EMAIL);
 
     try {
       const { page } = actor;
@@ -322,7 +328,7 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
 
   test("an outsider cannot open or read another organization's part", async ({ browser, baseURL }) => {
     const partPath = `/parts/${CLIENT_QUOTED_JOB_ID}?debug=1`;
-    const owner = await openActor(browser, baseURL, CLIENT_EMAIL);
+    const owner = await openActor(browser, baseURL, OWNER_PROBE_EMAIL);
     const outsider = await openActor(browser, baseURL, OUTSIDER_EMAIL);
 
     try {
@@ -347,7 +353,9 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
     // Guards the access-scope reset in useWorkspaceNavigationModel: its stabilized parts
     // list is keyed by the signed-in user and membership, so it cannot outlive an in-tab
     // sign-out and sign-in. The leak it catches was timing-dependent; run it repeated.
-    const actor = await openActor(browser, baseURL, CLIENT_EMAIL);
+    // Signing out revokes every session of the account (scope "global"), so this case
+    // uses switch.demo, a Fixture Machine Co. client no other spec signs in as.
+    const actor = await openActor(browser, baseURL, SWITCH_PROBE_EMAIL);
 
     try {
       const { page } = actor;

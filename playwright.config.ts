@@ -10,6 +10,9 @@ const baseURL = fixtureOnly
 
 export default defineConfig({
   testDir: "./e2e",
+  // Served only by its synthetic server; `npm run e2e:fixture` runs it through
+  // e2e/delivered-comparison.config.ts.
+  testIgnore: ["delivered-comparison.spec.ts"],
   fullyParallel: false,
   globalSetup: "./e2e/global-setup.mjs",
   use: {
