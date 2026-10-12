@@ -609,6 +609,16 @@ function createXometryDispatchScope() {
   };
 }
 
+function renderPartControllerHook() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rendered = renderHook(() => useClientPartController("job-1", { warmNavigation: false }), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+    ),
+  });
+  return { ...rendered, queryClient };
+}
+
 /** A part detail with one live Xometry offer (`offer-1`), selected by the given stored offer id. */
 function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: string | null = "offer-1") {
   const base = createPartDetail();
@@ -1307,15 +1317,7 @@ describe("ClientPart", () => {
 
     it("selects no substitute at the controller level while options still exist", async () => {
       api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const { result } = renderHook(
-        () => useClientPartController("job-1", { warmNavigation: false }),
-        {
-          wrapper: ({ children }: { children: ReactNode }) => (
-            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
-          ),
-        },
-      );
+      const { result, queryClient } = renderPartControllerHook();
 
       await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
       expect(result.current.rankedQuoteOptions.some((option) => option.eligible)).toBe(true);
@@ -1326,15 +1328,7 @@ describe("ClientPart", () => {
 
     it("never persists a selection when a preset or the sourcing toggle is applied", async () => {
       api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
-      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      const { result } = renderHook(
-        () => useClientPartController("job-1", { warmNavigation: false }),
-        {
-          wrapper: ({ children }: { children: ReactNode }) => (
-            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
-          ),
-        },
-      );
+      const { result, queryClient } = renderPartControllerHook();
       await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
 
       act(() => result.current.handlePresetSelection("cheapest_global"));
@@ -1347,22 +1341,21 @@ describe("ClientPart", () => {
       queryClient.clear();
     });
 
-    it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
-      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+    async function findReviewOrderButton(selectedOfferId: string) {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString(), selectedOfferId));
       renderWithClient("/parts/job-1");
-
       await screen.findByText("Xometry · Standard");
-      const button = screen.getByRole("button", { name: "Review order" });
+      return screen.getByRole("button", { name: "Review order" });
+    }
+
+    it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
+      const button = await findReviewOrderButton("offer-gone");
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription("Choose a quote to continue");
     });
 
     it("enables the Review order button when the stored selection is still current", async () => {
-      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString()));
-      renderWithClient("/parts/job-1");
-
-      await screen.findByText("Xometry · Standard");
-      const button = screen.getByRole("button", { name: "Review order" });
+      const button = await findReviewOrderButton("offer-1");
       expect(button).toBeEnabled();
       expect(button).not.toHaveAttribute("aria-describedby");
     });
