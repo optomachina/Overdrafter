@@ -431,8 +431,12 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       >
         {scope === "domestic" ? "US-only sourcing" : "All sourcing"}
       </button>
-      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
-      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
+      {onModeChange ? (
+        <>
+          <button type="button" onClick={() => onModeChange("fastest")}>Fast</button>
+          <button type="button" onClick={() => onModeChange("cheapest")}>Cheap</button>
+        </>
+      ) : null}
     </div>
   ),
 }));
@@ -1488,19 +1492,9 @@ describe("ClientPart", () => {
       "offer-imported-1",
     );
 
-    api.persistClientQuoteSelection.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
-
-    await waitFor(() => {
-      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
-        jobId: "job-1",
-        target: {
-          kind: "published_quote_option",
-          packageId: "published-package-imported-1",
-          optionId: "published-option-imported-1",
-        },
-      });
-    });
+    // OVD-571: table order is Cheapest/Fastest on the comparison table; no preset button auto-selects a winner.
+    expect(screen.queryByRole("button", { name: "Cheap" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Balanced" })).not.toBeInTheDocument();
     expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
   });
 
