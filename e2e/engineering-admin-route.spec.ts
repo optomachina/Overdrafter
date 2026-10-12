@@ -149,12 +149,16 @@ test.describe("hosted engineering admin route", { tag: "@fixture" }, () => {
     }
   });
 
-  test("a signed in user reaches the inbox only when the server allowlist admits them", async ({ browser }) => {
+  test("a signed in user reaches the inbox only when the server allowlist admits them", async ({ browser }, testInfo) => {
     test.setTimeout(180_000);
     const port = 4183;
     const origin = `http://127.0.0.1:${port}`;
     const server: ViteDevServer = await withEnv({ ...baseEnv, VITE_ENABLE_ENGINEERING_ADMIN_ROUTE: "1" }, async () => {
-      const dev = await createServer({ configFile, root, logLevel: "silent", server: { host: "127.0.0.1", port, strictPort: true } });
+      // A private dependency cache keeps this server from rewriting node_modules/.vite under the suite's own dev servers.
+      const dev = await createServer({
+        configFile, root, logLevel: "silent", cacheDir: testInfo.outputPath("vite-cache"),
+        server: { host: "127.0.0.1", port, strictPort: true },
+      });
       return dev.listen();
     });
     const conversation = "10000000-0000-4000-8000-000000000001";
