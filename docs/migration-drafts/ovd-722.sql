@@ -421,11 +421,20 @@ grant execute on function public.api_admin_list_provider_kill_switches()
 -- Periodic sweep: queued run_vendor_quote tasks for a switched-off provider end
 -- truthfully as cancelled_provider_disabled instead of staying parked. Rows a
 -- worker already holds are skipped; the worker's own checkpoints stop those.
--- Rows are handled one at a time, each in its own subtransaction: a row level
--- trigger exception on one row (for example private.fence_free_quote_result
--- raising free_quote_terminal_fenced for a canceled free beta request) rolls
--- back only that row, which stays queued and is counted as skipped. One bad
--- row can never stop the sweep for the other rows or the other providers.
+-- Rows are handled one at a time, each in its own subtransaction: an exception
+-- raised while a row is updated (for example private.fence_free_quote_result
+-- raising free_quote_terminal_fenced for a canceled free beta request, or a
+-- task whose lane cannot be settled) rolls back only that row, which stays
+-- queued and is counted as skipped; the worker's claim check settles it later.
+-- This covers immediate triggers only. A deferred constraint trigger such as
+-- settle_terminal_free_quote_result fires at commit, after this function has
+-- returned, so an exception there still aborts the caller's whole
+-- transaction and the sweep's other rows with it.
+--
+-- A task is only cancelled together with its lane. A task whose payload has
+-- no usable vendorQuoteResultId, or whose lane is no longer queued, raises
+-- inside its subtransaction and is skipped, so a cancelled task never leaves
+-- its lane queued with nothing left to run it.
 create or replace function public.api_worker_cancel_provider_disabled_tasks()
 returns jsonb
 language plpgsql
@@ -465,20 +474,21 @@ begin
             'killSwitchCheckpoint', 'sweep')
       where q.id = v_row.id;
 
-      v_rows := 0;
-      if v_row.vendor_quote_result_id is not null then
-        update public.vendor_quote_results r
-        set status = 'failed',
-            notes = '["Provider temporarily unavailable."]'::jsonb,
-            raw_payload = pg_catalog.jsonb_build_object(
-              'failureCode', 'cancelled_provider_disabled',
-              'killSwitchReasonCode', 'provider_kill_switch_engaged',
-              'killSwitchCheckpoint', 'sweep',
-              'providerMutationPossible', false,
-              'retryScheduledFor', null)
-        where r.id = v_row.vendor_quote_result_id
-          and r.status = 'queued';
-        get diagnostics v_rows = row_count;
+      -- A null id matches no row, so it is skipped like a lane that moved on.
+      update public.vendor_quote_results r
+      set status = 'failed',
+          notes = '["Provider temporarily unavailable."]'::jsonb,
+          raw_payload = pg_catalog.jsonb_build_object(
+            'failureCode', 'cancelled_provider_disabled',
+            'killSwitchReasonCode', 'provider_kill_switch_engaged',
+            'killSwitchCheckpoint', 'sweep',
+            'providerMutationPossible', false,
+            'retryScheduledFor', null)
+      where r.id = v_row.vendor_quote_result_id
+        and r.status = 'queued';
+      get diagnostics v_rows = row_count;
+      if v_rows = 0 then
+        raise exception 'provider_kill_switch_sweep_lane_not_queued' using errcode = 'P0001';
       end if;
 
       v_cancelled := v_cancelled + 1;
@@ -579,10 +589,13 @@ create trigger provider_kill_switch_permit_guard
 -- The guard at the top refuses, before anything is dropped, when:
 --   * the running role cannot bypass RLS (the switch tables force RLS with no
 --     policies, so such a role would see no engagement and pass the check);
---   * any provider or the global switch is engaged. Rolling back would stop
---     the server side refusal and, on a later re-apply, re-seed every switch
---     as disengaged, silently lifting an emergency stop. Record the
---     engagements out of band first, or set in the same transaction:
+--   * any switch reads as engaged at runtime: the global singleton is
+--     missing or engaged, or any vendor_name value has no row or an engaged
+--     row (the same fail closed rule as private.provider_kill_switch_engaged).
+--     Rolling back would stop the server side refusal and, on a later
+--     re-apply, re-seed every switch as disengaged, silently lifting an
+--     emergency stop. Record the engagements out of band first, or set in the
+--     same transaction:
 --       set local ovd722.rollback_discard_engagements = 'confirmed';
 --   * any function outside this migration references the switch (a later
 --     migration depends on it). Roll that migration back first.
@@ -604,8 +617,11 @@ create trigger provider_kill_switch_permit_guard
 --     end if;
 --     lock table private.provider_global_kill_switch, private.provider_kill_switches in access exclusive mode;
 --     if coalesce(pg_catalog.current_setting('ovd722.rollback_discard_engagements', true), '') <> 'confirmed'
---        and (exists (select 1 from private.provider_global_kill_switch where engaged)
---             or exists (select 1 from private.provider_kill_switches where engaged)) then
+--        and (coalesce((select g.engaged from private.provider_global_kill_switch g where g.singleton), true)
+--             or exists (select 1
+--                        from pg_catalog.unnest(pg_catalog.enum_range(null::public.vendor_name)) as v(provider)
+--                        left join private.provider_kill_switches s on s.provider = v.provider
+--                        where s.provider is null or s.engaged)) then
 --       raise exception 'OVD-722 rollback refused: a provider kill switch is engaged'
 --         using errcode = 'P0001',
 --               hint = 'Record the engagements, or set local ovd722.rollback_discard_engagements = ''confirmed''.';

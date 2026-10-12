@@ -586,6 +586,7 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
 async function setFilesOnUpload(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
+  beforeMutation: () => Promise<void> = async () => undefined,
 ) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 30_000;
@@ -601,6 +602,9 @@ async function setFilesOnUpload(
 
       if (count < 1) continue;
 
+      // OVD-722: this loop can poll for 30 s; re-read the switch right before
+      // each upload attempt, outside the try so a refusal is never swallowed.
+      await beforeMutation();
       try {
         markProviderMutationStarted();
         await locator.setInputFiles(files);
@@ -800,6 +804,7 @@ async function trySetMaterialAndFinish(
   page: Page,
   materialTerms: string[],
   finishTerms: string[],
+  beforeStep: () => Promise<void> = async () => undefined,
 ) {
   let selectedMaterial: string | null = null;
   let selectedFinish: string | null = null;
@@ -810,6 +815,8 @@ async function trySetMaterialAndFinish(
   }
 
   if (finishTerms.length > 0) {
+    // OVD-722: fresh read between material and finish.
+    await beforeStep();
     const finishButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.finishButtons);
     if (finishButtonSelector) {
       selectedFinish = await chooseOptionByTerms(page, finishTerms, FICTIV_LOCATORS.finishOptions);
@@ -897,13 +904,19 @@ async function dismissAutoConfigLoadingModal(page: Page) {
   return true;
 }
 
-async function trySelectCncProcess(page: Page) {
+async function trySelectCncProcess(
+  page: Page,
+  beforeClick: () => Promise<void> = async () => undefined,
+) {
   const processTerms = ["CNC", "CNC Machining", "Machining"];
 
   const alreadySelected = await detectSelectedCncRadioCard(page);
   if (alreadySelected) {
     return alreadySelected;
   }
+
+  // OVD-722: the clicks below change the provider page; check first.
+  await beforeClick();
 
   const clickedCnc = await clickCncRadioCard(page);
   if (clickedCnc) {
@@ -986,7 +999,12 @@ async function openConfigurationDrawerIfPresent(page: Page) {
   return true;
 }
 
-async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, runDir: string) {
+async function waitForCncSelectionBeforeUpload(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+  beforeClick: () => Promise<void> = async () => undefined,
+) {
   const deadline = Date.now() + timeoutMs;
   let lastBodyText = "";
 
@@ -1002,7 +1020,7 @@ async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, ru
       return null;
     }
 
-    const selectedProcess = await trySelectCncProcess(page);
+    const selectedProcess = await trySelectCncProcess(page, beforeClick);
     if (selectedProcess) {
       return selectedProcess;
     }
@@ -1224,8 +1242,14 @@ function buildFictivOffers(
   });
 }
 
-async function navigateToQuoteSurface(page: Page) {
+async function navigateToQuoteSurface(
+  page: Page,
+  beforeNavigation: () => Promise<void> = async () => undefined,
+) {
   for (const url of [FICTIV_URLS.upload, FICTIV_URLS.quotes, FICTIV_URLS.home]) {
+    // OVD-722: before every navigation attempt, outside the try so the
+    // fallback loop never swallows a refusal.
+    await beforeNavigation();
     try {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       return;
@@ -1409,8 +1433,7 @@ export class FictivAdapter extends VendorAdapter {
     finishTerms: string[],
     prerequisites: FictivLivePrerequisites,
   ): Promise<FictivLiveSelection> {
-    await input.providerKillSwitchCheckpoint?.("before_navigation");
-    await navigateToQuoteSurface(page);
+    await navigateToQuoteSurface(page, async () => input.providerKillSwitchCheckpoint?.("before_navigation"));
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "landing");
     await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs, runDir);
@@ -1419,6 +1442,7 @@ export class FictivAdapter extends VendorAdapter {
       page,
       this.config.browserTimeoutMs,
       runDir,
+      async () => input.providerKillSwitchCheckpoint?.("before_configure"),
     );
     await detectBlockingState(page, runDir);
 
@@ -1450,7 +1474,11 @@ export class FictivAdapter extends VendorAdapter {
     let uploadSelector: string | null = null;
     if (selectedProcessBeforeUpload) {
       await input.providerKillSwitchCheckpoint?.("before_upload");
-      const uploadResult = await setFilesOnUpload(page, uploadFiles);
+      const uploadResult = await setFilesOnUpload(
+        page,
+        uploadFiles,
+        async () => input.providerKillSwitchCheckpoint?.("before_upload"),
+      );
       uploadSelector = uploadResult.selector;
       await appendArtifacts(artifacts, page, runDir, "uploaded");
       await detectBlockingState(page, runDir);
@@ -1470,7 +1498,12 @@ export class FictivAdapter extends VendorAdapter {
     await input.providerKillSwitchCheckpoint?.("before_configure");
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
     await input.providerKillSwitchCheckpoint?.("before_configure");
-    const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
+    const selectionResult = await trySetMaterialAndFinish(
+      page,
+      materialTerms,
+      finishTerms,
+      async () => input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
     await input.providerKillSwitchCheckpoint?.("before_configure");
     const endUseSelection = await trySetEndUsePrototype(page);
 

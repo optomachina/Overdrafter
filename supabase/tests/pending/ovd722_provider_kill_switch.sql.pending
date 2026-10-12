@@ -18,7 +18,8 @@
 --     BEFORE INSERT trigger on both permit tables; the request RPCs are
 --     not renamed or wrapped
 --   * the sweep cancels queued tasks as cancelled_provider_disabled only for
---     the switched-off provider
+--     the switched-off provider, and only together with their queued lane: a
+--     task whose payload has no vendorQuoteResultId is skipped and stays queued
 --   * release is compare and set: a stale or versionless release is refused
 --     and never clears a newer engagement; engage needs no version
 --   * RLS is enabled and forced on the three switch tables
@@ -277,8 +278,12 @@ select throws_ok(
   '23502', null, 'a quickparts permit passes the guard and reaches the table''s own constraints');
 
 -- ---------------------------------------------------------------------
--- Sweep: queued tasks end cancelled_provider_disabled; other providers stay
+-- Sweep: a task without a lane id is skipped; other providers stay
 -- ---------------------------------------------------------------------
+-- The fictiv task carries no vendorQuoteResultId. Cancelling it would leave
+-- its lane queued with no task to run it, so the sweep skips it and the
+-- worker's claim check settles it. A task with a lane is cancelled in the
+-- end to end section below.
 insert into public.organizations (id, name, slug)
 values ('00000000-0000-4000-8000-000000722201', 'OVD-722 org', 'ovd722-kill-switch-org');
 insert into public.work_queue (id, organization_id, task_type, status, payload) values
@@ -289,14 +294,14 @@ insert into public.work_queue (id, organization_id, task_type, status, payload) 
 
 set local role service_role;
 select is(
-  (public.api_worker_cancel_provider_disabled_tasks() ->> 'cancelled')::int >= 1, true,
-  'the sweep cancels at least the queued fictiv task');
+  (public.api_worker_cancel_provider_disabled_tasks() ->> 'skipped')::int >= 1, true,
+  'the sweep reports the fictiv task without a lane id as skipped');
 reset role;
 
 select ok(
   exists (select 1 from public.work_queue where id = '00000000-0000-4000-8000-000000722211'
-    and status = 'cancelled' and payload ->> 'cancellationReason' = 'cancelled_provider_disabled'),
-  'the fictiv task ends cancelled_provider_disabled');
+    and status = 'queued' and not payload ? 'cancellationReason'),
+  'a task whose payload has no vendorQuoteResultId stays queued (never cancelled with its lane left queued)');
 select is(
   (select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722212'),
   'queued', 'the quickparts task is untouched');
@@ -443,8 +448,9 @@ select ok(
 -- Sweep: a row level trigger exception on one row (in production, for example,
 -- private.fence_free_quote_result raising free_quote_terminal_fenced for a
 -- canceled free beta request) must skip only that row. A test trigger raises
--- the same way for the accepted dispatch's lane; a second queued task without a
--- lane is cancelled normally.
+-- the same way for the accepted dispatch's lane (quantity 1); a second queued
+-- task with its own queued lane (quantity 2) is cancelled normally. Results
+-- are asserted by task and lane id, not by global counts.
 create function pg_temp.ovd722_fence_stub()
 returns trigger
 language plpgsql
@@ -454,11 +460,16 @@ begin
 end;
 $$;
 create trigger ovd722_fence_stub before update of status on public.vendor_quote_results
-  for each row when (old.part_id = '00000000-0000-4000-8000-000000722304'::uuid)
+  for each row when (old.part_id = '00000000-0000-4000-8000-000000722304'::uuid and old.requested_quantity = 1)
   execute function pg_temp.ovd722_fence_stub();
+insert into public.vendor_quote_results (id, quote_run_id, part_id, organization_id, vendor, status, requested_quantity)
+select '00000000-0000-4000-8000-000000722314', r.quote_run_id, r.part_id, r.organization_id, 'xometry', 'queued', 2
+from public.vendor_quote_results r
+where r.part_id = (select part_id from ovd722_e2e) and r.requested_quantity = 1;
 insert into public.work_queue (id, organization_id, task_type, status, payload)
 values ('00000000-0000-4000-8000-000000722213', '00000000-0000-4000-8000-000000722201',
-  'run_vendor_quote', 'queued', '{"vendor":"xometry"}');
+  'run_vendor_quote', 'queued',
+  '{"vendor":"xometry","vendorQuoteResultId":"00000000-0000-4000-8000-000000722314"}');
 
 update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
 set local role authenticated;
@@ -470,16 +481,22 @@ set local role service_role;
 create temp table ovd722_sweep_result on commit drop as
   select public.api_worker_cancel_provider_disabled_tasks() as result;
 reset role;
-select is((select (result ->> 'cancelled')::int from ovd722_sweep_result), 1,
-  'the sweep cancels the task that can transition');
-select is((select (result ->> 'skipped')::int from ovd722_sweep_result), 1,
-  'the sweep skips the row whose trigger raises instead of aborting');
+select ok(
+  exists (select 1 from public.vendor_quote_results
+    where id = '00000000-0000-4000-8000-000000722314' and status = 'failed'
+      and raw_payload ->> 'failureCode' = 'cancelled_provider_disabled'),
+  'the cancelled task''s own lane ends failed as cancelled_provider_disabled');
+select ok(
+  (select (result ->> 'skipped')::int >= 1 from ovd722_sweep_result)
+    and exists (select 1 from public.work_queue where id = '00000000-0000-4000-8000-000000722211' and status = 'queued'),
+  'the sweep skips the row whose trigger raises instead of aborting, and the task without a lane id stays queued');
 select is((select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722213'),
   'cancelled', 'the sweep cancelled the other row');
 select ok(
   exists (select 1 from public.work_queue q where q.job_id = (select job_id from ovd722_e2e) and q.status = 'queued'),
   'the skipped row stays queued (its changes rolled back with the subtransaction)');
-select is((select r.status::text from public.vendor_quote_results r where r.part_id = (select part_id from ovd722_e2e)),
+select is((select r.status::text from public.vendor_quote_results r
+    where r.part_id = (select part_id from ovd722_e2e) and r.requested_quantity = 1),
   'queued', 'the skipped row''s lane is untouched');
 
 drop trigger ovd722_fence_stub on public.vendor_quote_results;

@@ -21,6 +21,7 @@ import {
   runInProviderMutationPhase,
 } from "../providerMutationPhase";
 import { isRetryableVendorTaskError } from "../vendorTaskRetry";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -1105,6 +1106,107 @@ describe("FictivAdapter", () => {
     expect(uploadStepIndex).toBeGreaterThan(-1);
     expect(interactionLog.indexOf("select-cnc")).toBeLessThan(uploadStepIndex);
     expect(interactionLog[uploadStepIndex]).toBe("set-upload-files:cnc");
+  });
+
+  describe("OVD-722 kill switch checkpoints right before each provider mutation", () => {
+    type Checkpoint = "before_navigation" | "before_upload" | "before_configure" | "before_save";
+    /** A switch the test flips; `engageAfter` engages it right after the first read of that checkpoint passes. */
+    const killSwitch = (engageAfter?: Checkpoint) => {
+      const state = { engaged: false, reads: [] as Checkpoint[] };
+      const providerKillSwitchCheckpoint = async (checkpoint: Checkpoint) => {
+        state.reads.push(checkpoint);
+        if (state.engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "fictiv", checkpoint);
+        if (checkpoint === engageAfter) state.engaged = true;
+      };
+      return { state, providerKillSwitchCheckpoint };
+    };
+    const flowPage = (spies: { upload?: () => void; process?: () => void; material?: () => void; finish?: () => void }) => {
+      let cncSelected = false;
+      return createFakePage({
+        bodyTextSequence: [
+          "Select process to continue",
+          "Uploading your parts",
+          "Analyzing your geometry",
+          "Active quotes Total price USD $88.00 Lead time 4 business days",
+        ],
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: {
+            count: 1,
+            text: () => (cncSelected ? "CNC" : "Process"),
+            click: vi.fn(() => {
+              spies.process?.();
+              cncSelected = true;
+            }),
+          },
+          [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn(() => spies.upload?.()) },
+          [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn(() => spies.material?.()) },
+          [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn(() => spies.finish?.()) },
+          [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $88.00" },
+          [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "4 business days" },
+          [FICTIV_LOCATORS.quoteLinkAnchors[0]]: { count: 1, href: "/quotes/kill-switch" },
+        },
+        optionTexts: ["CNC", "6061-T6", "Type II Anodize Black"],
+      });
+    };
+    const adapterFor = async () => {
+      const workerTempDir = await makeTempDir();
+      return new FictivAdapter("fictiv", makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }));
+    };
+
+    it("engaged after the pre upload check while the upload input is polled: setInputFiles never runs", async () => {
+      const { providerKillSwitchCheckpoint } = killSwitch("before_upload");
+      const upload = vi.fn();
+      const page = flowPage({ upload });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("engaged while a navigation attempt fails: the fallback route is never opened", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = flowPage({});
+      page.goto = vi.fn(async (url: string) => {
+        page.visitedUrls.push(url);
+        state.engaged = true;
+        throw new Error("net::ERR_CONNECTION_RESET");
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_navigation" });
+      expect(page.visitedUrls).toEqual([FICTIV_URLS.upload]);
+    });
+
+    it("engaged after navigation: the pre upload CNC selection is never clicked", async () => {
+      const { providerKillSwitchCheckpoint } = killSwitch("before_navigation");
+      const process = vi.fn();
+      const upload = vi.fn();
+      launchMock.mockResolvedValue(createFakeBrowser(flowPage({ process, upload })));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(process).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("engaged while the material is selected: the finish is never opened", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const finish = vi.fn();
+      launchMock.mockResolvedValue(createFakeBrowser(flowPage({ material: () => { state.engaged = true; }, finish })));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(finish).not.toHaveBeenCalled();
+    });
   });
 
   it("treats a plain failure after upload as a possible provider mutation and redacts captured DOM", async () => {

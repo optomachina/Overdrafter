@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { handleVendorQuoteTask } from "./index";
 import { XometryAdapter } from "./adapters/xometry";
+import { createProviderMutationPhase, markProviderMutationStarted, runInProviderMutationPhase } from "./providerMutationPhase";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "./types";
 
 vi.mock("./files.js", async (original) => ({
@@ -32,11 +33,12 @@ const xometryAuthorized = { authorized: true, reasonCode: null, permitId: "00000
 /** In-memory DB whose kill-switch rows are mutable data; the handler module is loaded once. */
 function database() {
   const switches = { xometry: false, global: false };
+  let failResultUpdates = false;
   const writes: Record<string, unknown>[] = [];
   const from = (table: string) => {
     let columns = ""; let mutation = false;
     const response = () => {
-      if (mutation) return { data: null, error: null };
+      if (mutation) return { data: null, error: table === "vendor_quote_results" && failResultUpdates ? { message: "db down" } : null };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "failed" }] : { id: "result", requested_quantity: 2 })
@@ -82,6 +84,8 @@ function database() {
     flipDuringPreflight: () => { onPreflight = () => { switches.xometry = true; }; },
     denyPreflight: (decision: unknown) => { preflight = decision; },
     unreadableAfter: (reads: number) => { readableStateReads = reads; },
+    unreadableNow: () => { readableStateReads = stateReads; },
+    failResultUpdates: () => { failResultUpdates = true; },
   };
 }
 
@@ -211,6 +215,15 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     ]));
   });
 
+  it("an unreadable switch at claim with retries spent: a database error while settling does not replace the kill switch error", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const db = database();
+    db.unreadableAfter(0);
+    db.failResultUpdates();
+    await expect(handleVendorQuoteTask(db.client, spentTask, live))
+      .rejects.toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_unavailable" });
+  });
+
   it("an unreadable switch before launch with retries spent: the note and the state agree (failed, no manual follow up)", async () => {
     const db = database();
     db.unreadableAfter(1);
@@ -220,5 +233,27 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(failed).toBeDefined();
     expect(String((failed?.notes as string[])[0])).not.toMatch(/manual follow-up/i);
     expect(failed?.raw_payload).toEqual(expect.objectContaining({ requiresManualVendorFollowUp: false, retryScheduledFor: null }));
+  });
+
+  it("an unreadable switch after a provider mutation started: manual follow up, and the note never says nothing was sent", async () => {
+    const db = database();
+    vi.spyOn(XometryAdapter.prototype, "quote").mockImplementation(async (input: VendorQuoteAdapterInput) => {
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
+      markProviderMutationStarted();
+      db.unreadableNow();
+      await input.providerKillSwitchCheckpoint?.("before_configure");
+      throw new Error("unreachable: configuration must not happen");
+    });
+    // The queue loop runs every task inside a mutation phase; do the same here.
+    await runInProviderMutationPhase(createProviderMutationPhase(), () => handleVendorQuoteTask(db.client, task, live));
+    const manual = resultWrites(db).map((write) => write.update as Record<string, unknown>)
+      .find((update) => update?.status === "manual_vendor_followup");
+    expect(manual).toBeDefined();
+    const note = String((manual?.notes as string[])[0]);
+    expect(note).not.toMatch(/nothing was sent/i);
+    expect(note).toMatch(/may already hold the upload/);
+    expect(note).toMatch(/manual follow-up is required/i);
+    expect(manual?.raw_payload).toEqual(expect.objectContaining({
+      failureCode: "provider_kill_switch_unavailable", providerMutationPossible: true, requiresManualVendorFollowUp: true }));
   });
 });

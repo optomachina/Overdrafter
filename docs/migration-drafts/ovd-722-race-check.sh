@@ -173,7 +173,9 @@ check "the list RPC still reads every row through security definer" \
    select jsonb_array_length(public.api_admin_list_provider_kill_switches() -> 'providers')" "6"
 
 # 9. The sweep handles rows one at a time: a row level trigger exception on one
-#    row skips that row (it stays queued) and never stops the other rows.
+#    row skips that row (it stays queued) and never stops the other rows. A
+#    task whose payload has no vendorQuoteResultId is skipped too: cancelling
+#    it would leave its lane queued with nothing left to run it.
 "${PSQL[@]}" <<'SQL'
 create table public.work_queue (
   id uuid primary key, job_id uuid, quote_run_id uuid, task_type text, status text,
@@ -190,7 +192,9 @@ insert into public.work_queue (id, job_id, quote_run_id, task_type, status, payl
   ('00000000-0000-4000-8000-0000007228ff', '00000000-0000-4000-8000-0000007227a1', '00000000-0000-4000-8000-0000007226a1',
    'run_vendor_quote', 'queued', '{"vendor":"fictiv","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229ff"}'),
   ('00000000-0000-4000-8000-0000007228a2', '00000000-0000-4000-8000-0000007227a2', '00000000-0000-4000-8000-0000007226a2',
-   'run_vendor_quote', 'queued', '{"vendor":"weerg","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229a2"}');
+   'run_vendor_quote', 'queued', '{"vendor":"weerg","vendorQuoteResultId":"00000000-0000-4000-8000-0000007229a2"}'),
+  ('00000000-0000-4000-8000-0000007228b0', '00000000-0000-4000-8000-0000007227a2', '00000000-0000-4000-8000-0000007226a2',
+   'run_vendor_quote', 'queued', '{"vendor":"xometry"}');
 insert into public.vendor_quote_results (id, status) values
   ('00000000-0000-4000-8000-0000007229a1', 'queued'),
   ('00000000-0000-4000-8000-0000007229ff', 'queued'),
@@ -202,8 +206,8 @@ SQL
 } | "${PSQL[@]}"
 SWEEP="$("${PSQL[@]}" -tA -c "set role service_role; select public.api_worker_cancel_provider_disabled_tasks()")"
 echo "$SWEEP" | grep -q '"cancelled": 2' || { echo "FAIL: sweep result: $SWEEP"; exit 1; }
-echo "$SWEEP" | grep -q '"skipped": 1' || { echo "FAIL: sweep result: $SWEEP"; exit 1; }
-echo "ok - one failing row is skipped and the other rows are cancelled ($SWEEP)"
+echo "$SWEEP" | grep -q '"skipped": 2' || { echo "FAIL: sweep result: $SWEEP"; exit 1; }
+echo "ok - the failing row and the row without a lane id are skipped; the other rows are cancelled ($SWEEP)"
 check "the skipped row stays queued, with its lane untouched" \
   "select (select status from public.work_queue where id = '00000000-0000-4000-8000-0000007228ff')
      || ':' || (select status from public.vendor_quote_results where id = '00000000-0000-4000-8000-0000007229ff')" "queued:queued"
@@ -211,5 +215,41 @@ check "the other rows are cancelled and their lanes end failed" \
   "select count(*) from public.work_queue q join public.vendor_quote_results r
      on r.id = (q.payload ->> 'vendorQuoteResultId')::uuid
    where q.status = 'cancelled' and r.status = 'failed'" "2"
+check "the task without a vendorQuoteResultId stays queued" \
+  "select status from public.work_queue where id = '00000000-0000-4000-8000-0000007228b0'" "queued"
+
+# 10. The rollback guard (commented in the draft) fails closed like the switch
+#     itself: a missing provider row or a missing global singleton reads as
+#     engaged and refuses the rollback. Each case runs in a transaction that is
+#     rolled back.
+GUARD="$(awk '/^-- do \$\$$/{on=1} on{end = /^-- \$\$;$/; sub(/^-- ?/, ""); print; if (end) on=0}' "$DRAFT")"
+[ -n "$GUARD" ] || { echo "FAIL: rollback guard not found in the draft"; exit 1; }
+guard_case() {
+  # $1 label, $2 setup SQL, $3 expected: pass or refuse
+  local out
+  if out="$("${PSQL[@]}" 2>&1 <<SQL
+begin;
+update private.provider_global_kill_switch set engaged = false;
+update private.provider_kill_switches set engaged = false;
+$2
+set local role migration_owner;
+$GUARD
+rollback;
+SQL
+)"; then
+    [ "$3" = pass ] || { echo "FAIL: $1: rollback guard passed: $out"; exit 1; }
+  else
+    case "$out" in *"OVD-722 rollback refused: a provider kill switch is engaged"*) ;;
+      *) echo "FAIL: $1: unexpected error: $out"; exit 1;; esac
+    [ "$3" = refuse ] || { echo "FAIL: $1: rollback guard refused: $out"; exit 1; }
+  fi
+  echo "ok - rollback guard: $1"
+}
+guard_case "every switch present and disengaged passes" "" pass
+guard_case "an engaged provider refuses" "update private.provider_kill_switches set engaged = true where provider = 'weerg';" refuse
+guard_case "a missing provider row refuses" "delete from private.provider_kill_switches where provider = 'geomiq';" refuse
+guard_case "a missing global singleton refuses" "delete from private.provider_global_kill_switch;" refuse
+guard_case "the confirmed discard setting passes a missing row" \
+  "delete from private.provider_kill_switches where provider = 'geomiq'; set local ovd722.rollback_discard_engagements = 'confirmed';" pass
 
 echo "ovd-722 race check: all passed"

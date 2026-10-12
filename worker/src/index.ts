@@ -99,6 +99,7 @@ import {
   failVendorResultForUnavailableKillSwitch,
   ProviderKillSwitchError,
   isProviderKillSwitchEngaged,
+  providerKillSwitchSweepWarnings,
   sweepProviderDisabledTasks,
 } from "./providerKillSwitch.js";
 
@@ -1121,13 +1122,27 @@ export async function handleVendorQuoteTask(
       // spent the loop fails the task, so the lane must settle visibly too;
       // otherwise it would stay queued with no task left to run it.
       if (error instanceof ProviderKillSwitchError && nextRetryAt(task.attempts) === null) {
-        await failVendorResultForUnavailableKillSwitch(supabase, {
-          vendorQuoteResultId: currentResult.id,
-          error,
-          retryCount,
-          requestedQuantity: currentResult.requested_quantity,
-        });
-        await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+        // A database error while settling must not replace the kill switch
+        // error: the queue loop needs it to fail the task with the right code.
+        try {
+          await failVendorResultForUnavailableKillSwitch(supabase, {
+            vendorQuoteResultId: currentResult.id,
+            error,
+            retryCount,
+            requestedQuantity: currentResult.requested_quantity,
+          });
+          await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+        } catch (settleError) {
+          console.warn(
+            JSON.stringify({
+              service: "overdrafter-cad-worker",
+              level: "warn",
+              source: "worker.kill_switch",
+              message: `Could not settle the lane after the kill switch read failed: ${summarizeWorkerError(settleError)}`,
+              context: { taskId: task.id, vendorQuoteResultId: currentResult.id },
+            }),
+          );
+        }
       }
       throw error;
     }
@@ -1473,9 +1488,16 @@ export async function handleVendorQuoteTask(
     }
     let failureNote = failureMessage;
     if (dispatchAuthorizationError?.boundary === "kill_switch") {
-      failureNote = retryableDispatchAuthorizationError && retryAt
-        ? `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`
-        : `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
+      // After a provider mutation may have started the read failure is not
+      // retryable and the lane goes to manual follow up; the note must not say
+      // nothing was sent.
+      if (requiresManualVendorFollowUp) {
+        failureNote = `${vendor} kill switch state could not be confirmed after the upload started, so the provider may already hold the upload. Automation stopped and manual follow-up is required.`;
+      } else if (retryableDispatchAuthorizationError && retryAt) {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`;
+      } else {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
+      }
     } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
@@ -1979,16 +2001,16 @@ export async function main(operationalHost?: OperationalJevHost) {
       // parked. Claim-time and pre-launch checks still refuse on their own.
       if (config.workerMode === "live") {
         try {
-          const { cancelled, quoteRuns } = await sweepProviderDisabledTasks(supabase);
-          for (const run of quoteRuns) {
+          const sweep = await sweepProviderDisabledTasks(supabase);
+          for (const run of sweep.quoteRuns) {
             await syncJobStatusAfterVendorUpdate(supabase, run.jobId, run.quoteRunId);
           }
-          if (cancelled > 0) {
+          for (const warning of providerKillSwitchSweepWarnings(sweep)) {
             logWorkerEvent(runtimeState, {
               level: "warn",
               source: "worker.kill_switch",
-              message: `Cancelled ${cancelled} queued task(s) for switched-off providers.`,
-              context: { cancelled },
+              message: warning.message,
+              context: warning.context,
             });
           }
         } catch (sweepError) {

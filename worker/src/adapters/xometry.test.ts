@@ -1465,6 +1465,203 @@ describe("XometryAdapter", () => {
     expect(reads.filter((read) => read === "before_configure").length).toBeGreaterThanOrEqual(4);
   });
 
+  describe("OVD-722 kill switch checkpoints right before each provider mutation", () => {
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days USD $120.00",
+    ].join(" ");
+    const switchState = () => {
+      const state = { engaged: false, reads: [] as string[] };
+      const providerKillSwitchCheckpoint = async (checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save") => {
+        state.reads.push(checkpoint);
+        if (state.engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "xometry", checkpoint);
+      };
+      return { state, providerKillSwitchCheckpoint };
+    };
+    const adapterFor = async () => {
+      const workerTempDir = await makeTempDir();
+      return new XometryAdapter("xometry", makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }));
+    };
+
+    it("engaged while the uploader readiness is polled: the CAD file is never selected", async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const dashboardCadUpload = vi.fn();
+      let dashboardInputReady = false;
+      let acceptReads = 0;
+      const page = createFakePage({
+        bodyText: "Pick Up Where You Left Off",
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-READY-0722",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: {
+            count: () => (dashboardInputReady ? 1 : 0),
+            getAttribute: (name) => {
+              if (name !== "accept") return null;
+              acceptReads += 1;
+              // The admin flips the switch while readiness is still polling.
+              if (acceptReads === 2) state.engaged = true;
+              return acceptReads >= 3 ? ".step,.stp" : null;
+            },
+            setInputFiles: dashboardCadUpload,
+          },
+          [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+            count: 1,
+            click: () => {
+              dashboardInputReady = true;
+            },
+          },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint }))
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
+      expect(acceptReads).toBe(3);
+      expect(dashboardCadUpload).not.toHaveBeenCalled();
+    });
+
+    it("engaged while the quote modal submit action is polled: Submit is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const modalUpload = vi.fn();
+      const startInstantQuote = vi.fn();
+      let modalOpened = false;
+      let submitCountChecks = 0;
+      const page = createFakePage({
+        bodyText: summaryText,
+        modalSubmitRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-DELAYED-MODAL-0722",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+            count: 1,
+            click: () => {
+              modalOpened = true;
+            },
+          },
+          [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+            count: () => modalOpened ? 1 : 0,
+            getAttribute: () => "",
+            setInputFiles: modalUpload,
+          },
+          [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+            count: () => modalOpened ? 1 : 0,
+            text: () => modalUpload.mock.calls.length > 0
+              ? "Start a New Quote part.step"
+              : "Start a New Quote Upload a 3D model",
+          },
+          [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+            count: () => {
+              submitCountChecks += 1;
+              // The admin flips the switch while the submit action is still loading.
+              if (submitCountChecks === 2) state.engaged = true;
+              return submitCountChecks >= 3 ? 1 : 0;
+            },
+            click: startInstantQuote,
+          },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint }))
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
+      expect(modalUpload).toHaveBeenCalledTimes(1);
+      expect(startInstantQuote).not.toHaveBeenCalled();
+    });
+
+    it("auto redirect with a matching summary: a switch engaged after the upload refuses before a result is returned", async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const uploadCad = vi.fn(() => {
+        state.engaged = true;
+      });
+      // The same page shape as "uses a verified auto-configured quote summary".
+      const autoSummaryText = summaryText.replace("My Account Part Library ", "");
+      const page = createFakePage({
+        bodyText: autoSummaryText,
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-SUMMARY-0722",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: uploadCad },
+          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: autoSummaryText },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint }))
+        .catch((caught: unknown) => caught);
+
+      expect(uploadCad).toHaveBeenCalledTimes(1);
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_save" });
+      expect(state.reads.at(-1)).toBe("before_save");
+    });
+
+    it("engaged during a failed drawing fallback attempt: the next drawing input is never tried", { timeout: 30_000 }, async () => {
+      const { state, providerKillSwitchCheckpoint } = switchState();
+      const firstDrawingInput = vi.fn(async () => {
+        state.engaged = true;
+        throw new Error("input detached");
+      });
+      const secondDrawingInput = vi.fn();
+      const page = createFakePage({
+        bodyText: "Manual review required. Drawing required for this quote.",
+        postSaveBodyText: () => [
+          "Quantity 2",
+          "Material: Aluminum 7075-T6",
+          "Finish: Standard",
+          "Precision Tolerance: ±.005",
+          "Manual review required. Drawing required for this quote.",
+        ].join(" "),
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0722/part-1",
+        saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0722#part-part-1",
+        responseWaitDelayMs: 20,
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+          [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.toleranceOptions.standard]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: { count: 1, click: vi.fn() },
+          [XOMETRY_LOCATORS.drawingInputs[0]]: { count: 1, setInputFiles: firstDrawingInput },
+          [XOMETRY_LOCATORS.drawingInputs[1]]: { count: 1, setInputFiles: secondDrawingInput },
+          [XOMETRY_LOCATORS.manualReviewText[0]]: { count: 1, text: "Manual review required" },
+        },
+        optionTexts: ["7075-T6"],
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const workerTempDir = await makeTempDir();
+      const adapter = new XometryAdapter("xometry", makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        browserTimeoutMs: 200,
+      }));
+
+      const error = await adapter.quote(makeInput({
+        providerKillSwitchCheckpoint,
+        requirement: { ...makeInput().requirement, material: "7075 aluminum", finish: null },
+        part: { ...makeInput().part, drawing_file_id: "drawing-1" },
+        drawingFile: {
+          id: "drawing-1", job_id: "job-1", storage_bucket: "job-files", storage_path: "drawings/part.pdf",
+          original_name: "part.pdf", file_kind: "drawing",
+        },
+        stagedDrawingFile: {
+          originalName: "part.pdf", localPath: "/tmp/part.pdf", storageBucket: "job-files", storagePath: "drawings/part.pdf",
+        },
+      })).catch((caught: unknown) => caught);
+
+      expect(firstDrawingInput).toHaveBeenCalledTimes(1);
+      expect(secondDrawingInput).not.toHaveBeenCalled();
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
+    });
+  });
+
   it("uses a verified auto-configured quote summary without reopening material options", async () => {
     const workerTempDir = await makeTempDir();
     const uploadCad = vi.fn();

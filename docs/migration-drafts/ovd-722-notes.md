@@ -208,23 +208,27 @@ and no rollback order guard.
   note, `failureCode = provider_kill_switch_unavailable`, no retry and no
   manual follow up, and the error is rethrown so the loop fails the task.
   While retries remain the lane stays `queued` for the retry.
-* **Note and state agree.** After the later checkpoints, an unreadable switch
-  with retries spent ends `failed` and the note says so ("nothing was sent and
-  automation stopped. It will not retry automatically."). It does not claim
-  manual follow up. An engaged switch is never routed to the manual quote
-  queue.
+* **Note and state agree.** An unreadable switch before any provider
+  mutation, with retries spent, ends `failed`, and its note says nothing was
+  sent and it will not retry; it does not claim manual follow up. Once a
+  provider mutation may have started, the same read failure is not retryable,
+  the lane ends `manual_vendor_followup`, and its note says the provider may
+  already hold the upload and manual follow up is required (round 3). An
+  engaged switch is never routed to the manual quote queue.
 * **Sweep is per row.** `api_worker_cancel_provider_disabled_tasks` now loops
-  over the locked rows with one subtransaction each. A row level trigger
-  exception (for example `free_quote_terminal_fenced` on a canceled free beta
-  request) skips that row, which stays queued, and is counted in a new
-  `skipped` key. The other rows and providers are still cancelled. Covered by
+  over the locked rows with one subtransaction each. An immediate row level
+  trigger exception (for example `free_quote_terminal_fenced` on a canceled
+  free beta request) skips that row, which stays queued, and is counted in a
+  new `skipped` key. The other rows and providers are still cancelled. This
+  does not cover the deferred `settle_terminal_free_quote_result` trigger,
+  which fires at commit after the sweep returns. Covered by
   `ovd-722-race-check.sh` step 9 (a real Postgres run) and the pgTAP suite.
 * **Customer copy.** `provider_kill_switch_engaged` from the permit trigger is
   now a definite denial and shows "This provider is temporarily unavailable."
   with no retry prompt (`getXometryBetaDispatchDenialMessage`).
 * **Operator live tools.** `vendorWorkflowSmoke.ts` and the quantity sweeps
-  have no database client, so a switch read is not small. The C&D runbook now
-  says to stop and not run them for an engaged provider.
+  have no database client, so they cannot read the switch at all. The C&D
+  runbook now says to stop and not run them for an engaged provider.
 * **Add quote provider.** A vendor added later with `alter type ... add value`
   has no switch row until a seed row is added, so it stays switched off.
 * **pgTAP.** New end to end case: the real `api_request_xometry_beta_dispatch`
@@ -235,3 +239,38 @@ and no rollback order guard.
 * The draft creates 9 functions (not 8): the audit guard, two engaged helpers,
   the worker state read, two admin setters, the admin list, the sweep, and the
   permit guard.
+
+## Review round 3 (PR #676)
+
+* **Note after a possible mutation.** See "Note and state agree" above. Test:
+  `providerKillSwitch.handler.test.ts` marks a provider mutation started, then
+  makes the read fail.
+* **Fresh checks right before each mutation.** Xometry re-reads the switch
+  immediately before the CAD `setInputFiles` (after readiness polling), before
+  the quote modal Submit click (after up to a minute of polling), before every
+  drawing fallback attempt (outside its try, and the catch rethrows a
+  `ProviderKillSwitchError`), and once more before returning a result on the
+  auto redirect path whose summary already matched. Fictiv re-reads before
+  every upload attempt inside the upload polling loop, before every
+  navigation attempt (outside the try), between material and finish, and
+  before the pre upload CNC selection clicks. Tests in `xometry.test.ts` and
+  `fictiv.test.ts` ("OVD-722 kill switch checkpoints right before each
+  provider mutation").
+* **Sweep never strands a lane.** A task is cancelled only together with its
+  queued lane. A payload without a usable `vendorQuoteResultId`, or a lane
+  that is no longer queued, raises inside the row's subtransaction; the row
+  stays queued, is counted in `skipped`, and the claim check settles it. The
+  worker logs a warning when `skipped` is above zero and its sweep result now
+  carries `resultsUpdated` and `skipped`. Tests: race check step 9, pgTAP sweep
+  cases (asserted by task and lane id).
+* **Rollback guard is fail closed.** It refuses when the global singleton is
+  missing or engaged, or when any `vendor_name` value has no row or an engaged
+  row, the same rule the runtime uses. Tests: race check step 10 (missing
+  provider row, missing singleton, engaged provider, all disengaged, the
+  confirmed discard setting).
+* **Settle error.** When the claim read keeps failing and the lane settle
+  itself hits a database error, the worker logs it and rethrows the original
+  `ProviderKillSwitchError`, so the queue still fails the task with the kill
+  switch code.
+* The pgTAP suite and the race check were run on a local throwaway
+  PostgreSQL 17.11 with the full main schema; see the PR comment for results.

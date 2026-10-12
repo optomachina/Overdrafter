@@ -19,6 +19,7 @@ import {
   PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE,
   ProviderKillSwitchError,
   supabaseProviderKillSwitchReader,
+  providerKillSwitchSweepWarnings,
   sweepProviderDisabledTasks,
 } from "./providerKillSwitch";
 import { createProviderMutationPhase } from "./providerMutationPhase";
@@ -482,8 +483,19 @@ describe("queued and running tasks end cancelled_provider_disabled (OVD-722)", (
       error: null,
     }));
     await expect(sweepProviderDisabledTasks({ rpc } as unknown as SupabaseClient))
-      .resolves.toEqual({ cancelled: 2, quoteRuns: [{ jobId: "job", quoteRunId: "run" }] });
+      .resolves.toEqual({ cancelled: 2, resultsUpdated: 2, skipped: 0, quoteRuns: [{ jobId: "job", quoteRunId: "run" }] });
     expect(rpc).toHaveBeenCalledWith("api_worker_cancel_provider_disabled_tasks");
+  });
+
+  it("sweep: reports skipped rows and the operator log warns about them", async () => {
+    const rpc = vi.fn(async () => ({ data: { cancelled: 1, resultsUpdated: 1, skipped: 2, quoteRuns: [] }, error: null }));
+    const result = await sweepProviderDisabledTasks({ rpc } as unknown as SupabaseClient);
+    expect(result).toEqual({ cancelled: 1, resultsUpdated: 1, skipped: 2, quoteRuns: [] });
+    expect(providerKillSwitchSweepWarnings(result)).toEqual([
+      expect.objectContaining({ context: { cancelled: 1, resultsUpdated: 1 } }),
+      expect.objectContaining({ message: expect.stringMatching(/skipped 2 queued task/), context: { skipped: 2 } }),
+    ]);
+    expect(providerKillSwitchSweepWarnings({ cancelled: 0, resultsUpdated: 0, skipped: 0, quoteRuns: [] })).toEqual([]);
   });
 
   it("sweep: surfaces RPC errors and malformed responses instead of reporting success", async () => {

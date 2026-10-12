@@ -219,8 +219,37 @@ export const PROVIDER_KILL_SWITCH_SWEEP_RPC = "api_worker_cancel_provider_disabl
 
 export type ProviderKillSwitchSweepResult = {
   cancelled: number;
+  /** Lanes the sweep moved from queued to failed. */
+  resultsUpdated: number;
+  /** Rows left queued because one of their updates raised; the claim check settles them. */
+  skipped: number;
   quoteRuns: { jobId: string; quoteRunId: string }[];
 };
+
+function sweepCount(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+/** Operator log lines for one sweep: what was cancelled, and any rows it had to skip. */
+export function providerKillSwitchSweepWarnings(result: ProviderKillSwitchSweepResult): {
+  message: string;
+  context: Record<string, number>;
+}[] {
+  const warnings: { message: string; context: Record<string, number> }[] = [];
+  if (result.cancelled > 0) {
+    warnings.push({
+      message: `Cancelled ${result.cancelled} queued task(s) for switched-off providers.`,
+      context: { cancelled: result.cancelled, resultsUpdated: result.resultsUpdated },
+    });
+  }
+  if (result.skipped > 0) {
+    warnings.push({
+      message: `Kill-switch sweep skipped ${result.skipped} queued task(s) whose cancellation raised; they stay queued until a worker claims them.`,
+      context: { skipped: result.skipped },
+    });
+  }
+  return warnings;
+}
 
 /**
  * Periodic sweep so queued tasks for a switched-off provider do not sit parked
@@ -237,10 +266,7 @@ export async function sweepProviderDisabledTasks(
     throw new Error("provider kill switch sweep returned a malformed response");
   }
   const record = data as Record<string, unknown>;
-  const cancelled =
-    typeof record.cancelled === "number" && Number.isInteger(record.cancelled) && record.cancelled >= 0
-      ? record.cancelled
-      : 0;
+  const cancelled = sweepCount(record.cancelled);
   const quoteRuns = Array.isArray(record.quoteRuns)
     ? record.quoteRuns.flatMap((entry) => {
         if (!entry || typeof entry !== "object") return [];
@@ -248,7 +274,12 @@ export async function sweepProviderDisabledTasks(
         return typeof jobId === "string" && typeof quoteRunId === "string" ? [{ jobId, quoteRunId }] : [];
       })
     : [];
-  return { cancelled, quoteRuns };
+  return {
+    cancelled,
+    resultsUpdated: sweepCount(record.resultsUpdated),
+    skipped: sweepCount(record.skipped),
+    quoteRuns,
+  };
 }
 
 /**
