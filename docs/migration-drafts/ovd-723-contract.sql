@@ -19,6 +19,14 @@
 --   C.5     the old job-files Storage INSERT policy is dropped, so only the
 --           grant policy added by the expand migration remains.
 --
+-- Promote together with: the contract pgTAP suite
+-- (ovd723_export_control_contract.sql.pending, renamed into supabase/tests/),
+-- and the free_confirmed_quote_access seed in
+-- ovd-723-contract-free-confirmed-seed.patch, which needs the expanded fixture
+-- regenerated (node scripts/generate-free-quote-fixtures.mjs) and its pin in
+-- scripts/fixtures/free-quote-ci-source.json refreshed. Without the seed that
+-- suite's one authorized dispatch is refused by the wrapped preflight.
+--
 -- Every statement here changes an existing object, so none of it can be
 -- expand. C.5 takes ACCESS EXCLUSIVE on storage.objects; the lock timeout
 -- makes the migration fail fast and roll back whole. On a timeout, rerun at

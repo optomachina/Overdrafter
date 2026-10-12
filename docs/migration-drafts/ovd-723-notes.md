@@ -249,8 +249,9 @@ Behavior fixed in the draft:
   `storage.objects` policy swap.
 
 Fixtures updated in the suites (no assertion changed or removed):
-`provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency`,
-`xometry_beta_dispatch_permits` and `free_confirmed_quote_access` seed a clean
+`provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency` and
+`xometry_beta_dispatch_permits` seed (`free_confirmed_quote_access` gets the same
+seed at contract promotion, see below) a clean
 declaration, verified hashes and clean scans just before their authorization
 assertions. `empty_file_upload_rejection` and `founding_beta_file_boundaries`
 route prepare and finalize through `pg_temp` helpers that use the declaring
@@ -323,3 +324,9 @@ Verification (disposable Docker, all 148 migrations, 2026-10-12):
   - Each rollback guard refuses out of order use, and the contract refuses to run without expand.
   - Reapplying gives an identical catalog.
 - The race script holds after the contract.
+
+Contract promotion also needs `ovd-723-contract-free-confirmed-seed.patch` applied to
+`supabase/tests/free_confirmed_quote_access.sql` (the expanded fixture is pinned
+in `scripts/fixtures/free-quote-ci-source.json`, so regenerate it and refresh the
+pin in the same change). After expand alone that suite passes unchanged (30/30);
+after the contract it needs the seed (29/30 without it, 30/30 with it).
