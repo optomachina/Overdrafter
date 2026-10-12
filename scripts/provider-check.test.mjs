@@ -485,7 +485,7 @@ describe("reviewed envelope completeness", () => {
     expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "quickparts", "weerg"]));
   });
 
-  it("accepts simulated provider:onboard --stage=live output once the envelope is marked reviewed", async () => {
+  it("accepts simulated fixture:onboard --stage=live output once the envelope is marked reviewed", async () => {
     const rootDir = await createEnvelopeRoot();
     await writeSimulatedOnboardLive(rootDir, "tempkey");
     await expect(assertReviewedEnvelopeCompleteness({

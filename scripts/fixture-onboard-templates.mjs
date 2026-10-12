@@ -611,6 +611,10 @@ export function rolloutRunbook({ key, displayName, timestamp }) {
 ${generatedBanner(key, "admit")} Nothing here has been applied. Every step
 below is a protected action that needs Blaine's current exact authorization.
 
+Record each attestation on the
+[provider go-live checklist](../../../docs/checklists/provider-go-live-checklist.md);
+the PR that enables ${displayName} carries its **Provider go-live** section.
+
 A new ${displayName} quote needs switches 1–5 on; turning any off stops queued
 tasks before the browser launches.
 
