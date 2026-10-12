@@ -7,11 +7,13 @@
  * quote meter and is not a Stripe product.
  */
 
-export const BILLING_CATALOG_VERSION = 1;
-export const BILLING_CATALOG_CURRENCY = "usd";
-export const FOUNDING_TEAM_MAX_SLOTS = 12;
-export const PLACEHOLDER_AMOUNT_CENTS = 100;
-export const DEFAULT_CHECKOUT_LOOKUP_KEY = "od_pro_month_v1";
+import catalogData from "./billingCatalogPrices.json" with { type: "json" };
+
+export const BILLING_CATALOG_VERSION = catalogData.version;
+export const BILLING_CATALOG_CURRENCY = catalogData.currency;
+export const FOUNDING_TEAM_MAX_SLOTS = catalogData.foundingTeamMaxSlots;
+export const PLACEHOLDER_AMOUNT_CENTS = catalogData.placeholderAmountCents;
+export const DEFAULT_CHECKOUT_LOOKUP_KEY = catalogData.defaultCheckoutLookupKey;
 
 export const BILLING_SELF_SERVICE_FLAG = "BILLING_SELF_SERVICE_ENABLED";
 export const BILLING_TIER_CATALOG_FLAG = "BILLING_TIER_CATALOG_ENABLED";
@@ -69,78 +71,33 @@ export type CatalogWebhookDecision = {
   reason?: string;
 };
 
-export const BILLING_CATALOG_PRICES: readonly CatalogPrice[] = [
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "plan",
-    lookupKey: "od_pro_month_v1",
-    nickname: "Pro monthly",
-    productName: "OverDrafter Pro",
-    seatsIncluded: 1,
-    tier: "pro",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_pro_year_v1",
-    nickname: "Pro annual",
-    productName: "OverDrafter Pro",
-    seatsIncluded: 1,
-    tier: "pro",
-  },
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "plan",
-    lookupKey: "od_team_month_v1",
-    nickname: "Team monthly",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_team_year_v1",
-    nickname: "Team annual",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "extra_seat",
-    lookupKey: "od_team_seat_month_v1",
-    nickname: "Team extra seat monthly",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "extra_seat",
-    lookupKey: "od_team_seat_year_v1",
-    nickname: "Team extra seat annual",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_founding_team_year_v1",
-    nickname: "Founding Team 12-month",
-    productName: "OverDrafter Founding Team",
-    seatsIncluded: null,
-    tier: "founding_team",
-  },
-];
+function loadCatalogPrices(
+  prices: typeof catalogData.prices,
+): readonly CatalogPrice[] {
+  return prices.map((entry) => {
+    if (entry.interval !== "month" && entry.interval !== "year") {
+      throw new Error("catalog_interval_invalid");
+    }
+    if (entry.kind !== "plan" && entry.kind !== "extra_seat") {
+      throw new Error("catalog_kind_invalid");
+    }
+    if (entry.tier !== "pro" && entry.tier !== "team" && entry.tier !== "founding_team") {
+      throw new Error("catalog_tier_invalid");
+    }
+    return {
+      amountCents: entry.amountCents,
+      interval: entry.interval,
+      kind: entry.kind,
+      lookupKey: entry.lookupKey,
+      nickname: entry.nickname,
+      productName: entry.productName,
+      seatsIncluded: entry.seatsIncluded,
+      tier: entry.tier,
+    };
+  });
+}
+
+export const BILLING_CATALOG_PRICES = loadCatalogPrices(catalogData.prices);
 
 export function isBillingFlagEnabled(value: string | undefined): boolean {
   return value?.trim().toLowerCase() === "true";

@@ -8,6 +8,7 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -25,5 +26,9 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "supabase/functions/_shared/billingCatalog.ts"]
+  "include": [
+    "src",
+    "supabase/functions/_shared/billingCatalog.ts",
+    "supabase/functions/_shared/billingCatalogPrices.json"
+  ]
 }

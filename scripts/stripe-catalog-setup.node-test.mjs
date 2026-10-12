@@ -16,6 +16,10 @@ const catalogSource = readFileSync(
   join(root, "supabase/functions/_shared/billingCatalog.ts"),
   "utf8",
 );
+const catalogPricesSource = readFileSync(
+  join(root, "supabase/functions/_shared/billingCatalogPrices.json"),
+  "utf8",
+);
 
 function createMockStripe(existingPrices = []) {
   const state = {
@@ -78,11 +82,13 @@ function createMockStripe(existingPrices = []) {
 
 test("catalog script lookup keys stay aligned with the TypeScript source and TBD amounts", () => {
   for (const entry of BILLING_CATALOG_PRICES) {
-    assert.match(catalogSource, new RegExp(`lookupKey: "${entry.lookupKey}"`));
+    assert.match(catalogPricesSource, new RegExp(`"lookupKey": "${entry.lookupKey}"`));
     assert.equal(entry.amountCents, null);
   }
-  assert.match(catalogSource, /amountCents: null/);
+  assert.match(catalogPricesSource, /"amountCents": null/);
+  assert.doesNotMatch(catalogPricesSource, /"amountCents": [1-9]/);
   assert.doesNotMatch(catalogSource, /amountCents: [1-9]/);
+  assert.match(catalogSource, /billingCatalogPrices\.json/);
 });
 
 test("refuses live secrets and --live without creating Stripe objects", () => {

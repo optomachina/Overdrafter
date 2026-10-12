@@ -5,84 +5,17 @@
  * Never writes keys to files or logs. Refuses sk_live_ / rk_live_ secrets.
  * Amounts stay TBD unless --placeholder is passed in test mode.
  */
+import { readFileSync } from "node:fs";
 import process from "node:process";
 
-export const PLACEHOLDER_AMOUNT_CENTS = 100;
-export const BILLING_CATALOG_VERSION = 1;
-export const BILLING_CATALOG_CURRENCY = "usd";
+const catalogData = JSON.parse(
+  readFileSync(new URL("../supabase/functions/_shared/billingCatalogPrices.json", import.meta.url), "utf8"),
+);
 
-export const BILLING_CATALOG_PRICES = [
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "plan",
-    lookupKey: "od_pro_month_v1",
-    nickname: "Pro monthly",
-    productName: "OverDrafter Pro",
-    seatsIncluded: 1,
-    tier: "pro",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_pro_year_v1",
-    nickname: "Pro annual",
-    productName: "OverDrafter Pro",
-    seatsIncluded: 1,
-    tier: "pro",
-  },
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "plan",
-    lookupKey: "od_team_month_v1",
-    nickname: "Team monthly",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_team_year_v1",
-    nickname: "Team annual",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "month",
-    kind: "extra_seat",
-    lookupKey: "od_team_seat_month_v1",
-    nickname: "Team extra seat monthly",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "extra_seat",
-    lookupKey: "od_team_seat_year_v1",
-    nickname: "Team extra seat annual",
-    productName: "OverDrafter Team",
-    seatsIncluded: null,
-    tier: "team",
-  },
-  {
-    amountCents: null,
-    interval: "year",
-    kind: "plan",
-    lookupKey: "od_founding_team_year_v1",
-    nickname: "Founding Team 12-month",
-    productName: "OverDrafter Founding Team",
-    seatsIncluded: null,
-    tier: "founding_team",
-  },
-];
+export const PLACEHOLDER_AMOUNT_CENTS = catalogData.placeholderAmountCents;
+export const BILLING_CATALOG_VERSION = catalogData.version;
+export const BILLING_CATALOG_CURRENCY = catalogData.currency;
+export const BILLING_CATALOG_PRICES = catalogData.prices;
 
 export function isLiveStripeSecret(secret) {
   const value = typeof secret === "string" ? secret.trim() : "";

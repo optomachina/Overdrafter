@@ -1,0 +1,79 @@
+{
+  "currency": "usd",
+  "defaultCheckoutLookupKey": "od_pro_month_v1",
+  "foundingTeamMaxSlots": 12,
+  "placeholderAmountCents": 100,
+  "prices": [
+    {
+      "amountCents": null,
+      "interval": "month",
+      "kind": "plan",
+      "lookupKey": "od_pro_month_v1",
+      "nickname": "Pro monthly",
+      "productName": "OverDrafter Pro",
+      "seatsIncluded": 1,
+      "tier": "pro"
+    },
+    {
+      "amountCents": null,
+      "interval": "year",
+      "kind": "plan",
+      "lookupKey": "od_pro_year_v1",
+      "nickname": "Pro annual",
+      "productName": "OverDrafter Pro",
+      "seatsIncluded": 1,
+      "tier": "pro"
+    },
+    {
+      "amountCents": null,
+      "interval": "month",
+      "kind": "plan",
+      "lookupKey": "od_team_month_v1",
+      "nickname": "Team monthly",
+      "productName": "OverDrafter Team",
+      "seatsIncluded": null,
+      "tier": "team"
+    },
+    {
+      "amountCents": null,
+      "interval": "year",
+      "kind": "plan",
+      "lookupKey": "od_team_year_v1",
+      "nickname": "Team annual",
+      "productName": "OverDrafter Team",
+      "seatsIncluded": null,
+      "tier": "team"
+    },
+    {
+      "amountCents": null,
+      "interval": "month",
+      "kind": "extra_seat",
+      "lookupKey": "od_team_seat_month_v1",
+      "nickname": "Team extra seat monthly",
+      "productName": "OverDrafter Team",
+      "seatsIncluded": null,
+      "tier": "team"
+    },
+    {
+      "amountCents": null,
+      "interval": "year",
+      "kind": "extra_seat",
+      "lookupKey": "od_team_seat_year_v1",
+      "nickname": "Team extra seat annual",
+      "productName": "OverDrafter Team",
+      "seatsIncluded": null,
+      "tier": "team"
+    },
+    {
+      "amountCents": null,
+      "interval": "year",
+      "kind": "plan",
+      "lookupKey": "od_founding_team_year_v1",
+      "nickname": "Founding Team 12-month",
+      "productName": "OverDrafter Founding Team",
+      "seatsIncluded": null,
+      "tier": "founding_team"
+    }
+  ],
+  "version": 1
+}
