@@ -21,7 +21,10 @@ export type DeadlineStatus = "on_time" | "late" | "unconfirmed" | "no_deadline";
 
 export type DeliveredArrival =
   | { kind: "arrival"; date: IsoCalendarDate; provenance: "confirmed" | "estimated" }
-  /** Ship date is known but transit is not, so arrival is strictly after `shipDate`. */
+  /**
+   * Ship date is known but transit is not. Arrival is on or after `shipDate` because zero transit days is valid,
+   * so shipping on the deadline day is unconfirmed; only a ship date after the deadline is late.
+   */
   | { kind: "ships_by"; shipDate: IsoCalendarDate }
   | { kind: "unknown" };
 

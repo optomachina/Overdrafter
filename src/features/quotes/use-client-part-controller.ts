@@ -1452,18 +1452,20 @@ export function useClientPartController(
     }
   };
 
-  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null) => {
+  /** `onFailure` lets the caller roll back an optimistic local selection when nothing was persisted. */
+  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null, onFailure?: () => void) => {
     if (option === null) {
-      selectOfferMutation.mutate(null);
+      selectOfferMutation.mutate(null, { onError: onFailure });
       return;
     }
 
     if (!option.persistedOfferId) {
       toast.error("This quote option is not ready to select yet.");
+      onFailure?.();
       return;
     }
 
-    selectOfferMutation.mutate(option);
+    selectOfferMutation.mutate(option, { onError: onFailure });
   };
 
   /** Presets and the sourcing toggle reorder or filter the table only; selecting stays an explicit buyer action. */
