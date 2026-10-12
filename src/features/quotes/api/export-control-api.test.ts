@@ -7,6 +7,7 @@ import {
   declareJobExportStatus,
   fetchJobExportControlStatus,
   parseJobExportControlStatus,
+  requestExportMarkingRescan,
 } from "./export-control-api";
 
 describe("export-control api", () => {
@@ -15,11 +16,25 @@ describe("export-control api", () => {
   it("parses the status strictly", () => {
     expect(
       parseJobExportControlStatus({ jobId: "j", latestAnswer: "missing", latestDeclaredAt: null, exportReviewState: "clear" }),
-    ).toEqual({ jobId: "j", latestAnswer: "missing", exportReviewState: "clear" });
+    ).toEqual({ jobId: "j", latestAnswer: "missing", exportReviewState: "clear", scanState: null });
     expect(parseJobExportControlStatus({ jobId: "j", exportReviewState: "blocked_pending_review" }).latestAnswer).toBeNull();
     for (const bad of [null, [], { jobId: "j", latestAnswer: "maybe", exportReviewState: "clear" }, { jobId: "j", exportReviewState: "open" }]) {
       expect(() => parseJobExportControlStatus(bad)).toThrow();
     }
+  });
+
+  it("parses the scan state strictly", () => {
+    expect(parseJobExportControlStatus({ jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "missing" }).scanState)
+      .toBe("missing");
+    expect(() => parseJobExportControlStatus({ jobId: "j", exportReviewState: "clear", scanState: "done" })).toThrow();
+  });
+
+  it("requeues rescans through the owner RPC", async () => {
+    rpc.callUntypedRpc.mockResolvedValueOnce({ data: 2, error: null });
+    await expect(requestExportMarkingRescan("job-1")).resolves.toBe(2);
+    expect(rpc.callUntypedRpc).toHaveBeenCalledWith("api_request_export_marking_rescan", { p_job_id: "job-1" });
+    rpc.callUntypedRpc.mockResolvedValueOnce({ data: null, error: { message: "export_rescan_not_allowed" } });
+    await expect(requestExportMarkingRescan("job-1")).rejects.toMatchObject({ message: "export_rescan_not_allowed" });
   });
 
   it("reads the status and declares with the current terms version", async () => {

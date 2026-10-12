@@ -7,6 +7,7 @@ import { ExportControlStatusNotice } from "./ExportControlStatusNotice";
 const api = vi.hoisted(() => ({
   fetchJobExportControlStatus: vi.fn(),
   declareJobExportStatus: vi.fn(),
+  requestExportMarkingRescan: vi.fn(),
 }));
 const prompt = vi.hoisted(() => ({ requestExportControlAnswer: vi.fn() }));
 const extraction = vi.hoisted(() => ({ requestExtraction: vi.fn() }));
@@ -62,6 +63,22 @@ describe("getExportControlNoticeCopy", () => {
     }
   });
 
+  // Review round 4: a clean answer whose files still lack a scan of record
+  // shows what holds the part and the one action that can release it.
+  it("offers a recheck only for files that wait for a check", () => {
+    const base = { jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear" } as const;
+    const missing = getExportControlNoticeCopy({ ...base, scanState: "missing" });
+    expect(missing).toMatchObject({ action: "Recheck files", actionKind: "rescan" });
+    expect(missing?.detail).toContain("Do not request a manual quote for this part while it is held.");
+    for (const scanState of ["pending", "drawing_unread", "step_header_incomplete"] as const) {
+      const copy = getExportControlNoticeCopy({ ...base, scanState });
+      expect(copy?.action).toBeNull();
+      expect(copy?.detail).toMatch(/supplier automatically/);
+    }
+    expect(getExportControlNoticeCopy({ ...base, scanState: "drawing_unread" })?.detail).toMatch(/Replace it/);
+    expect(getExportControlNoticeCopy({ ...base, scanState: "complete" })).toBeNull();
+  });
+
   it("lets a controlled or unsure answer be changed", () => {
     for (const latestAnswer of ["controlled", "unsure"] as const) {
       expect(getExportControlNoticeCopy({ jobId: "j", latestAnswer, exportReviewState: "clear" })?.action).toBe("Change answer");
@@ -73,6 +90,7 @@ describe("ExportControlStatusNotice", () => {
   beforeEach(() => {
     api.fetchJobExportControlStatus.mockReset();
     api.declareJobExportStatus.mockReset();
+    api.requestExportMarkingRescan.mockReset();
     prompt.requestExportControlAnswer.mockReset();
     extraction.requestExtraction.mockReset();
     extraction.requestExtraction.mockResolvedValue(1);
@@ -117,6 +135,21 @@ describe("ExportControlStatusNotice", () => {
 
     await waitFor(() => expect(api.declareJobExportStatus).toHaveBeenCalledWith("job-1", "unsure"));
     expect(extraction.requestExtraction).not.toHaveBeenCalled();
+  });
+
+  it("requeues the rescan of a held part whose files wait for a check", async () => {
+    api.fetchJobExportControlStatus
+      .mockResolvedValueOnce({ jobId: "job-1", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "missing" })
+      .mockResolvedValue({ jobId: "job-1", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "pending" });
+    api.requestExportMarkingRescan.mockResolvedValue(1);
+
+    renderNotice();
+    fireEvent.click(await screen.findByRole("button", { name: "Recheck files" }));
+
+    await waitFor(() => expect(api.requestExportMarkingRescan).toHaveBeenCalledWith("job-1"));
+    expect(prompt.requestExportControlAnswer).not.toHaveBeenCalled();
+    expect(api.declareJobExportStatus).not.toHaveBeenCalled();
+    expect(await screen.findByText("Checking files for export-control markings")).toBeTruthy();
   });
 
   it("renders nothing when the status cannot be read", async () => {

@@ -9,6 +9,8 @@ import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
 import { createProviderMutationPhase, runInProviderMutationPhase } from "../providerMutationPhase";
+import { exportControlHoldReason, withExportControlDispatchRecheck } from "../dispatchRouting";
+import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight";
 import {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
@@ -316,6 +318,38 @@ function fakeBrowser(options: {
 }
 
 describe("provider portal kernel admission", () => {
+  // OVD-723 review round 4: the export-control gate is asked again after
+  // navigation and classification, right before the first upload.
+  it("holds the lane when the export-control gate flips during navigation", async () => {
+    let denied = false;
+    const rpc = vi.fn(async () => ({
+      data: denied ? { allowed: false, reasonCode: "export_review_pending" } : { allowed: true },
+      error: null,
+    }));
+    const fake = fakeBrowser();
+    const goto = fake.page.goto as unknown as ReturnType<typeof vi.fn>;
+    const originalGoto = goto.getMockImplementation()!;
+    goto.mockImplementation(async (url: string) => {
+      denied = true;
+      return originalGoto(url);
+    });
+    const adapter = {
+      quote: (quoteInput: VendorQuoteAdapterInput) => runProviderPortalKernel(definition(), config(), quoteInput, {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      }) as never,
+    };
+    const wrapped = withExportControlDispatchRecheck(adapter, { rpc } as never, { taskId: "task-1", vendor: "quickparts" });
+
+    const error = await wrapped.quote(await input()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderDispatchAuthorizationError);
+    expect(exportControlHoldReason(error)).toBe("export_review_pending");
+    expect(goto).toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
   it("does not launch without internally captured exact-file authorization", async () => {
     const launchBrowser = vi.fn();
     const unauthorized = { ...(await input()) } as VendorQuoteAdapterInput;

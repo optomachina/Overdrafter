@@ -47,7 +47,13 @@
 --   Rescan. A clean declaration queues a scan only rescan (task
 --     export_marking_rescan, 1.16c) for every drawing or STEP file without a
 --     scan of its current bytes, so parts extracted before this migration can
---     be released without extraction. The worker task never calls a model.
+--     be released without extraction. The worker task never calls a model,
+--     and it retries transient failures on the finite schedule. A file left
+--     without a scan (a rescan that failed for good) shows as scanState
+--     missing on the part page, whose "Recheck files" action calls
+--     api_request_export_marking_rescan (owner, clean declaration only).
+--     The worker deploy must precede or accompany the client deploy: an old
+--     worker fails the new task type ("Unhandled task type").
 --   Review. An admin clearance of a false positive records an admin cleared
 --     scan bound to the file, its content hash, and the cleared patterns
 --     (1.12a); a later hit on the same bytes and patterns resolves to it, and
@@ -516,6 +522,9 @@ revoke all on function public.api_declare_job_export_status(uuid, text, text, uu
 grant execute on function public.api_declare_job_export_status(uuid, text, text, uuid) to authenticated;
 
 -- 1.10 Read RPC for the client (members of the job's org, or platform admins).
+-- scanState (private.job_export_scan_state, 1.16c) tells the part page whether
+-- a file still waits for a scan of its current bytes and what the owner can
+-- do about it.
 create or replace function public.api_get_job_export_control_status(p_job_id uuid)
 returns jsonb
 language plpgsql
@@ -557,7 +566,8 @@ begin
       when v_confirmed > 0 then 'confirmed_controlled'
       when v_open > 0 then 'blocked_pending_review'
       else 'clear'
-    end
+    end,
+    'scanState', private.job_export_scan_state(v_job.id)
   );
 end;
 $$;
@@ -1510,8 +1520,112 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- api_request_extraction leaves: it skips a part that already has an
 -- extraction, so a part extracted before OVD-723 would otherwise never get a
 -- drawing scan and stay export_scan_missing. Called by the declare RPC (1.9)
--- after a clean declaration, and by the service role through
--- api_queue_export_marking_rescan. Returns the number of tasks queued.
+-- after a clean declaration, by the job owner through
+-- api_request_export_marking_rescan, and by the service role through
+-- api_queue_export_marking_rescan. A file whose last rescan of the same bytes
+-- ended drawing_unread or step_header_incomplete is not queued again (the
+-- answer would not change). Returns the number of tasks queued.
+-- Final outcome of the latest completed rescan of one file's bytes. A
+-- drawing that could not be read (drawing_unread) or a STEP header that ended
+-- before ENDSEC; (step_header_incomplete) gives the same answer for the same
+-- bytes, so neither is queued again for that hash; replacing the file (a new
+-- hash) queues a fresh rescan. Null when there is no such outcome.
+create or replace function private.export_rescan_final_outcome(p_job_file_id uuid, p_content_sha256 text)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select latest.outcome
+  from (
+    select queue.payload ->> 'exportScanOutcome' as outcome
+    from public.work_queue queue
+    where queue.task_type::text = 'export_marking_rescan'
+      and queue.status = 'completed'
+      and queue.payload ->> 'jobFileId' = p_job_file_id::text
+      and queue.payload ->> 'contentSha256' = p_content_sha256
+    order by queue.updated_at desc, queue.created_at desc, queue.id desc
+    limit 1
+  ) latest
+  where latest.outcome in ('drawing_unread', 'step_header_incomplete');
+$$;
+
+revoke all on function private.export_rescan_final_outcome(uuid, text)
+  from public, anon, authenticated, service_role;
+
+-- Scan state of a job for the part page (1.10). Over every scannable file of
+-- the job (a drawing, or a CAD file named .step/.stp, with a well formed
+-- hash) that has no scan of record for its current bytes:
+--   pending                 a rescan of the file, or an extraction of the
+--                           job, is queued or running;
+--   drawing_unread          the last rescan of these bytes could not read
+--                           every page (replace the drawing);
+--   step_header_incomplete  the last rescan of these bytes found no complete
+--                           STEP header (replace the STEP file);
+--   missing                 nothing will scan the file on its own (a failed
+--                           rescan, an old worker, or none queued); the owner
+--                           can requeue it (api_request_export_marking_rescan).
+-- The most actionable state wins (missing first). complete when no such file.
+create or replace function private.job_export_scan_state(p_job_id uuid)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select unscanned.state
+      from (
+        select
+          case
+            when exists (
+              select 1
+              from public.work_queue queue
+              where queue.job_id = file_row.job_id
+                and queue.status in ('queued', 'running')
+                and (
+                  (queue.task_type::text = 'export_marking_rescan'
+                    and queue.payload ->> 'jobFileId' = file_row.id::text)
+                  or queue.task_type::text = 'extract_part'
+                )
+            ) then 'pending'
+            else coalesce(
+              private.export_rescan_final_outcome(
+                file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+              ),
+              'missing'
+            )
+          end as state
+        from public.job_files file_row
+        where file_row.job_id = p_job_id
+          and (
+            file_row.file_kind = 'drawing'
+            or pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.original_name, ''))) ~ '\.(step|stp)$'
+          )
+          and pg_catalog.lower(pg_catalog.btrim(coalesce(file_row.content_sha256, ''))) ~ '^[0-9a-f]{64}$'
+          and not exists (
+            select 1
+            from private.job_file_export_scans scan
+            where scan.job_file_id = file_row.id
+              and scan.job_id = file_row.job_id
+              and scan.content_sha256 = pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+          )
+      ) unscanned
+      order by case unscanned.state
+        when 'missing' then 1
+        when 'drawing_unread' then 2
+        when 'step_header_incomplete' then 3
+        else 4
+      end
+      limit 1
+    ),
+    'complete'
+  );
+$$;
+
+revoke all on function private.job_export_scan_state(uuid)
+  from public, anon, authenticated, service_role;
+
 create or replace function private.queue_export_marking_rescans(p_job_id uuid)
 returns integer
 language plpgsql
@@ -1564,6 +1678,9 @@ begin
           and queue.status in ('queued', 'running')
           and queue.payload ->> 'jobFileId' = file_row.id::text
       )
+      and private.export_rescan_final_outcome(
+        file_row.id, pg_catalog.lower(pg_catalog.btrim(file_row.content_sha256))
+      ) is null
   ),
   queued as (
     insert into public.work_queue (organization_id, job_id, part_id, task_type, payload)
@@ -1615,6 +1732,53 @@ revoke all on function public.api_queue_export_marking_rescan(uuid)
   from public, anon, authenticated, service_role;
 grant execute on function public.api_queue_export_marking_rescan(uuid)
   to service_role;
+
+-- Owner recovery. A file whose rescan failed for good (a transient Storage or
+-- RPC error through every retry, or an old worker that does not know the task
+-- type during the deploy gap) is never queued again on its own, and a clean
+-- declaration shows no other action. The part page offers "Recheck files"
+-- (scanState missing, 1.10), which calls this. It requires a verified user
+-- who can edit the job and a clean, unblocked latest declaration (checked
+-- under the job lock), and it only queues scan only rescans; it records no
+-- scan and changes no declaration or block.
+create or replace function public.api_request_export_marking_rescan(p_job_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_latest_id uuid;
+begin
+  perform public.require_verified_auth();
+
+  select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
+  if v_job.id is null
+    or not public.user_can_access_org(v_job.organization_id)
+    or not public.user_can_edit_job(v_job.id) then
+    raise exception using errcode = '42501', message = 'export_rescan_forbidden';
+  end if;
+
+  perform private.lock_job_export_state(v_job.id, true);
+
+  select declaration.id into v_latest_id
+  from private.job_export_declarations declaration
+  where declaration.job_id = v_job.id
+  order by declaration.declared_at desc, declaration.id desc
+  limit 1;
+  if private.job_export_upload_denial(v_job.id, v_latest_id) is not null then
+    raise exception using errcode = 'P0001', message = 'export_rescan_not_allowed';
+  end if;
+
+  return private.queue_export_marking_rescans(v_job.id);
+end;
+$$;
+
+revoke all on function public.api_request_export_marking_rescan(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.api_request_export_marking_rescan(uuid)
+  to authenticated;
 
 -- 1.17 One-time backfill: every existing job with files and no declaration
 -- gets an explicit 'missing' row (denied until the user declares).

@@ -1227,9 +1227,49 @@ describe("OVD-723 review round 3: point in time checks", () => {
 
   it("wires the per attempt extraction guard and the pre send dispatch recheck", () => {
     expect(workerIndex).toContain("beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: task.job_id }),");
-    expect(workerIndex).toContain("adapter: withExportControlDispatchRecheck(adapter, supabase, { taskId: task.id, vendor }),");
+    expect(workerIndex).toContain("adapter: withExportControlDispatchRecheck(adapter, supabase, {");
     const lab = readFileSync(new URL("./extraction/debugLab.ts", import.meta.url), "utf8");
     expect(lab).toContain("beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: context.part.job_id }),");
+  });
+
+  // Review round 4: the full spend estimate is booked only for a lane whose
+  // recheck passed, and Xometry and Fictiv ask the gate again before upload.
+  it("counts vendor automation as started only after the recheck passes", async () => {
+    const onAllowed = vi.fn();
+    const deny = vi.fn(async () => ({ data: { allowed: false, reasonCode: "export_review_pending" }, error: null }));
+    await expect(
+      withExportControlDispatchRecheck({ quote: vi.fn() }, { rpc: deny } as unknown as SupabaseClient, { taskId: "t", vendor: "fictiv", onAllowed })
+        .quote({} as VendorQuoteAdapterInput),
+    ).rejects.toBeInstanceOf(ProviderDispatchAuthorizationError);
+    expect(onAllowed).not.toHaveBeenCalled();
+
+    const allow = vi.fn(async () => ({ data: { allowed: true }, error: null }));
+    const seen: Array<VendorQuoteAdapterInput["beforeProviderDisclosure"]> = [];
+    const quoteInput = {} as VendorQuoteAdapterInput;
+    await withExportControlDispatchRecheck(
+      { quote: vi.fn(async (received: VendorQuoteAdapterInput) => { seen.push(received.beforeProviderDisclosure); expect(received).toBe(quoteInput); return {} as never; }) },
+      { rpc: allow } as unknown as SupabaseClient,
+      { taskId: "t", vendor: "fictiv", onAllowed },
+    ).quote(quoteInput);
+    expect(onAllowed).toHaveBeenCalledTimes(1);
+    expect(typeof seen[0]).toBe("function");
+    expect(quoteInput.beforeProviderDisclosure).toBeUndefined();
+    expect(workerIndex).not.toContain("onAuthorized: () => {\n        vendorAutomationStarted = true;");
+  });
+
+  it("asks the gate again right before the Xometry and Fictiv uploads", () => {
+    const xometry = readFileSync(new URL("./adapters/xometry.ts", import.meta.url), "utf8");
+    const target = xometry.slice(xometry.indexOf("async function setFilesOnApprovedUploadTarget("));
+    expect(target.indexOf("await beforeProviderDisclosure?.();")).toBeGreaterThan(-1);
+    expect(target.indexOf("await beforeProviderDisclosure?.();")).toBeLessThan(target.indexOf("markProviderMutationStarted();"));
+    expect(xometry).toContain("input.beforeProviderDisclosure,\n      );\n      uploadSelector = uploadResult.selector;");
+    expect(xometry).toContain("await input.beforeProviderDisclosure?.();\n        const drawingFallbackResult = await attachDrawingFallback(");
+    expect(xometry).toContain("if (dispatchDecisionError) throw dispatchDecisionError;");
+    const fictiv = readFileSync(new URL("./adapters/fictiv.ts", import.meta.url), "utf8");
+    const upload = fictiv.slice(fictiv.indexOf("async function setFilesOnUpload("));
+    expect(upload.indexOf("await beforeProviderDisclosure?.();")).toBeLessThan(upload.indexOf("markProviderMutationStarted();"));
+    expect(fictiv).toContain("await setFilesOnUpload(page, uploadFiles, input.beforeProviderDisclosure);");
+    expect(fictiv).toContain("if (isDispatchDecisionError(error)) {\n        throw error;");
   });
 
   it("runs the export gate before the manual and spend cap routes of a quote task", () => {

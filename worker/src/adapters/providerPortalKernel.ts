@@ -22,6 +22,7 @@ import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -1310,6 +1311,13 @@ async function uploadAuthorizedPortalFiles(
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
+  // OVD-723: the export-control gate is asked again here, after navigation
+  // and classification and right before the first byte reaches the provider.
+  // A denial is rethrown unchanged by runProviderPortalKernel (never
+  // translated into a portal failure) and the lane is held; nothing has been
+  // uploaded.
+  await interaction.input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1440,6 +1448,8 @@ function translatePortalKernelError(
   boundary: PortalBoundaryState,
   error: unknown,
 ): VendorAutomationError {
+  // Dispatch authorization and export-control decisions are rethrown
+  // unchanged by the caller before translation (isDispatchDecisionError).
   if (error instanceof VendorAutomationError) {
     if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
       error.payload.providerMutationPossible = true;
@@ -1496,6 +1506,9 @@ export async function runProviderPortalKernel(
         provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
     return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
+    if (isDispatchDecisionError(error)) {
+      throw error;
+    }
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
     const translated = translatePortalKernelError(definition, boundary, error);
     if (dependencies.operationalJev) {

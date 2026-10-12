@@ -38,7 +38,7 @@
 --      (finding 4)
 begin;
 
-select plan(128);
+select plan(138);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -1175,6 +1175,90 @@ select is(
   'a file whose bytes changed is queued again'
 );
 reset role;
+
+-- 11b. Rescan recovery (review round 4, blocker 1). The part page reads the
+-- scan state; a rescan that failed for good leaves the file missing, and the
+-- owner can requeue it through an authenticated RPC that only queues rescans.
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select legacy_job_id from ovd723_ctx)) ->> 'scanState',
+  'pending',
+  'scan state is pending while a rescan of the file is queued'
+);
+reset role;
+
+update public.work_queue set status = 'failed', last_error = 'Unhandled task type: export_marking_rescan'
+where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'export_marking_rescan'
+  and status = 'queued';
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select legacy_job_id from ovd723_ctx)) ->> 'scanState',
+  'missing',
+  'a rescan that failed for good leaves the file missing (an old worker in the deploy gap)'
+);
+select is(
+  public.api_request_export_marking_rescan((select legacy_job_id from ovd723_ctx)),
+  1,
+  'the owner requeues the failed rescan'
+);
+select is(
+  public.api_request_export_marking_rescan((select legacy_job_id from ovd723_ctx)),
+  0,
+  'requeuing again queues no duplicate while the rescan is queued'
+);
+select is(
+  public.api_get_job_export_control_status((select legacy_job_id from ovd723_ctx)) ->> 'scanState',
+  'pending',
+  'after the requeue the part page shows the check as pending'
+);
+select throws_ok(
+  format('select public.api_request_export_marking_rescan(%L::uuid)', (select unsure_job_id from ovd723_ctx)),
+  'P0001',
+  'export_rescan_not_allowed',
+  'a job whose latest answer is not clean cannot requeue rescans'
+);
+select pg_temp.set_ovd723_request_identity((select other_user_id from ovd723_ctx));
+select throws_ok(
+  format('select public.api_request_export_marking_rescan(%L::uuid)', (select legacy_job_id from ovd723_ctx)),
+  '42501',
+  'export_rescan_forbidden',
+  'a user outside the organization cannot requeue rescans'
+);
+reset role;
+
+update public.work_queue
+set status = 'completed',
+    payload = payload || '{"exportScanOutcome": "step_header_incomplete"}'::jsonb
+where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'export_marking_rescan'
+  and status = 'queued';
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+select is(
+  public.api_get_job_export_control_status((select legacy_job_id from ovd723_ctx)) ->> 'scanState',
+  'step_header_incomplete',
+  'an incomplete STEP header is shown as such, not as a recheck'
+);
+select is(
+  public.api_request_export_marking_rescan((select legacy_job_id from ovd723_ctx)),
+  0,
+  'the same bytes are not queued again after a final outcome (drawing_unread or step_header_incomplete)'
+);
+reset role;
+
+select ok(
+  has_function_privilege('authenticated', 'public.api_request_export_marking_rescan(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_request_export_marking_rescan(uuid)', 'execute')
+  and not has_function_privilege('service_role', 'public.api_request_export_marking_rescan(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'private.job_export_scan_state(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'private.export_rescan_final_outcome(uuid, text)', 'execute')
+  and (select prosecdef and proconfig @> array['search_path=""']
+       from pg_proc where oid = 'public.api_request_export_marking_rescan(uuid)'::regprocedure),
+  'only an authenticated user can call the owner requeue; it is SECURITY DEFINER with an empty search_path, and its helpers are private'
+);
 
 update public.job_files
 set content_sha256 = repeat('6', 64), trusted_content_sha256 = repeat('6', 64)

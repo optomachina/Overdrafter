@@ -49,6 +49,7 @@ import {
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
@@ -1542,6 +1543,7 @@ async function setFilesOnApprovedUploadTarget(
   filePaths: string[],
   target: ApprovedUploadTarget,
   runDir: string,
+  beforeProviderDisclosure?: () => Promise<void>,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
   const targetStillApproved = async () => {
@@ -1570,6 +1572,8 @@ async function setFilesOnApprovedUploadTarget(
     filePaths,
     target.allowMissingAccept,
   );
+  // OVD-723: the export-control gate is asked again right before the upload.
+  await beforeProviderDisclosure?.();
   if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target changed before file selection.",
@@ -2718,6 +2722,8 @@ export class XometryAdapter extends VendorAdapter {
     let drawingUploadVerification: string | null = null;
     let quoteResult: VendorQuoteAdapterOutput | null = null;
     let pendingError: VendorAutomationError | null = null;
+    // OVD-723: a gate denial raised before an upload, rethrown unchanged after teardown.
+    let dispatchDecisionError: Error | null = null;
     let snapshotError: VendorAutomationError | null = null;
 
     try {
@@ -2839,6 +2845,7 @@ export class XometryAdapter extends VendorAdapter {
         uploadedFileNames,
         uploadTarget,
         runDir,
+        input.beforeProviderDisclosure,
       );
       uploadSelector = uploadResult.selector;
       if (input.stagedDrawingFile) {
@@ -2968,6 +2975,7 @@ export class XometryAdapter extends VendorAdapter {
             },
           );
         }
+        await input.beforeProviderDisclosure?.();
         const drawingFallbackResult = await attachDrawingFallback(
           page,
           liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
@@ -3228,7 +3236,9 @@ export class XometryAdapter extends VendorAdapter {
     } catch (error) {
       if (this.operationalJev) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
         provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
-      if (error instanceof VendorAutomationError) {
+      if (isDispatchDecisionError(error)) {
+        dispatchDecisionError = error;
+      } else if (error instanceof VendorAutomationError) {
         pendingError = new VendorAutomationError(
           error.message,
           error.code,
@@ -3313,6 +3323,7 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (dispatchDecisionError) throw dispatchDecisionError;
     if (pendingError) {
       // The quote failure is the primary cause; a teardown snapshot failure is
       // secondary diagnostic evidence and must not mask it.

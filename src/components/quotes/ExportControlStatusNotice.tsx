@@ -6,6 +6,7 @@ import { requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   declareJobExportStatus,
   fetchJobExportControlStatus,
+  requestExportMarkingRescan,
 } from "@/features/quotes/api/export-control-api";
 import { getExportControlNoticeCopy } from "@/features/quotes/export-control-notice";
 import { EXPORT_CONTROL_HELP_PATH, requestExportControlAnswer } from "@/features/quotes/export-control";
@@ -18,7 +19,8 @@ type ExportControlStatusNoticeProps = {
 
 /**
  * OVD-723 client notice on the part page. Explains why quotes are held and
- * lets the owner declare an existing part without uploading a file. A status
+ * lets the owner declare an existing part without uploading a file, or
+ * recheck files that are still waiting for an export-control scan. A status
  * that cannot be read shows nothing here; the server still holds the part.
  */
 export function ExportControlStatusNotice({ jobId, className }: ExportControlStatusNoticeProps) {
@@ -57,7 +59,20 @@ export function ExportControlStatusNotice({ jobId, className }: ExportControlSta
     },
   });
 
+  // A file whose rescan failed for good is never checked again on its own;
+  // the owner requeues it here (the server only queues scan only rescans).
+  const rescanMutation = useMutation({
+    mutationFn: () => requestExportMarkingRescan(jobId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey });
+    },
+    onError: () => {
+      toast.error("The files could not be rechecked. Try again.");
+    },
+  });
+
   const copy = statusQuery.data ? getExportControlNoticeCopy(statusQuery.data) : null;
+  const actionPending = declareMutation.isPending || rescanMutation.isPending;
   if (!copy) {
     return null;
   }
@@ -84,8 +99,8 @@ export function ExportControlStatusNotice({ jobId, className }: ExportControlSta
               size="sm"
               variant="outline"
               className="mt-2"
-              disabled={declareMutation.isPending}
-              onClick={() => declareMutation.mutate()}
+              disabled={actionPending}
+              onClick={() => (copy.actionKind === "rescan" ? rescanMutation.mutate() : declareMutation.mutate())}
             >
               {copy.action}
             </Button>

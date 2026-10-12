@@ -79,6 +79,10 @@ in earlier sections.
   `ENDSEC;` are inside the prefix. A header padded past 256 KB, or a file with
   no `HEADER;` in the prefix, gets no clean scan, so the part is held
   (`export_scan_missing`); a marking found in the partial text still blocks.
+  The scan ends at the first `ENDSEC;` it finds, even one inside a quoted
+  header string, so a header that quotes `ENDSEC;` hides the text after it
+  from the scan. Real CAD exporters do not write that; it matters only for a
+  file crafted to evade the scan.
 - Backfill: every existing job with files gets a `missing` declaration, so it is
   denied dispatch until the user declares.
 
@@ -471,3 +475,68 @@ all 148 main migrations, 2026-10-12):
   ACLs, policies, columns, constraints); expand rollback equals main apart
   from the retained audit tables and the enum value; reapplying gives an
   identical catalog.
+
+## Review round 4 (fresh review at 161329de)
+
+SQL files changed: `ovd-723.sql` and `ovd-723.rollback.sql` only. The
+contract and contract rollback are unchanged. The window 1 pgTAP suite
+`ovd723_export_control_upload_block.sql.pending` changed (138 assertions);
+the contract suite is unchanged (103 assertions).
+
+1. **Rescan recovery.** A failed `export_marking_rescan` is now retried on
+   the finite schedule (`isRetryableExportRescanError` in
+   `worker/src/vendorTaskRetry.ts`; only a task row without its job or file
+   is terminal). A file that still has no scan of its current bytes is shown
+   on the part page: `api_get_job_export_control_status` returns `scanState`
+   (`private.job_export_scan_state`), one of `complete`, `pending` (a rescan
+   of the file or an extraction of the job is queued or running), `missing`,
+   `drawing_unread` or `step_header_incomplete`. For `missing` the page
+   offers "Recheck files", which calls the new
+   `api_request_export_marking_rescan(job)`: SECURITY DEFINER,
+   `search_path` empty, granted to `authenticated` only, verified user who
+   can edit the job, and a clean, unblocked latest declaration checked under
+   the job lock. It only queues scan only rescans. For `drawing_unread` and
+   `step_header_incomplete` the page asks the owner to replace the file, and
+   the queue no longer requeues the same bytes after either final outcome
+   (`private.export_rescan_final_outcome`); a new hash is queued as usual.
+   The supplier hold note now says the same: answer the question, recheck
+   files that wait for a check, or replace a file that could not be read.
+2. **Deploy order.** The worker deploy must precede or accompany the client
+   deploy. An old worker does not know `export_marking_rescan` and fails it
+   ("Unhandled task type"); with the new worker the owner can requeue such a
+   rescan from the part page.
+3. **Admin operations panel.** `export_marking_rescan` is in
+   `OPERATIONS_TASK_TYPES` (with plain labels for every task type), and the
+   seven export-control failure codes are in `FAILURE_CODES` with plain admin
+   labels (`EXPORT_CONTROL_FAILURE_LABELS` in
+   `server/admin-operations/projection.ts`). One such row no longer turns the
+   queue or failures panel into `source_malformed`.
+4. **Model retries.** `callModel` takes `beforeRequest`, awaited before
+   every provider request including retries; `runModelAttempt` passes the
+   per attempt export check from both call sites. A denial propagates
+   unwrapped, so `isExportControlModelStop` still stops extraction.
+5. **Provider recheck before upload.** `withExportControlDispatchRecheck`
+   sets `beforeProviderDisclosure` on the adapter input (on the same object,
+   because live evaluation tracks inputs by identity). The portal kernel
+   awaits it after navigation and classification, right before the first
+   `setInputFiles`; the Xometry adapter awaits it before the CAD upload and
+   before the drawing fallback, and Fictiv before its upload. Dispatch
+   authorization and export lookup errors pass through each adapter's error
+   translation unchanged, so the lane is held. Vendor automation counts as
+   started (full spend estimate) only after the recheck before
+   `adapter.quote` passes.
+6. **Rollback scope.** The expand rollback cancels QUEUED rescan tasks only.
+   A rescan already running finishes or fails on its own, and completed or
+   failed rescan rows are left as they are.
+7. **Window 2 heads up.** `supabase/tests/founding_beta_subscription_bypass.sql`
+   (merged in #693) calls the legacy 6 and 8 argument upload RPCs and inserts
+   into `storage.objects` directly. After the contract the legacy RPCs refuse
+   and the old Storage INSERT policy is gone, so the contract packet needs
+   another guarded fixture patch for that suite, like the
+   `free_confirmed_quote_access` seed.
+
+Verification (disposable Docker `supabase/postgres:17.6.1.095`, Auth and
+Storage platform migrations from `gotrue:v2.187.0` and `storage-api:v1.41.8`,
+all main migrations after merging origin/main, 2026-10-12): see the PR
+comment for this round.
+

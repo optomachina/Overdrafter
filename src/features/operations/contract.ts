@@ -7,7 +7,13 @@ export const OPERATIONS_CATEGORIES = ["worker", "runtime", "provider_session", "
 export const OPERATIONS_SEVERITIES = ["healthy", "attention", "blocked", "unknown"] as const;
 export const OPERATIONS_PROVIDERS = ["xometry", "fictiv", "protolabs", "sendcutsend", "partsbadger", "fastdms", "devzmanufacturing", "infraredlaboratories", "oshcut", "fabworks", "ponoko", "quickparts", "rapiddirect", "geomiq", "weerg", "protolabsnetwork", "emachineshop", "rmfg"] as const;
 // Browser-safe snapshot of registered identifiers in worker/src/extraction/modelRegistry.ts.
-export const OPERATIONS_TASK_TYPES = ["extract_part", "run_vendor_quote", "poll_vendor_quote", "publish_package", "repair_adapter_candidate", "debug_extract_part", "generate_cad_preview"] as const;
+export const OPERATIONS_TASK_TYPES = ["extract_part", "run_vendor_quote", "poll_vendor_quote", "publish_package", "repair_adapter_candidate", "debug_extract_part", "generate_cad_preview", "export_marking_rescan"] as const;
+/** Plain admin labels; export_marking_rescan is the OVD-723 scan only recheck of one file (no model, no supplier). */
+export const OPERATIONS_TASK_TYPE_LABELS: Readonly<Record<typeof OPERATIONS_TASK_TYPES[number], string>> = {
+  extract_part: "Part extraction", run_vendor_quote: "Supplier quote", poll_vendor_quote: "Supplier quote check",
+  publish_package: "Quote package publish", repair_adapter_candidate: "Adapter repair", debug_extract_part: "Extraction debug run",
+  generate_cad_preview: "CAD preview", export_marking_rescan: "Export-control file recheck",
+};
 export const OPERATIONS_MODELS = ["gpt-5.4", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "openai/gpt-4.1-mini", "anthropic/claude-3-5-haiku", "moonshotai/kimi-k2", "minimax/minimax-m2.5", "minimax/minimax-m2.7", "zhipuai/glm-5"] as const;
 export const OPERATIONS_SUMMARIES = {
   source_unavailable: "Operational evidence is unavailable.", source_malformed: "Operational evidence is invalid or incomplete.",

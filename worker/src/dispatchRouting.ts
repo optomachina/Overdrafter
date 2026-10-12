@@ -156,22 +156,39 @@ export async function assertExportControlDispatchAllowed(
 }
 
 /**
- * OVD-723 point in time check. Wraps an adapter so the export-control gate is
- * asked once more after the dispatch preflight authorizes and immediately
- * before `adapter.quote` sends anything. A declaration change or a marking
- * block that lands between the earlier checks and the send stops it here
- * (`assertExportControlDispatchAllowed` throws). The residual window is the
- * time between this answer and the provider receiving the files.
+ * OVD-723 point in time checks. Wraps an adapter so the export-control gate is
+ * asked once more after the dispatch preflight authorizes and before
+ * `adapter.quote` starts, and again through `beforeProviderDisclosure`, which
+ * the portal kernel and the Xometry and Fictiv adapters await right before
+ * the first file upload (navigation and page classification can take a
+ * while). A declaration change or a marking block that lands in between stops
+ * the upload (`assertExportControlDispatchAllowed` throws). The residual
+ * window is the time between the last answer and the provider receiving the
+ * files.
  */
 export function withExportControlDispatchRecheck(
   adapter: Pick<VendorAdapter, "quote">,
   supabase: Pick<SupabaseClient, "rpc">,
-  input: { taskId: string; vendor: VendorName },
+  input: {
+    taskId: string;
+    vendor: VendorName;
+    /** Called once the recheck before `adapter.quote` passes; never for a denied lane. */
+    onAllowed?: () => void;
+  },
 ): Pick<VendorAdapter, "quote"> {
   return {
     quote: async (quoteInput) => {
       await assertExportControlDispatchAllowed(supabase, input);
-      return adapter.quote(quoteInput);
+      input.onAllowed?.();
+      // Set on the same object, never a copy: authorized inputs are tracked by
+      // identity (live evaluation file capture), so a spread would drop them.
+      const previous = quoteInput.beforeProviderDisclosure;
+      quoteInput.beforeProviderDisclosure = () => assertExportControlDispatchAllowed(supabase, input);
+      try {
+        return await adapter.quote(quoteInput);
+      } finally {
+        quoteInput.beforeProviderDisclosure = previous;
+      }
     },
   };
 }
@@ -200,7 +217,8 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
 /** Customer-safe note on a held lane. It names the hold and the way out, never the files' content. */
 export const EXPORT_CONTROL_HOLD_NOTE =
   "Held by export control. These files were not sent to this supplier and must not be quoted manually. "
-  + "Open the part and answer the export-control question for its files; parts with export-control markings stay held until an OverDrafter admin reviews them.";
+  + "Open the part and follow its export-control notice: answer the export-control question, recheck files that are still waiting for a check, "
+  + "or replace a drawing or STEP file that could not be read. Parts with export-control markings stay held until an OverDrafter admin reviews them.";
 
 /**
  * OVD-723: a quote lane held by export control. Every export-control code a

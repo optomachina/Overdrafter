@@ -68,7 +68,9 @@ import {
 import { buildExtractionCompletionPayload } from "./extractionObservability.js";
 import { createSpendGuard, SpendCapExceededError } from "./spendGuard.js";
 import {
+  ExportMarkingRescanTaskInvalidError,
   failureCodeForError,
+  isRetryableExportRescanError,
   isRetryableVendorTaskError,
   nextRetryAt,
   retryCountForAttempts,
@@ -1513,8 +1515,16 @@ export async function handleVendorQuoteTask(
       vendor,
       scopeSnapshot,
       // OVD-723 point in time check: after the preflight authorizes and
-      // immediately before adapter.quote, the gate is asked once more.
-      adapter: withExportControlDispatchRecheck(adapter, supabase, { taskId: task.id, vendor }),
+      // immediately before adapter.quote, the gate is asked once more. Vendor
+      // automation counts as started (full spend estimate) only once it passes,
+      // so a lane denied here settles nothing.
+      adapter: withExportControlDispatchRecheck(adapter, supabase, {
+        taskId: task.id,
+        vendor,
+        onAllowed: () => {
+          vendorAutomationStarted = true;
+        },
+      }),
       quoteInput: {
         organizationId: task.organization_id,
         quoteRunId: task.quote_run_id,
@@ -1525,9 +1535,6 @@ export async function handleVendorQuoteTask(
         stagedDrawingFile,
         requirement: context.requirement,
         requestedQuantity: currentResult.requested_quantity,
-      },
-      onAuthorized: () => {
-        vendorAutomationStarted = true;
       },
     });
 
@@ -1642,7 +1649,7 @@ export async function handleExportMarkingRescanTask(
 ) {
   const jobFileId = typeof task.payload.jobFileId === "string" ? task.payload.jobFileId : null;
   if (!task.job_id || !jobFileId) {
-    throw new Error("export_marking_rescan task is missing job_id or jobFileId.");
+    throw new ExportMarkingRescanTaskInvalidError();
   }
 
   const { data: file, error } = await supabase
@@ -1876,6 +1883,7 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
         (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
         (task.task_type === "extract_part" && error instanceof ExportControlLookupError) ||
+        (task.task_type === "export_marking_rescan" && isRetryableExportRescanError(error)) ||
         (task.task_type === "run_vendor_quote" &&
           isRetryableVendorTaskError(error, providerMutationPhase));
       if (shouldRetry) {

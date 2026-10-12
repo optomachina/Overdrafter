@@ -12,8 +12,10 @@
 -- worker fail closed (their RPCs are gone) until they are rolled back too.
 --
 -- The 'export_marking_rescan' value of public.queue_task_type stays:
--- PostgreSQL cannot drop an enum value. Queued rescan tasks are cancelled so
--- an older worker never claims one (it would fail on an unknown task type).
+-- PostgreSQL cannot drop an enum value. Only QUEUED rescan tasks are
+-- cancelled, so an older worker never claims one (it would fail on an
+-- unknown task type). A rescan already running finishes or fails on its own,
+-- and completed or failed rescan rows are left as they are.
 
 set local lock_timeout = '5s';
 
@@ -39,8 +41,11 @@ set status = 'cancelled',
 where task_type::text = 'export_marking_rescan'
   and status = 'queued';
 
+drop function public.api_request_export_marking_rescan(uuid);
 drop function public.api_queue_export_marking_rescan(uuid);
 drop function private.queue_export_marking_rescans(uuid);
+drop function private.job_export_scan_state(uuid);
+drop function private.export_rescan_final_outcome(uuid, text);
 drop function public.api_check_export_control_dispatch(uuid, text);
 drop function public.api_check_export_control_extraction(uuid);
 drop function private.export_control_extraction_denial(uuid);

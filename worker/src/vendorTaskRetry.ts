@@ -131,6 +131,26 @@ export function isRetryableVendorTaskError(
   return RETRYABLE_GENERIC_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+/** A rescan task row that can never succeed (it names no job or file). */
+export class ExportMarkingRescanTaskInvalidError extends Error {
+  constructor() {
+    super("export_marking_rescan task is missing job_id or jobFileId.");
+    this.name = "ExportMarkingRescanTaskInvalidError";
+  }
+}
+
+/**
+ * OVD-723: a scan only rescan sends nothing to any provider or model, so a
+ * repeat is safe. Every failure (a Storage download, an RPC, a hash that could
+ * not be verified, the export check itself) is retried on the finite schedule;
+ * only a task row without its job or file is terminal. A rescan that still
+ * fails is shown on the part page (scanState missing), whose owner action
+ * requeues it.
+ */
+export function isRetryableExportRescanError(error: unknown) {
+  return !(error instanceof ExportMarkingRescanTaskInvalidError);
+}
+
 export function retryDelayForAttempts(attempts: number) {
   return VENDOR_TASK_RETRY_DELAYS_MS[attempts - 1] ?? null;
 }
