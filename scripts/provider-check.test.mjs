@@ -503,29 +503,68 @@ describe("reviewed envelope completeness", () => {
     ));
   });
 
-  it("accepts OVD-688 registry mountPath declarations as names, not secret values", async () => {
-    const rootDir = await createEnvelopeRoot();
-    await writeCompleteReviewedProvider(rootDir, "acme");
+  async function writeAcmeRegistry(rootDir, sessionSecrets) {
     await fs.writeFile(
       path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH),
       `${JSON.stringify({
         providers: [{
           key: "acme",
           liveAdapter: false,
-          sessionSecrets: [{
-            secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
-            mountPath: "/var/secrets/acme-storage-state/storage-state.json",
-            requiredWhenListed: true,
-          }],
+          sessionSecrets,
           egress: "stable_nat",
         }],
       }, null, 2)}\n`,
+    );
+  }
+
+  it("accepts OVD-688 registry mountPath declarations as names, not secret values", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await writeAcmeRegistry(rootDir, [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/var/secrets/acme-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    }]);
+    await fs.writeFile(
+      path.join(rootDir, "worker/src/generated/providerRegistry.ts"),
+      'export const acmeSessionSecretNames = ["ACME_STORAGE_STATE_SECRET_NAME"] as const;\n',
+    );
+    await fs.writeFile(
+      path.join(rootDir, "worker/scripts/generated/provider-secrets.sh"),
+      "# ACME_STORAGE_STATE_SECRET_NAME\n",
     );
 
     await expect(assertReviewedEnvelopeCompleteness({
       rootDir,
       today: "2026-10-11",
     })).resolves.toEqual({ reviewedProviders: ["acme"] });
+  });
+
+  it.each([
+    ["an invalid mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/tmp/acme-storage-state.json",
+      requiredWhenListed: true,
+    }]],
+    ["both mountEnv and mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "ACME_STORAGE_STATE_JSON",
+      mountPath: "/var/secrets/acme-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    }]],
+    ["neither mountEnv nor mountPath", [{
+      secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
+      requiredWhenListed: true,
+    }]],
+  ])("treats a registry secret with %s as missing deploy wiring", async (_label, sessionSecrets) => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await writeAcmeRegistry(rootDir, sessionSecrets);
+    await expect(collectReviewedEnvelopeGaps({ rootDir, today: "2026-10-11" })).resolves.toEqual([{
+      key: "acme",
+      artifact: "deploy wiring",
+      expectedPath: PROVIDER_REGISTRY_RELATIVE_PATH,
+    }]);
   });
 
   it("refuses registry entries that carry secret values", async () => {
@@ -825,7 +864,6 @@ describe("default-deny registrar call placement", () => {
     ["describe", `describe("a", () => { ${call}; });`],
     ["nested describe", `describe("a", () => { describe("b", function () { ${call}; }); });`],
     ["describe.each", `describe.each([1])("a", () => { ${call}; });`],
-    ["describe.skip", `describe.skip("a", () => { ${call}; });`],
   ])("accepts a call at %s", async (_name, body) => {
     await expect(checkWithBody(body)).resolves.toEqual({ reviewedProviders: ["acme"] });
   });
@@ -843,6 +881,10 @@ describe("default-deny registrar call placement", () => {
     ["&& expression", `(globalThis as any).x && ${call};`, "BinaryExpression"],
     ["|| expression", `(globalThis as any).x || ${call};`, "BinaryExpression"],
     ["if inside describe", `describe("a", () => { if (false) { ${call}; } });`, "IfStatement"],
+    ["describe.skip", `describe.skip("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.todo", `describe.todo("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.skipIf", `describe.skipIf(true)("a", () => { ${call}; });`, "ArrowFunction"],
+    ["describe.only", `describe.only("a", () => { ${call}; });`, "ArrowFunction"],
   ])("rejects a call under %s and names %s", async (_name, body, kind) => {
     await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
   });
@@ -895,5 +937,15 @@ describe("readiness doc structure", () => {
 
   it("fails a one-character doc as malformed", async () => {
     await expect(checkWithDoc("x\n")).rejects.toThrow(`readiness doc ${docPath} is malformed`);
+  });
+
+  it("treats HTML comments and whitespace as empty section content", async () => {
+    const commented = REQUIRED_READINESS_HEADINGS
+      .map((heading) => `${heading}\n\n<!-- todo -->\n\n`)
+      .join("");
+    expect(validateReadinessDoc(commented)).toEqual(
+      REQUIRED_READINESS_HEADINGS.map((heading) => `empty section: ${heading}`),
+    );
+    await expect(checkWithDoc(commented)).rejects.toThrow("empty section:");
   });
 });

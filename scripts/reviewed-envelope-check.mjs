@@ -501,7 +501,7 @@ function unconditionalPlacementViolation(call) {
       !describeCall
       || !ts.isCallExpression(describeCall)
       || !describeCall.arguments.includes(fn)
-      || !isDescribeCallee(describeCall.expression)
+      || !isAllowedDescribeCallee(describeCall.expression)
     ) {
       return kindName(fn);
     }
@@ -509,17 +509,25 @@ function unconditionalPlacementViolation(call) {
   }
 }
 
-function isDescribeCallee(expression) {
+/**
+ * Default-deny may sit in `describe` or `describe.each(...)` only.
+ * `describe.skip`, `.todo`, `.skipIf`, `.only`, and similar wrappers do not count.
+ */
+function isAllowedDescribeCallee(expression) {
   if (ts.isIdentifier(expression)) {
     return expression.text === "describe";
   }
-  if (ts.isPropertyAccessExpression(expression)) {
-    return isDescribeCallee(expression.expression);
-  }
-  if (ts.isCallExpression(expression) || ts.isTaggedTemplateExpression(expression)) {
-    return isDescribeCallee(ts.isCallExpression(expression) ? expression.expression : expression.tag);
+  if (ts.isCallExpression(expression)) {
+    return isDescribeEachCallee(expression.expression);
   }
   return false;
+}
+
+function isDescribeEachCallee(expression) {
+  return ts.isPropertyAccessExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && expression.expression.text === "describe"
+    && expression.name.text === "each";
 }
 
 function kindName(node) {

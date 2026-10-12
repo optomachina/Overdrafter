@@ -35,7 +35,7 @@ export function validateReadinessDoc(text) {
       continue;
     }
     cursor = index + 1;
-    if (sections[index].body.trim().length === 0) {
+    if (!sectionHasVisibleContent(sections[index].body)) {
       problems.push(`empty section: ${heading}`);
     }
   }
@@ -47,6 +47,11 @@ export function assertReadinessDoc(text, relativePath) {
   if (problems.length > 0) {
     throw new Error(`provider:check: readiness doc ${relativePath} is malformed: ${problems.join("; ")}`);
   }
+}
+
+/** HTML comments and whitespace are not section content. */
+export function sectionHasVisibleContent(body) {
+  return String(body).replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
 function readSections(text) {
