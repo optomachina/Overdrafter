@@ -39,7 +39,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ### Migration window
 
-Writes under `supabase/migrations/` need a Blaine window. The window is open when the current branch's PR has the `blaine-window` label, or when Blaine starts the session with `OVD_BLAINE_WINDOW=1`. Reading migrations is always allowed. For Claude Code, `.claude/hooks/guard-migrations.mjs` enforces this rule as a PreToolUse hook. It fails closed when there is no PR, `gh` is missing, or GitHub can't be reached. If the hook blocks a write, stop and report it. Do not route around it.
+Writes under `supabase/migrations/` need a Blaine window. The window is open when the current branch's PR has the `blaine-window` label applied by the human GitHub user `optomachina`, or when Blaine starts the session with `OVD_BLAINE_WINDOW=1`. Agents must not apply that label. Reading migrations is always allowed. For Claude Code, `.claude/hooks/guard-migrations.mjs` enforces this rule as a PreToolUse hook. It fails closed when there is no PR, `gh` is missing, GitHub can't be reached, `tool_input` is missing, or the label was applied by a bot or app. If the hook blocks a write, stop and report it. Do not route around it.
 
 ## Standing approvals and the Blaine channel
 
