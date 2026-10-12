@@ -10,6 +10,7 @@ import type { RmfgQuoteRequest, RmfgQuoteTransport } from "./rmfgQuoteTransport.
 export const RMFG_HTTP_TRANSPORT_REVISION = "rmfg-http-transport.v1" as const;
 export const RMFG_API_ORIGIN = "https://api.rmfg.com";
 export const RMFG_DAILY_QUOTE_CAP = 20;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export type RmfgBlockReason = "authorization_required" | "rate_limited";
 
@@ -39,6 +40,17 @@ function resolveOrigin(baseUrl: string | undefined): string {
     throw new Error("RMFG transport base URL must be the RMFG API origin or a loopback stub.");
   }
   return url.origin;
+}
+
+function allowedPath(request: RmfgQuoteRequest, pathname: string): boolean {
+  switch (request.endpoint) {
+    case "analyze": return pathname === "/v1/analyze";
+    case "design": return /^\/v1\/designs\/[^/]+$/.test(pathname);
+    case "materials": return pathname === "/v1/materials";
+    case "tube_profiles": return pathname === "/v1/tube-profiles";
+    case "quote": return pathname === "/v1/quotes";
+    case "quote_status": return /^\/v1\/quotes\/[^/]+$/.test(pathname);
+  }
 }
 
 function dayKey(date: Date): string {
@@ -94,7 +106,13 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
         quotesToday += 1;
       }
       const { path, init } = buildRequest(request, apiKey);
-      const response = await doFetch(`${origin}${path}`, { ...init, redirect: "error" });
+      const url = new URL(path, `${origin}/`);
+      if (!path.startsWith("/") || url.origin !== origin || !allowedPath(request, url.pathname)) {
+        return { status: 0, body: null };
+      }
+      const response = await doFetch(url, {
+        ...init, redirect: "error", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
       if (response.status === 401 || response.status === 403) blocked = "authorization_required";
       if (response.status === 429) blocked = "rate_limited";
       let body: unknown = null;

@@ -66,8 +66,11 @@ A new RMFG quote needs all of these. None is on.
 
 ## Registry edit for a later reviewed PR (not applied)
 
-When the validator allows it, or when the adapter goes live, the entry would
-become:
+The current validator rejects this entry because `sessionSecrets` must stay
+empty while `liveAdapter` is false. It is shown with `liveAdapter: false`, as
+it would read once a reviewed validator change allows secret names for an
+adapter that is off. When the adapter goes live, `liveAdapter` becomes `true`
+in the same reviewed edit. The entry would become:
 
 ```json
 {

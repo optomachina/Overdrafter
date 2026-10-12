@@ -112,16 +112,35 @@ describe("RMFG HTTP transport against a local stub", () => {
   });
 
   it("refuses redirects instead of following them with the key", async () => {
-    const { seen, baseUrl } = await stub(() => ({ status: 200, body: {} }));
-    server!.removeAllListeners("request");
-    server!.on("request", (request, response) => {
-      seen.push({ method: request.method ?? "", url: request.url ?? "", authorization: request.headers.authorization, idempotency: undefined });
-      response.writeHead(302, { location: "http://127.0.0.1:1/elsewhere" });
+    const target = await stub(() => ({ status: 200, body: {} }));
+    const targetServer = server!;
+    server = undefined;
+    const origin = await stub(() => ({ status: 200, body: {} }));
+    const originServer = server!;
+    originServer.removeAllListeners("request");
+    originServer.on("request", (request, response) => {
+      origin.seen.push({ method: request.method ?? "", url: request.url ?? "", authorization: request.headers.authorization, idempotency: undefined });
+      response.writeHead(302, { location: `${target.baseUrl}/elsewhere` });
       response.end();
     });
+    try {
+      const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: origin.baseUrl });
+      expect((await runRmfgQuoteOnly(input, transport)).state).toBe("error");
+      expect(origin.seen).toHaveLength(1);
+      expect(target.seen).toHaveLength(0);
+    } finally {
+      await new Promise<void>((resolve) => targetServer.close(() => resolve()));
+    }
+  });
+
+  it("rejects a hostile request path before any request is made", async () => {
+    const { seen, baseUrl } = await stub(happyPath);
     const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl });
-    expect((await runRmfgQuoteOnly(input, transport)).state).toBe("error");
-    expect(seen).toHaveLength(1);
+    for (const path of [".attacker.example/", "//attacker.example/v1/quotes/x", "/v1/checkout", "/v1/quotes/a/b"]) {
+      const outcome = await transport({ endpoint: "quote_status", method: "GET", path, quoteId: "x" });
+      expect(outcome).toEqual({ status: 0, body: null });
+    }
+    expect(seen).toHaveLength(0);
   });
 
   it("validates the key and pins the origin", () => {
