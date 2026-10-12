@@ -36,7 +36,7 @@ export type ProviderTaskRouteInput = {
   adapter: ProviderTaskPipelineDeps["adapter"];
   persist: ProviderTaskPipelineDeps["persist"];
   daySwitch: ProviderDaySwitch;
-  lease?: ProviderTaskLeasePort | null;
+  lease?: ProviderTaskLeasePort;
   consumer?: ProviderTaskPipelineDeps["consumer"];
   onAdapterStart?: () => void;
 };
@@ -68,13 +68,13 @@ export async function readStagedProviderFiles(
   staged: { cad: StagedFile | null; drawing: StagedFile | null },
   roles: readonly ProviderDispatchFileRole[],
 ): Promise<ProviderExecutionCapturedFile[]> {
-  const files: ProviderExecutionCapturedFile[] = [];
-  for (const role of roles) {
-    const file = staged[role];
-    if (!file) throw new Error("Authorized file was not staged.");
-    files.push({ role, bytes: new Uint8Array(await readFile(file.localPath)) });
-  }
-  return files;
+  return Promise.all(
+    roles.map(async (role) => {
+      const file = staged[role];
+      if (!file) throw new Error("Authorized file was not staged.");
+      return { role, bytes: new Uint8Array(await readFile(file.localPath)) };
+    }),
+  );
 }
 
 export function runGenericProviderTask(input: ProviderTaskRouteInput): Promise<ProviderTaskOutcome> {

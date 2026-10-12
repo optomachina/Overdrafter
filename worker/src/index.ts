@@ -1301,9 +1301,9 @@ export async function handleVendorQuoteTask(
         environment: isProductionEnvironment() ? "production" : "development",
         adapterRevision: `${vendor}@${config.workerBuildVersion}`.slice(0, 80),
         leaseSetting: config.providerSessionLease ?? "off",
-        // The OVD-462 lease manager is not on main yet; with the setting on
-        // the pipeline fails closed with session_lease_unavailable.
-        lease: null,
+        // No lease port: the OVD-462 lease manager is not on main yet, so
+        // with the setting on the pipeline fails closed with
+        // session_lease_unavailable.
         quoteInput,
         adapter: { provider: vendor, quote: (input) => adapter.quote(input) },
         consumer: providerAuthorizationConsumer,

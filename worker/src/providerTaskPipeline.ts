@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
-import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "./providerDispatchEnvelope.js";
+import {
+  REVIEWED_PROVIDER_DISPATCH_ENVELOPES,
+  type ReviewedProviderDispatchEnvelope,
+} from "./providerDispatchEnvelope.js";
 import { ProviderDispatchAuthorizationError, type ProviderDispatchClaim } from "./providerDispatchPreflight.js";
 import type {
   ProviderDispatchAuthorization,
@@ -167,7 +170,7 @@ export function decideProviderTaskRetry(input: {
     }
     case "post_start_bounded": {
       const budget = Math.min(input.retryBudget ?? 1, PROVIDER_TASK_MAX_ADAPTER_REQUEUES);
-      if (!(budget > 0) || attempts > budget) return { action: "fail" };
+      if (budget <= 0 || Number.isNaN(budget) || attempts > budget) return { action: "fail" };
       const retryAt = nextRetryAt(attempts, input.now);
       return retryAt ? { action: "requeue", retryAt } : { action: "fail" };
     }
@@ -264,7 +267,7 @@ export function providerPackageId(files: readonly { role: string; sha256: string
   return sha256Hex(
     files
       .map((file) => `${file.role}:${file.sha256}`)
-      .sort()
+      .sort((a, b) => a.localeCompare(b, "en"))
       .join("\n"),
   );
 }
@@ -330,144 +333,129 @@ function toAdapterOutput(output: VendorQuoteAdapterOutput, validated: ValidatedP
 
 // --------------------------------------------------------------------------- pipeline
 
-type InnerOutcome =
-  | { kind: "persisted"; status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number }
-  | { kind: "seam"; result: Exclude<ProviderExecutionResult<unknown>, { kind: "completed" }> }
-  | { kind: "rejected"; validation: Extract<ProviderResultValidation, { ok: false }> }
-  | { kind: "error"; code: string; stage: ProviderTaskStage };
+/** A step that did not pass: the finite reason and how the retry authority classes it. */
+type Stop = {
+  stop: true;
+  failureClass: ProviderTaskFailureClass;
+  code: string;
+  stage: ProviderTaskStage;
+  retryBudget?: number;
+  rejection?: ProviderTaskOutcome["rejection"];
+};
 
-/**
- * Runs one claimed generic provider task through the ordered pipeline and
- * returns its finite outcome. Never throws for provider, lease, validation or
- * persistence failures; the caller records the outcome.
- */
-export async function runProviderTaskPipeline(
-  input: ProviderTaskPipelineInput,
-  deps: ProviderTaskPipelineDeps,
-): Promise<ProviderTaskOutcome> {
-  const now = deps.now ?? (() => Date.now());
+function stop(failureClass: ProviderTaskFailureClass, code: string, stage: ProviderTaskStage, extra: Partial<Stop> = {}): Stop {
+  return { ...extra, stop: true, failureClass, code, stage };
+}
+
+function isStop(value: unknown): value is Stop {
+  return typeof value === "object" && value !== null && (value as Stop).stop === true;
+}
+
+type Persisted = { persisted: true; status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number };
+
+/** Mutable facts gathered while the pipeline runs; read when the outcome is built. */
+type RunState = { adapterStarted: boolean; providerDisabledForDay: boolean };
+
+type Route = {
+  reviewed: ReviewedProviderDispatchEnvelope;
+  lease: ProviderTaskLeasePort | null;
+  adapter: NonNullable<ProviderTaskPipelineDeps["adapter"]>;
+};
+
+/** Exact routing: only a reviewed provider, its registered adapter, and a valid lease setting. No default, no substitute. */
+function resolveRoute(input: ProviderTaskPipelineInput, deps: ProviderTaskPipelineDeps, nowMs: number): Route | Stop {
   const provider = input.claim.provider;
-  let adapterStarted = false;
-  let providerDisabledForDay = false;
-
-  const finish = (
-    failureClass: ProviderTaskFailureClass,
-    code: string,
-    stage: ProviderTaskStage,
-    extra: { retryBudget?: number; rejection?: ProviderTaskOutcome["rejection"] } = {},
-  ): ProviderTaskOutcome => {
-    // Nothing that reached the provider is ever classed as pre dispatch.
-    const effectiveClass = adapterStarted && failureClass === "pre_dispatch_transient" ? "failed" : failureClass;
-    const decision = decideProviderTaskRetry({
-      failureClass: effectiveClass,
-      attempts: input.task.attempts,
-      retryBudget: extra.retryBudget,
-      now: new Date(now()),
-    });
-    let disposition: ProviderTaskOutcome["disposition"] = "failed";
-    if (decision.action === "requeue") disposition = "requeue";
-    else if (decision.action === "manual_follow_up") disposition = "manual_follow_up";
-    return {
-      disposition,
-      code,
-      stage,
-      adapterStarted,
-      retryAt: decision.action === "requeue" ? decision.retryAt : null,
-      providerDisabledForDay,
-      rejection: extra.rejection ?? null,
-      persisted: null,
-    };
-  };
-
-  const disableForDay = (outcome: string) => {
-    if (BLOCKING_DAY_OFF.has(outcome)) {
-      deps.daySwitch.disable(provider, now());
-      providerDisabledForDay = true;
-    }
-  };
-
-  const environment = input.environment;
   if (
-    !PROVIDER_EXECUTION_ENVIRONMENTS.includes(environment) ||
+    !PROVIDER_EXECUTION_ENVIRONMENTS.includes(input.environment) ||
     !Number.isInteger(input.requestedQuantity) ||
     input.requestedQuantity < 1 ||
-    input.claim.provider === "xometry"
+    provider === "xometry"
   ) {
-    return finish("failed", "execution_request_malformed", "authorize");
+    return stop("failed", "execution_request_malformed", "authorize");
   }
-  if (input.leaseSetting !== "off" && input.leaseSetting !== "on") {
-    return finish("failed", "lease_setting_invalid", "authorize");
-  }
+  if (input.leaseSetting !== "off" && input.leaseSetting !== "on") return stop("failed", "lease_setting_invalid", "authorize");
   const lease = input.leaseSetting === "on" ? deps.lease ?? null : null;
-  if (input.leaseSetting === "on" && !lease) {
-    return finish("manual_follow_up", "session_lease_unavailable", "lease");
-  }
-  // Exact routing: only the adapter registered for this provider, and only a
-  // provider the worker itself has reviewed. No default, no substitute.
+  if (input.leaseSetting === "on" && !lease) return stop("manual_follow_up", "session_lease_unavailable", "lease");
   const reviewed = REVIEWED_PROVIDER_DISPATCH_ENVELOPES.find(
     (entry) => entry.provider === provider && entry.requiredAdmission === "generic_dispatch",
   );
-  if (!reviewed) return finish("manual_follow_up", "provider_envelope_unknown", "authorize");
-  if (!deps.adapter || deps.adapter.provider !== provider || typeof deps.adapter.quote !== "function") {
-    return finish("manual_follow_up", "adapter_not_enabled", "authorize");
+  if (!reviewed) return stop("manual_follow_up", "provider_envelope_unknown", "authorize");
+  const adapter = deps.adapter;
+  if (adapter?.provider !== provider || typeof adapter.quote !== "function") {
+    return stop("manual_follow_up", "adapter_not_enabled", "authorize");
   }
-  if (deps.daySwitch.isDisabled(provider, now())) {
-    return finish("manual_follow_up", "provider_disabled", "authorize");
-  }
+  if (deps.daySwitch.isDisabled(provider, nowMs)) return stop("manual_follow_up", "provider_disabled", "authorize");
+  return { reviewed, lease, adapter };
+}
 
-  // The claimed lane, read from the database independently of the authorization.
+/** The claimed lane, read from the database independently of the authorization. */
+async function resolveLane(input: ProviderTaskPipelineInput, deps: ProviderTaskPipelineDeps): Promise<ProviderTaskLane | Stop> {
   let lane: ProviderTaskLane;
   try {
     lane = await deps.readLane();
   } catch {
-    return finish("failed", "lane_unavailable", "authorize");
+    return stop("failed", "lane_unavailable", "authorize");
   }
-  if (!lane || lane.vendorQuoteResultId !== input.claim.vendorQuoteResultId || lane.quoteRunId !== input.task.quoteRunId) {
-    return finish("failed", "lane_mismatch", "authorize");
+  if (lane?.vendorQuoteResultId !== input.claim.vendorQuoteResultId || lane.quoteRunId !== input.task.quoteRunId) {
+    return stop("failed", "lane_mismatch", "authorize");
   }
+  return lane;
+}
 
-  // 2. Current capability and service authorization.
+async function resolveAuthorization(deps: ProviderTaskPipelineDeps): Promise<ProviderDispatchAuthorization | Stop> {
   let authorization: ProviderDispatchAuthorization;
   try {
     authorization = await deps.authorize();
   } catch (error) {
     if (error instanceof ProviderDispatchAuthorizationError) {
-      return finish(error.retryable ? "pre_dispatch_transient" : "manual_follow_up", error.denial, "authorize");
+      return stop(error.retryable ? "pre_dispatch_transient" : "manual_follow_up", error.denial, "authorize");
     }
-    return finish("failed", "authorization_failed", "authorize");
+    return stop("failed", "authorization_failed", "authorize");
   }
-  if (!authorization || typeof authorization !== "object" || !authorization.envelope) {
-    return finish("failed", "authorization_malformed", "authorize");
-  }
+  if (typeof authorization !== "object" || !authorization?.envelope) return stop("failed", "authorization_malformed", "authorize");
+  return authorization;
+}
 
-  // 3. Captured bytes.
-  const authorizedRoles = authorization.envelope.outboundFiles.map((file) => file.role);
+async function resolveFiles(
+  deps: ProviderTaskPipelineDeps,
+  envelope: ProviderDispatchEnvelope,
+): Promise<ProviderExecutionCapturedFile[] | Stop> {
   let files: ProviderExecutionCapturedFile[];
   try {
-    files = await deps.readCapturedFiles(authorizedRoles);
+    files = await deps.readCapturedFiles(envelope.outboundFiles.map((file) => file.role));
   } catch {
-    return finish("failed", "captured_file_unreadable", "verify_bytes");
+    return stop("failed", "captured_file_unreadable", "verify_bytes");
   }
-  if (!capturedFilesMatch(authorization.envelope, files)) {
-    return finish("manual_follow_up", "captured_file_mismatch", "verify_bytes");
-  }
+  return capturedFilesMatch(envelope, files) ? files : stop("manual_follow_up", "captured_file_mismatch", "verify_bytes");
+}
 
-  // 4. Session identity and (when on) the exact lease.
+function resolveSession(input: ProviderTaskPipelineInput, lease: ProviderTaskLeasePort | null): ProviderExecutionSession | Stop {
   let session: ProviderExecutionSession | null;
   try {
-    session = lease ? lease.identity(provider, environment) : unleasedSessionIdentity(provider, environment);
+    session = lease
+      ? lease.identity(input.claim.provider, input.environment)
+      : unleasedSessionIdentity(input.claim.provider, input.environment);
   } catch {
     session = null;
   }
-  if (!session) return finish("manual_follow_up", "session_identity_unavailable", "lease");
+  return session ?? stop("manual_follow_up", "session_identity_unavailable", "lease");
+}
 
-  const expected = {
-    provider,
+/** What the seam must find in the authorization, taken from worker state. */
+function buildExecutionExpectation(
+  input: ProviderTaskPipelineInput,
+  route: Route,
+  lane: ProviderTaskLane,
+  session: ProviderExecutionSession,
+  authorization: ProviderDispatchAuthorization,
+) {
+  return {
+    provider: input.claim.provider,
     accountRef: session.accountRef,
-    environment,
+    environment: input.environment,
     sessionBindingRef: session.sessionBindingRef,
     organizationId: input.task.organizationId,
-    envelope: { id: reviewed.id, version: reviewed.version },
+    envelope: { id: route.reviewed.id, version: route.reviewed.version },
     envelopeFingerprint: input.claim.envelopeFingerprint,
     permitId: input.claim.permitId,
     sessionBindingId: `lease:${input.claim.permitId}`,
@@ -482,183 +470,296 @@ export async function runProviderTaskPipeline(
     // Rollout revision has no worker side source; the preflight evaluated it in the database.
     rolloutRevision: authorization.envelope.rollout.revision,
   };
+}
 
-  const claimScopedConsumer: ProviderAuthorizationConsumer | undefined = deps.consumer
-    ? { consume: (key, expiresAtMs, nowMs) => deps.consumer!.consume(`${key}:${input.task.attempts}`, expiresAtMs, nowMs) }
-    : undefined;
-
-  const operation = async (leaseContext: ProviderTaskLeaseContext | null): Promise<InnerOutcome> => {
-    let collectedAt = "";
-    let packageId = "";
-    const seamResult = await executeWithProviderAuthorization(
-      { authorization, expected, session, files, nowMs: now() },
-      {
-        provider,
-        execute: async (context: ProviderExecutionContext) => {
-          leaseContext?.assertHeld();
-          packageId = providerPackageId(context.files);
-          adapterStarted = true;
-          deps.onAdapterStart?.();
-          const output = await deps.adapter!.quote({
-            ...input.quoteInput,
-            stagedCadFile: authorizedRoles.includes("cad") ? input.quoteInput.stagedCadFile : null,
-            stagedDrawingFile: authorizedRoles.includes("drawing") ? input.quoteInput.stagedDrawingFile : null,
-            providerDispatchAuthorization: authorization,
-          });
-          collectedAt = new Date(now()).toISOString();
-          return output;
-        },
-      },
-      {
-        log: deps.log,
-        guards: [deps.daySwitch.guard(now), ...(deps.guards ?? [])],
-        consumer: claimScopedConsumer,
-        toLeaseError: lease ? (outcome) => lease.toLeaseError(outcome) : undefined,
-      },
-    );
-    if (!seamResult || typeof seamResult !== "object") return { kind: "error", code: "seam_result_malformed", stage: "adapter" };
-    if (seamResult.kind !== "completed") {
-      if (!["denied", "terminal", "adapter_failed"].includes(seamResult.kind)) {
-        return { kind: "error", code: "seam_result_malformed", stage: "adapter" };
-      }
-      return { kind: "seam", result: seamResult };
-    }
-
-    // 6. Validate the complete normalized result. Expectation from the
-    // authorization; candidate binding from independent worker state.
-    const envelope = authorization.envelope;
-    const output = seamResult.value as VendorQuoteAdapterOutput;
-    const expectation: ProviderResultExpectation = {
-      provider: envelope.provider,
-      taskId: envelope.task.workQueueTaskId,
-      laneId: envelope.task.quoteRequestLaneId,
-      permitId: envelope.permit.permitId,
-      runId: envelope.task.quoteRunId,
-      envelopeRevision: envelopeRevision(envelope.envelope),
+/** Expectation from the authorization; candidate binding from independent worker state. */
+function buildResultCheck(
+  input: ProviderTaskPipelineInput,
+  route: Route,
+  lane: ProviderTaskLane,
+  envelope: ProviderDispatchEnvelope,
+  collected: { output: VendorQuoteAdapterOutput; collectedAt: string; packageId: string },
+  nowMs: number,
+): { candidate: ProviderResultCandidate; expectation: ProviderResultExpectation } {
+  const expectation: ProviderResultExpectation = {
+    provider: envelope.provider,
+    taskId: envelope.task.workQueueTaskId,
+    laneId: envelope.task.quoteRequestLaneId,
+    permitId: envelope.permit.permitId,
+    runId: envelope.task.quoteRunId,
+    envelopeRevision: envelopeRevision(envelope.envelope),
+    policyRevision: envelope.admission.policyRevision,
+    packageId: providerPackageId(envelope.outboundFiles),
+    requestedQuantity: envelope.scope.requestedQuantity,
+    allowedDomains: [...(PROVIDER_CATALOG[envelope.provider]?.officialDomains ?? [])],
+    now: new Date(nowMs).toISOString(),
+  };
+  const candidate: ProviderResultCandidate = {
+    contractVersion: PROVIDER_RESULT_CONTRACT_VERSION,
+    binding: {
+      provider: input.claim.provider,
+      taskId: input.task.id,
+      laneId: lane.laneId,
+      permitId: input.claim.permitId,
+      runId: input.task.quoteRunId,
+      envelopeRevision: envelopeRevision(route.reviewed),
+      // No worker side source exists for the admission policy revision.
       policyRevision: envelope.admission.policyRevision,
-      packageId: providerPackageId(envelope.outboundFiles),
-      requestedQuantity: envelope.scope.requestedQuantity,
-      allowedDomains: [...(PROVIDER_CATALOG[envelope.provider]?.officialDomains ?? [])],
-      now: new Date(now()).toISOString(),
-    };
-    const candidate: ProviderResultCandidate = {
-      contractVersion: PROVIDER_RESULT_CONTRACT_VERSION,
-      binding: {
-        provider,
-        taskId: input.task.id,
-        laneId: lane.laneId,
-        permitId: input.claim.permitId,
-        runId: input.task.quoteRunId,
-        envelopeRevision: envelopeRevision(reviewed),
-        // No worker side source exists for the admission policy revision.
-        policyRevision: envelope.admission.policyRevision,
-        packageId,
-        quantity: input.requestedQuantity,
-        adapterRevision: input.adapterRevision,
-      },
-      currency: "USD",
-      collectedAt,
-      result: output,
-    };
-    let validation: ProviderResultValidation;
-    try {
-      validation = (deps.validate ?? validateProviderResult)(candidate, expectation);
-    } catch {
-      return { kind: "error", code: "result_validation_failed", stage: "validate" };
-    }
-    if (!validation || typeof validation !== "object" || (validation.ok !== true && validation.ok !== false)) {
-      return { kind: "error", code: "result_validation_failed", stage: "validate" };
-    }
-    if (!validation.ok) return { kind: "rejected", validation };
-    if (!SHA256.test(packageId)) return { kind: "error", code: "result_validation_failed", stage: "validate" };
+      packageId: collected.packageId,
+      quantity: input.requestedQuantity,
+      adapterRevision: input.adapterRevision,
+    },
+    currency: "USD",
+    collectedAt: collected.collectedAt,
+    result: collected.output,
+  };
+  return { candidate, expectation };
+}
 
-    // 7. Persist atomically, only while the lease (if any) is still held.
-    try {
-      leaseContext?.assertHeld();
-    } catch {
-      return { kind: "error", code: "lease_lost", stage: "persist" };
-    }
-    const persistable = toAdapterOutput(output, validation.value);
-    try {
-      const persisted = await deps.persist(persistable);
-      return {
-        kind: "persisted",
-        status: persistable.status,
-        offerCount: validation.value.offers.length,
-        artifactCount: persisted?.artifactCount ?? 0,
-      };
-    } catch {
-      return { kind: "error", code: "persistence_failure", stage: "persist" };
+/** Classes a non completed seam result, applying the day switch for a block or ban. */
+function seamStop(result: ProviderExecutionResult<unknown>, onBlock: (outcome: string) => void): Stop {
+  switch (result.kind) {
+    case "denied":
+      return stop(result.retryable ? "pre_dispatch_transient" : "manual_follow_up", result.denial, "adapter");
+    case "terminal":
+      onBlock(result.outcome);
+      return stop("manual_follow_up", TERMINAL_CODES[result.outcome] ?? "terminal", "adapter");
+    case "adapter_failed":
+      return stop("post_start_bounded", "adapter_failed", "adapter");
+    default:
+      return stop("failed", "seam_result_malformed", "adapter");
+  }
+}
+
+function validationStop(validation: ProviderResultValidation): Stop | null {
+  if (typeof validation !== "object" || validation === null || (validation.ok !== true && validation.ok !== false)) {
+    return stop("failed", "result_validation_failed", "validate");
+  }
+  if (validation.ok) return null;
+  const rejection = validation.rejection;
+  const diagnostic = toAdminRejectionDiagnostic(rejection);
+  if (rejection.retry === "bounded") {
+    return stop("post_start_bounded", rejection.code, "validate", { retryBudget: rejection.retryBudget, rejection: diagnostic });
+  }
+  return stop(rejection.retry === "manual_follow_up" ? "manual_follow_up" : "failed", rejection.code, "validate", {
+    rejection: diagnostic,
+  });
+}
+
+function leaseStop(run: ProviderTaskLeaseRunResult<unknown>, state: RunState, onBlock: (outcome: string) => void): Stop {
+  switch (run?.kind) {
+    case "contended":
+    case "unavailable":
+      return stop("pre_dispatch_transient", `lease_${run.kind}`, "lease");
+    case "manual_follow_up":
+      onBlock(run.outcome);
+      return stop(
+        "manual_follow_up",
+        typeof run.outcome === "string" ? run.outcome : "lease_manual_follow_up",
+        state.adapterStarted ? "adapter" : "lease",
+      );
+    case "rejected":
+      return stop("manual_follow_up", "lease_rejected", "lease");
+    case "lease_lost":
+      return stop("failed", "lease_lost", state.adapterStarted ? "adapter" : "lease");
+    default:
+      return stop("failed", "lease_result_malformed", "lease");
+  }
+}
+
+function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, nowMs: number): ProviderTaskOutcome {
+  const base = { adapterStarted: state.adapterStarted, providerDisabledForDay: state.providerDisabledForDay };
+  if (!isStop(result)) {
+    return {
+      ...base,
+      disposition: "persisted",
+      code: "persisted",
+      stage: "persist",
+      retryAt: null,
+      rejection: null,
+      persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount },
+    };
+  }
+  // Nothing that reached the provider is ever classed as pre dispatch.
+  const failureClass = state.adapterStarted && result.failureClass === "pre_dispatch_transient" ? "failed" : result.failureClass;
+  const decision = decideProviderTaskRetry({ failureClass, attempts, retryBudget: result.retryBudget, now: new Date(nowMs) });
+  let disposition: ProviderTaskOutcome["disposition"] = "failed";
+  if (decision.action === "requeue") disposition = "requeue";
+  else if (decision.action === "manual_follow_up") disposition = "manual_follow_up";
+  return {
+    ...base,
+    disposition,
+    code: result.code,
+    stage: result.stage,
+    retryAt: decision.action === "requeue" ? decision.retryAt : null,
+    rejection: result.rejection ?? null,
+    persisted: null,
+  };
+}
+
+/** Everything steps 5 to 7 need once authorization, bytes and session passed. */
+type AdmittedStep = {
+  input: ProviderTaskPipelineInput;
+  deps: ProviderTaskPipelineDeps;
+  state: RunState;
+  now: () => number;
+  route: Route;
+  lane: ProviderTaskLane;
+  session: ProviderExecutionSession;
+  authorization: ProviderDispatchAuthorization;
+  files: ProviderExecutionCapturedFile[];
+  expected: ReturnType<typeof buildExecutionExpectation>;
+  consumer: ProviderAuthorizationConsumer | undefined;
+  onBlock: (outcome: string) => void;
+};
+
+/** Steps 5 to 7: the admitted adapter through the seam, validation, then one atomic write. */
+async function executeValidateAndPersist(
+  step: AdmittedStep,
+  leaseContext: ProviderTaskLeaseContext | null,
+): Promise<Stop | Persisted> {
+  const { input, deps, state, now, route, authorization } = step;
+  const authorizedRoles = authorization.envelope.outboundFiles.map((file) => file.role);
+  const lease = route.lease;
+  let collectedAt = "";
+  let packageId = "";
+  const seamResult = await executeWithProviderAuthorization(
+    { authorization, expected: step.expected, session: step.session, files: step.files, nowMs: now() },
+    {
+      provider: input.claim.provider,
+      execute: async (context: ProviderExecutionContext) => {
+        leaseContext?.assertHeld();
+        packageId = providerPackageId(context.files);
+        state.adapterStarted = true;
+        deps.onAdapterStart?.();
+        const output = await route.adapter.quote({
+          ...input.quoteInput,
+          stagedCadFile: authorizedRoles.includes("cad") ? input.quoteInput.stagedCadFile : null,
+          stagedDrawingFile: authorizedRoles.includes("drawing") ? input.quoteInput.stagedDrawingFile : null,
+          providerDispatchAuthorization: authorization,
+        });
+        collectedAt = new Date(now()).toISOString();
+        return output;
+      },
+    },
+    {
+      log: deps.log,
+      guards: [deps.daySwitch.guard(now), ...(deps.guards ?? [])],
+      consumer: step.consumer,
+      toLeaseError: lease ? (outcome) => lease.toLeaseError(outcome) : undefined,
+    },
+  );
+  if (seamResult?.kind !== "completed") return seamStop(seamResult, step.onBlock);
+
+  // 6. Validate the complete normalized result.
+  const output = seamResult.value as VendorQuoteAdapterOutput;
+  const check = buildResultCheck(input, route, step.lane, authorization.envelope, { output, collectedAt, packageId }, now());
+  let validation: ProviderResultValidation;
+  try {
+    validation = (deps.validate ?? validateProviderResult)(check.candidate, check.expectation);
+  } catch {
+    return stop("failed", "result_validation_failed", "validate");
+  }
+  const refused = validationStop(validation);
+  if (refused) return refused;
+  if (!validation.ok || !SHA256.test(packageId)) return stop("failed", "result_validation_failed", "validate");
+
+  // 7. Persist atomically, only while the lease (if any) is still held.
+  try {
+    leaseContext?.assertHeld();
+  } catch {
+    return stop("failed", "lease_lost", "persist");
+  }
+  const persistable = toAdapterOutput(output, validation.value);
+  try {
+    const persisted = await deps.persist(persistable);
+    return {
+      persisted: true,
+      status: persistable.status,
+      offerCount: validation.value.offers.length,
+      artifactCount: persisted?.artifactCount ?? 0,
+    };
+  } catch {
+    return stop("failed", "persistence_failure", "persist");
+  }
+}
+
+/**
+ * Runs one claimed generic provider task through the ordered pipeline and
+ * returns its finite outcome. Never throws for provider, lease, validation or
+ * persistence failures; the caller records the outcome.
+ */
+export async function runProviderTaskPipeline(
+  input: ProviderTaskPipelineInput,
+  deps: ProviderTaskPipelineDeps,
+): Promise<ProviderTaskOutcome> {
+  const now = deps.now ?? (() => Date.now());
+  const state: RunState = { adapterStarted: false, providerDisabledForDay: false };
+  const result = await runSteps(input, deps, state, now);
+  return toOutcome(result, state, input.task.attempts, now());
+}
+
+async function runSteps(
+  input: ProviderTaskPipelineInput,
+  deps: ProviderTaskPipelineDeps,
+  state: RunState,
+  now: () => number,
+): Promise<Stop | Persisted> {
+  const provider = input.claim.provider;
+  const onBlock = (outcome: string) => {
+    if (BLOCKING_DAY_OFF.has(outcome)) {
+      deps.daySwitch.disable(provider, now());
+      state.providerDisabledForDay = true;
     }
   };
 
-  let inner: InnerOutcome;
+  const route = resolveRoute(input, deps, now());
+  if (isStop(route)) return route;
+  const lane = await resolveLane(input, deps);
+  if (isStop(lane)) return lane;
+  // 2. Current capability and service authorization.
+  const authorization = await resolveAuthorization(deps);
+  if (isStop(authorization)) return authorization;
+  // 3. Captured bytes.
+  const files = await resolveFiles(deps, authorization.envelope);
+  if (isStop(files)) return files;
+  // 4. Session identity, then (when on) the exact lease around steps 5 to 7.
+  const session = resolveSession(input, route.lease);
+  if (isStop(session)) return session;
+
+  const lease = route.lease;
+  const sharedConsumer = deps.consumer;
+  const step: AdmittedStep = {
+    input,
+    deps,
+    state,
+    now,
+    route,
+    lane,
+    session,
+    authorization,
+    files,
+    onBlock,
+    expected: buildExecutionExpectation(input, route, lane, session, authorization),
+    consumer: sharedConsumer
+      ? { consume: (key, expiresAtMs, nowMs) => sharedConsumer.consume(`${key}:${input.task.attempts}`, expiresAtMs, nowMs) }
+      : undefined,
+  };
+  const operation = (leaseContext: ProviderTaskLeaseContext | null) => executeValidateAndPersist(step, leaseContext);
+
   if (!lease) {
     try {
-      inner = await operation(null);
+      return await operation(null);
     } catch {
-      inner = { kind: "error", code: "pipeline_error", stage: adapterStarted ? "adapter" : "authorize" };
-    }
-  } else {
-    let run: ProviderTaskLeaseRunResult<InnerOutcome>;
-    try {
-      run = await lease.runWithLease({ identity: session, taskRef: input.task.id }, (context) => operation(context));
-    } catch {
-      return finish("failed", "lease_error", "lease");
-    }
-    switch (run?.kind) {
-      case "completed":
-        inner = run.value;
-        break;
-      case "contended":
-      case "unavailable":
-        return finish("pre_dispatch_transient", `lease_${run.kind}`, "lease");
-      case "manual_follow_up":
-        disableForDay(run.outcome);
-        return finish("manual_follow_up", typeof run.outcome === "string" ? run.outcome : "lease_manual_follow_up", adapterStarted ? "adapter" : "lease");
-      case "rejected":
-        return finish("manual_follow_up", "lease_rejected", "lease");
-      case "lease_lost":
-        return finish("failed", "lease_lost", adapterStarted ? "adapter" : "lease");
-      default:
-        return finish("failed", "lease_result_malformed", "lease");
+      return stop("failed", "pipeline_error", state.adapterStarted ? "adapter" : "authorize");
     }
   }
-
-  switch (inner.kind) {
-    case "persisted":
-      return {
-        disposition: "persisted",
-        code: "persisted",
-        stage: "persist",
-        adapterStarted,
-        retryAt: null,
-        providerDisabledForDay,
-        rejection: null,
-        persisted: { status: inner.status, offerCount: inner.offerCount, artifactCount: inner.artifactCount },
-      };
-    case "seam": {
-      const result = inner.result;
-      if (result.kind === "denied") {
-        return finish(result.retryable ? "pre_dispatch_transient" : "manual_follow_up", result.denial, "adapter");
-      }
-      if (result.kind === "terminal") {
-        disableForDay(result.outcome);
-        return finish("manual_follow_up", TERMINAL_CODES[result.outcome] ?? "terminal", "adapter");
-      }
-      return finish("post_start_bounded", "adapter_failed", "adapter");
-    }
-    case "rejected": {
-      const rejection = inner.validation.rejection;
-      const diagnostic = toAdminRejectionDiagnostic(rejection);
-      if (rejection.retry === "bounded") {
-        return finish("post_start_bounded", rejection.code, "validate", { retryBudget: rejection.retryBudget, rejection: diagnostic });
-      }
-      return finish(rejection.retry === "manual_follow_up" ? "manual_follow_up" : "failed", rejection.code, "validate", {
-        rejection: diagnostic,
-      });
-    }
-    default:
-      return finish("failed", inner.code, inner.stage);
+  // 8. The lease releases itself when the operation returns or throws.
+  let run: ProviderTaskLeaseRunResult<Stop | Persisted>;
+  try {
+    run = await lease.runWithLease({ identity: session, taskRef: input.task.id }, (context) => operation(context));
+  } catch {
+    return stop("failed", "lease_error", "lease");
   }
+  return run?.kind === "completed" ? run.value : leaseStop(run, state, onBlock);
 }
