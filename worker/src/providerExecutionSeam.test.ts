@@ -6,7 +6,13 @@ import { genericFictivEnvelope } from "../test-support/genericDispatchResponse";
 import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import type { ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
+  createProviderAuthorizationConsumer,
   executeWithProviderAuthorization,
+  PROVIDER_EXECUTION_LEASE_OUTCOME,
+  PROVIDER_EXECUTION_TERMINAL_OUTCOMES,
+  providerExecutionTerminalOutcomeForError,
+  type ProviderExecutionGuard,
+  type ProviderExecutionOptions,
   providerExecutionDenialFromError,
   ProviderExecutionTerminalError,
   type ProviderExecutionAdapter,
@@ -39,10 +45,7 @@ function envelopeFor(): ProviderDispatchEnvelope {
   };
 }
 
-function build(
-  mutate: (envelope: ProviderDispatchEnvelope) => void = () => {},
-  change: (request: ProviderExecutionRequest) => void = () => {},
-): ProviderExecutionRequest {
+function build(change: (request: ProviderExecutionRequest) => void = () => {}): ProviderExecutionRequest {
   const envelope = envelopeFor();
   const fingerprint = fingerprintProviderDispatchEnvelope(envelope);
   const request: ProviderExecutionRequest = {
@@ -58,6 +61,7 @@ function build(
       provider: "fictiv",
       accountRef: "acct_" + "a".repeat(32),
       environment: "test",
+      sessionBindingRef: "sb_" + "1".repeat(32),
       organizationId: envelope.subject.organizationId,
       envelope: { ...envelope.envelope },
       envelopeFingerprint: fingerprint,
@@ -67,18 +71,13 @@ function build(
       scope: { fingerprint: envelope.scope.fingerprint, requestedQuantity: envelope.scope.requestedQuantity },
       rolloutRevision: envelope.rollout.revision,
     },
-    session: { provider: "fictiv", accountRef: "acct_" + "a".repeat(32), environment: "test" },
+    session: { provider: "fictiv", accountRef: "acct_" + "a".repeat(32), environment: "test", sessionBindingRef: "sb_" + "1".repeat(32) },
     files: [
       { role: "cad", bytes: Uint8Array.from(CAD) },
       { role: "drawing", bytes: Uint8Array.from(DRAWING) },
     ],
     nowMs: NOW,
   };
-  // Mutations that should look like an authorization the service signed over
-  // the changed envelope (so the fingerprint still matches) go through `mutate`.
-  mutate(envelope);
-  if (envelope !== request.authorization!.envelope) return request;
-  request.authorization!.envelopeFingerprint = fingerprintProviderDispatchEnvelope(envelope);
   change(request);
   return request;
 }
@@ -89,9 +88,17 @@ function spyAdapter<T>(impl: () => Promise<T>, provider: "fictiv" | "weerg" = "f
   return { adapter, execute };
 }
 
-function run(request: ProviderExecutionRequest, adapter: ProviderExecutionAdapter<string>) {
+function run(
+  request: ProviderExecutionRequest,
+  adapter: ProviderExecutionAdapter<string>,
+  options: ProviderExecutionOptions = {},
+) {
   const events: ProviderExecutionLogEvent[] = [];
-  return executeWithProviderAuthorization(request, adapter, { log: (e) => events.push(e) }).then((result) => ({
+  return executeWithProviderAuthorization(request, adapter, {
+    consumer: createProviderAuthorizationConsumer(),
+    log: (e) => events.push(e),
+    ...options,
+  }).then((result) => ({
     result,
     events,
   }));
@@ -112,7 +119,7 @@ describe("executeWithProviderAuthorization", () => {
   it("denies with zero adapter calls when there is no authorization", async () => {
     for (const authorization of [null, undefined]) {
       const { adapter, execute } = spyAdapter(async () => "ok");
-      const { result } = await run(build((_e) => {}, (r) => (r.authorization = authorization)), adapter);
+      const { result } = await run(build((r) => (r.authorization = authorization)), adapter);
       expect(result).toEqual({ kind: "denied", denial: "authorization_missing", retryable: false });
       expect(execute).not.toHaveBeenCalled();
     }
@@ -139,11 +146,16 @@ describe("executeWithProviderAuthorization", () => {
     ["not yet valid", "permit_not_yet_valid", (r) => (r.nowMs = NOW - 10 * 60_000)],
     ["expired", "permit_expired", (r) => (r.nowMs = Date.parse("2026-10-03T12:15:00.000Z"))],
     ["tampered fingerprint", "envelope_malformed", (r) => (r.authorization!.envelopeFingerprint = "e".repeat(64))],
+    ["session binding ref", "session_binding_mismatch", (r) => (r.session.sessionBindingRef = "sb_" + "2".repeat(32))],
+    ["authorization permit", "permit_mismatch", (r) => (r.authorization!.permitId = "00000000-0000-4000-8000-0000000000aa")],
+    ["authorization session binding", "session_binding_mismatch", (r) => (r.authorization!.sessionBindingId = "lease:other")],
+    ["NaN clock", "permit_not_yet_valid", (r) => (r.nowMs = Number.NaN)],
+    ["malformed account ref", "execution_request_malformed", (r) => (r.expected.accountRef = "raw-login@example.com")],
     ["malformed environment", "execution_request_malformed", (r) => ((r.session as { environment: string }).environment = "prod")],
   ];
   it.each(cases)("rejects a %s mismatch with zero adapter calls", async (_name, denial, change) => {
     const { adapter, execute } = spyAdapter(async () => "ok");
-    const { result, events } = await run(build((_e) => {}, change), adapter);
+    const { result, events } = await run(build(change), adapter);
     expect(result).toEqual({ kind: "denied", denial, retryable: false });
     expect(execute).not.toHaveBeenCalled();
     expect(events).toEqual([{ event: "provider_execution.denied", provider: expect.any(String), denial }]);
@@ -158,11 +170,16 @@ describe("executeWithProviderAuthorization", () => {
     ];
     for (const edit of edits) {
       const { adapter, execute } = spyAdapter(async () => "ok");
-      const request = build((_e) => {}, (r) => edit(r.authorization!.envelope as unknown as Record<string, unknown>));
+      const request = build((r) => edit(r.authorization!.envelope as unknown as Record<string, unknown>));
       const { result } = await run(request, adapter);
       expect(result.kind).toBe("denied");
       expect(execute).not.toHaveBeenCalled();
     }
+  });
+
+  it("rejects an adapter without execute", async () => {
+    const { result } = await run(build(), { provider: "fictiv" } as ProviderExecutionAdapter<string>);
+    expect(result).toMatchObject({ kind: "denied", denial: "adapter_mismatch" });
   });
 
   it("rejects an adapter for another provider", async () => {
@@ -182,7 +199,7 @@ describe("executeWithProviderAuthorization", () => {
     ];
     for (const change of mutations) {
       const { adapter, execute } = spyAdapter(async () => "ok");
-      const { result } = await run(build((_e) => {}, change), adapter);
+      const { result } = await run(build(change), adapter);
       expect(result).toMatchObject({ kind: "denied", denial: "captured_file_mismatch" });
       expect(execute).not.toHaveBeenCalled();
     }
@@ -213,7 +230,8 @@ describe("executeWithProviderAuthorization", () => {
       [() => new ProviderExecutionTerminalError("banned"), "banned"],
       [() => new VendorAutomationError("x", "login_required"), "login_required"],
       [() => new VendorAutomationError("x", "captcha"), "challenge_required"],
-      [() => new VendorAutomationError("x", "anti_detection_block"), "blocked"],
+      [() => new VendorAutomationError("x", "anti_detection_block"), "challenge_required"],
+      [() => Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "corrupt_state" }), "corrupt_state"],
     ];
     for (const [make, outcome] of terminals) {
       const { adapter, execute } = spyAdapter<string>(async () => {
@@ -252,6 +270,124 @@ describe("executeWithProviderAuthorization", () => {
       expect(text).not.toContain(request.expected.accountRef);
       expect(text).not.toContain(request.expected.sessionBindingId);
       expect(text).not.toContain("customer-step");
+    }
+  });
+});
+
+describe("replay, guards, lease composition and expiry", () => {
+  it("runs the adapter once when the same authorization is presented twice", async () => {
+    const consumer = createProviderAuthorizationConsumer();
+    const { adapter, execute } = spyAdapter(async () => "ok");
+    const first = await run(build(), adapter, { consumer });
+    const second = await run(build(), adapter, { consumer });
+    expect(first.result.kind).toBe("completed");
+    expect(second.result).toEqual({ kind: "denied", denial: "authorization_replayed", retryable: false });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay after adapter failure or a terminal outcome", async () => {
+    for (const fail of [new Error("boom"), new ProviderExecutionTerminalError("blocked")]) {
+      const consumer = createProviderAuthorizationConsumer();
+      const { adapter, execute } = spyAdapter<string>(async () => {
+        throw fail;
+      });
+      await run(build(), adapter, { consumer });
+      const again = await run(build(), adapter, { consumer });
+      expect(again.result).toMatchObject({ kind: "denied", denial: "authorization_replayed" });
+      expect(execute).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("does not consume the authorization when a denial happens first", async () => {
+    const consumer = createProviderAuthorizationConsumer();
+    const { adapter, execute } = spyAdapter(async () => "ok");
+    await run(build((r) => (r.files = [])), adapter, { consumer });
+    const { result } = await run(build(), adapter, { consumer });
+    expect(result.kind).toBe("completed");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgets consumed entries once they have expired", () => {
+    const consumer = createProviderAuthorizationConsumer();
+    expect(consumer.consume("k", 100, 0)).toBe(true);
+    expect(consumer.consume("k", 100, 50)).toBe(false);
+    expect(consumer.consume("k", 300, 100)).toBe(true);
+  });
+
+  it.each(["provider_disabled", "export_control_blocked", "provider_daily_cap_reached"] as const)(
+    "denies on guard code %s with zero adapter calls",
+    async (code) => {
+      const { adapter, execute } = spyAdapter(async () => "ok");
+      const guard: ProviderExecutionGuard = vi.fn(() => code);
+      const { result } = await run(build(), adapter, { guards: [guard] });
+      expect(result).toEqual({ kind: "denied", denial: code, retryable: false });
+      expect(execute).not.toHaveBeenCalled();
+      expect(guard).toHaveBeenCalledWith(expect.objectContaining({ provider: "fictiv", requestedQuantity: 1 }));
+    },
+  );
+
+  it("fails closed when a guard throws or returns an unknown value, and skips later guards", async () => {
+    for (const guard of [
+      (() => {
+        throw new Error("db down secret");
+      }) as ProviderExecutionGuard,
+      (() => "made_up") as unknown as ProviderExecutionGuard,
+    ]) {
+      const later = vi.fn(() => null);
+      const { adapter, execute } = spyAdapter(async () => "ok");
+      const { result } = await run(build(), adapter, { guards: [guard, later] });
+      expect(result).toEqual({ kind: "denied", denial: "guard_failed", retryable: false });
+      expect(later).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    }
+  });
+
+  it("runs guards only after authorization passes", async () => {
+    const guard = vi.fn(() => null);
+    const { adapter } = spyAdapter(async () => "ok");
+    await run(build((r) => (r.authorization = null)), adapter, { guards: [guard] });
+    expect(guard).not.toHaveBeenCalled();
+    const ok = await run(build(), adapter, { guards: [guard] });
+    expect(ok.result.kind).toBe("completed");
+  });
+
+  it("rethrows terminal errors on request so a lease records them", async () => {
+    const error = new VendorAutomationError("x", "captcha");
+    const { adapter } = spyAdapter<string>(async () => {
+      throw error;
+    });
+    await expect(run(build(), adapter, { rethrowTerminal: true })).rejects.toBe(error);
+    const { adapter: other } = spyAdapter<string>(async () => {
+      throw new Error("plain");
+    });
+    const { result } = await run(build(), other, { rethrowTerminal: true });
+    expect(result).toEqual({ kind: "adapter_failed", retryable: false });
+  });
+
+  it("maps every seam outcome to a lease blocking outcome", () => {
+    const lease = new Set(["missing_session", "login_required", "challenge_required", "owner_revoked", "corrupt_state"]);
+    for (const outcome of PROVIDER_EXECUTION_TERMINAL_OUTCOMES) {
+      expect(lease.has(PROVIDER_EXECUTION_LEASE_OUTCOME[outcome])).toBe(true);
+    }
+    expect(providerExecutionTerminalOutcomeForError(Object.assign(new Error("x"), { name: "ProviderSessionOutcomeError", outcome: "nope" }))).toBeNull();
+  });
+
+  it("gives the adapter the expiry and aborts its signal at expiry", async () => {
+    vi.useFakeTimers();
+    try {
+      let aborted = false;
+      const { adapter } = spyAdapter(async () => "ok");
+      adapter.execute = vi.fn(async (context) => {
+        expect(context.expiresAtMs).toBe(Date.parse("2026-10-03T12:15:00.000Z"));
+        context.signal.addEventListener("abort", () => (aborted = true));
+        await vi.advanceTimersByTimeAsync(10 * 60_000 + 1);
+        return "ok";
+      });
+      const { result } = await run(build(), adapter);
+      expect(result.kind).toBe("completed");
+      expect(aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

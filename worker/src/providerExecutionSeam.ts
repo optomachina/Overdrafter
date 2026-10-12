@@ -28,9 +28,16 @@ import { VendorAutomationError, type VendorName } from "./types.js";
  * not for this seam. Login, challenge, block and ban outcomes are terminal and
  * surface as manual follow up. Results and logs carry stable codes only.
  *
+ * Replay: an authorization is single use inside this process. The same
+ * (permitId, envelopeFingerprint) is consumed before the adapter runs and a
+ * second presentation is denied with `authorization_replayed`. That protects
+ * one worker only; see the PR body for what covers other workers.
+ *
  * Not wired into the worker; OVD-464 owns routing. The session fields mirror
- * the OVD-462 lease identity (provider, account reference, environment) without
- * importing it.
+ * the OVD-462 lease identity (provider, account reference, environment,
+ * session binding reference) without importing it, because that module is not
+ * on main yet. Once it lands, import its environment list instead of the copy
+ * below.
  */
 
 export const PROVIDER_EXECUTION_ENVIRONMENTS = ["production", "staging", "development", "test"] as const;
@@ -43,11 +50,79 @@ export type ProviderExecutionDenialCode =
   | "account_mismatch"
   | "environment_mismatch"
   | "adapter_mismatch"
-  | "captured_file_mismatch";
+  | "captured_file_mismatch"
+  | "authorization_replayed"
+  | ProviderExecutionGuardDenialCode
+  | "guard_failed";
 
-/** Outcomes that need an operator. The seam never retries them. */
-export const PROVIDER_EXECUTION_TERMINAL_OUTCOMES = ["login_required", "challenge_required", "blocked", "banned"] as const;
+/** Reserved, non retryable codes a caller guard may return (OVD-722, OVD-723, daily cap). */
+export const PROVIDER_EXECUTION_GUARD_DENIAL_CODES = [
+  "provider_disabled",
+  "export_control_blocked",
+  "provider_daily_cap_reached",
+] as const;
+export type ProviderExecutionGuardDenialCode = (typeof PROVIDER_EXECUTION_GUARD_DENIAL_CODES)[number];
+
+export type ProviderExecutionGuardInput = Readonly<{
+  provider: VendorName;
+  permitId: string;
+  organizationId: string;
+  requestedQuantity: number;
+}>;
+
+/** Returns null to allow, or a reserved code to deny. Anything else, or a throw, fails closed. */
+export type ProviderExecutionGuard = (
+  input: ProviderExecutionGuardInput,
+) => ProviderExecutionGuardDenialCode | null | Promise<ProviderExecutionGuardDenialCode | null>;
+
+/** Single use record of presented authorizations. Inject a shared one to widen the scope. */
+export type ProviderAuthorizationConsumer = {
+  /** Returns false when the key was already consumed. Must be atomic. */
+  consume(key: string, expiresAtMs: number, nowMs: number): boolean;
+};
+
+export function createProviderAuthorizationConsumer(): ProviderAuthorizationConsumer {
+  const consumed = new Map<string, number>();
+  return {
+    consume(key, expiresAtMs, nowMs) {
+      for (const [existing, expiry] of consumed) if (expiry <= nowMs) consumed.delete(existing);
+      if (consumed.has(key)) return false;
+      consumed.set(key, expiresAtMs);
+      return true;
+    },
+  };
+}
+
+const defaultConsumer = createProviderAuthorizationConsumer();
+
+/**
+ * Outcomes that need an operator. The first five are the OVD-462 lease blocking
+ * outcomes; `blocked` and `banned` are provider side blocks and account bans.
+ * Until the lease vocabulary has its own names for them, both map to
+ * `challenge_required` (see PROVIDER_EXECUTION_LEASE_OUTCOME), which blocks the
+ * binding the same way, so no later task retries around the wall.
+ */
+export const PROVIDER_EXECUTION_TERMINAL_OUTCOMES = [
+  "missing_session",
+  "login_required",
+  "challenge_required",
+  "owner_revoked",
+  "corrupt_state",
+  "blocked",
+  "banned",
+] as const;
 export type ProviderExecutionTerminalOutcome = (typeof PROVIDER_EXECUTION_TERMINAL_OUTCOMES)[number];
+
+/** Total mapping from a seam outcome to the lease blocking outcome that blocks the binding. */
+export const PROVIDER_EXECUTION_LEASE_OUTCOME: Readonly<Record<ProviderExecutionTerminalOutcome, string>> = Object.freeze({
+  missing_session: "missing_session",
+  login_required: "login_required",
+  challenge_required: "challenge_required",
+  owner_revoked: "owner_revoked",
+  corrupt_state: "corrupt_state",
+  blocked: "challenge_required",
+  banned: "challenge_required",
+});
 
 /** An adapter throws this to report a terminal provider condition. */
 export class ProviderExecutionTerminalError extends Error {
@@ -57,15 +132,23 @@ export class ProviderExecutionTerminalError extends Error {
   }
 }
 
+// Same mapping as the lease: a CAPTCHA wall and an anti detection block are both a challenge.
 const VENDOR_ERROR_OUTCOMES: Partial<Record<VendorAutomationError["code"], ProviderExecutionTerminalOutcome>> = {
   login_required: "login_required",
   captcha: "challenge_required",
-  anti_detection_block: "blocked",
+  anti_detection_block: "challenge_required",
 };
+
+const TERMINAL_OUTCOME_SET: ReadonlySet<string> = new Set(PROVIDER_EXECUTION_TERMINAL_OUTCOMES);
 
 export function providerExecutionTerminalOutcomeForError(error: unknown): ProviderExecutionTerminalOutcome | null {
   if (error instanceof ProviderExecutionTerminalError) return error.outcome;
   if (error instanceof VendorAutomationError) return VENDOR_ERROR_OUTCOMES[error.code] ?? null;
+  // OVD-462's ProviderSessionOutcomeError, recognized structurally until that module is on main.
+  if (error instanceof Error && error.name === "ProviderSessionOutcomeError") {
+    const outcome = (error as { outcome?: unknown }).outcome;
+    if (typeof outcome === "string" && TERMINAL_OUTCOME_SET.has(outcome)) return outcome as ProviderExecutionTerminalOutcome;
+  }
   return null;
 }
 
@@ -74,6 +157,8 @@ export type ProviderExecutionExpectation = {
   provider: VendorName;
   accountRef: string;
   environment: ProviderExecutionEnvironment;
+  /** Opaque `sb_` lease reference for the provider local session slot. */
+  sessionBindingRef: string;
   organizationId: string;
   envelope: { id: string; version: number };
   envelopeFingerprint: string;
@@ -89,6 +174,7 @@ export type ProviderExecutionSession = {
   provider: VendorName;
   accountRef: string;
   environment: ProviderExecutionEnvironment;
+  sessionBindingRef: string;
 };
 
 export type ProviderExecutionCapturedFile = { role: ProviderDispatchFileRole; bytes: Uint8Array };
@@ -99,6 +185,10 @@ export type ProviderExecutionRequest = {
   session: ProviderExecutionSession;
   /** Bytes captured by the caller before this call; no path crosses the seam. */
   files: readonly ProviderExecutionCapturedFile[];
+  /**
+   * Current time in ms. Pass the database clock plus the measured round trip
+   * (the preflight's evidence.now plus its age); defaults to the worker clock.
+   */
   nowMs?: number;
 };
 
@@ -116,6 +206,10 @@ export type ProviderExecutionContext = Readonly<{
   envelopeFingerprint: string;
   sessionBindingId: string;
   requestedQuantity: number;
+  /** Authorization expiry; the adapter must stop by then. */
+  expiresAtMs: number;
+  /** Aborted at expiry. Adapters must check it before every provider action. */
+  signal: AbortSignal;
   files: readonly ProviderExecutionFile[];
 }>;
 
@@ -150,6 +244,9 @@ export function providerExecutionDenialFromError(error: unknown): ProviderExecut
 }
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const ACCOUNT_REF = /^acct_[0-9a-f]{32}$/;
+const SESSION_BINDING_REF = /^sb_[0-9a-f]{32}$/;
+const MAX_TIMER_MS = 2_147_483_647;
 const ROLES: readonly string[] = ["cad", "drawing"];
 
 function sha256Hex(bytes: Uint8Array): string {
@@ -177,7 +274,10 @@ function requestMalformed(request: ProviderExecutionRequest): boolean {
     !expected ||
     !session ||
     !Array.isArray(request.files) ||
-    !isNonEmptyString(expected.accountRef) ||
+    typeof expected.accountRef !== "string" ||
+    !ACCOUNT_REF.test(expected.accountRef) ||
+    typeof expected.sessionBindingRef !== "string" ||
+    !SESSION_BINDING_REF.test(expected.sessionBindingRef) ||
     !isNonEmptyString(expected.organizationId) ||
     !isNonEmptyString(expected.permitId) ||
     !isNonEmptyString(expected.sessionBindingId) ||
@@ -223,6 +323,7 @@ function authorizationDenial(
     return { denial: "provider_mismatch" };
   }
   if (session.accountRef !== expected.accountRef) return { denial: "account_mismatch" };
+  if (session.sessionBindingRef !== expected.sessionBindingRef) return { denial: "session_binding_mismatch" };
   if (session.environment !== expected.environment) return { denial: "environment_mismatch" };
   if (envelope.envelope.id !== expected.envelope.id || envelope.envelope.version !== expected.envelope.version) {
     return { denial: "provider_envelope_mismatch" };
@@ -286,6 +387,19 @@ function captureFiles(
   return captured;
 }
 
+export type ProviderExecutionOptions = {
+  log?: ProviderExecutionLogger;
+  /** Checked after authorization and before bytes are captured or the adapter runs. */
+  guards?: readonly ProviderExecutionGuard[];
+  consumer?: ProviderAuthorizationConsumer;
+  /**
+   * Rethrow the adapter's original error when it is a terminal outcome, so a
+   * surrounding `runWithLease` records it and blocks the binding. Without it
+   * the outcome is returned as a value and the lease would release unblocked.
+   */
+  rethrowTerminal?: boolean;
+};
+
 /**
  * Validates the authorization and, only if every check passes, runs the adapter
  * exactly once. The returned union never includes error text, file bytes, or
@@ -294,7 +408,7 @@ function captureFiles(
 export async function executeWithProviderAuthorization<T>(
   request: ProviderExecutionRequest,
   adapter: ProviderExecutionAdapter<T>,
-  options: { log?: ProviderExecutionLogger } = {},
+  options: ProviderExecutionOptions = {},
 ): Promise<ProviderExecutionResult<T>> {
   const log = options.log ?? defaultLogger;
   const provider = request?.expected?.provider ?? "unknown";
@@ -304,16 +418,48 @@ export async function executeWithProviderAuthorization<T>(
   };
 
   if (!request) return deny("execution_request_malformed");
-  const checked = authorizationDenial(request, request.nowMs ?? Date.now());
+  const nowMs = request.nowMs ?? Date.now();
+  const checked = authorizationDenial(request, nowMs);
   if ("denial" in checked) return deny(checked.denial);
   const envelope = checked.envelope;
 
   if (!adapter || adapter.provider !== envelope.provider || typeof adapter.execute !== "function") {
     return deny("adapter_mismatch");
   }
+
+  const guardInput: ProviderExecutionGuardInput = Object.freeze({
+    provider: envelope.provider,
+    permitId: envelope.permit.permitId,
+    organizationId: envelope.subject.organizationId,
+    requestedQuantity: envelope.scope.requestedQuantity,
+  });
+  for (const guard of options.guards ?? []) {
+    let verdict: unknown;
+    try {
+      verdict = await guard(guardInput);
+    } catch {
+      return deny("guard_failed");
+    }
+    if (verdict === null) continue;
+    return deny(
+      (PROVIDER_EXECUTION_GUARD_DENIAL_CODES as readonly unknown[]).includes(verdict)
+        ? (verdict as ProviderExecutionGuardDenialCode)
+        : "guard_failed",
+    );
+  }
+
   const files = captureFiles(envelope, request.files);
   if (!files) return deny("captured_file_mismatch");
 
+  const expiresAtMs = Date.parse(envelope.expiresAt);
+  const consumer = options.consumer ?? defaultConsumer;
+  if (!consumer.consume(`${envelope.permit.permitId}:${request.expected.envelopeFingerprint}`, expiresAtMs, nowMs)) {
+    return deny("authorization_replayed");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(Math.max(0, expiresAtMs - nowMs), MAX_TIMER_MS));
+  timer.unref?.();
   const context: ProviderExecutionContext = Object.freeze({
     provider: envelope.provider,
     environment: request.expected.environment,
@@ -321,6 +467,8 @@ export async function executeWithProviderAuthorization<T>(
     envelopeFingerprint: request.expected.envelopeFingerprint,
     sessionBindingId: envelope.sessionBindingId,
     requestedQuantity: envelope.scope.requestedQuantity,
+    expiresAtMs,
+    signal: controller.signal,
     files: Object.freeze(files),
   });
 
@@ -331,9 +479,12 @@ export async function executeWithProviderAuthorization<T>(
     const outcome = providerExecutionTerminalOutcomeForError(error);
     if (outcome) {
       log({ event: "provider_execution.terminal", provider: envelope.provider, outcome });
+      if (options.rethrowTerminal) throw error;
       return { kind: "terminal", outcome, disposition: "manual_follow_up", retryable: false };
     }
     log({ event: "provider_execution.failed", provider: envelope.provider });
     return { kind: "adapter_failed", retryable: false };
+  } finally {
+    clearTimeout(timer);
   }
 }
