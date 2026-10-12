@@ -30,6 +30,12 @@
 -- until commit, so two of these RPCs in one transaction could take locks in an
 -- order the rule above does not cover. PostgREST runs every RPC call in its own
 -- transaction, which is the only supported caller.
+--
+-- Table order (canonical): every RPC that touches both tables touches
+-- provider_session_bindings before provider_session_leases (acquire and revoke
+-- check the registry first); the others touch only provider_session_leases.
+-- Anything that locks both tables, such as the rollback, must lock
+-- provider_session_bindings first.
 -- ===========================================================================
 
 -- Storage backstop for "a session binding belongs to exactly one
@@ -525,10 +531,11 @@ $$;
 -- which is what this returns and what the clear RPC takes. With no holder, the
 -- session binding is registered to this key first.
 --
--- Operator RPCs are granted to service_role like the worker RPCs, for 1.0; they
--- are called from the admin server path, the worker code path cannot construct
--- them (separate TS factory) and every use is attributable. A dedicated
--- operator database role is deferred to 1.1.
+-- Operator RPCs are granted to service_role like the worker RPCs; they are
+-- called from the admin server path, the worker code path cannot construct them
+-- (separate TS factory) and every use is attributable. Keeping service_role for
+-- 1.0 and deferring a dedicated operator database role to 1.1 is recommended
+-- for 1.0, pending Blaine's confirmation in the window 1 approval.
 create function public.revoke_provider_session_binding(
   p_provider text,
   p_account_ref text,

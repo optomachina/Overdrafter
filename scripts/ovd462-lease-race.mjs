@@ -27,7 +27,9 @@ export const FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_lea
 export const ROLLBACK_PATH = 'docs/migration-drafts/ovd-462.rollback.sql';
 export const ROLLBACK_FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc';
 export const DOCKER_IMAGE = 'postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94';
-export const ITERATIONS = Object.freeze({ sameKey: 30, lockTimeout: 20, binding: 30, expiry: 30, rollback: 20 });
+export const ITERATIONS = Object.freeze({
+  sameKey: 30, lockTimeout: 20, binding: 30, expiry: 30, rollback: 20, revokeThenRollback: 20, rollbackBehindRevoke: 20,
+});
 export const MIN_ITERATIONS = 20;
 const LOCK_TIMEOUT_MS = 2000;
 const TTL_SECONDS = 5;
@@ -154,7 +156,7 @@ export function splitRollback(rollbackSql) {
   const at = rollbackSql.indexOf('\ndrop ');
   assert(at > 0, 'rollback drops missing');
   const guard = rollbackSql.slice(0, at + 1), drops = rollbackSql.slice(at + 1);
-  assert.match(guard, /lock table public\.provider_session_leases, public\.provider_session_bindings in access exclusive mode;/);
+  assert.match(guard, /lock table public\.provider_session_(?:bindings|leases), public\.provider_session_(?:leases|bindings) in access exclusive mode;/);
   assert(!/\ndrop /.test(guard) && /^drop /.test(drops));
   return { guard, drops };
 }
@@ -168,15 +170,45 @@ export function acceptRollbackRace(revoke, observedWaiter, dropped) {
   return 'revoke_timed_out_rollback_committed';
 }
 
-/** (f) The guard refuses a role that cannot see occupants through forced RLS, with or without the override. */
-export function acceptRollbackRoleGuard(results, tablesIntact) {
-  assert.equal(results.length, 2);
-  for (const result of results) {
-    assert.equal(result.sqlstate, 'P0001', `guard must refuse, got ${result.sqlstate ?? 'success'}`);
-    assert.match(result.message, /must bypass RLS/);
-  }
+const OCCUPANTS_REFUSAL = /provider_session_leases has active or blocked occupants/;
+const RLS_REFUSAL = /must bypass RLS/;
+const refusedWith = (result, pattern, what) => {
+  assert.equal(result.sqlstate, 'P0001', `${what}: guard must refuse, got ${result.sqlstate ?? 'success'}`);
+  assert.match(result.message, pattern, `${what}: wrong refusal`);
+};
+
+/**
+ * (f) With occupants present the guard refuses a bypassing role without the
+ * override, and refuses a table owner without BYPASSRLS (which would otherwise
+ * see zero occupants through forced RLS) with or without the override.
+ */
+export function acceptRollbackGuards(occupantRefusal, ownerResults, tablesIntact) {
+  refusedWith(occupantRefusal, OCCUPANTS_REFUSAL, 'occupants present');
+  assert.equal(ownerResults.length, 2);
+  for (const result of ownerResults) refusedWith(result, RLS_REFUSAL, 'owner without BYPASSRLS');
   assert.equal(tablesIntact, true);
   return 'refused';
+}
+
+/** (g) A revoke that committed before the rollback is seen as an occupant and refuses the rollback. */
+export function acceptRevokeThenRollback(revoke, guard, tablesIntact) {
+  assert.equal(revoke.result?.status, 'blocked', `revoke must commit a fence, got ${label(revoke)}`);
+  refusedWith(guard, OCCUPANTS_REFUSAL, 'committed revoke');
+  assert.equal(tablesIntact, true);
+  return 'rollback_refused';
+}
+
+/**
+ * (h) A revoke transaction that already holds the registry (the RPCs' own table
+ * order) while the rollback queues behind it: no deadlock, the revoke commits,
+ * and the rollback then sees its fence and refuses.
+ */
+export function acceptRollbackBehindRevoke(revoke, guard, observedWaiter, tablesIntact) {
+  assert.equal(observedWaiter, true, 'rollback was not observed waiting behind the revoke transaction');
+  assert.equal(revoke.result?.status, 'blocked', `revoke must not deadlock, got ${label(revoke)}`);
+  refusedWith(guard, OCCUPANTS_REFUSAL, 'pending revoke');
+  assert.equal(tablesIntact, true);
+  return 'no_deadlock_rollback_refused';
 }
 
 const tally = (counts, key) => { counts[key] = (counts[key] ?? 0) + 1; };
@@ -311,27 +343,46 @@ export async function runLeaseRaces(makeSession, draftSql, rollbackSql, { iterat
     receipt.scenarios.expiry = counts;
     log(`(d) expiry: ${JSON.stringify(counts)}`);
 
-    // (f) rollback guard run by a role without BYPASSRLS (occupants exist here)
+    // (f) rollback guards while occupants from (a) to (d) are present
     const tablesExist = async () => (await coordinator.request(`select pg_catalog.to_regclass('public.provider_session_leases') is not null
         and pg_catalog.to_regclass('public.provider_session_bindings') is not null;`)).trim() === 't';
-    await a.request('reset role;\nset role authenticated;');
-    const guardResults = [];
+    const tryGuard = async session => oneJson(await session.request(`select race.try_exec(${quote(rollback.guard)});`));
+    const setOverride = value => `select pg_catalog.set_config('ovd462.rollback_discard_occupants', ${quote(value)}, false);`;
+    await a.request('reset role;');
+    await a.request('begin;');
+    const occupantRefusal = await tryGuard(a);
+    await a.request('rollback;');
+    // Make a role without BYPASSRLS the owner of both tables, as a mistaken migration owner would be.
+    const owners = (owner) => `alter table public.provider_session_bindings owner to ${owner};
+      alter table public.provider_session_leases owner to ${owner};`;
+    await coordinator.request(`grant create on schema public to authenticated;\n${owners('authenticated')}`);
+    await a.request('set role authenticated;');
+    const ownerResults = [];
     for (const override of ['', 'confirmed']) {
-      await a.request(`select pg_catalog.set_config('ovd462.rollback_discard_occupants', ${quote(override)}, false);`);
-      guardResults.push(oneJson(await a.request(`select race.try_exec(${quote(rollback.guard)});`)));
+      await a.request(setOverride(override));
+      await a.request('begin;');
+      ownerResults.push(await tryGuard(a));
+      await a.request('rollback;');
     }
-    await a.request("reset role;\nselect pg_catalog.set_config('ovd462.rollback_discard_occupants', '', false);");
-    receipt.scenarios.rollbackRoleGuard = acceptRollbackRoleGuard(guardResults, await tablesExist());
-    log(`(f) rollback guard without BYPASSRLS: ${receipt.scenarios.rollbackRoleGuard}`);
+    await a.request(`reset role;\n${setOverride('')}`);
+    await coordinator.request(`${owners('postgres')}\nrevoke create on schema public from authenticated;`);
+    receipt.scenarios.rollbackGuards = acceptRollbackGuards(occupantRefusal, ownerResults, await tablesExist());
+    log(`(f) rollback guards (occupants present; owner without BYPASSRLS): ${receipt.scenarios.rollbackGuards}`);
+
+    // The rollback scenarios below start from a schema with no occupants.
+    const reinstall = () => coordinator.request(
+      `begin;\nset local ovd462.rollback_discard_occupants = 'confirmed';\n${rollbackSql}commit;\n${draftSql}`);
+    await reinstall();
+    const revokeSql = key => `select public.revoke_provider_session_binding(${quote(key.provider)}, ${quote(key.account)}, `
+      + `${quote(key.environment)}, ${quote(key.binding)}, 'race-operator', 'race-reason')`;
+    const freshKey = () => ({ provider: 'xometry', account: acct(), environment: 'test', binding: sb() });
 
     // (e) rollback holds its table locks from the guard to commit; a concurrent revoke cannot slip in
     counts = {};
     for (let i = 0; i < iterations.rollback; i += 1) {
-      const key = { provider: 'xometry', account: acct(), environment: 'test', binding: sb() };
       await a.request(`begin;\nset local ovd462.rollback_discard_occupants = 'confirmed';\n${rollback.guard}`);
       const started = Date.now();
-      const revoking = b.request(tryCall(`select public.revoke_provider_session_binding(${quote(key.provider)}, ${quote(key.account)}, `
-        + `${quote(key.environment)}, ${quote(key.binding)}, 'race-operator', 'race-reason')`));
+      const revoking = b.request(tryCall(revokeSql(freshKey())));
       let observedWaiter = false;
       while (!observedWaiter && Date.now() - started < LOCK_TIMEOUT_MS - 500) {
         observedWaiter = (await coordinator.request(`select ${pids.a} = any (pg_catalog.pg_blocking_pids(${pids.b}));`)).trim() === 't';
@@ -343,6 +394,43 @@ export async function runLeaseRaces(makeSession, draftSql, rollbackSql, { iterat
     }
     receipt.scenarios.rollback = counts;
     log(`(e) rollback race: ${JSON.stringify(counts)}`);
+
+    // (g) a revoke commits first, then the rollback runs without the override
+    counts = {};
+    for (let i = 0; i < iterations.revokeThenRollback; i += 1) {
+      const revoke = callResult(await b.request(tryCall(revokeSql(freshKey()))));
+      await a.request('begin;');
+      const guard = await tryGuard(a);
+      await a.request('rollback;');
+      tally(counts, acceptRevokeThenRollback(revoke, guard, await tablesExist()));
+      await reinstall();
+    }
+    receipt.scenarios.revokeThenRollback = counts;
+    log(`(g) revoke then rollback: ${JSON.stringify(counts)}`);
+
+    // (h) a revoke transaction holds the registry; the rollback queues behind it; the revoke then runs
+    counts = {};
+    await b.request('reset role;');
+    for (let i = 0; i < iterations.rollbackBehindRevoke; i += 1) {
+      await b.request('begin;\nselect count(*) from public.provider_session_bindings;');
+      await a.request('begin;');
+      const started = Date.now();
+      const guarding = tryGuard(a);
+      let observedWaiter = false;
+      while (!observedWaiter) {
+        observedWaiter = (await coordinator.request(`select ${pids.b} = any (pg_catalog.pg_blocking_pids(${pids.a}));`)).trim() === 't';
+        assert(Date.now() - started < 10_000, 'rollback never queued behind the revoke transaction');
+      }
+      const revoke = callResult(await b.request(tryCall(revokeSql(freshKey()))));
+      await b.request('commit;');
+      const guard = await guarding;
+      await a.request('rollback;');
+      tally(counts, acceptRollbackBehindRevoke(revoke, guard, observedWaiter, await tablesExist()));
+      await reinstall();
+    }
+    await b.request('set role service_role;');
+    receipt.scenarios.rollbackBehindRevoke = counts;
+    log(`(h) rollback behind a pending revoke: ${JSON.stringify(counts)}`);
     return receipt;
   } catch (error) {
     const stderr = Object.entries(sessions).filter(([, session]) => session.record.stderr)

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { stagePolicyTests, admitCi, admitPgProve, LEGACY } from './run-supabase-policy-tests.mjs';
-import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, acceptRollbackRace, acceptRollbackRoleGuard,
+import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, acceptRollbackRace, acceptRollbackGuards,
+  acceptRevokeThenRollback, acceptRollbackBehindRevoke,
   callResult, readDraft, readRollback, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
 const source = fileURLToPath(new URL('../supabase/tests', import.meta.url));
 function fixture(t) {
@@ -89,7 +90,7 @@ test('OVD-462 rollback refuses to drop occupants before any drop runs', () => {
   assert.match(rollback, /state in \('active', 'blocked'\)/);
   assert.match(rollback, /current_setting\('ovd462\.rollback_discard_occupants', true\), ''\) <> 'confirmed'/);
   const bypass = rollback.indexOf('(r.rolsuper or r.rolbypassrls)');
-  const lock = rollback.indexOf('lock table public.provider_session_leases, public.provider_session_bindings in access exclusive mode;');
+  const lock = rollback.indexOf('lock table public.provider_session_bindings, public.provider_session_leases in access exclusive mode;');
   const occupants = rollback.indexOf("select 1 from public.provider_session_leases where state in ('active', 'blocked')");
   const refusal = rollback.indexOf("raise exception 'OVD-462 rollback refused: provider_session_leases has active or blocked occupants'");
   assert(bypass > 0 && bypass < lock && lock < occupants && occupants < refusal && refusal < rollback.indexOf('\ndrop '),
@@ -102,7 +103,8 @@ const err = (sqlstate, elapsed_ms = 1) => ({ result: null, sqlstate, elapsed_ms 
 const acquired = (generation = 1) => ok({ status: 'acquired', generation, idempotent: false, expires_in_ms: 60000, renewals_remaining: 5 });
 test('OVD-462 race test runs every scenario at least 20 times against the byte-identical draft', () => {
   for (const count of Object.values(ITERATIONS)) assert(count >= MIN_ITERATIONS);
-  assert.deepEqual(Object.keys(ITERATIONS).sort(), ['binding', 'expiry', 'lockTimeout', 'rollback', 'sameKey']);
+  assert.deepEqual(Object.keys(ITERATIONS).sort(),
+    ['binding', 'expiry', 'lockTimeout', 'revokeThenRollback', 'rollback', 'rollbackBehindRevoke', 'sameKey']);
   const root = fileURLToPath(new URL('..', import.meta.url));
   assert.match(readDraft(root), /create function public\.acquire_provider_session_lease/);
   const { guard, drops } = splitRollback(readRollback(root));
@@ -156,10 +158,25 @@ test('OVD-462 rollback race requires the revoke to time out on the rollback lock
   assert.throws(() => acceptRollbackRace(err('55P03', 2001), false, true));
   assert.throws(() => acceptRollbackRace(err('55P03', 2001), true, false));
 });
-test('OVD-462 rollback guard must refuse a role without BYPASSRLS even with the override', () => {
-  const refused = { sqlstate: 'P0001', message: 'OVD-462 rollback refused: the running role must bypass RLS to see occupants' };
-  assert.equal(acceptRollbackRoleGuard([refused, refused], true), 'refused');
-  assert.throws(() => acceptRollbackRoleGuard([refused, { sqlstate: null, message: null }], true));
-  assert.throws(() => acceptRollbackRoleGuard([refused, { sqlstate: 'P0001', message: 'has active or blocked occupants' }], true));
-  assert.throws(() => acceptRollbackRoleGuard([refused, refused], false));
+const rlsRefusal = { sqlstate: 'P0001', message: 'OVD-462 rollback refused: the running role must bypass RLS to see occupants' };
+const occupantRefusal = { sqlstate: 'P0001', message: 'OVD-462 rollback refused: provider_session_leases has active or blocked occupants' };
+const fence = ok({ status: 'blocked', outcome: 'owner_revoked', generation: 1 });
+test('OVD-462 rollback guards refuse occupants and an owner without BYPASSRLS even with the override', () => {
+  assert.equal(acceptRollbackGuards(occupantRefusal, [rlsRefusal, rlsRefusal], true), 'refused');
+  assert.throws(() => acceptRollbackGuards({ sqlstate: null, message: null }, [rlsRefusal, rlsRefusal], true));
+  assert.throws(() => acceptRollbackGuards(occupantRefusal, [rlsRefusal, { sqlstate: null, message: null }], true));
+  assert.throws(() => acceptRollbackGuards(occupantRefusal, [rlsRefusal, occupantRefusal], true));
+  assert.throws(() => acceptRollbackGuards(occupantRefusal, [rlsRefusal, rlsRefusal], false));
+});
+test('OVD-462 a committed revoke refuses a later rollback', () => {
+  assert.equal(acceptRevokeThenRollback(fence, occupantRefusal, true), 'rollback_refused');
+  assert.throws(() => acceptRevokeThenRollback(fence, { sqlstate: null, message: null }, true));
+  assert.throws(() => acceptRevokeThenRollback(err('55P03'), occupantRefusal, true));
+});
+test('OVD-462 a rollback queued behind a pending revoke neither deadlocks nor drops the fence', () => {
+  assert.equal(acceptRollbackBehindRevoke(fence, occupantRefusal, true, true), 'no_deadlock_rollback_refused');
+  assert.throws(() => acceptRollbackBehindRevoke(err('40P01'), occupantRefusal, true, true));
+  assert.throws(() => acceptRollbackBehindRevoke(fence, { sqlstate: '40P01', message: 'deadlock detected' }, true, true));
+  assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, false, true));
+  assert.throws(() => acceptRollbackBehindRevoke(fence, occupantRefusal, true, false));
 });

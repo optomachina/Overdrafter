@@ -75,7 +75,10 @@ acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──►
 - **One RPC per transaction.** Deadlock freedom (key lock first, then at most
   one session binding lock) assumes each lease RPC runs in its own
   transaction. PostgREST does this for every RPC call, and it is the only
-  supported caller.
+  supported caller. Canonical table order: RPCs that touch both tables (acquire,
+  revoke) touch `provider_session_bindings` before `provider_session_leases`;
+  anything that locks both tables, such as the rollback, locks them in that
+  order.
 - **Release.** Idempotent for the exact owner. A stale owner's release after a
   regrant is a no-op.
 - **`runWithLease`.** Acquires the lease and sends a heartbeat every
@@ -158,7 +161,8 @@ blocked rows are manual-follow-up fences. Resolve or export them first, or set
 `set local ovd462.rollback_discard_occupants = 'confirmed'` in the same
 transaction. The guard first refuses any running role without `BYPASSRLS` (or
 superuser), because forced RLS would hide the occupants from it. It then takes
-`ACCESS EXCLUSIVE` locks on both tables before the occupant check, so no lease
+`ACCESS EXCLUSIVE` locks on both tables, bindings first (the canonical order,
+so an in-flight RPC cannot deadlock with it), before the occupant check, so no lease
 RPC can commit a new occupant between the check and the drops. The rollback
 relies on the migration runner's transaction wrapper; by hand, use
 `psql --single-transaction -v ON_ERROR_STOP=1`.
@@ -192,8 +196,13 @@ relies on the migration runner's transaction wrapper; by hand, use
   strictly increases; (e) rollback, 20 iterations: while a rollback
   transaction holds its table locks between the guard and the drops, a
   concurrent revoke waits and fails with 55P03 instead of committing a fence
-  the drops would destroy; (f) the rollback guard refuses a role without
-  `BYPASSRLS`, with or without the override. CI runs it against the local Supabase stack from
+  the drops would destroy; (f) with occupants present the guard refuses
+  without the override, and refuses a table owner without `BYPASSRLS` (which
+  forced RLS would show zero occupants) with or without the override; (g)
+  rollback, 20 iterations: a revoke that committed first makes the rollback
+  refuse; (h) rollback, 20 iterations: a rollback queued behind a revoke
+  transaction that already holds the registry neither deadlocks nor drops the
+  fence, and refuses once the revoke commits. CI runs it against the local Supabase stack from
   `scripts/run-supabase-policy-tests.mjs` after pg_prove. Locally,
   `node scripts/ovd462-lease-race.mjs --target docker` runs it against a
   disposable pinned postgres container with no published port.

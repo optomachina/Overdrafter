@@ -38,8 +38,9 @@ begin
         using errcode = 'P0001';
     end if;
     -- Block every lease RPC until this transaction ends, so no occupant can be
-    -- committed between the check and the drops below.
-    lock table public.provider_session_leases, public.provider_session_bindings in access exclusive mode;
+    -- committed between the check and the drops below. Bindings first, the
+    -- canonical table order of the RPCs, so an in-flight RPC cannot deadlock.
+    lock table public.provider_session_bindings, public.provider_session_leases in access exclusive mode;
     if coalesce(pg_catalog.current_setting('ovd462.rollback_discard_occupants', true), '') <> 'confirmed'
        and exists (select 1 from public.provider_session_leases where state in ('active', 'blocked')) then
       raise exception 'OVD-462 rollback refused: provider_session_leases has active or blocked occupants'
