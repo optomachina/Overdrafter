@@ -19,8 +19,10 @@ import {
   migrationWriteTargets,
   expandBraces,
   globMatchesMigrations,
+  hasCommandSubstitution,
   pipesIntoShell,
   stripQuotes,
+  substitutionTouchesSupabase,
 } from "./guard-migrations.mjs";
 
 const hook = fileURLToPath(new URL("./guard-migrations.mjs", import.meta.url));
@@ -328,6 +330,92 @@ test("git commit messages containing supabase or migrations are allowed", () => 
     assert.equal(mentionsSupabaseOrMigration(command), false, command);
     assert.deepEqual(blocked(bash(command)), { allow: true }, command);
   }
+});
+
+test("command substitution or process substitution alongside supabase or migration paths is blocked", () => {
+  for (const command of [
+    'git commit -m "$(cat supabase/migrations/x.sql)"',
+    "git commit -m `cat supabase/migrations/x.sql`",
+    "diff <(cat supabase/migrations/a.sql) <(echo x)",
+    "echo x > $(echo supabase/migrations/x.sql)",
+    "ls $(echo supabase/migrations)",
+  ]) {
+    assert.equal(hasCommandSubstitution(command), true, command);
+    assert.equal(substitutionTouchesSupabase(command), true, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git commit --file or -F pointing into supabase is blocked", () => {
+  for (const command of [
+    "git commit -F supabase/migrations/msg",
+    "git commit --file supabase/migrations/msg",
+    "git commit --file=supabase/migrations/msg",
+  ]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git commit -F of a non-supabase file is allowed", () => {
+  assert.deepEqual(blocked(bash("git commit -F /tmp/msg")), { allow: true });
+  assert.deepEqual(blocked(bash('git commit -m "$(echo hi)"')), { allow: true });
+});
+
+test("find write or exec options on migrations are blocked", () => {
+  for (const command of [
+    "find supabase/migrations -exec rm {} ;",
+    "find supabase/migrations -execdir rm {} ;",
+    "find supabase/migrations -ok rm {} ;",
+    "find supabase/migrations -okdir rm {} ;",
+    "find supabase/migrations -delete",
+    "find supabase/migrations -fprint /tmp/out",
+    "find supabase/migrations -fprint0 /tmp/out",
+    "find supabase/migrations -fprintf /tmp/out %p",
+    "find supabase/migrations -fls /tmp/out",
+  ]) {
+    assert.equal(isReadOnlyAllowlisted(command), false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("sort -o or --output on migrations is blocked", () => {
+  for (const command of ["sort -o /tmp/out supabase/migrations/x.sql", "sort --output=/tmp/out supabase/migrations/x.sql"]) {
+    assert.equal(isReadOnlyAllowlisted(command), false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git diff --output on migrations is blocked", () => {
+  for (const command of ["git diff --output=/tmp/out -- supabase/migrations", "git diff --output /tmp/out -- supabase/migrations"]) {
+    assert.equal(isReadOnlyAllowlisted(command), false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("uniq with an output file on migrations is blocked", () => {
+  const command = "uniq supabase/migrations/a.sql /tmp/out";
+  assert.equal(isReadOnlyAllowlisted(command), false);
+  assert.equal(blocked(bash(command)).allow, false);
+});
+
+test("file -C on migrations is blocked", () => {
+  for (const command of ["file -C supabase/migrations", "file -C -m supabase/migrations/x.sql"]) {
+    assert.equal(isReadOnlyAllowlisted(command), false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git commit of existing migration files is allowed", () => {
+  const command = "git commit -m x -- supabase/migrations/a.sql";
+  assert.deepEqual(blocked(bash(command)), { allow: true });
+  assert.deepEqual(blocked(bash("git commit -m 'chore: update supabase types' -- supabase/migrations/a.sql")), { allow: true });
+});
+
+test("plain diff is allowed", () => {
+  const viewPr = () => assert.fail("gh should not be called");
+  assert.deepEqual(decide(bash("diff a b"), { env: {}, viewPr }), { allow: true });
+  assert.equal(isReadOnlyAllowlisted("diff supabase/migrations/a.sql supabase/migrations/b.sql"), true);
+  assert.deepEqual(decide(bash("diff supabase/migrations/a.sql supabase/migrations/b.sql"), { env: {}, viewPr }), { allow: true });
 });
 
 test("git blame and diff on migrations are allowed", () => {

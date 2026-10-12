@@ -12,9 +12,13 @@
  * without performed_via_github_app. Anything else fails closed.
  * Reads are never blocked. Exit 2 + stderr blocks the tool call.
  *
- * Accepted residuals: bare git apply/am/patch/tar/unzip whose command does
- * not mention supabase, and a script created in one call then run later
- * with no supabase/migration path in the command text.
+ * Accepted residuals (final hardening): bare git apply/am/patch/tar/unzip
+ * whose command does not mention supabase; a script created in one call
+ * then run later with no supabase/migration path in the command text;
+ * git commit -F of a non-supabase file whose contents mention supabase;
+ * substitution that does not appear as $(, backticks, or <( ; >( )
+ * process substitution; and reader write/exec options not in the listed
+ * set. Those remain Blaine's merge and apply gate.
  *
  * Tests inject a fake gh via OVD_GUARD_GH_BIN.
  */
@@ -45,7 +49,7 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const MIGRATIONS_RE = /(^|\/)supabase\/migrations(\/|$)/;
 const SUPABASE_TREE_RE = /(^|\/)supabase(\/|$)/;
-const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "less", "file", "stat", "find", "sort", "uniq"]);
+const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep", "head", "tail", "wc", "less", "file", "stat", "find", "sort", "uniq", "diff"]);
 const GIT_READERS = new Set(["diff", "log", "show", "status", "blame"]);
 const TEST_RUNNERS = new Set(["vitest", "jest", "mocha", "ava", "tap"]);
 const WRITERS = new Set([
@@ -155,8 +159,8 @@ function normalizeCommand(command) {
 
 function stripCommitMessages(command) {
   return command
-    .replace(/(?:^|\s)(?:--message|--file)(?:=|\s+)'(?:\\'|[^'])*'/g, " ")
-    .replace(/(?:^|\s)(?:--message|--file)(?:=|\s+)"(?:\\"|[^"])*"/g, " ")
+    .replace(/(?:^|\s)--message(?:=|\s+)'(?:\\'|[^'])*'/g, " ")
+    .replace(/(?:^|\s)--message(?:=|\s+)"(?:\\"|[^"])*"/g, " ")
     .replace(/(?:^|\s)-[A-Za-z]*m(?:=|\s+)'(?:\\'|[^'])*'/g, " ")
     .replace(/(?:^|\s)-[A-Za-z]*m(?:=|\s+)"(?:\\"|[^"])*"/g, " ");
 }
@@ -165,14 +169,86 @@ function skipCommitMessageArgs(argv) {
   const out = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--message" || arg === "-F" || arg === "--file" || /^-[A-Za-z]*m$/.test(arg)) {
+    if (arg === "--message" || /^-[A-Za-z]*m$/.test(arg)) {
       i++;
       continue;
     }
-    if (arg.startsWith("--message=") || arg.startsWith("--file=")) continue;
+    if (arg.startsWith("--message=")) continue;
     out.push(arg);
   }
   return out;
+}
+
+/** True when the raw command contains $( ), backticks, or <( ). */
+export function hasCommandSubstitution(command) {
+  return typeof command === "string" && /\$\(|<\(|`/.test(command);
+}
+
+function commandMentionsSupabaseOrMigration(command) {
+  const text = stripQuotes(expandSimpleVars(command)).toLowerCase();
+  return /(?<![a-z0-9])supabase(?![a-z0-9])/.test(text) || /(?<![a-z0-9])migration(?![a-z0-9])/.test(text);
+}
+
+/** Substitution or process substitution appearing alongside a supabase/migration path. */
+export function substitutionTouchesSupabase(command) {
+  if (typeof command !== "string" || command === "") return false;
+  const expanded = expandSimpleVars(command);
+  if (!hasCommandSubstitution(command) && !hasCommandSubstitution(expanded)) return false;
+  return commandMentionsSupabaseOrMigration(command) || commandMentionsSupabaseOrMigration(expanded);
+}
+
+function commitFileArgs(argv) {
+  const paths = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "-F" || arg === "--file") {
+      if (argv[i + 1]) paths.push(argv[++i]);
+      continue;
+    }
+    if (arg.startsWith("--file=")) paths.push(arg.slice("--file=".length));
+  }
+  return paths;
+}
+
+function hasFindWriteOption(argv) {
+  return argv.some(
+    (arg) =>
+      arg === "-exec" ||
+      arg === "-execdir" ||
+      arg === "-ok" ||
+      arg === "-okdir" ||
+      arg === "-delete" ||
+      arg === "-fls" ||
+      arg.startsWith("-fprint"),
+  );
+}
+
+function hasSortWriteOption(argv) {
+  return argv.some(
+    (arg) => arg === "-o" || (arg.startsWith("-o") && !arg.startsWith("--")) || arg === "--output" || arg.startsWith("--output="),
+  );
+}
+
+function hasGitDiffWriteOption(argv) {
+  return argv.some((arg) => arg === "--output" || arg.startsWith("--output="));
+}
+
+function hasUniqWriteOption(argv) {
+  return argv.slice(1).filter((arg) => arg !== "--" && !arg.startsWith("-")).length >= 2;
+}
+
+function hasFileWriteOption(argv) {
+  return argv.some((arg) => arg === "-C" || arg.startsWith("-C") && !arg.startsWith("--"));
+}
+
+function readerHasWriteOption(argv) {
+  const cmd = baseCmd(argv[0]);
+  if (cmd === "find") return hasFindWriteOption(argv);
+  if (cmd === "sort") return hasSortWriteOption(argv);
+  if (cmd === "uniq") return hasUniqWriteOption(argv);
+  if (cmd === "file") return hasFileWriteOption(argv);
+  if (cmd === "git" && argv[1] === "diff") return hasGitDiffWriteOption(argv);
+  return false;
 }
 
 /** Command text used for supabase/migration mention checks. */
@@ -529,7 +605,15 @@ function isWriteishArgv(argv) {
   if (cmd === "sed") return argv.some((arg) => arg === "-i" || arg.startsWith("-i"));
   if (WRITERS.has(cmd)) return true;
   if (cmd === "git" && ["mv", "checkout", "restore", "apply", "am", "rm"].includes(argv[1])) return true;
-  return false;
+  if (cmd === "git" && argv[1] === "commit" && commitFileArgs(argv).length > 0) return true;
+  return readerHasWriteOption(argv);
+}
+
+function nextCwd(current, destArg) {
+  if (!destArg) return current;
+  const dests = expandBraces(destArg).flatMap((braced) => (isGlobby(braced) ? expandGlobs(braced, current) : [resolvePath(braced, current)]));
+  if (dests.some((dest) => isSupabaseTreePath(dest, current))) return dests.find((dest) => isSupabaseTreePath(dest, current)) ?? dests[0] ?? current;
+  return dests[0] ?? resolvePath(destArg, current);
 }
 
 function pathishArgs(argv) {
@@ -562,14 +646,11 @@ export function writeishTouchesSupabase(command, cwd = process.cwd()) {
     const argv = stripWrappers(rawArgv);
     const cmd = baseCmd(argv[0]);
     if (cmd === "git" && argv[1] === "commit") {
-      const scanned = skipCommitMessageArgs(argv);
-      if (pathsTouchSupabase([...redirects, ...pathishArgs(scanned).filter((arg) => arg !== "commit")], current)) return true;
+      if (pathsTouchSupabase([...redirects, ...commitFileArgs(argv)], current)) return true;
       continue;
     }
     if (cmd === "cd" && argv[1]) {
-      const dests = expandBraces(argv[1]).flatMap((braced) => (isGlobby(braced) ? expandGlobs(braced, current) : [resolvePath(braced, current)]));
-      if (dests.some((dest) => isSupabaseTreePath(dest, current))) current = dests.find((dest) => isSupabaseTreePath(dest, current)) ?? dests[0] ?? current;
-      else current = dests[0] ?? resolvePath(argv[1], current);
+      current = nextCwd(current, argv[1]);
       continue;
     }
     if (pathsTouchSupabase([...redirects, ...pathishArgs(argv)], current)) return true;
@@ -624,8 +705,9 @@ function isAllowlistedArgv(argv, cwd = process.cwd()) {
   }
   const unwrapped = unwrapLaunchers(argv);
   const cmd = baseCmd(unwrapped[0]);
-  if (READER_CMDS.has(cmd)) return true;
-  if (cmd === "git" && GIT_READERS.has(unwrapped[1])) return true;
+  if (READER_CMDS.has(cmd)) return !readerHasWriteOption(unwrapped);
+  if (cmd === "git" && GIT_READERS.has(unwrapped[1])) return !readerHasWriteOption(unwrapped);
+  if (cmd === "git" && unwrapped[1] === "commit") return !pathsTouchSupabase(commitFileArgs(unwrapped), cwd);
   if (cmd === "supabase" && ["--version", "-v", "version"].includes(unwrapped[1])) return true;
   if (isTestRunner(argv)) return true;
   return false;
@@ -635,26 +717,43 @@ export function isReadOnlyAllowlisted(command, cwd = process.cwd()) {
   if (typeof command !== "string" || command === "") return false;
   if (isLabelMutation(command)) return false;
   if (pipesIntoShell(command)) return false;
+  if (substitutionTouchesSupabase(command)) return false;
   const expanded = normalizeCommand(command);
+  let current = cwd;
   for (const segment of splitSegments(tokenize(expanded))) {
     const { argv: rawArgv, redirects } = argvFromSegment(segment);
-    if (redirects.some((target) => mentionsSupabaseOrMigration(target) || isMigrationPath(target, cwd))) {
+    const argv = stripWrappers(rawArgv);
+    if (redirects.some((target) => mentionsSupabaseOrMigration(target) || isMigrationPath(target, current))) {
       return false;
     }
-    if (!isAllowlistedArgv(stripWrappers(rawArgv), cwd)) return false;
+    if (baseCmd(argv[0]) === "cd") {
+      if (argv[1]) current = nextCwd(current, argv[1]);
+      continue;
+    }
+    if (!isAllowlistedArgv(argv, current)) return false;
   }
   return true;
 }
 
 function tokensTouchMigrationPath(command, cwd) {
   const expanded = commandForWriteScan(command);
+  let current = cwd;
   for (const segment of splitSegments(tokenize(expanded))) {
     const { argv, redirects } = argvFromSegment(segment);
-    if (pathsTouchSupabase([...redirects, ...argv], cwd) && argv.some((arg) => isMigrationPath(arg, cwd) || /[*?]/.test(arg))) {
+    const cmd = baseCmd(stripWrappers(argv)[0]);
+    if (cmd === "cd" && argv[1]) {
+      current = nextCwd(current, argv[1]);
+      continue;
+    }
+    if (cmd === "git" && stripWrappers(argv)[1] === "commit") {
+      if (pathsTouchSupabase([...redirects, ...commitFileArgs(argv)], current)) return true;
+      continue;
+    }
+    if (pathsTouchSupabase([...redirects, ...argv], current) && argv.some((arg) => isMigrationPath(arg, current) || /[*?]/.test(arg))) {
       return true;
     }
-    if (redirects.some((target) => isMigrationPath(target, cwd))) return true;
-    if (argv.some((arg) => isMigrationPath(arg, cwd))) return true;
+    if (redirects.some((target) => isMigrationPath(target, current))) return true;
+    if (argv.some((arg) => isMigrationPath(arg, current))) return true;
   }
   return false;
 }
@@ -663,6 +762,7 @@ export function bashNeedsWindow(command, cwd = process.cwd()) {
   if (typeof command !== "string") return false;
   if (isLabelMutation(command)) return false;
   if (pipesIntoShell(command)) return true;
+  if (substitutionTouchesSupabase(command)) return true;
   if (isReadOnlyAllowlisted(command, cwd)) return false;
   return mentionsSupabaseOrMigration(command) || writeishTouchesSupabase(command, cwd) || tokensTouchMigrationPath(command, cwd);
 }
