@@ -41,7 +41,7 @@ provider and record the result here:
 
 Status: **not run**. The gate is a migration draft
 (`docs/migration-drafts/ovd-723.sql`, needs a Blaine migration window). Run the
-walk after both phases are applied, then fill in the result column.
+walk after the window 1 migration is applied, then fill in the result column.
 
 | key | Marked drawing | `unsure` answer | Expected denial code | Result |
 | --- | --- | --- | --- | --- |

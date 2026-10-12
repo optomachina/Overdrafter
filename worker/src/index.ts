@@ -574,6 +574,8 @@ async function runDrawingExtractionForTask(
     // the task before any model call; a clean result records a clean scan,
     // which dispatch requires. A failed record also fails the task.
     if (context.drawingFile) {
+      // The clean scan is bound to the hash of the staged bytes; without a
+      // staged file there is no hash, and a record attempt fails closed.
       await enforceAndRecordExportControlScan(supabase, {
         jobId: task.job_id,
         partId: task.part_id,
@@ -581,6 +583,7 @@ async function runDrawingExtractionForTask(
         source: "drawing_text",
         scan: scanDrawingTextForExportMarkings(pdfText),
         textRead: pdfText !== null,
+        contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
       });
     }
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
@@ -752,7 +755,11 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           partId: task.part_id,
           drawingFile:
             identityContext.drawingFile && identityStagedDrawing
-              ? { id: identityContext.drawingFile.id, localPath: identityStagedDrawing.localPath }
+              ? {
+                  id: identityContext.drawingFile.id,
+                  localPath: identityStagedDrawing.localPath,
+                  contentSha256: identityStagedDrawing.trustedContentSha256 ?? "",
+                }
               : null,
           extractText: extractPdfText,
         });
@@ -1268,6 +1275,7 @@ export async function handleVendorQuoteTask(
         source: "step_header",
         scan: scanStepHeaderForExportMarkings(await readStagedStepHeaderPrefix(stagedCadFile.localPath)),
         textRead: true,
+        contentSha256: stagedCadFile.trustedContentSha256 ?? "",
       });
     }
     const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(

@@ -5,23 +5,37 @@
 --
 -- This file is a DRAFT. It is not under supabase/migrations/ and is not part
 -- of migration lineage. Promote it only inside a Blaine-approved migration
--- window, as two separate migrations (PHASE 1 EXPAND, then PHASE 2 CONTRACT
--- after the client that sends p_export_declaration_id is deployed). The
--- ROLLBACK section at the end reverses both phases.
+-- window (window 1) as ONE migration. The ROLLBACK section at the end
+-- reverses it.
 --
--- Phase split:
---   PHASE 1 enforces dispatch. Both provider preflights
---     (api_authorize_provider_worker_dispatch and
---     api_authorize_xometry_beta_worker_dispatch) deny a job whose latest
---     declaration is missing, controlled, or unsure, or that has a marking
---     block pending review or confirmed controlled. Foreign providers (weerg,
---     geomiq) and unknown providers have their own explicit rule. The gate
---     lives only in the worker-facing preflights, so old browser clients keep
---     uploading. Their new jobs have no declaration, so dispatch denies them
---     until a declaration exists.
---   PHASE 2 enforces upload only. The old upload RPC signatures raise
---     export_declaration_missing, and the Storage insert policy requires a
---     declaration-backed grant. Apply it after the declaring client is live.
+-- Enforcement (all in window 1, server side; nothing depends on the browser):
+--   Upload. The legacy prepare/finalize signatures raise
+--     export_declaration_missing. The new overloads require the job's latest
+--     declaration to be not_controlled and unblocked, checked under a shared
+--     per-job lock. Prepare issues a single-use grant bound to the exact
+--     object (bucket and full path), the expected SHA-256, the size, the user,
+--     the job, and the declaration. The job-files Storage INSERT policy admits
+--     only an object that matches an unexpired, unfinalized grant, and it
+--     re-checks the declaration under the same lock with a fresh snapshot.
+--     Finalize admits only an object this user inserted under such a grant
+--     (owner, path, size, time window) and re-checks the declaration under the
+--     lock.
+--   Content. SQL cannot read object bytes, so the SHA-256 is verified by the
+--     worker on every staging (api_register_trusted_file_hash records the hash
+--     of the downloaded bytes). A clean scan is recorded only for bytes whose
+--     hash equals job_files.content_sha256, and dispatch requires, for every
+--     file the part sends, a verified hash equal to content_sha256 and (for
+--     drawings and STEP files) a clean scan bound to the same job, file, and
+--     hash.
+--   Dispatch. Both provider preflights deny a job whose latest declaration is
+--     missing, controlled, or unsure, or that has a marking block pending
+--     review or confirmed controlled. Foreign providers (weerg, geomiq) and
+--     unknown providers have their own explicit rule.
+--
+-- Deploy order inside window 1: this migration, then the web client and the
+-- worker. Between the migration and the client deploy, the old client's
+-- uploads fail closed (export_declaration_missing); the client is the only
+-- caller of the upload RPCs (see ovd-723-notes.md, "Callers").
 --
 -- Verified names this draft binds to (see ovd-723-notes.md):
 --   upload RPCs : public.api_prepare_job_file_upload(uuid, text, job_file_kind, text, bigint, text)
@@ -54,7 +68,7 @@
 -- the same change that promotes this draft).
 
 -- =====================================================================
--- PHASE 1 - EXPAND (old clients keep uploading; dispatch is gated)
+-- WINDOW 1 (upload, Storage, and dispatch enforcement in one migration)
 -- =====================================================================
 
 -- 1.1 Declaration record. Append-only: a re-declaration inserts a new row and
@@ -130,20 +144,39 @@ create table if not exists private.job_export_marking_blocks (
 create index if not exists job_export_marking_blocks_job_idx
   on private.job_export_marking_blocks (job_id, state);
 
--- 1.4 Short-lived upload grants: prepare (with a clean declaration) issues one
--- for the exact org/sha256 object; the PHASE 2 storage policy requires it.
+-- 1.4 Short-lived, single-use upload grants. Prepare (with a clean
+-- declaration) issues one for one exact object: bucket and full path
+-- (org-sha256/<org>/<sha256>/<basename>), the expected SHA-256 and size, the
+-- user, the job, and the declaration. The Storage INSERT policy (1.18) admits
+-- only that object, only before expires_at, and only while the grant is
+-- unfinalized; (bucket_id, name) is unique in storage.objects, so the path can
+-- be written once. Finalize (1.13) consumes the grant.
 create table if not exists private.export_cleared_upload_grants (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
   job_id uuid not null,
   declaration_id uuid not null references private.job_export_declarations (id),
   content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
+  size_bytes bigint not null check (size_bytes > 0),
+  storage_bucket text not null check (storage_bucket = 'job-files'),
+  storage_path text not null,
   granted_to uuid not null,
-  expires_at timestamptz not null
+  created_at timestamptz not null default clock_timestamp(),
+  expires_at timestamptz not null,
+  finalized_at timestamptz null,
+  job_file_id uuid null,
+  constraint export_cleared_upload_grants_path_shape check (
+    storage_path = 'org-sha256/' || organization_id::text || '/' || content_sha256
+      || '/' || pg_catalog.split_part(storage_path, '/', 4)
+    and pg_catalog.split_part(storage_path, '/', 4) <> ''
+    and pg_catalog.split_part(storage_path, '/', 5) = ''
+  ),
+  constraint export_cleared_upload_grants_finalized_shape
+    check ((finalized_at is null) = (job_file_id is null))
 );
 
-create index if not exists export_cleared_upload_grants_lookup_idx
-  on private.export_cleared_upload_grants (organization_id, content_sha256, granted_to);
+create index if not exists export_cleared_upload_grants_object_idx
+  on private.export_cleared_upload_grants (storage_bucket, storage_path, granted_to);
 
 -- 1.5 Append-only enforcement for declarations and events.
 create or replace function private.reject_export_control_audit_mutation()
@@ -246,6 +279,11 @@ $$;
 revoke all on function private.export_control_terms_version() from public, anon, authenticated;
 revoke all on function private.export_control_provider_jurisdiction(text) from public, anon, authenticated;
 
+-- Per-job export state lock. Every writer of export state (declarations,
+-- marking blocks, block reviews, clean scans) takes it exclusively. Every
+-- reader that authorizes an upload, a Storage object, a finalize, or a
+-- dispatch takes it shared and then reads in a NEW statement, so a volatile
+-- caller reads with a snapshot taken after any conflicting writer committed.
 create or replace function private.lock_job_export_state(p_job_id uuid, p_exclusive boolean)
 returns void
 language plpgsql
@@ -542,8 +580,11 @@ grant execute on function public.api_record_export_control_marking_hits(uuid, uu
 -- part's trusted artifacts (api_reuse_trusted_part_version_artifacts), a file
 -- reused from the org blob store, or a part extracted before OVD-723. None of
 -- them has a scan in its own job until the worker scans it. Hits are not
--- stored here. They open a block (1.11). Rows are keyed on the job_file id,
--- so a scan in one job never vouches for the same bytes in another job.
+-- stored here. They open a block (1.11). A row vouches only for one file id,
+-- in one job, with one content hash: the hash of the bytes the worker read.
+-- Dispatch (1.15) matches all three against the file's CURRENT job_id and
+-- content_sha256, so a row that is later repointed (job_files is updatable by
+-- internal org roles) or moved to another job loses its clean status.
 create table if not exists private.job_file_export_scans (
   id uuid primary key default gen_random_uuid(),
   job_file_id uuid not null,
@@ -551,11 +592,12 @@ create table if not exists private.job_file_export_scans (
   organization_id uuid not null,
   part_id uuid null,
   source text not null check (source in ('drawing_text', 'drawing_ocr', 'step_header')),
+  content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
   scanned_at timestamptz not null default clock_timestamp()
 );
 
 create index if not exists job_file_export_scans_file_idx
-  on private.job_file_export_scans (job_file_id, source);
+  on private.job_file_export_scans (job_file_id, job_id, content_sha256, source);
 
 drop trigger if exists job_file_export_scans_append_only on private.job_file_export_scans;
 create trigger job_file_export_scans_append_only
@@ -577,11 +619,17 @@ create policy job_file_export_scans_member_read
 
 revoke all on private.job_file_export_scans from public, anon, authenticated;
 
+-- p_content_sha256 is the SHA-256 the worker computed over the bytes it
+-- scanned. It must equal the file's claimed content_sha256 (and its verified
+-- trusted_content_sha256 when set); otherwise the call raises
+-- export_content_hash_mismatch and nothing is recorded, so dispatch stays
+-- denied. The part, when given, must be in the same job and reference the file.
 create or replace function public.api_record_export_control_clean_scan(
   p_job_id uuid,
   p_part_id uuid,
   p_job_file_id uuid,
-  p_source text
+  p_source text,
+  p_content_sha256 text
 )
 returns uuid
 language plpgsql
@@ -590,9 +638,11 @@ set search_path = ''
 as $$
 declare
   v_file public.job_files%rowtype;
+  v_hash text := pg_catalog.lower(pg_catalog.btrim(coalesce(p_content_sha256, '')));
   v_scan_id uuid;
 begin
-  if p_source is null or p_source not in ('drawing_text', 'drawing_ocr', 'step_header') then
+  if p_source is null or p_source not in ('drawing_text', 'drawing_ocr', 'step_header')
+    or v_hash !~ '^[0-9a-f]{64}$' then
     raise exception using errcode = 'P0001', message = 'export_scan_invalid';
   end if;
 
@@ -600,26 +650,49 @@ begin
   if v_file.id is null or v_file.job_id is distinct from p_job_id then
     raise exception using errcode = 'P0001', message = 'export_scan_invalid';
   end if;
+  if p_part_id is not null and not exists (
+    select 1
+    from public.parts part
+    where part.id = p_part_id
+      and part.job_id = v_file.job_id
+      and v_file.id in (part.cad_file_id, part.drawing_file_id)
+  ) then
+    raise exception using errcode = 'P0001', message = 'export_scan_invalid';
+  end if;
 
   perform private.lock_job_export_state(v_file.job_id, true);
 
-  insert into private.job_file_export_scans (job_file_id, job_id, organization_id, part_id, source)
-  values (v_file.id, v_file.job_id, v_file.organization_id, p_part_id, p_source)
+  -- Re-read under the lock: the row may have been repointed since.
+  select file_row.* into v_file from public.job_files file_row where file_row.id = p_job_file_id;
+  if v_file.id is null or v_file.job_id is distinct from p_job_id then
+    raise exception using errcode = 'P0001', message = 'export_scan_invalid';
+  end if;
+  if pg_catalog.lower(pg_catalog.btrim(coalesce(v_file.content_sha256, ''))) is distinct from v_hash
+    or (v_file.trusted_content_sha256 is not null and v_file.trusted_content_sha256 is distinct from v_hash) then
+    raise exception using errcode = 'P0001', message = 'export_content_hash_mismatch';
+  end if;
+
+  insert into private.job_file_export_scans (
+    job_file_id, job_id, organization_id, part_id, source, content_sha256
+  )
+  values (v_file.id, v_file.job_id, v_file.organization_id, p_part_id, p_source, v_hash)
   returning id into v_scan_id;
 
   insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
   values (
     v_file.organization_id, v_file.job_id, p_part_id, null, 'file_scan_recorded_clean',
-    pg_catalog.jsonb_build_object('scanId', v_scan_id, 'source', p_source, 'jobFileId', v_file.id)
+    pg_catalog.jsonb_build_object(
+      'scanId', v_scan_id, 'source', p_source, 'jobFileId', v_file.id, 'contentSha256', v_hash
+    )
   );
 
   return v_scan_id;
 end;
 $$;
 
-revoke all on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)
+revoke all on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text)
   from public, anon, authenticated;
-grant execute on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text)
+grant execute on function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text)
   to service_role;
 
 -- 1.12 Admin review. Users cannot clear a block; only platform admins can,
@@ -685,11 +758,11 @@ $$;
 revoke all on function public.api_review_export_control_block(uuid, text, text) from public, anon;
 grant execute on function public.api_review_export_control_block(uuid, text, text) to authenticated;
 
--- 1.13 Upload RPCs. The current bodies move unchanged to private cores; the
--- old public signatures keep delegating (expand) and new overloads that take
--- p_export_declaration_id check the declaration first. The new overloads have
--- no default for p_export_declaration_id, so PostgREST never finds the two
--- signatures ambiguous.
+-- 1.13 Upload RPCs. The current bodies move unchanged to private cores
+-- (no grants). The legacy public signatures no longer reach them: they raise
+-- export_declaration_missing, so a client that does not declare cannot
+-- upload. The new overloads take p_export_declaration_id with no default, so
+-- PostgREST never finds the two signatures ambiguous.
 alter function public.api_prepare_job_file_upload(
   uuid, text, public.job_file_kind, text, bigint, text
 ) set schema private;
@@ -710,7 +783,8 @@ revoke all on function private.job_file_finalize_core(
   uuid, text, text, text, public.job_file_kind, text, bigint, text
 ) from public, anon, authenticated;
 
--- Old signatures (expand: unchanged behavior; PHASE 2 replaces the bodies).
+-- Legacy signatures: fail closed. They stay executable by authenticated so an
+-- old client gets the stable code instead of a permission error.
 create or replace function public.api_prepare_job_file_upload(
   p_job_id uuid,
   p_original_name text,
@@ -725,9 +799,9 @@ security definer
 set search_path = ''
 as $$
 begin
-  return private.job_file_prepare_core(
-    p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
-  );
+  raise exception using
+    errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
+    message = 'export_declaration_missing';
 end;
 $$;
 
@@ -747,10 +821,9 @@ security definer
 set search_path = ''
 as $$
 begin
-  return private.job_file_finalize_core(
-    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
-    p_mime_type, p_size_bytes, p_content_sha256
-  );
+  raise exception using
+    errcode = 'P0001',
+    message = 'export_declaration_missing';
 end;
 $$;
 
@@ -792,13 +865,17 @@ begin
 
   if v_result ->> 'status' = 'upload_required' then
     insert into private.export_cleared_upload_grants (
-      organization_id, job_id, declaration_id, content_sha256, granted_to, expires_at
+      organization_id, job_id, declaration_id, content_sha256, size_bytes,
+      storage_bucket, storage_path, granted_to, expires_at
     )
     values (
       v_job.organization_id,
       v_job.id,
       p_export_declaration_id,
-      lower(btrim(p_content_sha256)),
+      pg_catalog.lower(pg_catalog.btrim(p_content_sha256)),
+      p_size_bytes,
+      v_result ->> 'storageBucket',
+      v_result ->> 'storagePath',
       auth.uid(),
       pg_catalog.clock_timestamp() + interval '15 minutes'
     );
@@ -808,6 +885,11 @@ begin
 end;
 $$;
 
+-- Finalize registers the object only when this user inserted it at the exact
+-- granted path, within the grant window, with the granted size, and the job's
+-- latest declaration is still the clean one (checked under the shared lock).
+-- The grant is then consumed. A mismatch raises file_upload_grant_missing and
+-- writes nothing; the object stays unreferenced (see notes, "Orphans").
 create or replace function public.api_finalize_job_file_upload(
   p_job_id uuid,
   p_storage_bucket text,
@@ -826,6 +908,9 @@ set search_path = ''
 as $$
 declare
   v_job public.jobs%rowtype;
+  v_hash text := pg_catalog.lower(pg_catalog.btrim(coalesce(p_content_sha256, '')));
+  v_expected_path text;
+  v_grant_ids uuid[];
   v_file_id uuid;
 begin
   perform public.require_verified_auth();
@@ -840,15 +925,50 @@ begin
 
   perform private.require_clean_export_declaration(v_job.id, p_export_declaration_id);
 
+  if v_hash ~ '^[0-9a-f]{64}$' then
+    v_expected_path := public.build_org_file_blob_storage_path(
+      v_job.organization_id, v_hash, p_original_name
+    );
+  end if;
+
+  select pg_catalog.array_agg(grant_row.id) into v_grant_ids
+  from private.export_cleared_upload_grants grant_row
+  join storage.objects object_row
+    on object_row.bucket_id = grant_row.storage_bucket
+   and object_row.name = grant_row.storage_path
+  where grant_row.granted_to = auth.uid()
+    and grant_row.job_id = v_job.id
+    and grant_row.organization_id = v_job.organization_id
+    and grant_row.storage_bucket = p_storage_bucket
+    and grant_row.storage_path = p_storage_path
+    and grant_row.storage_path = v_expected_path
+    and grant_row.content_sha256 = v_hash
+    and grant_row.size_bytes = p_size_bytes
+    and grant_row.finalized_at is null
+    and coalesce(object_row.owner_id, object_row.owner::text) = auth.uid()::text
+    and object_row.created_at >= grant_row.created_at
+    and object_row.created_at <= grant_row.expires_at
+    and (
+      object_row.metadata ->> 'size' is null
+      or object_row.metadata ->> 'size' = p_size_bytes::text
+    );
+
+  if v_grant_ids is null then
+    raise exception using
+      errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
+      message = 'file_upload_grant_missing';
+  end if;
+
   v_file_id := private.job_file_finalize_core(
     p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
     p_mime_type, p_size_bytes, p_content_sha256
   );
 
-  delete from private.export_cleared_upload_grants grant_row
-  where grant_row.organization_id = v_job.organization_id
-    and grant_row.content_sha256 = lower(btrim(p_content_sha256))
-    and grant_row.granted_to = auth.uid();
+  update private.export_cleared_upload_grants grant_row
+  set finalized_at = pg_catalog.clock_timestamp(),
+      job_file_id = v_file_id
+  where grant_row.id = any (v_grant_ids)
+    and grant_row.finalized_at is null;
 
   return v_file_id;
 end;
@@ -879,40 +999,55 @@ grant execute on function public.api_finalize_job_file_upload(
   uuid, text, text, text, public.job_file_kind, text, bigint, text, uuid
 ) to authenticated;
 
--- 1.14 Storage helper for the PHASE 2 insert policy. True only for an
--- unexpired grant for this user and this exact org/sha256 object whose
--- declaration is still the latest, clean, and unblocked.
-create or replace function public.current_user_has_export_cleared_upload(p_object_name text)
+-- 1.14 Storage helper for the job-files INSERT policy (1.18). True only for
+-- an unexpired, unfinalized grant to this user for this exact bucket and
+-- path, whose job's latest declaration is still the granted one, clean, and
+-- unblocked. VOLATILE on purpose: it takes the shared per-job lock and then
+-- evaluates the declaration in a new statement, so it waits for a concurrent
+-- declaration or marking writer and then sees what that writer committed.
+-- Storage (storage-api) evaluates this policy in its permission check before
+-- it accepts the bytes; the final row write may run with elevated rights, so
+-- finalize (1.13) repeats every check against the stored row.
+create or replace function public.current_user_has_export_cleared_upload(
+  p_bucket_id text,
+  p_object_name text
+)
 returns boolean
 language plpgsql
-stable
+volatile
 security definer
 set search_path = ''
 as $$
 declare
-  v_org text := pg_catalog.split_part(coalesce(p_object_name, ''), '/', 2);
-  v_sha text := pg_catalog.split_part(coalesce(p_object_name, ''), '/', 3);
+  v_grant record;
 begin
-  if auth.uid() is null or v_sha !~ '^[0-9a-f]{64}$'
-    or v_org !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+  if auth.uid() is null or p_bucket_id is distinct from 'job-files' or p_object_name is null then
     return false;
   end if;
-  return exists (
-    select 1
+
+  for v_grant in
+    select grant_row.job_id, grant_row.declaration_id
     from private.export_cleared_upload_grants grant_row
-    where grant_row.organization_id = v_org::uuid
-      and grant_row.content_sha256 = v_sha
+    where grant_row.storage_bucket = p_bucket_id
+      and grant_row.storage_path = p_object_name
       and grant_row.granted_to = auth.uid()
+      and grant_row.finalized_at is null
       and grant_row.expires_at > pg_catalog.clock_timestamp()
-      and private.job_export_upload_denial(grant_row.job_id, grant_row.declaration_id) is null
-  );
+    order by grant_row.created_at desc
+  loop
+    perform private.lock_job_export_state(v_grant.job_id, false);
+    if private.job_export_upload_denial(v_grant.job_id, v_grant.declaration_id) is null then
+      return true;
+    end if;
+  end loop;
+  return false;
 exception when others then
   return false; -- fail closed
 end;
 $$;
 
-revoke all on function public.current_user_has_export_cleared_upload(text) from public, anon;
-grant execute on function public.current_user_has_export_cleared_upload(text) to authenticated;
+revoke all on function public.current_user_has_export_cleared_upload(text, text) from public, anon;
+grant execute on function public.current_user_has_export_cleared_upload(text, text) to authenticated;
 
 -- 1.15 Dispatch gate evaluation (used by the 1.16 preflight wrappers).
 -- Returns null only when the job's latest declaration is not_controlled and
@@ -974,11 +1109,50 @@ exception when others then
 end;
 $$;
 
--- Scan rule: every file the dispatched part sends must have a clean scan of
--- record in its own job. The drawing needs a drawing scan, and a STEP CAD file
--- needs a header scan. A missing part or file reference is a denial. Other CAD
--- formats have no scanner yet, so this rule doesn't cover them (see notes).
-create or replace function private.export_control_scan_denial(p_part_id uuid)
+-- Scan rule: every file the dispatched part sends must be in the task's job,
+-- have a worker-verified hash equal to its claimed content_sha256, and (for
+-- the drawing and a STEP CAD file) have a clean scan of record bound to the
+-- same file id, the file's CURRENT job, and the file's CURRENT content hash.
+-- A repointed or moved job_files row therefore loses its clean status. A
+-- missing part or file reference is a denial. Other CAD formats have no
+-- scanner yet; they still need the verified hash (see notes).
+create or replace function private.export_control_file_denial(
+  p_job_id uuid,
+  p_file_id uuid,
+  p_scan_sources text[]
+)
+returns text
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  v_file public.job_files%rowtype;
+  v_hash text;
+begin
+  select file_row.* into v_file from public.job_files file_row where file_row.id = p_file_id;
+  if v_file.id is null or v_file.job_id is distinct from p_job_id then
+    return 'export_scan_missing';
+  end if;
+  v_hash := pg_catalog.lower(pg_catalog.btrim(coalesce(v_file.content_sha256, '')));
+  if v_hash !~ '^[0-9a-f]{64}$' or v_file.trusted_content_sha256 is distinct from v_hash then
+    return 'export_scan_missing';
+  end if;
+  if p_scan_sources is not null and not exists (
+    select 1
+    from private.job_file_export_scans scan
+    where scan.job_file_id = v_file.id
+      and scan.job_id = v_file.job_id
+      and scan.content_sha256 = v_hash
+      and scan.source = any (p_scan_sources)
+  ) then
+    return 'export_scan_missing';
+  end if;
+  return null;
+end;
+$$;
+
+create or replace function private.export_control_scan_denial(p_job_id uuid, p_part_id uuid)
 returns text
 language plpgsql
 stable
@@ -987,37 +1161,39 @@ as $$
 declare
   v_part public.parts%rowtype;
   v_cad public.job_files%rowtype;
+  v_denial text;
 begin
-  if p_part_id is null then
+  if p_job_id is null or p_part_id is null then
     return 'export_scan_missing';
   end if;
 
   select part_row.* into v_part from public.parts part_row where part_row.id = p_part_id;
-  if v_part.id is null then
+  if v_part.id is null or v_part.job_id is distinct from p_job_id then
     return 'export_scan_missing';
   end if;
 
-  if v_part.drawing_file_id is not null and not exists (
-    select 1
-    from private.job_file_export_scans scan
-    where scan.job_file_id = v_part.drawing_file_id
-      and scan.source in ('drawing_text', 'drawing_ocr')
-  ) then
-    return 'export_scan_missing';
+  if v_part.drawing_file_id is not null then
+    v_denial := private.export_control_file_denial(
+      v_part.job_id, v_part.drawing_file_id, array['drawing_text', 'drawing_ocr']
+    );
+    if v_denial is not null then
+      return v_denial;
+    end if;
   end if;
 
   if v_part.cad_file_id is not null then
     select file_row.* into v_cad from public.job_files file_row where file_row.id = v_part.cad_file_id;
-    if v_cad.id is null then
-      return 'export_scan_missing';
-    end if;
-    if pg_catalog.lower(pg_catalog.btrim(v_cad.original_name)) ~ '\.(step|stp)$' and not exists (
-      select 1
-      from private.job_file_export_scans scan
-      where scan.job_file_id = v_cad.id
-        and scan.source = 'step_header'
-    ) then
-      return 'export_scan_missing';
+    v_denial := private.export_control_file_denial(
+      v_part.job_id,
+      v_part.cad_file_id,
+      case
+        when pg_catalog.lower(pg_catalog.btrim(coalesce(v_cad.original_name, ''))) ~ '\.(step|stp)$'
+          then array['step_header']
+        else null
+      end
+    );
+    if v_denial is not null then
+      return v_denial;
     end if;
   end if;
 
@@ -1048,7 +1224,7 @@ begin
   if v_denial is not null then
     return v_denial;
   end if;
-  return private.export_control_scan_denial(v_part_id);
+  return private.export_control_scan_denial(v_job_id, v_part_id);
 exception when others then
   return 'export_control_lookup_failed';
 end;
@@ -1058,7 +1234,9 @@ revoke all on function private.export_control_dispatch_denial(uuid, text)
   from public, anon, authenticated, service_role;
 revoke all on function private.export_control_dispatch_denial_for_task(uuid, text)
   from public, anon, authenticated, service_role;
-revoke all on function private.export_control_scan_denial(uuid)
+revoke all on function private.export_control_scan_denial(uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function private.export_control_file_denial(uuid, uuid, text[])
   from public, anon, authenticated, service_role;
 
 -- 1.16 Dispatch preflights. The existing bodies move unchanged to private
@@ -1177,55 +1355,10 @@ select declaration.organization_id, declaration.job_id, null, 'declaration_backf
 from private.job_export_declarations declaration
 where declaration.answer = 'missing';
 
--- =====================================================================
--- PHASE 2 - CONTRACT (upload enforcement only; apply only after the
--- declaring client is deployed. Dispatch is already gated by PHASE 1.)
--- =====================================================================
-
--- 2.1 Old upload signatures fail closed: no declaration, no upload.
-create or replace function public.api_prepare_job_file_upload(
-  p_job_id uuid,
-  p_original_name text,
-  p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  raise exception using
-    errcode = 'P0001', -- NOSONAR: stable customer-safe PostgreSQL error contract
-    message = 'export_declaration_missing';
-end;
-$$;
-
-create or replace function public.api_finalize_job_file_upload(
-  p_job_id uuid,
-  p_storage_bucket text,
-  p_storage_path text,
-  p_original_name text,
-  p_file_kind public.job_file_kind,
-  p_mime_type text default null,
-  p_size_bytes bigint default null,
-  p_content_sha256 text default null
-)
-returns uuid
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  raise exception using
-    errcode = 'P0001',
-    message = 'export_declaration_missing';
-end;
-$$;
-
--- 2.2 Storage: no object is written without a declaration-backed grant.
+-- 1.18 Storage: no job-files object is written without an exact,
+-- declaration-backed grant (1.14). Replaces the policy from 20260815093000
+-- in the same migration, so there is no window where the RPCs are gated but
+-- Storage is not.
 drop policy if exists "job_files_storage_insert" on storage.objects;
 create policy "job_files_storage_insert"
 on storage.objects
@@ -1241,23 +1374,20 @@ with check (
       and public.user_can_edit_job(job.id)
       and public.current_user_has_current_founding_beta_access(job.organization_id)
   )
-  and public.current_user_has_export_cleared_upload(name)
+  and public.current_user_has_export_cleared_upload(bucket_id, name)
 );
 
 -- =====================================================================
 -- ROLLBACK
 -- =====================================================================
--- Run in this order. Declarations, events, and blocks are audit data: the
--- rollback keeps the tables (they are inert once nothing reads them). Drop
--- them only with Blaine's explicit approval, after exporting them.
+-- One step (window 1 is one migration). Declarations, events, blocks, and
+-- scans are audit data: the rollback keeps those tables (they are inert once
+-- nothing reads them). Drop them only with Blaine's explicit approval, after
+-- exporting them. Rolling back removes the upload and dispatch block; run it
+-- only with Blaine's yes.
 --
--- R2 (undo PHASE 2; upload enforcement only):
---   -- restore "job_files_storage_insert" exactly as in 20260815093000 (without
---   -- the current_user_has_export_cleared_upload clause).
---   -- re-run the PHASE 1 section 1.13 old-signature delegating wrappers.
---   -- dispatch stays gated: the 1.16 wrappers belong to PHASE 1.
---
--- R1 (undo PHASE 1; run R2 first if PHASE 2 was applied):
+--   -- Storage policy (1.18): restore "job_files_storage_insert" exactly as in
+--   -- 20260815093000 (without the current_user_has_export_cleared_upload clause).
 --   -- dispatch preflight wrappers (1.16):
 --   drop function public.api_authorize_provider_worker_dispatch(uuid, uuid, jsonb, text, timestamptz);
 --   alter function private.provider_worker_dispatch_core(uuid, uuid, jsonb, text, timestamptz)
@@ -1285,14 +1415,15 @@ with check (
 --   alter function private.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text)
 --     set schema public;
 --   -- restate the revoke/grant pairs for both from 20261004110000.
---   drop function public.current_user_has_export_cleared_upload(text);
+--   drop function public.current_user_has_export_cleared_upload(text, text);
 --   drop function public.api_review_export_control_block(uuid, text, text);
 --   drop function public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[]);
---   drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text);
+--   drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);
 --   drop function public.api_get_job_export_control_status(uuid);
 --   drop function public.api_declare_job_export_status(uuid, text, text, uuid);
 --   drop function private.export_control_dispatch_denial_for_task(uuid, text);
---   drop function private.export_control_scan_denial(uuid);
+--   drop function private.export_control_scan_denial(uuid, uuid);
+--   drop function private.export_control_file_denial(uuid, uuid, text[]);
 --   drop function private.export_control_dispatch_denial(uuid, text);
 --   drop function private.require_clean_export_declaration(uuid, uuid);
 --   drop function private.job_export_upload_denial(uuid, uuid);

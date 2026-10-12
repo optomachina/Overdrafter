@@ -40,9 +40,9 @@ function sqlFunctionBody(name: string): string {
   return rest.slice(0, rest.indexOf("$$;"));
 }
 
-function sqlPhase(phase: "1" | "2"): string {
-  const start = draft.indexOf(`-- PHASE ${phase} - `);
-  const end = phase === "1" ? draft.indexOf("-- PHASE 2 - ") : draft.indexOf("-- ROLLBACK\n");
+function sqlWindow1(): string {
+  const start = draft.indexOf("-- WINDOW 1 ");
+  const end = draft.indexOf("-- ROLLBACK\n");
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
   return draft.slice(start, end);
@@ -204,7 +204,8 @@ describe("marking enforcement (records a block, then stops the task)", () => {
 });
 
 describe("clean scans of record (reused files and skipped extraction)", () => {
-  const input = { jobId: "job-1", partId: "part-1", jobFileId: "file-1" };
+  const contentSha256 = "c".repeat(64);
+  const input = { jobId: "job-1", partId: "part-1", jobFileId: "file-1", contentSha256 };
 
   it("records a clean scan for a file with no markings", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
@@ -220,7 +221,36 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       p_part_id: "part-1",
       p_job_file_id: "file-1",
       p_source: "step_header",
+      p_content_sha256: contentSha256,
     });
+  });
+
+  it("fails closed without calling the database when the scanned bytes have no valid hash", async () => {
+    for (const bad of ["", "C".repeat(64), "c".repeat(63)]) {
+      const rpc = vi.fn().mockResolvedValue({ data: "scan-1", error: null });
+      await expect(
+        enforceAndRecordExportControlScan({ rpc } as unknown as SupabaseClient, {
+          ...input,
+          contentSha256: bad,
+          source: "step_header",
+          scan: null,
+          textRead: true,
+        }),
+      ).rejects.toBeInstanceOf(ExportControlScanRecordError);
+      expect(rpc).not.toHaveBeenCalled();
+    }
+  });
+
+  it("fails closed when the database rejects the scanned bytes' hash", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0001", message: "export_content_hash_mismatch" } });
+    await expect(
+      enforceAndRecordExportControlScan({ rpc } as unknown as SupabaseClient, {
+        ...input,
+        source: "drawing_text",
+        scan: null,
+        textRead: true,
+      }),
+    ).rejects.toBeInstanceOf(ExportControlScanRecordError);
   });
 
   it("records a block and never a clean scan on a hit", async () => {
@@ -271,7 +301,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
         jobId: "target-job",
         partId: "target-part",
-        drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf" },
+        drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
         extractText,
       }),
     ).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
@@ -287,7 +317,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     await scanStagedDrawingForExportMarkings({ rpc } as unknown as SupabaseClient, {
       jobId: "target-job",
       partId: "target-part",
-      drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf" },
+      drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
       extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
     });
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
@@ -295,6 +325,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       p_part_id: "target-part",
       p_job_file_id: "target-drawing",
       p_source: "drawing_text",
+      p_content_sha256: "d".repeat(64),
     });
 
     const failing = vi.fn();
@@ -302,27 +333,35 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       scanStagedDrawingForExportMarkings({ rpc: failing } as unknown as SupabaseClient, {
         jobId: "target-job",
         partId: "target-part",
-        drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf" },
+        drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
         extractText: vi.fn().mockRejectedValue(new Error("pdftotext failed")),
       }),
     ).rejects.toThrow("pdftotext failed");
     expect(failing).not.toHaveBeenCalled();
   });
 
-  it("requires a clean scan for the drawing and STEP CAD file before dispatch (reference model)", () => {
+  it("requires a verified hash and a job- and hash-bound clean scan before dispatch (reference model)", () => {
+    const ok = { inJob: true, hashVerified: true, scanned: true };
     expect(evaluateExportControlScanCoverage(null)).toBe("export_scan_missing");
     expect(evaluateExportControlScanCoverage({ drawing: null, cad: null })).toBeNull();
-    expect(evaluateExportControlScanCoverage({ drawing: { scanned: false }, cad: null })).toBe("export_scan_missing");
+    expect(evaluateExportControlScanCoverage({ drawing: { ...ok, scanned: false }, cad: null })).toBe("export_scan_missing");
+    expect(evaluateExportControlScanCoverage({ drawing: { ...ok, inJob: false }, cad: null })).toBe("export_scan_missing");
+    expect(evaluateExportControlScanCoverage({ drawing: { ...ok, hashVerified: false }, cad: null })).toBe("export_scan_missing");
     expect(
-      evaluateExportControlScanCoverage({ drawing: { scanned: true }, cad: { originalName: "part.STEP", scanned: false } }),
+      evaluateExportControlScanCoverage({ drawing: ok, cad: { ...ok, originalName: "part.STEP", scanned: false } }),
     ).toBe("export_scan_missing");
-    expect(
-      evaluateExportControlScanCoverage({ drawing: { scanned: true }, cad: { originalName: "part.stp", scanned: true } }),
-    ).toBeNull();
+    expect(evaluateExportControlScanCoverage({ drawing: ok, cad: { ...ok, originalName: "part.stp" } })).toBeNull();
     // No scanner exists for other CAD formats yet; documented in the notes.
+    // They still need a verified hash in the part's job.
     expect(
-      evaluateExportControlScanCoverage({ drawing: { scanned: true }, cad: { originalName: "part.sldprt", scanned: false } }),
+      evaluateExportControlScanCoverage({ drawing: ok, cad: { ...ok, originalName: "part.sldprt", scanned: false } }),
     ).toBeNull();
+    expect(
+      evaluateExportControlScanCoverage({
+        drawing: ok,
+        cad: { inJob: true, hashVerified: false, scanned: false, originalName: "part.sldprt" },
+      }),
+    ).toBe("export_scan_missing");
   });
 
   it("wires the scan into the trusted-reuse branch before the task completes", () => {
@@ -332,6 +371,10 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(scanAt).toBeLessThan(reuse.indexOf("reusedCanonicalPartVersion: true"));
     expect(workerIndex).toMatch(/source: "step_header",\s+scan: scanStepHeaderForExportMarkings/);
     expect(workerIndex).toMatch(/source: "drawing_text",\s+scan: scanDrawingTextForExportMarkings\(pdfText\)/);
+    // Every clean scan carries the hash of the bytes the worker staged.
+    expect(workerIndex).toContain("contentSha256: stagedDrawingFile?.trustedContentSha256");
+    expect(workerIndex).toContain("contentSha256: identityStagedDrawing.trustedContentSha256");
+    expect(workerIndex).toContain("contentSha256: stagedCadFile.trustedContentSha256");
   });
 });
 
@@ -470,7 +513,8 @@ describe("OVD-723 migration draft", () => {
   it("is a draft, not an applied migration", () => {
     expect(draft.startsWith("-- =")).toBe(true);
     expect(draft).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
-    expect(draft).toMatch(/PHASE 1 - EXPAND[\s\S]*PHASE 2 - CONTRACT[\s\S]*ROLLBACK/);
+    expect(draft).toMatch(/-- WINDOW 1 [\s\S]*-- ROLLBACK/);
+    expect(draft).not.toMatch(/PHASE [12]/);
     const migrationsDir = new URL("../../supabase/migrations/", import.meta.url);
     for (const name of readdirSync(migrationsDir)) {
       expect(readFileSync(new URL(name, migrationsDir), "utf8")).not.toContain("job_export_declarations");
@@ -482,50 +526,80 @@ describe("OVD-723 migration draft", () => {
     const gate = [
       sqlFunctionBody("private.export_control_dispatch_denial"),
       sqlFunctionBody("private.export_control_scan_denial"),
+      sqlFunctionBody("private.export_control_file_denial"),
       sqlFunctionBody("private.export_control_dispatch_denial_for_task"),
     ].join("\n");
     const returned = [...gate.matchAll(/return '([a-z_]+)'/g)].map((m) => m[1]);
     expect(new Set(returned)).toEqual(new Set(EXPORT_CONTROL_DENIAL_CODES));
   });
 
-  it("puts both dispatch preflight wrappers in PHASE 1 and keeps PHASE 2 upload-only", () => {
-    const phase1 = sqlPhase("1");
-    const phase2 = sqlPhase("2");
+  it("enforces upload, Storage, and dispatch in the same window-1 migration", () => {
+    const window1 = sqlWindow1();
     for (const fn of ["api_authorize_xometry_beta_worker_dispatch", "api_authorize_provider_worker_dispatch"]) {
-      expect(phase1).toContain(`create or replace function public.${fn}(`);
-      expect(phase2).not.toContain(fn);
+      expect(window1).toContain(`create or replace function public.${fn}(`);
     }
-    expect(phase1).toContain("create or replace function private.export_control_dispatch_denial(");
-    expect(phase1).toContain("create or replace function private.export_control_scan_denial(");
-    const phase2Code = phase2.replace(/--[^\n]*/g, "");
-    expect(phase2Code).not.toMatch(/dispatch/i);
-    expect(phase2).toContain("create policy \"job_files_storage_insert\"");
-    expect(phase2).toContain("create or replace function public.api_prepare_job_file_upload(");
-    // The rollback undoes the wrappers with PHASE 1, not PHASE 2.
+    expect(window1).toContain("create or replace function private.export_control_dispatch_denial(");
+    expect(window1).toContain("create or replace function private.export_control_scan_denial(");
+    expect(window1).toContain('create policy "job_files_storage_insert"');
+    expect(window1).toContain("and public.current_user_has_export_cleared_upload(bucket_id, name)");
+    // The legacy signatures never delegate to the cores.
+    const legacy =
+      /create or replace function public\.api_prepare_job_file_upload\(\s+p_job_id uuid,\s+p_original_name text,\s+p_file_kind public\.job_file_kind,\s+p_mime_type text default null,[\s\S]*?\$\$;/.exec(
+        window1,
+      )?.[0] ?? "";
+    expect(legacy).toContain("message = 'export_declaration_missing'");
+    expect(legacy).not.toContain("job_file_prepare_core");
+    expect(window1.match(/create or replace function public\.api_prepare_job_file_upload\(/g)).toHaveLength(2);
+    expect(window1.match(/create or replace function public\.api_finalize_job_file_upload\(/g)).toHaveLength(2);
     const rollback = draft.slice(draft.indexOf("-- ROLLBACK\n"));
-    const r1 = rollback.slice(rollback.indexOf("-- R1 (undo PHASE 1"));
-    const r2 = rollback.slice(rollback.indexOf("-- R2 (undo PHASE 2"), rollback.indexOf("-- R1 (undo PHASE 1"));
-    expect(r2).not.toContain("drop function public.api_authorize");
-    expect(r1).toContain("drop function public.api_authorize_provider_worker_dispatch(");
-    expect(r1).toContain("drop function public.api_authorize_xometry_beta_worker_dispatch(");
-    expect(r1).toContain("drop function public.api_record_export_control_clean_scan(");
+    expect(rollback).toContain("drop function public.api_authorize_provider_worker_dispatch(");
+    expect(rollback).toContain("drop function public.api_authorize_xometry_beta_worker_dispatch(");
+    expect(rollback).toContain("drop function public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text);");
+    expect(rollback).toContain("drop function public.current_user_has_export_cleared_upload(text, text);");
   });
 
-  it("requires a per-job clean scan of the dispatched part's files", () => {
+  it("binds each upload grant to one exact object and serializes Storage authorization", () => {
+    const grants = draft.slice(draft.indexOf("create table if not exists private.export_cleared_upload_grants"));
+    const table = grants.slice(0, grants.indexOf(");\n"));
+    for (const column of ["storage_bucket", "storage_path", "size_bytes", "content_sha256", "finalized_at"]) {
+      expect(table).toContain(column);
+    }
+    const helper = sqlFunctionBody("public.current_user_has_export_cleared_upload");
+    expect(helper).toContain("volatile");
+    expect(helper).toContain("grant_row.storage_path = p_object_name");
+    expect(helper).toContain("grant_row.finalized_at is null");
+    expect(helper.indexOf("private.lock_job_export_state(v_grant.job_id, false)")).toBeLessThan(
+      helper.indexOf("private.job_export_upload_denial(v_grant.job_id, v_grant.declaration_id)"),
+    );
+    const finalize = draft.slice(draft.lastIndexOf("create or replace function public.api_finalize_job_file_upload("));
+    const finalizeBody = finalize.slice(0, finalize.indexOf("$$;", finalize.indexOf("as $$") + 5));
+    expect(finalizeBody).toContain("coalesce(object_row.owner_id, object_row.owner::text) = auth.uid()::text");
+    expect(finalizeBody).toContain("grant_row.size_bytes = p_size_bytes");
+    expect(finalizeBody).toContain("message = 'file_upload_grant_missing'");
+    expect(finalizeBody).toContain("set finalized_at = pg_catalog.clock_timestamp()");
+  });
+
+  it("binds clean scans to the file, its current job, and its current content hash", () => {
     const forTask = sqlFunctionBody("private.export_control_dispatch_denial_for_task");
     expect(forTask).toContain("task_row.part_id");
-    expect(forTask).toContain("return private.export_control_scan_denial(v_part_id);");
+    expect(forTask).toContain("return private.export_control_scan_denial(v_job_id, v_part_id);");
     const scanRule = sqlFunctionBody("private.export_control_scan_denial");
-    // Keyed on the part's own job_file ids: a scan of the same bytes in another
-    // job (blob reuse, trusted artifact reuse) never counts.
-    expect(scanRule).toContain("scan.job_file_id = v_part.drawing_file_id");
-    expect(scanRule).toContain("scan.job_file_id = v_cad.id");
-    expect(scanRule).not.toContain("content_sha256");
+    expect(scanRule).toContain("v_part.job_id is distinct from p_job_id");
+    const fileRule = sqlFunctionBody("private.export_control_file_denial");
+    // Keyed on the part's own job_file id, its current job, and its current
+    // hash: a scan of the same bytes in another job never counts, and a row
+    // that is repointed or moved loses its scan.
+    expect(fileRule).toContain("scan.job_file_id = v_file.id");
+    expect(fileRule).toContain("scan.job_id = v_file.job_id");
+    expect(fileRule).toContain("scan.content_sha256 = v_hash");
+    expect(fileRule).toContain("v_file.job_id is distinct from p_job_id");
+    expect(fileRule).toContain("v_file.trusted_content_sha256 is distinct from v_hash");
     const sqlStep = /~ '([^']+)'/.exec(scanRule)?.[1];
     expect(sqlStep).toBe("\\.(step|stp)$");
     for (const name of ["a.step", "a.STP", " b.Step "]) expect(isStepFileName(name)).toBe(true);
     const record = sqlFunctionBody("public.api_record_export_control_clean_scan");
     expect(record).toContain("v_file.job_id is distinct from p_job_id");
+    expect(record).toContain("message = 'export_content_hash_mismatch'");
     expect(draft).toMatch(
       /revoke all on function public\.api_record_export_control_clean_scan\([^)]*\)\s+from public, anon, authenticated;\s+grant execute on function public\.api_record_export_control_clean_scan\([^)]*\)\s+to service_role;/,
     );

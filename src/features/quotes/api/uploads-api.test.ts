@@ -96,6 +96,26 @@ describe("job file empty-upload rejection", () => {
     );
   });
 
+  it("explains a finalize that found no object under the exact upload grant", async () => {
+    rpcMock
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/bracket.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: "P0001", details: null, hint: null, message: "file_upload_grant_missing" },
+      });
+
+    await expect(
+      uploadFilesToJob("job-1", [createUploadFile("bracket", "bracket.step")], cleanUploadOptions),
+    ).rejects.toThrow(new Error("bracket.step could not be verified after upload. Upload it again."));
+  });
+
   it("rethrows other upload RPC errors unchanged", async () => {
     const pathMismatchError = {
       code: "P0001",

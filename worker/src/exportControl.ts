@@ -13,10 +13,13 @@ import type { VendorName } from "./types.js";
  *   STEP header strings, recorded through the service-role RPC
  *   `api_record_export_control_marking_hits`. A failed record is an error, so
  *   the task fails instead of continuing without a block;
- * - clean scans, recorded through `api_record_export_control_clean_scan`.
- *   Dispatch requires a clean scan of record for the part's own files, so a
- *   path that skips extraction (trusted artifact reuse, org blob reuse) is
- *   denied until the worker scans that part's files;
+ * - clean scans, recorded through `api_record_export_control_clean_scan`
+ *   with the SHA-256 of the bytes that were scanned. The database records the
+ *   scan only when that hash equals the file's claimed hash, and dispatch
+ *   requires a clean scan of record bound to the part's own file, its current
+ *   job, and its current hash, so a path that skips extraction (trusted
+ *   artifact reuse, org blob reuse) or a repointed file row is denied until
+ *   the worker scans those bytes;
  * - the reason codes the preflights return, and a pure reference model of the
  *   dispatch rule that the SQL implements, used by tests to pin the rule.
  */
@@ -96,22 +99,33 @@ export function evaluateExportControlDispatch(evidence: ExportControlDispatchEvi
   return null;
 }
 
+/**
+ * One file the part sends. `inJob`: the file row is in the part's job.
+ * `hashVerified`: the worker's staged bytes hashed to the file's claimed
+ * content hash. `scanned`: a clean scan of record matches this file id, its
+ * current job, and its current content hash.
+ */
+export type ExportControlFileCoverage = { inJob: boolean; hashVerified: boolean; scanned: boolean };
+
 export type ExportControlScanCoverage = {
   /** Null when the part has no drawing. */
-  drawing: { scanned: boolean } | null;
+  drawing: ExportControlFileCoverage | null;
   /** Null when the part has no CAD file. */
-  cad: { originalName: string; scanned: boolean } | null;
+  cad: (ExportControlFileCoverage & { originalName: string }) | null;
 } | null;
 
 /**
- * Reference model of `private.export_control_scan_denial`. The part's drawing
- * and its STEP CAD file each need a clean scan of record in this job. A
- * missing part is a denial. Other CAD formats have no scanner yet.
+ * Reference model of `private.export_control_scan_denial`. Every file must be
+ * in the part's job with a verified hash. The drawing and a STEP CAD file
+ * also need a clean scan bound to that job and hash. A missing part is a
+ * denial. Other CAD formats have no scanner yet.
  */
 export function evaluateExportControlScanCoverage(part: ExportControlScanCoverage): "export_scan_missing" | null {
   if (!part) return "export_scan_missing";
-  if (part.drawing && part.drawing.scanned !== true) return "export_scan_missing";
-  if (part.cad && isStepFileName(part.cad.originalName) && part.cad.scanned !== true) return "export_scan_missing";
+  const fileOk = (file: ExportControlFileCoverage, needsScan: boolean) =>
+    file.inJob === true && file.hashVerified === true && (!needsScan || file.scanned === true);
+  if (part.drawing && !fileOk(part.drawing, true)) return "export_scan_missing";
+  if (part.cad && !fileOk(part.cad, isStepFileName(part.cad.originalName))) return "export_scan_missing";
   return null;
 }
 
@@ -284,9 +298,14 @@ export async function enforceExportControlMarkings(
   throw new ExportControlMarkingBlockedError(input.scan.source, input.scan.patterns);
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
 /**
- * Records a clean scan of one job file. Any RPC error or malformed response
- * throws, so the task fails and dispatch stays denied (`export_scan_missing`).
+ * Records a clean scan of one job file. `contentSha256` is the hash of the
+ * staged bytes that were scanned; the database rejects it
+ * (`export_content_hash_mismatch`) unless it equals the file's claimed hash.
+ * Any RPC error, malformed hash, or malformed response throws, so the task
+ * fails and dispatch stays denied (`export_scan_missing`).
  */
 export async function recordExportControlCleanScan(
   supabase: Pick<SupabaseClient, "rpc">,
@@ -295,8 +314,12 @@ export async function recordExportControlCleanScan(
     partId: string | null;
     jobFileId: string;
     source: ExportControlMarkingSource;
+    contentSha256: string;
   },
 ): Promise<string> {
+  if (!SHA256_HEX.test(input.contentSha256)) {
+    throw new ExportControlScanRecordError();
+  }
   let response: { data: unknown; error: unknown };
   try {
     response = await supabase.rpc("api_record_export_control_clean_scan", {
@@ -304,6 +327,7 @@ export async function recordExportControlCleanScan(
       p_part_id: input.partId,
       p_job_file_id: input.jobFileId,
       p_source: input.source,
+      p_content_sha256: input.contentSha256,
     });
   } catch {
     throw new ExportControlScanRecordError();
@@ -329,6 +353,8 @@ export async function enforceAndRecordExportControlScan(
     source: ExportControlMarkingSource;
     scan: ExportControlMarkingScan | null;
     textRead: boolean;
+    /** SHA-256 of the staged bytes that were scanned. */
+    contentSha256: string;
   },
 ): Promise<void> {
   await enforceExportControlMarkings(supabase, input);
@@ -346,7 +372,7 @@ export async function scanStagedDrawingForExportMarkings(
   input: {
     jobId: string;
     partId: string | null;
-    drawingFile: { id: string; localPath: string } | null;
+    drawingFile: { id: string; localPath: string; contentSha256: string } | null;
     extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }> } | null>;
   },
 ): Promise<void> {
@@ -359,5 +385,6 @@ export async function scanStagedDrawingForExportMarkings(
     source: "drawing_text",
     scan: scanDrawingTextForExportMarkings(pdfText),
     textRead: pdfText !== null,
+    contentSha256: input.drawingFile.contentSha256,
   });
 }

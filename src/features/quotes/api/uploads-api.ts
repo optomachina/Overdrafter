@@ -101,8 +101,14 @@ export async function findDuplicateUploadSelections(files: File[]): Promise<stri
 }
 
 function toJobFileUploadError(error: unknown, fileName: string): unknown {
-  if (error && typeof error === "object" && (error as { message?: unknown }).message === "file_upload_empty") {
+  const message = error && typeof error === "object" ? (error as { message?: unknown }).message : undefined;
+  if (message === "file_upload_empty") {
     return new Error(getEmptyQuoteFileMessage(fileName));
+  }
+  // OVD-723: finalize found no object this user wrote under the exact upload
+  // grant (wrong path, size, owner, or an expired or used grant).
+  if (message === "file_upload_grant_missing") {
+    return new Error(`${fileName} could not be verified after upload. Upload it again.`);
   }
 
   return error;
