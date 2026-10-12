@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * Claude Code PreToolUse hook: blocks writes to supabase/migrations/** unless
- * Blaine has opened a window for the current work item.
+ * Claude Code PreToolUse hook: best-effort guard against writes to
+ * supabase/migrations/** and against self-granting the blaine-window label.
  *
- * Allowed when OVD_BLAINE_WINDOW=1, or when the current branch's PR carries the
- * `blaine-window` label applied by the human GitHub user optomachina. Anything
- * else (no PR, gh missing, bot-applied label, offline) fails closed.
+ * This is a best-effort guardrail. An agent holding a user token cannot be
+ * told apart from the user, so the real gate stays at Blaine's merge and
+ * apply approval.
+ *
+ * Allowed when OVD_BLAINE_WINDOW=1, or when the current branch's PR carries
+ * the blaine-window label applied by the human GitHub user optomachina
+ * without performed_via_github_app. Anything else fails closed.
  * Reads are never blocked. Exit 2 + stderr blocks the tool call.
  *
  * Tests inject a fake gh via OVD_GUARD_GH_BIN.
@@ -23,10 +27,9 @@ export const WINDOW_ACTOR_LOGIN = "optomachina";
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "NotebookRead"]);
 const MIGRATIONS_RE = /(^|\/)supabase\/migrations(\/|$)/;
-const SUPABASE_DIR_RE = /(^|\/)supabase$/;
-const MIGRATION_IN_TEXT = /supabase[\\/]+migrations/i;
-const WRITE_HINT =
-  /\b(writefilesync|writefile|appendfile|createwritestream|write_text|write_bytes|makedirs|mkdir|unlink|remove|rename|rmtree|shutil|writelines|dump|to_csv|to_json)\b|\.write\s*\(|open\s*\([^)]*['"][wax+]/i;
+const READER_CMDS = new Set(["ls", "cat", "rg", "grep", "egrep", "fgrep"]);
+const GIT_READERS = new Set(["diff", "log", "show", "status"]);
+const MCP_READ = /(?:^|__)(read|get|list|search|grep|glob|stat|fetch|show|query)(?:_|$)/i;
 
 /** Resolve existing prefix via realpath, then append the missing tail. */
 export function resolvePath(path, cwd = process.cwd()) {
@@ -54,11 +57,44 @@ function folded(path, cwd) {
 }
 
 export function isMigrationPath(path, cwd = process.cwd()) {
-  return MIGRATIONS_RE.test(folded(path, cwd) + "/");
+  return MIGRATIONS_RE.test(`${folded(path, cwd)}/`);
 }
 
-export function isSupabaseDir(path, cwd = process.cwd()) {
-  return SUPABASE_DIR_RE.test(folded(path, cwd));
+/** Replace $NAME and ${NAME} from simple NAME=value assignments in the line. */
+export function expandSimpleVars(command) {
+  if (typeof command !== "string") return "";
+  const assigns = new Map();
+  const assignRe = /(?:^|[;\s])([A-Za-z_][A-Za-z0-9_]*)=([^\s;]+)/g;
+  let match;
+  while ((match = assignRe.exec(command))) {
+    let value = match[2];
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    assigns.set(match[1], value);
+  }
+  let expanded = command;
+  for (const [name, value] of assigns) {
+    expanded = expanded.split(`\${${name}}`).join(value).split(`$${name}`).join(value);
+  }
+  return expanded;
+}
+
+export function mentionsSupabaseOrMigration(command) {
+  const text = expandSimpleVars(command).toLowerCase();
+  return /(?<![a-z0-9])supabase(?![a-z0-9])/.test(text) || /(?<![a-z0-9])migration(?![a-z0-9])/.test(text);
+}
+
+export function isLabelMutation(command) {
+  const text = expandSimpleVars(command);
+  if (new RegExp(WINDOW_LABEL, "i").test(text)) return true;
+  if (/addlabelstolabelable|addlabels\b/i.test(text)) return true;
+  if (/\/(?:issues|pulls)\/[^/\s]+\/labels\b/i.test(text)) return true;
+  if (/\b(curl|wget|httpie|gh)\b/i.test(text) && /\/labels\b/i.test(text)) return true;
+  return false;
 }
 
 /** Minimal shell tokenizer: words (quotes resolved), control ops, and redirects. */
@@ -90,7 +126,6 @@ export function tokenize(command) {
       word += command[++i];
       inWord = true;
     } else if (c === ">" || c === "<") {
-      // A bare fd number (2>) or & (&>) directly before the operator belongs to it.
       if (inWord && !/^(\d+|&)$/.test(word)) flush();
       word = "";
       inWord = false;
@@ -125,8 +160,6 @@ function splitSegments(tokens) {
   }
   return segments.filter((segment) => segment.length > 0);
 }
-
-const positional = (args) => args.filter((arg) => !arg.startsWith("-"));
 
 function baseCmd(name) {
   return String(name ?? "")
@@ -178,112 +211,6 @@ export function unwrapLaunchers(argv) {
   return current;
 }
 
-export function isSupabaseMigrationNew(argv) {
-  const unwrapped = unwrapLaunchers(argv);
-  if (baseCmd(unwrapped[0]) !== "supabase") return false;
-  const words = unwrapped.map((word) => word.toLowerCase());
-  const index = words.indexOf("migration");
-  return index !== -1 && words[index + 1] === "new";
-}
-
-function interpreterKind(name) {
-  const cmd = baseCmd(name);
-  if (cmd === "node" || cmd === "nodejs") return "node";
-  if (cmd.startsWith("python")) return "python";
-  return null;
-}
-
-function interpreterScript(argv) {
-  const kind = interpreterKind(argv[0]);
-  if (!kind) return null;
-  const flags = kind === "python" ? ["-c", "--command"] : ["-e", "--eval", "-p", "--print"];
-  for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i];
-    for (const flag of flags) {
-      if (arg === flag && argv[i + 1]) return argv[i + 1];
-      if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
-    }
-  }
-  return null;
-}
-
-function pathsInScript(script, cwd) {
-  const paths = [];
-  const quoted = /['"]([^'"]*supabase[\\/]+migrations[^'"]*)['"]/gi;
-  let match;
-  while ((match = quoted.exec(script))) paths.push(resolve(cwd, match[1]));
-  return paths.length > 0 ? paths : [resolve(cwd, "supabase/migrations")];
-}
-
-function interpreterWriteTargets(argv, cwd) {
-  const script = interpreterScript(argv);
-  if (script == null || !MIGRATION_IN_TEXT.test(script) || !WRITE_HINT.test(script)) return [];
-  return pathsInScript(script, cwd);
-}
-
-function isRecursive(args) {
-  return args.some(
-    (arg) =>
-      arg === "-r" ||
-      arg === "-R" ||
-      arg === "-a" ||
-      arg === "--recursive" ||
-      arg === "--archive" ||
-      /^-[a-zA-Z]*[rRa]/.test(arg),
-  );
-}
-
-function lastPositional(args) {
-  const rest = positional(args);
-  return rest.length > 0 ? rest[rest.length - 1] : null;
-}
-
-function withTreeDest(dest, cwd) {
-  if (!dest) return [];
-  return isSupabaseDir(dest, cwd) ? [dest, `${dest.replace(/\/+$/, "")}/migrations`] : [dest];
-}
-
-/** Paths a single command (argv) would write, by command name. */
-function commandWriteTargets(argv, cwd) {
-  if (isSupabaseMigrationNew(argv)) return [resolve(cwd, "supabase/migrations")];
-  const fromInterpreter = interpreterWriteTargets(argv, cwd);
-  if (fromInterpreter.length > 0) return fromInterpreter;
-
-  const [name, ...args] = argv;
-  const cmd = baseCmd(name);
-  switch (cmd) {
-    case "tee":
-    case "touch":
-    case "rm":
-    case "truncate":
-      return positional(args);
-    case "ln":
-    case "mv": {
-      const dest = lastPositional(args);
-      return dest ? withTreeDest(dest, cwd).concat(positional(args)) : positional(args);
-    }
-    case "cp":
-    case "install":
-    case "rsync": {
-      const dirFlag = args.findIndex((arg) => arg === "-t" || arg === "--target-directory");
-      if (dirFlag !== -1 && args[dirFlag + 1]) return withTreeDest(args[dirFlag + 1], cwd);
-      const dest = lastPositional(args);
-      if (!dest) return [];
-      if (cmd === "rsync" || isRecursive(args)) return withTreeDest(dest, cwd);
-      return [dest];
-    }
-    case "sed":
-    case "perl":
-      return args.some((arg) => /^-[a-zA-Z]*i/.test(arg) || arg.startsWith("--in-place")) ? positional(args) : [];
-    case "dd":
-      return args.filter((arg) => arg.startsWith("of=")).map((arg) => arg.slice(3));
-    case "git":
-      return ["mv", "rm"].includes(args[0]) ? positional(args.slice(1)) : [];
-    default:
-      return [];
-  }
-}
-
 function argvFromSegment(segment) {
   const argv = [];
   const redirects = [];
@@ -312,75 +239,93 @@ function stripWrappers(argv) {
   return next;
 }
 
-/** Every path a Bash command line would write to (redirect targets plus known writers). */
-export function bashWriteTargets(command, cwd = process.cwd()) {
-  const targets = [];
-  let currentCwd = cwd;
-  for (const segment of splitSegments(tokenize(command))) {
+function isNpmTestOrVerify(argv) {
+  const unwrapped = unwrapLaunchers(argv);
+  const cmd = baseCmd(unwrapped[0]);
+  if (!["npm", "yarn", "pnpm", "npx"].includes(cmd)) return false;
+  const rest = unwrapped.slice(1);
+  let script = null;
+  if (rest[0] === "run" && rest[1]) script = rest[1];
+  else if (cmd === "npm" && rest[0] === "test") script = "test";
+  else if ((cmd === "yarn" || cmd === "pnpm") && rest[0]) script = rest[0];
+  return typeof script === "string" && /^(test|verify)(:|$)/i.test(script);
+}
+
+function isAllowlistedArgv(argv, cwd = process.cwd()) {
+  if (argv.length === 0) return true;
+  if (baseCmd(argv[0]) === "cd") return true;
+  if (["bash", "sh", "zsh"].includes(baseCmd(argv[0])) && argv[1] === "-c") {
+    return isReadOnlyAllowlisted(argv[2] ?? "", cwd);
+  }
+  const unwrapped = unwrapLaunchers(argv);
+  const cmd = baseCmd(unwrapped[0]);
+  if (READER_CMDS.has(cmd)) return true;
+  if (cmd === "git" && GIT_READERS.has(unwrapped[1])) return true;
+  if (cmd === "supabase" && ["--version", "-v", "version"].includes(unwrapped[1])) return true;
+  if (isNpmTestOrVerify(argv)) return true;
+  return false;
+}
+
+export function isReadOnlyAllowlisted(command, cwd = process.cwd()) {
+  if (typeof command !== "string" || command === "") return false;
+  if (isLabelMutation(command)) return false;
+  const expanded = expandSimpleVars(command);
+  for (const segment of splitSegments(tokenize(expanded))) {
     const { argv: rawArgv, redirects } = argvFromSegment(segment);
-    for (const target of redirects) targets.push(resolve(currentCwd, target));
-    const argv = stripWrappers(rawArgv);
-    if (argv[0] === "cd" && argv[1]) {
-      currentCwd = resolve(currentCwd, argv[1]);
-      continue;
+    if (redirects.some((target) => mentionsSupabaseOrMigration(target) || isMigrationPath(target, cwd))) {
+      return false;
     }
-    if (["bash", "sh", "zsh"].includes(baseCmd(argv[0])) && argv[1] === "-c" && argv[2]) {
-      targets.push(...bashWriteTargets(argv[2], currentCwd));
-      continue;
-    }
-    for (const target of commandWriteTargets(argv, currentCwd)) targets.push(resolve(currentCwd, target));
+    if (!isAllowlistedArgv(stripWrappers(rawArgv), cwd)) return false;
   }
-  return targets;
+  return true;
 }
 
-function labelListIncludesWindow(value) {
-  return String(value)
-    .split(",")
-    .map((name) => name.trim().toLowerCase())
-    .includes(WINDOW_LABEL);
-}
-
-function addsWindowLabel(args) {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--add-label" || arg === "--add-labels" || arg === "-l") {
-      if (labelListIncludesWindow(args[i + 1] ?? "")) return true;
-    }
-    if (arg.startsWith("--add-label=") || arg.startsWith("--add-labels=")) {
-      if (labelListIncludesWindow(arg.slice(arg.indexOf("=") + 1))) return true;
-    }
+function tokensTouchMigrationPath(command, cwd) {
+  const expanded = expandSimpleVars(command);
+  for (const segment of splitSegments(tokenize(expanded))) {
+    const { argv, redirects } = argvFromSegment(segment);
+    if (redirects.some((target) => isMigrationPath(target, cwd))) return true;
+    if (argv.some((arg) => isMigrationPath(arg, cwd))) return true;
   }
   return false;
 }
 
-function ghApiMethod(args) {
-  for (let i = 0; i < args.length; i++) {
-    if ((args[i] === "-X" || args[i] === "--method") && args[i + 1]) return args[i + 1].toUpperCase();
-    if (args[i].startsWith("--method=")) return args[i].slice("--method=".length).toUpperCase();
-  }
-  if (args.some((arg) => ["-f", "-F", "--raw-field", "--field", "--input"].includes(arg) || /^-f=|^-F=/.test(arg))) {
-    return "POST";
-  }
-  return "GET";
-}
-
-/** True when a Bash line would add the blaine-window label. */
-export function isLabelSelfGrant(command) {
+export function bashNeedsWindow(command, cwd = process.cwd()) {
   if (typeof command !== "string") return false;
-  for (const segment of splitSegments(tokenize(command))) {
-    const argv = stripWrappers(argvFromSegment(segment).argv);
-    if (baseCmd(argv[0]) !== "gh") continue;
-    const rest = argv.slice(1);
-    if ((rest[0] === "pr" || rest[0] === "issue") && rest[1] === "edit" && addsWindowLabel(rest)) return true;
-    if (rest[0] !== "api") continue;
-    const joined = rest.join(" ");
-    if (/\bgraphql\b/i.test(joined) && /blaine-window|addlabelstolabelable|addlabels/i.test(joined)) return true;
-    if (!/\/labels\b/i.test(joined)) continue;
-    const method = ghApiMethod(rest);
-    if (method !== "GET" && method !== "HEAD") return true;
-    if (/blaine-window/i.test(joined)) return true;
+  if (isLabelMutation(command)) return false;
+  if (isReadOnlyAllowlisted(command, cwd)) return false;
+  return mentionsSupabaseOrMigration(command) || tokensTouchMigrationPath(command, cwd);
+}
+
+function collectStringPaths(value, depth = 0, found = []) {
+  if (depth > 6 || value == null) return found;
+  if (typeof value === "string") {
+    found.push(value);
+    return found;
   }
-  return false;
+  if (Array.isArray(value)) {
+    for (const entry of value) collectStringPaths(entry, depth + 1, found);
+    return found;
+  }
+  if (typeof value === "object") {
+    for (const entry of Object.values(value)) collectStringPaths(entry, depth + 1, found);
+  }
+  return found;
+}
+
+export function isMcpLabelSelfGrant(toolName, input) {
+  if (typeof toolName !== "string" || !toolName.startsWith("mcp__")) return false;
+  const name = toolName.toLowerCase();
+  const text = JSON.stringify(input ?? {}).toLowerCase();
+  const labelTool = /label|update_issue|update_pull|update_pr|add_labels|set_labels/.test(name);
+  return labelTool && text.includes(WINDOW_LABEL);
+}
+
+export function mcpWriteTargets(payload) {
+  const { tool_name: toolName, tool_input: input, cwd = process.cwd() } = payload ?? {};
+  if (typeof toolName !== "string" || !toolName.startsWith("mcp__")) return [];
+  if (MCP_READ.test(toolName)) return [];
+  return collectStringPaths(input).filter((path) => isMigrationPath(path, cwd));
 }
 
 export function inspectPayload(payload) {
@@ -392,18 +337,17 @@ export function inspectPayload(payload) {
     return { malformed: true, reason: "tool_name is missing; failing closed." };
   }
   if (READ_TOOLS.has(toolName)) return { malformed: false };
-  if (EDIT_TOOLS.has(toolName)) {
+  if (EDIT_TOOLS.has(toolName) || toolName === "Bash" || toolName.startsWith("mcp__")) {
     if (input == null || typeof input !== "object" || Array.isArray(input)) {
       return { malformed: true, reason: "tool_input is missing or malformed; failing closed." };
     }
-    const path = input.file_path ?? input.notebook_path;
-    if (typeof path !== "string" || path === "") {
-      return { malformed: true, reason: "tool_input is missing a file path; failing closed." };
+    if (EDIT_TOOLS.has(toolName)) {
+      const path = input.file_path ?? input.notebook_path;
+      if (typeof path !== "string" || path === "") {
+        return { malformed: true, reason: "tool_input is missing a file path; failing closed." };
+      }
     }
-    return { malformed: false };
-  }
-  if (toolName === "Bash") {
-    if (input == null || typeof input !== "object" || Array.isArray(input) || typeof input.command !== "string") {
+    if (toolName === "Bash" && typeof input.command !== "string") {
       return { malformed: true, reason: "tool_input.command is missing or malformed; failing closed." };
     }
     return { malformed: false };
@@ -414,10 +358,15 @@ export function inspectPayload(payload) {
 /** Migration paths this tool call would write, or [] when it is not a migration write. */
 export function migrationWriteTargets(payload) {
   const { tool_name: toolName, tool_input: input = {}, cwd = process.cwd() } = payload ?? {};
-  let candidates = [];
-  if (EDIT_TOOLS.has(toolName)) candidates = [input.file_path, input.notebook_path];
-  else if (toolName === "Bash" && typeof input.command === "string") candidates = bashWriteTargets(input.command, cwd);
-  return candidates.filter((path) => isMigrationPath(path, cwd));
+  if (EDIT_TOOLS.has(toolName)) {
+    return [input.file_path, input.notebook_path].filter((path) => isMigrationPath(path, cwd));
+  }
+  if (toolName === "Bash" && typeof input.command === "string") {
+    if (bashNeedsWindow(input.command, cwd)) return [resolve(cwd, "supabase/migrations")];
+    return [];
+  }
+  if (typeof toolName === "string" && toolName.startsWith("mcp__")) return mcpWriteTargets(payload);
+  return [];
 }
 
 export function linearKeyFromBranch(branch) {
@@ -438,7 +387,9 @@ export function currentBranch(cwd) {
 }
 
 export function isHumanOptomachina(actor) {
-  return actor?.login === WINDOW_ACTOR_LOGIN && actor?.type === "User";
+  if (!actor) return false;
+  if (actor.performed_via_github_app) return false;
+  return actor.login === WINDOW_ACTOR_LOGIN && actor.type === "User";
 }
 
 function parseGhJson(out) {
@@ -463,7 +414,14 @@ function fetchWindowLabelActor(bin, env, cwd, number) {
     const labeled = events.filter((event) => event?.event === "labeled" && event.label?.name === WINDOW_LABEL);
     const last = labeled[labeled.length - 1];
     if (!last) return { ok: false, error: "no timeline event for blaine-window" };
-    return { ok: true, actor: { login: last.actor?.login ?? null, type: last.actor?.type ?? null } };
+    return {
+      ok: true,
+      actor: {
+        login: last.actor?.login ?? null,
+        type: last.actor?.type ?? null,
+        performed_via_github_app: last.performed_via_github_app ?? null,
+      },
+    };
   } catch (error) {
     const detail = String(error.stderr || error.message || error).trim().split("\n")[0];
     return { ok: false, error: detail };
@@ -499,23 +457,23 @@ function deny(reason) {
   return { allow: false, reason };
 }
 
+function labelSelfGrantReason() {
+  return [
+    `Blocked: this command would add the "${WINDOW_LABEL}" label.`,
+    "Agents must not grant themselves a Blaine window.",
+    `Ask the human GitHub user ${WINDOW_ACTOR_LOGIN} to apply the label.`,
+    "This hook is a best-effort guardrail. An agent holding a user token cannot be told apart from the user, so the real gate stays at Blaine's merge and apply approval.",
+  ].join("\n");
+}
+
 /** Pure decision given injected lookups. Returns { allow: true } or { allow: false, reason }. */
 export function decide(payload, { env = process.env, branch = null, viewPr = () => ({ ok: false, error: "gh not called" }) } = {}) {
   const inspected = inspectPayload(payload);
-  if (inspected.malformed) {
-    return deny(`Blocked: ${inspected.reason}`);
-  }
+  if (inspected.malformed) return deny(`Blocked: ${inspected.reason}`);
 
   const input = payload.tool_input ?? {};
-  if (payload.tool_name === "Bash" && isLabelSelfGrant(input.command)) {
-    return deny(
-      [
-        `Blocked: this command would add the "${WINDOW_LABEL}" label.`,
-        "Agents must not grant themselves a Blaine window.",
-        `Ask the human GitHub user ${WINDOW_ACTOR_LOGIN} to apply the label.`,
-      ].join("\n"),
-    );
-  }
+  if (payload.tool_name === "Bash" && isLabelMutation(input.command)) return deny(labelSelfGrantReason());
+  if (isMcpLabelSelfGrant(payload.tool_name, input)) return deny(labelSelfGrantReason());
 
   const targets = migrationWriteTargets(payload);
   if (targets.length === 0) return { allow: true };
@@ -529,7 +487,8 @@ export function decide(payload, { env = process.env, branch = null, viewPr = () 
   let status;
   if (pr.ok && pr.labels.includes(WINDOW_LABEL)) {
     const actor = pr.windowActor ? `${pr.windowActor.login} (${pr.windowActor.type})` : "unknown actor";
-    status = `PR #${pr.number} has the "${WINDOW_LABEL}" label, but it was not applied by the human user ${WINDOW_ACTOR_LOGIN} (last actor: ${actor}); failing closed`;
+    const viaApp = pr.windowActor?.performed_via_github_app ? ", performed_via_github_app is set" : "";
+    status = `PR #${pr.number} has the "${WINDOW_LABEL}" label, but it was not a direct human ${WINDOW_ACTOR_LOGIN} action (last actor: ${actor}${viaApp}); failing closed`;
   } else if (pr.ok) {
     status = `PR #${pr.number} does not have the "${WINDOW_LABEL}" label`;
   } else {
@@ -540,8 +499,9 @@ export function decide(payload, { env = process.env, branch = null, viewPr = () 
       `Blocked: write to supabase/migrations/ for ${item}.`,
       `Targets: ${targets.join(", ")}`,
       `Reason: ${status}.`,
-      "Migration changes require a Blaine window. To proceed, either:",
-      `  - have the human GitHub user ${WINDOW_ACTOR_LOGIN} apply the "${WINDOW_LABEL}" label on this PR, or`,
+      "This hook is a best-effort guardrail. An agent holding a user token cannot be told apart from the user, so the real gate stays at Blaine's merge and apply approval.",
+      "To proceed, either:",
+      `  - have the human GitHub user ${WINDOW_ACTOR_LOGIN} apply the "${WINDOW_LABEL}" label on this PR without an app, or`,
       `  - have Blaine start the session with ${OVERRIDE_ENV}=1.`,
       "Do not apply the label yourself and do not work around this guard.",
     ].join("\n"),

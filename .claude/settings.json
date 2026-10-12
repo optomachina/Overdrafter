@@ -22,6 +22,17 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
       }
     ]
   }

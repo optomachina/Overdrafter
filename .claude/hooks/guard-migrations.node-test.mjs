@@ -1,29 +1,33 @@
 /** Offline tests for the migration write guard. A fake gh stands in for GitHub. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
-  bashWriteTargets,
+  bashNeedsWindow,
   decide,
+  expandSimpleVars,
   isHumanOptomachina,
-  isLabelSelfGrant,
-  isSupabaseMigrationNew,
+  isLabelMutation,
+  isMcpLabelSelfGrant,
+  isReadOnlyAllowlisted,
   linearKeyFromBranch,
+  mentionsSupabaseOrMigration,
   migrationWriteTargets,
-  unwrapLaunchers,
 } from "./guard-migrations.mjs";
 
 const hook = fileURLToPath(new URL("./guard-migrations.mjs", import.meta.url));
+const settings = fileURLToPath(new URL("../settings.json", import.meta.url));
 const repo = "/repo";
 const migration = `${repo}/supabase/migrations/20260101000000_x.sql`;
 const humanActor = { login: "optomachina", type: "User" };
 
 const edit = (file_path) => ({ tool_name: "Edit", cwd: repo, tool_input: { file_path } });
 const bash = (command) => ({ tool_name: "Bash", cwd: repo, tool_input: { command } });
+const mcp = (tool_name, tool_input) => ({ tool_name, cwd: repo, tool_input });
 const labeled = (...labels) => () => ({
   ok: true,
   number: 7,
@@ -32,12 +36,18 @@ const labeled = (...labels) => () => ({
 });
 const ghFails = () => ({ ok: false, error: "gh: command not found" });
 
+function blocked(payload, extra = {}) {
+  return decide(payload, { env: {}, viewPr: labeled(), ...extra });
+}
+
 test("migration edit is blocked when the PR lacks the blaine-window label", () => {
   const result = decide(edit(migration), { env: {}, branch: "feat/OVD-123-x", viewPr: labeled("bug") });
   assert.equal(result.allow, false);
   assert.match(result.reason, /OVD-123/);
   assert.match(result.reason, /PR #7 does not have the "blaine-window" label/);
   assert.match(result.reason, /OVD_BLAINE_WINDOW=1/);
+  assert.match(result.reason, /best-effort guardrail/);
+  assert.match(result.reason, /real gate stays at Blaine's merge and apply approval/);
 });
 
 test("migration edit is allowed when the PR has a human-applied blaine-window label", () => {
@@ -49,13 +59,13 @@ test("OVD_BLAINE_WINDOW=1 allows without consulting gh", () => {
   assert.deepEqual(decide(edit(migration), { env: { OVD_BLAINE_WINDOW: "1" }, viewPr }), { allow: true });
 });
 
-test("non-migration paths are always allowed", () => {
+test("paths that do not mention supabase or migration stay allowed", () => {
   const viewPr = () => assert.fail("gh should not be called");
   for (const payload of [
     edit(`${repo}/src/app.ts`),
     edit(`${repo}/supabase/functions/x.ts`),
     { tool_name: "Write", cwd: repo, tool_input: { file_path: `${repo}/docs/migrations.md` } },
-    bash("echo hi > supabase/seed.sql"),
+    bash("echo hi > src/app.ts"),
   ]) {
     assert.deepEqual(decide(payload, { env: {}, viewPr }), { allow: true });
   }
@@ -105,7 +115,110 @@ test("supabase migration new is blocked bare or through npx/pnpm", () => {
     assert.equal(result.allow, false, command);
     assert.match(result.reason, /supabase\/migrations/, command);
   }
-  assert.equal(isSupabaseMigrationNew(unwrapLaunchers(["npx", "--yes", "supabase", "migration", "new", "foo"])), true);
+});
+
+test("yarn supabase and npm run supabase are blocked", () => {
+  for (const command of ["yarn supabase migration new", "npm run supabase -- migration new"]) {
+    const result = blocked(bash(command));
+    assert.equal(result.allow, false, command);
+    assert.match(result.reason, /supabase\/migrations/, command);
+    assert.equal(bashNeedsWindow(command), true, command);
+  }
+});
+
+test("supabase db diff -f is blocked", () => {
+  for (const command of ["supabase db diff -f x", "npx supabase db diff -f x"]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git checkout and restore --source into migrations are blocked", () => {
+  for (const command of [
+    "git checkout br -- supabase/migrations/x.sql",
+    "git restore --source=HEAD -- supabase/migrations/x.sql",
+    "git restore --source br supabase/migrations/x.sql",
+  ]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("git apply, git am, and patch into migrations are blocked", () => {
+  for (const command of [
+    "git apply supabase/migrations/x.patch",
+    "git am supabase/migrations/x.patch",
+    "patch supabase/migrations/x.sql < /tmp/x.patch",
+  ]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("tar and unzip into migrations are blocked", () => {
+  for (const command of ["tar -x -C supabase/migrations -f /tmp/x.tar", "unzip -d supabase/migrations /tmp/x.zip"]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("perl -e and ruby -e writes into migrations are blocked", () => {
+  for (const command of [
+    "perl -e 'open F, \">supabase/migrations/x.sql\"'",
+    "ruby -e 'File.write(\"supabase/migrations/x.sql\", \"x\")'",
+  ]) {
+    assert.equal(blocked(bash(command)).allow, false, command);
+  }
+});
+
+test("eval of a migration write is blocked", () => {
+  assert.equal(blocked(bash("eval 'echo x > supabase/migrations/x.sql'")).allow, false);
+});
+
+test("variable path indirection expands before the mention check", () => {
+  const command = "D=supabase/migrations; echo x > $D/x.sql";
+  assert.match(expandSimpleVars(command), /supabase\/migrations\/x\.sql/);
+  assert.equal(mentionsSupabaseOrMigration(command), true);
+  assert.equal(blocked(bash(command)).allow, false);
+});
+
+test("a /tmp script whose text mentions supabase is blocked", () => {
+  const command = "printf '%s\\n' 'echo x > supabase/migrations/x.sql' > /tmp/m.sh && bash /tmp/m.sh";
+  assert.equal(blocked(bash(command)).allow, false);
+});
+
+test("curl to the labels API is blocked", () => {
+  const command = "curl -X POST https://api.github.com/repos/optomachina/Overdrafter/issues/664/labels -d '{\"labels\":[\"blaine-window\"]}'";
+  assert.equal(isLabelMutation(command), true);
+  const result = decide(bash(command), { env: { OVD_BLAINE_WINDOW: "1" }, viewPr: () => assert.fail("gh should not be called") });
+  assert.equal(result.allow, false);
+  assert.match(result.reason, /blaine-window/);
+});
+
+test("$L label indirection is blocked after expansion", () => {
+  const command = "L=blaine-window; gh pr edit --add-label $L";
+  assert.match(expandSimpleVars(command), /blaine-window/);
+  assert.equal(isLabelMutation(command), true);
+  assert.equal(blocked(bash(command)).allow, false);
+});
+
+test("MCP label tools that add blaine-window are blocked", () => {
+  const payload = mcp("mcp__github__add_labels", { labels: ["blaine-window"], pull_number: 664 });
+  assert.equal(isMcpLabelSelfGrant(payload.tool_name, payload.tool_input), true);
+  const result = decide(payload, { env: { OVD_BLAINE_WINDOW: "1" }, viewPr: () => assert.fail("gh should not be called") });
+  assert.equal(result.allow, false);
+  assert.match(result.reason, /blaine-window/);
+});
+
+test("MCP writes into supabase/migrations are blocked", () => {
+  const payload = mcp("mcp__filesystem__write_file", { path: "supabase/migrations/x.sql", contents: "x" });
+  assert.equal(blocked(payload).allow, false);
+  assert.equal(migrationWriteTargets(payload).length, 1);
+});
+
+test("settings.json matches Edit/Write, Bash, and mcp__.*", () => {
+  const parsed = JSON.parse(readFileSync(settings, "utf8"));
+  const matchers = parsed.hooks.PreToolUse.map((entry) => entry.matcher);
+  assert.deepEqual(matchers, ["Edit|Write|MultiEdit|NotebookEdit", "Bash", "mcp__.*"]);
+  for (const entry of parsed.hooks.PreToolUse) {
+    assert.equal(entry.hooks[0].onFailure, "block");
+  }
 });
 
 test("python -c and node -e writes into migrations are blocked", () => {
@@ -115,23 +228,21 @@ test("python -c and node -e writes into migrations are blocked", () => {
     "node -e \"require('fs').writeFileSync('supabase/migrations/a.sql','x')\"",
     "node --eval \"require('fs').writeFileSync('supabase/migrations/a.sql','x')\"",
   ]) {
-    assert.equal(decide(bash(command), { env: {}, viewPr: labeled() }).allow, false, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
   }
-  const read = bash("python3 -c \"print(open('supabase/migrations/a.sql').read())\"");
-  assert.deepEqual(decide(read, { env: {}, viewPr: () => assert.fail("gh should not be called") }), { allow: true });
 });
 
 test("recursive copy onto supabase is blocked", () => {
-  assert.equal(decide(bash("cp -r tmp supabase"), { env: {}, viewPr: labeled() }).allow, false);
-  assert.equal(decide(bash("mv tmp supabase"), { env: {}, viewPr: labeled() }).allow, false);
-  assert.equal(decide(bash("rsync -a tmp/ supabase"), { env: {}, viewPr: labeled() }).allow, false);
+  assert.equal(blocked(bash("cp -r tmp supabase")).allow, false);
+  assert.equal(blocked(bash("mv tmp supabase")).allow, false);
+  assert.equal(blocked(bash("rsync -a tmp/ supabase")).allow, false);
 });
 
 test("mixed-case Supabase/Migrations paths are blocked", () => {
-  const result = decide(edit(`${repo}/Supabase/Migrations/a.sql`), { env: {}, viewPr: labeled() });
+  const result = blocked(edit(`${repo}/Supabase/Migrations/a.sql`));
   assert.equal(result.allow, false);
-  assert.equal(decide(bash("echo x > Supabase/Migrations/a.sql"), { env: {}, viewPr: labeled() }).allow, false);
-  assert.equal(decide(bash("dd if=/dev/zero of=Supabase/Migrations/a.sql"), { env: {}, viewPr: labeled() }).allow, false);
+  assert.equal(blocked(bash("echo x > Supabase/Migrations/a.sql")).allow, false);
+  assert.equal(blocked(bash("dd if=/dev/zero of=Supabase/Migrations/a.sql")).allow, false);
 });
 
 test("writes through a symlink into migrations are blocked", (t) => {
@@ -140,9 +251,9 @@ test("writes through a symlink into migrations are blocked", (t) => {
   mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
   symlinkSync(join(dir, "supabase", "migrations"), join(dir, "alias"));
   const viaLink = { tool_name: "Write", cwd: dir, tool_input: { file_path: join(dir, "alias", "x.sql") } };
-  assert.equal(decide(viaLink, { env: {}, viewPr: labeled() }).allow, false);
+  assert.equal(blocked(viaLink).allow, false);
   const viaBash = { tool_name: "Bash", cwd: dir, tool_input: { command: "echo x > alias/x.sql" } };
-  assert.equal(decide(viaBash, { env: {}, viewPr: labeled() }).allow, false);
+  assert.equal(blocked(viaBash).allow, false);
 });
 
 test("gh pr edit --add-label blaine-window is blocked", () => {
@@ -150,13 +261,13 @@ test("gh pr edit --add-label blaine-window is blocked", () => {
     const result = decide(bash(command), { env: { OVD_BLAINE_WINDOW: "1" }, viewPr: () => assert.fail("gh should not be called") });
     assert.equal(result.allow, false, command);
     assert.match(result.reason, /blaine-window/, command);
-    assert.equal(isLabelSelfGrant(command), true, command);
+    assert.equal(isLabelMutation(command), true, command);
   }
 });
 
 test("gh issue edit --add-label blaine-window is blocked", () => {
   const command = "gh issue edit 664 --add-label blaine-window";
-  assert.equal(isLabelSelfGrant(command), true);
+  assert.equal(isLabelMutation(command), true);
   assert.equal(decide(bash(command), { env: {}, viewPr: labeled("blaine-window") }).allow, false);
 });
 
@@ -166,11 +277,9 @@ test("gh api labels calls that add blaine-window are blocked", () => {
     "gh api -X POST repos/optomachina/Overdrafter/issues/664/labels --input -",
     "gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelIds: \"blaine-window\"}) { clientMutationId } }'",
   ]) {
-    assert.equal(isLabelSelfGrant(command), true, command);
-    assert.equal(decide(bash(command), { env: {}, viewPr: labeled() }).allow, false, command);
+    assert.equal(isLabelMutation(command), true, command);
+    assert.equal(blocked(bash(command)).allow, false, command);
   }
-  assert.equal(isLabelSelfGrant("gh api repos/:owner/:repo/issues/664/labels"), false);
-  assert.equal(isLabelSelfGrant("gh pr view --json labels"), false);
 });
 
 test("blaine-window is accepted only when applied by human optomachina", () => {
@@ -194,13 +303,23 @@ test("bot-applied blaine-window label is not accepted", () => {
   assert.match(result.reason, /cursor\[bot\]/);
 });
 
-test("app-applied blaine-window label is not accepted", () => {
+test("app-mediated blaine-window label is not accepted even when the actor is optomachina", () => {
+  assert.equal(
+    isHumanOptomachina({ login: "optomachina", type: "User", performed_via_github_app: { slug: "cursor" } }),
+    false,
+  );
   const result = decide(edit(migration), {
     env: {},
-    viewPr: () => ({ ok: true, number: 7, labels: ["blaine-window"], windowActor: { login: "optomachina", type: "Bot" } }),
+    viewPr: () => ({
+      ok: true,
+      number: 7,
+      labels: ["blaine-window"],
+      windowActor: { login: "optomachina", type: "User", performed_via_github_app: { slug: "cursor" } },
+    }),
   });
   assert.equal(result.allow, false);
-  assert.match(result.reason, /not applied by the human user/);
+  assert.match(result.reason, /not a direct human optomachina action/);
+  assert.match(result.reason, /performed_via_github_app/);
 });
 
 test("missing tool_input fails closed", () => {
@@ -208,6 +327,7 @@ test("missing tool_input fails closed", () => {
   assert.equal(result.allow, false);
   assert.match(result.reason, /tool_input/);
   assert.equal(decide({ cwd: repo }, { env: {} }).allow, false);
+  assert.equal(decide({ tool_name: "mcp__filesystem__write_file", cwd: repo }, { env: {} }).allow, false);
 });
 
 test("malformed tool_input fails closed", () => {
@@ -217,6 +337,7 @@ test("malformed tool_input fails closed", () => {
     { tool_name: "Write", cwd: repo, tool_input: { file_path: 1 } },
     { tool_name: "Bash", cwd: repo, tool_input: { command: ["echo"] } },
     { tool_name: "MultiEdit", cwd: repo, tool_input: { file_path: "" } },
+    { tool_name: "mcp__github__add_labels", cwd: repo, tool_input: null },
   ]) {
     assert.equal(decide(payload, { env: {}, viewPr: labeled("blaine-window") }).allow, false, JSON.stringify(payload.tool_input));
   }
@@ -229,13 +350,21 @@ test("reads are never blocked", () => {
     { tool_name: "Grep", cwd: repo, tool_input: { pattern: "x", path: `${repo}/supabase/migrations` } },
     { tool_name: "Read", cwd: repo },
     bash("cat supabase/migrations/a.sql"),
-    bash("ls supabase/migrations | tail -1"),
+    bash("ls supabase/migrations"),
     bash("grep -rn create supabase/migrations 2>/dev/null"),
-    bash("cp supabase/migrations/a.sql /tmp/a.sql"),
-    bash("sed -n 1,5p supabase/migrations/a.sql > /tmp/out 2>&1"),
+    bash("rg create supabase/migrations"),
     bash("git diff -- supabase/migrations"),
+    bash("git log -- supabase/migrations"),
+    bash("git show HEAD:supabase/migrations/a.sql"),
+    bash("git status -- supabase/migrations"),
+    bash("supabase --version"),
+    bash("npx supabase --version"),
+    bash("npm run test"),
+    bash("npm run verify"),
+    mcp("mcp__filesystem__read_file", { path: "supabase/migrations/a.sql" }),
   ]) {
     assert.deepEqual(decide(payload, { env: {}, viewPr }), { allow: true }, JSON.stringify(payload.tool_input));
+    if (payload.tool_name === "Bash") assert.equal(isReadOnlyAllowlisted(payload.tool_input.command), true);
   }
 });
 
@@ -249,7 +378,8 @@ test("fails closed when gh errors", () => {
 test("helpers parse Linear keys and ignore fd duplication", () => {
   assert.equal(linearKeyFromBranch("feature/ovd-689-numbering"), "OVD-689");
   assert.equal(linearKeyFromBranch("main"), null);
-  assert.deepEqual(bashWriteTargets("make 2>&1", repo), []);
+  assert.equal(bashNeedsWindow("make 2>&1", repo), false);
+  assert.equal(mentionsSupabaseOrMigration("echo x > docs/migrations.md"), false);
 });
 
 function fakeGh(t, spec) {
@@ -290,13 +420,22 @@ const humanTimeline = [
 const botTimeline = [
   { event: "labeled", label: { name: "blaine-window" }, actor: { login: "cursor[bot]", type: "Bot" } },
 ];
+const appTimeline = [
+  {
+    event: "labeled",
+    label: { name: "blaine-window" },
+    actor: { login: "optomachina", type: "User" },
+    performed_via_github_app: { slug: "cursor" },
+  },
+];
 
 test("hook process exits 2 without the label and 0 with a human-applied label", (t) => {
   const payload = { ...edit(migration), cwd: tmpdir() };
   const unlabeled = fakeGh(t, { pr: { stdout: { number: 3, labels: [{ name: "bug" }] } } });
-  const blocked = runHook(payload, { OVD_GUARD_GH_BIN: unlabeled });
-  assert.equal(blocked.status, 2);
-  assert.match(blocked.stderr, /blaine-window/);
+  const blockedRun = runHook(payload, { OVD_GUARD_GH_BIN: unlabeled });
+  assert.equal(blockedRun.status, 2);
+  assert.match(blockedRun.stderr, /blaine-window/);
+  assert.match(blockedRun.stderr, /best-effort guardrail/);
 
   const withLabel = fakeGh(t, {
     pr: { stdout: { number: 3, labels: [{ name: "blaine-window" }] } },
@@ -316,6 +455,17 @@ test("hook process fails closed when the label was applied by a bot", (t) => {
   assert.match(result.stderr, /optomachina/);
 });
 
+test("hook process fails closed when performed_via_github_app is set", (t) => {
+  const payload = { ...edit(migration), cwd: tmpdir() };
+  const viaApp = fakeGh(t, {
+    pr: { stdout: { number: 3, labels: [{ name: "blaine-window" }] } },
+    api: { stdout: appTimeline },
+  });
+  const result = runHook(payload, { OVD_GUARD_GH_BIN: viaApp });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /performed_via_github_app/);
+});
+
 test("hook process fails closed when gh exits non-zero or is missing", (t) => {
   const payload = { ...edit(migration), cwd: tmpdir() };
   const broken = fakeGh(t, { pr: { stderr: "no pull requests found", status: 1 } });
@@ -331,4 +481,5 @@ test("hook process allows non-migration writes and fails closed on bad input", (
   assert.equal(runHook(undefined, {}).status, 2);
   assert.equal(runHook({ tool_name: "Write" }, {}).status, 2);
   assert.equal(runHook({ tool_name: "Bash", tool_input: {} }, {}).status, 2);
+  assert.equal(runHook({ tool_name: "mcp__github__add_labels" }, {}).status, 2);
 });
