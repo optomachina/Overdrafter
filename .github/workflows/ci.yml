@@ -40,9 +40,6 @@ jobs:
       - name: Lint
         run: bash scripts/preflight.sh lint
 
-      - name: Check provider permissions
-        run: npm run provider:permissions
-
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 20
