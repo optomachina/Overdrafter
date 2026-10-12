@@ -7,11 +7,14 @@ import {
   deriveProviderAccountRef,
   deriveProviderSessionBindingRef,
   isProviderSessionIdentity,
+  PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES,
   PROVIDER_SESSION_BLOCKING_OUTCOMES,
   PROVIDER_SESSION_OUTCOME_DISPOSITION,
+  PROVIDER_SESSION_REPORTABLE_OUTCOMES,
   ProviderSessionLease,
   ProviderSessionLeaseLostError,
   ProviderSessionOutcomeError,
+  providerSessionOutcomeForAdapterFailure,
   providerSessionOutcomeForError,
   type ProviderSessionIdentity,
   type ProviderSessionLeaseLogEvent,
@@ -432,7 +435,24 @@ describe("AC5: session failures map to bounded terminal/manual-follow-up outcome
     expect(PROVIDER_SESSION_OUTCOME_DISPOSITION.lease_lost).toEqual({ disposition: "terminal", blocksBinding: false });
   });
 
-  it.each(["missing_session", "login_required", "challenge_required", "corrupt_state"] as const)(
+  it("maps every adapter failure kind to a blocking, reportable outcome", () => {
+    expect(PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES).toEqual({
+      login_required: "login_required",
+      challenge_required: "challenge_required",
+      blocked: "provider_blocked",
+      banned: "account_banned",
+    });
+    expect(Object.isFrozen(PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES)).toBe(true);
+    for (const [kind, outcome] of Object.entries(PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES)) {
+      expect(providerSessionOutcomeForAdapterFailure(kind as keyof typeof PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES)).toBe(outcome);
+      expect(PROVIDER_SESSION_REPORTABLE_OUTCOMES).toContain(outcome);
+      expect(PROVIDER_SESSION_OUTCOME_DISPOSITION[outcome]).toEqual({ disposition: "manual_follow_up", blocksBinding: true });
+    }
+    expect(() => providerSessionOutcomeForAdapterFailure("toString" as never)).toThrow("Unknown provider adapter failure kind.");
+    expect(() => providerSessionOutcomeForAdapterFailure("timeout" as never)).toThrow("Unknown provider adapter failure kind.");
+  });
+
+  it.each(PROVIDER_SESSION_REPORTABLE_OUTCOMES)(
     "%s blocks the binding until an operator clears it",
     async (outcome) => {
       const { manager, memory } = setup();

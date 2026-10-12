@@ -113,7 +113,8 @@ create table public.provider_session_leases (
     check (state in ('active', 'released', 'expired', 'blocked', 'cleared', 'revoked')),
   constraint provider_session_leases_outcome_known
     check (outcome is null or outcome in
-      ('missing_session', 'login_required', 'challenge_required', 'owner_revoked', 'corrupt_state')),
+      ('missing_session', 'login_required', 'challenge_required', 'provider_blocked', 'account_banned',
+       'owner_revoked', 'corrupt_state')),
   -- Lease columns are all present (a granted lease) or all absent (an operator
   -- revocation recorded while no lease was held).
   constraint provider_session_leases_lease_columns_together
@@ -484,7 +485,8 @@ begin
   -- owner_revoked is not reportable by a holder: only the operator revoke RPC
   -- below may set it, so a worker cannot forge an operator fence.
   if p_outcome is null
-     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'corrupt_state') then
+     or p_outcome not in ('missing_session', 'login_required', 'challenge_required', 'provider_blocked',
+                          'account_banned', 'corrupt_state') then
     return jsonb_build_object('status', 'rejected', 'reason', 'invalid_outcome');
   end if;
 

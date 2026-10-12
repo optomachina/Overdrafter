@@ -26,6 +26,8 @@ export const PROVIDER_SESSION_BLOCKING_OUTCOMES = [
   "missing_session",
   "login_required",
   "challenge_required",
+  "provider_blocked",
+  "account_banned",
   "owner_revoked",
   "corrupt_state",
 ] as const;
@@ -39,9 +41,35 @@ export const PROVIDER_SESSION_REPORTABLE_OUTCOMES = [
   "missing_session",
   "login_required",
   "challenge_required",
+  "provider_blocked",
+  "account_banned",
   "corrupt_state",
 ] as const satisfies readonly ProviderSessionBlockingOutcome[];
 export type ProviderSessionReportableOutcome = (typeof PROVIDER_SESSION_REPORTABLE_OUTCOMES)[number];
+
+/**
+ * Terminal adapter failure kinds (the OVD-461 execution seam vocabulary) and the
+ * lease outcome each one records. Total: every kind blocks the binding until an
+ * operator clears it, and none is ever retried. CAPTCHA and anti-bot challenges
+ * are `challenge_required`; a provider block and an account ban get their own
+ * outcomes.
+ */
+export const PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES = Object.freeze({
+  login_required: "login_required",
+  challenge_required: "challenge_required",
+  blocked: "provider_blocked",
+  banned: "account_banned",
+} as const satisfies Record<string, ProviderSessionReportableOutcome>);
+export type ProviderSessionAdapterFailureKind = keyof typeof PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES;
+
+export function providerSessionOutcomeForAdapterFailure(
+  kind: ProviderSessionAdapterFailureKind,
+): ProviderSessionReportableOutcome {
+  if (!Object.hasOwn(PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES, kind)) {
+    throw new Error("Unknown provider adapter failure kind.");
+  }
+  return PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES[kind];
+}
 export type ProviderSessionTerminalOutcome = ProviderSessionBlockingOutcome | "lease_lost";
 
 export const PROVIDER_SESSION_OUTCOME_DISPOSITION: Readonly<
@@ -50,6 +78,8 @@ export const PROVIDER_SESSION_OUTCOME_DISPOSITION: Readonly<
   missing_session: { disposition: "manual_follow_up", blocksBinding: true },
   login_required: { disposition: "manual_follow_up", blocksBinding: true },
   challenge_required: { disposition: "manual_follow_up", blocksBinding: true },
+  provider_blocked: { disposition: "manual_follow_up", blocksBinding: true },
+  account_banned: { disposition: "manual_follow_up", blocksBinding: true },
   owner_revoked: { disposition: "manual_follow_up", blocksBinding: true },
   corrupt_state: { disposition: "manual_follow_up", blocksBinding: true },
   lease_lost: { disposition: "terminal", blocksBinding: false },

@@ -93,6 +93,8 @@ acquire ──► active ──renew (≤ maxRenewals, ≤ maxDuration)──►
 | `missing_session` | manual follow-up | yes | adapter `ProviderSessionOutcomeError` |
 | `login_required` | manual follow-up | yes | `VendorAutomationError("login_required")` or explicit |
 | `challenge_required` | manual follow-up | yes | MFA/CAPTCHA/challenge; `captcha`, `anti_detection_block` |
+| `provider_blocked` | manual follow-up | yes | the provider blocked the account or session (adapter failure kind `blocked`) |
+| `account_banned` | manual follow-up | yes | the provider banned the account (adapter failure kind `banned`) |
 | `owner_revoked` | manual follow-up | yes | operator `revoke_provider_session_binding` |
 | `corrupt_state` | manual follow-up | yes | adapter `ProviderSessionOutcomeError` |
 | `lease_lost` | terminal | no | expiry, renewal exhausted, fencing, unconfirmed past deadline |
@@ -107,8 +109,14 @@ is the one the clear RPC takes, so revoked authority and the authority before
 revocation never share a generation.
 
 A holder may report only `missing_session`, `login_required`,
-`challenge_required` and `corrupt_state`
-(`PROVIDER_SESSION_REPORTABLE_OUTCOMES`). `report_provider_session_lease_outcome`
+`challenge_required`, `provider_blocked`, `account_banned` and `corrupt_state`
+(`PROVIDER_SESSION_REPORTABLE_OUTCOMES`). `PROVIDER_SESSION_ADAPTER_FAILURE_OUTCOMES`
+(with `providerSessionOutcomeForAdapterFailure`) is the one total mapping from
+the execution seam's terminal failure kinds to lease outcomes: `login_required`
+to `login_required`, `challenge_required` (CAPTCHA and anti-bot challenges) to
+`challenge_required`, `blocked` to `provider_blocked`, and `banned` to
+`account_banned`. Every one blocks the binding until an operator clears it and
+is never retried. `report_provider_session_lease_outcome`
 and the memory store reject `owner_revoked` with `invalid_outcome`, so only the
 operator revoke RPC can set that fence.
 
@@ -172,7 +180,7 @@ relies on the migration runner's transaction wrapper; by hand, use
 - `worker/src/providerSessionLease.test.ts` and
   `worker/src/providerSessionLeaseRpcStore.test.ts`: the root `npm test`
   (vitest) runs them.
-- `supabase/tests/provider_session_leases.sql` has 122 pgTAP assertions covering
+- `supabase/tests/provider_session_leases.sql` has 128 pgTAP assertions covering
   catalog, grants, RLS denial, owner `BYPASSRLS`, lock settings, the binding
   registry backstop, contention, isolation, wrong-owner and null fencing inputs,
   bounded renewal and the hard cap, crash/expiry recovery, idempotent release,

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(122);
+select plan(128);
 
 -- OVD-462 is a proposed migration that is intentionally NOT in supabase/migrations
 -- yet (needs migration window 1). fixtures/ holds a byte copy of
@@ -352,6 +352,20 @@ select is((select array_agg(state) from public.provider_session_leases
            where provider = 'xometry' and account_ref = pg_temp.acct(11) and environment = 'test'),
           array['expired'], 'an expired holder cannot block the binding');
 set local role service_role;
+
+-- ---------------------------------------------------------------- provider block and account ban
+select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(20), 'test', pg_temp.sb(20), 'task-k', pg_temp.tok(20), 60, 5, 600)->>'generation',
+  '1', 'fresh binding for the provider block case');
+select is(public.report_provider_session_lease_outcome('xometry', pg_temp.acct(20), 'test', pg_temp.sb(20), 'task-k', pg_temp.tok(20), 1, 'provider_blocked'),
+  '{"status":"blocked","outcome":"provider_blocked","generation":1}'::jsonb, 'holder reports a provider block');
+select is(public.acquire_provider_session_lease('xometry', pg_temp.acct(20), 'test', pg_temp.sb(20), 'task-l', pg_temp.tok(21), 60, 5, 600),
+  '{"status":"manual_follow_up","outcome":"provider_blocked"}'::jsonb, 'a provider block stops the binding until an operator clears it');
+select is(public.acquire_provider_session_lease('fictiv', pg_temp.acct(21), 'production', pg_temp.sb(21), 'task-m', pg_temp.tok(22), 60, 5, 600)->>'generation',
+  '1', 'fresh binding for the account ban case');
+select is(public.report_provider_session_lease_outcome('fictiv', pg_temp.acct(21), 'production', pg_temp.sb(21), 'task-m', pg_temp.tok(22), 1, 'account_banned'),
+  '{"status":"blocked","outcome":"account_banned","generation":1}'::jsonb, 'holder reports an account ban');
+select is(public.acquire_provider_session_lease('fictiv', pg_temp.acct(21), 'production', pg_temp.sb(21), 'task-n', pg_temp.tok(23), 60, 5, 600),
+  '{"status":"manual_follow_up","outcome":"account_banned"}'::jsonb, 'an account ban stops the binding until an operator clears it');
 
 -- ---------------------------------------------------------------- input validation (no echo, no storage)
 select is(public.acquire_provider_session_lease('xometry', 'someone@example.com', 'test', pg_temp.sb(8), 'task-g', pg_temp.tok(7), 60, 5, 600),
