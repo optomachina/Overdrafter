@@ -1462,7 +1462,7 @@ function withPositional(text, values) {
   const args = values.slice(1);
   return text
     .replace(/"\$(?:@|\{@\})"/g, () => args.map(quote).join(" "))
-    .replace(/\$(?:([0-9])|\{(\d+)\})/g, (_, a, b) => escape(values[Number(a ?? b)] ?? ""))
+    .replace(/\$(?:(\d)|\{(\d+)\})/g, (_, a, b) => escape(values[Number(a ?? b)] ?? ""))
     .replace(/\$(?:[@*]|\{[@*]\})/g, () => args.map(escape).join(" "));
 }
 

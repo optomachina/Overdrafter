@@ -94,8 +94,11 @@ writeFileSync(join(FIXTURE, "run-args.sh"), '#!/bin/sh\n"$@"\n');
 writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1/jobs"\ndata = "{}"\n');
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 // Two git repositories for the push and alias rows: gitmain has main checked out, gitfeat a feature branch and some aliases.
+// git is run from a fixed install location, as the hook does, rather than looked up on PATH.
+const GIT = ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"].find((candidate) => existsSync(candidate));
 const git = (sub, ...args) => {
-  const result = spawnSync("git", ["-C", join(FIXTURE, sub), ...args], { encoding: "utf8" });
+  if (!GIT) throw new Error("git not found in a fixed install location");
+  const result = spawnSync(GIT, ["-C", join(FIXTURE, sub), ...args], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
 };
 for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"]]) {
