@@ -759,6 +759,13 @@ qualification. The registry inserts no stop admission and makes no occupancy or
 result-eligibility transition. The existing native-ownership tests and current
 repository gate remain separate integration checks.
 
+With `--staged-replay` it also loads the staged OVD-649 replacement in
+`scripts/native/stop-observer/sql/` and proves exact receipt recovery, that a
+concurrent admission revocation either waits for an in-flight ingestion or
+causes it to be denied, that two concurrent identical READ COMMITTED
+ingestions return one retained UUID, and that REPEATABLE READ and SERIALIZABLE
+ingestion is refused. The staged SQL is not a migration.
+
 ### OVD-562 retained parent integration
 
 `scripts/native/worker-companion/test-runtime.ps1` prepares and validates an offline pinned

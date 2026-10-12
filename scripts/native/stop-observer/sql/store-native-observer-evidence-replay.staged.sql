@@ -3,7 +3,8 @@
 -- profiles, actors, credentials or qualifications are provisioned here.
 -- Replacement of the existing OVD575 signature preserves existing ownership
 -- and grants. Original validator body retained; only exact prior-UUID recovery,
--- same-attempt insertion serialization and actor lock are added.
+-- same-attempt insertion serialization, actor lock, admission row locks and
+-- the READ COMMITTED requirement are added.
 -- Runtime integration requires this replacement to pass the SQL fixture gate.
 
 create or replace function engineering_private.store_native_observer_evidence(
@@ -28,6 +29,13 @@ begin
   -- has no API/service_role membership and no direct table DML.
   if current_setting('role') <> 'ovd575_observer_validator' then
     raise exception using errcode='42501',message='Observer validator executor required.';
+  end if;
+  -- Replay recovery and the revocation recheck rely on each statement taking a
+  -- fresh snapshot after the row locks below are granted. A REPEATABLE READ or
+  -- SERIALIZABLE snapshot predates those locks and would miss a concurrently
+  -- committed receipt or revocation, so other isolation levels are refused.
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception using errcode='0A000',message='Observer evidence ingestion requires READ COMMITTED.';
   end if;
   select admitted_by into v_actor from engineering_private.native_observer_validator_actors
     where executor_role='ovd575_observer_validator' and enabled for share;
@@ -276,6 +284,20 @@ begin
   select * into v_attempt from public.engineering_execution_attempts
     where id=(v_binding->>'attemptId')::uuid for update;
   select * into v_profile from engineering_private.native_observer_profiles where id=p_profile for share;
+  -- A revocation INSERT takes an FK key-share lock on its admission. Holding
+  -- FOR UPDATE through insertion (as OVD-576 stop admission does, in the same
+  -- attempt -> runtime -> input order) means a revocation either commits before
+  -- the checks below observe it, or waits until this evidence has committed.
+  perform 1 from engineering_private.native_runtime_admissions
+    where id=v_attempt.runtime_admission_id for update;
+  if not found then
+    raise exception using errcode='PT409',message='Native runtime admission missing.';
+  end if;
+  perform 1 from engineering_private.native_input_admissions
+    where id=v_attempt.input_admission_id for update;
+  if not found then
+    raise exception using errcode='PT409',message='Native input admission missing.';
+  end if;
   -- Exact immutable receipt recovery only. Serialize same-attempt insertion
   -- above so a concurrent identical request observes the committed UUID.
   -- No new evidence, qualification, stop, lease or slot authority is created.
