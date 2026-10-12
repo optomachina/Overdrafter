@@ -8,6 +8,7 @@ export type ProviderRegistrySessionSecret = {
   readonly mountEnv?: string;
   readonly mountPath?: string;
   readonly requiredWhenListed: boolean;
+  readonly manualDeploy?: boolean;
 };
 
 export type ProviderRegistryEntry = {
@@ -15,6 +16,7 @@ export type ProviderRegistryEntry = {
   readonly liveAdapter: boolean;
   readonly sessionSecrets: readonly ProviderRegistrySessionSecret[];
   readonly egress: ProviderRegistryEgress;
+  readonly sessionlessJustification?: string;
 };
 
 export const PROVIDER_REGISTRY = {
@@ -145,10 +147,12 @@ export const PROVIDER_REGISTRY = {
       {
         "secretNameEnv": "XOMETRY_STORAGE_STATE_SECRET_NAME",
         "mountEnv": "XOMETRY_STORAGE_STATE_JSON",
-        "requiredWhenListed": false
+        "requiredWhenListed": false,
+        "manualDeploy": true
       }
     ],
-    "egress": "stable_nat"
+    "egress": "stable_nat",
+    "sessionlessJustification": "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper."
   }
 } as const;
 

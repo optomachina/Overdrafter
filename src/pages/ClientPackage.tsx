@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
@@ -219,7 +220,7 @@ const ClientPackage = () => {
       <AppShell title="Package unavailable" subtitle="The requested client package could not be loaded.">
         <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="p-6 text-sm text-destructive">
-            {packageQuery.error instanceof Error ? packageQuery.error.message : "Unknown error"}
+            {getUserFacingErrorMessage(packageQuery.error, "Unknown error")}
           </CardContent>
         </Card>
       </AppShell>

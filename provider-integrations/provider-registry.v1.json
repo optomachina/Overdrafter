@@ -2,6 +2,16 @@
   "$schema": "./provider-registry.v1.schema.json",
   "schemaVersion": 1,
   "stableEgressRequiredKey": "xometry",
+  "oneDotZero": [
+    "fictiv",
+    "geomiq",
+    "oshcut",
+    "quickparts",
+    "rmfg",
+    "sendcutsend",
+    "weerg",
+    "xometry"
+  ],
   "providers": [
     {
       "key": "devzmanufacturing",
@@ -130,10 +140,12 @@
         {
           "secretNameEnv": "XOMETRY_STORAGE_STATE_SECRET_NAME",
           "mountEnv": "XOMETRY_STORAGE_STATE_JSON",
-          "requiredWhenListed": false
+          "requiredWhenListed": false,
+          "manualDeploy": true
         }
       ],
-      "egress": "stable_nat"
+      "egress": "stable_nat",
+      "sessionlessJustification": "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper."
     }
   ]
 }

@@ -9,7 +9,7 @@ const PERSISTENT_ERROR_DURATION = Number.POSITIVE_INFINITY;
 let persistentErrorToastInstalled = false;
 
 function getToastMessageText(message: unknown) {
-  return getUserFacingErrorMessage(message, "Error toast triggered.");
+  return getUserFacingErrorMessage(message, "Something went wrong. Please try again.");
 }
 
 function renderCopyToastLabel() {
