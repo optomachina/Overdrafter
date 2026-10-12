@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { chromium, type Browser, type BrowserContextOptions, type Request } from "playwright";
 import { chromiumSandboxLaunchOptions } from "./chromiumLaunchOptions.js";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
@@ -111,21 +113,50 @@ export function isAllowedProbeUrl(rawUrl: string, policy: ProbeUrlPolicy): boole
 
 export type SecretLoader = (secretName: string) => Promise<string>;
 
+const GCLOUD_FIXED_LOCATIONS = [
+  "/usr/local/bin/gcloud",
+  "/usr/bin/gcloud",
+  "/opt/homebrew/bin/gcloud",
+  "/snap/bin/gcloud",
+  "/usr/lib/google-cloud-sdk/bin/gcloud",
+];
+
+/**
+ * Finds gcloud without consulting PATH: GCLOUD_PATH (an absolute path) first,
+ * then a fixed list, then the SDK folder in the home directory.
+ */
+async function findGcloud(): Promise<string | null> {
+  const home = process.env.HOME;
+  const candidates = [
+    process.env.GCLOUD_PATH,
+    ...GCLOUD_FIXED_LOCATIONS,
+    home ? `${home}/google-cloud-sdk/bin/gcloud` : undefined,
+  ].filter((candidate): candidate is string => typeof candidate === "string" && path.isAbsolute(candidate));
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // try the next location
+    }
+  }
+  return null;
+}
+
 /**
  * Default secret loader: asks gcloud for the latest version and keeps the value
  * in memory only. Errors are replaced with a fixed message so no stderr text
  * can carry a secret into logs.
  */
 export function gcloudSecretLoader(project: string | undefined): SecretLoader {
-  return (secretName) =>
-    new Promise((resolve, reject) => {
-      if (!/^[A-Za-z0-9_-]{1,255}$/.test(secretName)) {
-        reject(new Error("secret_unavailable"));
-        return;
-      }
-      const args = ["secrets", "versions", "access", "latest", `--secret=${secretName}`];
-      if (project) args.push(`--project=${project}`);
-      execFile("gcloud", args, { maxBuffer: 8 * 1024 * 1024, timeout: 30_000 }, (error, stdout) => {
+  return async (secretName) => {
+    if (!/^[A-Za-z0-9_-]{1,255}$/.test(secretName)) throw new Error("secret_unavailable");
+    const gcloud = await findGcloud();
+    if (!gcloud) throw new Error("secret_unavailable");
+    const args = ["secrets", "versions", "access", "latest", `--secret=${secretName}`];
+    if (project) args.push(`--project=${project}`);
+    return new Promise<string>((resolve, reject) => {
+      execFile(gcloud, args, { maxBuffer: 8 * 1024 * 1024, timeout: 30_000 }, (error, stdout) => {
         if (error || typeof stdout !== "string" || stdout.length === 0) {
           reject(new Error("secret_unavailable"));
           return;
@@ -133,6 +164,7 @@ export function gcloudSecretLoader(project: string | undefined): SecretLoader {
         resolve(stdout);
       });
     });
+  };
 }
 
 export type StorageStateInput = {

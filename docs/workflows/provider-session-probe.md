@@ -14,7 +14,7 @@ For RMFG it makes one authenticated GET with the key. See the open item below.
 
 ## Commands Blaine runs
 
-Run from the repository root. Each needs `gcloud` signed in with access to project `overdrafter-worker-9133`. Add `--out <path>` to also write the JSON record.
+Run from the repository root. Each needs `gcloud` signed in with access to project `overdrafter-worker-9133`. The probe finds `gcloud` in fixed install locations rather than through PATH; if yours is elsewhere, set `GCLOUD_PATH` to its absolute path. Add `--out <path>` to also write the JSON record.
 
 ```bash
 npm --prefix worker run probe:session -- fictiv --secret fictiv-storage-state --project overdrafter-worker-9133
