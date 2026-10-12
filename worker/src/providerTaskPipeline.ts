@@ -298,7 +298,36 @@ function capturedFilesMatch(envelope: ProviderDispatchEnvelope, files: readonly 
   return true;
 }
 
-function toAdapterOutput(output: VendorQuoteAdapterOutput, validated: ValidatedProviderResult): VendorQuoteAdapterOutput {
+/** `vendor_quote_offers.sort_rank` is int4; ranks are positions, so negatives are refused too. */
+export const MAX_PERSISTED_SORT_RANK = 2_147_483_647;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function isPersistableSortRank(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= MAX_PERSISTED_SORT_RANK;
+}
+
+/**
+ * The single place a result level expiry is derived. A vendor date wins; a
+ * vendor stated duration runs from the quote time, or the collection time when
+ * the vendor gave none, and its end is inclusive (the OVD-463 rule).
+ */
+export function deriveProviderResultValidUntil(
+  output: Pick<VendorQuoteAdapterOutput, "validitySource" | "validityDurationDays">,
+  validated: Pick<ValidatedProviderResult, "validUntil" | "quotedAt" | "provenance">,
+): string | null {
+  if (validated.validUntil) return validated.validUntil;
+  const days = output.validityDurationDays;
+  if (output.validitySource !== "vendor_duration" || !Number.isInteger(days) || (days as number) <= 0) return null;
+  const anchorMs = Date.parse(validated.quotedAt ?? validated.provenance.collectedAt);
+  if (!Number.isFinite(anchorMs)) return null;
+  return new Date(anchorMs + (days as number) * DAY_MS).toISOString();
+}
+
+function toAdapterOutput(
+  output: VendorQuoteAdapterOutput,
+  validated: ValidatedProviderResult,
+  validUntil: string | null,
+): VendorQuoteAdapterOutput {
   const derivedOnly = validated.offers.every((offer) => offer.derivedFromSummary);
   const offers: VendorQuoteAdapterOffer[] = validated.offers.map((offer) => ({
     providerOptionId: offer.providerOptionId,
@@ -321,7 +350,7 @@ function toAdapterOutput(output: VendorQuoteAdapterOutput, validated: ValidatedP
     ...output,
     status: validated.status,
     quotedAt: validated.quotedAt,
-    validUntil: validated.validUntil,
+    validUntil,
     offers: derivedOnly ? undefined : offers,
     rawPayload: {
       ...sanitizeRawPayload(output.rawPayload ?? {}),
@@ -597,6 +626,26 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
   };
 }
 
+/**
+ * Last checks between a validated result and the database: every rank must fit
+ * the int4 column, and a duration only validity gets its expiry derived here and
+ * must not have passed. A refusal is a visible finite state, never a silent drop.
+ */
+function persistableOutput(
+  output: VendorQuoteAdapterOutput,
+  validated: ValidatedProviderResult,
+  nowMs: number,
+): VendorQuoteAdapterOutput | Stop {
+  if (!validated.offers.every((offer) => isPersistableSortRank(offer.sortRank))) {
+    return stop("manual_follow_up", "sort_rank_out_of_range", "validate");
+  }
+  const validUntil = deriveProviderResultValidUntil(output, validated);
+  if (validUntil !== null && Date.parse(validUntil) < nowMs) {
+    return stop("post_start_bounded", "expired_validity", "validate", { retryBudget: 1 });
+  }
+  return toAdapterOutput(output, validated, validUntil);
+}
+
 /** Everything steps 5 to 7 need once authorization, bytes and session passed. */
 type AdmittedStep = {
   input: ProviderTaskPipelineInput;
@@ -670,7 +719,8 @@ async function executeValidateAndPersist(
   } catch {
     return stop("failed", "lease_lost", "persist");
   }
-  const persistable = toAdapterOutput(output, validation.value);
+  const persistable = persistableOutput(output, validation.value, now());
+  if (isStop(persistable)) return persistable;
   try {
     const persisted = await deps.persist(persistable);
     return {

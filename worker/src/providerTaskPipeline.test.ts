@@ -13,9 +13,13 @@ import {
   type ProviderExecutionTerminalOutcome,
 } from "./providerExecutionSeam";
 import { validateProviderResult } from "./providerResultValidation";
+import { providerTaskFailureRecord } from "./providerTaskRoute";
 import {
   createProviderDaySwitch,
   decideProviderTaskRetry,
+  deriveProviderResultValidUntil,
+  isPersistableSortRank,
+  MAX_PERSISTED_SORT_RANK,
   PROVIDER_TASK_MAX_ADAPTER_REQUEUES,
   runProviderTaskPipeline,
   type ProviderTaskLeaseContext,
@@ -25,7 +29,12 @@ import {
   type ProviderTaskPipelineDeps,
   type ProviderTaskPipelineInput,
 } from "./providerTaskPipeline";
-import { VendorAutomationError, type VendorQuoteAdapterInput, type VendorQuoteAdapterOutput } from "./types";
+import {
+  VendorAutomationError,
+  type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOffer,
+  type VendorQuoteAdapterOutput,
+} from "./types";
 
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const CAD = new TextEncoder().encode("step-bytes");
@@ -598,5 +607,123 @@ describe("persistence and cleanup", () => {
     const h = harness({ calls, lease: lease.port });
     const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
     expect(outcome).toMatchObject({ disposition: "failed", code: "lease_error" });
+  });
+});
+
+function offerFor(change: Partial<VendorQuoteAdapterOffer> = {}): VendorQuoteAdapterOffer {
+  return {
+    providerOptionId: "standard",
+    providerLabel: "Standard",
+    quoteRef: "Q-1",
+    quoteUrl: "https://app.fictiv.com/quotes/abc",
+    quantity: 1,
+    unitPriceUsd: 12,
+    totalPriceUsd: 12,
+    leadTimeBusinessDays: 8,
+    shipReceiveBy: null,
+    tier: "Standard",
+    sourcing: null,
+    geographicOrigin: "unknown",
+    sortRank: 0,
+    provenance: {
+      containerSelector: ".option",
+      providerOptionIdSource: "attribute",
+      priceSource: "selector",
+      leadTimeSource: "selector",
+      geographicOriginSource: "none",
+    },
+    rawPayload: { normalizationRevision: "provider-offer-evidence.v1" },
+    ...change,
+  };
+}
+
+describe("persistence boundary (lead review of #698)", () => {
+  it("accepts only sort ranks that fit the int4 column", () => {
+    expect(isPersistableSortRank(0)).toBe(true);
+    expect(isPersistableSortRank(MAX_PERSISTED_SORT_RANK)).toBe(true);
+    for (const rank of [-1, MAX_PERSISTED_SORT_RANK + 1, 1e21, 0.5, Number.NaN]) {
+      expect(isPersistableSortRank(rank)).toBe(false);
+    }
+  });
+
+  it.each([-1, 1e21])("refuses an offer set with sort rank %s before the insert, in a visible state", async (sortRank) => {
+    const h = harness({
+      quote: async () =>
+        quoteOutput({ offers: [offerFor(), offerFor({ providerOptionId: "rush", providerLabel: "Rush", sortRank })] }),
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "sort_rank_out_of_range", stage: "validate" });
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("persists a valid multi offer set with its ranks unchanged", async () => {
+    const h = harness({
+      quote: async () =>
+        quoteOutput({ offers: [offerFor(), offerFor({ providerOptionId: "rush", providerLabel: "Rush", sortRank: 1 })] }),
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome.disposition).toBe("persisted");
+    expect(h.persist.mock.calls[0][0].offers?.map((offer) => offer.sortRank)).toEqual([0, 1]);
+  });
+
+  it("derives a duration expiry in one place: quote time first, else collection time, inclusive end", () => {
+    const provenance = { collectedAt: "2026-10-03T12:04:00.000Z" } as Parameters<typeof deriveProviderResultValidUntil>[1]["provenance"];
+    const duration = { validitySource: "vendor_duration" as const, validityDurationDays: 7 };
+    expect(deriveProviderResultValidUntil(duration, { validUntil: null, quotedAt: "2026-10-03T10:00:00.000Z", provenance })).toBe(
+      "2026-10-10T10:00:00.000Z",
+    );
+    expect(deriveProviderResultValidUntil(duration, { validUntil: null, quotedAt: null, provenance })).toBe(
+      "2026-10-10T12:04:00.000Z",
+    );
+    expect(
+      deriveProviderResultValidUntil(duration, { validUntil: "2026-10-05T00:00:00.000Z", quotedAt: null, provenance }),
+    ).toBe("2026-10-05T00:00:00.000Z");
+    expect(
+      deriveProviderResultValidUntil({ validitySource: "vendor_duration", validityDurationDays: 0 }, { validUntil: null, quotedAt: null, provenance }),
+    ).toBeNull();
+    expect(
+      deriveProviderResultValidUntil({ validitySource: null, validityDurationDays: 7 }, { validUntil: null, quotedAt: null, provenance }),
+    ).toBeNull();
+  });
+
+  it("persists the derived duration expiry", async () => {
+    const h = harness({
+      quote: async () =>
+        quoteOutput({ quotedAt: "2026-10-03T12:00:00.000Z", validitySource: "vendor_duration", validityDurationDays: 30 }),
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome.disposition).toBe("persisted");
+    const persisted = h.persist.mock.calls[0][0];
+    expect(persisted.validUntil).toBe("2026-11-02T12:00:00.000Z");
+    expect(persisted.validitySource).toBe("vendor_duration");
+    expect(persisted.validityDurationDays).toBe(30);
+  });
+
+  it("never persists a duration that has already run out", async () => {
+    const h = harness({
+      quote: async () =>
+        quoteOutput({ quotedAt: "2026-09-01T12:00:00.000Z", validitySource: "vendor_duration", validityDurationDays: 7 }),
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome.disposition).not.toBe("persisted");
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("records a credential like quote URL query as a visible terminal failure, never a silent drop", async () => {
+    const h = harness({ quote: async () => quoteOutput({ quoteUrl: "https://app.fictiv.com/quotes/abc?session=abc123" }) });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "invalid_destination", stage: "validate", retryAt: null });
+    expect(outcome.rejection).toMatchObject({ kind: "provider_result_rejected", code: "invalid_destination", retry: "none" });
+    expect(h.persist).not.toHaveBeenCalled();
+    const record = providerTaskFailureRecord("fictiv", outcome, { retryCount: 0, requestedQuantity: 1 });
+    expect(record.status).toBe("failed");
+    expect(record.notes[0]).toContain("invalid_destination");
+    expect(record.raw_payload).toMatchObject({
+      failureCode: "invalid_destination",
+      failureStage: "validate",
+      adapterStarted: true,
+      providerResultRejection: expect.objectContaining({ code: "invalid_destination" }),
+    });
+    expect(JSON.stringify(record)).not.toContain("abc123");
   });
 });
