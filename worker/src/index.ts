@@ -1569,27 +1569,30 @@ export async function handleVendorQuoteTask(
       failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
     }
 
-    await supabase
-      .from("vendor_quote_results")
-      .update({
-        status: resultStatus,
-        notes: [failureNote],
-        raw_payload: {
-          ...buildFailureRawPayload(
-            vendor,
-            retryCount,
-            failureCode,
-            vendorError?.payload ?? {},
-            failureArtifactStoragePaths,
-          ),
-          ...providerMutationEvidence(),
-          requestedQuantity: currentResult.requested_quantity,
-          retryScheduledFor: retryAt,
-          requiresManualVendorFollowUp,
-          manualFollowUpReason: manualReasonCode,
-        },
-      })
-      .eq("id", currentResult.id);
+    const laneWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+      status: resultStatus,
+      notes: [failureNote],
+      raw_payload: {
+        ...buildFailureRawPayload(
+          vendor,
+          retryCount,
+          failureCode,
+          vendorError?.payload ?? {},
+          failureArtifactStoragePaths,
+        ),
+        ...providerMutationEvidence(),
+        requestedQuantity: currentResult.requested_quantity,
+        retryScheduledFor: retryAt,
+        requiresManualVendorFollowUp,
+        manualFollowUpReason: manualReasonCode,
+      },
+    }).catch(() => "written" as const); // The failure write was never checked here; an error keeps the old flow.
+    if (laneWrite === "persisted") {
+      // The atomic write committed but its acknowledgement was lost: the result
+      // and offers stand, and the task must not be retried into a second quote.
+      await settlePersistedResultTask(supabase, task, error, "persist_ack_lost");
+      return;
+    }
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
 
@@ -1627,23 +1630,101 @@ async function settlePostPersistBookkeepingFailure(
   task: QueueTaskRecord,
   error: unknown,
 ) {
+  await settlePersistedResultTask(supabase, task, error, "post_persist_bookkeeping_failed");
+}
+
+/**
+ * Settles the task of a run whose result is persisted, without touching the
+ * result row: syncs the job status and marks the task failed with a stable
+ * code. Best effort and never rethrown.
+ */
+async function settlePersistedResultTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  error: unknown,
+  failureCode: "post_persist_bookkeeping_failed" | "persist_ack_lost",
+) {
   console.error(
     JSON.stringify({
       service: "overdrafter-cad-worker",
       level: "error",
       source: "worker.vendor_quote.post_persist",
-      message: `Bookkeeping failed after the vendor quote result was persisted: ${summarizeWorkerError(error)}`,
+      message: `${failureCode}: the vendor quote result was persisted; ${summarizeWorkerError(error)}`,
       context: { taskId: task.id, quoteRunId: task.quote_run_id },
     }),
   );
   try {
-    await markTaskFailed(supabase, task, "Bookkeeping failed after the vendor quote result was persisted.", {
-      failureCode: "post_persist_bookkeeping_failed",
-      vendorQuoteResultPersisted: true,
-    });
+    if (failureCode === "persist_ack_lost" && task.job_id && task.quote_run_id) {
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    }
+  } catch {
+    // The job status catches up on the next lane update; the task is still settled below.
+  }
+  try {
+    const note = failureCode === "persist_ack_lost"
+      ? "The vendor quote result was persisted but its acknowledgement was lost."
+      : "Bookkeeping failed after the vendor quote result was persisted.";
+    await markTaskFailed(supabase, task, note, { failureCode, vendorQuoteResultPersisted: true });
   } catch {
     // The stale task reaper settles a task left running; the persisted result is untouched either way.
   }
+}
+
+const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
+const PERSISTED_VENDOR_QUOTE_RESULT_STATUSES: ReadonlySet<unknown> = new Set([
+  "instant_quote_received",
+  "official_quote_received",
+]);
+
+/**
+ * Writes a non persisted outcome to the lane as a compare and set: only while
+ * the row is still queued or running. If no row matched, the row is read back:
+ * `persisted` means `reconcile_vendor_quote_offers` committed even though its
+ * response was lost, so the result and its live offers must stand; `settled`
+ * means something else already settled the lane. Neither is ever overwritten.
+ */
+async function writeUnsettledVendorQuoteResult(
+  supabase: SupabaseClient,
+  vendorQuoteResultId: string,
+  patch: Record<string, unknown>,
+): Promise<"written" | "persisted" | "settled"> {
+  const { data, error } = await supabase
+    .from("vendor_quote_results")
+    .update(patch)
+    .eq("id", vendorQuoteResultId)
+    .in("status", [...UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES])
+    .select("id");
+  if (error) throw error;
+  if (Array.isArray(data) && data.length > 0) return "written";
+  const { data: row, error: readError } = await supabase
+    .from("vendor_quote_results")
+    .select("status")
+    .eq("id", vendorQuoteResultId)
+    .maybeSingle();
+  if (readError) throw readError;
+  const status = (row as { status?: unknown } | null)?.status;
+  return PERSISTED_VENDOR_QUOTE_RESULT_STATUSES.has(status) ? "persisted" : "settled";
+}
+
+/**
+ * OVD-464: the generic lane could not take the outcome. A persisted result
+ * stands and the task is settled without a retry; a lane settled elsewhere is
+ * left as is and the task is failed with a stable code, never requeued.
+ */
+async function settleUnwrittenProviderOutcome(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  laneWrite: "persisted" | "settled",
+  adapterStarted: boolean,
+) {
+  if (laneWrite === "persisted") {
+    await settlePersistedResultTask(supabase, task, new Error("The result write acknowledgement was lost."), "persist_ack_lost");
+    return;
+  }
+  await markTaskFailed(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
+    failureCode: "lane_already_settled",
+    adapterStarted,
+  });
 }
 
 /**
@@ -1744,11 +1825,11 @@ async function recordGenericProviderOutcome(
     requestedQuantity: input.requestedQuantity,
     artifactStoragePaths: input.failureArtifactStoragePaths ?? [],
   });
-  const { error: resultError } = await supabase
-    .from("vendor_quote_results")
-    .update(record)
-    .eq("id", input.vendorQuoteResultId);
-  if (resultError) throw resultError;
+  const laneWrite = await writeUnsettledVendorQuoteResult(supabase, input.vendorQuoteResultId, record);
+  if (laneWrite !== "written") {
+    await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
+    return;
+  }
   await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
 
   const note = providerTaskOutcomeNote(vendor, outcome);

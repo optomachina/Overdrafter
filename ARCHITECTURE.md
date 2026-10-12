@@ -496,9 +496,16 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
 - retry on that route has one authority, `decideProviderTaskRetry`, keyed on
   `work_queue.attempts` as returned by `api_claim_next_task` (incremented
   atomically at claim, so a start that crashes still counts): only the first
-  claim may requeue, for a pre dispatch transient (`preflight_unavailable`,
-  lease contended or unavailable) or an adapter failure that
-  `isRetryableVendorTaskError` accepts before any provider mutation. The
+  claim may requeue, and only for a pre dispatch transient
+  (`preflight_unavailable`, lease contended or unavailable) where the adapter
+  never started. Nothing requeues after an adapter start until OVD-734 makes
+  permit consumption durable: the seam has already consumed the permit in the
+  process local replay record, so a requeued claim on the same process could
+  only end `authorization_replayed` while another process could still run it.
+  An adapter failure that `isRetryableVendorTaskError` accepts before any
+  provider mutation therefore settles to manual follow up as `adapter_failed`
+  with no retry time, and the lane keeps `adapterStarted` and
+  `providerMutationPossible` true. The
   pipeline runs the adapter in its own mutation phase and keeps the thrown
   error; any mutation evidence (the phase started or
   `providerMutationPossible`) settles to manual follow up as
@@ -507,7 +514,7 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
   after a completed adapter run never requeues (the provider already holds
   the quote), whatever its `bounded` budget; a claim past
   `PROVIDER_TASK_MAX_CLAIMS` (2) settles to `attempts_exhausted` before the
-  preflight, so at most two adapter starts ever happen (the claim counter
+  preflight, so at most one adapter start happens per task (the claim counter
   also counts requeues made before the pipeline, such as spend cap or
   staging retries, and the note says so); the claim RPC refusing such tasks
   itself is OVD-734 (window 2); terminal outcomes never requeue, and
@@ -524,6 +531,15 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
   overwrites `vendor_quote_results`: the task is marked failed with
   `post_persist_bookkeeping_failed`, best effort. The legacy Xometry path
   shares that guard; its success writes are unchanged
+- every non persisted lane write (the generic outcome and the legacy catch
+  path) is a compare and set that updates `vendor_quote_results` only while it
+  is `queued` or `running`. If no row matched, the row is read back: an
+  `instant_quote_received` or `official_quote_received` row means
+  `reconcile_vendor_quote_offers` committed but its response was lost, so the
+  result and live offers stand, the job status is synced, and the task is
+  marked failed with `persist_ack_lost` and `vendorQuoteResultPersisted`
+  true, never retried. Any other settled row is left as is and the generic
+  task is failed with `lane_already_settled`
 - any other live non-Xometry task stays on the specialized path and is
   refused with `dispatch_live_provider_not_permitted` before launch
 - generic denials are recorded with their OVD-457 code as `failureCode` and

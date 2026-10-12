@@ -69,9 +69,11 @@ import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
  *
  * Retry authority: `decideProviderTaskRetry` is the only place this route
  * decides to requeue. The caller writes the outcome and must not rethrow it
- * into the worker's generic task retry. Only an adapter failure with no
- * mutation evidence that the shared vendor policy calls transient may requeue,
- * once; a refused result after a completed adapter run never requeues.
+ * into the worker's generic task retry. Only a pre dispatch transient (the
+ * adapter never started) may requeue, once. Until OVD-734 lands durable per
+ * permit consumption, nothing requeues after an adapter start: a pre mutation
+ * transient adapter failure settles as manual follow up (`adapter_failed`),
+ * and a refused result after a completed adapter run never requeues.
  */
 
 export const PROVIDER_SESSION_LEASE_SETTINGS = ["off", "on"] as const;
@@ -81,8 +83,10 @@ export type ProviderSessionLeaseSetting = (typeof PROVIDER_SESSION_LEASE_SETTING
  * Requeues allowed after an adapter start. The cap is read from the database
  * claim counter (`work_queue.attempts`, incremented atomically by
  * `api_claim_next_task` on every claim), never from worker memory, so it holds
- * across processes and restarts. A requeue after an adapter start is allowed
- * only on the first claim; every later claim that starts the adapter is final.
+ * across processes and restarts. `decideProviderTaskRetry` would allow one
+ * such requeue from the first claim, but the pipeline currently settles every
+ * bounded post start failure for an operator instead (see
+ * `effectiveFailureClass`) until OVD-734 makes permit consumption durable.
  * A worker that crashes mid run is reaped to `failed`, never requeued.
  */
 export const PROVIDER_TASK_MAX_ADAPTER_REQUEUES = 1;
@@ -210,7 +214,8 @@ const DETERMINISTIC_TERMINAL_STATES: ReadonlySet<unknown> = new Set(["unsupporte
  * Classes an error thrown by the adapter, given the mutation phase the
  * pipeline ran the adapter in. Only a failure the shared vendor retry policy
  * accepts before any provider mutation (a transient navigation, network or
- * persistence failure) may requeue, and then at most once. Any mutation
+ * persistence failure) is classed `post_start_bounded`; the pipeline settles
+ * it for an operator rather than requeueing (see `effectiveFailureClass`). Any mutation
  * evidence, from the phase or the error's own `providerMutationPossible`, means
  * the provider may hold an upload or a quote: never requeue, an operator looks.
  */
@@ -689,13 +694,18 @@ function failureEvidence(state: RunState): ProviderTaskOutcome["evidence"] {
 }
 
 /**
- * Only an adapter stage failure without mutation evidence may requeue; every
- * other stop with a bounded class is settled for an operator instead.
+ * Only a pre dispatch transient (nothing reached the provider) may requeue on
+ * this route. A bounded failure after an adapter start is settled for an
+ * operator instead.
  */
 function effectiveFailureClass(result: Stop, state: RunState): ProviderTaskFailureClass {
   // Nothing that reached the provider is ever classed as pre dispatch.
   if (state.adapterStarted && result.failureClass === "pre_dispatch_transient") return "failed";
-  if (result.failureClass === "post_start_bounded" && result.stage !== "adapter") return "manual_follow_up";
+  // Fail closed until OVD-734 makes permit consumption durable: the seam has
+  // already consumed this permit in the process local replay record, so a
+  // requeued claim on this process could only end authorization_replayed while
+  // another process could still run it. No requeue after an adapter start.
+  if (result.failureClass === "post_start_bounded") return "manual_follow_up";
   return result.failureClass;
 }
 

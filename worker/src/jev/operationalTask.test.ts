@@ -62,13 +62,22 @@ function sessionFixture() {
 /** In-memory DB/storage boundaries only: actual handler, preflight, registry, Xometry simulation,
  * spend guard, lane snapshot, offer projection, finalization and queue helpers remain real. */
 function database(requestCanceled = false, denyDispatch = false, queueAck?: () => Promise<void>, approved: unknown = requirement,
-  failStatusReadAfterPersist = false) {
+  failStatusReadAfterPersist = false, { persistAckLost = false } = {}) {
   const writes: unknown[] = [];
   const persisted = () => writes.some((write) => (write as { rpc?: string }).rpc === "reconcile_vendor_quote_offers");
+  // The lane row's status, so a compare and set update matches only what the database would match.
+  let laneStatus = "queued";
   const from = (table: string) => {
-    let columns = ""; let mutation = false;
+    let columns = ""; let mutation = false; let one = false; let statusIn: unknown[] | null = null; let write: unknown = null;
     const response = () => {
+      if (mutation && table === "vendor_quote_results") {
+        const patch = (write as { update?: { status?: string } }).update;
+        if (statusIn && !statusIn.includes(laneStatus)) { writes.splice(writes.indexOf(write), 1); return { data: [], error: null }; }
+        if (patch?.status) laneStatus = patch.status;
+        return { data: [{ id: "result" }], error: null };
+      }
       if (mutation) return { data: null, error: null };
+      if (table === "vendor_quote_results" && columns === "status" && one) return { data: { status: laneStatus }, error: null };
       if (failStatusReadAfterPersist && table === "quote_runs" && persisted()) return { data: null, error: { message: "status read failed" } };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? approved
@@ -81,9 +90,10 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
     };
     const query = {
       select(value: string) { columns = value; return query; },
-      eq() { return query; }, neq() { return query; }, in() { return query; },
-      single: async () => response(), maybeSingle: async () => response(),
-      update(value: unknown) { mutation = true; writes.push({ table, update: structuredClone(value) }); return query; },
+      eq() { return query; }, neq() { return query; },
+      in(column: string, values: unknown[]) { if (column === "status") statusIn = values; return query; },
+      single: async () => response(), maybeSingle: async () => { one = true; return response(); },
+      update(value: unknown) { mutation = true; write = { table, update: structuredClone(value) }; writes.push(write); return query; },
       insert(value: unknown) { mutation = true; writes.push({ table, insert: structuredClone(value) }); return query; },
       then(resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) {
         return (async () => { if (mutation && table === "work_queue") await queueAck?.(); return response(); })().then(resolve, reject);
@@ -93,6 +103,14 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
   };
   const rpc = (name: string, args: unknown) => {
     writes.push({ rpc: name, args: structuredClone(args) });
+    if (name === "reconcile_vendor_quote_offers") {
+      // The function commits; with persistAckLost its response is lost on the way back.
+      laneStatus = (args as { p_result: { status: string } }).p_result.status;
+      if (persistAckLost) {
+        const lost = Promise.resolve({ data: null, error: { message: "TypeError: fetch failed" } });
+        return Object.assign(lost, { abortSignal: () => lost });
+      }
+    }
     const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
@@ -309,6 +327,37 @@ describe("actual worker operational advisory seam", () => {
     expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
     expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
       payload: expect.objectContaining({ failureCode: "post_persist_bookkeeping_failed" }) }) }]));
+  });
+
+  it("never overwrites a committed generic result whose persistence acknowledgement was lost (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    genericRoute.run = async (route) => {
+      const output = { vendor: "fictiv" as const, status: "instant_quote_received" as const, unitPriceUsd: 12, totalPriceUsd: 24,
+        leadTimeBusinessDays: 8, quoteUrl: "https://app.fictiv.com/quotes/abc", dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { source: "fictiv-live-adapter" } };
+      // What the pipeline returns when persist throws.
+      await expect(route.persist(output)).rejects.toThrow();
+      return { disposition: "failed", code: "persistence_failure", stage: "persist", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, false, { persistAckLost: true });
+    await expect(handleVendorQuoteTask(db.client, generic, live)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
+    expect(after).not.toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }]));
+  });
+
+  it("never overwrites or retries a committed Xometry result whose persistence acknowledgement was lost", async () => {
+    const db = database(false, false, undefined, requirement, false, { persistAckLost: true });
+    await expect(handleVendorQuoteTask(db.client, task, config)).resolves.toBeUndefined();
+    const after = writesAfterPersist(db.writes);
+    expect(after.filter((write) => (write as { table?: string }).table === "vendor_quote_results")).toEqual([]);
+    expect(after).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "failed",
+      payload: expect.objectContaining({ failureCode: "persist_ack_lost", vendorQuoteResultPersisted: true }) }) }]));
   });
 
   it("keeps a persisted Xometry result when the status read after persistence fails, without changing its success writes", async () => {

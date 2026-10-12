@@ -452,34 +452,29 @@ describe("retry authority", () => {
     expect(decideProviderTaskRetry({ failureClass: "failed", attempts: 1, now })).toEqual({ action: "fail" });
   });
 
-  it("requeues a pre mutation transient adapter failure once and then stops (retry exhaustion)", async () => {
+  it("settles a pre mutation transient adapter failure for an operator instead of requeueing (fail closed until OVD-734)", async () => {
     const failing = async () => {
       throw new VendorAutomationError("nav", "navigation_failure");
     };
     const first = harness({ quote: failing });
     const one = await runProviderTaskPipeline(input(), first.deps);
-    expect(one).toMatchObject({ disposition: "requeue", code: "adapter_failed", adapterStarted: true });
-    // The requeued task is a new database claim (attempts 2), here in another
-    // process with its own replay record: it may start once more, then it is final.
-    const second = harness({ quote: failing });
-    const two = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), second.deps);
-    expect(two).toMatchObject({ disposition: "failed", code: "adapter_failed", retryAt: null });
+    expect(one).toMatchObject({ disposition: "manual_follow_up", code: "adapter_failed", adapterStarted: true, retryAt: null });
     expect(first.quote).toHaveBeenCalledTimes(1);
-    expect(second.quote).toHaveBeenCalledTimes(1);
+    const record = providerTaskFailureRecord("fictiv", one, { retryCount: 0, requestedQuantity: 2 });
+    expect(record.status).toBe("manual_vendor_followup");
+    expect(record.raw_payload).toMatchObject({ adapterStarted: true, providerMutationPossible: true, retryScheduledFor: null });
   });
 
-  it("never dispatches a requeued claim twice on one permit in the same process", async () => {
+  it("never leaves a same process retry that could only end authorization_replayed", async () => {
     const consumer = createProviderAuthorizationConsumer();
-    const failing = async () => {
+    const quote = vi.fn(async () => {
       throw new VendorAutomationError("nav", "navigation_failure");
-    };
-    const first = harness({ consumer, quote: failing });
-    expect((await runProviderTaskPipeline(input(), first.deps)).disposition).toBe("requeue");
-    const second = harness({ consumer, quote: failing });
-    const two = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), second.deps);
-    expectNoAdapter(two, second.quote);
-    expect(two).toMatchObject({ disposition: "manual_follow_up", code: "authorization_replayed" });
-    expect(first.quote).toHaveBeenCalledTimes(1);
+    });
+    const first = harness({ consumer, quote });
+    const one = await runProviderTaskPipeline(input(), first.deps);
+    // Not requeued, so no later claim can overwrite this lane's adapterStarted true with false.
+    expect(one).toMatchObject({ disposition: "manual_follow_up", code: "adapter_failed", adapterStarted: true, retryAt: null });
+    expect(quote).toHaveBeenCalledTimes(1);
   });
 
   it("calls the adapter exactly once across two claims when the first failure follows a provider mutation", async () => {
@@ -508,9 +503,9 @@ describe("retry authority", () => {
       unexpected_ui_state: { disposition: "manual_follow_up", code: "adapter_unexpected_ui_state" },
       profile_in_use: { disposition: "manual_follow_up", code: "adapter_profile_in_use" },
       not_implemented: { disposition: "manual_follow_up", code: "adapter_not_implemented" },
-      upload_failure: { disposition: "requeue", code: "adapter_failed" },
-      navigation_failure: { disposition: "requeue", code: "adapter_failed" },
-      persistence_failure: { disposition: "requeue", code: "adapter_failed" },
+      upload_failure: { disposition: "manual_follow_up", code: "adapter_failed" },
+      navigation_failure: { disposition: "manual_follow_up", code: "adapter_failed" },
+      persistence_failure: { disposition: "manual_follow_up", code: "adapter_failed" },
     };
     const TERMINAL = new Set<VendorAutomationErrorCode>(["login_required", "captcha", "anti_detection_block"]);
     const cases = (Object.keys(PRE_MUTATION) as VendorAutomationErrorCode[]).flatMap((code) =>
@@ -565,7 +560,7 @@ describe("retry authority", () => {
 
     it.each([
       { name: "a plain crash", error: () => new Error("crash"), phaseStarted: false, expected: { disposition: "failed", code: "adapter_failed" } },
-      { name: "a plain transient error", error: () => new Error("ECONNRESET"), phaseStarted: false, expected: { disposition: "requeue", code: "adapter_failed" } },
+      { name: "a plain transient error", error: () => new Error("ECONNRESET"), phaseStarted: false, expected: { disposition: "manual_follow_up", code: "adapter_failed", retryAt: null } },
       { name: "a plain transient error after a mutation", error: () => new Error("ECONNRESET"), phaseStarted: true, expected: { disposition: "manual_follow_up", code: "adapter_failed_after_mutation" } },
       { name: "a non error value", error: () => "boom", phaseStarted: false, expected: { disposition: "failed", code: "adapter_failed" } },
     ])("classes $name", async ({ error, phaseStarted, expected }) => {
@@ -604,7 +599,7 @@ describe("retry authority", () => {
   it("never requeues an adapter failure on a claim that followed a pre dispatch requeue", async () => {
     const h = harness({ quote: async () => { throw new Error("ECONNRESET"); } });
     const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = 2)), h.deps);
-    expect(outcome).toMatchObject({ disposition: "failed", code: "adapter_failed" });
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "adapter_failed", retryAt: null });
   });
 
   it.each(PROVIDER_EXECUTION_TERMINAL_OUTCOMES)("never requeues the terminal outcome %s", async (terminal) => {
@@ -916,7 +911,7 @@ describe("database claim cap (lead decision)", () => {
     expect(outcome).toMatchObject({ disposition: "failed", code: "execution_request_malformed" });
   });
 
-  it("caps total adapter starts at two across requeues, even when each claim runs in a fresh process", async () => {
+  it("starts the adapter at most once per task, even when each claim runs in a fresh process", async () => {
     const failing = async () => {
       throw new Error("ECONNRESET");
     };
@@ -930,7 +925,9 @@ describe("database claim cap (lead decision)", () => {
       outcomes.push(outcome);
       if (outcome.disposition !== "requeue") break;
     }
-    expect(starts).toHaveBeenCalledTimes(2);
-    expect(outcomes.map((o) => o.disposition)).toEqual(["requeue", "failed"]);
+    expect(starts).toHaveBeenCalledTimes(1);
+    expect(outcomes.map((o) => o.disposition)).toEqual(["manual_follow_up"]);
+    expect(outcomes[0]).toMatchObject({ code: "adapter_failed", retryAt: null });
   });
+
 });
