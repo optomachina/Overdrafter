@@ -65,6 +65,9 @@ describe("provider:kill uses the admin's own session, never the service role (OV
     expect(buildProviderKillRequest(parseProviderKillArgs(["--all", "--on", "--reason", "cease and desist received"]))).toEqual({
       rpc: "api_admin_set_global_kill_switch", body: { p_engaged: true, p_reason: "cease and desist received" },
     });
+    expect(buildProviderKillRequest(parseProviderKillArgs(["--all", "--off", "--reason", "incident resolved now"]), 9)).toEqual({
+      rpc: "api_admin_set_global_kill_switch", body: { p_engaged: false, p_reason: "incident resolved now", p_expected_version: 9 },
+    });
   });
 });
 
@@ -90,6 +93,50 @@ describe("provider:kill confirmation and call (OVD-722)", () => {
         headers: expect.objectContaining({ authorization: `Bearer ${env.OVERDRAFTER_ADMIN_ACCESS_TOKEN}` }),
         body: JSON.stringify({ p_provider: "fictiv", p_engaged: true, p_reason: "cease and desist received" }),
       }));
+  });
+
+  it("engage sends no version and does not read state first", async () => {
+    const fetchImpl = vi.fn(async () => okResponse({ provider: "fictiv", engaged: true }));
+    await runProviderKill(["fictiv", "--on", "--reason", "cease and desist received", "--yes"], {
+      env, fetchImpl, log: () => undefined,
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).not.toHaveProperty("p_expected_version");
+  });
+
+  it("release reads the current row, shows it, and sends that version", async () => {
+    const list = {
+      schema: "provider-kill-switch-admin.v1",
+      global: { engaged: false, version: 2 },
+      providers: [{ provider: "fictiv", engaged: true, reason: "cease and desist received", changedBy: "a", changedAt: "t", version: 6 }],
+    };
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(okResponse(list))
+      .mockResolvedValueOnce(okResponse({ provider: "fictiv", engaged: false, version: 7 }));
+    const lines = [];
+    await runProviderKill(["fictiv", "--off", "--reason", "counsel cleared the provider"], {
+      env, fetchImpl, confirm: async () => "fictiv", log: (line) => lines.push(line),
+    });
+    expect(fetchImpl.mock.calls[0][0]).toMatch(/api_admin_list_provider_kill_switches$/);
+    expect(lines.join("\n")).toMatch(/ENGAGED .* \(version 6\)/);
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({
+      p_provider: "fictiv", p_engaged: false, p_reason: "counsel cleared the provider", p_expected_version: 6,
+    });
+  });
+
+  it("a stale release is reported, and an unreadable version changes nothing", async () => {
+    const list = { providers: [{ provider: "fictiv", engaged: true, version: 6 }], global: { engaged: false, version: 0 } };
+    const conflict = { ok: false, status: 400, text: async () => JSON.stringify({ message: "kill_switch_version_conflict" }) };
+    const fetchImpl = vi.fn().mockResolvedValueOnce(okResponse(list)).mockResolvedValueOnce(conflict);
+    await expect(runProviderKill(["fictiv", "--off", "--reason", "counsel cleared the provider", "--yes"], {
+      env, fetchImpl, log: () => undefined,
+    })).rejects.toThrow(/changed after it was read/);
+
+    const noVersion = vi.fn().mockResolvedValueOnce(okResponse({ providers: [{ provider: "fictiv", engaged: true }] }));
+    await expect(runProviderKill(["fictiv", "--off", "--reason", "counsel cleared the provider", "--yes"], {
+      env, fetchImpl: noVersion, log: () => undefined,
+    })).rejects.toThrow(/nothing changed/);
+    expect(noVersion).toHaveBeenCalledOnce();
   });
 
   it("surfaces a database refusal (for example a non-admin) as an error", async () => {

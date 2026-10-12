@@ -64,7 +64,10 @@ create table if not exists private.provider_kill_switches (
   -- Actor and time of the most recent flip (on or off). The full history is
   -- private.provider_kill_switch_audit.
   engaged_by uuid,
-  engaged_at timestamptz
+  engaged_at timestamptz,
+  -- Bumped on every flip. A release must name the version it was decided on
+  -- (compare and set); an engage never needs one, so an emergency stop always wins.
+  version bigint not null default 0 check (version >= 0)
 );
 
 create table if not exists private.provider_global_kill_switch (
@@ -72,7 +75,8 @@ create table if not exists private.provider_global_kill_switch (
   engaged boolean not null default false,
   reason text,
   engaged_by uuid,
-  engaged_at timestamptz
+  engaged_at timestamptz,
+  version bigint not null default 0 check (version >= 0)
 );
 
 create table if not exists private.provider_kill_switch_audit (
@@ -92,7 +96,22 @@ revoke all on table private.provider_kill_switches from public, anon, authentica
 revoke all on table private.provider_global_kill_switch from public, anon, authenticated, service_role;
 revoke all on table private.provider_kill_switch_audit from public, anon, authenticated, service_role;
 
--- The audit table is append-only for everyone, including the owner.
+-- Defense in depth: nothing reads these tables directly. Every caller goes
+-- through the security definer RPCs below, owned by the migration role
+-- (BYPASSRLS), matching private.provider_dispatch_permits. No policies exist,
+-- so any other role sees no rows even if a grant is added by mistake.
+alter table private.provider_kill_switches enable row level security;
+alter table private.provider_kill_switches force row level security;
+alter table private.provider_global_kill_switch enable row level security;
+alter table private.provider_global_kill_switch force row level security;
+alter table private.provider_kill_switch_audit enable row level security;
+alter table private.provider_kill_switch_audit force row level security;
+
+-- The audit table is append-only through every granted path: no role but the
+-- owner holds any privilege on it, and these triggers reject UPDATE, DELETE
+-- and TRUNCATE. This is not tamper proof against the table owner or a
+-- superuser, who can disable triggers or drop the table; the guarantee is
+-- that no application role, admin RPC, or worker can rewrite history.
 create or replace function private.provider_kill_switch_audit_immutable()
 returns trigger
 language plpgsql
@@ -188,10 +207,15 @@ revoke all on function public.api_worker_provider_kill_switch_state(public.vendo
 grant execute on function public.api_worker_provider_kill_switch_state(public.vendor_name)
   to service_role;
 
+-- Release is compare and set: p_expected_version must equal the row's current
+-- version, so a release decided on a stale view (for example admin A's delayed
+-- request arriving after admin B engaged) fails with kill_switch_version_conflict
+-- instead of clearing the newer engagement. Engage ignores p_expected_version.
 create or replace function public.api_admin_set_provider_kill_switch(
   p_provider public.vendor_name,
   p_engaged boolean,
-  p_reason text
+  p_reason text,
+  p_expected_version bigint default null
 )
 returns jsonb
 language plpgsql
@@ -201,7 +225,9 @@ as $$
 declare
   v_actor uuid;
   v_reason text;
-  v_at timestamptz := pg_catalog.clock_timestamp();
+  v_at timestamptz;
+  v_current_version bigint;
+  v_version bigint;
 begin
   if not coalesce(public.is_platform_admin(), false) then
     raise exception 'platform_admin_required' using errcode = '42501';
@@ -222,13 +248,37 @@ begin
     raise exception 'reason_required_min_10_chars' using errcode = '22023';
   end if;
 
-  insert into private.provider_kill_switches as s (provider, engaged, reason, engaged_by, engaged_at)
-  values (p_provider, p_engaged, v_reason, v_actor, v_at)
-  on conflict (provider) do update
-    set engaged = excluded.engaged,
-        reason = excluded.reason,
-        engaged_by = excluded.engaged_by,
-        engaged_at = excluded.engaged_at;
+  -- A missing row reads as engaged (fail closed). Materialize it that way so
+  -- there is always a row to lock; a concurrent flip cannot slip in unlocked.
+  insert into private.provider_kill_switches (provider, engaged)
+  values (p_provider, true)
+  on conflict (provider) do nothing;
+
+  -- Take the row lock first; the version check and timestamp are read after it.
+  select s.version into strict v_current_version
+  from private.provider_kill_switches s
+  where s.provider = p_provider
+  for update;
+
+  if not p_engaged
+    and (p_expected_version is null or p_expected_version <> v_current_version) then
+    raise exception 'kill_switch_version_conflict'
+      using errcode = 'P0001',
+            detail = pg_catalog.format('expected version %s, current version %s',
+              coalesce(p_expected_version::text, 'none'), v_current_version);
+  end if;
+
+  -- Captured after the lock wait so the recorded time orders with the commit.
+  v_at := pg_catalog.clock_timestamp();
+
+  update private.provider_kill_switches s
+  set engaged = p_engaged,
+      reason = v_reason,
+      engaged_by = v_actor,
+      engaged_at = v_at,
+      version = s.version + 1
+  where s.provider = p_provider
+  returning s.version into strict v_version;
 
   insert into private.provider_kill_switch_audit (at, actor, provider, engaged, reason)
   values (v_at, v_actor, p_provider, p_engaged, v_reason);
@@ -238,19 +288,22 @@ begin
     'engaged', p_engaged,
     'reason', v_reason,
     'changedBy', v_actor,
-    'changedAt', v_at
+    'changedAt', v_at,
+    'version', v_version
   );
 end;
 $$;
 
-revoke all on function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)
+revoke all on function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)
   from public, anon, authenticated, service_role;
-grant execute on function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)
+grant execute on function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)
   to authenticated;
 
+-- Same compare and set rule as the per-provider switch.
 create or replace function public.api_admin_set_global_kill_switch(
   p_engaged boolean,
-  p_reason text
+  p_reason text,
+  p_expected_version bigint default null
 )
 returns jsonb
 language plpgsql
@@ -260,7 +313,9 @@ as $$
 declare
   v_actor uuid;
   v_reason text;
-  v_at timestamptz := pg_catalog.clock_timestamp();
+  v_at timestamptz;
+  v_current_version bigint;
+  v_version bigint;
 begin
   if not coalesce(public.is_platform_admin(), false) then
     raise exception 'platform_admin_required' using errcode = '42501';
@@ -278,13 +333,33 @@ begin
     raise exception 'reason_required_min_10_chars' using errcode = '22023';
   end if;
 
-  insert into private.provider_global_kill_switch as g (singleton, engaged, reason, engaged_by, engaged_at)
-  values (true, p_engaged, v_reason, v_actor, v_at)
-  on conflict (singleton) do update
-    set engaged = excluded.engaged,
-        reason = excluded.reason,
-        engaged_by = excluded.engaged_by,
-        engaged_at = excluded.engaged_at;
+  insert into private.provider_global_kill_switch (singleton, engaged)
+  values (true, true)
+  on conflict (singleton) do nothing;
+
+  select g.version into strict v_current_version
+  from private.provider_global_kill_switch g
+  where g.singleton
+  for update;
+
+  if not p_engaged
+    and (p_expected_version is null or p_expected_version <> v_current_version) then
+    raise exception 'kill_switch_version_conflict'
+      using errcode = 'P0001',
+            detail = pg_catalog.format('expected version %s, current version %s',
+              coalesce(p_expected_version::text, 'none'), v_current_version);
+  end if;
+
+  v_at := pg_catalog.clock_timestamp();
+
+  update private.provider_global_kill_switch g
+  set engaged = p_engaged,
+      reason = v_reason,
+      engaged_by = v_actor,
+      engaged_at = v_at,
+      version = g.version + 1
+  where g.singleton
+  returning g.version into strict v_version;
 
   insert into private.provider_kill_switch_audit (at, actor, provider, engaged, reason)
   values (v_at, v_actor, null, p_engaged, v_reason);
@@ -294,14 +369,15 @@ begin
     'engaged', p_engaged,
     'reason', v_reason,
     'changedBy', v_actor,
-    'changedAt', v_at
+    'changedAt', v_at,
+    'version', v_version
   );
 end;
 $$;
 
-revoke all on function public.api_admin_set_global_kill_switch(boolean, text)
+revoke all on function public.api_admin_set_global_kill_switch(boolean, text, bigint)
   from public, anon, authenticated, service_role;
-grant execute on function public.api_admin_set_global_kill_switch(boolean, text)
+grant execute on function public.api_admin_set_global_kill_switch(boolean, text, bigint)
   to authenticated;
 
 -- Admin page / CLI read: every provider's state, last reason, actor, time.
@@ -322,13 +398,13 @@ begin
     'global', (
       select pg_catalog.jsonb_build_object(
         'engaged', g.engaged, 'reason', g.reason,
-        'changedBy', g.engaged_by, 'changedAt', g.engaged_at)
+        'changedBy', g.engaged_by, 'changedAt', g.engaged_at, 'version', g.version)
       from private.provider_global_kill_switch g where g.singleton
     ),
     'providers', coalesce((
       select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
         'provider', s.provider, 'engaged', s.engaged, 'reason', s.reason,
-        'changedBy', s.engaged_by, 'changedAt', s.engaged_at) order by s.provider::text)
+        'changedBy', s.engaged_by, 'changedAt', s.engaged_at, 'version', s.version) order by s.provider::text)
       from private.provider_kill_switches s
     ), '[]'::jsonb)
   );
@@ -660,8 +736,8 @@ commit;
 --
 -- drop function public.api_worker_cancel_provider_disabled_tasks();
 -- drop function public.api_admin_list_provider_kill_switches();
--- drop function public.api_admin_set_global_kill_switch(boolean, text);
--- drop function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text);
+-- drop function public.api_admin_set_global_kill_switch(boolean, text, bigint);
+-- drop function public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint);
 -- drop function public.api_worker_provider_kill_switch_state(public.vendor_name);
 -- drop function private.provider_kill_switch_engaged_text(text);
 -- drop function private.provider_kill_switch_engaged(public.vendor_name);

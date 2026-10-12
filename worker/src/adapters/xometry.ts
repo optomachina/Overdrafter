@@ -1055,6 +1055,7 @@ async function navigateToQuoteConfigurationPage(
   timeoutMs: number,
   runDir: string,
   nonExportControlled: boolean,
+  beforeSubmit: () => Promise<void> = async () => undefined,
 ) {
   if (nonExportControlled !== true) {
     throw new VendorAutomationError(
@@ -1112,6 +1113,10 @@ async function navigateToQuoteConfigurationPage(
         reviewedNoType === "radio" &&
         reviewedNoValue === "confirmed-not-itar" &&
         reviewedContinueTestId === "ItarView-itar-continue";
+      if (reviewedShapeValid) {
+        // OVD-722: outside the try below so a refusal is never relabelled.
+        await beforeSubmit();
+      }
       if (!reviewedShapeValid) {
         const ambiguityArtifacts = await capturePageArtifacts(
           page,
@@ -1176,6 +1181,7 @@ async function navigateToQuoteConfigurationPage(
       const locator = page.locator(selector).first();
       const visible = await locator.isVisible().catch(() => false);
       if (!visible) continue;
+      await beforeSubmit();
       let nonExportControlledSelector: string | null = null;
       for (const noSelector of XOMETRY_LOCATORS.exportControlNo.slice(1)) {
         const noControl = page.locator(noSelector).first();
@@ -1751,7 +1757,11 @@ async function configureRequiredOption(
   return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector, observer);
 }
 
-async function saveConfiguration(page: Page, timeoutMs: number) {
+async function saveConfiguration(
+  page: Page,
+  timeoutMs: number,
+  beforeSave: () => Promise<void> = async () => undefined,
+) {
   // Xometry can take longer than the general browser timeout to recalculate a
   // configured quote. Keep this vendor-specific floor explicit and bounded.
   const postSaveTimeoutMs = Math.max(timeoutMs, XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS);
@@ -1766,6 +1776,7 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
     }
 
     const configurationUrl = page.url();
+    await beforeSave();
     await button.click();
     const navigated = await page
       .waitForURL((url) => url.toString() !== configurationUrl, {
@@ -2867,6 +2878,7 @@ export class XometryAdapter extends VendorAdapter {
         120_000,
         runDir,
         nonExportControlled,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"),
       );
 
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
@@ -2917,6 +2929,7 @@ export class XometryAdapter extends VendorAdapter {
         await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
           scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined);
 
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         selectedMaterial = await configureRequiredOption(
           page,
           materialTerms,
@@ -2927,6 +2940,7 @@ export class XometryAdapter extends VendorAdapter {
         );
 
         if (finishTerms && finishTerms.length > 0) {
+          await input.providerKillSwitchCheckpoint?.("before_configure");
           selectedFinish = await configureRequiredOption(
             page,
             finishTerms,
@@ -2937,6 +2951,7 @@ export class XometryAdapter extends VendorAdapter {
           );
         }
 
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         const toleranceSelection = await setTolerance(
           page,
           input.requirement.tightest_tolerance_inch,
@@ -2949,6 +2964,7 @@ export class XometryAdapter extends VendorAdapter {
         saveConfigurationSelector = await saveConfiguration(
           page,
           this.config.browserTimeoutMs,
+          async () => input.providerKillSwitchCheckpoint?.("before_save"),
         );
       }
 

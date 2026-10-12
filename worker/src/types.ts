@@ -318,7 +318,7 @@ export type VendorQuoteAdapterInput = {
    * rejects (fail-closed) when the switch is engaged or unreadable.
    */
   providerKillSwitchCheckpoint?: (
-    checkpoint: "before_navigation" | "before_upload" | "before_configure",
+    checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
   ) => Promise<void>;
 };
 

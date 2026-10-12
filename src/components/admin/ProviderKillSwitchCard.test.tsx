@@ -19,10 +19,10 @@ function renderCard() {
 
 const available = {
   available: true,
-  global: { engaged: false, reason: null, changedBy: null, changedAt: null },
+  global: { engaged: false, reason: null, changedBy: null, changedAt: null, version: 4 },
   providers: [
-    { provider: "fictiv", engaged: true, reason: "cease and desist received", changedBy: "admin-1", changedAt: "2026-10-11T12:00:00Z" },
-    { provider: "xometry", engaged: false, reason: null, changedBy: null, changedAt: null },
+    { provider: "fictiv", engaged: true, reason: "cease and desist received", changedBy: "admin-1", changedAt: "2026-10-11T12:00:00Z", version: 7 },
+    { provider: "xometry", engaged: false, reason: null, changedBy: null, changedAt: null, version: 0 },
   ],
 };
 
@@ -62,7 +62,9 @@ describe("ProviderKillSwitchCard (OVD-722)", () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     await waitFor(() => expect(setMock).toHaveBeenCalledOnce());
-    expect(setMock.mock.calls[0][0]).toEqual({ provider: "xometry", engaged: true, reason: "cease and desist received" });
+    expect(setMock.mock.calls[0][0]).toEqual({
+      provider: "xometry", engaged: true, reason: "cease and desist received", expectedVersion: 0,
+    });
   });
 
   it("flips the global switch with provider null after typing all", async () => {
@@ -74,7 +76,23 @@ describe("ProviderKillSwitchCard (OVD-722)", () => {
     fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: "all" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(setMock).toHaveBeenCalledOnce());
-    expect(setMock.mock.calls[0][0]).toEqual({ provider: null, engaged: true, reason: "global incident response" });
+    expect(setMock.mock.calls[0][0]).toEqual({ provider: null, engaged: true, reason: "global incident response", expectedVersion: 4 });
+  });
+
+  it("a release carries the version the admin saw, and a refused stale release reloads the state", async () => {
+    fetchMock.mockResolvedValue(available);
+    setMock.mockRejectedValue(new Error("The kill switch changed since you loaded it."));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Release fictiv" }));
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "counsel cleared the provider" } });
+    fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: "fictiv" } });
+    const fetchesBefore = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(setMock).toHaveBeenCalledOnce());
+    expect(setMock.mock.calls[0][0]).toEqual({
+      provider: "fictiv", engaged: false, reason: "counsel cleared the provider", expectedVersion: 7,
+    });
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(fetchesBefore));
   });
 
   it("says the switch is not installed while the migration is pending", async () => {

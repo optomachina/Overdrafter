@@ -12,6 +12,11 @@
 // The service role is never used: a service_role key or token is refused, and
 // SUPABASE_SERVICE_ROLE_KEY is never read. The database enforces the
 // platform-admin check, the >= 10 character reason, and the audit row.
+//
+// --on never needs a version: an emergency stop always wins. --off first reads
+// the current row, shows it in the confirmation, and sends that row's version;
+// the database refuses the release (kill_switch_version_conflict) if anyone
+// flipped the switch after that read.
 import process from "node:process";
 import readline from "node:readline/promises";
 import { pathToFileURL } from "node:url";
@@ -99,15 +104,32 @@ export function resolveAdminSession(env) {
   return { url: url.replace(/\/+$/, ""), apiKey, accessToken };
 }
 
-export function buildProviderKillRequest(command) {
-  if (command.list) return { rpc: "api_admin_list_provider_kill_switches", body: {} };
+const LIST_RPC = "api_admin_list_provider_kill_switches";
+
+export function buildProviderKillRequest(command, expectedVersion = null) {
+  if (command.list) return { rpc: LIST_RPC, body: {} };
+  const versionArg = command.engaged ? {} : { p_expected_version: expectedVersion };
   if (command.target.kind === "global") {
-    return { rpc: "api_admin_set_global_kill_switch", body: { p_engaged: command.engaged, p_reason: command.reason } };
+    return {
+      rpc: "api_admin_set_global_kill_switch",
+      body: { p_engaged: command.engaged, p_reason: command.reason, ...versionArg },
+    };
   }
   return {
     rpc: "api_admin_set_provider_kill_switch",
-    body: { p_provider: command.target.provider, p_engaged: command.engaged, p_reason: command.reason },
+    body: { p_provider: command.target.provider, p_engaged: command.engaged, p_reason: command.reason, ...versionArg },
   };
+}
+
+/** The row a release is decided on, from the admin list RPC payload. */
+export function currentSwitchRow(listData, target) {
+  const row = target.kind === "global"
+    ? listData?.global
+    : (Array.isArray(listData?.providers) ? listData.providers : []).find((entry) => entry?.provider === target.provider);
+  if (!row || typeof row !== "object" || !Number.isSafeInteger(row.version) || row.version < 0) {
+    throw new Error("Could not read the current switch state and version; nothing changed.");
+  }
+  return row;
 }
 
 export function describeProviderKillCommand(command) {
@@ -124,24 +146,7 @@ async function defaultConfirm(question) {
   }
 }
 
-export async function runProviderKill(argv, {
-  env = process.env,
-  fetchImpl = globalThis.fetch,
-  confirm = defaultConfirm,
-  log = (line) => process.stdout.write(`${line}\n`),
-} = {}) {
-  const command = parseProviderKillArgs(argv);
-  const session = resolveAdminSession(env);
-  if (!command.list && !command.yes) {
-    log(describeProviderKillCommand(command));
-    const expected = command.target.kind === "global" ? "all" : command.target.provider;
-    const typed = await confirm(`Type "${expected}" to confirm: `);
-    if (typed !== expected) {
-      log("Not confirmed; nothing changed.");
-      return { changed: false };
-    }
-  }
-  const request = buildProviderKillRequest(command);
+async function callRpc(session, fetchImpl, request) {
   const response = await fetchImpl(`${session.url}/rest/v1/rpc/${request.rpc}`, {
     method: "POST",
     headers: {
@@ -159,9 +164,39 @@ export async function runProviderKill(argv, {
     } catch {
       // keep raw text
     }
+    if (String(message).includes("kill_switch_version_conflict")) {
+      message = "the switch changed after it was read (kill_switch_version_conflict); run --list and retry if still intended";
+    }
     throw new Error(`${request.rpc} failed (${response.status}): ${message}`);
   }
-  const data = text ? JSON.parse(text) : null;
+  return text ? JSON.parse(text) : null;
+}
+
+export async function runProviderKill(argv, {
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  confirm = defaultConfirm,
+  log = (line) => process.stdout.write(`${line}\n`),
+} = {}) {
+  const command = parseProviderKillArgs(argv);
+  const session = resolveAdminSession(env);
+  let expectedVersion = null;
+  if (!command.list && !command.engaged) {
+    const row = currentSwitchRow(await callRpc(session, fetchImpl, buildProviderKillRequest({ list: true })), command.target);
+    expectedVersion = row.version;
+    log(`current: ${row.engaged ? "ENGAGED" : "released"} since ${row.changedAt ?? "never"} by ${row.changedBy ?? "unknown"}`
+      + ` (version ${row.version})\nlast reason: ${row.reason ?? "none"}`);
+  }
+  if (!command.list && !command.yes) {
+    log(describeProviderKillCommand(command));
+    const expected = command.target.kind === "global" ? "all" : command.target.provider;
+    const typed = await confirm(`Type "${expected}" to confirm: `);
+    if (typed !== expected) {
+      log("Not confirmed; nothing changed.");
+      return { changed: false };
+    }
+  }
+  const data = await callRpc(session, fetchImpl, buildProviderKillRequest(command, expectedVersion));
   log(JSON.stringify(data, null, 2));
   return { changed: !command.list, data };
 }

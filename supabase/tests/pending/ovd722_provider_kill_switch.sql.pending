@@ -17,11 +17,16 @@
 --   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged
 --   * the sweep cancels queued tasks as cancelled_provider_disabled only for
 --     the switched-off provider
+--   * release is compare and set: a stale or versionless release is refused
+--     and never clears a newer engagement; engage needs no version
+--   * RLS is enabled and forced on the three switch tables
+-- The concurrent (two session, row lock wait) form of the stale release race
+-- is in docs/migration-drafts/ovd-722-race-check.sh; pgTAP runs in one session.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(46);
+select plan(53);
 
 create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
 returns void
@@ -80,17 +85,17 @@ select ok(
        'api_worker_cancel_provider_disabled_tasks')),
   'kill-switch RPCs are SECURITY DEFINER with search_path = '''''
 );
-select ok(not has_function_privilege('anon', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+select ok(not has_function_privilege('anon', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
   'anon cannot execute api_admin_set_provider_kill_switch');
-select ok(not has_function_privilege('public', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+select ok(not has_function_privilege('public', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
   'public cannot execute api_admin_set_provider_kill_switch');
-select ok(has_function_privilege('authenticated', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text)', 'EXECUTE'),
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
   'authenticated can execute api_admin_set_provider_kill_switch');
-select ok(not has_function_privilege('anon', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+select ok(not has_function_privilege('anon', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
   'anon cannot execute api_admin_set_global_kill_switch');
-select ok(not has_function_privilege('public', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+select ok(not has_function_privilege('public', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
   'public cannot execute api_admin_set_global_kill_switch');
-select ok(has_function_privilege('authenticated', 'public.api_admin_set_global_kill_switch(boolean, text)', 'EXECUTE'),
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
   'authenticated can execute api_admin_set_global_kill_switch');
 select ok(not has_function_privilege('authenticated', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
     and not has_function_privilege('anon', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
@@ -102,6 +107,12 @@ select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_
 select ok(not has_function_privilege('service_role', 'private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)', 'EXECUTE')
     and not has_function_privilege('authenticated', 'private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)', 'EXECUTE'),
   'the preserved pre-OVD-722 bodies cannot be called directly to bypass the switch');
+select ok(
+  (select bool_and(c.relrowsecurity and c.relforcerowsecurity) from pg_catalog.pg_class c
+   where c.oid in ('private.provider_kill_switches'::regclass, 'private.provider_global_kill_switch'::regclass,
+     'private.provider_kill_switch_audit'::regclass)),
+  'RLS is enabled and forced on every kill-switch table (no policies; RPC access only)'
+);
 select ok(
   not has_table_privilege('authenticated', 'private.provider_kill_switch_audit', 'UPDATE')
     and not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'DELETE')
@@ -180,6 +191,39 @@ select is(
   public.api_worker_provider_kill_switch_state('xometry') ->> 'engaged', 'false',
   'other providers are unaffected');
 reset role;
+
+-- ---------------------------------------------------------------------
+-- Compare and set: a stale release never clears a newer engagement
+-- ---------------------------------------------------------------------
+create temp table ovd722_seen (version bigint) on commit drop;
+grant all on ovd722_seen to authenticated;
+-- Admin A loads the page and sees fictiv engaged at this version.
+insert into ovd722_seen select version from private.provider_kill_switches where provider = 'fictiv';
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', false, 'release without any version')$$,
+  'P0001', 'kill_switch_version_conflict', 'a release without an expected version is refused');
+-- Admin B engages again (fresh C&D); engage needs no version and always wins.
+select is(
+  public.api_admin_set_provider_kill_switch('fictiv', true, 'OVD-722 test: second C&D, admin B', 0) ->> 'engaged', 'true',
+  'an engage succeeds even with a stale expected version');
+-- Admin A's delayed release, decided on the old version, arrives.
+select throws_ok(
+  pg_catalog.format($$select public.api_admin_set_provider_kill_switch('fictiv', false, 'admin A stale release', %s)$$,
+    (select version from ovd722_seen)),
+  'P0001', 'kill_switch_version_conflict', 'a stale release is refused');
+reset role;
+
+select ok(
+  exists (select 1 from private.provider_kill_switches where provider = 'fictiv' and engaged
+    and reason = 'OVD-722 test: second C&D, admin B'
+    and version = (select version + 1 from ovd722_seen)),
+  'the newer engagement survives the stale release');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit where reason = 'admin A stale release'),
+  0, 'the refused release wrote no audit row');
 
 -- ---------------------------------------------------------------------
 -- Audit is append-only
@@ -272,11 +316,20 @@ select is(
   'the worker read reports the global switch');
 reset role;
 
+create temp table ovd722_global_seen on commit drop as
+  select version from private.provider_global_kill_switch;
+grant all on ovd722_global_seen to authenticated;
+
 set local role authenticated;
 select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  pg_catalog.format($$select public.api_admin_set_global_kill_switch(false, 'stale global release here', %s)$$,
+    (select version - 1 from ovd722_global_seen)),
+  'P0001', 'kill_switch_version_conflict', 'a stale global release is refused');
 select is(
-  public.api_admin_set_global_kill_switch(false, 'OVD-722 test: global brake released') ->> 'engaged', 'false',
-  'a platform admin releases the global switch');
+  public.api_admin_set_global_kill_switch(false, 'OVD-722 test: global brake released',
+    (select version from ovd722_global_seen)) ->> 'engaged', 'false',
+  'a platform admin releases the global switch at the current version');
 reset role;
 
 select ok(

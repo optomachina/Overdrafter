@@ -96,12 +96,54 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
 12. **pgTAP cannot run against the draft in CI.** The suite lives at
     `supabase/tests/pending/ovd722_provider_kill_switch.sql.pending`; the policy
     runner stages but does not execute non-`.sql` files. It has not been
-    executed (no local Postgres in this environment).
+    executed (no Docker daemon or Supabase CLI in this environment). The admin
+    RPCs and tables themselves are executed by
+    `docs/migration-drafts/ovd-722-race-check.sh` on a disposable local
+    Postgres (see "Cross review fixes").
 13. **Plan test 8 (OVD-319 certification per 1.0 provider)** is a live
     acceptance step recorded in the OVD-395..398 tables. It needs the migration
     applied and live adapters, both out of scope here. The offline equivalent
     is covered: the 1.0 providers are seeded, and the TS tests flip each one
     off/on and check denial and recovery.
+
+## Cross review fixes (Codex static review of 8e557eb)
+
+1. **Fresh check before every mutation, not once per phase.** The kernel now
+   re-reads the switch immediately before the CAD `setInputFiles`, the drawing
+   `setInputFiles`, the quantity fill, each configure hook `fill`/`select`, any
+   bounded recovery, and before every navigation attempt including the retry;
+   `runIntentionalPortalRetry` never retries past a `ProviderKillSwitchError`.
+   Xometry re-reads before the export control submit, each of material,
+   finish and tolerance, and before Save Configuration (new checkpoint
+   `before_save`). Fictiv re-reads between quantity, material/finish and end
+   use. A request the browser already sent cannot be recalled; the switch stops
+   the next step, and `providerMutationPossible` records that the provider may
+   already hold the upload.
+2. **Release is compare and set.** Both switch tables carry `version`, bumped on
+   every flip. `api_admin_set_provider_kill_switch` and
+   `api_admin_set_global_kill_switch` take `p_expected_version bigint default
+   null`. Engage ignores it and always wins. Release must match the current
+   version or fails `kill_switch_version_conflict` with no write and no audit
+   row. The list RPC returns `version`; the admin card sends the version of the
+   row the admin clicked, and the CLI reads and shows the current row before
+   confirming a release. A missing row is first materialized engaged (fail
+   closed) so there is always a row to lock.
+3. **`changedAt` is taken after the row lock**, not at function entry.
+4. **Audit immutability wording** now says what holds: no application role can
+   update, delete or truncate the audit table; the owner or a superuser can
+   still disable triggers.
+5. **Forced RLS with no policies** on all three tables, matching
+   `private.provider_dispatch_permits`. Nothing reads them directly; every
+   caller goes through the security definer RPCs, owned by the BYPASSRLS
+   migration role.
+
+`docs/migration-drafts/ovd-722-race-check.sh` runs the draft's switch section on
+a throwaway local Postgres (non superuser BYPASSRLS owner, like Supabase's
+`postgres`) and checks: versionless and stale releases are refused; a release
+waiting on the row lock behind an engage is refused after the engage commits;
+`changedAt` is after the lock wait; the global switch follows the same rule;
+forced RLS hides rows from a mistakenly granted role while the RPCs still read
+them. Against the pre-fix draft it fails.
 
 ## Acceptance criteria -> tests
 
@@ -116,4 +158,6 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
 | 7 queued -> cancelled_provider_disabled; running stops at checkpoint | handler tests; `providerPortalKernel.test.ts`; sweep tests; pgTAP sweep |
 | Release: data flip, no redeploy/restart | `providerKillSwitch.test.ts` "RELEASE REQUIREMENT"; handler "same handler, no restart" |
 | Admin UI typed reason + confirmation | `src/components/admin/ProviderKillSwitchCard.test.tsx` |
+| Engaged mid step: no later upload, save or navigation retry | `providerPortalKernel.test.ts` (OVD-722 block); `xometry.test.ts` "Save Configuration is never clicked" |
+| Stale release never clears a newer engagement | `ovd-722-race-check.sh` (two sessions); pgTAP pending suite; API, card and CLI tests |
 | CLI uses admin session only | `scripts/provider-kill.test.mjs` |

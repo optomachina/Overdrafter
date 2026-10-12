@@ -82,6 +82,7 @@ import {
   runInProviderMutationPhase,
 } from "../providerMutationPhase";
 import { isRetryableVendorTaskError } from "../vendorTaskRetry";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
 import { OperationalJevSession, OperationalJevObservations } from "../jev/operationalSession";
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
@@ -844,6 +845,127 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
+/**
+ * The reviewed live evaluation flow: dashboard upload, quote redirect, then
+ * quantity, material, finish, tolerance and Save Configuration.
+ */
+function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
+  const saveConfiguration = vi.fn();
+  const setTolerance = vi.fn();
+  let materialControlRendered = false;
+  let finishControlRendered = false;
+  let materialOptionsOpen = true;
+  let finishOptionsOpen = false;
+  let materialOptionsRendered = false;
+  let finishOptionsRendered = false;
+  const openMaterialOptions = vi.fn(() => {
+    materialOptionsOpen = true;
+  });
+  const openFinishOptions = vi.fn(() => {
+    finishOptionsOpen = true;
+  });
+  const clickMaterialControl = vi.fn();
+  const clickFinishControl = vi.fn();
+  const hiddenMaterialControl = vi.fn();
+  const hiddenFinishControl = vi.fn();
+  const startNewQuote = vi.fn();
+  const instantQuoteUpload = vi.fn();
+  const toolLibraryUpload = vi.fn();
+  let instantQuoteUploadReady = false;
+  startNewQuote.mockImplementation(async () => {
+    await fs.writeFile(
+      input.stagedCadFile!.localPath,
+      "replacement-after-browser-launch",
+    );
+    instantQuoteUploadReady = true;
+  });
+  const page = createFakePage({
+    bodyText: "Upload a CAD File Start from Recent Configure part",
+    postSaveBodyText: [
+      "Quantity 2",
+      "Material: Aluminum 6061-T6x",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive USD $120.00 Lead time 5 business days",
+    ].join(" "),
+    uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
+    saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
+    selectorBehaviors: {
+      [XOMETRY_LOCATORS.startNewQuoteButtons[0]]: {
+        count: 1,
+        click: startNewQuote,
+      },
+      [XOMETRY_LOCATORS.uploadInputs[0]]: {
+        count: () => (instantQuoteUploadReady ? 1 : 0),
+        setInputFiles: instantQuoteUpload,
+      },
+      'input[type="file"]': {
+        count: 1,
+        setInputFiles: toolLibraryUpload,
+      },
+      [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        count: 1,
+        fill: vi.fn(),
+        press: vi.fn(),
+      },
+      [XOMETRY_LOCATORS.materialButtons[0]]: {
+        count: 1,
+        click: hiddenMaterialControl,
+      },
+      [`${XOMETRY_LOCATORS.materialButtons[0]}:visible`]: {
+        count: () => (materialControlRendered ? 1 : 0),
+        waitFor: () => {
+          materialControlRendered = true;
+        },
+        getAttribute: (name) => {
+          if (name === "role") return "combobox";
+          return name === "aria-expanded" ? "true" : null;
+        },
+        press: openMaterialOptions,
+        click: clickMaterialControl,
+      },
+      [XOMETRY_LOCATORS.finishButtons[0]]: {
+        count: 1,
+        click: hiddenFinishControl,
+      },
+      [`${XOMETRY_LOCATORS.finishButtons[0]}:visible`]: {
+        count: () => (finishControlRendered ? 1 : 0),
+        waitFor: () => {
+          finishControlRendered = true;
+        },
+        getAttribute: (name) => (name === "role" ? "combobox" : null),
+        press: openFinishOptions,
+        click: clickFinishControl,
+      },
+      [XOMETRY_LOCATORS.priceText[0]]: {
+        count: 1,
+        text: "Least Expensive 5 business days USD $120.00",
+      },
+      [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+        count: 1,
+        click: saveConfiguration,
+      },
+      [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+        count: 1,
+        click: setTolerance,
+      },
+    },
+    optionTexts: () => {
+      if (finishOptionsOpen && finishOptionsRendered) return ["Black Anodize"];
+      if (materialOptionsOpen && materialOptionsRendered) return ["6061-T6"];
+      return [];
+    },
+    onOptionWait: (name) => {
+      if (name?.test("6061-T6")) materialOptionsRendered = true;
+      if (name?.test("Black Anodize")) finishOptionsRendered = true;
+    },
+  });
+  return {
+    page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
+    clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+  };
+}
+
 describe("Xometry helpers", () => {
   it("prefers the current searchable material and finish comboboxes", () => {
     expect(XOMETRY_LOCATORS.uploadInputs[0]).toContain("Start A New Instant Quote");
@@ -1232,116 +1354,10 @@ describe("XometryAdapter", () => {
   it.each([false, true])("captures a live evaluation upload and instant quote without production authorization (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
-    const saveConfiguration = vi.fn();
-    const setTolerance = vi.fn();
-    let materialControlRendered = false;
-    let finishControlRendered = false;
-    let materialOptionsOpen = true;
-    let finishOptionsOpen = false;
-    let materialOptionsRendered = false;
-    let finishOptionsRendered = false;
-    const openMaterialOptions = vi.fn(() => {
-      materialOptionsOpen = true;
-    });
-    const openFinishOptions = vi.fn(() => {
-      finishOptionsOpen = true;
-    });
-    const clickMaterialControl = vi.fn();
-    const clickFinishControl = vi.fn();
-    const hiddenMaterialControl = vi.fn();
-    const hiddenFinishControl = vi.fn();
-    const startNewQuote = vi.fn();
-    const instantQuoteUpload = vi.fn();
-    const toolLibraryUpload = vi.fn();
-    let instantQuoteUploadReady = false;
-    startNewQuote.mockImplementation(async () => {
-      await fs.writeFile(
-        input.stagedCadFile!.localPath,
-        "replacement-after-browser-launch",
-      );
-      instantQuoteUploadReady = true;
-    });
-    const page = createFakePage({
-      bodyText: "Upload a CAD File Start from Recent Configure part",
-      postSaveBodyText: [
-        "Quantity 2",
-        "Material: Aluminum 6061-T6x",
-        "Finish: Black Anodize",
-        "Precision Tolerance: ±.005",
-        "Least Expensive USD $120.00 Lead time 5 business days",
-      ].join(" "),
-      uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
-      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
-      selectorBehaviors: {
-        [XOMETRY_LOCATORS.startNewQuoteButtons[0]]: {
-          count: 1,
-          click: startNewQuote,
-        },
-        [XOMETRY_LOCATORS.uploadInputs[0]]: {
-          count: () => (instantQuoteUploadReady ? 1 : 0),
-          setInputFiles: instantQuoteUpload,
-        },
-        'input[type="file"]': {
-          count: 1,
-          setInputFiles: toolLibraryUpload,
-        },
-        [XOMETRY_LOCATORS.quantityInputs[0]]: {
-          count: 1,
-          fill: vi.fn(),
-          press: vi.fn(),
-        },
-        [XOMETRY_LOCATORS.materialButtons[0]]: {
-          count: 1,
-          click: hiddenMaterialControl,
-        },
-        [`${XOMETRY_LOCATORS.materialButtons[0]}:visible`]: {
-          count: () => (materialControlRendered ? 1 : 0),
-          waitFor: () => {
-            materialControlRendered = true;
-          },
-          getAttribute: (name) => {
-            if (name === "role") return "combobox";
-            return name === "aria-expanded" ? "true" : null;
-          },
-          press: openMaterialOptions,
-          click: clickMaterialControl,
-        },
-        [XOMETRY_LOCATORS.finishButtons[0]]: {
-          count: 1,
-          click: hiddenFinishControl,
-        },
-        [`${XOMETRY_LOCATORS.finishButtons[0]}:visible`]: {
-          count: () => (finishControlRendered ? 1 : 0),
-          waitFor: () => {
-            finishControlRendered = true;
-          },
-          getAttribute: (name) => (name === "role" ? "combobox" : null),
-          press: openFinishOptions,
-          click: clickFinishControl,
-        },
-        [XOMETRY_LOCATORS.priceText[0]]: {
-          count: 1,
-          text: "Least Expensive 5 business days USD $120.00",
-        },
-        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
-          count: 1,
-          click: saveConfiguration,
-        },
-        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
-          count: 1,
-          click: setTolerance,
-        },
-      },
-      optionTexts: () => {
-        if (finishOptionsOpen && finishOptionsRendered) return ["Black Anodize"];
-        if (materialOptionsOpen && materialOptionsRendered) return ["6061-T6"];
-        return [];
-      },
-      onOptionWait: (name) => {
-        if (name?.test("6061-T6")) materialOptionsRendered = true;
-        if (name?.test("Black Anodize")) finishOptionsRendered = true;
-      },
-    });
+    const {
+      page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
+      clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+    } = createLiveConfigureFlow(input);
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
 
     const adapter = makeLiveEvaluationAdapter(
@@ -1415,6 +1431,38 @@ describe("XometryAdapter", () => {
     ).toEqual([]);
     const runDir = path.dirname(result.artifacts[0]!.localPath);
     await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
+  });
+
+  it("engaged during the last configuration step: Save Configuration is never clicked (OVD-722)", async () => {
+    const workerTempDir = await makeTempDir();
+    const reads: string[] = [];
+    let engaged = false;
+    // Authorized by identity, so the checkpoint is attached to the same object.
+    const input = Object.assign(await makeLiveEvaluationInput(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save") => {
+        reads.push(checkpoint);
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "xometry", checkpoint);
+      },
+    });
+    const flow = createLiveConfigureFlow(input);
+    // The admin flips the switch while the tolerance selection is awaiting.
+    flow.setTolerance.mockImplementation(() => {
+      engaged = true;
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(flow.page));
+    const adapter = makeLiveEvaluationAdapter(makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      xometryBrowserEngine: "playwright",
+    }));
+
+    const error = await adapter.quote(input).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_save" });
+    expect(flow.setTolerance).toHaveBeenCalledTimes(1);
+    expect(flow.saveConfiguration).not.toHaveBeenCalled();
+    expect(reads.at(-1)).toBe("before_save");
+    expect(reads.filter((read) => read === "before_configure").length).toBeGreaterThanOrEqual(4);
   });
 
   it("uses a verified auto-configured quote summary without reopening material options", async () => {

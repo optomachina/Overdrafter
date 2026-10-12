@@ -14,6 +14,10 @@ import type { QueueTaskRecord, VendorName } from "./types.js";
  * Every checkpoint fails closed: an engaged switch, an RPC error, a malformed
  * response, or a read slower than `PROVIDER_KILL_SWITCH_TIMEOUT_MS` refuses
  * before any browser launch, navigation, upload, configuration, or API call.
+ *
+ * Adapters re-check immediately before each mutation step, not only at the
+ * start of a phase. A request the browser already sent before the switch was
+ * engaged cannot be recalled; the next step is what stops.
  */
 
 export const PROVIDER_KILL_SWITCH_RPC = "api_worker_provider_kill_switch_state";
@@ -38,7 +42,8 @@ export type ProviderKillSwitchCheckpointName =
   | "before_launch"
   | "before_navigation"
   | "before_upload"
-  | "before_configure";
+  | "before_configure"
+  | "before_save";
 
 export class ProviderKillSwitchError extends Error {
   readonly retryable: boolean;

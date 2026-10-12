@@ -25,7 +25,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const QUERY_KEY = ["admin", "provider-kill-switches"] as const;
 const GLOBAL_KEY = "all";
 
-type PendingFlip = { provider: string | null; engaged: boolean };
+/** `expectedVersion` is the row version the admin saw when choosing to flip. */
+type PendingFlip = { provider: string | null; engaged: boolean; expectedVersion: number | null };
 
 function formatChanged(row: Pick<ProviderKillSwitchRow, "changedAt" | "changedBy">) {
   if (!row.changedAt) return "Never changed";
@@ -54,6 +55,8 @@ export function ProviderKillSwitchCard() {
       toast.success("Kill switch updated");
     },
     onError: (error: unknown) => {
+      // A refused stale release: show the current state before anyone retries.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       toast.error(error instanceof Error ? error.message : "Could not update the kill switch");
     },
   });
@@ -71,13 +74,13 @@ export function ProviderKillSwitchCard() {
     && confirmation.trim() === expectedConfirmation
     && !mutation.isPending;
 
-  const toggle = (provider: string | null, engaged: boolean) => (
+  const toggle = (provider: string | null, engaged: boolean, version: number | null) => (
     <Button
       variant="outline"
       size="sm"
       aria-label={`${engaged ? "Release" : "Stop"} ${provider ?? "all providers"}`}
       disabled={mutation.isPending}
-      onClick={() => begin({ provider, engaged: !engaged })}
+      onClick={() => begin({ provider, engaged: !engaged, expectedVersion: version })}
     >
       {engaged ? "Release" : "Stop"}
     </Button>
@@ -119,7 +122,7 @@ export function ProviderKillSwitchCard() {
                 <TableCell><StateBadge engaged={state.global.engaged} /></TableCell>
                 <TableCell className="text-sm text-muted-foreground">{state.global.reason ?? "—"}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{formatChanged(state.global)}</TableCell>
-                <TableCell className="text-right">{toggle(null, state.global.engaged)}</TableCell>
+                <TableCell className="text-right">{toggle(null, state.global.engaged, state.global.version)}</TableCell>
               </TableRow>
               {state.providers.map((row) => (
                 <TableRow key={row.provider}>
@@ -127,7 +130,7 @@ export function ProviderKillSwitchCard() {
                   <TableCell><StateBadge engaged={row.engaged} /></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{row.reason ?? "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatChanged(row)}</TableCell>
-                  <TableCell className="text-right">{toggle(row.provider, row.engaged)}</TableCell>
+                  <TableCell className="text-right">{toggle(row.provider, row.engaged, row.version)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -156,7 +159,12 @@ export function ProviderKillSwitchCard() {
               <Button
                 variant={pending.engaged ? "destructive" : "default"}
                 disabled={!canConfirm}
-                onClick={() => mutation.mutate({ provider: pending.provider, engaged: pending.engaged, reason })}
+                onClick={() => mutation.mutate({
+                  provider: pending.provider,
+                  engaged: pending.engaged,
+                  reason,
+                  expectedVersion: pending.expectedVersion,
+                })}
               >
                 Confirm
               </Button>

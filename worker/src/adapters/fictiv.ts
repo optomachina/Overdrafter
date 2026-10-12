@@ -1466,8 +1466,12 @@ export class FictivAdapter extends VendorAdapter {
     markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
+    // OVD-722: fresh read before each configuration step, not only the first.
+    await input.providerKillSwitchCheckpoint?.("before_configure");
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
+    await input.providerKillSwitchCheckpoint?.("before_configure");
     const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
+    await input.providerKillSwitchCheckpoint?.("before_configure");
     const endUseSelection = await trySetEndUsePrototype(page);
 
     await page.waitForLoadState("networkidle").catch(() => undefined);

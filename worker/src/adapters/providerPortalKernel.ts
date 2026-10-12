@@ -1124,6 +1124,7 @@ function buildConfigurationCapability(
   definition: ProviderPortalDefinition,
   page: Page,
   boundary: PortalBoundaryState,
+  killSwitchCheckpoint?: VendorQuoteAdapterInput["providerKillSwitchCheckpoint"],
 ): ProviderPortalConfigurationCapability {
   const perform = async (
     operation: "fill" | "select",
@@ -1142,8 +1143,11 @@ function buildConfigurationCapability(
         await observeMissingConfiguration(definition, page, boundary, field, operation, value);
         return false;
       }
+      await killSwitchCheckpoint?.("before_configure");
       return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
+    // OVD-722: fresh read immediately before each configuration mutation.
+    await killSwitchCheckpoint?.("before_configure");
     enterProviderMutation(boundary);
     if (operation === "fill") {
       await locator.fill(value);
@@ -1215,6 +1219,8 @@ export async function runIntentionalPortalRetry<T>(input: {
     try {
       return await input.operation();
     } catch (error) {
+      // OVD-722: a kill-switch refusal is final; never retry past it.
+      if (error instanceof ProviderKillSwitchError) throw error;
       lastError = error;
     }
   }
@@ -1312,6 +1318,9 @@ async function uploadAuthorizedPortalFiles(
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
+  // OVD-722: re-read after the awaited locator lookup so a switch engaged in
+  // that window still stops the upload. A request already sent cannot be recalled.
+  await input.providerKillSwitchCheckpoint?.("before_upload");
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1321,7 +1330,7 @@ async function uploadAuthorizedPortalFiles(
 async function uploadAuthorizedDrawing(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult | null> {
-  const { definition, files, session } = interaction;
+  const { definition, files, input, session } = interaction;
   if (!files.drawing || !definition.selectors.drawingUpload) {
     return null;
   }
@@ -1331,6 +1340,7 @@ async function uploadAuthorizedDrawing(
   if (drawingInputCount < 1) {
     return terminalResult("selector_drift", "drawing_upload_selector_missing", session.page, [], true);
   }
+  await input.providerKillSwitchCheckpoint?.("before_upload");
   await drawingInput.setInputFiles(files.drawing);
   assertPortalBoundary(definition, session.page, session.boundary);
   return null;
@@ -1344,10 +1354,12 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       enterProviderMutation(session.boundary);
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
     } else if (session.boundary.recover) {
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       await recoverMissingConfiguration(definition, session.page, session.boundary,
         "quantity", "fill", String(input.requestedQuantity));
     } else {
@@ -1355,7 +1367,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     }
   }
   await definition.hooks.configure(
-    buildConfigurationCapability(definition, session.page, session.boundary),
+    buildConfigurationCapability(definition, session.page, session.boundary, input.providerKillSwitchCheckpoint),
     input,
   );
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1412,9 +1424,12 @@ async function runProviderPortalInteraction(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult> {
   const { definition, config, input, session } = interaction;
-  await input.providerKillSwitchCheckpoint?.("before_navigation");
   await runIntentionalPortalRetry({
-    operation: () => session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
+    // OVD-722: every navigation attempt, including the retry, re-reads the switch first.
+    operation: async () => {
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
+      return session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" });
+    },
     maxAttempts: 2,
     providerMutationPossible: session.boundary.providerMutationPossible,
   });
