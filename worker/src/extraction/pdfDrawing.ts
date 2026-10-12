@@ -11,7 +11,14 @@ const execFileAsync = promisify(execFile);
 export const PDF_OCR_MAX_PAGES = 12;
 /** Per page budget for rendering and for tesseract, each bounded separately. */
 export const PDF_OCR_PAGE_TIMEOUT_MS = 60_000;
-const PDF_OCR_RENDER_MAX_DIMENSION = 3000;
+/** Total budget across all pages; pages not reached in time report `not_read`. */
+export const PDF_OCR_TOTAL_TIMEOUT_MS = 120_000;
+/** Bound for pdfinfo, pdftotext, and the tesseract version probe. */
+export const PDF_TOOL_TIMEOUT_MS = 30_000;
+/** Pages are rendered at no less than this resolution so small print is legible. */
+export const PDF_OCR_MIN_DPI = 200;
+/** A page that would need more pixels than this at the DPI floor is reported failed. */
+export const PDF_OCR_MAX_PIXELS = 100_000_000;
 export const PDF_OCR_UNAVAILABLE_WARNING_CODE = "pdf_ocr_tesseract_unavailable";
 
 /**
@@ -35,6 +42,13 @@ export type PdfTextPage = {
 
 export type PdfTextExtraction = {
   pageCount: number;
+  /**
+   * False when pdfinfo failed or was unparsable. `pageCount` is then a floor of
+   * 1 and later pages may exist unread, so the drawing is not fully read.
+   */
+  pageCountKnown: boolean;
+  /** True when there is no text layer and OCR produced text. */
+  ocr: boolean;
   pages: PdfTextPage[];
 };
 
@@ -896,6 +910,7 @@ async function getPdfPageCount(localPath: string): Promise<number | null> {
   try {
     const { stdout } = await execFileAsync("pdfinfo", [localPath], {
       maxBuffer: 4 * 1024 * 1024,
+      timeout: PDF_TOOL_TIMEOUT_MS,
     });
     const match = stdout.match(/^Pages:\s+(\d+)$/m);
     const pageCount = Number.parseInt(match?.[1] ?? "", 10);
@@ -905,14 +920,18 @@ async function getPdfPageCount(localPath: string): Promise<number | null> {
   }
 }
 
-async function getPdfFirstPageSize(localPath: string): Promise<{ widthPoints: number; heightPoints: number } | null> {
+async function getPdfPageSize(
+  localPath: string,
+  page: number,
+): Promise<{ widthPoints: number; heightPoints: number } | null> {
   try {
-    const { stdout } = await execFileAsync("pdfinfo", ["-f", "1", "-l", "1", localPath], {
+    const { stdout } = await execFileAsync("pdfinfo", ["-f", String(page), "-l", String(page), localPath], {
       maxBuffer: 4 * 1024 * 1024,
+      timeout: PDF_TOOL_TIMEOUT_MS,
     });
     const match =
-      stdout.match(/^Page\s+1 size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts$/m) ??
-      stdout.match(/^Page size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts$/m);
+      stdout.match(new RegExp(`^Page\\s+${page} size:\\s+([\\d.]+)\\s+x\\s+([\\d.]+)\\s+pts`, "m")) ??
+      (page === 1 ? stdout.match(/^Page size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts/m) : null);
     const widthPoints = Number.parseFloat(match?.[1] ?? "");
     const heightPoints = Number.parseFloat(match?.[2] ?? "");
 
@@ -941,6 +960,7 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
         ["-layout", "-enc", "UTF-8", "-f", String(page), "-l", String(page), localPath, "-"],
         {
           maxBuffer: 20 * 1024 * 1024,
+          timeout: PDF_TOOL_TIMEOUT_MS,
         },
       );
       layerTexts.push(stdout);
@@ -961,6 +981,9 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
 
   return {
     pageCount,
+    pageCountKnown: detectedPageCount !== null,
+    // Same meaning as the older OCR fallback flag, so the two PRs merge cleanly.
+    ocr: !hasTextLayer && hasOcrText,
     pages: layerTexts.map((layerText, index) => ({
       page: index + 1,
       text: hasTextLayer ? layerText : ocrResults[index].text,
@@ -974,7 +997,7 @@ async function isTesseractAvailable(): Promise<boolean> {
   try {
     await execFileAsync("tesseract", ["--version"], {
       maxBuffer: 1024 * 1024,
-      timeout: PDF_OCR_PAGE_TIMEOUT_MS,
+      timeout: PDF_TOOL_TIMEOUT_MS,
     });
     return true;
   } catch {
@@ -995,27 +1018,33 @@ async function ocrPdfPages(
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-pdf-ocr-"));
   try {
     const results: Array<{ status: PdfOcrStatus; text: string }> = [];
+    const deadline = Date.now() + PDF_OCR_TOTAL_TIMEOUT_MS;
 
+    // Serial on purpose: pages are capped at PDF_OCR_MAX_PAGES and a render plus
+    // tesseract run is memory heavy, so parallel pages would risk the worker.
     for (let page = 1; page <= pageCount; page += 1) {
-      if (page > PDF_OCR_MAX_PAGES) {
+      const remainingMs = deadline - Date.now();
+      if (page > PDF_OCR_MAX_PAGES || remainingMs <= 0) {
         results.push({ status: "not_read", text: "" });
         continue;
       }
 
       const previewPath = path.join(runDir, `drawing-page-${page}.png`);
       try {
-        const preview =
-          page === 1
-            ? await renderPdfFirstPagePreview(localPath, previewPath, PDF_OCR_RENDER_MAX_DIMENSION)
-            : await renderPdfPage(localPath, previewPath, page - 1, PDF_OCR_RENDER_MAX_DIMENSION);
-        if (!preview) {
+        const rendered = await renderPdfPageForOcr(
+          localPath,
+          previewPath,
+          page,
+          Math.min(PDF_OCR_PAGE_TIMEOUT_MS, remainingMs),
+        );
+        if (!rendered) {
           results.push({ status: "failed", text: "" });
           continue;
         }
 
         const { stdout } = await execFileAsync("tesseract", [previewPath, "stdout", "--psm", "4"], {
           maxBuffer: 20 * 1024 * 1024,
-          timeout: PDF_OCR_PAGE_TIMEOUT_MS,
+          timeout: Math.max(1, Math.min(PDF_OCR_PAGE_TIMEOUT_MS, deadline - Date.now())),
         });
         results.push({ status: "ok", text: stdout });
       } catch {
@@ -1027,6 +1056,54 @@ async function ocrPdfPages(
   } finally {
     await fs.rm(runDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * Renders one page at no less than PDF_OCR_MIN_DPI. Returns false when the page
+ * size is unknown or the floor would exceed PDF_OCR_MAX_PIXELS, so a page is
+ * never reported read from a render too coarse to read. Quick Look is not used
+ * here because it cannot honour a resolution floor.
+ */
+async function renderPdfPageForOcr(
+  pdfPath: string,
+  outputPath: string,
+  page: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  const size = await getPdfPageSize(pdfPath, page);
+  if (!size) {
+    return false;
+  }
+
+  const scale = PDF_OCR_MIN_DPI / 72;
+  const pixels = size.widthPoints * scale * (size.heightPoints * scale);
+  if (!Number.isFinite(pixels) || pixels > PDF_OCR_MAX_PIXELS) {
+    return false;
+  }
+
+  const outputPrefix = outputPath.slice(0, -".png".length);
+  await execFileAsync(
+    "pdftoppm",
+    [
+      "-png",
+      "-gray",
+      "-r",
+      String(PDF_OCR_MIN_DPI),
+      "-f",
+      String(page),
+      "-l",
+      String(page),
+      "-singlefile",
+      pdfPath,
+      outputPrefix,
+    ],
+    {
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: timeoutMs,
+    },
+  );
+  await fs.access(outputPath);
+  return true;
 }
 
 async function renderPdfPage(
@@ -1080,6 +1157,7 @@ async function renderPdfPageWithQuickLook(
 
   await execFileAsync("qlmanage", ["-t", "-s", String(maxDimension), "-o", outputDir, pdfPath], {
     maxBuffer: 8 * 1024 * 1024,
+    timeout: PDF_TOOL_TIMEOUT_MS,
   });
 
   let resolvedOutputPath: string | null = null;
@@ -1117,8 +1195,10 @@ export async function renderPdfFirstPagePreview(
   try {
     pageMeta = await renderPdfPage(pdfPath, outputPath, 0, maxDimension);
   } catch {
+    // Quick Look exists only on macOS; elsewhere it can only fail.
     try {
-      pageMeta = await renderPdfPageWithQuickLook(pdfPath, outputPath, maxDimension);
+      pageMeta =
+        process.platform === "darwin" ? await renderPdfPageWithQuickLook(pdfPath, outputPath, maxDimension) : null;
     } catch {
       pageMeta = null;
     }
@@ -1142,7 +1222,7 @@ export async function renderPdfTitleBlockCrop(
   pdfPath: string,
   outputPath: string,
 ): Promise<RenderedPreviewAsset | null> {
-  const pageSize = await getPdfFirstPageSize(pdfPath);
+  const pageSize = await getPdfPageSize(pdfPath, 1);
 
   if (!pageSize) {
     return null;

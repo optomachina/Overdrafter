@@ -81,6 +81,15 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
+      # The worker OCR suite (pdfDrawing.ocr.test.ts) skips without these tools.
+      # Versions match worker/Dockerfile so CI reads the stamp the way production does.
+      - name: Install poppler and tesseract for OCR tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -q --no-install-recommends poppler-utils \
+            libtesseract5=5.3.4-1build5 tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2
+          tesseract --list-langs | grep -qx eng
+
       - name: Test portable Node contracts
         run: npm run test:portable-node
 

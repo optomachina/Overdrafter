@@ -27,8 +27,13 @@ import {
   extractPdfText,
   inferDrawingSignalsFromPdf,
   PDF_OCR_MAX_PAGES,
+  PDF_OCR_MAX_PIXELS,
+  PDF_OCR_MIN_DPI,
   PDF_OCR_PAGE_TIMEOUT_MS,
+  PDF_OCR_TOTAL_TIMEOUT_MS,
+  PDF_TOOL_TIMEOUT_MS,
   PDF_OCR_UNAVAILABLE_WARNING_CODE,
+  renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
 } from "./pdfDrawing";
 
@@ -84,11 +89,24 @@ describe("pdfDrawing", () => {
     layerText?: (page: number) => string;
     ocrText?: (callIndex: number) => string;
     tesseractMissing?: boolean;
+    pdfinfoFails?: boolean;
+    /** Page size in points reported by pdfinfo -f N -l N. */
+    pageSize?: [number, number];
+    onTesseractPage?: () => void;
   }) {
     let ocrCalls = 0;
     mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
       if (command === "pdfinfo") {
-        return { stdout: `Title: Test\nPages: ${options.pages}\n` };
+        if (options.pdfinfoFails) {
+          throw new Error("pdfinfo failed");
+        }
+        const [width, height] = options.pageSize ?? [612, 792];
+        const pageArg = args.includes("-f") ? args[args.indexOf("-f") + 1] : null;
+        return {
+          stdout: pageArg
+            ? `Page    ${pageArg} size: ${width} x ${height} pts\n`
+            : `Title: Test\nPages: ${options.pages}\n`,
+        };
       }
       if (command === "pdftotext") {
         return { stdout: options.layerText?.(Number(args[args.indexOf("-f") + 1])) ?? "" };
@@ -101,6 +119,7 @@ describe("pdfDrawing", () => {
       }
       if (command === "tesseract") {
         ocrCalls += 1;
+        options.onTesseractPage?.();
         return { stdout: options.ocrText?.(ocrCalls) ?? "" };
       }
       return { stdout: "" };
@@ -122,6 +141,8 @@ describe("pdfDrawing", () => {
 
     await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
       pageCount: 2,
+      pageCountKnown: true,
+      ocr: false,
       pages: [
         { page: 1, text: "PAGE 1 TEXT", ocrText: "PAGE 1 OCR", ocrStatus: "ok" },
         { page: 2, text: "", ocrText: "ITAR CONTROLLED", ocrStatus: "ok" },
@@ -170,6 +191,8 @@ describe("pdfDrawing", () => {
 
     await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
       pageCount: 2,
+      pageCountKnown: true,
+      ocr: false,
       pages: [
         { page: 1, text: "LAYER 1", ocrText: "", ocrStatus: "unavailable" },
         { page: 2, text: "LAYER 2", ocrText: "", ocrStatus: "unavailable" },
@@ -205,47 +228,124 @@ describe("pdfDrawing", () => {
     ]);
   });
 
-  it("falls back to OCR text when poppler text extraction is unavailable", async () => {
-    mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
-      if (command === "pdfinfo" || command === "pdftoppm") {
-        throw new Error(`${command} missing`);
+  it("fails closed when pdfinfo fails: the page count is unknown and not fully read", async () => {
+    mockPopplerAndTesseract({
+      pages: 2,
+      pdfinfoFails: true,
+      layerText: (page) => (page === 1 ? "PAGE 1 TEXT" : ""),
+      ocrText: () => "OCR",
+    });
+
+    const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    expect(result?.pageCountKnown).toBe(false);
+    expect(result?.pageCount).toBe(1);
+    // Without a page size the DPI floor cannot be proven, so the page is not ok.
+    expect(result?.pages.map((page) => page.ocrStatus)).toEqual(["failed"]);
+    expect(tesseractPageCalls()).toHaveLength(0);
+  });
+
+  it("sets ocr only when there is no text layer and OCR produced text", async () => {
+    mockPopplerAndTesseract({ pages: 1, ocrText: () => "SCANNED TITLE BLOCK" });
+    const scanned = await extractPdfText(TEST_INPUT_PDF_PATH);
+    expect(scanned?.ocr).toBe(true);
+    expect(scanned?.pages[0].text).toBe("SCANNED TITLE BLOCK");
+  });
+
+  it("renders at the DPI floor with a bounded pdftoppm timeout", async () => {
+    mockPopplerAndTesseract({ pages: 1, ocrText: () => "OCR" });
+    await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    const render = mockExecFileAsync.mock.calls.find(([command]) => command === "pdftoppm");
+    expect(render?.[1]).toEqual(expect.arrayContaining(["-r", String(PDF_OCR_MIN_DPI)]));
+    expect(render?.[2]).toMatchObject({ timeout: PDF_OCR_PAGE_TIMEOUT_MS });
+  });
+
+  it("reports a page failed when the DPI floor would exceed the pixel cap", async () => {
+    // 200 DPI on 3000 x 3000 pt is about 69 MP per side squared, over the cap.
+    const side = Math.ceil(Math.sqrt(PDF_OCR_MAX_PIXELS) * (72 / PDF_OCR_MIN_DPI)) + 10;
+    mockPopplerAndTesseract({ pages: 1, pageSize: [side, side], ocrText: () => "OCR" });
+
+    const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    expect(result?.pages.map((page) => page.ocrStatus)).toEqual(["failed"]);
+    expect(mockExecFileAsync.mock.calls.some(([command]) => command === "pdftoppm")).toBe(false);
+  });
+
+  it("marks a page failed when the pdftoppm render times out", async () => {
+    mockPopplerAndTesseract({ pages: 2, ocrText: () => "OCR" });
+    const base = mockExecFileAsync.getMockImplementation()!;
+    let renders = 0;
+    mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+      if (command === "pdftoppm") {
+        renders += 1;
+        if (renders === 2) {
+          throw Object.assign(new Error("timed out"), { killed: true, signal: "SIGTERM" });
+        }
       }
-      if (command === "pdftotext") {
-        return { stdout: "" };
-      }
-      if (command === "tesseract" && args[0] === "--version") {
-        return { stdout: "tesseract 5" };
-      }
-      if (command === "tesseract") {
-        return { stdout: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED" };
+      return base(command, args, ...rest);
+    });
+
+    const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    expect(result?.pages.map((page) => page.ocrStatus)).toEqual(["ok", "failed"]);
+  });
+
+  it("bounds pdfinfo and pdftotext with a timeout", async () => {
+    mockPopplerAndTesseract({ pages: 1, ocrText: () => "OCR" });
+    await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    for (const tool of ["pdfinfo", "pdftotext"]) {
+      const call = mockExecFileAsync.mock.calls.find(([command]) => command === tool);
+      expect(call?.[2]).toMatchObject({ timeout: PDF_TOOL_TIMEOUT_MS });
+    }
+  });
+
+  it("does not use Quick Look off macOS when the poppler render fails", async () => {
+    mockExecFileAsync.mockImplementation(async (command: string) => {
+      if (command === "pdftoppm") {
+        throw new Error("pdftoppm missing");
       }
       return { stdout: "" };
     });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "linux" });
+    try {
+      await renderPdfFirstPagePreview(TEST_INPUT_PDF_PATH, `${TEST_OUTPUT_DIR}/p.png`);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
+    expect(mockExecFileAsync.mock.calls.some(([command]) => command === "qlmanage")).toBe(false);
+  });
 
-    await expect(extractPdfText(TEST_QB00002_PDF_PATH)).resolves.toEqual({
-      pageCount: 1,
-      pages: [
-        {
-          page: 1,
-          text: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED",
-          ocrText: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED",
-          ocrStatus: "ok",
+  it("stops OCR at the total deadline and reports the remaining pages not_read", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      mockPopplerAndTesseract({
+        pages: 5,
+        ocrText: () => "OCR",
+        onTesseractPage: () => {
+          now += 50_000;
         },
-      ],
-    });
+      });
 
-    expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringContaining("overdrafter-pdf-ocr-"));
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "qlmanage",
-      ["-t", "-s", "3000", "-o", TEST_OCR_DIR, TEST_QB00002_PDF_PATH],
-      expect.any(Object),
-    );
-    expect(mockExecFileAsync).toHaveBeenCalledWith(
-      "tesseract",
-      [`${TEST_OCR_DIR}/drawing-page-1.png`, "stdout", "--psm", "4"],
-      expect.any(Object),
-    );
-    expect(mockRm).toHaveBeenCalledWith(TEST_OCR_DIR, { recursive: true, force: true });
+      const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+      expect(PDF_OCR_TOTAL_TIMEOUT_MS).toBe(120_000);
+      expect(result?.pages.map((page) => page.ocrStatus)).toEqual([
+        "ok",
+        "ok",
+        "ok",
+        "not_read",
+        "not_read",
+      ]);
+      expect(tesseractPageCalls()).toHaveLength(3);
+      // The last page that ran was given only the time left, never the full page timeout.
+      expect(tesseractPageCalls()[2][2]).toMatchObject({ timeout: 20_000 });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("renders a thumbnail plus one full-page preview per page on linux-safe tooling", async () => {

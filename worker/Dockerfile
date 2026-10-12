@@ -25,11 +25,13 @@ ARG CAMOUFOX_UBO_URL=https://addons.mozilla.org/firefox/downloads/file/4940584/u
 ARG CAMOUFOX_UBO_SHA256=bccc51a773150af4af6e1fd62c7bfdeb7238b79ff2381b998fa9f2e38f64786a
 
 # tesseract-ocr and the English data come from the noble archive at pinned
-# distro versions so the OCR output of drawing pages is reproducible. Language
-# data is installed at build time; nothing is fetched at runtime.
+# distro versions so the OCR output of drawing pages is reproducible.
+# libtesseract5 is pinned too, so a newer noble-updates library cannot leave
+# tesseract-ocr with unmet dependencies. Language data is installed at build
+# time; nothing is fetched at runtime.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl poppler-utils unzip \
-    tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2 \
+    libtesseract5=5.3.4-1build5 tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2 \
   && command -v Xvfb \
   && tesseract --list-langs | grep -qx eng \
   && rm -rf /var/lib/apt/lists/*
