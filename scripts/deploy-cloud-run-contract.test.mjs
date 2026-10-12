@@ -1008,6 +1008,29 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(fourthMessage).toContain("Geomiq");
   });
 
+  it("keeps generated shell free of bash 4 only syntax and runs the helper under posix bash", async () => {
+    const repoRoot = path.resolve(process.cwd());
+    const registry = await readProviderRegistry(repoRoot);
+    const script = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH)
+      .contents;
+    expect(script).not.toMatch(/\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:,,|,|\^\^|\^)\}/);
+    expect(script).not.toMatch(/\bdeclare\s+-[a-zA-Z]*A/);
+    expect(script).not.toMatch(/\blocal\s+-[a-zA-Z]*A/);
+    expect(script).not.toMatch(/\b(?:mapfile|readarray)\b/);
+    expect(script).not.toMatch(/\|&|&>>|;;&|;&/);
+
+    const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-posix-"));
+    const scriptPath = path.join(dir, "provider-secrets.sh");
+    await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);
+    const { stdout, stderr } = await execFileAsync("bash", ["--posix", scriptPath]);
+    expect(stderr).toBe("");
+    expect(stdout.trim()).toBe(formatStableEgressRestrictionMessage(
+      registry.stableEgressRequiredKey,
+      deriveStableEgressOptionalAdapters(registry),
+    ));
+  });
+
   it("uses the generated helper when a stable-egress deploy is rejected", async () => {
     const { failure } = await runDeployScript({
       snapshot: true,
