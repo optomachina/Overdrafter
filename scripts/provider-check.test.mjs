@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { assertCheckedInProviderIdentity, checkProviderIntegrations } from "./provider-check.mjs";
+import {
+  KILL_SWITCH_SEED_RELATIVE_PATH,
+  assertCheckedInProviderIdentity,
+  assertKillSwitchSeedCoversRegistry,
+  checkProviderIntegrations,
+} from "./provider-check.mjs";
 import { readProviderManifests } from "./provider-manifest.mjs";
 import { syncProviderCatalogs, syncProviderIntegrations } from "./provider-sync.mjs";
 import { PROVIDER_REGISTRY_RELATIVE_PATH, WORKER_REGISTRY_RELATIVE_PATH } from "./provider-registry.mjs";
@@ -51,6 +56,7 @@ async function createCheckedFixture() {
       "src/features/quotes/vendor-purchasing-links.ts",
       "src/features/quotes/utils.ts",
       "src/features/quotes/sourcing-result.ts",
+      KILL_SWITCH_SEED_RELATIVE_PATH,
     ].map(async (relativePath) => {
       const target = path.join(rootDir, relativePath);
       await fs.mkdir(path.dirname(target), { recursive: true });
@@ -60,6 +66,45 @@ async function createCheckedFixture() {
   await syncProviderIntegrations({ rootDir });
   return { temporaryRoot, rootDir };
 }
+
+describe("provider kill-switch seed coverage", () => {
+  const enumSeed = `-- Seed
+insert into private.provider_kill_switches (provider, engaged)
+select provider, false
+from pg_catalog.unnest(pg_catalog.enum_range(null::public.vendor_name)) as provider
+on conflict (provider) do nothing;`;
+
+  it("accepts an enum_range seed when every registry key is a vendor key", () => {
+    expect(() => assertKillSwitchSeedCoversRegistry(enumSeed, ["fictiv", "xometry"], ["fictiv", "xometry"]))
+      .not.toThrow();
+  });
+
+  it("rejects a registry key outside the seeded vendor enum", () => {
+    expect(() => assertKillSwitchSeedCoversRegistry(enumSeed, ["fictiv", "newshop"], ["fictiv"]))
+      .toThrow("provider registry key has no kill-switch seed row: newshop");
+  });
+
+  it("checks literal seed rows key by key", () => {
+    const literalSeed = "insert into private.provider_kill_switches (provider, engaged)\nvalues ('fictiv', false), ('xometry', false);";
+    expect(() => assertKillSwitchSeedCoversRegistry(literalSeed, ["fictiv", "xometry"], [])).not.toThrow();
+    expect(() => assertKillSwitchSeedCoversRegistry(literalSeed, ["fictiv", "weerg"], ["weerg"]))
+      .toThrow("provider registry key has no kill-switch seed row: weerg");
+  });
+
+  it("rejects SQL without the seed insert, ignoring commented-out seeds and upsert functions", () => {
+    const sql = `-- insert into private.provider_kill_switches (provider, engaged) values ('fictiv', false);
+insert into private.provider_kill_switches as s (provider, engaged, reason) values (p_provider, p_engaged, v_reason);`;
+    expect(() => assertKillSwitchSeedCoversRegistry(sql, ["fictiv"], ["fictiv"]))
+      .toThrow("kill-switch seed for private.provider_kill_switches is missing");
+  });
+
+  it("fails provider:check when the seed SQL is missing", async () => {
+    const { rootDir } = await createCheckedFixture();
+    await fs.rm(path.join(rootDir, KILL_SWITCH_SEED_RELATIVE_PATH));
+    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-28" }))
+      .rejects.toThrow(`kill-switch seed SQL is missing: ${KILL_SWITCH_SEED_RELATIVE_PATH}`);
+  });
+});
 
 describe("checked-in provider manifests and projections", () => {
   it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", async () => {

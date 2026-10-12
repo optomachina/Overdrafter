@@ -23,6 +23,10 @@ import {
 } from "./provider-registry.mjs";
 import { assertReviewedEnvelopeCompleteness } from "./reviewed-envelope-check.mjs";
 
+export const KILL_SWITCH_SEED_RELATIVE_PATH = "docs/migration-drafts/ovd-722.sql";
+const KILL_SWITCH_SEED_INSERT = /insert\s+into\s+private\.provider_kill_switches\s*\(\s*provider\s*,\s*engaged\s*\)/i;
+const VENDOR_ENUM_RANGE = /enum_range\s*\(\s*null::public\.vendor_name\s*\)/i;
+
 const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
 const REQUIRED_CATALOG_CONSUMERS = new Map([
   ["src/features/quotes/vendor-colors.ts", {
@@ -96,6 +100,38 @@ export function assertCheckedInProviderIdentity(manifest) {
   ) {
     throw new Error(`checked-in provider manifest ${manifest.key} requires current first-party identity evidence`);
   }
+}
+
+// OVD-722: every registry provider must start with a kill-switch row, otherwise
+// the fail-closed reader treats it as switched off.
+export function assertKillSwitchSeedCoversRegistry(sql, registryKeys, vendorKeys) {
+  const seed = sql
+    .replace(/--[^\n]*/g, "")
+    .split(";")
+    .find((statement) => KILL_SWITCH_SEED_INSERT.test(statement));
+  if (!seed) {
+    throw new Error(`kill-switch seed for private.provider_kill_switches is missing: ${KILL_SWITCH_SEED_RELATIVE_PATH}`);
+  }
+  const seeded = VENDOR_ENUM_RANGE.test(seed)
+    ? new Set(vendorKeys)
+    : new Set([...seed.matchAll(/\(\s*'([a-z][a-z0-9]+)'/g)].map((match) => match[1]));
+  const missing = registryKeys.filter((key) => !seeded.has(key));
+  if (missing.length > 0) {
+    throw new Error(`provider registry key has no kill-switch seed row: ${missing.join(",")}`);
+  }
+}
+
+async function assertKillSwitchSeed(rootDir, registry, vendorKeys) {
+  let sql;
+  try {
+    sql = await fs.readFile(path.join(rootDir, KILL_SWITCH_SEED_RELATIVE_PATH), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`kill-switch seed SQL is missing: ${KILL_SWITCH_SEED_RELATIVE_PATH}`);
+    }
+    throw error;
+  }
+  assertKillSwitchSeedCoversRegistry(sql, registry.providers.map((entry) => entry.key), vendorKeys);
 }
 
 async function readProviderSchema(rootDir) {
@@ -201,6 +237,7 @@ export async function checkProviderIntegrations({
     });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
+  await assertKillSwitchSeed(rootDir, registry, vendorKeys);
   const generated = await assertGeneratedOutputs(rootDir, today);
 
   if (checkConsumers) {
