@@ -127,6 +127,7 @@ conditions are already met.
 * Provider permissions matrix for all 8 platforms.
 * Legal council review (model council) and a cease and desist response
   playbook.
+* Supabase Pro with leaked password protection and daily backups (OVD-735).
 * Stripe catalog for Free, Pro, Team, Founding Team and Jarvis matches this
   document (OVD-725 / PR #671). Keep billing disabled until certification
   (OVD-199, OVD-319) and separate live charge approval (OVD-228).

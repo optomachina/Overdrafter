@@ -125,3 +125,33 @@ describe("window 1 packet files", () => {
     }
   });
 });
+
+describe("window 1 restore check", async () => {
+  const { isLocalTarget, compareCounts, repoRoles, CLEAR_DEFAULT_PRIVILEGES } = await import("./restore-check.mjs");
+
+  it("accepts only loopback hosts and Unix sockets as restore targets", () => {
+    expect(isLocalTarget("postgresql://postgres:postgres@127.0.0.1:54322/postgres")).toBe(true);
+    expect(isLocalTarget("postgresql://postgres@localhost/postgres")).toBe(true);
+    expect(isLocalTarget("postgresql:///postgres?host=/tmp/sock&user=postgres")).toBe(true);
+    expect(isLocalTarget("postgresql://postgres.ref:pw@aws-0-us-east-1.pooler.supabase.com:5432/postgres")).toBe(false);
+    expect(isLocalTarget("postgresql://u@127.0.0.1/db?host=db.example.com")).toBe(false);
+    expect(isLocalTarget("postgresql:///postgres?host=relative")).toBe(false);
+    expect(isLocalTarget("mysql://127.0.0.1/db")).toBe(false);
+    expect(isLocalTarget("not a url")).toBe(false);
+  });
+
+  it("reports every count that differs, including tables missing on one side", () => {
+    expect(compareCounts({ a: 1, b: 2 }, { a: 1, b: 2 })).toEqual([]);
+    expect(compareCounts({ a: 1, b: 2 }, { a: 1, b: 3, c: 0 })).toEqual(["b: production 2 restore 3", "c: production undefined restore 0"]);
+  });
+
+  it("finds the NOLOGIN roles that repository migrations create", () => {
+    expect(repoRoles()).toEqual(expect.arrayContaining(["ovd575_observer_validator", "ovd576_stop_validator"]));
+  });
+
+  it("clears default grants to the API roles before the schema loads", () => {
+    for (const kind of ["tables", "sequences", "functions"]) {
+      expect(CLEAR_DEFAULT_PRIVILEGES).toContain(`revoke all on ${kind} from anon, authenticated, service_role`);
+    }
+  });
+});

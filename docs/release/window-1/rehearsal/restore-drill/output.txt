@@ -1,0 +1,183 @@
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:1: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:324: NOTICE:  trigger "touch_organizations_updated_at" for relation "public.organizations" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:329: NOTICE:  trigger "touch_jobs_updated_at" for relation "public.jobs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:334: NOTICE:  trigger "touch_parts_updated_at" for relation "public.parts" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:339: NOTICE:  trigger "touch_drawing_extractions_updated_at" for relation "public.drawing_extractions" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:344: NOTICE:  trigger "touch_approved_part_requirements_updated_at" for relation "public.approved_part_requirements" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:349: NOTICE:  trigger "touch_quote_runs_updated_at" for relation "public.quote_runs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:354: NOTICE:  trigger "touch_vendor_quote_results_updated_at" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:359: NOTICE:  trigger "touch_work_queue_updated_at" for relation "public.work_queue" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:567: NOTICE:  policy "organizations_select_members" for relation "public.organizations" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:574: NOTICE:  policy "organizations_manage_internal_admins" for relation "public.organizations" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:582: NOTICE:  policy "memberships_select_own_or_admin" for relation "public.organization_memberships" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:589: NOTICE:  policy "memberships_manage_internal_admins" for relation "public.organization_memberships" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:597: NOTICE:  policy "pricing_policies_internal_only" for relation "public.pricing_policies" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:615: NOTICE:  policy "pricing_policies_manage_internal_admins" for relation "public.pricing_policies" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:645: NOTICE:  policy "jobs_select_members" for relation "public.jobs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:652: NOTICE:  policy "jobs_insert_members" for relation "public.jobs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:659: NOTICE:  policy "jobs_update_internal" for relation "public.jobs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:667: NOTICE:  policy "job_files_select_members" for relation "public.job_files" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:674: NOTICE:  policy "job_files_insert_members" for relation "public.job_files" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:681: NOTICE:  policy "job_files_update_internal" for relation "public.job_files" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:689: NOTICE:  policy "job_files_delete_internal" for relation "public.job_files" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:696: NOTICE:  policy "parts_select_members" for relation "public.parts" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:703: NOTICE:  policy "parts_manage_internal" for relation "public.parts" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:711: NOTICE:  policy "drawing_extractions_internal_only" for relation "public.drawing_extractions" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:718: NOTICE:  policy "drawing_extractions_manage_internal" for relation "public.drawing_extractions" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:726: NOTICE:  policy "approved_requirements_internal_only" for relation "public.approved_part_requirements" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:733: NOTICE:  policy "approved_requirements_manage_internal" for relation "public.approved_part_requirements" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:741: NOTICE:  policy "quote_runs_internal_only" for relation "public.quote_runs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:748: NOTICE:  policy "quote_runs_manage_internal" for relation "public.quote_runs" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:756: NOTICE:  policy "vendor_quote_results_internal_only" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:763: NOTICE:  policy "vendor_quote_results_manage_internal" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:771: NOTICE:  policy "vendor_quote_artifacts_internal_only" for relation "public.vendor_quote_artifacts" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:778: NOTICE:  policy "vendor_quote_artifacts_manage_internal" for relation "public.vendor_quote_artifacts" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:786: NOTICE:  policy "packages_select_members" for relation "public.published_quote_packages" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:793: NOTICE:  policy "packages_manage_internal" for relation "public.published_quote_packages" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:801: NOTICE:  policy "package_options_select_members" for relation "public.published_quote_options" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:808: NOTICE:  policy "package_options_manage_internal" for relation "public.published_quote_options" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:816: NOTICE:  policy "client_selections_select_members" for relation "public.client_selections" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:823: NOTICE:  policy "client_selections_insert_members" for relation "public.client_selections" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:833: NOTICE:  policy "audit_events_internal_only" for relation "public.audit_events" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:840: NOTICE:  policy "audit_events_manage_internal" for relation "public.audit_events" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:848: NOTICE:  policy "work_queue_internal_only" for relation "public.work_queue" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:855: NOTICE:  policy "work_queue_manage_internal" for relation "public.work_queue" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:875: NOTICE:  policy "job_files_storage_insert" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:890: NOTICE:  policy "job_files_storage_read" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:905: NOTICE:  policy "job_files_storage_delete_internal" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303101500_curated_cnc_quote_platform.sql:920: NOTICE:  policy "quote_artifacts_storage_read_internal" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303191500_add_vendor_quote_offers.sql:40: NOTICE:  trigger "touch_vendor_quote_offers_updated_at" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260303191500_add_vendor_quote_offers.sql:131: NOTICE:  policy "vendor_quote_offers_internal_only" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260303191500_add_vendor_quote_offers.sql:138: NOTICE:  policy "vendor_quote_offers_manage_internal" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260303191500_add_vendor_quote_offers.sql:163: NOTICE:  function public.insert_published_quote_option(uuid,public.client_option_kind,uuid,pg_catalog.numeric,pg_catalog.numeric,text,uuid) does not exist, skipping
+psql:supabase/migrations/20260303201500_add_manual_import_vendors_and_job_tags.sql:10: NOTICE:  function public.api_create_job(uuid,text,text,text,text[]) does not exist, skipping
+psql:supabase/migrations/20260303214500_add_manual_quote_intake.sql:1: NOTICE:  policy "quote_artifacts_storage_insert_internal" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303214500_add_manual_quote_intake.sql:17: NOTICE:  policy "quote_artifacts_storage_delete_internal" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260303214500_add_manual_quote_intake.sql:43: NOTICE:  function public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb) does not exist, skipping
+psql:supabase/migrations/20260304010000_add_shared_projects_and_client_home.sql:49: NOTICE:  trigger "touch_projects_updated_at" for relation "public.projects" does not exist, skipping
+psql:supabase/migrations/20260304010000_add_shared_projects_and_client_home.sql:216: NOTICE:  policy "projects_select_accessible" for relation "public.projects" does not exist, skipping
+psql:supabase/migrations/20260304010000_add_shared_projects_and_client_home.sql:223: NOTICE:  policy "project_memberships_select_accessible" for relation "public.project_memberships" does not exist, skipping
+psql:supabase/migrations/20260304010000_add_shared_projects_and_client_home.sql:230: NOTICE:  policy "project_invites_select_owners" for relation "public.project_invites" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:25: NOTICE:  policy "user_pinned_projects_select_own" for relation "public.user_pinned_projects" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:35: NOTICE:  policy "user_pinned_projects_insert_own" for relation "public.user_pinned_projects" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:45: NOTICE:  policy "user_pinned_projects_delete_own" for relation "public.user_pinned_projects" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:55: NOTICE:  policy "user_pinned_jobs_select_own" for relation "public.user_pinned_jobs" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:65: NOTICE:  policy "user_pinned_jobs_insert_own" for relation "public.user_pinned_jobs" does not exist, skipping
+psql:supabase/migrations/20260305123000_add_user_pinned_threads.sql:75: NOTICE:  policy "user_pinned_jobs_delete_own" for relation "public.user_pinned_jobs" does not exist, skipping
+psql:supabase/migrations/20260306113000_refresh_api_create_project_schema_cache.sql:1: NOTICE:  function public.api_create_project(text) does not exist, skipping
+psql:supabase/migrations/20260307160000_add_project_jobs_and_selected_offer.sql:84: NOTICE:  policy "project_jobs_select_accessible" for relation "public.project_jobs" does not exist, skipping
+psql:supabase/migrations/20260307160000_add_project_jobs_and_selected_offer.sql:91: NOTICE:  policy "project_jobs_manage_editors" for relation "public.project_jobs" does not exist, skipping
+psql:supabase/migrations/20260307160000_add_project_jobs_and_selected_offer.sql:99: NOTICE:  policy "drawing_preview_assets_select_accessible" for relation "public.drawing_preview_assets" does not exist, skipping
+psql:supabase/migrations/20260307160000_add_project_jobs_and_selected_offer.sql:106: NOTICE:  policy "drawing_preview_assets_manage_internal" for relation "public.drawing_preview_assets" does not exist, skipping
+psql:supabase/migrations/20260307190000_add_request_intake_and_multi_quantity_quotes.sql:72: NOTICE:  identifier "vendor_quote_results_quote_run_id_part_id_vendor_requested_quantity_key" will be truncated to "vendor_quote_results_quote_run_id_part_id_vendor_requested_quan"
+psql:supabase/migrations/20260307190000_add_request_intake_and_multi_quantity_quotes.sql:79: NOTICE:  identifier "published_quote_options_package_id_requested_quantity_option_kind_key" will be truncated to "published_quote_options_package_id_requested_quantity_option_ki"
+psql:supabase/migrations/20260307190000_add_request_intake_and_multi_quantity_quotes.sql:380: NOTICE:  function public.insert_published_quote_option(uuid,public.client_option_kind,uuid,pg_catalog.numeric,pg_catalog.numeric,text) does not exist, skipping
+psql:supabase/migrations/20260308110000_add_project_and_job_archiving.sql:62: NOTICE:  function public.api_create_client_draft(text,text,uuid,text[]) does not exist, skipping
+psql:supabase/migrations/20260308113000_fix_job_file_reconcile_and_add_org_blob_dedupe.sql:19: NOTICE:  policy "organization_file_blobs_internal_only" for relation "public.organization_file_blobs" does not exist, skipping
+psql:supabase/migrations/20260308113000_fix_job_file_reconcile_and_add_org_blob_dedupe.sql:26: NOTICE:  policy "organization_file_blobs_manage_internal" for relation "public.organization_file_blobs" does not exist, skipping
+psql:supabase/migrations/20260313110000_add_client_activity_event_feed.sql:4: NOTICE:  function public.api_list_client_activity_events(uuid[],pg_catalog.int4) does not exist, skipping
+psql:supabase/migrations/20260315003000_allow_client_drawing_preview_storage_reads.sql:1: NOTICE:  policy "quote_artifacts_storage_read_drawing_previews" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260315110000_add_client_quote_requests.sql:46: NOTICE:  policy "quote_requests_select_accessible" for relation "public.quote_requests" does not exist, skipping
+psql:supabase/migrations/20260315110000_add_client_quote_requests.sql:53: NOTICE:  trigger "touch_quote_requests_updated_at" for relation "public.quote_requests" does not exist, skipping
+psql:supabase/migrations/20260315110000_add_client_quote_requests.sql:156: NOTICE:  trigger "sync_quote_request_status_on_vendor_result" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260315120000_add_client_part_metadata_projection.sql:1: NOTICE:  function public.api_list_client_part_metadata(uuid[]) does not exist, skipping
+psql:supabase/migrations/20260317113000_add_debug_extraction_runs.sql:33: NOTICE:  trigger "touch_debug_extraction_runs_updated_at" for relation "public.debug_extraction_runs" does not exist, skipping
+psql:supabase/migrations/20260317113000_add_debug_extraction_runs.sql:40: NOTICE:  policy "debug_extraction_runs_internal_only" for relation "public.debug_extraction_runs" does not exist, skipping
+psql:supabase/migrations/20260317113000_add_debug_extraction_runs.sql:47: NOTICE:  policy "debug_extraction_runs_manage_internal" for relation "public.debug_extraction_runs" does not exist, skipping
+psql:supabase/migrations/20260323190000_add_quote_request_guardrails.sql:18: NOTICE:  policy "quote_request_guardrails_internal_select" for relation "public.quote_request_guardrails" does not exist, skipping
+psql:supabase/migrations/20260323190000_add_quote_request_guardrails.sql:25: NOTICE:  trigger "touch_quote_request_guardrails_updated_at" for relation "public.quote_request_guardrails" does not exist, skipping
+psql:supabase/migrations/20260324000000_add_service_request_line_items.sql:42: NOTICE:  policy "service_request_line_items_select_accessible" for relation "public.service_request_line_items" does not exist, skipping
+psql:supabase/migrations/20260324000000_add_service_request_line_items.sql:53: NOTICE:  trigger "touch_service_request_line_items_updated_at" for relation "public.service_request_line_items" does not exist, skipping
+psql:supabase/migrations/20260324103000_add_org_vendor_configs_and_multi_vendor_request_quote.sql:12: NOTICE:  policy "org_vendor_configs_internal_select" for relation "public.org_vendor_configs" does not exist, skipping
+psql:supabase/migrations/20260324103000_add_org_vendor_configs_and_multi_vendor_request_quote.sql:19: NOTICE:  trigger "touch_org_vendor_configs_updated_at" for relation "public.org_vendor_configs" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:17: NOTICE:  policy "organizations_select_platform_admins" for relation "public.organizations" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:24: NOTICE:  policy "organization_memberships_select_platform_admins" for relation "public.organization_memberships" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:31: NOTICE:  policy "pricing_policies_select_platform_admins" for relation "public.pricing_policies" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:38: NOTICE:  policy "jobs_select_platform_admins" for relation "public.jobs" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:45: NOTICE:  policy "job_files_select_platform_admins" for relation "public.job_files" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:52: NOTICE:  policy "parts_select_platform_admins" for relation "public.parts" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:59: NOTICE:  policy "drawing_extractions_select_platform_admins" for relation "public.drawing_extractions" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:66: NOTICE:  policy "approved_part_requirements_select_platform_admins" for relation "public.approved_part_requirements" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:73: NOTICE:  policy "quote_runs_select_platform_admins" for relation "public.quote_runs" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:80: NOTICE:  policy "vendor_quote_results_select_platform_admins" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:87: NOTICE:  policy "vendor_quote_artifacts_select_platform_admins" for relation "public.vendor_quote_artifacts" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:94: NOTICE:  policy "vendor_quote_offers_select_platform_admins" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:101: NOTICE:  policy "published_quote_packages_select_platform_admins" for relation "public.published_quote_packages" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:108: NOTICE:  policy "published_quote_options_select_platform_admins" for relation "public.published_quote_options" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:115: NOTICE:  policy "client_selections_select_platform_admins" for relation "public.client_selections" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:122: NOTICE:  policy "work_queue_select_platform_admins" for relation "public.work_queue" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:129: NOTICE:  policy "projects_select_platform_admins" for relation "public.projects" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:136: NOTICE:  policy "project_memberships_select_platform_admins" for relation "public.project_memberships" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:143: NOTICE:  policy "drawing_preview_assets_select_platform_admins" for relation "public.drawing_preview_assets" does not exist, skipping
+psql:supabase/migrations/20260325120000_add_platform_admin_god_mode.sql:150: NOTICE:  policy "debug_extraction_runs_select_platform_admins" for relation "public.debug_extraction_runs" does not exist, skipping
+psql:supabase/migrations/20260331010000_sync_service_line_item_status_from_quote_requests.sql:61: NOTICE:  trigger "sync_service_request_line_item_status_on_quote_request" for relation "public.quote_requests" does not exist, skipping
+psql:supabase/migrations/20260405100000_vendor_capability_profiles.sql:66: NOTICE:  trigger "touch_vendor_capability_profiles_updated_at" for relation "public.vendor_capability_profiles" does not exist, skipping
+psql:supabase/migrations/20260405100000_vendor_capability_profiles.sql:75: NOTICE:  policy "vendor_capability_profiles_select_authenticated" for relation "public.vendor_capability_profiles" does not exist, skipping
+psql:supabase/migrations/20260405100000_vendor_capability_profiles.sql:99: NOTICE:  policy "vendor_capability_profiles_manage_internal" for relation "public.vendor_capability_profiles" does not exist, skipping
+psql:supabase/migrations/20260405103000_vendor_routing_scores.sql:59: NOTICE:  policy "vendor_routing_scores_internal_select" for relation "public.vendor_routing_scores" does not exist, skipping
+psql:supabase/migrations/20260405103000_vendor_routing_scores.sql:67: NOTICE:  policy "vendor_routing_scores_manage_internal" for relation "public.vendor_routing_scores" does not exist, skipping
+psql:supabase/migrations/20260406000000_add_extraction_quality_alerts.sql:18: NOTICE:  policy "extraction_quality_alerts_internal_select" for relation "public.extraction_quality_alerts" does not exist, skipping
+psql:supabase/migrations/20260406000000_add_extraction_quality_alerts.sql:25: NOTICE:  policy "extraction_quality_alerts_manage_internal" for relation "public.extraction_quality_alerts" does not exist, skipping
+psql:supabase/migrations/20260408193000_add_project_and_job_vendor_preferences.sql:34: NOTICE:  policy "project_vendor_preferences_select" for relation "public.project_vendor_preferences" does not exist, skipping
+psql:supabase/migrations/20260408193000_add_project_and_job_vendor_preferences.sql:41: NOTICE:  policy "job_vendor_preferences_select" for relation "public.job_vendor_preferences" does not exist, skipping
+psql:supabase/migrations/20260408193000_add_project_and_job_vendor_preferences.sql:48: NOTICE:  trigger "touch_project_vendor_preferences_updated_at" for relation "public.project_vendor_preferences" does not exist, skipping
+psql:supabase/migrations/20260408193000_add_project_and_job_vendor_preferences.sql:53: NOTICE:  trigger "touch_job_vendor_preferences_updated_at" for relation "public.job_vendor_preferences" does not exist, skipping
+psql:supabase/migrations/20260728190000_mobile_auth_bridge.sql:8: NOTICE:  schema "private" already exists, skipping
+psql:supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql:85: NOTICE:  policy "spend_caps_read" for relation "public.spend_caps" does not exist, skipping
+psql:supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql:95: NOTICE:  policy "spend_ledger_read" for relation "public.spend_ledger" does not exist, skipping
+psql:supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql:105: NOTICE:  trigger "touch_spend_caps_updated_at" for relation "public.spend_caps" does not exist, skipping
+psql:supabase/migrations/20260731015213_secure_commercial_admin_operations.sql:323: NOTICE:  policy "commercial_admin_audit_select_by_capability" for relation "public.commercial_admin_audit_events" does not exist, skipping
+psql:supabase/migrations/20260731015213_secure_commercial_admin_operations.sql:352: NOTICE:  trigger "reject_commercial_admin_audit_mutation" for relation "public.commercial_admin_audit_events" does not exist, skipping
+psql:supabase/migrations/20260731015235_add_manual_quote_request_lifecycle.sql:563: NOTICE:  trigger "reset_job_after_manual_quote_cancellation" for relation "public.quote_requests" does not exist, skipping
+psql:supabase/migrations/20260731015300_add_manual_quote_admin_inbox.sql:1142: NOTICE:  policy "vendor_quote_artifacts_select_billing_admin" for relation "public.vendor_quote_artifacts" does not exist, skipping
+psql:supabase/migrations/20260731015300_add_manual_quote_admin_inbox.sql:1158: NOTICE:  policy "quote_artifacts_storage_insert_billing_admin" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260731015300_add_manual_quote_admin_inbox.sql:1174: NOTICE:  policy "quote_artifacts_storage_read_billing_admin" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260731015300_add_manual_quote_admin_inbox.sql:1190: NOTICE:  policy "quote_artifacts_storage_delete_billing_admin" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260731015300_add_manual_quote_admin_inbox.sql:1193: NOTICE:  policy "quote_artifacts_storage_delete_billing_admin_unregistered" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260731102000_add_replay_safe_stripe_events.sql:16: NOTICE:  constraint "organization_subscription_event_id_check" of relation "organization_subscription_projections" does not exist, skipping
+psql:supabase/migrations/20260731102000_add_replay_safe_stripe_events.sql:26: NOTICE:  constraint "organization_subscription_price_id_check" of relation "organization_subscription_projections" does not exist, skipping
+psql:supabase/migrations/20260731122500_add_checkout_billing_sessions.sql:626: NOTICE:  trigger "guard_billing_audit_events" for relation "public.audit_events" does not exist, skipping
+psql:supabase/migrations/20260731122500_add_checkout_billing_sessions.sql:755: NOTICE:  trigger "audit_subscription_activation" for relation "private.organization_subscription_projections" does not exist, skipping
+psql:supabase/migrations/20260805015950_add_persistent_cad_preview_assets.sql:36: NOTICE:  trigger "touch_cad_preview_assets_updated_at" for relation "public.cad_preview_assets" does not exist, skipping
+psql:supabase/migrations/20260805015950_add_persistent_cad_preview_assets.sql:43: NOTICE:  policy "cad_preview_assets_select_accessible" for relation "public.cad_preview_assets" does not exist, skipping
+psql:supabase/migrations/20260805015950_add_persistent_cad_preview_assets.sql:61: NOTICE:  policy "quote_artifacts_storage_read_cad_previews" for relation "storage.objects" does not exist, skipping
+psql:supabase/migrations/20260812004204_restore_job_vendor_preferences.sql:23: NOTICE:  relation "project_vendor_preferences" already exists, skipping
+psql:supabase/migrations/20260812004204_restore_job_vendor_preferences.sql:33: NOTICE:  relation "job_vendor_preferences" already exists, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:22: NOTICE:  constraint "organization_file_blobs_trusted_content_sha256_check" of relation "organization_file_blobs" does not exist, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:28: NOTICE:  constraint "job_files_trusted_content_sha256_check" of relation "job_files" does not exist, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:97: NOTICE:  constraint "vendor_quote_offers_validity_duration_days_check" of relation "vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:97: NOTICE:  constraint "vendor_quote_offers_validity_source_check" of relation "vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:97: NOTICE:  constraint "vendor_quote_offers_provenance_status_check" of relation "vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260812041000_add_quote_scope_validity_and_lane_eligibility.sql:275: NOTICE:  trigger "normalize_quote_offer_validity" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:31: NOTICE:  column "trusted_content_sha256" of relation "organization_file_blobs" already exists, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:33: NOTICE:  column "trusted_content_sha256" of relation "job_files" already exists, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:36: NOTICE:  constraint "organization_file_blobs_trusted_hash_check" of relation "organization_file_blobs" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:42: NOTICE:  constraint "job_files_trusted_hash_check" of relation "job_files" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:89: NOTICE:  constraint "part_versions_source_part_id_fkey" of relation "part_versions" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:100: NOTICE:  constraint "job_files_storage_path_key" of relation "job_files" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:115: NOTICE:  policy "canonical_parts_select_organization" for relation "public.canonical_parts" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:128: NOTICE:  policy "part_versions_select_organization" for relation "public.part_versions" does not exist, skipping
+psql:supabase/migrations/20260812042000_add_canonical_part_identity.sql:617: NOTICE:  trigger "assign_canonical_part_version" for relation "public.parts" does not exist, skipping
+psql:supabase/migrations/20260812043000_add_private_part_fingerprint_analytics.sql:93: NOTICE:  trigger "observe_part_version_fingerprint" for relation "public.part_versions" does not exist, skipping
+psql:supabase/migrations/20260812044000_enforce_quote_lane_eligibility.sql:15: NOTICE:  constraint "quote_request_guardrails_same_scope_cooldown_minutes_check" of relation "quote_request_guardrails" does not exist, skipping
+psql:supabase/migrations/20260812044000_enforce_quote_lane_eligibility.sql:27: NOTICE:  constraint "vendor_quote_offers_invalidation_state_check" of relation "vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260812045000_add_quote_offer_invalidation.sql:82: NOTICE:  trigger "anchor_operator_quote_validity" for relation "public.vendor_quote_offers" does not exist, skipping
+psql:supabase/migrations/20260815090000_add_founding_beta_enrollment.sql:455: NOTICE:  function public.api_create_job(uuid,text,text,text) does not exist, skipping
+psql:supabase/migrations/20260815090000_add_founding_beta_enrollment.sql:456: NOTICE:  function public.api_create_job(uuid,text,text,text,text[]) does not exist, skipping
+psql:supabase/migrations/20260815090000_add_founding_beta_enrollment.sql:457: NOTICE:  function public.api_create_job(uuid,text,text,text,text[],pg_catalog.int4[],date) does not exist, skipping
+psql:supabase/migrations/20260815090000_add_founding_beta_enrollment.sql:458: NOTICE:  function public.api_create_client_draft(text,text,uuid,text[]) does not exist, skipping
+psql:supabase/migrations/20260815090000_add_founding_beta_enrollment.sql:459: NOTICE:  function public.api_create_client_draft(text,text,uuid,text[],pg_catalog.int4[],date) does not exist, skipping
+psql:supabase/migrations/20260816015000_restrict_extraction_quality_alert_evaluator.sql:17: NOTICE:  relation "extraction_quality_alerts" already exists, skipping
+psql:supabase/migrations/20260821223851_configure_emachineshop_manual_vendor.sql:141: NOTICE:  trigger "default_manual_quote_request_vendors" for relation "public.quote_requests" does not exist, skipping
+psql:supabase/migrations/20260821223851_configure_emachineshop_manual_vendor.sql:178: NOTICE:  trigger "enforce_manual_quote_result_vendor" for relation "public.vendor_quote_results" does not exist, skipping
+psql:supabase/migrations/20260821223851_configure_emachineshop_manual_vendor.sql:215: NOTICE:  trigger "align_manual_quote_request_audit_vendors" for relation "public.audit_events" does not exist, skipping
+psql:supabase/migrations/20260822213330_add_vendor_quote_offer_geographic_origin.sql:15: NOTICE:  constraint "vendor_quote_offers_geographic_origin_check" of relation "vendor_quote_offers" does not exist, skipping
+production counts: {"auth.users": 5, "public.jobs": 0, "public.parts": 0, "public.payments": 0, "public.projects": 0, "storage.objects": 0, "public.job_files": 0, "public.quote_runs": 0, "public.work_queue": 0, "public.audit_events": 0, "public.organizations": 3, "public.client_selections": 0, "public.vendor_quote_offers": 0, "public.vendor_quote_results": 0, "public.organization_memberships": 0}
+PASS target is a local database
+PASS dump directory has schema.sql, data.sql, storage-policies.sql, counts.prod.json
+PASS target has no application tables yet  (0)
+PASS repository NOLOGIN roles exist on the target  (ovd575_observer_validator, ovd576_stop_validator)
+PASS schema, data and storage policies restore in one transaction  (1 s)
+PASS row counts of key tables equal production  ({"auth.users": 5, "public.jobs": 0, "public.parts": 0, "public.payments": 0, "public.projects": 0, "storage.objects": 0, "public.job_files": 0, "public.quote_runs": 0, "public.work_queue": 0, "public.audit_events": 0, "public.organizations": 3, "public.client_selections": 0, "public.vendor_quote_offers": 0, "public.vendor_quote_results": 0, "public.organization_memberships": 0})
+PASS OVD-602 inventory of the restore equals the pin
+restore check PASS

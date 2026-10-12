@@ -98,7 +98,7 @@ window needs:
 * a disposable rehearsal (OVD-635)
 * an OVD-602 SECURITY DEFINER and RLS inventory diff
 * pgTAP RLS denial tests
-* PITR confirmed
+* fresh logical dump taken and restore tested; PITR and Supabase Pro revisited before the first paying customer (OVD-735)
 * expand then contract changes only
 
 Window 1 is the week of Oct 19. The Jarvis SQL (#619, #620) goes in window 2,

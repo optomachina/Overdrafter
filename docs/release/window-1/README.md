@@ -15,19 +15,46 @@ Evidence: `rehearsal/ovd-462-only/summary.json` (the GO path) and `rehearsal/rec
 
 ## Before the window (any day, read only)
 
-1. **PITR.** Dashboard, project, **Database > Backups > Point in time**. It must show a recovery window ("restore to any point since ..."). An upgrade or "enable" prompt means PITR is off: **no go**. Cross check: **Project Settings > Add-ons > Point in time recovery** shows a retention period.
-2. **Connection.** Dashboard, **Connect > Session pooler**, copy the URI. In your shell only: `export DB_URL='postgresql://...'` (never paste it anywhere else).
-3. **Baseline inventory** from a checkout of `main`:
+The org is on the Supabase Free plan: no automated backups and no PITR (Blaine's decision, OVD-735). The backup is a fresh logical dump that is restored locally and checked before anything is applied.
+
+1. **Connection.** Dashboard, **Connect > Session pooler**, copy the URI. In your shell only: `export DB_URL='postgresql://...'`. Never paste it anywhere else, never commit it.
+2. **Baseline inventory** from a checkout of `main`:
    ```
    psql "$DB_URL" -X -A -t -q -f scripts/window-1/ovd602-inventory.sql > /tmp/w1-before.json
    node scripts/window-1/ovd602-diff.mjs docs/release/window-1/ovd602-pin.main.json /tmp/w1-before.json
    ```
    Expected: `ovd602: no difference from the pin`. Any other line is drift between production and `main`: stop and send me the output.
-4. **Rollback role.** `psql "$DB_URL" -X -At -c "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"` must print `t`. The 462 rollback refuses otherwise (it could not see occupants through forced RLS).
+3. **Rollback role.** `psql "$DB_URL" -X -At -c "select rolsuper or rolbypassrls from pg_roles where rolname = current_user"` must print `t`. The 462 rollback refuses otherwise (it could not see occupants through forced RLS).
+
+## Immediately before the first apply: dump and restore check
+
+Keep the dump on your machine only (it holds customer data), outside the repo:
+```
+mkdir -p ~/w1-backup && chmod 700 ~/w1-backup
+supabase db dump --db-url "$DB_URL" -f ~/w1-backup/schema.sql
+supabase db dump --db-url "$DB_URL" --data-only --use-copy -f ~/w1-backup/data.sql
+psql "$DB_URL" -X -A -t -q -f scripts/window-1/smoke-counts.sql > ~/w1-backup/counts.prod.json
+psql "$DB_URL" -X -A -t -q -f scripts/window-1/storage-policies.sql > ~/w1-backup/storage-policies.sql
+```
+Roles are not dumped. Storage file bytes are not in a database dump; only `storage.objects` rows are. Take the counts right after the data dump, and do not start the window if a customer is uploading.
+
+Restore into an empty, throwaway local Supabase stack (Docker; stop any other local stack first, it uses the same ports), never the linked project:
+```
+mkdir -p ~/w1-restore && cd ~/w1-restore && supabase init && supabase start
+cd <repo> && node scripts/window-1/restore-check.mjs --target postgresql://postgres:postgres@127.0.0.1:54322/postgres --dump ~/w1-backup
+(cd ~/w1-restore && supabase stop --no-backup)
+```
+Expected: 7 `PASS` lines, ending in `restore check PASS`. The script refuses any non local target. It creates the repo's two NOLOGIN roles, clears the stack's default grants first (otherwise every restored table and function picks up `anon` access that production revoked), loads schema, data and storage policies in one transaction, then requires the row counts to equal `counts.prod.json` and the 602 inventory to equal the pin. Rehearsed here with `bash scripts/window-1/restore-drill.sh` (synthetic data).
 
 ## Go/no go (all must hold at the start)
 
-PITR shows a window; baseline diff is empty; `supabase db push --db-url "$DB_URL" --dry-run` from `main` says the remote is up to date; the PR head SHA equals `manifest.json`; the PR's CI is green; the worker build that uses the migration is **not** deployed yet. Write down `select now();` as the restore point.
+* The restore check printed `restore check PASS` within the last hour, from a dump taken in this session.
+* The baseline 602 diff is empty, and the rollback role check printed `t`.
+* `supabase db push --db-url "$DB_URL" --dry-run` from `main` says the remote is up to date.
+* Each migration in the window is expand only, has a rehearsed rollback, and its PR head SHA equals `manifest.json`; its PR's CI is green.
+* The worker build that uses the migration is **not** deployed yet.
+
+Write down `select now();`. If something goes wrong beyond the per migration rollbacks, the dump in `~/w1-backup` is the recovery point; restoring it to production is a separate decision for Blaine.
 
 ## Migration 1: OVD-462 (GO)
 
@@ -79,11 +106,11 @@ Then close the PR unmerged. The rollback locks both lease tables and refuses if 
 
 ## Migration 2: OVD-723 (NO GO until #677 is fixed and Blaine decides)
 
-Now one migration: upload block (legacy upload RPCs refuse, Storage INSERT needs an exact grant), dispatch gate, and a backfill of a `missing` declaration for every job with files. Blocking: main suites `empty_file_upload_rejection`, `founding_beta_file_boundaries`, `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency` and `xometry_beta_dispatch_permits` fail after it. **Blaine decides:** every existing job is refused dispatch until its owner declares (R723-1), and old browser clients cannot upload until the new client ships. Ask #677 to add `set local lock_timeout = '3s';` before the `storage.objects` policy swap (R723-5). When ready, the steps match migration 1 with slug `ovd723_export_control_upload_block`, the draft up to its `-- ROLLBACK` line, deploy order migration, then client, then worker, and rollback `docs/release/window-1/rollback/ovd-723.rollback.sql` (rehearsed; keeps the audit tables).
+Not expand only: it enforces the upload block and the dispatch gate in the same step, so the window rule needs Blaine's explicit exception. Now one migration: upload block (legacy upload RPCs refuse, Storage INSERT needs an exact grant), dispatch gate, and a backfill of a `missing` declaration for every job with files. Blocking: main suites `empty_file_upload_rejection`, `founding_beta_file_boundaries`, `free_confirmed_quote_access`, `provider_dispatch_preflight`, `provider_dispatch_preflight_concurrency` and `xometry_beta_dispatch_permits` fail after it. **Blaine decides:** every existing job is refused dispatch until its owner declares (R723-1), and old browser clients cannot upload until the new client ships. Ask #677 to add `set local lock_timeout = '3s';` before the `storage.objects` policy swap (R723-5). When ready, the steps match migration 1 with slug `ovd723_export_control_upload_block`, the draft up to its `-- ROLLBACK` line, deploy order migration, then client, then worker, and rollback `docs/release/window-1/rollback/ovd-723.rollback.sql` (rehearsed; keeps the audit tables).
 
 ## Migration 3: OVD-722 (NO GO until #676 is fixed)
 
-Blocking: main suites `job_service_detail_privileges`, `provider_dispatch_admission_serialization`, `provider_dispatch_permits` and `xometry_beta_dispatch_admission_serialization` fail after it (`provider_dispatch_preflight` too when it runs without 723); the draft lists only 3 retargets (R722-1). Also: remove the nested `begin;`/`commit;` (R722-2) and add the order guard to the rollback (RX-1). When fixed, the steps match migration 1 with slug `ovd722_provider_kill_switch`, the draft at the new SHA, and rollback `docs/release/window-1/rollback/ovd-722.rollback.sql` (run with `psql -f`; it carries its own transaction). Readback: as an admin, `select * from api_admin_list_provider_kill_switches()` shows one row per provider, all `engaged = false`, plus the global row. Deploy order: migration first, then the worker build.
+Not expand only: its wrappers change the behavior of four existing RPCs, so the window rule needs Blaine's explicit exception (or ship only its additive part). Blocking: main suites `job_service_detail_privileges`, `provider_dispatch_admission_serialization`, `provider_dispatch_permits` and `xometry_beta_dispatch_admission_serialization` fail after it (`provider_dispatch_preflight` too when it runs without 723); the draft lists only 3 retargets (R722-1). Also: remove the nested `begin;`/`commit;` (R722-2) and add the order guard to the rollback (RX-1). When fixed, the steps match migration 1 with slug `ovd722_provider_kill_switch`, the draft at the new SHA, and rollback `docs/release/window-1/rollback/ovd-722.rollback.sql` (run with `psql -f`; it carries its own transaction). Readback: as an admin, `select * from api_admin_list_provider_kill_switches()` shows one row per provider, all `engaged = false`, plus the global row. Deploy order: migration first, then the worker build.
 
 ## If both 722 and 723 ship together later
 

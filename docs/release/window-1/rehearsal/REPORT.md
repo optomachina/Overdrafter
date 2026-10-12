@@ -60,3 +60,16 @@ node scripts/window-1/rehearse.mjs                      # recommended order, abo
 npx vitest run scripts/window-1/window1-packet.test.mjs # unit tests for the diff and runner helpers
 ```
 Needs local PostgreSQL server binaries (`/usr/lib/postgresql/<n>/bin` or `OVD_PG_BIN`) and pgTAP. As root it runs the server as the `postgres` OS user.
+
+## Backup and restore drill (Free plan, no PITR)
+
+`bash scripts/window-1/restore-drill.sh` builds a stand in for production (shim, every main migration, synthetic rows) and dumps it the way the README does: application schemas, data with COPY, storage policies, and smoke counts, with no roles. It then runs `scripts/window-1/restore-check.mjs` against a second, empty, socket only cluster. Output: `restore-drill/output.txt` (7 PASS lines, `restore check PASS`).
+
+Two problems surfaced on the first attempts. Both are now handled by the restore check and matter for any real restore:
+
+* **Grants widen on restore.** The target's default privileges gave every restored table and function `anon` and `authenticated` access that production revoked (126 functions, 26 tables, 12 more functions newly exposed). The dump has no REVOKE for grants it never saw. The check clears the target's default privileges in `public` before loading.
+* **Storage policies are lost.** The 14 `storage.objects` policies from our migrations are not in an application schema dump. `scripts/window-1/storage-policies.sql` exports them read only, and the check replays them.
+
+The drill also showed that main's two NOLOGIN roles (`ovd575_observer_validator`, `ovd576_stop_validator`) must exist before the schema loads. The check creates them from the repo definitions, since the dump excludes roles.
+
+Not proven here: the exact output of `supabase db dump` against the hosted project, which the drill imitates with `pg_dump`. Blaine's real run of the restore check is that proof, and it is a go/no go item.
