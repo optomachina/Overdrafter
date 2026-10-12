@@ -1,42 +1,60 @@
-import "dotenv/config";
 import fs from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
-import { loadConfig } from "../config.js";
 import {
   gcloudSecretLoader,
   parseProbeCliArgs,
+  PROBE_USAGE,
   runSessionProbe,
   type SessionProbeEvidence,
 } from "../providerSessionProbe.js";
 
-async function main(): Promise<SessionProbeEvidence> {
-  const args = parseProbeCliArgs(process.argv.slice(2));
-  const config = loadConfig({
-    ...process.env,
-    // The probe never touches Supabase; schema-only placeholders keep the
-    // production database credential out of this process.
-    SUPABASE_URL: process.env.SUPABASE_URL ?? "https://probe.invalid",
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "not-used-by-session-probe",
-  });
-  const project = args.project ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.CLOUDSDK_CORE_PROJECT;
-  return runSessionProbe(args, {
-    loadSecret: gcloudSecretLoader(project),
-    sandbox: config,
-    // TODO: no RMFG HTTP transport exists yet; see RMFG_PROBE_ENDPOINT.
-  });
+// The probe needs only two Playwright sandbox booleans. It deliberately does
+// not load the full worker config, so no database or provider settings are
+// read into this process.
+function envFlag(name: string, fallback: boolean): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (value === undefined || value === "") return fallback;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return fallback;
+}
+
+// npm runs this from the worker folder; INIT_CWD is where the operator typed
+// the command (the repository root), so relative paths resolve there.
+function resolveFromInvocationDir(candidate: string | undefined): string | undefined {
+  if (!candidate) return undefined;
+  return path.resolve(process.env.INIT_CWD ?? process.cwd(), candidate);
+}
+
+let args;
+try {
+  args = parseProbeCliArgs(process.argv.slice(2));
+} catch {
+  console.error(JSON.stringify({ outcome: "error", reason: "invalid_arguments", usage: PROBE_USAGE }));
+  process.exit(2);
 }
 
 try {
-  const outPath = (() => {
-    const index = process.argv.indexOf("--out");
-    return index >= 0 ? process.argv[index + 1] : undefined;
-  })();
-  const evidence = await main();
+  const project = args.project ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.CLOUDSDK_CORE_PROJECT;
+  const evidence: SessionProbeEvidence = await runSessionProbe(
+    { ...args, storageStatePath: resolveFromInvocationDir(args.storageStatePath) },
+    {
+      loadSecret: gcloudSecretLoader(project),
+      sandbox: {
+        playwrightDisableSandbox: envFlag("PLAYWRIGHT_DISABLE_SANDBOX", false),
+        playwrightDisableDevShmUsage: envFlag("PLAYWRIGHT_DISABLE_DEV_SHM_USAGE", true),
+      },
+      // TODO: no RMFG HTTP transport exists yet; see RMFG_PROBE_ENDPOINT.
+    },
+  );
   const line = JSON.stringify(evidence);
   console.log(line);
+  const outPath = resolveFromInvocationDir(args.outPath);
   if (outPath) await fs.writeFile(outPath, `${line}\n`, { encoding: "utf8", mode: 0o600 });
   process.exitCode = evidence.outcome === "authenticated" ? 0 : 1;
-} catch (error) {
-  console.error(JSON.stringify({ outcome: "error", reason: error instanceof Error ? error.message : "unknown" }));
+} catch {
+  // Fixed reason only: error text could carry secret or page content.
+  console.error(JSON.stringify({ outcome: "error", reason: "probe_failed" }));
   process.exit(1);
 }

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContextOptions, type Request } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Request } from "playwright";
 import { chromiumSandboxLaunchOptions } from "./chromiumLaunchOptions.js";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
 import type { VendorName, WorkerConfig } from "./types.js";
@@ -36,6 +36,7 @@ export type SessionProbeReason =
   | "storage_state_invalid"
   | "secret_unavailable"
   | "navigation_failed"
+  | "page_inspection_failed"
   | "probe_not_supported"
   | "rmfg_endpoint_not_configured"
   | "rmfg_key_invalid"
@@ -81,6 +82,14 @@ export function resolveSessionProbeTarget(provider: string): SessionProbeTarget 
     landingUrl: landing,
     allowedHosts: domains,
   };
+}
+
+function hostOf(rawUrl: string): string | null {
+  try {
+    return new URL(rawUrl).hostname;
+  } catch {
+    return null;
+  }
 }
 
 export function hostMatches(hostname: string, allowed: string): boolean {
@@ -208,36 +217,29 @@ type PageSignals = {
   marker: boolean;
 };
 
-/** Runs inside the page. Read only DOM inspection; it must stay self contained. */
-function inspectPageSignals(): PageSignals {
-  const text = (document.body?.innerText ?? "").slice(0, 20_000).toLowerCase();
-  const title = (document.title ?? "").toLowerCase();
-  const haystack = `${title}\n${text}`;
-  const isVisible = (element: Element) => {
-    const rect = (element as HTMLElement).getBoundingClientRect();
+/**
+ * Runs inside the page as a plain JavaScript string. It is deliberately not a
+ * TypeScript function: tsx and esbuild wrap named inner functions in a __name
+ * helper that does not exist in the page, which would make evaluation throw.
+ * Read only DOM inspection.
+ */
+const PAGE_SIGNALS_SCRIPT = `(() => {
+  const text = ((document.body && document.body.innerText) || "").slice(0, 20000).toLowerCase();
+  const title = (document.title || "").toLowerCase();
+  const haystack = title + "\\n" + text;
+  const loginForm = Array.from(document.querySelectorAll('input[type="password"]')).some((element) => {
+    const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
-  };
-  const loginForm = Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible);
+  });
   const challenge =
-    /captcha|verify you are human|verifying you are human|checking your browser|just a moment|attention required|are you a robot|security check/.test(
-      haystack,
-    ) ||
-    document.querySelector(
-      'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenge"], #challenge-form, .g-recaptcha, .h-captcha, .cf-turnstile',
-    ) !== null;
-  const denied =
-    /access denied|you have been blocked|you are blocked|forbidden|unusual traffic|account (has been )?(suspended|banned|locked)|temporarily banned/.test(
-      haystack,
-    );
+    /captcha|verify you are human|verifying you are human|checking your browser|just a moment|attention required|are you a robot|security check/.test(haystack) ||
+    document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenge"], #challenge-form, .g-recaptcha, .h-captcha, .cf-turnstile') !== null;
+  const denied = /access denied|you have been blocked|you are blocked|forbidden|unusual traffic|account (has been )?(suspended|banned|locked)|temporarily banned/.test(haystack);
   const marker =
-    document.querySelector(
-      'a[href*="logout" i], a[href*="log-out" i], a[href*="signout" i], a[href*="sign-out" i], [data-testid*="logout" i], [data-testid*="sign-out" i]',
-    ) !== null ||
-    Array.from(document.querySelectorAll('a, button, [role="menuitem"]')).some((element) =>
-      /^\s*(log\s?out|sign\s?out)\s*$/i.test(element.textContent ?? ""),
-    );
+    document.querySelector('a[href*="logout" i], a[href*="log-out" i], a[href*="signout" i], a[href*="sign-out" i], [data-testid*="logout" i], [data-testid*="sign-out" i]') !== null ||
+    Array.from(document.querySelectorAll('a, button, [role="menuitem"]')).some((element) => /^\\s*(log\\s?out|sign\\s?out)\\s*$/i.test(element.textContent || ""));
   return { loginForm, challenge, denied, marker };
-}
+})()`;
 
 export type BrowserProbeOptions = {
   target: SessionProbeTarget;
@@ -290,11 +292,16 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
       ...chromiumSandboxLaunchOptions(options.sandbox),
       executablePath: options.executablePath,
     });
-    const context = await browser.newContext({
-      storageState: options.storageState as BrowserContextOptions["storageState"],
-      serviceWorkers: "block",
-      acceptDownloads: false,
-    });
+    let context: BrowserContext;
+    try {
+      context = await browser.newContext({
+        storageState: options.storageState as BrowserContextOptions["storageState"],
+        serviceWorkers: "block",
+        acceptDownloads: false,
+      });
+    } catch {
+      return { ...evidence, outcome: "error", reason: "storage_state_invalid" };
+    }
     context.setDefaultTimeout(timeoutMs);
     context.setDefaultNavigationTimeout(timeoutMs);
     const page = await context.newPage();
@@ -368,37 +375,48 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     }
     evidence.httpStatus = status;
     evidence.navigations = Math.max(navigationChains, 1);
-
-    const finalUrl = new URL(page.url());
-    evidence.finalHost = finalUrl.hostname;
+    const landedUrl = page.url();
+    evidence.finalHost = hostOf(landedUrl);
 
     if (offHostNavigation || !isAllowedProbeUrl(page.url(), policy)) {
       return { ...evidence, outcome: "blocked", reason: "off_host_redirect" };
     }
+    // Judge the HTTP response before touching the page, so a 403 or 429 is
+    // reported as blocked even if page inspection later fails.
+    if (status === 429) return { ...evidence, outcome: "blocked", reason: "http_rate_limited" };
+    if (status === 403) return { ...evidence, outcome: "blocked", reason: "http_forbidden" };
+    if (status === 401) return { ...evidence, outcome: "logged_out", reason: "http_unauthorized" };
 
     // Bounded wait so a client rendered page can show a login form, a
     // challenge or the account marker. Passive polling only.
     await page.waitForTimeout(options.settleMs ?? 1_500);
     const deadline = Date.now() + Math.min(timeoutMs, 10_000);
-    let signals: PageSignals = { loginForm: false, challenge: false, denied: false, marker: false };
-    for (;;) {
-      signals = await page.evaluate(inspectPageSignals);
-      if (signals.loginForm || signals.challenge || signals.denied || signals.marker || Date.now() >= deadline) break;
-      await page.waitForTimeout(250);
+    let signals: PageSignals;
+    try {
+      for (;;) {
+        signals = (await page.evaluate(PAGE_SIGNALS_SCRIPT)) as PageSignals;
+        if (signals.loginForm || signals.challenge || signals.denied || signals.marker || Date.now() >= deadline) break;
+        await page.waitForTimeout(250);
+      }
+    } catch {
+      evidence.navigations = Math.max(navigationChains, 1);
+      return { ...evidence, outcome: "error", reason: "page_inspection_failed" };
     }
     evidence.navigations = Math.max(navigationChains, 1);
+    // An aborted extra navigation leaves the browser on an error page, so only
+    // an allowed URL updates what is reported; off host attempts set the flag.
+    const settledUrl = isAllowedProbeUrl(page.url(), policy) ? page.url() : landedUrl;
+    const finalUrl = new URL(settledUrl);
+    evidence.finalHost = finalUrl.hostname;
+    if (offHostNavigation) return { ...evidence, outcome: "blocked", reason: "off_host_redirect" };
 
-    if (status === 429) return { ...evidence, outcome: "blocked", reason: "http_rate_limited" };
     if (signals.challenge) return { ...evidence, outcome: "blocked", reason: "challenge_page" };
-    if (status === 403 || signals.denied) {
-      return { ...evidence, outcome: "blocked", reason: status === 403 ? "http_forbidden" : "access_denied" };
-    }
+    if (signals.denied) return { ...evidence, outcome: "blocked", reason: "access_denied" };
     if (extraNavigation) {
       return extraNavigationLooksLikeLogin
         ? { ...evidence, outcome: "logged_out", reason: "login_form" }
         : { ...evidence, outcome: "blocked", reason: "unexpected_extra_navigation" };
     }
-    if (status === 401) return { ...evidence, outcome: "logged_out", reason: "http_unauthorized" };
     if (LOGIN_PATH.test(finalUrl.pathname) || signals.loginForm) {
       return { ...evidence, outcome: "logged_out", reason: "login_form" };
     }
@@ -502,10 +520,12 @@ export type ProbeCliArgs = {
   outPath?: string;
 };
 
+export const PROBE_USAGE = `probe:session <${SESSION_PROBE_PROVIDERS.join("|")}> [--storage-state <path> | --secret <name>] [--project <id>] [--out <path>]`;
+
 export function parseProbeCliArgs(argv: readonly string[]): ProbeCliArgs {
   const [providerArg, ...rest] = argv;
   if (!providerArg || providerArg.startsWith("--")) {
-    throw new Error(`Usage: probe:session <${SESSION_PROBE_PROVIDERS.join("|")}> [--storage-state <path> | --secret <name>] [--project <id>] [--out <path>]`);
+    throw new Error(PROBE_USAGE);
   }
   const target = resolveSessionProbeTarget(providerArg);
   const args: ProbeCliArgs = { provider: target.provider };
@@ -540,6 +560,10 @@ export async function runSessionProbe(
   const target = resolveSessionProbeTarget(args.provider);
   try {
     if (target.adapterKind === "api") {
+      // Decide before reading the secret: with no endpoint there is nothing to call.
+      if (RMFG_PROBE_ENDPOINT === null || !deps.rmfgTransport) {
+        return { ...baseEvidence(args.provider, now), reason: "rmfg_endpoint_not_configured" };
+      }
       const raw = await deps.loadSecret(args.secretName as string);
       return await runBoundedRmfgSessionProbe({ apiKey: raw, transport: deps.rmfgTransport, now });
     }

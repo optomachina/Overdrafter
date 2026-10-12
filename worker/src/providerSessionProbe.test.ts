@@ -1,4 +1,8 @@
+import { execFile } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
+import { promisify } from "node:util";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -224,7 +228,40 @@ describe("browser session probe against local fixtures", () => {
   }, 30_000);
 });
 
+describe("probe under tsx", () => {
+  // vitest's transform does not keep function names, but tsx does. A named inner
+  // function sent to the page would break there, so run the real runtime too.
+  const tsx = [
+    path.resolve(import.meta.dirname, "../node_modules/.bin/tsx"),
+    path.resolve(import.meta.dirname, "../../node_modules/.bin/tsx"),
+  ].find((candidate) => fs.existsSync(candidate));
+  const driver = path.resolve(import.meta.dirname, "tools/_providerSessionProbeTsxDriver.ts");
+
+  async function runUnderTsx(pathname: string) {
+    const { stdout } = await promisify(execFile)(tsx as string, [driver, `${origin}${pathname}`, executablePath ?? ""], {
+      cwd: path.resolve(import.meta.dirname, ".."),
+      timeout: 60_000,
+    });
+    return JSON.parse(stdout.trim().split("\n").pop() as string);
+  }
+
+  it("finds the marker, a challenge and a rate limit without page evaluation errors", async () => {
+    expect(tsx).toBeDefined();
+    expect(await runUnderTsx("/app")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
+    expect(await runUnderTsx("/challenge")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
+    expect(await runUnderTsx("/limited")).toMatchObject({ outcome: "blocked", reason: "http_rate_limited" });
+  }, 120_000);
+});
+
 describe("storage state loading", () => {
+  it("reports a malformed cookie list as storage_state_invalid", async () => {
+    const evidence = await runBoundedBrowserSessionProbe({
+      target, storageState: { cookies: [{ name: 1 }], origins: [] }, sandbox, executablePath,
+      landingUrlOverride: `${origin}/app`, allowLoopbackHttp: true, timeoutMs: 8_000, now: fixedNow,
+    });
+    expect(evidence).toMatchObject({ outcome: "error", reason: "storage_state_invalid" });
+  }, 30_000);
+
   it("fails closed with a fixed reason and no secret text", async () => {
     const failing = async () => { throw new Error(`boom ${SECRET_SENTINEL}`); };
     const evidence = await runSessionProbe(
@@ -275,13 +312,15 @@ describe("rmfg api key probe", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it("makes no call while the documented endpoint is still a TODO", async () => {
+  it("makes no call and reads no secret while the documented endpoint is still a TODO", async () => {
     const transport = vi.fn(async () => ({ status: 200 }));
+    const loadSecret = vi.fn(async () => apiKey);
     const evidence = await runSessionProbe(
       { provider: "rmfg", secretName: "rmfg-api-key" },
-      { loadSecret: async () => apiKey, sandbox, rmfgTransport: transport, now: fixedNow },
+      { loadSecret, sandbox, rmfgTransport: transport, now: fixedNow },
     );
     expect(evidence).toMatchObject({ outcome: "error", reason: "rmfg_endpoint_not_configured" });
     expect(transport).not.toHaveBeenCalled();
+    expect(loadSecret).not.toHaveBeenCalled();
   });
 });

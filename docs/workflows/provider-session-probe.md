@@ -23,7 +23,7 @@ npm --prefix worker run probe:session -- geomiq --secret geomiq-storage-state --
 npm --prefix worker run probe:session -- rmfg --secret rmfg-api-key --project overdrafter-worker-9133
 ```
 
-To test a local export instead of Secret Manager, use `--storage-state <path>` in place of `--secret <name>`. RMFG accepts only `--secret`.
+To test a local export instead of Secret Manager, use `--storage-state <path>` in place of `--secret <name>`. RMFG accepts only `--secret`. Relative paths for `--storage-state` and `--out` resolve from the directory where you typed the command (the repository root), not from the worker folder.
 
 Run one provider at a time. Do not rerun a provider that came back blocked.
 
@@ -44,13 +44,21 @@ The record holds no cookies, tokens, page content or path. `finalHost` is the ho
 | `authenticated` | Landing page loaded on an allowed host and shows a logged in marker. | Provider session is qualified for this run. |
 | `logged_out` | A login form, a login redirect, a 401, or no logged in marker. Reasons: `login_form`, `http_unauthorized`, `no_authenticated_marker`. | The stored state has expired or is wrong. Capture a fresh state and store a new secret version. Do not loop. |
 | `blocked` | A challenge or CAPTCHA, an access denied page, HTTP 403 or 429, RMFG 401, a redirect off the allowed hosts, or an unexpected extra navigation. | Stop. The provider is off for the day (see below). |
-| `error` | The probe could not decide: secret unavailable, malformed state, navigation failure, unexpected status, or the RMFG endpoint is not configured. | Fix the cause. This is not evidence about the provider. |
+| `error` | The probe could not decide: secret unavailable, malformed state (`storage_state_invalid`), navigation failure, page inspection failure, unexpected status, or the RMFG endpoint is not configured. | If `httpStatus` is null the provider never answered, so fix the cause and rerun once. If `httpStatus` is set, the provider did answer: do not rerun, and treat it like a block until someone has looked at the record. |
 
 `no_authenticated_marker` can also mean the landing page is logged in but has no visible log out control. If a logged in state keeps returning it, tell the team so the marker can be declared per provider.
 
 ## Blocked turns the provider off for the day
 
 A blocked outcome is the standing rule trigger: the provider is turned off for the rest of the day. Do not rerun the probe, do not try another browser, and do not use the provider for any other automation until the next day. Record the evidence line in the tracking issue.
+
+## Limits of this probe
+
+These are design limits, not bugs, and they bias the result toward caution.
+
+- **Traffic goes through Node, not Chrome.** To check every redirect hop against the host rule, the probe fetches each request with Node's HTTP stack and hands the response to the browser. The provider sees HTTP/1.1 and a Node TLS fingerprint under a Chrome user agent. Bot management may challenge that. A `blocked` result with reason `challenge_page` or `http_forbidden` may therefore mean the probe's fingerprint was challenged, not that the stored session is bad. It still turns the provider off for the day.
+- **Only GET and HEAD are allowed.** Every other request is aborted. A single page app that loads its account data with a POST (for example a GraphQL query) may never render its log out control, and the probe will then report `logged_out` with reason `no_authenticated_marker`. Treat that reason as inconclusive for such providers rather than as proof the session expired.
+- **The logged in marker is generic.** It looks for a visible log out or sign out control. A logged in page without one reads as `logged_out`.
 
 ## Open item: RMFG endpoint
 
