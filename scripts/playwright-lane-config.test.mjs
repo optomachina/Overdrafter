@@ -200,9 +200,13 @@ describe("Playwright execution lane configuration", () => {
   it("wires both explicit lanes into the required CI job", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.scripts.e2e).toBe("npm run e2e:authenticated");
+    // The OVD-571 delivered-comparison spec needs its synthetic-only server, so
+    // the fixture lane runs its config after the main fixture suite.
     expect(pkg.scripts["e2e:fixture"]).toBe(
-      "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture",
+      "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --grep @fixture"
+        + " && playwright test --config e2e/delivered-comparison.config.ts",
     );
+    expect(loadConfig().testIgnore).toEqual(["delivered-comparison.spec.ts"]);
     expect(pkg.scripts["e2e:authenticated"]).toBe("playwright test --grep-invert @fixture");
     const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
     expect(ci).toContain("run: npm run e2e:fixture");

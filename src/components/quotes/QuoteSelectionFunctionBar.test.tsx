@@ -4,30 +4,26 @@ import { describe, expect, it, vi } from "vitest";
 import { QuoteSelectionFunctionBar } from "./QuoteSelectionFunctionBar";
 
 describe("QuoteSelectionFunctionBar", () => {
-  it("toggles scope and mode actions through the shared callbacks", () => {
+  it("toggles scope through the shared callback and leaves table order to the comparison table", () => {
     const onScopeChange = vi.fn();
-    const onModeChange = vi.fn();
 
     render(
       <QuoteSelectionFunctionBar
         scope="domestic"
-        mode="cheapest"
         requestedByDate="2026-04-15"
         matchingOptionCount={2}
         totalOptionCount={4}
         onScopeChange={onScopeChange}
-        onModeChange={onModeChange}
         onRequestedByDateChange={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
-    fireEvent.click(screen.getByRole("button", { name: "Balanced" }));
-    fireEvent.click(screen.getByRole("button", { name: "Fast" }));
 
     expect(onScopeChange).toHaveBeenCalledWith("global");
-    expect(onModeChange).toHaveBeenNthCalledWith(1, "balanced");
-    expect(onModeChange).toHaveBeenCalledWith("fastest");
+    // OVD-571: Cheapest/Fastest live on the comparison table; no Balanced preset or auto-selecting mode buttons.
+    expect(screen.queryByRole("group", { name: "Quote preset" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Balanced" })).not.toBeInTheDocument();
   });
 
   it("propagates date changes and clear actions", () => {
@@ -36,12 +32,10 @@ describe("QuoteSelectionFunctionBar", () => {
     render(
       <QuoteSelectionFunctionBar
         scope="global"
-        mode="fastest"
         requestedByDate="2026-04-15"
         matchingOptionCount={2}
         totalOptionCount={4}
         onScopeChange={vi.fn()}
-        onModeChange={vi.fn()}
         onRequestedByDateChange={onRequestedByDateChange}
       />,
     );
