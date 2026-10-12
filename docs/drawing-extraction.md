@@ -29,6 +29,16 @@ Priority order per field:
 - Description prefers `TITLE` or `DESCRIPTION` regions, merges wrapped lines in reading order, and rejects numeric-only document identifiers when a labeled title exists.
 - Finish prefers `FINISH` or `PROCESS` labels first, then finish-like note content only when it fits finish-specific keywords. Approval names, dates, and signature blocks must be rejected.
 
+## Page text and OCR
+
+`extractPdfText` reads the text layer of every page with `pdftotext` and also renders and OCRs every page with `tesseract`, even when a text layer exists. A drawing can have a selectable title block next to an embedded raster image, such as a marking stamp, that has no text layer. Reading only the text layer, or only page 1, would treat that drawing as fully read.
+
+- Each page carries `text` (text layer, or the OCR text when the whole document has no text layer, as before), `ocrText` (OCR output only, never mixed with the text layer), and `ocrStatus`.
+- `ocrStatus` is `ok`, `failed` (render error, timeout, or tesseract error), `unavailable` (no tesseract binary), or `not_read` (page past the cap). Only `ok` means the raster content of the page was read. Callers that need a complete read must treat every other status as unread and hold the drawing.
+- Work is bounded by `PDF_OCR_MAX_PAGES` (12) and `PDF_OCR_PAGE_TIMEOUT_MS` (60 seconds per render and per tesseract run). Pages past the cap are `not_read`.
+- If the tesseract binary is missing, every page reports `unavailable` and the function does not throw. It logs the fixed code `pdf_ocr_tesseract_unavailable` once and never logs file names or contents.
+- The worker image installs `tesseract-ocr` and the English data at pinned distro versions. Nothing is downloaded at runtime.
+
 ## Raw vs normalized data
 
 - `drawing_extractions.extraction` is the source-truth record.

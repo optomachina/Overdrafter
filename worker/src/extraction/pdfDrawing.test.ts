@@ -23,7 +23,14 @@ vi.mock("node:fs/promises", () => ({
   },
 }));
 
-import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfPreviewAssets } from "./pdfDrawing";
+import {
+  extractPdfText,
+  inferDrawingSignalsFromPdf,
+  PDF_OCR_MAX_PAGES,
+  PDF_OCR_PAGE_TIMEOUT_MS,
+  PDF_OCR_UNAVAILABLE_WARNING_CODE,
+  renderPdfPreviewAssets,
+} from "./pdfDrawing";
 
 const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
 const TEST_QB00002_PDF_PATH = "/safe-test/input/1093-05589-02.pdf";
@@ -35,6 +42,8 @@ const PRIMARY_REGRESSION_FIXTURE = {
   pages: [
     {
       page: 1,
+      ocrText: "",
+      ocrStatus: "ok",
       text: [
         "                                                                  REVISIONS",
         "                                                           REV   DESCRIPTION          ENGINEER   EC/DATE",
@@ -70,17 +79,52 @@ describe("pdfDrawing", () => {
     mockRm.mockResolvedValue(undefined);
   });
 
-  it("extracts page count and page text via poppler tools", async () => {
-    mockExecFileAsync
-      .mockResolvedValueOnce({ stdout: "Title: Test\nPages: 2\n" })
-      .mockResolvedValueOnce({ stdout: "PAGE 1 TEXT" })
-      .mockResolvedValueOnce({ stdout: "PAGE 2 TEXT" });
+  function mockPopplerAndTesseract(options: {
+    pages: number;
+    layerText?: (page: number) => string;
+    ocrText?: (callIndex: number) => string;
+    tesseractMissing?: boolean;
+  }) {
+    let ocrCalls = 0;
+    mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "pdfinfo") {
+        return { stdout: `Title: Test\nPages: ${options.pages}\n` };
+      }
+      if (command === "pdftotext") {
+        return { stdout: options.layerText?.(Number(args[args.indexOf("-f") + 1])) ?? "" };
+      }
+      if (command === "tesseract" && args[0] === "--version") {
+        if (options.tesseractMissing) {
+          throw Object.assign(new Error("spawn tesseract ENOENT"), { code: "ENOENT" });
+        }
+        return { stdout: "tesseract 5" };
+      }
+      if (command === "tesseract") {
+        ocrCalls += 1;
+        return { stdout: options.ocrText?.(ocrCalls) ?? "" };
+      }
+      return { stdout: "" };
+    });
+  }
+
+  function tesseractPageCalls() {
+    return mockExecFileAsync.mock.calls.filter(
+      ([command, args]) => command === "tesseract" && args[0] !== "--version",
+    );
+  }
+
+  it("OCRs every page even when a text layer exists, keeping OCR text separate", async () => {
+    mockPopplerAndTesseract({
+      pages: 2,
+      layerText: (page) => (page === 1 ? "PAGE 1 TEXT" : ""),
+      ocrText: (call) => (call === 1 ? "PAGE 1 OCR" : "ITAR CONTROLLED"),
+    });
 
     await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
       pageCount: 2,
       pages: [
-        { page: 1, text: "PAGE 1 TEXT" },
-        { page: 2, text: "PAGE 2 TEXT" },
+        { page: 1, text: "PAGE 1 TEXT", ocrText: "PAGE 1 OCR", ocrStatus: "ok" },
+        { page: 2, text: "", ocrText: "ITAR CONTROLLED", ocrStatus: "ok" },
       ],
     });
 
@@ -96,48 +140,107 @@ describe("pdfDrawing", () => {
       ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"],
       expect.any(Object),
     );
+    expect(tesseractPageCalls()).toHaveLength(2);
+    expect(tesseractPageCalls()[0][2]).toMatchObject({ timeout: PDF_OCR_PAGE_TIMEOUT_MS });
+    expect(mockRm).toHaveBeenCalledWith(TEST_OCR_DIR, { recursive: true, force: true });
+  });
+
+  it("does not read pages past the OCR page cap", async () => {
+    const totalPages = PDF_OCR_MAX_PAGES + 2;
+    mockPopplerAndTesseract({ pages: totalPages, ocrText: () => "OCR" });
+
+    const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    expect(result?.pageCount).toBe(totalPages);
+    expect(tesseractPageCalls()).toHaveLength(PDF_OCR_MAX_PAGES);
+    expect(result?.pages.slice(0, PDF_OCR_MAX_PAGES).every((page) => page.ocrStatus === "ok")).toBe(true);
+    expect(result?.pages.slice(PDF_OCR_MAX_PAGES)).toEqual([
+      { page: PDF_OCR_MAX_PAGES + 1, text: "", ocrText: "", ocrStatus: "not_read" },
+      { page: PDF_OCR_MAX_PAGES + 2, text: "", ocrText: "", ocrStatus: "not_read" },
+    ]);
+  });
+
+  it("reports every page unavailable, without throwing, when tesseract is missing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockPopplerAndTesseract({
+      pages: 2,
+      layerText: (page) => `LAYER ${page}`,
+      tesseractMissing: true,
+    });
+
+    await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
+      pageCount: 2,
+      pages: [
+        { page: 1, text: "LAYER 1", ocrText: "", ocrStatus: "unavailable" },
+        { page: 2, text: "LAYER 2", ocrText: "", ocrStatus: "unavailable" },
+      ],
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(PDF_OCR_UNAVAILABLE_WARNING_CODE);
+    expect(tesseractPageCalls()).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  it("marks a page failed when tesseract errors or times out on it", async () => {
+    mockPopplerAndTesseract({ pages: 2, layerText: () => "LAYER" });
+    const base = mockExecFileAsync.getMockImplementation()!;
+    let pageCalls = 0;
+    mockExecFileAsync.mockImplementation(async (command: string, args: string[], ...rest: unknown[]) => {
+      if (command === "tesseract" && args[0] !== "--version") {
+        pageCalls += 1;
+        if (pageCalls === 2) {
+          throw Object.assign(new Error("timed out"), { killed: true });
+        }
+        return { stdout: "OK TEXT" };
+      }
+      return base(command, args, ...rest);
+    });
+
+    const result = await extractPdfText(TEST_INPUT_PDF_PATH);
+
+    expect(result?.pages.map((page) => [page.ocrStatus, page.ocrText])).toEqual([
+      ["ok", "OK TEXT"],
+      ["failed", ""],
+    ]);
   });
 
   it("falls back to OCR text when poppler text extraction is unavailable", async () => {
-    mockExecFileAsync
-      .mockRejectedValueOnce(new Error("pdfinfo missing"))
-      .mockRejectedValueOnce(new Error("pdftoppm missing"))
-      .mockResolvedValueOnce({ stdout: "" })
-      .mockResolvedValueOnce({
-        stdout: [
-          "ROUND, CARBON FIBER END ATTACHMENTS",
-          "BONDED",
-          "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
-          "6061 Alloy CLASS 2 1093-05589 02",
-          "THREE PLACE DECIMAL +.005",
-        ].join("\n"),
-      });
+    mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "pdfinfo" || command === "pdftoppm") {
+        throw new Error(`${command} missing`);
+      }
+      if (command === "pdftotext") {
+        return { stdout: "" };
+      }
+      if (command === "tesseract" && args[0] === "--version") {
+        return { stdout: "tesseract 5" };
+      }
+      if (command === "tesseract") {
+        return { stdout: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED" };
+      }
+      return { stdout: "" };
+    });
 
     await expect(extractPdfText(TEST_QB00002_PDF_PATH)).resolves.toEqual({
       pageCount: 1,
       pages: [
         {
           page: 1,
-          text: [
-            "ROUND, CARBON FIBER END ATTACHMENTS",
-            "BONDED",
-            "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
-            "6061 Alloy CLASS 2 1093-05589 02",
-            "THREE PLACE DECIMAL +.005",
-          ].join("\n"),
+          text: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED",
+          ocrText: "ROUND, CARBON FIBER END ATTACHMENTS\nBONDED",
+          ocrStatus: "ok",
         },
       ],
     });
 
     expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringContaining("overdrafter-pdf-ocr-"));
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      3,
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
       "qlmanage",
       ["-t", "-s", "3000", "-o", TEST_OCR_DIR, TEST_QB00002_PDF_PATH],
       expect.any(Object),
     );
-    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
-      4,
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
       "tesseract",
       [`${TEST_OCR_DIR}/drawing-page-1.png`, "stdout", "--psm", "4"],
       expect.any(Object),

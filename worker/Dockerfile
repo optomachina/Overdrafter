@@ -24,9 +24,14 @@ ARG CAMOUFOX_SHA256=924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c5889
 ARG CAMOUFOX_UBO_URL=https://addons.mozilla.org/firefox/downloads/file/4940584/ublock_origin-1.73.0.xpi
 ARG CAMOUFOX_UBO_SHA256=bccc51a773150af4af6e1fd62c7bfdeb7238b79ff2381b998fa9f2e38f64786a
 
+# tesseract-ocr and the English data come from the noble archive at pinned
+# distro versions so the OCR output of drawing pages is reproducible. Language
+# data is installed at build time; nothing is fetched at runtime.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl poppler-utils unzip \
+    tesseract-ocr=5.3.4-1build5 tesseract-ocr-eng=1:4.1.0-2 tesseract-ocr-osd=1:4.1.0-2 \
   && command -v Xvfb \
+  && tesseract --list-langs | grep -qx eng \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/package.json /app/package-lock.json ./

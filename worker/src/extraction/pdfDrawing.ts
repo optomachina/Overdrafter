@@ -7,9 +7,30 @@ import type { SupportedReviewField } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
-type PdfTextPage = {
+/** Pages beyond this cap are not OCR'd and report `not_read`. */
+export const PDF_OCR_MAX_PAGES = 12;
+/** Per page budget for rendering and for tesseract, each bounded separately. */
+export const PDF_OCR_PAGE_TIMEOUT_MS = 60_000;
+const PDF_OCR_RENDER_MAX_DIMENSION = 3000;
+export const PDF_OCR_UNAVAILABLE_WARNING_CODE = "pdf_ocr_tesseract_unavailable";
+
+/**
+ * ok: OCR ran (text may be empty). failed: render, timeout, or tesseract error.
+ * unavailable: no tesseract binary. not_read: page is past PDF_OCR_MAX_PAGES.
+ * Anything other than ok means the raster content of that page was not read.
+ */
+export type PdfOcrStatus = "ok" | "failed" | "unavailable" | "not_read";
+
+export type PdfTextPage = {
   page: number;
+  /**
+   * Text layer from pdftotext. When the whole document has no text layer this
+   * falls back to the OCR text, as before. Use `ocrText` for OCR output alone.
+   */
   text: string;
+  /** OCR output only, never mixed with the text layer. */
+  ocrText: string;
+  ocrStatus: PdfOcrStatus;
 };
 
 export type PdfTextExtraction = {
@@ -909,13 +930,9 @@ async function getPdfFirstPageSize(localPath: string): Promise<{ widthPoints: nu
 }
 
 export async function extractPdfText(localPath: string): Promise<PdfTextExtraction | null> {
-  const pageCount = await getPdfPageCount(localPath);
-
-  if (!pageCount) {
-    return extractPdfTextWithOcrFallback(localPath, 1);
-  }
-
-  const pages: PdfTextPage[] = [];
+  const detectedPageCount = await getPdfPageCount(localPath);
+  const pageCount = detectedPageCount ?? 1;
+  const layerTexts: string[] = [];
 
   for (let page = 1; page <= pageCount; page += 1) {
     try {
@@ -926,65 +943,87 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
           maxBuffer: 20 * 1024 * 1024,
         },
       );
-      pages.push({ page, text: stdout });
+      layerTexts.push(stdout);
     } catch {
-      pages.push({ page, text: "" });
+      layerTexts.push("");
     }
   }
 
-  const hasExtractedText = pages.some((page) => page.text.trim().length > 0);
-  if (!hasExtractedText) {
-    return (await extractPdfTextWithOcrFallback(localPath, pageCount)) ?? {
-      pageCount,
-      pages,
-    };
+  // Every page is OCR'd even when a text layer exists, because a selectable
+  // title block can sit next to an embedded raster marking that has no text.
+  const ocrResults = await ocrPdfPages(localPath, pageCount);
+  const hasTextLayer = layerTexts.some((text) => text.trim().length > 0);
+  const hasOcrText = ocrResults.some((result) => result.text.trim().length > 0);
+
+  if (detectedPageCount === null && !hasTextLayer && !hasOcrText) {
+    return null;
   }
 
   return {
     pageCount,
-    pages,
+    pages: layerTexts.map((layerText, index) => ({
+      page: index + 1,
+      text: hasTextLayer ? layerText : ocrResults[index].text,
+      ocrText: ocrResults[index].text,
+      ocrStatus: ocrResults[index].status,
+    })),
   };
 }
 
-async function extractPdfTextWithOcrFallback(
+async function isTesseractAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync("tesseract", ["--version"], {
+      maxBuffer: 1024 * 1024,
+      timeout: PDF_OCR_PAGE_TIMEOUT_MS,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ocrPdfPages(
   localPath: string,
   pageCount: number,
-): Promise<PdfTextExtraction | null> {
+): Promise<Array<{ status: PdfOcrStatus; text: string }>> {
+  if (!(await isTesseractAvailable())) {
+    // Fixed code only: never log file names, paths, or contents.
+    console.warn(PDF_OCR_UNAVAILABLE_WARNING_CODE);
+    return Array.from({ length: pageCount }, () => ({ status: "unavailable" as const, text: "" }));
+  }
+
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-pdf-ocr-"));
   try {
-    const pages: PdfTextPage[] = [];
+    const results: Array<{ status: PdfOcrStatus; text: string }> = [];
 
-    for (let page = 1; page <= Math.max(1, pageCount); page += 1) {
-      if (page !== 1) {
-        pages.push({ page, text: "" });
+    for (let page = 1; page <= pageCount; page += 1) {
+      if (page > PDF_OCR_MAX_PAGES) {
+        results.push({ status: "not_read", text: "" });
         continue;
       }
 
       const previewPath = path.join(runDir, `drawing-page-${page}.png`);
-      const preview = await renderPdfFirstPagePreview(localPath, previewPath, 3000);
-      if (!preview) {
-        pages.push({ page, text: "" });
-        continue;
-      }
-
       try {
-        const { stdout } = await execFileAsync("tesseract", [preview.localPath, "stdout", "--psm", "4"], {
+        const preview =
+          page === 1
+            ? await renderPdfFirstPagePreview(localPath, previewPath, PDF_OCR_RENDER_MAX_DIMENSION)
+            : await renderPdfPage(localPath, previewPath, page - 1, PDF_OCR_RENDER_MAX_DIMENSION);
+        if (!preview) {
+          results.push({ status: "failed", text: "" });
+          continue;
+        }
+
+        const { stdout } = await execFileAsync("tesseract", [previewPath, "stdout", "--psm", "4"], {
           maxBuffer: 20 * 1024 * 1024,
+          timeout: PDF_OCR_PAGE_TIMEOUT_MS,
         });
-        pages.push({ page, text: stdout });
+        results.push({ status: "ok", text: stdout });
       } catch {
-        pages.push({ page, text: "" });
+        results.push({ status: "failed", text: "" });
       }
     }
 
-    if (!pages.some((page) => page.text.trim().length > 0)) {
-      return null;
-    }
-
-    return {
-      pageCount: Math.max(1, pageCount),
-      pages,
-    };
+    return results;
   } finally {
     await fs.rm(runDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -1014,6 +1053,7 @@ async function renderPdfPage(
     ],
     {
       maxBuffer: 8 * 1024 * 1024,
+      timeout: PDF_OCR_PAGE_TIMEOUT_MS,
     },
   );
 
