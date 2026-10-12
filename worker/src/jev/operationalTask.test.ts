@@ -239,6 +239,39 @@ describe("actual worker operational advisory seam", () => {
     expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
   });
 
+  it("reads the claim RPC attempts and settles a generic task past the cap without a preflight or adapter (OVD-464)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const permit = { providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) };
+    const claimed = (attempts: number) => ({ ...task, attempts,
+      payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2, ...permit } }) as QueueTaskRecord;
+    const transient = (db: ReturnType<typeof database>) => {
+      const rpc = db.client.rpc.bind(db.client);
+      (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+        ? (db.writes.push({ rpc: name }), Promise.resolve({ data: null, error: { code: "08006" }, status: 503 }))
+        : rpc(name as never, args as never);
+    };
+
+    // The same transient denial requeues on claim 1 and settles on claim 2: the decision follows the claimed row.
+    const second = database(); transient(second);
+    await handleVendorQuoteTask(second.client, claimed(2), live);
+    expect(second.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "failed",
+        raw_payload: expect.objectContaining({ failureCode: "preflight_unavailable", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "failed" }) },
+    ]));
+
+    const exhausted = database();
+    await handleVendorQuoteTask(exhausted.client, claimed(3), live);
+    const rpcs = exhausted.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).not.toContain("api_authorize_provider_worker_dispatch");
+    expect(rpcs).not.toContain("reconcile_vendor_quote_offers");
+    expect(exhausted.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "failed",
+        raw_payload: expect.objectContaining({ failureCode: "attempts_exhausted", adapterStarted: false }) }) },
+      { table: "work_queue", update: expect.objectContaining({ status: "failed" }) },
+    ]));
+  });
+
   it("registry checks actual input org/run and actual provider against admission", async () => {
     const fixture = sessionFixture(); const registry = buildAdapterRegistry(config, { session: fixture.session, scope, observations: fixture.capability.observations });
     const input = { organizationId: "another-org", quoteRunId: "another-run", part, requirement, requestedQuantity: 2,

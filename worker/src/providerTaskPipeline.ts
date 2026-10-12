@@ -78,6 +78,16 @@ export type ProviderSessionLeaseSetting = (typeof PROVIDER_SESSION_LEASE_SETTING
  */
 export const PROVIDER_TASK_MAX_ADAPTER_REQUEUES = 1;
 
+/**
+ * Highest claim number (`work_queue.attempts` as returned by the claim RPC)
+ * on which the pipeline may still start. Every adapter start happens inside a
+ * claim and the database increments attempts atomically at claim, so this
+ * bounds adapter starts at two even if a start crashes before reporting. A
+ * claim past it settles to a visible lane state with zero adapter calls. The
+ * claim RPC refusing such tasks itself is OVD-734 (window 2).
+ */
+export const PROVIDER_TASK_MAX_CLAIMS = PROVIDER_TASK_MAX_ADAPTER_REQUEUES + 1;
+
 // --------------------------------------------------------------------------- lease port
 
 /** Result shape of OVD-462 `runWithLease`, kept structural until that module lands on main. */
@@ -165,7 +175,8 @@ export function decideProviderTaskRetry(input: {
   const attempts = Number.isInteger(input.attempts) && input.attempts > 0 ? input.attempts : Number.POSITIVE_INFINITY;
   switch (input.failureClass) {
     case "pre_dispatch_transient": {
-      const retryAt = Number.isFinite(attempts) ? nextRetryAt(attempts, input.now) : null;
+      // A requeue is only useful if the next claim may still start.
+      const retryAt = attempts < PROVIDER_TASK_MAX_CLAIMS ? nextRetryAt(attempts, input.now) : null;
       return retryAt ? { action: "requeue", retryAt } : { action: "fail" };
     }
     case "post_start_bounded": {
@@ -213,6 +224,7 @@ export type ProviderTaskLane = {
 };
 
 export type ProviderTaskPipelineInput = {
+  /** `attempts` is the value returned by `api_claim_next_task` for this claim; never a worker side counter. */
   task: { id: string; attempts: number; organizationId: string; quoteRunId: string };
   claim: ProviderDispatchClaim;
   /** `vendor_quote_results.requested_quantity` for the claimed lane. */
@@ -402,6 +414,9 @@ function resolveRoute(input: ProviderTaskPipelineInput, deps: ProviderTaskPipeli
   ) {
     return stop("failed", "execution_request_malformed", "authorize");
   }
+  const attempts = input.task.attempts;
+  if (!Number.isInteger(attempts) || attempts < 1) return stop("failed", "execution_request_malformed", "authorize");
+  if (attempts > PROVIDER_TASK_MAX_CLAIMS) return stop("failed", "attempts_exhausted", "authorize");
   if (input.leaseSetting !== "off" && input.leaseSetting !== "on") return stop("failed", "lease_setting_invalid", "authorize");
   const lease = input.leaseSetting === "on" ? deps.lease ?? null : null;
   if (input.leaseSetting === "on" && !lease) return stop("manual_follow_up", "session_lease_unavailable", "lease");

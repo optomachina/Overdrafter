@@ -493,11 +493,15 @@ Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
   lease release. Every denial records a finite lane and task state with zero
   adapter calls; the claim is built only from the worker's own claimed task
   and result row
-- retry on that route has one authority, `decideProviderTaskRetry`: pre
-  dispatch transients (`preflight_unavailable`, lease contended or
-  unavailable) follow the shared finite schedule; an adapter failure or a
-  validator `bounded` code requeues at most once and only from the first
-  database claim (`work_queue.attempts`); terminal outcomes never requeue, and
+- retry on that route has one authority, `decideProviderTaskRetry`, keyed on
+  `work_queue.attempts` as returned by `api_claim_next_task` (incremented
+  atomically at claim, so a start that crashes still counts): only the first
+  claim may requeue, for a pre dispatch transient (`preflight_unavailable`,
+  lease contended or unavailable), an adapter failure or a validator
+  `bounded` code; a claim past `PROVIDER_TASK_MAX_CLAIMS` (2) settles to
+  `attempts_exhausted` before the preflight, so at most two adapter starts
+  ever happen; the claim RPC refusing such tasks itself is OVD-734 (window
+  2); terminal outcomes never requeue, and
   `provider_blocked` or `account_banned` also turn the provider off in that
   worker until the next UTC midnight
 - any other live non-Xometry task stays on the specialized path and is

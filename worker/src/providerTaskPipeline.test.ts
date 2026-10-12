@@ -20,6 +20,7 @@ import {
   deriveProviderResultValidUntil,
   isPersistableSortRank,
   MAX_PERSISTED_SORT_RANK,
+  PROVIDER_TASK_MAX_CLAIMS,
   PROVIDER_TASK_MAX_ADAPTER_REQUEUES,
   runProviderTaskPipeline,
   type ProviderTaskLeaseContext,
@@ -430,7 +431,9 @@ describe("retry authority", () => {
 
   it("keeps pre dispatch transients finite", () => {
     const now = new Date(NOW);
-    expect(decideProviderTaskRetry({ failureClass: "pre_dispatch_transient", attempts: 3, now }).action).toBe("requeue");
+    expect(decideProviderTaskRetry({ failureClass: "pre_dispatch_transient", attempts: 1, now }).action).toBe("requeue");
+    // The next claim would be past PROVIDER_TASK_MAX_CLAIMS, so requeueing it would only settle it later.
+    expect(decideProviderTaskRetry({ failureClass: "pre_dispatch_transient", attempts: 2, now })).toEqual({ action: "fail" });
     expect(decideProviderTaskRetry({ failureClass: "pre_dispatch_transient", attempts: 4, now })).toEqual({ action: "fail" });
     expect(decideProviderTaskRetry({ failureClass: "manual_follow_up", attempts: 1, now })).toEqual({ action: "manual_follow_up" });
     expect(decideProviderTaskRetry({ failureClass: "failed", attempts: 1, now })).toEqual({ action: "fail" });
@@ -725,5 +728,46 @@ describe("persistence boundary (lead review of #698)", () => {
       providerResultRejection: expect.objectContaining({ code: "invalid_destination" }),
     });
     expect(JSON.stringify(record)).not.toContain("abc123");
+  });
+});
+
+describe("database claim cap (lead decision)", () => {
+  it("bounds adapter starts at two claims", () => {
+    expect(PROVIDER_TASK_MAX_CLAIMS).toBe(2);
+  });
+
+  it.each([3, 4, 10])("settles a claim with attempts %s to a visible failed state without starting anything", async (attempts) => {
+    const h = harness();
+    const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = attempts)), h.deps);
+    expectNoAdapter(outcome, h.quote);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "attempts_exhausted", stage: "authorize", retryAt: null });
+    expect(h.deps.readLane).not.toHaveBeenCalled();
+    expect(h.deps.authorize).not.toHaveBeenCalled();
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])("fails closed on a malformed claim counter %s", async (attempts) => {
+    const h = harness();
+    const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = attempts)), h.deps);
+    expectNoAdapter(outcome, h.quote);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "execution_request_malformed" });
+  });
+
+  it("caps total adapter starts at two across requeues, including a pre dispatch requeue in between", async () => {
+    const consumer = createProviderAuthorizationConsumer();
+    const failing = async () => {
+      throw new Error("crash");
+    };
+    const starts = vi.fn();
+    const outcomes: ProviderTaskOutcome[] = [];
+    for (let attempts = 1; attempts <= 4; attempts += 1) {
+      const h = harness({ consumer, quote: failing });
+      h.deps.onAdapterStart = starts;
+      const outcome = await runProviderTaskPipeline(input((v) => (v.task.attempts = attempts)), h.deps);
+      outcomes.push(outcome);
+      if (outcome.disposition !== "requeue") break;
+    }
+    expect(starts).toHaveBeenCalledTimes(2);
+    expect(outcomes.map((o) => o.disposition)).toEqual(["requeue", "failed"]);
   });
 });
