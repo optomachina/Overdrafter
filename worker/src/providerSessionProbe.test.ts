@@ -402,14 +402,31 @@ describe("browser session probe against local fixtures", () => {
       expect(JSON.stringify(evidence)).not.toContain("secret-path");
       expect(offHostHits).toEqual([]);
     }
-    const sso = await probe("/off-host-sso", { ...target, allowedHosts: ["127.0.0.1"] });
+    const sso = await probe("/off-host-sso");
     expect(sso).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "sso.localhost" });
+    expect(offHostHits).toEqual([]);
     const script = await probe("/off-host-login-nav");
     expect(script).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "localhost" });
     expect(offHostHits).toEqual([]);
     // A plain off host landing that is not a login still reads as a block.
     expect(await probe("/off-host")).toMatchObject({ outcome: "blocked", reason: "off_host_redirect" });
   }, 60_000);
+
+  it("reads a refused script redirect as logged_out even when the page sampler fails", async () => {
+    const run = (path: string, sampleSignals: () => Promise<unknown>) =>
+      runBoundedBrowserSessionProbe({
+        target, storageState, sandbox, executablePath, landingUrlOverride: `${origin}${path}`,
+        allowLoopbackHttp: true, timeoutMs: 8_000, settleMs: 400, sampleSignals, now: fixedNow,
+      });
+    const failing = async () => {
+      throw new Error("Execution context was destroyed");
+    };
+    const redirected = await run("/off-host-login-nav", failing);
+    expect(redirected).toMatchObject({ outcome: "logged_out", reason: "login_redirect_off_host", offHost: "localhost" });
+    expect(offHostHits).toEqual([]);
+    // With no refused navigation behind it, a sampler failure is still an inspection failure.
+    expect(await run("/app", failing)).toMatchObject({ outcome: "error", reason: "page_inspection_failed" });
+  }, 30_000);
 
   it("reports browser_launch_failed when Chromium cannot start", async () => {
     const evidence = await runBoundedBrowserSessionProbe({
@@ -614,7 +631,7 @@ describe("probe CLI wrapper under tsx", () => {
           timeout: 90_000,
           env: {
             ...process.env,
-            // Only the fake gcloud is reachable: GCLOUD_PATH is tried first and
+            // Only the fake gcloud is reachable: GCLOUD_PATH is the only candidate and
             // PATH holds nothing else named gcloud ahead of it.
             PATH: `${dir}:${process.env.PATH ?? ""}`,
             GCLOUD_PATH: fakeGcloud,

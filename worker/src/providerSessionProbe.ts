@@ -173,14 +173,11 @@ export async function findGcloud(): Promise<string | null> {
   const explicit = process.env.GCLOUD_PATH;
   // An explicit GCLOUD_PATH is a decision: if it is wrong, fail closed
   // instead of quietly using a different gcloud (and a different account).
-  const candidates =
-    explicit !== undefined && explicit !== ""
-      ? path.isAbsolute(explicit)
-        ? [explicit]
-        : []
-      : [...GCLOUD_FIXED_LOCATIONS, home ? `${home}/google-cloud-sdk/bin/gcloud` : undefined].filter(
-          (candidate): candidate is string => typeof candidate === "string" && path.isAbsolute(candidate),
-        );
+  const searched = [...GCLOUD_FIXED_LOCATIONS, home ? `${home}/google-cloud-sdk/bin/gcloud` : undefined].filter(
+    (candidate): candidate is string => typeof candidate === "string" && path.isAbsolute(candidate),
+  );
+  let candidates = searched;
+  if (explicit !== undefined && explicit !== "") candidates = path.isAbsolute(explicit) ? [explicit] : [];
   for (const candidate of candidates) {
     try {
       await fs.access(candidate, fsConstants.X_OK);
@@ -307,6 +304,8 @@ export type BrowserProbeOptions = {
   timeoutMs?: number;
   /** Quiet period after load so a scripted redirect is observed before judging. */
   settleMs?: number;
+  /** Test only: replaces the page sampler, to force an inspection failure. */
+  sampleSignals?: (page: Page) => Promise<unknown>;
   /** Gap before the confirming second page sample that must agree with the first. */
   confirmMs?: number;
   now?: () => Date;
@@ -639,14 +638,17 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     await page.waitForTimeout(options.settleMs ?? 1_500);
     const deadline = Date.now() + Math.min(timeoutMs, 10_000);
     const confirmMs = options.confirmMs ?? 600;
+    const sample = async () => (await (options.sampleSignals ?? ((target) => target.evaluate(PAGE_SIGNALS_SCRIPT)))(page)) as PageSignals;
     let signals: PageSignals;
     try {
       for (;;) {
-        signals = (await page.evaluate(PAGE_SIGNALS_SCRIPT)) as PageSignals;
+        signals = await sample();
+        // A refused navigation ends the run; the page is not worth sampling again.
+        if (state.navigationFailure) break;
         const decisive = signals.loginForm || signals.challenge || signals.denied || signals.marker;
         if (decisive) {
           await page.waitForTimeout(confirmMs);
-          const second = (await page.evaluate(PAGE_SIGNALS_SCRIPT)) as PageSignals;
+          const second = await sample();
           const agrees =
             second.loginForm === signals.loginForm &&
             second.challenge === signals.challenge &&
@@ -660,6 +662,9 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
       }
     } catch {
       evidence.navigations = navigations();
+      // A script redirect that was refused can destroy the page under the
+      // sampler. The refusal is the answer, not an inspection failure.
+      if (state.navigationFailure) return navigationFailureEvidence();
       return { ...evidence, outcome: "error", reason: "page_inspection_failed" };
     }
     evidence.navigations = navigations();
