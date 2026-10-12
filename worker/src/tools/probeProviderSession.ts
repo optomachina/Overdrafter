@@ -45,6 +45,8 @@ try {
         playwrightDisableSandbox: envFlag("PLAYWRIGHT_DISABLE_SANDBOX", false),
         playwrightDisableDevShmUsage: envFlag("PLAYWRIGHT_DISABLE_DEV_SHM_USAGE", true),
       },
+      loopbackFixtureUrl: process.env.PROBE_TEST_LOOPBACK_URL,
+      executablePath: process.env.PROBE_TEST_CHROMIUM_EXECUTABLE || undefined,
       // TODO: no RMFG HTTP transport exists yet; see RMFG_PROBE_ENDPOINT.
     },
   );

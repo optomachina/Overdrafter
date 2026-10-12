@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { AddressInfo } from "node:net";
@@ -8,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   isAllowedProbeUrl,
   loadStorageState,
+  MAX_REDIRECT_HOPS,
   parseProbeCliArgs,
   resolveSessionProbeTarget,
   runBoundedBrowserSessionProbe,
@@ -63,6 +65,34 @@ beforeAll(async () => {
         return html(429, "<h1>slow down</h1>");
       case "/off-host":
         return res.writeHead(302, { location: `${offHostOrigin}/landed` }).end();
+      case "/chain-off1":
+        return res.writeHead(302, { location: "/chain-off2" }).end();
+      case "/chain-off2":
+        return res.writeHead(302, { location: `${offHostOrigin}/hop3` }).end();
+      case "/chain-ok1":
+        return res.writeHead(302, { location: "/chain-ok2" }).end();
+      case "/chain-ok2":
+        return res.writeHead(302, { location: "/chain-ok3" }).end();
+      case "/chain-ok3":
+        return res.writeHead(303, { location: "/app" }).end();
+      case "/loop":
+        return res.writeHead(302, { location: "/loop" }).end();
+      case "/to-http":
+        return res.writeHead(302, { location: `${offHostOrigin}/http-hop` }).end();
+      case "/spa-loading":
+        return html(
+          200,
+          '<div id="a">Just a moment...</div><script>setTimeout(function(){document.getElementById("a").innerHTML=\'<a href="/logout">Log out</a>\'},900)</script>',
+        );
+      case "/cf-503":
+        return html(503, "<h1>Just a moment...</h1>");
+      case "/post-nav":
+        return html(
+          200,
+          '<a href="/logout">Log out</a><form id="f" method="post" action="/submit"></form><script>setTimeout(function(){document.getElementById("f").submit()},50)</script>',
+        );
+      case "/popup":
+        return html(200, '<a href="/logout">Log out</a><script>window.open("/popup-target")</script>');
       case "/redirect-login":
         return res.writeHead(302, { location: "/login" }).end();
       case "/with-subresource":
@@ -104,11 +134,11 @@ const storageState = {
 };
 const fixedNow = () => new Date("2026-10-12T00:00:00.000Z");
 
-function probe(path: string) {
+function probe(path: string, probeTarget: SessionProbeTarget = target) {
   hits.length = 0;
   offHostHits.length = 0;
   return runBoundedBrowserSessionProbe({
-    target,
+    target: probeTarget,
     storageState,
     sandbox,
     executablePath,
@@ -191,6 +221,55 @@ describe("browser session probe against local fixtures", () => {
     expect(offHostHits).toEqual([]);
   }, 30_000);
 
+  it("checks every hop itself: a second hop to an off host is blocked and never reached", async () => {
+    const evidence = await probe("/chain-off1");
+    expect(evidence).toMatchObject({ outcome: "blocked", reason: "off_host_redirect" });
+    expect(offHostHits).toEqual([]);
+    expect(hits.filter((hit) => !hit.includes("favicon"))).toEqual(["GET /chain-off1", "GET /chain-off2"]);
+  }, 30_000);
+
+  it("follows an all allowed chain with exactly one GET per hop and reports the final page", async () => {
+    const evidence = await probe("/chain-ok1");
+    expect(evidence).toMatchObject({
+      outcome: "authenticated", reason: "authenticated_marker_found", finalHost: "127.0.0.1", httpStatus: 200, navigations: 1,
+    });
+    expect(hits.filter((hit) => !hit.includes("favicon"))).toEqual([
+      "GET /chain-ok1", "GET /chain-ok2", "GET /chain-ok3", "GET /app",
+    ]);
+  }, 30_000);
+
+  it("stops a redirect loop at the hop cap with a fixed reason", async () => {
+    const evidence = await probe("/loop");
+    expect(evidence).toMatchObject({ outcome: "blocked", reason: "redirect_limit_exceeded" });
+    expect(hits.filter((hit) => hit === "GET /loop")).toHaveLength(MAX_REDIRECT_HOPS + 1);
+  }, 30_000);
+
+  it("blocks a redirect from an allowed host to http on another allowed host", async () => {
+    const evidence = await probe("/to-http", { ...target, allowedHosts: ["127.0.0.1", "localhost"] });
+    expect(evidence).toMatchObject({ outcome: "blocked", reason: "off_host_redirect" });
+    expect(offHostHits).toEqual([]);
+  }, 30_000);
+
+  it("records a blocked non GET main frame navigation instead of dropping it silently", async () => {
+    const evidence = await probe("/post-nav");
+    expect(evidence).toMatchObject({ outcome: "blocked", reason: "non_get_navigation" });
+    expect(hits.some((hit) => hit.startsWith("POST"))).toBe(false);
+  }, 30_000);
+
+  it("survives a popup request whose frame cannot be resolved", async () => {
+    const evidence = await probe("/popup");
+    expect(evidence.outcome).toBe("authenticated");
+    expect(hits.some((hit) => hit.startsWith("POST"))).toBe(false);
+  }, 30_000);
+
+  it("does not class a loading single page app saying Just a moment as a challenge", async () => {
+    expect(await probe("/spa-loading")).toMatchObject({ outcome: "authenticated", reason: "authenticated_marker_found" });
+  }, 30_000);
+
+  it("still classes Just a moment as a challenge with a 503 status or a challenge title", async () => {
+    expect(await probe("/cf-503")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
+  }, 30_000);
+
   it("aborts requests outside the allowed hosts and every non GET request", async () => {
     const evidence = await probe("/with-subresource");
     expect(evidence.outcome).toBe("authenticated");
@@ -251,6 +330,80 @@ describe("probe under tsx", () => {
     expect(await runUnderTsx("/challenge")).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
     expect(await runUnderTsx("/limited")).toMatchObject({ outcome: "blocked", reason: "http_rate_limited" });
   }, 120_000);
+});
+
+describe("probe CLI wrapper under tsx", () => {
+  const tsx = [
+    path.resolve(import.meta.dirname, "../node_modules/.bin/tsx"),
+    path.resolve(import.meta.dirname, "../../node_modules/.bin/tsx"),
+  ].find((candidate) => fs.existsSync(candidate));
+  const cli = path.resolve(import.meta.dirname, "tools/probeProviderSession.ts");
+
+  async function runCli(pathname: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "probe-cli-"));
+    const argsFile = path.join(dir, "gcloud-args.txt");
+    const outFile = path.join(dir, "out.json");
+    const fakeGcloud = path.join(dir, "gcloud");
+    fs.writeFileSync(
+      fakeGcloud,
+      `#!/bin/sh\necho "$@" > "${argsFile}"\ncat <<'JSON'\n${JSON.stringify(storageState)}\nJSON\n`,
+      { mode: 0o755 },
+    );
+    try {
+      const result = await promisify(execFile)(
+        tsx as string,
+        [cli, "fictiv", "--secret", "fictiv-storage-state", "--project", "fixture-project", "--out", outFile],
+        {
+          cwd: path.resolve(import.meta.dirname, ".."),
+          timeout: 90_000,
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH ?? ""}`,
+            GCLOUD_PATH: fakeGcloud,
+            PROBE_TEST_LOOPBACK_URL: `${origin}${pathname}`,
+            PROBE_TEST_CHROMIUM_EXECUTABLE: executablePath ?? "",
+            PLAYWRIGHT_DISABLE_SANDBOX: "1",
+          },
+        },
+      ).then((value) => ({ code: 0, ...value }), (error) => ({ code: error.code as number, stdout: error.stdout as string, stderr: error.stderr as string }));
+      return {
+        ...result,
+        gcloudArgs: fs.existsSync(argsFile) ? fs.readFileSync(argsFile, "utf8").trim() : null,
+        outRecord: fs.existsSync(outFile) ? fs.readFileSync(outFile, "utf8") : null,
+        outMode: fs.existsSync(outFile) ? fs.statSync(outFile).mode & 0o777 : null,
+      };
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("loads the secret through gcloud, probes only the loopback fixture and writes a clean record", async () => {
+    expect(tsx).toBeDefined();
+    hits.length = 0;
+    offHostHits.length = 0;
+    const ok = await runCli("/app");
+    expect(ok.code).toBe(0);
+    expect(JSON.parse(ok.stdout.trim())).toMatchObject({ provider: "fictiv", outcome: "authenticated", finalHost: "127.0.0.1" });
+    expect(ok.gcloudArgs).toBe("secrets versions access latest --secret=fictiv-storage-state --project=fixture-project");
+    expect(ok.outRecord).toBe(`${ok.stdout.trim()}\n`);
+    expect(ok.outMode).toBe(0o600);
+    expect(`${ok.stdout}${ok.stderr}${ok.outRecord}`).not.toContain(SECRET_SENTINEL);
+    expect(hits.filter((hit) => !hit.includes("favicon"))).toEqual(["GET /app"]);
+
+    const blocked = await runCli("/challenge");
+    expect(blocked.code).toBe(1);
+    expect(JSON.parse(blocked.stdout.trim())).toMatchObject({ outcome: "blocked", reason: "challenge_page" });
+    expect(`${blocked.stdout}${blocked.stderr}`).not.toContain(SECRET_SENTINEL);
+  }, 180_000);
+
+  it("ignores a fixture URL that is not plain loopback http", async () => {
+    // The seam must never widen the probe: a real host is not accepted.
+    const evidence = await runSessionProbe(
+      { provider: "fictiv", secretName: "fictiv-storage-state" },
+      { loadSecret: async () => "{}", sandbox, loopbackFixtureUrl: "https://example.com/x", now: fixedNow },
+    );
+    expect(evidence).toMatchObject({ outcome: "error", reason: "storage_state_invalid" });
+  });
 });
 
 describe("storage state loading", () => {

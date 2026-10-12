@@ -28,6 +28,8 @@ export type SessionProbeReason =
   | "challenge_page"
   | "access_denied"
   | "off_host_redirect"
+  | "redirect_limit_exceeded"
+  | "non_get_navigation"
   | "unexpected_extra_navigation"
   | "http_unauthorized"
   | "http_forbidden"
@@ -223,7 +225,10 @@ type PageSignals = {
  * helper that does not exist in the page, which would make evaluation throw.
  * Read only DOM inspection.
  */
-const PAGE_SIGNALS_SCRIPT = `(() => {
+function buildPageSignalsScript(httpStatus: number | null): string {
+  const status = Number.isInteger(httpStatus) ? String(httpStatus) : "0";
+  return `(() => {
+  const status = ${status};
   const text = ((document.body && document.body.innerText) || "").slice(0, 20000).toLowerCase();
   const title = (document.title || "").toLowerCase();
   const haystack = title + "\\n" + text;
@@ -231,15 +236,26 @@ const PAGE_SIGNALS_SCRIPT = `(() => {
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   });
+  const challengeFrame = document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenge"], #challenge-form, .g-recaptcha, .h-captcha, .cf-turnstile') !== null;
+  const cfMarker = document.querySelector('#cf-chl-widget, [id^="cf-chl"], [name="cf-turnstile-response"], script[src*="challenge-platform"], .cf-turnstile') !== null;
+  // "Just a moment" alone is also what a loading single page app shows, so it
+  // counts only together with a status, marker or title that says challenge.
+  const titleChallenge = /^\\s*(just a moment|attention required)/.test(title);
+  const justAMoment = /just a moment/.test(haystack);
   const challenge =
-    /captcha|verify you are human|verifying you are human|checking your browser|just a moment|attention required|are you a robot|security check/.test(haystack) ||
-    document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="challenge"], #challenge-form, .g-recaptcha, .h-captcha, .cf-turnstile') !== null;
+    /captcha|verify you are human|verifying you are human|checking your browser|attention required|are you a robot|security check/.test(haystack) ||
+    challengeFrame ||
+    (justAMoment && (status === 403 || status === 503 || cfMarker || titleChallenge));
   const denied = /access denied|you have been blocked|you are blocked|forbidden|unusual traffic|account (has been )?(suspended|banned|locked)|temporarily banned/.test(haystack);
   const marker =
     document.querySelector('a[href*="logout" i], a[href*="log-out" i], a[href*="signout" i], a[href*="sign-out" i], [data-testid*="logout" i], [data-testid*="sign-out" i]') !== null ||
     Array.from(document.querySelectorAll('a, button, [role="menuitem"]')).some((element) => /^\\s*(log\\s?out|sign\\s?out)\\s*$/i.test(element.textContent || ""));
   return { loginForm, challenge, denied, marker };
 })()`;
+}
+
+/** Hard cap on redirect hops the probe follows itself for one request. */
+export const MAX_REDIRECT_HOPS = 5;
 
 export type BrowserProbeOptions = {
   target: SessionProbeTarget;
@@ -286,6 +302,9 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
   let offHostNavigation = false;
   let extraNavigation = false;
   let extraNavigationLooksLikeLogin = false;
+  let nonGetNavigation = false;
+  let redirectLimitExceeded = false;
+  let mainFinalUrl: string | null = null;
   try {
     browser = await chromium.launch({
       headless: true,
@@ -310,11 +329,20 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     await context.route("**/*", async (route) => {
       const request: Request = route.request();
       const method = request.method().toUpperCase();
-      const mainNavigation = request.isNavigationRequest() && request.frame() === page.mainFrame();
+      // request.frame() throws for requests that belong to a popup. Treat an
+      // unknown frame as not the main frame; method and host rules still apply.
+      let mainFrame = false;
+      try {
+        mainFrame = request.frame() === page.mainFrame();
+      } catch {
+        mainFrame = false;
+      }
+      const mainNavigation = request.isNavigationRequest() && mainFrame;
       const allowedUrl = isAllowedProbeUrl(request.url(), policy);
       if (!allowedUrl || !["GET", "HEAD"].includes(method)) {
         evidence.blockedRequests += 1;
         if (mainNavigation && !allowedUrl) offHostNavigation = true;
+        else if (mainNavigation) nonGetNavigation = true;
         await route.abort("blockedbyclient");
         return;
       }
@@ -332,20 +360,35 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
           return;
         }
       }
-      // Fetch without following redirects so every hop is checked against the
-      // host policy before the browser can send it.
+      // Follow redirects here, one fetch per hop with the browser's own
+      // redirect following never involved: every hop is checked against the
+      // host and https rules before it is sent, and only the final non 3xx
+      // response is handed to the browser. A 3xx is never fulfilled, because
+      // Chromium would follow the rest of the chain outside this handler.
+      let currentUrl = request.url();
       let upstream: Awaited<ReturnType<typeof route.fetch>>;
-      try {
-        upstream = await route.fetch({ maxRedirects: 0 });
-      } catch {
-        await route.abort("failed");
-        return;
-      }
-      const location = upstream.headers()["location"];
-      if (upstream.status() >= 300 && upstream.status() < 400 && location) {
+      let hops = 0;
+      for (;;) {
+        try {
+          upstream = await route.fetch({ url: currentUrl, maxRedirects: 0, maxRetries: 0 });
+        } catch {
+          await route.abort("failed");
+          return;
+        }
+        const status = upstream.status();
+        if (status < 300 || status >= 400) break;
+        const location = upstream.headers()["location"];
+        if (!location) break;
+        hops += 1;
+        if (hops > MAX_REDIRECT_HOPS) {
+          evidence.blockedRequests += 1;
+          if (mainNavigation) redirectLimitExceeded = true;
+          await route.abort("blockedbyclient");
+          return;
+        }
         let next: string | null = null;
         try {
-          next = new URL(location, request.url()).toString();
+          next = new URL(location, currentUrl).toString();
         } catch {
           next = null;
         }
@@ -355,7 +398,16 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
           await route.abort("blockedbyclient");
           return;
         }
+        currentUrl = next;
       }
+      if (upstream.status() >= 300 && upstream.status() < 400) {
+        // A 3xx without Location has no next hop and nothing safe to hand over.
+        evidence.blockedRequests += 1;
+        await route.abort("failed");
+        return;
+      }
+      // fulfill cannot change the document URL, so keep the final URL here.
+      if (mainNavigation) mainFinalUrl = currentUrl;
       await route.fulfill({ response: upstream });
     });
     await context.routeWebSocket("**/*", (socket) => {
@@ -371,14 +423,17 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
       evidence.navigations = Math.max(navigationChains, 1);
       evidence.httpStatus = null;
       if (offHostNavigation) return { ...evidence, outcome: "blocked", reason: "off_host_redirect" };
+      if (redirectLimitExceeded) return { ...evidence, outcome: "blocked", reason: "redirect_limit_exceeded" };
       return { ...evidence, outcome: "error", reason: "navigation_failed" };
     }
     evidence.httpStatus = status;
     evidence.navigations = Math.max(navigationChains, 1);
-    const landedUrl = page.url();
+    // The browser URL stays at the requested address because redirects are
+    // followed in the route handler; the handler's final URL is the real one.
+    const landedUrl = mainFinalUrl ?? page.url();
     evidence.finalHost = hostOf(landedUrl);
 
-    if (offHostNavigation || !isAllowedProbeUrl(page.url(), policy)) {
+    if (offHostNavigation || !isAllowedProbeUrl(landedUrl, policy)) {
       return { ...evidence, outcome: "blocked", reason: "off_host_redirect" };
     }
     // Judge the HTTP response before touching the page, so a 403 or 429 is
@@ -394,7 +449,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     let signals: PageSignals;
     try {
       for (;;) {
-        signals = (await page.evaluate(PAGE_SIGNALS_SCRIPT)) as PageSignals;
+        signals = (await page.evaluate(buildPageSignalsScript(status))) as PageSignals;
         if (signals.loginForm || signals.challenge || signals.denied || signals.marker || Date.now() >= deadline) break;
         await page.waitForTimeout(250);
       }
@@ -405,10 +460,12 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     evidence.navigations = Math.max(navigationChains, 1);
     // An aborted extra navigation leaves the browser on an error page, so only
     // an allowed URL updates what is reported; off host attempts set the flag.
-    const settledUrl = isAllowedProbeUrl(page.url(), policy) ? page.url() : landedUrl;
+    const settledUrl = mainFinalUrl && isAllowedProbeUrl(mainFinalUrl, policy) ? mainFinalUrl : landedUrl;
     const finalUrl = new URL(settledUrl);
     evidence.finalHost = finalUrl.hostname;
     if (offHostNavigation) return { ...evidence, outcome: "blocked", reason: "off_host_redirect" };
+    if (redirectLimitExceeded) return { ...evidence, outcome: "blocked", reason: "redirect_limit_exceeded" };
+    if (nonGetNavigation) return { ...evidence, outcome: "blocked", reason: "non_get_navigation" };
 
     if (signals.challenge) return { ...evidence, outcome: "blocked", reason: "challenge_page" };
     if (signals.denied) return { ...evidence, outcome: "blocked", reason: "access_denied" };
@@ -547,6 +604,8 @@ export function parseProbeCliArgs(argv: readonly string[]): ProbeCliArgs {
   return args;
 }
 
+const LOOPBACK_FIXTURE_URL = /^http:\/\/127\.0\.0\.1:\d{1,5}(\/[^\s]*)?$/;
+
 export async function runSessionProbe(
   args: ProbeCliArgs,
   deps: {
@@ -554,10 +613,21 @@ export async function runSessionProbe(
     sandbox: BrowserProbeOptions["sandbox"];
     rmfgTransport?: RmfgProbeTransport;
     now?: () => Date;
+    /**
+     * Test seam used by the CLI wrapper test. Honored only for a plain
+     * http://127.0.0.1:<port> URL, which narrows the probe to that one
+     * loopback host, so it can never point the probe at a real provider.
+     */
+    loopbackFixtureUrl?: string;
+    executablePath?: string;
   },
 ): Promise<SessionProbeEvidence> {
   const now = deps.now ?? (() => new Date());
-  const target = resolveSessionProbeTarget(args.provider);
+  let target = resolveSessionProbeTarget(args.provider);
+  const fixture = deps.loopbackFixtureUrl && LOOPBACK_FIXTURE_URL.test(deps.loopbackFixtureUrl) ? deps.loopbackFixtureUrl : null;
+  if (fixture && target.adapterKind === "portal") {
+    target = { ...target, landingUrl: fixture, allowedHosts: ["127.0.0.1"] };
+  }
   try {
     if (target.adapterKind === "api") {
       // Decide before reading the secret: with no endpoint there is nothing to call.
@@ -571,7 +641,13 @@ export async function runSessionProbe(
       { file: args.storageStatePath, secret: args.secretName },
       deps.loadSecret,
     );
-    return await runBoundedBrowserSessionProbe({ target, storageState, sandbox: deps.sandbox, now });
+    return await runBoundedBrowserSessionProbe({
+      target,
+      storageState,
+      sandbox: deps.sandbox,
+      now,
+      ...(fixture ? { allowLoopbackHttp: true, executablePath: deps.executablePath, settleMs: 300 } : {}),
+    });
   } catch (error) {
     const reason: SessionProbeReason =
       error instanceof Error && error.message === "storage_state_invalid" ? "storage_state_invalid" : "secret_unavailable";
