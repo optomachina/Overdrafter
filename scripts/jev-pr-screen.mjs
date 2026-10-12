@@ -81,14 +81,15 @@ export function replay(records, { minConfidence = 0.5 } = {}) {
 }
 
 export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = appendFileSync } = {}) {
-  const records = [];
-  for (const pr of prs) {
-    const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
-    const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
-    const record = decisionRecord(pr, result);
-    append(log, `${JSON.stringify(record)}\n`);
-    records.push(record);
-  }
+  const results = await Promise.all(
+    prs.map((pr) => {
+      const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
+      return ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+    }),
+  );
+  // Append in input order so the log reads like the batch.
+  const records = prs.map((pr, index) => decisionRecord(pr, results[index]));
+  for (const record of records) append(log, `${JSON.stringify(record)}\n`);
   return records;
 }
 
@@ -96,6 +97,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const [input, log = DEFAULT_LOG] = process.argv.slice(2);
   const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log });
   for (const r of records) {
-    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${r.ok ? "" : ` (jev failed: ${r.reason})`}`);
+    const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
+    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}`);
   }
 }
