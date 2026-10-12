@@ -94,7 +94,8 @@ create table if not exists private.export_control_events (
     'marking_block_cleared',
     'marking_block_confirmed_controlled',
     'declaration_backfilled_missing',
-    'file_scan_recorded_clean'
+    'file_scan_recorded_clean',
+    'rescan_requested'
   )),
   detail jsonb not null default '{}'::jsonb
 );
@@ -443,12 +444,28 @@ declare
   v_latest private.job_export_declarations%rowtype;
   v_open integer;
   v_confirmed integer;
+  v_parts_missing_scan integer;
+  v_rescans_pending integer;
 begin
   select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
   if v_job.id is null
     or not (public.user_can_access_org(v_job.organization_id) or public.is_platform_admin()) then
     raise exception using errcode = '42501', message = 'export_status_forbidden';
   end if;
+
+  -- Scan coverage (1.15 rule) and queued rescans (1.18), so an existing job
+  -- shows what still holds dispatch after the user declares.
+  select count(*) filter (where private.export_control_scan_denial(part.id) is not null)
+  into v_parts_missing_scan
+  from public.parts part
+  where part.job_id = v_job.id;
+
+  select count(*)
+  into v_rescans_pending
+  from public.work_queue queue
+  where queue.job_id = v_job.id
+    and queue.task_type::text = 'export_rescan_part'
+    and queue.status in ('queued', 'running');
 
   select declaration.* into v_latest
   from private.job_export_declarations declaration
@@ -472,7 +489,9 @@ begin
       when v_confirmed > 0 then 'confirmed_controlled'
       when v_open > 0 then 'blocked_pending_review'
       else 'clear'
-    end
+    end,
+    'partsMissingScan', v_parts_missing_scan,
+    'rescansPending', v_rescans_pending
   );
 end;
 $$;
@@ -1176,6 +1195,96 @@ select declaration.organization_id, declaration.job_id, null, 'declaration_backf
   pg_catalog.jsonb_build_object('declarationId', declaration.id)
 from private.job_export_declarations declaration
 where declaration.answer = 'missing';
+
+-- 1.18 Existing jobs. Every job that predates the deploy has a backfilled
+-- 'missing' declaration (1.17) and no scan of record, so dispatch denies it
+-- twice over: export_declaration_missing, then export_scan_missing.
+--
+-- Declaration: an org member with edit rights declares on the existing job
+-- through api_declare_job_export_status (1.9), the same RPC and the same three
+-- answers as at upload. Nothing defaults; controlled and unsure are recorded
+-- and keep the job denied (export_declaration_not_clean).
+--
+-- Rescan: api_request_extraction (20260812042000) only queues extract_part
+-- for parts with no drawing_extractions row, so it never re-runs extraction,
+-- and never scans, for a part that was already extracted. This RPC queues one
+-- export_rescan_part task per part that has a drawing or CAD file. The worker
+-- scans that part's own drawing text and STEP header and records hits
+-- (1.11) or clean scans (1.11b); it never re-runs extraction or calls a
+-- provider. A drawing whose text can't be read records nothing and fails the
+-- task, so dispatch stays denied. An org member with edit rights or a
+-- platform admin can request it. Scanning sends nothing outside, so the
+-- declaration state doesn't gate the rescan; dispatch still needs both.
+--
+-- The new enum value is only used inside function bodies and compared as
+-- text, so nothing uses it before this migration commits (ALTER TYPE ... ADD
+-- VALUE in a transaction).
+alter type public.queue_task_type add value if not exists 'export_rescan_part';
+
+create or replace function public.api_request_export_control_rescan(p_job_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_requested_as text;
+  v_count integer := 0;
+begin
+  perform public.require_verified_auth();
+
+  select job_row.* into v_job from public.jobs job_row where job_row.id = p_job_id;
+  if v_job.id is null then
+    raise exception using errcode = '42501', message = 'export_rescan_forbidden';
+  end if;
+  if public.user_can_access_org(v_job.organization_id) and public.user_can_edit_job(v_job.id) then
+    v_requested_as := 'member';
+  elsif public.is_platform_admin() then
+    v_requested_as := 'platform_admin';
+  else
+    raise exception using errcode = '42501', message = 'export_rescan_forbidden';
+  end if;
+
+  with enqueued as (
+    insert into public.work_queue (organization_id, job_id, part_id, task_type, payload)
+    select
+      v_job.organization_id, v_job.id, part.id, 'export_rescan_part',
+      pg_catalog.jsonb_build_object(
+        'partId', part.id,
+        'jobId', v_job.id,
+        'requestedBy', auth.uid(),
+        'requestedAs', v_requested_as
+      )
+    from public.parts part
+    where part.job_id = v_job.id
+      and (part.drawing_file_id is not null or part.cad_file_id is not null)
+      and not exists (
+        select 1 from public.work_queue queue
+        where queue.part_id = part.id
+          and queue.task_type::text = 'export_rescan_part'
+          and queue.status in ('queued', 'running')
+      )
+    returning id
+  )
+  select count(*)::integer into v_count from enqueued;
+
+  insert into private.export_control_events (organization_id, job_id, part_id, actor, event, detail)
+  values (
+    v_job.organization_id, v_job.id, null, auth.uid(), 'rescan_requested',
+    pg_catalog.jsonb_build_object('requestedAs', v_requested_as, 'tasksQueued', v_count)
+  );
+
+  return pg_catalog.jsonb_build_object(
+    'jobId', v_job.id,
+    'requestedAs', v_requested_as,
+    'tasksQueued', v_count
+  );
+end;
+$$;
+
+revoke all on function public.api_request_export_control_rescan(uuid) from public, anon;
+grant execute on function public.api_request_export_control_rescan(uuid) to authenticated;
 
 -- =====================================================================
 -- PHASE 2 - CONTRACT (upload enforcement only; apply only after the
