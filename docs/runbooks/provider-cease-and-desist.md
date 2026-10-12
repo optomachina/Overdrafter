@@ -56,7 +56,27 @@ the emergency stop. Envelope withdrawal remains the durable follow-up.
 
 ## Manual fallback until OVD-722 ships
 
-If `provider:kill` or the RPC does not exist yet, Blaine stops traffic by hand within the same hour, without a deploy: remove the provider key from `WORKER_LIVE_ADAPTERS` on the Cloud Run worker (config change only) and set the provider's admission policy to `disabled` through the existing admin path. Record what was done and when, then continue with Step 2. Do not build a second kill switch.
+If `provider:kill` or the RPC does not exist yet, Blaine stops traffic by hand
+within the same hour.
+
+1. Remove the provider key from `WORKER_LIVE_ADAPTERS` on the Cloud Run worker
+   `overdrafter-cad-worker`. This is not a no-deploy change: Cloud Run creates a
+   **new revision** whenever an environment variable is updated.
+
+```bash
+gcloud run services update overdrafter-cad-worker \
+  --region "${CLOUD_RUN_REGION:-us-west1}" \
+  --update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>
+```
+
+Replace `<remaining_comma_separated_keys>` with the current list minus the
+provider being stopped. An empty remainder means no live adapters.
+
+2. Set that provider's admission policy to `disabled`. Admin path: **TBD pending OVD-722**
+   (no platform-admin admission control exists yet). Do not invent a second kill
+   switch and do not apply an unreviewed SQL update.
+
+Record what was done and when, then continue with Step 2.
 
 ## Step 2: Preserve evidence
 

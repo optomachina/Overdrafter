@@ -120,10 +120,12 @@ test('synthetic portable contract', () => {
 
   it("retains the provider gate and includes the omitted payment safety suite", () => {
     expect(packageJson.scripts.verify).toContain("npm run provider:check");
+    expect(packageJson.scripts.verify).toContain("npm run provider:permissions");
     expect(packageJson.scripts["test:functions"]).toContain(
       "supabase/functions/create-payment-intent/index.test.ts",
     );
     const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+    expect(ci).toMatch(/^        run: npm run provider:permissions\s*$/m);
     expect(ci).toContain("run: npm run test:integration:quote");
     expect(ci).toContain("ovd420-recovery-egress-network:");
     expect(ci).toContain('needs.ovd420-recovery-egress-network.result');

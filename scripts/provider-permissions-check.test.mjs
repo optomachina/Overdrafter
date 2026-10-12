@@ -15,16 +15,22 @@ import {
   MATRIX_MARKDOWN_RELATIVE_PATH,
   MATRIX_SCHEMA_RELATIVE_PATH,
   OUTREACH_DIR_RELATIVE_PATH,
+  PLAYBOOK_PENDING_MARKER,
   PLAYBOOK_RELATIVE_PATH,
   REQUIRED_NOT_1_0_KEYS,
   REQUIRED_OUTREACH_DRAFT_KEYS,
   assertCeaseAndDesistPlaybook,
   assertMarkdownAgreesWithJson,
   assertNoAdmittedProviderIsProhibitedOrCd,
+  assertOvd722KillSwitchShipped,
   assertOutreachDirectoryContents,
   assertOutreachDraft,
+  assertOutreachHasNoSendInstructions,
+  assertOneDotZeroMatchesReviewedSet,
   assertRequiredProviderCoverage,
   deriveRequired10Keys,
+  OVD722_KILL_CLI_RELATIVE_PATH,
+  OVD722_RPC_CLIENT_RELATIVE_PATH,
   parseMarkdownReplyCounts,
   checkProviderPermissions,
   deriveEnabledForPaidAutomation,
@@ -333,10 +339,12 @@ describe("OVD-724 provider permissions matrix lint", () => {
     })).rejects.toThrow("protolabs must be marked not in 1.0");
   });
 
-  it("is wired into npm run verify", async () => {
+  it("is wired into npm run verify and CI", async () => {
     const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
     expect(packageJson.scripts["provider:permissions"]).toBe("node scripts/provider-permissions-check.mjs");
     expect(packageJson.scripts.verify).toContain("provider:permissions");
+    const ci = await fs.readFile(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).toMatch(/^        run: npm run provider:permissions\s*$/m);
   });
 
   it("keeps an expected 1.0 key out of the lint script", async () => {
@@ -374,6 +382,19 @@ describe("OVD-724 provider permissions matrix lint", () => {
     );
     const result = await checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" });
     expect(result.registrySource).toBe("provider-integrations/provider-registry.v1.json");
+  });
+
+  it("falls back to the manifest glob when the registry lists providers: []", async () => {
+    const { temporaryRoot } = await writeTempRepo();
+    const registryPath = path.join(temporaryRoot, "provider-integrations/provider-registry.v1.json");
+    const registry = JSON.parse(await fs.readFile(registryPath, "utf8"));
+    await fs.writeFile(
+      registryPath,
+      `${JSON.stringify({ ...registry, providers: [] }, null, 2)}\n`,
+    );
+    const result = await checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" });
+    expect(result.ok).toBe(true);
+    expect(result.registrySource).toBe("provider-integrations/*/manifest.v1.json");
   });
 });
 
@@ -453,6 +474,14 @@ describe("OVD-728 structural outreach checks", () => {
       .toThrow("send_mode");
     expect(() => assertOutreachDraft(buildDraft({ fields: swap("status: draft", "status: pending") }), "xometry"))
       .toThrow("status");
+    expect(() => assertOutreachDraft(
+      buildDraft({ fields: [...FRONT_MATTER, "auto_send: false"] }),
+      "xometry",
+    )).toThrow("duplicate front-matter key: auto_send");
+    expect(() => assertOutreachDraft(
+      buildDraft({ fields: ["auto_send: true", ...FRONT_MATTER] }),
+      "xometry",
+    )).toThrow("duplicate front-matter key: auto_send");
   });
 
   it("rejects a moved or altered DRAFT ONLY line", () => {
@@ -511,6 +540,17 @@ describe("OVD-728 outreach directory contents", () => {
     await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
       .rejects.toThrow("may only contain .md files: draft.eml");
   });
+
+  it("scans every outreach .md file for mailto and send links, including extras", async () => {
+    const { temporaryRoot } = await writeTempRepo();
+    await fs.writeFile(
+      path.join(temporaryRoot, OUTREACH_DIR_RELATIVE_PATH, "extra.md"),
+      "Please mailto:vendor@example.com now.\n",
+    );
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
+      .rejects.toThrow("outreach draft for extra must not include send or vendor-call instructions");
+    expect(() => assertOutreachHasNoSendInstructions("mailto:a@b.co", "README")).toThrow("send or vendor-call");
+  });
 });
 
 describe("OVD-728 derived 1.0 keys", () => {
@@ -538,6 +578,23 @@ describe("OVD-728 derived 1.0 keys", () => {
     expect(() => assertRequiredProviderCoverage(providers, ["xometry"])).not.toThrow();
     expect(() => assertRequiredProviderCoverage(providers, ["xometry", "unknownco"])).toThrow("unknownco is missing");
     expect(() => assertRequiredProviderCoverage(providers, ["protolabs"])).toThrow("protolabs must have in_1_0=true");
+  });
+
+  it("fails the lint when weerg is dropped from oneDotZero", async () => {
+    const registry = JSON.parse(
+      await fs.readFile(path.join(repoRoot, "provider-integrations/provider-registry.v1.json"), "utf8"),
+    );
+    const reviewed = (await readRepoMatrix()).document.providers
+      .filter((row) => row.in_1_0)
+      .map((row) => row.key);
+    expect(() => assertOneDotZeroMatchesReviewedSet(registry.oneDotZero, reviewed)).not.toThrow();
+    registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "weerg");
+    expect(() => assertOneDotZeroMatchesReviewedSet(registry.oneDotZero, reviewed)).toThrow("reviewed 1.0 set");
+    await expect(checkProviderPermissions({
+      rootDir: repoRoot,
+      today: "2026-10-11",
+      registryDocument: registry,
+    })).rejects.toThrow("registry.oneDotZero does not match the reviewed 1.0 set");
   });
 });
 
@@ -624,14 +681,74 @@ describe("OVD-728 playbook structure and pending marker", () => {
     expect(() => assertCeaseAndDesistPlaybook(text)).not.toThrow();
   });
 
-  it("drives the full lint from the matrix kill_switch_shipped flag", async () => {
+  it("ignores a pending marker hidden in a fence or HTML comment", async () => {
+    const text = await playbook();
+    const stripped = text.replace(`${PLAYBOOK_PENDING_MARKER}\n`, "");
+    const fenced = `${stripped}\n\`\`\`\n${PLAYBOOK_PENDING_MARKER}\n\`\`\`\n`;
+    const commented = `${stripped}\n<!-- ${PLAYBOOK_PENDING_MARKER} -->\n`;
+    expect(() => assertCeaseAndDesistPlaybook(fenced)).toThrow("pending OVD-722");
+    expect(() => assertCeaseAndDesistPlaybook(commented)).toThrow("pending OVD-722");
+  });
+
+  it("requires the Manual fallback section with an executable Cloud Run command", async () => {
+    const text = await playbook();
+    expect(text).toContain("gcloud run services update overdrafter-cad-worker");
+    expect(text).toContain("--update-env-vars WORKER_LIVE_ADAPTERS=<remaining_comma_separated_keys>");
+    expect(text).toMatch(/new revision/i);
+    expect(text).toContain("TBD pending OVD-722");
+    const withoutSection = text.replace(/## Manual fallback until OVD-722 ships[\s\S]*?(?=\n## Step 2:)/, "");
+    expect(() => assertCeaseAndDesistPlaybook(withoutSection)).toThrow("Manual fallback section");
+    const noCommand = text.replace(/gcloud run services update overdrafter-cad-worker/, "echo skip");
+    expect(() => assertCeaseAndDesistPlaybook(noCommand)).toThrow("gcloud command");
+  });
+
+  it("rejects kill_switch_shipped true unless the OVD-722 switch exists in code", async () => {
     const { document, markdown } = await readRepoMatrix();
     expect(document.kill_switch_shipped).toBe(false);
+    await expect(assertOvd722KillSwitchShipped(repoRoot)).rejects.toThrow("scripts/provider-kill.mjs");
     const text = (await playbook()).replace("**pending OVD-722**", "ready");
     const shipped = { ...clone(document), kill_switch_shipped: true };
     await expect(checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11", playbook: text, markdown }))
       .rejects.toThrow("pending OVD-722");
-    await expect(checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11", playbook: text, markdown, matrixDocument: shipped }))
+    await expect(checkProviderPermissions({
+      rootDir: repoRoot,
+      today: "2026-10-11",
+      playbook: text,
+      markdown,
+      matrixDocument: shipped,
+    })).rejects.toThrow("kill_switch_shipped is true but scripts/provider-kill.mjs");
+  });
+
+  it("accepts kill_switch_shipped true only when the CLI and RPC client structurally exist", async () => {
+    const { temporaryRoot, matrix } = await writeTempRepo();
+    matrix.kill_switch_shipped = true;
+    await fs.writeFile(
+      path.join(temporaryRoot, "docs/providers/permissions-matrix.v1.json"),
+      `${JSON.stringify(matrix, null, 2)}\n`,
+    );
+    const text = (await playbook()).replace("**pending OVD-722**", "ready");
+    await fs.writeFile(path.join(temporaryRoot, "docs/runbooks/provider-cease-and-desist.md"), text);
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
+      .rejects.toThrow("scripts/provider-kill.mjs");
+
+    await fs.mkdir(path.join(temporaryRoot, "scripts"), { recursive: true });
+    await fs.writeFile(
+      path.join(temporaryRoot, OVD722_KILL_CLI_RELATIVE_PATH),
+      "// later: api_admin_set_provider_kill_switch\nexport const name = \"not-yet\";\n",
+    );
+    await expect(assertOvd722KillSwitchShipped(temporaryRoot)).rejects.toThrow("does not implement provider:kill");
+
+    await fs.writeFile(
+      path.join(temporaryRoot, OVD722_KILL_CLI_RELATIVE_PATH),
+      "export const command = \"provider:kill\";\nexport const rpc = \"api_admin_set_provider_kill_switch\";\n",
+    );
+    await fs.mkdir(path.dirname(path.join(temporaryRoot, OVD722_RPC_CLIENT_RELATIVE_PATH)), { recursive: true });
+    await fs.writeFile(
+      path.join(temporaryRoot, OVD722_RPC_CLIENT_RELATIVE_PATH),
+      "export const rpc = \"api_admin_set_provider_kill_switch\";\n",
+    );
+    await expect(assertOvd722KillSwitchShipped(temporaryRoot)).resolves.toBeUndefined();
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11" }))
       .resolves.toMatchObject({ ok: true });
   });
 });
