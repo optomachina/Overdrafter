@@ -148,7 +148,7 @@ export type ExportControlUploadOptions = {
  * anything but `not_controlled`. Runs before any job, project, or file is
  * created, so a blocked answer stores nothing.
  */
-async function resolveCleanExportControlAnswer(
+export async function resolveCleanExportControlAnswer(
   options: ExportControlUploadOptions,
 ): Promise<"not_controlled"> {
   const answer = options.exportControlAnswer === undefined
@@ -278,6 +278,10 @@ export async function uploadFilesToJob(
   files: File[],
   options: ExportControlUploadOptions = {},
 ): Promise<UploadFilesToJobSummary> {
+  if (files.length === 0) {
+    return { uploadedCount: 0, reusedCount: 0, duplicateNames: [] };
+  }
+
   await resolveCleanExportControlAnswer(options);
   const exportDeclarationId = await declareCleanJobExportStatus(jobId);
   const hashedFiles = await hashUploadFiles(files);
