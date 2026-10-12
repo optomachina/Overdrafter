@@ -78,7 +78,7 @@ export function consumeExactNativePromise(value) {
         PROMISE_CONSTRUCTOR_DESCRIPTOR)
       || !sameDescriptor(Object.getOwnPropertyDescriptor(TRUSTED_PROMISE, Symbol.species),
         PROMISE_SPECIES_DESCRIPTOR)) return false;
-    Reflect.apply(NATIVE_PROMISE_THEN, value, [() => undefined, () => undefined]);
+    void Reflect.apply(NATIVE_PROMISE_THEN, value, [() => undefined, () => undefined]);
     return true;
   } catch {
     return false;
