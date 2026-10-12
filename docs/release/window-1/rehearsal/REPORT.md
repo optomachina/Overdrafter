@@ -17,8 +17,8 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 139 s |
-| `recommended/` | 462, 723 (PHASE 1), 722 | FAIL (see below) | 311 s |
+| `ovd-462-only/` | 462 | **PASS, every gate** | 114 s |
+| `recommended/` | 462, 723 (PHASE 1), 722 | FAIL (see below) | 331 s |
 | scratch run at the earlier heads, not kept | 462, 722, 723 | FAIL, same plus 2 composed 722 assertions | 295 s |
 
 Per migration (recommended run; times are the first apply / reapply):

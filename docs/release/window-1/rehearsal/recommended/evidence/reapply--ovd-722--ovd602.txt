@@ -1,0 +1,29 @@
+added functions (11):
+  private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"}
+  private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid,uuid,jsonb,text,timestamp with time zone)"}
+  private.api_request_provider_dispatch_pre_ovd722(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)  {"definer":true,"execute":[],"search_path":"pg_catalog","signature":"private.api_request_provider_dispatch_pre_ovd722(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)"}
+  private.api_request_xometry_beta_dispatch_pre_ovd722(uuid,text,text,text,uuid,boolean,boolean,boolean)  {"definer":true,"execute":[],"search_path":"pg_catalog","signature":"private.api_request_xometry_beta_dispatch_pre_ovd722(uuid,text,text,text,uuid,boolean,boolean,boolean)"}
+  private.provider_kill_switch_engaged(public.vendor_name)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.provider_kill_switch_engaged(public.vendor_name)"}
+  private.provider_kill_switch_engaged_text(text)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.provider_kill_switch_engaged_text(text)"}
+  public.api_admin_list_provider_kill_switches()  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_list_provider_kill_switches()"}
+  public.api_admin_set_global_kill_switch(boolean,text,bigint)  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_set_global_kill_switch(boolean,text,bigint)"}
+  public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)"}
+  public.api_worker_cancel_provider_disabled_tasks()  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.api_worker_cancel_provider_disabled_tasks()"}
+  public.api_worker_provider_kill_switch_state(public.vendor_name)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.api_worker_provider_kill_switch_state(public.vendor_name)"}
+added relations (3):
+  private.provider_global_kill_switch  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_global_kill_switch","rls":true}
+  private.provider_kill_switch_audit  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_kill_switch_audit","rls":true}
+  private.provider_kill_switches  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_kill_switches","rls":true}
+changed functions (2):
+  public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)
+      search_path: "pg_catalog" -> "\"\""
+  public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)
+      search_path: "pg_catalog" -> "\"\""
+flags (7):
+  DEFINER_EXECUTABLE_BY authenticated added public.api_admin_list_provider_kill_switches()
+  DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_global_kill_switch(boolean,text,bigint)
+  DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)
+  DEFINER_EXECUTABLE_BY authenticated changed public.api_request_provider_dispatch(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean)
+  DEFINER_EXECUTABLE_BY authenticated changed public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)
+  DEFINER_NONEMPTY_SEARCH_PATH added private.api_request_provider_dispatch_pre_ovd722(uuid,public.vendor_name,text,text,text,text,uuid,boolean,boolean,boolean) search_path=pg_catalog
+  DEFINER_NONEMPTY_SEARCH_PATH added private.api_request_xometry_beta_dispatch_pre_ovd722(uuid,text,text,text,uuid,boolean,boolean,boolean) search_path=pg_catalog

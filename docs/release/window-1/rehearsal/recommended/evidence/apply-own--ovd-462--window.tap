@@ -1,0 +1,580 @@
+  plan  
+--------
+ 1..122
+(1 row)
+
+         has_table         
+---------------------------
+ ok 1 - lease table exists
+(1 row)
+
+                ok                
+----------------------------------
+ ok 2 - RLS is enabled and forced
+(1 row)
+
+                                   is                                   
+------------------------------------------------------------------------
+ ok 3 - no RLS policies exist, so direct access is denied to every role
+(1 row)
+
+                              ok                               
+---------------------------------------------------------------
+ ok 4 - unique partial index enforces one occupant per binding
+(1 row)
+
+                                                     is                                                      
+-------------------------------------------------------------------------------------------------------------
+ ok 5 - only opaque identity, ownership and timing columns exist (no credential or session-material columns)
+(1 row)
+
+                                            is                                             
+-------------------------------------------------------------------------------------------
+ ok 6 - binding registry holds only opaque identity, the generation counter and timestamps
+(1 row)
+
+                        ok                         
+---------------------------------------------------
+ ok 7 - binding registry RLS is enabled and forced
+(1 row)
+
+                     is                      
+---------------------------------------------
+ ok 8 - binding registry has no RLS policies
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 9 - session_binding_ref is the binding registry primary key
+(1 row)
+
+                                                       ok                                                       
+----------------------------------------------------------------------------------------------------------------
+ ok 10 - lease rows reference the binding registry by (session_binding_ref, provider, account_ref, environment)
+(1 row)
+
+                                                  is                                                   
+-------------------------------------------------------------------------------------------------------
+ ok 11 - all six RPCs are SECURITY DEFINER with search_path pinned to empty and a bounded lock_timeout
+(1 row)
+
+                                              ok                                               
+-----------------------------------------------------------------------------------------------
+ ok 12 - RPC owner bypasses RLS, so the forced-RLS tables stay reachable only through the RPCs
+(1 row)
+
+                                  is                                  
+----------------------------------------------------------------------
+ ok 13 - acquire and revoke also serialize on the session binding ref
+(1 row)
+
+                 is                  
+-------------------------------------
+ ok 14 - anon cannot execute any RPC
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 15 - authenticated cannot execute any RPC
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 16 - service_role can execute every RPC
+(1 row)
+
+                  is                   
+---------------------------------------
+ ok 17 - PUBLIC cannot execute any RPC
+(1 row)
+
+                                 ok                                  
+---------------------------------------------------------------------
+ ok 18 - public cannot execute the private identity validator
+ ok 19 - anon cannot execute the private identity validator
+ ok 20 - authenticated cannot execute the private identity validator
+ ok 21 - service_role cannot execute the private identity validator
+(4 rows)
+
+                                         ok                                         
+------------------------------------------------------------------------------------
+ ok 22 - public has no direct privileges on public.provider_session_leases
+ ok 23 - anon has no direct privileges on public.provider_session_leases
+ ok 24 - authenticated has no direct privileges on public.provider_session_leases
+ ok 25 - service_role has no direct privileges on public.provider_session_leases
+ ok 26 - public has no direct privileges on public.provider_session_bindings
+ ok 27 - anon has no direct privileges on public.provider_session_bindings
+ ok 28 - authenticated has no direct privileges on public.provider_session_bindings
+ ok 29 - service_role has no direct privileges on public.provider_session_bindings
+(8 rows)
+
+            throws_ok            
+---------------------------------
+ ok 30 - anon direct read denied
+(1 row)
+
+          throws_ok           
+------------------------------
+ ok 31 - anon RPC call denied
+(1 row)
+
+                throws_ok                 
+------------------------------------------
+ ok 32 - authenticated direct read denied
+(1 row)
+
+                 throws_ok                  
+--------------------------------------------
+ ok 33 - authenticated direct insert denied
+(1 row)
+
+               throws_ok               
+---------------------------------------
+ ok 34 - authenticated RPC call denied
+(1 row)
+
+                     throws_ok                      
+----------------------------------------------------
+ ok 35 - authenticated binding registry read denied
+(1 row)
+
+                     throws_ok                      
+----------------------------------------------------
+ ok 36 - service_role direct read denied (RPC only)
+(1 row)
+
+                          throws_ok                           
+--------------------------------------------------------------
+ ok 37 - service_role binding registry read denied (RPC only)
+(1 row)
+
+                      throws_ok                       
+------------------------------------------------------
+ ok 38 - service_role direct update denied (RPC only)
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 39 - first contender acquires generation 1
+(1 row)
+
+                        is                         
+---------------------------------------------------
+ ok 40 - acquire is idempotent for the exact owner
+(1 row)
+
+                                is                                
+------------------------------------------------------------------
+ ok 41 - a different task receives a non-owning contended outcome
+(1 row)
+
+                              ok                              
+--------------------------------------------------------------
+ ok 42 - contended retry hint is bounded by the contender ttl
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 43 - same task with a new holder token (crash restart) cannot become a second owner
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 44 - contended outcome never discloses the owner generation
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 45 - session binding cannot be reused across providers
+(1 row)
+
+                            is                            
+----------------------------------------------------------
+ ok 46 - session binding cannot be reused across accounts
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 47 - session binding cannot be reused across environments
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 48 - another environment is an independent binding
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 49 - another provider is an independent binding
+(1 row)
+
+                   is                   
+----------------------------------------
+ ok 50 - renew with wrong task rejected
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 51 - renew with wrong holder token rejected
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 52 - renew with wrong generation rejected
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 53 - renew under another provider rejected
+(1 row)
+
+                        is                        
+--------------------------------------------------
+ ok 54 - renew under another environment rejected
+(1 row)
+
+                   is                    
+-----------------------------------------
+ ok 55 - release by a non-owner rejected
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 56 - outcome report by a non-owner rejected
+(1 row)
+
+                                  is                                  
+----------------------------------------------------------------------
+ ok 57 - owner still holds generation 1 after every rejected mutation
+(1 row)
+
+          is          
+----------------------
+ ok 58 - owner renews
+(1 row)
+
+                  is                  
+--------------------------------------
+ ok 59 - owner renews up to the bound
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 60 - renewal beyond the bound is denied
+(1 row)
+
+                  is                   
+---------------------------------------
+ ok 61 - a denied renewal stays denied
+(1 row)
+
+                                                     is                                                     
+------------------------------------------------------------------------------------------------------------
+ ok 62 - an exhausted holder keeps the binding until its advertised expiry, so no second owner starts early
+(1 row)
+
+                                is                                 
+-------------------------------------------------------------------
+ ok 63 - renewal exhaustion does not end the row before expires_at
+(1 row)
+
+                            is                            
+----------------------------------------------------------
+ ok 64 - next owner receives a strictly higher generation
+(1 row)
+
+                                is                                
+------------------------------------------------------------------
+ ok 65 - expired holder is recovered and replaced by generation 3
+(1 row)
+
+                        is                         
+---------------------------------------------------
+ ok 66 - crashed holder that wakes up cannot renew
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 67 - crashed holder release is a no-op
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 68 - crashed holder cannot re-acquire while generation 3 is active
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 69 - exactly one active owner after crash recovery
+(1 row)
+
+                                       throws_ok                                        
+----------------------------------------------------------------------------------------
+ ok 70 - storage rejects a second simultaneous active owner even when RPCs are bypassed
+(1 row)
+
+                   throws_ok                    
+------------------------------------------------
+ ok 71 - storage rejects a duplicate generation
+(1 row)
+
+                        throws_ok                        
+---------------------------------------------------------
+ ok 72 - storage rejects a non-opaque account identifier
+(1 row)
+
+                         throws_ok                         
+-----------------------------------------------------------
+ ok 73 - storage rejects a profile path as session binding
+(1 row)
+
+                                       throws_ok                                        
+----------------------------------------------------------------------------------------
+ ok 74 - storage rejects a lease row naming a session binding registered to another key
+(1 row)
+
+                                 throws_ok                                  
+----------------------------------------------------------------------------
+ ok 75 - storage rejects registering one session binding under a second key
+(1 row)
+
+           is           
+------------------------
+ ok 76 - owner releases
+(1 row)
+
+                        is                         
+---------------------------------------------------
+ ok 77 - release is idempotent for the exact owner
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 78 - released generation cannot be renewed
+(1 row)
+
+                     is                      
+---------------------------------------------
+ ok 79 - binding is free again after release
+(1 row)
+
+                  is                  
+--------------------------------------
+ ok 80 - owner reports login required
+(1 row)
+
+                                 is                                  
+---------------------------------------------------------------------
+ ok 81 - blocked binding returns manual follow-up instead of a lease
+(1 row)
+
+                 is                  
+-------------------------------------
+ ok 82 - blocked holder cannot renew
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 83 - unknown outcome vocabulary rejected as invalid_outcome
+(1 row)
+
+                                           is                                            
+-----------------------------------------------------------------------------------------
+ ok 84 - a holder cannot self-report owner_revoked; only the operator revoke RPC sets it
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 85 - clear without an actor ref is rejected
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 86 - clear without a reason ref is rejected
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 87 - clearing a non-blocked generation is rejected
+(1 row)
+
+                            is                            
+----------------------------------------------------------
+ ok 88 - operator clears the block after manual follow-up
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 89 - cleared generation cannot be renewed
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 90 - release of a cleared generation is a no-op
+(1 row)
+
+                           is                           
+--------------------------------------------------------
+ ok 91 - cleared generation cannot report a new outcome
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 92 - binding grants generation 5 after the block is cleared
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 93 - revoke with a non-opaque actor is rejected
+(1 row)
+
+                                     is                                      
+-----------------------------------------------------------------------------
+ ok 94 - revoke naming a session binding other than the holder's is rejected
+(1 row)
+
+                                      is                                       
+-------------------------------------------------------------------------------
+ ok 95 - revoke naming a session binding registered to another key is rejected
+(1 row)
+
+                           is                           
+--------------------------------------------------------
+ ok 96 - rejected revocations leave the holder in place
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 97 - operator revokes the active owner under a fresh generation
+(1 row)
+
+                             is                              
+-------------------------------------------------------------
+ ok 98 - revoked owner loses the lease on its next heartbeat
+(1 row)
+
+                              is                               
+---------------------------------------------------------------
+ ok 99 - revoked owner release is a no-op that keeps the block
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 100 - the revoked holder's generation is not the block
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 101 - revocation without a holder still blocks future grants
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 102 - revoked binding requires manual follow-up
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 103 - operator revoke and clear record their actor and reason refs
+(1 row)
+
+                        is                        
+--------------------------------------------------
+ ok 104 - a rejected revocation registers nothing
+(1 row)
+
+                   is                    
+-----------------------------------------
+ ok 105 - operator clears the revocation
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 106 - generation stays strictly increasing after lease history is deleted
+(1 row)
+
+                      is                      
+----------------------------------------------
+ ok 107 - fresh binding acquires generation 1
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 108 - renew with a null generation rejected
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 109 - renew with generation 0 rejected
+(1 row)
+
+                        is                        
+--------------------------------------------------
+ ok 110 - renew with a null holder token rejected
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 111 - release with a null holder token rejected
+(1 row)
+
+                        is                        
+--------------------------------------------------
+ ok 112 - release with a null generation rejected
+(1 row)
+
+                         ok                          
+-----------------------------------------------------
+ ok 113 - renewal never extends past hard_expires_at
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 114 - renew after the hard cap passes ends the lease
+(1 row)
+
+                         is                          
+-----------------------------------------------------
+ ok 115 - second fresh binding acquires generation 1
+(1 row)
+
+                                is                                
+------------------------------------------------------------------
+ ok 116 - outcome report on an expired lease is lost, not blocked
+(1 row)
+
+                         is                          
+-----------------------------------------------------
+ ok 117 - an expired holder cannot block the binding
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 118 - raw account identifier rejected without echo
+(1 row)
+
+               is                
+---------------------------------
+ ok 119 - unbounded ttl rejected
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 120 - unbounded total duration rejected
+(1 row)
+
+                    is                    
+------------------------------------------
+ ok 121 - rejected requests store nothing
+(1 row)
+
+                                                 ok                                                  
+-----------------------------------------------------------------------------------------------------
+ ok 122 - rollback with the operator override drops every OVD-462 object even with occupants present
+(1 row)
+
+ finish 
+--------
+(0 rows)
+
+psql:/tmp/ovd635-window1-Mpt3V1/src-ovd-462/supabase/tests/provider_session_leases.sql:3: NOTICE:  extension "pgtap" already exists, skipping

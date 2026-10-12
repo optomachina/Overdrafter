@@ -1,0 +1,315 @@
+ plan  
+-------
+ 1..53
+(1 row)
+
+                          is                          
+------------------------------------------------------
+ ok 1 - every vendor_name value has a kill-switch row
+(1 row)
+
+                        ok                         
+---------------------------------------------------
+ ok 2 - every provider switch is seeded disengaged
+(1 row)
+
+                        ok                        
+--------------------------------------------------
+ ok 3 - the global singleton is seeded disengaged
+(1 row)
+
+                                          ok                                           
+---------------------------------------------------------------------------------------
+ ok 4 - each 1.0 provider (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG) has a row
+(1 row)
+
+                                 ok                                 
+--------------------------------------------------------------------
+ ok 5 - kill-switch RPCs are SECURITY DEFINER with search_path = ''
+(1 row)
+
+                              ok                               
+---------------------------------------------------------------
+ ok 6 - anon cannot execute api_admin_set_provider_kill_switch
+(1 row)
+
+                               ok                                
+-----------------------------------------------------------------
+ ok 7 - public cannot execute api_admin_set_provider_kill_switch
+(1 row)
+
+                                 ok                                  
+---------------------------------------------------------------------
+ ok 8 - authenticated can execute api_admin_set_provider_kill_switch
+(1 row)
+
+                             ok                              
+-------------------------------------------------------------
+ ok 9 - anon cannot execute api_admin_set_global_kill_switch
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 10 - public cannot execute api_admin_set_global_kill_switch
+(1 row)
+
+                                 ok                                 
+--------------------------------------------------------------------
+ ok 11 - authenticated can execute api_admin_set_global_kill_switch
+(1 row)
+
+                         ok                         
+----------------------------------------------------
+ ok 12 - the worker state read is service_role only
+(1 row)
+
+                   ok                   
+----------------------------------------
+ ok 13 - the sweep is service_role only
+(1 row)
+
+                                           ok                                            
+-----------------------------------------------------------------------------------------
+ ok 14 - the preserved pre-OVD-722 bodies cannot be called directly to bypass the switch
+(1 row)
+
+                                             ok                                              
+---------------------------------------------------------------------------------------------
+ ok 15 - RLS is enabled and forced on every kill-switch table (no policies; RPC access only)
+(1 row)
+
+                                   ok                                    
+-------------------------------------------------------------------------
+ ok 16 - no API role holds UPDATE, DELETE or TRUNCATE on the audit table
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                  throws_ok                  
+---------------------------------------------
+ ok 17 - anon is refused by the provider RPC
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                     throws_ok                      
+----------------------------------------------------
+ ok 18 - a non-admin is refused by the provider RPC
+(1 row)
+
+                    throws_ok                     
+--------------------------------------------------
+ ok 19 - a non-admin is refused by the global RPC
+(1 row)
+
+                  throws_ok                   
+----------------------------------------------
+ ok 20 - a non-admin cannot list switch state
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                    throws_ok                    
+-------------------------------------------------
+ ok 21 - a reason under 10 characters is refused
+(1 row)
+
+             throws_ok             
+-----------------------------------
+ ok 22 - a blank reason is refused
+(1 row)
+
+                    ok                     
+-------------------------------------------
+ ok 23 - refused calls wrote no audit rows
+(1 row)
+
+                                is                                 
+-------------------------------------------------------------------
+ ok 24 - before the flip the worker read reports fictiv disengaged
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 25 - a platform admin engages the fictiv switch
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 26 - the flip wrote exactly one audit row with actor and reason
+(1 row)
+
+                      ok                       
+-----------------------------------------------
+ ok 27 - the switch row records actor and time
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 28 - the very next worker read after the flip reports engaged (no cache, no deploy)
+(1 row)
+
+                   is                   
+----------------------------------------
+ ok 29 - other providers are unaffected
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                        throws_ok                         
+----------------------------------------------------------
+ ok 30 - a release without an expected version is refused
+(1 row)
+
+                              is                               
+---------------------------------------------------------------
+ ok 31 - an engage succeeds even with a stale expected version
+(1 row)
+
+             throws_ok              
+------------------------------------
+ ok 32 - a stale release is refused
+(1 row)
+
+                           ok                            
+---------------------------------------------------------
+ ok 33 - the newer engagement survives the stale release
+(1 row)
+
+                       is                       
+------------------------------------------------
+ ok 34 - the refused release wrote no audit row
+(1 row)
+
+                throws_ok                
+-----------------------------------------
+ ok 35 - UPDATE on the audit table fails
+(1 row)
+
+                throws_ok                
+-----------------------------------------
+ ok 36 - DELETE on the audit table fails
+(1 row)
+
+                 throws_ok                 
+-------------------------------------------
+ ok 37 - TRUNCATE on the audit table fails
+(1 row)
+
+                                                  is                                                   
+-------------------------------------------------------------------------------------------------------
+ ok 38 - generic preflight denies a switched-off provider with provider_kill_switch_engaged (terminal)
+(1 row)
+
+                             isnt                             
+--------------------------------------------------------------
+ ok 39 - another provider reaches its normal preflight checks
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                          throws_ok                          
+-------------------------------------------------------------
+ ok 40 - a new fictiv dispatch request is refused at enqueue
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 41 - the sweep cancels at least the queued fictiv task
+(1 row)
+
+                            ok                            
+----------------------------------------------------------
+ ok 42 - the fictiv task ends cancelled_provider_disabled
+(1 row)
+
+                    is                    
+------------------------------------------
+ ok 43 - the quickparts task is untouched
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                         is                         
+----------------------------------------------------
+ ok 44 - a platform admin engages the global switch
+(1 row)
+
+                               ok                                
+-----------------------------------------------------------------
+ ok 45 - with the global switch engaged every provider is denied
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 46 - the Xometry preflight denies under the global switch
+(1 row)
+
+                        is                         
+---------------------------------------------------
+ ok 47 - the worker read reports the global switch
+(1 row)
+
+ ovd722_as 
+-----------
+ 
+(1 row)
+
+                 throws_ok                 
+-------------------------------------------
+ ok 48 - a stale global release is refused
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 49 - a platform admin releases the global switch at the current version
+(1 row)
+
+                                   ok                                   
+------------------------------------------------------------------------
+ ok 50 - releasing the global switch restores each provider's own state
+(1 row)
+
+                             is                             
+------------------------------------------------------------
+ ok 51 - both global flips are audited with a null provider
+(1 row)
+
+                                ok                                
+------------------------------------------------------------------
+ ok 52 - a provider with no kill-switch row is treated as engaged
+(1 row)
+
+                            ok                            
+----------------------------------------------------------
+ ok 53 - an unknown provider string is treated as engaged
+(1 row)
+
+ finish 
+--------
+(0 rows)
+
+psql:/tmp/ovd635-window1-Mpt3V1/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:27: NOTICE:  extension "pgtap" already exists, skipping

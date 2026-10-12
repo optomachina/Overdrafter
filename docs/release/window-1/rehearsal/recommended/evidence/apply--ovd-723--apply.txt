@@ -1,0 +1,10 @@
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:164: NOTICE:  trigger "job_export_declarations_append_only" for relation "private.job_export_declarations" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:169: NOTICE:  trigger "job_export_declarations_no_truncate" for relation "private.job_export_declarations" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:174: NOTICE:  trigger "export_control_events_append_only" for relation "private.export_control_events" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:179: NOTICE:  trigger "export_control_events_no_truncate" for relation "private.export_control_events" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:193: NOTICE:  policy "job_export_declarations_member_read" for relation "private.job_export_declarations" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:199: NOTICE:  policy "export_control_events_member_read" for relation "private.export_control_events" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:205: NOTICE:  policy "job_export_marking_blocks_member_read" for relation "private.job_export_marking_blocks" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:560: NOTICE:  trigger "job_file_export_scans_append_only" for relation "private.job_file_export_scans" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:565: NOTICE:  trigger "job_file_export_scans_no_truncate" for relation "private.job_file_export_scans" does not exist, skipping
+psql:/tmp/ovd635-window1-Mpt3V1/ovd-723.forward.sql:572: NOTICE:  policy "job_file_export_scans_member_read" for relation "private.job_file_export_scans" does not exist, skipping

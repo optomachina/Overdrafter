@@ -1,0 +1,152 @@
+ plan  
+-------
+ 1..27
+(1 row)
+
+                                ok                                 
+-------------------------------------------------------------------
+ ok 1 - the exact manufacturing-quote service-detail helper exists
+(1 row)
+
+                                     ok                                      
+-----------------------------------------------------------------------------
+ ok 2 - the helper retains its security-definer contract for guarded parents
+(1 row)
+
+                             ok                             
+------------------------------------------------------------
+ ok 3 - PUBLIC has no inherited execute grant on the helper
+(1 row)
+
+                         ok                         
+----------------------------------------------------
+ ok 4 - anonymous callers cannot execute the helper
+(1 row)
+
+                                         ok                                          
+-------------------------------------------------------------------------------------
+ ok 5 - authenticated callers cannot execute the helper, including for their own job
+(1 row)
+
+                             ok                             
+------------------------------------------------------------
+ ok 6 - service-role internal callers retain execute access
+(1 row)
+
+                                      ok                                       
+-------------------------------------------------------------------------------
+ ok 7 - the function owner retains execute access for security-definer parents
+(1 row)
+
+                                ok                                
+------------------------------------------------------------------
+ ok 8 - authenticated callers retain the guarded manual quote API
+(1 row)
+
+                                      ok                                       
+-------------------------------------------------------------------------------
+ ok 9 - the guarded manual quote API executes its internal helper as its owner
+(1 row)
+
+                                        ok                                         
+-----------------------------------------------------------------------------------
+ ok 10 - the manual quote parent owner retains execute access to the detail helper
+(1 row)
+
+                            throws_ok                            
+-----------------------------------------------------------------
+ ok 11 - anonymous direct call cannot read arbitrary job details
+(1 row)
+
+              set_config              
+--------------------------------------
+ 00000000-0000-4000-8000-000000005341
+(1 row)
+
+                             throws_ok                             
+-------------------------------------------------------------------
+ ok 12 - authenticated direct call is denied even for an owned job
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 13 - authenticated direct call cannot read another organization job
+(1 row)
+
+                         throws_ok                         
+-----------------------------------------------------------
+ ok 14 - the guarded quote API still rejects a foreign job
+(1 row)
+
+                            is                            
+----------------------------------------------------------
+ ok 15 - denied direct calls created no service line item
+(1 row)
+
+                                        is                                        
+----------------------------------------------------------------------------------
+ ok 16 - service-role internal invocation still returns the existing detail shape
+(1 row)
+
+                                           ok                                            
+-----------------------------------------------------------------------------------------
+ ok 17 - the security-definer automatic parent owner can still execute the detail helper
+(1 row)
+
+                                                 ok                                                  
+-----------------------------------------------------------------------------------------------------
+ not ok 18 - the current guarded Xometry dispatch API retains the automatic parent call path        +
+ # Failed test 18: "the current guarded Xometry dispatch API retains the automatic parent call path"
+(1 row)
+
+                                        is                                         
+-----------------------------------------------------------------------------------
+ ok 19 - the automatic parent can still create a request through the detail helper
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 20 - the automatic parent preserves the helper payload shape
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 21 - the automatic parent reached its one-lane queue path before rollback
+(1 row)
+
+                                      is                                      
+------------------------------------------------------------------------------
+ ok 22 - the automatic request fixture leaves no quote request after rollback
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 23 - the automatic request fixture leaves no queued task after rollback
+(1 row)
+
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 24 - an authorized user can still create a manual quote through its guarded API
+(1 row)
+
+                                     is                                      
+-----------------------------------------------------------------------------
+ ok 25 - the guarded path still persists the existing service-detail payload
+(1 row)
+
+                             is                              
+-------------------------------------------------------------
+ ok 26 - the guarded path persists exactly one quote request
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 27 - the foreign job remains unchanged
+(1 row)
+
+                finish                
+--------------------------------------
+ # Looks like you failed 1 test of 27
+(1 row)
+
+psql:/tmp/ovd635-window1-Mpt3V1/src-main/supabase/tests/job_service_detail_privileges.sql:3: NOTICE:  extension "pgtap" already exists, skipping

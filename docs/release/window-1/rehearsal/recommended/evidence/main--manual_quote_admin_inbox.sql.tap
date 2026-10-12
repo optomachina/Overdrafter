@@ -1,0 +1,408 @@
+ plan  
+-------
+ 1..66
+(1 row)
+
+                           is                            
+---------------------------------------------------------
+ ok 1 - an empty manual request defaults to eMachineShop
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 2 - an explicit manual vendor selection remains unchanged
+(1 row)
+
+                                          is                                          
+--------------------------------------------------------------------------------------
+ ok 3 - an omitted manual vendor list defaults to eMachineShop at the column boundary
+(1 row)
+
+                                    throws_ok                                    
+---------------------------------------------------------------------------------
+ ok 4 - manual requests cannot represent multiple outstanding vendor completions
+(1 row)
+
+                                       is                                       
+--------------------------------------------------------------------------------
+ ok 5 - an omitted automatic vendor list retains the historical Xometry default
+(1 row)
+
+                                    lives_ok                                     
+---------------------------------------------------------------------------------
+ ok 6 - completed automatic request scope is not subject to the manual invariant
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 7 - manual request audit evidence replaces a conflicting vendor payload
+(1 row)
+
+                  ok                  
+--------------------------------------
+ ok 8 - manual quote inbox RPC exists
+(1 row)
+
+                       ok                        
+-------------------------------------------------
+ ok 9 - exact manual quote completion RPC exists
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 10 - authenticated callers may invoke the guarded inbox RPC
+(1 row)
+
+                            ok                            
+----------------------------------------------------------
+ ok 11 - anonymous callers cannot invoke exact completion
+(1 row)
+
+                                     ok                                      
+-----------------------------------------------------------------------------
+ ok 12 - legacy same-organization manual intake authorization remains intact
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                               throws_ok                               
+-----------------------------------------------------------------------
+ ok 13 - order admins cannot read the billing-admin manual quote inbox
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 14 - billing admins may read a bounded inbox page at AAL1
+(1 row)
+
+                    is                     
+-------------------------------------------
+ ok 15 - the inbox is ordered oldest-first
+(1 row)
+
+                            ok                             
+-----------------------------------------------------------
+ ok 16 - a full page returns an opaque continuation cursor
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 17 - the opaque cursor advances without duplicating the first page
+(1 row)
+
+                             is                              
+-------------------------------------------------------------
+ ok 18 - the second page returns the remaining exact request
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 19 - inbox items expose the exact linked quote run
+(1 row)
+
+                                         is                                          
+-------------------------------------------------------------------------------------
+ ok 20 - active requests with inconsistent linked lifecycles are explicit stale rows
+(1 row)
+
+                               is                               
+----------------------------------------------------------------
+ ok 21 - inbox items expose the exact project navigation target
+(1 row)
+
+                  throws_ok                  
+---------------------------------------------
+ ok 22 - malformed inbox cursors fail closed
+(1 row)
+
+                             throws_ok                             
+-------------------------------------------------------------------
+ ok 23 - AAL1 billing admins cannot complete manual quote requests
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                              throws_ok                               
+----------------------------------------------------------------------
+ ok 24 - completion rejects a vendor outside the manual request scope
+(1 row)
+
+                       throws_ok                       
+-------------------------------------------------------
+ ok 25 - completion rejects a run from another request
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 26 - billing admins cannot upload evidence beneath an arbitrary job
+(1 row)
+
+                                       throws_ok                                       
+---------------------------------------------------------------------------------------
+ ok 27 - billing admins cannot upload evidence with mismatched request and run lineage
+(1 row)
+
+                                 throws_ok                                  
+----------------------------------------------------------------------------
+ ok 28 - billing admins cannot upload evidence for a stale or completed run
+(1 row)
+
+                                      lives_ok                                       
+-------------------------------------------------------------------------------------
+ ok 29 - AAL2 billing admins can upload evidence for one exact active manual lineage
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                 throws_ok                                  
+----------------------------------------------------------------------------
+ ok 30 - AAL1 billing admins cannot upload exact manual completion evidence
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 31 - a non-summary offer with invalid pricing rejects before writes
+(1 row)
+
+                     throws_ok                     
+---------------------------------------------------
+ ok 32 - duplicate offer keys reject before writes
+(1 row)
+
+                       throws_ok                       
+-------------------------------------------------------
+ ok 33 - duplicate evidence paths reject before writes
+(1 row)
+
+                       throws_ok                       
+-------------------------------------------------------
+ ok 34 - traversal evidence paths reject before writes
+(1 row)
+
+                                  ok                                   
+-----------------------------------------------------------------------
+ ok 35 - billing-admin storage access rejects traversal evidence paths
+(1 row)
+
+                              is                              
+--------------------------------------------------------------
+ ok 36 - invalid multi-offer attempts create no vendor result
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 37 - invalid multi-offer attempts leave the request lifecycle unchanged
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                is                                 
+-------------------------------------------------------------------
+ ok 38 - AAL2 billing admins can complete one exact active request
+(1 row)
+
+                           is                           
+--------------------------------------------------------
+ ok 39 - completion moves the exact request to received
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 40 - completion moves the exact quote run to completed
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 41 - completion moves the exact job to internal review
+(1 row)
+
+                                   is                                   
+------------------------------------------------------------------------
+ ok 42 - completion records one vendor result on the exact run and part
+(1 row)
+
+                         throws_ok                          
+------------------------------------------------------------
+ ok 43 - completed manual request vendor scope is immutable
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 44 - completion attaches validated evidence to the exact result
+(1 row)
+
+                                  ok                                  
+----------------------------------------------------------------------
+ ok 45 - completion writes a safe append-only commercial audit record
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                              is                               
+---------------------------------------------------------------
+ ok 46 - an exact retry returns the original completion result
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 47 - an exact retry creates no duplicate commercial audit event
+(1 row)
+
+                           throws_ok                           
+---------------------------------------------------------------
+ ok 48 - idempotency-key reuse with changed intent is rejected
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                              throws_ok                              
+---------------------------------------------------------------------
+ ok 49 - canceled requests fail as an explicit stale lifecycle state
+(1 row)
+
+                         ok                          
+-----------------------------------------------------
+ ok 50 - billing-admin evidence uploads require AAL2
+(1 row)
+
+                               ok                               
+----------------------------------------------------------------
+ ok 51 - billing admins can read only registered quote evidence
+(1 row)
+
+                                    ok                                    
+--------------------------------------------------------------------------
+ ok 52 - billing-admin cleanup uses the narrow unregistered-upload helper
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                          ok                                          
+--------------------------------------------------------------------------------------
+ ok 53 - registered manual quote evidence is never eligible for failed-upload cleanup
+(1 row)
+
+                                       ok                                        
+---------------------------------------------------------------------------------
+ ok 54 - an AAL2 billing admin may clean up their own recent unregistered upload
+(1 row)
+
+                                ok                                
+------------------------------------------------------------------
+ ok 55 - billing admins cannot clean up another uploader owner id
+(1 row)
+
+                                    ok                                    
+--------------------------------------------------------------------------
+ ok 56 - expired unregistered uploads are not eligible for client cleanup
+(1 row)
+
+                              ok                               
+---------------------------------------------------------------
+ ok 57 - future-dated uploads cannot extend the cleanup window
+(1 row)
+
+                                ok                                
+------------------------------------------------------------------
+ ok 58 - cleanup never applies outside the quote-artifacts bucket
+(1 row)
+
+                                   ok                                   
+------------------------------------------------------------------------
+ ok 59 - malformed manual completion paths are not eligible for cleanup
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                             ok                             
+------------------------------------------------------------
+ ok 60 - AAL1 billing admins cannot clean up failed uploads
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                  ok                                  
+----------------------------------------------------------------------
+ ok 61 - non-billing commercial admins cannot clean up failed uploads
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                           ok                                           
+----------------------------------------------------------------------------------------
+ ok 62 - billing admins can read evidence registered to an exact manual request lineage
+(1 row)
+
+                              throws_ok                               
+----------------------------------------------------------------------
+ not ok 63 - a registered evidence delete attempt is rejected        +
+ # Failed test 63: "a registered evidence delete attempt is rejected"+
+ #       caught: no exception                                        +
+ #       wanted: 42501
+(1 row)
+
+                                    ok                                    
+--------------------------------------------------------------------------
+ ok 64 - registered evidence remains after a billing-admin delete attempt
+(1 row)
+
+                                       ok                                       
+--------------------------------------------------------------------------------
+ ok 65 - legacy same-organization manual quote cleanup policy remains unchanged
+(1 row)
+
+ ovd262_test_set_claims 
+------------------------
+ 
+(1 row)
+
+                                  throws_ok                                   
+------------------------------------------------------------------------------
+ ok 66 - completed or stale manual lineages remain ineligible for new uploads
+(1 row)
+
+                finish                
+--------------------------------------
+ # Looks like you failed 1 test of 66
+(1 row)
+

@@ -1,0 +1,396 @@
+ ovd628_cleanup_admission_fixture 
+----------------------------------
+ 
+(1 row)
+
+ plan  
+-------
+ 1..77
+(1 row)
+
+                                     set_config                                     
+------------------------------------------------------------------------------------
+ {"sub":"00000000-0000-4000-8628-000000000001","role":"authenticated","aal":"aal1"}
+(1 row)
+
+              set_config              
+--------------------------------------
+ 00000000-0000-4000-8628-000000000001
+(1 row)
+
+  set_config   
+---------------
+ authenticated
+(1 row)
+
+                                     ok                                      
+-----------------------------------------------------------------------------
+ ok 1 - the generic scope row-lock helper is not executable by public
+ ok 2 - the generic scope row-lock helper is not executable by anon
+ ok 3 - the generic scope row-lock helper is not executable by authenticated
+ ok 4 - the generic scope row-lock helper is not executable by service_role
+(4 rows)
+
+                                    ok                                    
+--------------------------------------------------------------------------
+ ok 5 - the helper is a security definer pinned to search_path=pg_catalog
+(1 row)
+
+                                                                         ok                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ not ok 6 - a fresh generic request locks its scope rows after the approval lock and replay block, before the resolver; a replay takes none        +
+ # Failed test 6: "a fresh generic request locks its scope rows after the approval lock and replay block, before the resolver; a replay takes none"
+(1 row)
+
+                                         ok                                          
+-------------------------------------------------------------------------------------
+ ok 7 - the generic resolver keeps its definer and search_path and takes no row lock
+(1 row)
+
+                                  ok                                   
+-----------------------------------------------------------------------
+ ok 8 - the generic request keeps its authenticated-only execute grant
+(1 row)
+
+ ovd628_edit_first 
+-------------------
+ 
+ 
+ 
+ 
+ 
+(5 rows)
+
+                                                                                               diag                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ # R1 F1: request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} fresh={"error": "provider_dispatch_special_requirements_not_supported", "sqlstate": "P0001"}
+ # R1 F2: request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} fresh={"error": "provider_dispatch_provider_applicability_required", "sqlstate": "P0001"}
+ # R1 F3: request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} fresh={"error": "provider_dispatch_manufacturing_quote_only", "sqlstate": "P0001"}
+ # R1 F4: request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} fresh={"error": "provider_dispatch_drawing_not_admitted", "sqlstate": "P0001"}
+ # R1 F5: request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} fresh={"error": "provider_dispatch_trusted_cad_required", "sqlstate": "P0001"}
+(5 rows)
+
+                                                           is                                                            
+-------------------------------------------------------------------------------------------------------------------------
+ ok 9 - R1 F1: the request returns while the requested_by_date edit is uncommitted, never a Lock waiter
+ ok 10 - R1 F2: the request returns while the applicable_vendors without fictiv edit is uncommitted, never a Lock waiter
+ ok 11 - R1 F3: the request returns while the requested_service_kinds edit is uncommitted, never a Lock waiter
+ ok 12 - R1 F4: the request returns while the drawing file_kind edit is uncommitted, never a Lock waiter
+ ok 13 - R1 F5: the request returns while the CAD file job ownership edit is uncommitted, never a Lock waiter
+(5 rows)
+
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 14 - R1 F1: the request fails immediately with P0001 provider_dispatch_job_busy
+ ok 15 - R1 F2: the request fails immediately with P0001 provider_dispatch_job_busy
+ ok 16 - R1 F3: the request fails immediately with P0001 provider_dispatch_job_busy
+ ok 17 - R1 F4: the request fails immediately with P0001 provider_dispatch_job_busy
+ ok 18 - R1 F5: the request fails immediately with P0001 provider_dispatch_job_busy
+(5 rows)
+
+                                          ok                                          
+--------------------------------------------------------------------------------------
+ ok 19 - R1 F1: the refused requests leave no permit, quote request or work queue row
+ ok 20 - R1 F2: the refused requests leave no permit, quote request or work queue row
+ ok 21 - R1 F3: the refused requests leave no permit, quote request or work queue row
+ ok 22 - R1 F4: the refused requests leave no permit, quote request or work queue row
+ ok 23 - R1 F5: the refused requests leave no permit, quote request or work queue row
+(5 rows)
+
+                                                                          is                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ ok 24 - R1 F1: after the requested_by_date edit commits a fresh request fails with provider_dispatch_special_requirements_not_supported
+ ok 25 - R1 F2: after the applicable_vendors without fictiv edit commits a fresh request fails with provider_dispatch_provider_applicability_required
+ ok 26 - R1 F3: after the requested_service_kinds edit commits a fresh request fails with provider_dispatch_manufacturing_quote_only
+ ok 27 - R1 F4: after the drawing file_kind edit commits a fresh request fails with provider_dispatch_drawing_not_admitted
+ ok 28 - R1 F5: after the CAD file job ownership edit commits a fresh request fails with provider_dispatch_trusted_cad_required
+(5 rows)
+
+ ovd628_request_first 
+----------------------
+ 
+ 
+ 
+ 
+ 
+(5 rows)
+
+                                           diag                                           
+------------------------------------------------------------------------------------------
+ # R2 F1: request_waited=true editor_waited=true created=true error=none edit={"rows": 1}
+ # R2 F2: request_waited=true editor_waited=true created=true error=none edit={"rows": 1}
+ # R2 F3: request_waited=true editor_waited=true created=true error=none edit={"rows": 1}
+ # R2 F4: request_waited=true editor_waited=true created=true error=none edit={"rows": 1}
+ # R2 F5: request_waited=true editor_waited=true created=true error=none edit={"rows": 1}
+(5 rows)
+
+                                   ok                                    
+-------------------------------------------------------------------------
+ ok 29 - R2 F1: the request is parked on the driver's founding-beta lock
+ ok 30 - R2 F2: the request is parked on the driver's founding-beta lock
+ ok 31 - R2 F3: the request is parked on the driver's founding-beta lock
+ ok 32 - R2 F4: the request is parked on the driver's founding-beta lock
+ ok 33 - R2 F5: the request is parked on the driver's founding-beta lock
+(5 rows)
+
+                                                    ok                                                     
+-----------------------------------------------------------------------------------------------------------
+ ok 34 - R2 F1: the requested_by_date UPDATE is a Lock waiter blocked by the request's pid
+ ok 35 - R2 F2: the applicable_vendors without fictiv UPDATE is a Lock waiter blocked by the request's pid
+ ok 36 - R2 F3: the requested_service_kinds UPDATE is a Lock waiter blocked by the request's pid
+ ok 37 - R2 F4: the drawing file_kind UPDATE is a Lock waiter blocked by the request's pid
+ ok 38 - R2 F5: the CAD file job ownership UPDATE is a Lock waiter blocked by the request's pid
+(5 rows)
+
+                               ok                                
+-----------------------------------------------------------------
+ ok 39 - R2 F1: the request is accepted and creates its dispatch
+ ok 40 - R2 F2: the request is accepted and creates its dispatch
+ ok 41 - R2 F3: the request is accepted and creates its dispatch
+ ok 42 - R2 F4: the request is accepted and creates its dispatch
+ ok 43 - R2 F5: the request is accepted and creates its dispatch
+(5 rows)
+
+                                                              ok                                                              
+------------------------------------------------------------------------------------------------------------------------------
+ ok 44 - R2 F1: the lane and permit bind the pre-edit scope and the requested_by_date edit commits afterwards
+ ok 45 - R2 F2: the lane and permit bind the pre-edit scope and the applicable_vendors without fictiv edit commits afterwards
+ ok 46 - R2 F3: the lane and permit bind the pre-edit scope and the requested_service_kinds edit commits afterwards
+ ok 47 - R2 F4: the lane and permit bind the pre-edit scope and the drawing file_kind edit commits afterwards
+ ok 48 - R2 F5: the lane and permit bind the pre-edit scope and the CAD file job ownership edit commits afterwards
+(5 rows)
+
+                                          diag                                           
+-----------------------------------------------------------------------------------------
+ # Preview: ce1a663cc7dfed4cd442b3c9a60bbef99ff5846ab64b987c5541a180ab158ebb {"rows": 1}
+(1 row)
+
+                                                      ok                                                      
+--------------------------------------------------------------------------------------------------------------
+ ok 49 - Preview: an open transaction that only previewed the generic scope does not block a requirement edit
+(1 row)
+
+ ovd628_reversed_writer_race 
+-----------------------------
+ 
+(1 row)
+
+ ovd628_reversed_writer_race 
+-----------------------------
+ 
+(1 row)
+
+                                                                                     diag                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ # R3: writer_parked=true request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} writer={"registered": true}
+ # R4: writer_parked=true request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} writer={"jobId": "00000000-0000-4000-8628-100000000016"}
+(2 rows)
+
+                                                           ok                                                           
+------------------------------------------------------------------------------------------------------------------------
+ ok 50 - R3: the worker's trusted-hash call holds the CAD job_files row and is a Lock waiter on the driver's part share
+(1 row)
+
+                                              is                                              
+----------------------------------------------------------------------------------------------
+ ok 51 - R3: the request returns provider_dispatch_job_busy without a Lock wait on the worker
+(1 row)
+
+                                       ok                                        
+---------------------------------------------------------------------------------
+ ok 52 - R3: the worker finishes after the driver commits and no side sees 40P01
+(1 row)
+
+                                        ok                                         
+-----------------------------------------------------------------------------------
+ ok 53 - R3: the refused request leaves no permit, quote request or work queue row
+(1 row)
+
+                                                   ok                                                   
+--------------------------------------------------------------------------------------------------------
+ ok 54 - R4: the client reset holds the requirement row and is a Lock waiter on the driver's part share
+(1 row)
+
+                                                 is                                                 
+----------------------------------------------------------------------------------------------------
+ ok 55 - R4: the request returns provider_dispatch_job_busy without a Lock wait on the client reset
+(1 row)
+
+                                                             ok                                                             
+----------------------------------------------------------------------------------------------------------------------------
+ ok 56 - R4: the client reset commits after the driver commits and no side sees 40P01 (the client edit is never the victim)
+(1 row)
+
+                                        ok                                         
+-----------------------------------------------------------------------------------
+ ok 57 - R4: the refused request leaves no permit, quote request or work queue row
+(1 row)
+
+ ovd628_parked_request_race 
+----------------------------
+ 
+(1 row)
+
+ ovd628_parked_request_race 
+----------------------------
+ 
+(1 row)
+
+ ovd628_parked_request_race 
+----------------------------
+ 
+(1 row)
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          diag                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ # R5a: request_parked=true writer_waited=true request={"error": "provider_dispatch_new_lane_required", "sqlstate": "P0001"} writer={"failures": [], "deletedJobIds": ["00000000-0000-4000-8628-100000000021"]}
+ # R6: request_parked=true writer_waited=true request={"jobId": "00000000-0000-4000-8628-100000000017", "reason": null, "status": "queued", "created": true, "accepted": true, "permitId": "9cf3fb97-924e-4c7d-af43-04856c0e4db7", "provider": "fictiv", "expiresAt": "2026-10-12T03:46:04.931Z", "quoteRunId": "ffa6541c-2f1a-41c9-a2af-1539d62b6c8d", "reasonCode": null, "deduplicated": false, "quoteRequestId": "fb45e734-ea6d-4607-b4f8-9455f1eb6890", "laneEligibility": [{"state": "requestable", "partId": "00000000-0000-4000-8628-400000000017", "vendor": "fictiv", "retryAt": null, "validUntil": null, "currentOfferId": null, "requestedQuantity": 1}], "envelopeRevision": "fictiv-ovd628-race-envelope.v1", "requestedVendors": ["fictiv"], "scopeFingerprint": "26857174698840e13cb32b269c42827477c64cbae89905e6f4b62e9595037156", "declaredModelUnits": "inch", "serviceRequestLineItemId": "bd2ae598-c720-492f-99ff-8f811f1013c6"} writer={"jobId": "00000000-0000-4000-8628-100000000017", "reason": "Quote request canceled.", "status": "canceled", "accepted": true, "canceled": true, "quoteRunId": "d589f651-87f6-4a39-aa46-625647ab9ec5", "reasonCode": "canceled", "quoteRequestId": "a4958a13-01d9-4aac-b504-fa22ac6873e2"}
+ # R7: request_parked=true writer_waited=true request={"jobId": "00000000-0000-4000-8628-100000000020", "reason": null, "status": "queued", "created": true, "accepted": true, "permitId": "4255c555-6627-405a-8907-be61002e6eb8", "provider": "fictiv", "expiresAt": "2026-10-12T03:46:05.035Z", "quoteRunId": "7c4f383e-e7af-4d4d-b32e-710a083f9129", "reasonCode": null, "deduplicated": false, "quoteRequestId": "f2e2b21b-ddba-4377-b682-7b74069d6da9", "laneEligibility": [{"state": "requestable", "partId": "00000000-0000-4000-8628-400000000020", "vendor": "fictiv", "retryAt": null, "validUntil": null, "currentOfferId": null, "requestedQuantity": 1}], "envelopeRevision": "fictiv-ovd628-race-envelope.v1", "requestedVendors": ["fictiv"], "scopeFingerprint": "afa7e6b8fc734700d06d5daca9c9f90eff3196e4cc31e81536986a00bd6f21c1", "declaredModelUnits": "inch", "serviceRequestLineItemId": "d2d55815-2843-4fc0-82b0-b47ff5516c24"} writer={"deleted": "00000000-0000-4000-8628-600000000020"}
+(3 rows)
+
+                                                          ok                                                          
+----------------------------------------------------------------------------------------------------------------------
+ ok 58 - R5a: the request is parked after its locks and the client archived-job delete is a Lock waiter blocked by it
+(1 row)
+
+                                               is                                                
+-------------------------------------------------------------------------------------------------
+ ok 59 - R5a: the request on the archived job is refused by the quote impl, not by 40P01 or busy
+(1 row)
+
+                                           ok                                           
+----------------------------------------------------------------------------------------
+ ok 60 - R5a: the client archived-job delete then commits and is never the 40P01 victim
+(1 row)
+
+                                                             ok                                                              
+-----------------------------------------------------------------------------------------------------------------------------
+ ok 61 - R6: the request is parked after its locks and the client cancel of the older request is a Lock waiter blocked by it
+(1 row)
+
+                                 ok                                  
+---------------------------------------------------------------------
+ ok 62 - R6: the request creates its dispatch and does not see 40P01
+(1 row)
+
+                                    ok                                    
+--------------------------------------------------------------------------
+ ok 63 - R6: the client cancel then commits and is never the 40P01 victim
+(1 row)
+
+                                                       ok                                                       
+----------------------------------------------------------------------------------------------------------------
+ ok 64 - R7: the request is parked after its locks and the client project delete is a Lock waiter blocked by it
+(1 row)
+
+                                 ok                                  
+---------------------------------------------------------------------
+ ok 65 - R7: the request creates its dispatch and does not see 40P01
+(1 row)
+
+                                        ok                                        
+----------------------------------------------------------------------------------
+ ok 66 - R7: the client project delete then commits and is never the 40P01 victim
+(1 row)
+
+ ovd628_held_row_race 
+----------------------
+ 
+(1 row)
+
+ ovd628_held_row_race 
+----------------------
+ 
+(1 row)
+
+                                                                                         diag                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ # R5b: holder={"failures": [], "deletedJobIds": ["00000000-0000-4000-8628-100000000022"]} request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"}
+ # job-share: holder={"held": 1} request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"}
+(2 rows)
+
+                                                   is                                                   
+--------------------------------------------------------------------------------------------------------
+ ok 67 - R5b: while the client archived-job delete is open the request returns busy without a Lock wait
+(1 row)
+
+                                       ok                                        
+---------------------------------------------------------------------------------
+ ok 68 - R5b: the client archived-job delete commits and neither side sees 40P01
+(1 row)
+
+                                                is                                                 
+---------------------------------------------------------------------------------------------------
+ ok 69 - Job row: a fresh request fails busy at once while another session holds the job FOR SHARE
+(1 row)
+
+                                           ok                                           
+----------------------------------------------------------------------------------------
+ ok 70 - Job row: the refused request leaves no permit, quote request or work queue row
+(1 row)
+
+ ovd628_replay_while_busy 
+--------------------------
+ 
+(1 row)
+
+                                                                                                                                                                                                                                                                                                      diag                                                                                                                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ # Replay: first_created=true worker={"registered": true} replay_state=finished replay={"status": "queued", "created": false, "accepted": true, "permitId": "24ea2953-0871-4716-8b0d-44e805d14e18", "provider": "fictiv", "quoteRunId": "b095f788-195c-42bf-beae-841aa2926512", "deduplicated": true, "quoteRequestId": "9f659e3b-3dbc-42f5-adfb-0bd76ebdc52f", "envelopeRevision": "fictiv-ovd628-race-envelope.v1", "scopeFingerprint": "fc67eda7273a8ca887c7b7b40182a6959c203da440cc4621a70ffdcb15f628e9"} fresh_state=finished fresh={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"} permits=1
+(1 row)
+
+                                                              ok                                                              
+------------------------------------------------------------------------------------------------------------------------------
+ ok 71 - Replay: the dispatch commits, then the worker's trusted-hash call holds the CAD and part rows in an open transaction
+(1 row)
+
+                                                     is                                                     
+------------------------------------------------------------------------------------------------------------
+ ok 72 - Replay: the exact replay returns the deduplicated result at once, never provider_dispatch_job_busy
+(1 row)
+
+                                         ok                                          
+-------------------------------------------------------------------------------------
+ ok 73 - Replay: every replay returns the original permit and only one permit exists
+(1 row)
+
+                                               is                                               
+------------------------------------------------------------------------------------------------
+ ok 74 - Replay: a fresh approval for the same job is busy while the CAD and part rows are held
+(1 row)
+
+ ovd628_held_row_race 
+----------------------
+ 
+(1 row)
+
+                                                            diag                                                             
+-----------------------------------------------------------------------------------------------------------------------------
+ # Line item: holder={"held": 1} request_state=finished request={"error": "provider_dispatch_job_busy", "sqlstate": "P0001"}
+(1 row)
+
+                               ok                                
+-----------------------------------------------------------------
+ ok 75 - No session in any race saw 40P01 or a statement timeout
+(1 row)
+
+                                                       is                                                        
+-----------------------------------------------------------------------------------------------------------------
+ ok 76 - Line item: a fresh request fails busy at once while another session holds the job's line item FOR SHARE
+(1 row)
+
+                                                           ok                                                            
+-------------------------------------------------------------------------------------------------------------------------
+ ok 77 - Line item: the held line item existed and the refused request leaves no permit, quote request or work queue row
+(1 row)
+
+ ovd628_cleanup_admission_fixture 
+----------------------------------
+ 
+(1 row)
+
+                finish                
+--------------------------------------
+ # Looks like you failed 1 test of 77
+(1 row)
+

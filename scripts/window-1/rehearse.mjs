@@ -132,7 +132,7 @@ class Rehearsal {
     }
     this.manifest.order = this.manifest.migrations.map((x) => x.id);
     this.out = resolve(ROOT, options.out);
-    this.logs = join(this.out, "logs");
+    this.logs = join(this.out, "evidence"); // "logs" directories are gitignored
   }
 
   git(args, { encoding = "utf8" } = {}) {
