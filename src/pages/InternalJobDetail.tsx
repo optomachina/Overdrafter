@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-
 import { AppShell } from "@/components/app/AppShell";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
+import { ExportControlJobStatusPanel } from "@/components/quotes/ExportControlJobStatusPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchManualQuoteOperatorAccess } from "@/features/quotes/api/manual-quote-admin-api";
 import { useAppSession } from "@/hooks/use-app-session";
@@ -305,6 +306,7 @@ const InternalJobDetail = () => {
             readiness={queryState.readinessQuery.data}
             writeActionsDisabled={fullyWriteActionsDisabled}
           />
+          <ExportControlJobStatusPanel jobId={jobId} canDeclare={false} />
           <InternalJobWorkerQueueCard tasks={queryState.job.workQueue} />
         </div>
       </section>

@@ -32,6 +32,7 @@ import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
+import { ExportControlJobStatusPanel } from "@/components/quotes/ExportControlJobStatusPanel";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
@@ -915,6 +916,8 @@ const ClientPart = () => {
               </ClientPartHeader>
 
               {partInformation}
+
+              <ExportControlJobStatusPanel jobId={jobId} canDeclare />
 
               <section
                 id="quote-information"
