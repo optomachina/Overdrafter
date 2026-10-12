@@ -1,18 +1,18 @@
 # Migration window 1: Blaine's run sheet
 
-Date: set by Blaine. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `e254d032` (148 migrations, the same `supabase/migrations` tree as `cc9a5fe8`; production ledger had the same 148 versions on Oct 12).
+Date: set by Blaine. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `5773decb` (149 migrations: the 148 that production had on Oct 12, plus `20261012212325_ovd462_provider_session_lease.sql`, applied as migration 1 on Oct 12 and recorded by #717).
 
 ## Status at packet time
 
 | Migration | PR @ pin | Rehearsal | Verdict |
 | --- | --- | --- | --- |
-| OVD-462 provider session lease | #675 @ `42d5cc61` | apply about 31 ms, pgTAP 128/128, 602 diff exact (0 flags), rollback refuses under a concurrent writer and otherwise restores the pin, reapply passes, no main suite regresses | **GO** (decision 1 below) |
+| OVD-462 provider session lease | #675 @ `42d5cc61` | **Applied Oct 12** as version `20261012212325` through the Supabase connector (no `db push`, no dump; Blaine approved). Stored bytes equal the file (sha256 `9a95f7e3…`); readbacks and the 602 diff exact; recorded by #717 (`5773decb`) | **DONE** |
 | OVD-723 export control, EXPAND | #677 @ `161329de` (placeholder) | apply about 58 ms, pgTAP 128/128, 602 diff exact, guarded rollback (keeps audit tables) and reapply pass, no main suite regresses with the 6 suites the PR updates | **GO** (decision 2 below) |
-| OVD-722 provider kill switch (expand only) | #676 @ `9b90e860` | apply about 31 ms, pgTAP 66/66, 602 diff exact, guarded rollback and reapply pass, no main suite regresses | **GO** |
+| OVD-722 provider kill switch (expand only) | #676 @ `a53e794b` | apply about 31 ms, pgTAP 66/66, 602 diff exact, guarded rollback and reapply pass, no main suite regresses | **GO** |
 | OVD-723 CONTRACT | #677 | `ovd-723-contract.sql`: the server side ITAR/EAR block | **window 2** (about Nov 9) |
 | OVD-725 Stripe catalog | #671 | `docs/migration-drafts/ovd-725-stripe-catalog.sql` (expand only) | **window 2** |
 
-Evidence: `rehearsal/ovd-462-only/summary.json` and `rehearsal/recommended/summary.json` (462, 723, 722: every gate passes). Findings: [review-722-723.md](review-722-723.md), [rehearsal/REPORT.md](rehearsal/REPORT.md). If a PR head moves, the packet is repinned and rehearsed again; a head that differs from this table is a no go. **723 is pinned at a placeholder** (`161329de`): its round 4 may still change `ovd-723.sql`, and the packet will be repinned once more before the window. The 722 SQL is final (`ovd-722.sql` is byte identical at `a8e0bfd7`, `8c3fc133` and `9b90e860`).
+Evidence: `rehearsal/recommended/summary.json` (723 then 722 on the post 462 base: every gate passes). `rehearsal/ovd-462-only/` is the rehearsal of migration 1 before it was applied, kept as a record. Findings: [review-722-723.md](review-722-723.md), [rehearsal/REPORT.md](rehearsal/REPORT.md). If a PR head moves, the packet is repinned and rehearsed again; a head that differs from this table is a no go. **723 is pinned at a placeholder** (`161329de`): its round 4 may still change `ovd-723.sql`, and the packet will be repinned once more before the window. The 722 SQL is final (`ovd-722.sql` is byte identical at `a8e0bfd7`, `8c3fc133`, `9b90e860` and `a53e794b`).
 
 ## Blaine decides before the window
 
@@ -24,7 +24,7 @@ Evidence: `rehearsal/ovd-462-only/summary.json` and `rehearsal/recommended/summa
 * This packet merged to `main` (it carries `scripts/window-1/`), Node 20, the Supabase CLI, Docker (for the local restore), and `psql` 17 or newer. **The hosted project runs PostgreSQL 17**, and the rehearsal must use the same major version: PostgreSQL 17 grants the new `MAINTAIN` table privilege, so an inventory taken on 16 differs from production on 56 relations. `rehearse.mjs` refuses any cluster whose major version differs from `manifest.json` (`postgresMajor: 17`); it needs PostgreSQL 17 server binaries and pgTAP (on macOS point `OVD_PG_BIN` at them). `restore-check.mjs` finds `psql` in the standard install locations (apt, Homebrew, libpq, Postgres.app); anywhere else, set `OVD_PSQL` to its absolute path.
 * `DB_URL`: Dashboard, **Connect > Session pooler**, copy the URI. In your shell only: `export DB_URL='postgresql://...'`. Never paste it anywhere else, never commit it.
 
-## Pre-window dry run (Oct 19 or 20, read only)
+## Pre-window dry run (the day before the window, read only)
 
 From a checkout of `main`:
 ```
@@ -35,6 +35,8 @@ psql "$DB_URL" -X -At -c "select rolsuper or rolbypassrls from pg_roles where ro
 Expected: `ovd602: no difference from the pin`, then `t`. Then run the full dump and restore check below once, end to end, and expect `restore check PASS`.
 
 **Oct 12 baseline.** The lead ran exactly the inventory and diff commands above, read only, against production with `scripts/window-1/ovd602-inventory.sql` at `46d07c03` (sha256 `33d63f00…`). Production matched the pin in every schema, all 290 functions, all 123 relations and all 132 policies, except that the then PostgreSQL 16 pin lacked `MAINTAIN` on 56 relations. The pin is now regenerated on PostgreSQL 17 (the 17 pin minus `MAINTAIN` equals the old pin byte for byte), so the same commands should print `ovd602: no difference from the pin`. If the diff tool prints "only one side grants MAINTAIN", the two inventories come from different major versions.
+
+**After migration 1.** The pin is now regenerated from `main` at `5773decb`, so it already contains OVD-462. Against the previous pin it adds exactly 6 functions and 2 tables, with 0 flags, which is the difference the lead measured on production at 21:30Z on Oct 12.
 
 On a mismatch: do not change anything. Send the diff output (it names objects and grants, never data). A drift between production and `main` must be explained before the window; a `restore check FAIL` means the backup path is not proven and the window does not start.
 
@@ -77,8 +79,11 @@ On a mismatch: do not change anything. Send the diff output (it names objects an
 * **Pass** means every readback and the 602 diff match. Then merge the promotion PR and only then cut the next branch.
 * **Fail** means any line differs. Run that migration's rollback from `/tmp`, close the promotion PR unmerged, stop the window, and send the output. Do not apply the next migration. Reconciling the ledger row is decided afterwards, not in the window.
 * Roll back strictly in reverse order of apply.
+* **Supabase connector path.** On Oct 12 the 722 apply through the Supabase connector timed out twice at 60 s with nothing applied (each time the ledger stayed at 149, with no new tables, no triggers and no active sessions). The likely cause is the connector's confirmation for destructive statements: 722 contains `drop trigger if exists` and 462 did not. So 722 and 723 run either with `supabase db push --db-url "$DB_URL"` by Blaine, or through the connector by an operator who can approve that prompt. **Never edit the SQL to get past it.**
 
 ## Migration 1: OVD-462
+
+**Done on Oct 12; skip it in the window.** Version `20261012212325` was applied through the Supabase connector with Blaine's approval (no `db push`, no dump); the stored bytes equal the file (sha256 `9a95f7e3…`), every readback below returned true, and the 602 diff matched `ovd-462.json` exactly. #717 recorded it on `main`. The steps below are what was run.
 
 **Promote** (an agent can prepare it; you label it `blaine-window`):
 ```
@@ -141,7 +146,7 @@ select (select count(*) from private.job_export_declarations)
 ```
 Expected: four `true`.
 
-**602 diff:** as above into `/tmp/w1-after-723.json`, `--expect docs/release/window-1/ovd602-expected/ovd-462+ovd-723.json` (cumulative from `/tmp/w1-before.json`; 6 flags, all deliberate `authenticated` grants).
+**602 diff:** as above into `/tmp/w1-after-723.json`, `--expect docs/release/window-1/ovd602-expected/ovd-723.json` (cumulative from `/tmp/w1-before.json`, which already includes 462; 11 definer functions, 5 tables, 5 policies; 6 flags, all deliberate `authenticated` grants).
 
 **Pass:** merge. **Fail:** `psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f /tmp/ovd-723.rollback.sql`, then stop. It refuses if the contract is applied and keeps the audit tables, including the backfilled rows. If the client or worker already shipped, roll them back first (they fail closed without these RPCs). Rehearsed: about 20 ms; only the 4 audit tables and their 4 read policies remain; reapply passes.
 
@@ -149,7 +154,7 @@ Expected: four `true`.
 
 Expand only: new tables, RPCs and a BEFORE INSERT trigger on both permit tables that refuses with `provider_kill_switch_engaged` only while a switch is engaged. No existing function changes.
 
-**Promote:** branch `window-1/ovd722` from `origin/main` after migration 2 merged; slug `ovd722_provider_kill_switch`; `git show 9b90e860:docs/migration-drafts/ovd-722.sql > "$F"`, sha256 `7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13`; rename the pending suite to `supabase/tests/ovd722_provider_kill_switch.sql`. #676 merges after this PR, then its worker ships (that worker refuses every live dispatch while the switch RPC is missing).
+**Promote:** branch `window-1/ovd722` from `origin/main` after migration 2 merged; slug `ovd722_provider_kill_switch`; `git show a53e794b:docs/migration-drafts/ovd-722.sql > "$F"`, sha256 `7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13`; rename the pending suite to `supabase/tests/ovd722_provider_kill_switch.sql`. #676 merges after this PR, then its worker ships (that worker refuses every live dispatch while the switch RPC is missing).
 
 **Apply:** dry run (one file), then `db push`.
 
@@ -161,7 +166,7 @@ from private.provider_kill_switches;
 ```
 Expected: two `true`.
 
-**602 diff:** into `/tmp/w1-after-722.json`, `--expect docs/release/window-1/ovd602-expected/ovd-462+ovd-723+ovd-722.json` (25 definer functions, 10 tables, 5 policies in total; no existing function changed; 9 flags, all deliberate).
+**602 diff:** into `/tmp/w1-after-722.json`, `--expect docs/release/window-1/ovd602-expected/ovd-723+ovd-722.json` (19 definer functions, 8 tables, 5 policies in total since `/tmp/w1-before.json`; no existing function changed; 9 flags, all deliberate).
 
 **Pass:** merge. **Fail:** export the audit table first, then roll back:
 ```
@@ -172,7 +177,7 @@ then stop. The rollback carries its own transaction, drops `private.provider_kil
 
 ## If 723 is skipped
 
-Apply 462 then 722 and use `--expect docs/release/window-1/ovd602-expected/ovd-462+ovd-722.json` for the 722 diff (checked in; 722 alone against `main` is `ovd-722.json`).
+Apply 722 alone and use `--expect docs/release/window-1/ovd602-expected/ovd-722.json` for its diff (checked in, relative to the post 462 pin; 8 functions, 3 tables, 3 flags).
 
 ## What the 602 inventory covers
 

@@ -1,8 +1,7 @@
-added functions (25):
+added functions (19):
   private.provider_kill_switch_engaged(public.vendor_name)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.provider_kill_switch_engaged(public.vendor_name)"}
   private.provider_kill_switch_engaged_text(text)  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.provider_kill_switch_engaged_text(text)"}
   private.provider_kill_switch_permit_guard()  {"definer":true,"execute":[],"search_path":"\"\"","signature":"private.provider_kill_switch_permit_guard()"}
-  public.acquire_provider_session_lease(text,text,text,text,text,uuid,integer,integer,integer)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.acquire_provider_session_lease(text,text,text,text,text,uuid,integer,integer,integer)"}
   public.api_admin_list_provider_kill_switches()  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_list_provider_kill_switches()"}
   public.api_admin_set_global_kill_switch(boolean,text,bigint)  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_set_global_kill_switch(boolean,text,bigint)"}
   public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)  {"definer":true,"execute":["authenticated"],"search_path":"\"\"","signature":"public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)"}
@@ -18,13 +17,8 @@ added functions (25):
   public.api_review_export_control_block(uuid,text,text)  {"definer":true,"execute":["authenticated","service_role"],"search_path":"\"\"","signature":"public.api_review_export_control_block(uuid,text,text)"}
   public.api_worker_cancel_provider_disabled_tasks()  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.api_worker_cancel_provider_disabled_tasks()"}
   public.api_worker_provider_kill_switch_state(public.vendor_name)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.api_worker_provider_kill_switch_state(public.vendor_name)"}
-  public.clear_provider_session_binding_block(text,text,text,bigint,text,text)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.clear_provider_session_binding_block(text,text,text,bigint,text,text)"}
   public.current_user_has_export_cleared_upload(text,text)  {"definer":true,"execute":["authenticated","service_role"],"search_path":"\"\"","signature":"public.current_user_has_export_cleared_upload(text,text)"}
-  public.release_provider_session_lease(text,text,text,text,text,uuid,bigint)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.release_provider_session_lease(text,text,text,text,text,uuid,bigint)"}
-  public.renew_provider_session_lease(text,text,text,text,text,uuid,bigint)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.renew_provider_session_lease(text,text,text,text,text,uuid,bigint)"}
-  public.report_provider_session_lease_outcome(text,text,text,text,text,uuid,bigint,text)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.report_provider_session_lease_outcome(text,text,text,text,text,uuid,bigint,text)"}
-  public.revoke_provider_session_binding(text,text,text,text,text,text)  {"definer":true,"execute":["service_role"],"search_path":"\"\"","signature":"public.revoke_provider_session_binding(text,text,text,text,text,text)"}
-added relations (10):
+added relations (8):
   private.export_cleared_upload_grants  {"force_rls":false,"grants":{},"kind":"r","name":"private.export_cleared_upload_grants","rls":true}
   private.export_control_events  {"force_rls":false,"grants":{},"kind":"r","name":"private.export_control_events","rls":true}
   private.job_export_declarations  {"force_rls":false,"grants":{},"kind":"r","name":"private.job_export_declarations","rls":true}
@@ -33,8 +27,6 @@ added relations (10):
   private.provider_global_kill_switch  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_global_kill_switch","rls":true}
   private.provider_kill_switch_audit  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_kill_switch_audit","rls":true}
   private.provider_kill_switches  {"force_rls":true,"grants":{},"kind":"r","name":"private.provider_kill_switches","rls":true}
-  public.provider_session_bindings  {"force_rls":true,"grants":{},"kind":"r","name":"public.provider_session_bindings","rls":true}
-  public.provider_session_leases  {"force_rls":true,"grants":{},"kind":"r","name":"public.provider_session_leases","rls":true}
 added policies (5):
   private.export_control_events export_control_events_member_read  {"check_md5":"d41d8cd98f00b204e9800998ecf8427e","cmd":"SELECT","name":"export_control_events_member_read","permissive":"PERMISSIVE","roles":["authenticated"],"table":"private.export_control_events","using_md5":"1a032f3d23e321c4f7a5c62409d62f17"}
   private.job_export_declarations job_export_declarations_member_read  {"check_md5":"d41d8cd98f00b204e9800998ecf8427e","cmd":"SELECT","name":"job_export_declarations_member_read","permissive":"PERMISSIVE","roles":["authenticated"],"table":"private.job_export_declarations","using_md5":"1a032f3d23e321c4f7a5c62409d62f17"}

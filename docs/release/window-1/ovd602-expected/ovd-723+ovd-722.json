@@ -4,11 +4,45 @@
     "functions": [
       {
         "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.provider_kill_switch_engaged(public.vendor_name)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.provider_kill_switch_engaged_text(text)"
+      },
+      {
+        "definer": true,
+        "execute": [],
+        "search_path": "\"\"",
+        "signature": "private.provider_kill_switch_permit_guard()"
+      },
+      {
+        "definer": true,
         "execute": [
-          "service_role"
+          "authenticated"
         ],
         "search_path": "\"\"",
-        "signature": "public.acquire_provider_session_lease(text,text,text,text,text,uuid,integer,integer,integer)"
+        "signature": "public.api_admin_list_provider_kill_switches()"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_admin_set_global_kill_switch(boolean,text,bigint)"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "authenticated"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)"
       },
       {
         "definer": true,
@@ -101,7 +135,15 @@
           "service_role"
         ],
         "search_path": "\"\"",
-        "signature": "public.clear_provider_session_binding_block(text,text,text,bigint,text,text)"
+        "signature": "public.api_worker_cancel_provider_disabled_tasks()"
+      },
+      {
+        "definer": true,
+        "execute": [
+          "service_role"
+        ],
+        "search_path": "\"\"",
+        "signature": "public.api_worker_provider_kill_switch_state(public.vendor_name)"
       },
       {
         "definer": true,
@@ -111,38 +153,6 @@
         ],
         "search_path": "\"\"",
         "signature": "public.current_user_has_export_cleared_upload(text,text)"
-      },
-      {
-        "definer": true,
-        "execute": [
-          "service_role"
-        ],
-        "search_path": "\"\"",
-        "signature": "public.release_provider_session_lease(text,text,text,text,text,uuid,bigint)"
-      },
-      {
-        "definer": true,
-        "execute": [
-          "service_role"
-        ],
-        "search_path": "\"\"",
-        "signature": "public.renew_provider_session_lease(text,text,text,text,text,uuid,bigint)"
-      },
-      {
-        "definer": true,
-        "execute": [
-          "service_role"
-        ],
-        "search_path": "\"\"",
-        "signature": "public.report_provider_session_lease_outcome(text,text,text,text,text,uuid,bigint,text)"
-      },
-      {
-        "definer": true,
-        "execute": [
-          "service_role"
-        ],
-        "search_path": "\"\"",
-        "signature": "public.revoke_provider_session_binding(text,text,text,text,text,text)"
       }
     ],
     "relations": [
@@ -185,14 +195,21 @@
         "force_rls": true,
         "grants": {},
         "kind": "r",
-        "name": "public.provider_session_bindings",
+        "name": "private.provider_global_kill_switch",
         "rls": true
       },
       {
         "force_rls": true,
         "grants": {},
         "kind": "r",
-        "name": "public.provider_session_leases",
+        "name": "private.provider_kill_switch_audit",
+        "rls": true
+      },
+      {
+        "force_rls": true,
+        "grants": {},
+        "kind": "r",
+        "name": "private.provider_kill_switches",
         "rls": true
       }
     ],
@@ -257,6 +274,9 @@
   "removed": {},
   "changed": {},
   "flags": [
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_list_provider_kill_switches()",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_global_kill_switch(boolean,text,bigint)",
+    "DEFINER_EXECUTABLE_BY authenticated added public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)",
     "DEFINER_EXECUTABLE_BY authenticated added public.api_declare_job_export_status(uuid,text,text,uuid)",
     "DEFINER_EXECUTABLE_BY authenticated added public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text,uuid)",
     "DEFINER_EXECUTABLE_BY authenticated added public.api_get_job_export_control_status(uuid)",

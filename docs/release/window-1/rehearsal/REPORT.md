@@ -17,45 +17,46 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `e254d032` (its `supabase/migrations` tree is identical to `cc9a5fe8`; since then `main` only added the pgTAP suites `client_rpc_least_privilege` and `founding_beta_subscription_bypass`, which now run in every main suite gate), #675 `42d5cc61`, #677 `161329de` (723 EXPAND, a placeholder: #677 round 4 may change `ovd-723.sql`, and the packet will be repinned once more), #676 `9b90e860` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `5773decb` (149 migrations: the 148 that production had on Oct 12 plus OVD-462, which was applied as migration 1 on Oct 12 and recorded by #717), #677 `161329de` (723 EXPAND, a placeholder: #677's later rounds change `ovd-723.sql`, and the packet will be repinned once more), #676 `a53e794b` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
-| Run | Order | Result | Time |
-| --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 152 s |
-| `recommended/` | 462, 723, 722 | **PASS, every gate** | 323 s |
+| Run | Base | Order | Result | Time |
+| --- | --- | --- | --- | --- |
+| `ovd-462-only/` (record of migration 1 before it was applied) | `e254d032` | 462 | **PASS, every gate** | 152 s |
+| `recommended/` | `5773decb` | 723, 722 | **PASS, every gate** | 242 s |
+| 722 alone (not kept; its expected diff is) | `5773decb` | 722 | **PASS, every gate** | 146 s |
 
 Per migration (recommended run; first apply / reapply):
 
 | | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 31/34 ms | 128/128 | 128/128 | ok 21 ms, inventory back to the pin exactly. **Concurrent writer check:** the rollback waited 3.0 s for an uncommitted acquire, then refused; the table and the active lease remain | ok; inventory identical; 128/128 |
-| OVD-723 EXPAND | ok, 58/38 ms | 128/128 | 128/128 | ok 20 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 128/128 |
-| OVD-722 (expand only) | ok, 31/25 ms | 66/66 | 66/66 | ok 33 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
+| OVD-462 | applied on production Oct 12 (`ovd-462-only/`: ok 31/34 ms, 128/128, rollback 21 ms; with a concurrent writer it waited 3.0 s, then refused) | | | | |
+| OVD-723 EXPAND | ok, 39/48 ms | 128/128 | 128/128 | ok 23 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 128/128 |
+| OVD-722 (expand only) | ok, 22/30 ms | 66/66 | 66/66 | ok 31 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
 
 Main suites: none regresses, gated both per step (against the suites' results just before that migration) and cumulatively. A main suite that a PR edits lands with its migration, so after each migration the runner uses that PR's version: #675 adds `provider_session_leases.sql`, #677 edits 6 suites (`job_service_detail_privileges` joined at `161329de`) (`free_confirmed_quote_access` is now the window 2 contract's seed patch), #676 edits none.
 
-Run sheet readbacks: the runner extracts every `sql` readback block from each migration section of the README and runs it on the rehearsed database. Every value must be `true` (462: 3, 723: 4, 722: 2). This gate caught a first draft of the 462 readback that compared `proconfig` to a one element array; the functions also set `lock_timeout`. At earlier heads 10 main suites failed; the workers fixed them (see the review status table).
+Run sheet readbacks: the runner extracts every `sql` readback block from each migration section of the README and runs it on the rehearsed database. Every value must be `true` (723: 4, 722: 2; 462 had 3 before it was applied). This gate caught a first draft of the 462 readback that compared `proconfig` to a one element array; the functions also set `lock_timeout`. At earlier heads 10 main suites failed; the workers fixed them (see the review status table).
 
 **One unrelated flake.** In one 462 only run at the earlier heads (two rehearsals were running at once), `provider_dispatch_preflight` #9 failed. That assertion checks that the response text contains no `7075`, and the response embeds random UUIDs and a hex fingerprint, so a random value can contain that substring. It is a test on `main`, not a 462 effect. The TAP is kept in `flake-evidence/provider_dispatch_preflight-assertion9.tap`; every later run on an idle host passed it. The test was not changed. Fix it on `main` separately.
 
 ## OVD-602 inventory
 
-`docs/release/window-1/ovd602-pin.main.json` pins `main`: 262 SECURITY DEFINER functions, all with a pinned `search_path`; 123 relations; 132 policies. 56 definer functions on `main` are executable by `anon` through PUBLIC (for example `api_create_project`, `api_admin_list_all_users`, `is_platform_admin`). They predate the window; the pin now makes any change to that list an explicit diff, and the hosted baseline step in the README checks production matches.
+`docs/release/window-1/ovd602-pin.main.json` pins `main` at `5773decb`: 268 SECURITY DEFINER functions, all with a pinned `search_path`; 125 relations; 132 policies. Against the previous pin (`e254d032`) it adds exactly OVD-462's 6 functions and 2 tables with 0 flags, the same difference the lead measured on production at 21:30Z on Oct 12. 56 definer functions on `main` are executable by `anon` through PUBLIC (for example `api_create_project`, `api_admin_list_all_users`, `is_platform_admin`). They predate the window; the pin makes any change to that list an explicit diff, and the hosted baseline step in the README checks production matches.
 
-Expected diffs (`ovd602-expected/`):
+Expected diffs (`ovd602-expected/`, relative to the post 462 pin unless noted):
 
-* **462 only:** 6 new SECURITY DEFINER functions, all `service_role` only, all `search_path=""`; 2 new tables with RLS enabled and forced, no policies, no grants. **0 flags.**
-* **462, 723:** 17 new functions, 7 tables, 5 policies, 6 flags (`ovd602-expected/ovd-462+ovd-723.json`).
-* **462, 722** (if 723 is skipped): 3 flags (`ovd-462+ovd-722.json`). **722 alone** against main: `ovd-722.json`.
+* **723:** 11 new functions, 5 tables, 5 policies, 6 flags (`ovd-723.json`).
+* **723, 722:** 19 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 8 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 9 flags, every one listed in `ovd-723+ovd-722.json`.
+* **722 alone** (if 723 is skipped): 8 functions, 3 tables, 3 flags (`ovd-722.json`; byte identical to its pre 462 version, so 722's diff does not depend on 462).
+* **462** (`ovd-462.json`, relative to the previous pin): the diff migration 1 was checked against on production; kept as a record.
 * **Not covered by the inventory:** column grants, default ACLs, schema CREATE, sequences, owners and triggers.
-* **462, 723, 722:** 25 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 10 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 9 flags, every one listed in the file.
 
 ## Reproduce
 
 ```
 npm ci
-node scripts/window-1/rehearse.mjs --order ovd-462 --out /tmp/r462   # about 2.5 minutes
-node scripts/window-1/rehearse.mjs --out /tmp/rall                     # recommended order, about 5 minutes
+node scripts/window-1/rehearse.mjs --order ovd-722 --out /tmp/r722   # 722 alone, about 2.5 minutes
+node scripts/window-1/rehearse.mjs --out /tmp/rall                     # recommended order (723, 722), about 4 minutes
 npx vitest run scripts/window-1/window1-packet.test.mjs # unit tests for the diff and runner helpers
 ```
 Needs local PostgreSQL server binaries (`/usr/lib/postgresql/<n>/bin` or `OVD_PG_BIN`) and pgTAP. As root it runs the server as the `postgres` OS user.

@@ -3,52 +3,21 @@
   "window": "Migration window 1 (date set by Blaine)",
   "base": {
     "ref": "origin/main",
-    "sha": "e254d032842523a59c53128a072611c1b7985079"
+    "sha": "5773decb29ef6c8638cfebdfe9323d60819db8b1"
   },
   "postgresMajor": 17,
   "pin": "docs/release/window-1/ovd602-pin.main.json",
   "expectedDiffDir": "docs/release/window-1/ovd602-expected",
   "recommendedOrder": [
-    "ovd-462",
     "ovd-723",
     "ovd-722"
   ],
   "migrations": [
     {
-      "id": "ovd-462",
-      "title": "Provider session lease (expand)",
-      "pr": 675,
-      "sha": "42d5cc61092d79bbf5e30fa2c8da371f9f6975aa",
-      "slug": "ovd462_provider_session_lease",
-      "draft": {
-        "path": "docs/migration-drafts/ovd-462.sql"
-      },
-      "rollback": {
-        "sha": "42d5cc61092d79bbf5e30fa2c8da371f9f6975aa",
-        "path": "docs/migration-drafts/ovd-462.rollback.sql",
-        "singleTransaction": true
-      },
-      "suites": [
-        {
-          "path": "supabase/tests/provider_session_leases.sql",
-          "phase": "window"
-        }
-      ],
-      "rollbackResidual": [],
-      "rollbackRace": {
-        "table": "public.provider_session_leases",
-        "writerSql": "select public.acquire_provider_session_lease('xometry', 'acct_' || md5('ovd635-race'), 'test', 'sb_' || md5('ovd635-race'), 'race-task', '63500000-0000-4000-8000-000000000001', 60, 2, 600);",
-        "holdSeconds": 3,
-        "expectError": "OVD-462 rollback refused: provider_session_leases has active or blocked occupants",
-        "verifySql": "select (to_regclass('public.provider_session_leases') is not null)::text || ':' || (select count(*) from public.provider_session_leases where state = 'active')",
-        "expectVerify": "true:1"
-      }
-    },
-    {
       "id": "ovd-722",
       "title": "Provider kill switch (expand only: tables, RPCs, permit insert triggers)",
       "pr": 676,
-      "sha": "9b90e8601556416082fa70d496b1d33374e62cea",
+      "sha": "a53e794b4d26b73b2213a937600bb0cead0d9824",
       "slug": "ovd722_provider_kill_switch",
       "draft": {
         "path": "docs/migration-drafts/ovd-722.sql"
@@ -119,6 +88,21 @@
       "window": 2,
       "draft": "docs/migration-drafts/ovd-725-stripe-catalog.sql",
       "notInWindow1": true
+    }
+  ],
+  "applied": [
+    {
+      "id": "ovd-462",
+      "title": "Provider session lease (expand)",
+      "pr": 675,
+      "sha": "42d5cc61092d79bbf5e30fa2c8da371f9f6975aa",
+      "version": "20261012212325",
+      "file": "supabase/migrations/20261012212325_ovd462_provider_session_lease.sql",
+      "sha256": "9a95f7e38063dd56d50101b1d87efd3e6d70e445c70576eaf0fc7e0b026bf360",
+      "appliedOn": "2026-10-12",
+      "method": "Supabase connector (no db push, no dump), approved by Blaine",
+      "recordedBy": "#717 (5773decb)",
+      "result": "stored bytes equal the file; readbacks and the OVD-602 diff exact"
     }
   ]
 }
