@@ -156,7 +156,7 @@ export async function resolveCleanExportControlAnswer(
     : options.exportControlAnswer;
   const evaluation = evaluateExportControlAnswer(answer);
 
-  if (!evaluation.allowed) {
+  if ("reasonCode" in evaluation) {
     throw new ExportControlUploadBlockedError(evaluation.reasonCode);
   }
 
