@@ -82,10 +82,11 @@ import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import {
-  enforceExportControlMarkings,
+  enforceAndRecordExportControlScan,
   isStepFileName,
   readStagedStepHeaderPrefix,
   scanDrawingTextForExportMarkings,
+  scanStagedDrawingForExportMarkings,
   scanStepHeaderForExportMarkings,
 } from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
@@ -570,13 +571,18 @@ async function runDrawingExtractionForTask(
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
     // OVD-723: a marking hit records a blocked_pending_review block and fails
-    // the task before any model call; a failed record also fails the task.
-    await enforceExportControlMarkings(supabase, {
-      jobId: task.job_id,
-      partId: task.part_id,
-      jobFileId: context.drawingFile?.id ?? null,
-      scan: scanDrawingTextForExportMarkings(pdfText),
-    });
+    // the task before any model call; a clean result records a clean scan,
+    // which dispatch requires. A failed record also fails the task.
+    if (context.drawingFile) {
+      await enforceAndRecordExportControlScan(supabase, {
+        jobId: task.job_id,
+        partId: task.part_id,
+        jobFileId: context.drawingFile.id,
+        source: "drawing_text",
+        scan: scanDrawingTextForExportMarkings(pdfText),
+        textRead: pdfText !== null,
+      });
+    }
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
     if (stagedDrawingFile && pdfText) {
@@ -691,7 +697,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     const identityStageDir = await createRunDir(config, ["identity", task.id]);
     runDir = identityStageDir;
     await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
-    await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
+    const identityStagedDrawing = await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
 
     const { data: trustedIntake, error: trustedIntakeError } = await supabase.rpc(
       "api_resolve_trusted_part_intake",
@@ -738,6 +744,18 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           throw new CanonicalArtifactsPendingError(sourcePartId);
         }
       } else {
+        // OVD-723: reuse skips extraction, so this part's own drawing has not
+        // been scanned in this job. Scan it here; a hit blocks this job, and
+        // without a clean scan dispatch is denied (export_scan_missing).
+        await scanStagedDrawingForExportMarkings(supabase, {
+          jobId: task.job_id!,
+          partId: task.part_id,
+          drawingFile:
+            identityContext.drawingFile && identityStagedDrawing
+              ? { id: identityContext.drawingFile.id, localPath: identityStagedDrawing.localPath }
+              : null,
+          extractText: extractPdfText,
+        });
         const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
@@ -1239,13 +1257,17 @@ export async function handleVendorQuoteTask(
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
-    // OVD-723: STEP header strings are scanned before any provider preflight.
-    if (stagedCadFile && isStepFileName(context.cadFile?.original_name)) {
-      await enforceExportControlMarkings(supabase, {
+    // OVD-723: STEP header strings are scanned before any provider preflight,
+    // on every quote (reused blobs included). A clean result is recorded; the
+    // preflight denies a STEP file without one.
+    if (stagedCadFile && context.cadFile && isStepFileName(context.cadFile.original_name)) {
+      await enforceAndRecordExportControlScan(supabase, {
         jobId: task.job_id,
         partId: context.part.id,
-        jobFileId: context.cadFile?.id ?? null,
+        jobFileId: context.cadFile.id,
+        source: "step_header",
         scan: scanStepHeaderForExportMarkings(await readStagedStepHeaderPrefix(stagedCadFile.localPath)),
+        textRead: true,
       });
     }
     const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(

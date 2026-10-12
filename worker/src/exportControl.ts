@@ -13,6 +13,10 @@ import type { VendorName } from "./types.js";
  *   STEP header strings, recorded through the service-role RPC
  *   `api_record_export_control_marking_hits`. A failed record is an error, so
  *   the task fails instead of continuing without a block;
+ * - clean scans, recorded through `api_record_export_control_clean_scan`.
+ *   Dispatch requires a clean scan of record for the part's own files, so a
+ *   path that skips extraction (trusted artifact reuse, org blob reuse) is
+ *   denied until the worker scans that part's files;
  * - the reason codes the preflights return, and a pure reference model of the
  *   dispatch rule that the SQL implements, used by tests to pin the rule.
  */
@@ -23,6 +27,7 @@ export const EXPORT_CONTROL_DENIAL_CODES = [
   "export_review_pending",
   "export_foreign_provider_requires_clean_declaration",
   "export_control_lookup_failed",
+  "export_scan_missing",
 ] as const;
 
 export type ExportControlDenialCode = (typeof EXPORT_CONTROL_DENIAL_CODES)[number];
@@ -88,6 +93,25 @@ export function evaluateExportControlDispatch(evidence: ExportControlDispatchEvi
   if (evidence.latestAnswer === null || evidence.latestAnswer === "missing") return "export_declaration_missing";
   if (evidence.latestAnswer !== "not_controlled") return "export_declaration_not_clean";
   if (evidence.markingBlocked !== false) return "export_review_pending";
+  return null;
+}
+
+export type ExportControlScanCoverage = {
+  /** Null when the part has no drawing. */
+  drawing: { scanned: boolean } | null;
+  /** Null when the part has no CAD file. */
+  cad: { originalName: string; scanned: boolean } | null;
+} | null;
+
+/**
+ * Reference model of `private.export_control_scan_denial`. The part's drawing
+ * and its STEP CAD file each need a clean scan of record in this job. A
+ * missing part is a denial. Other CAD formats have no scanner yet.
+ */
+export function evaluateExportControlScanCoverage(part: ExportControlScanCoverage): "export_scan_missing" | null {
+  if (!part) return "export_scan_missing";
+  if (part.drawing && part.drawing.scanned !== true) return "export_scan_missing";
+  if (part.cad && isStepFileName(part.cad.originalName) && part.cad.scanned !== true) return "export_scan_missing";
   return null;
 }
 
@@ -204,6 +228,13 @@ export class ExportControlMarkingRecordError extends Error {
   }
 }
 
+export class ExportControlScanRecordError extends Error {
+  constructor() {
+    super("Export-control clean scan could not be recorded; failing closed.");
+    this.name = "ExportControlScanRecordError";
+  }
+}
+
 /**
  * Records a marking hit as a `blocked_pending_review` block. Any RPC error or
  * malformed response throws, so the caller's task fails closed.
@@ -251,4 +282,82 @@ export async function enforceExportControlMarkings(
   if (!input.scan) return;
   await recordExportControlMarkings(supabase, { ...input, scan: input.scan });
   throw new ExportControlMarkingBlockedError(input.scan.source, input.scan.patterns);
+}
+
+/**
+ * Records a clean scan of one job file. Any RPC error or malformed response
+ * throws, so the task fails and dispatch stays denied (`export_scan_missing`).
+ */
+export async function recordExportControlCleanScan(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    jobFileId: string;
+    source: ExportControlMarkingSource;
+  },
+): Promise<string> {
+  let response: { data: unknown; error: unknown };
+  try {
+    response = await supabase.rpc("api_record_export_control_clean_scan", {
+      p_job_id: input.jobId,
+      p_part_id: input.partId,
+      p_job_file_id: input.jobFileId,
+      p_source: input.source,
+    });
+  } catch {
+    throw new ExportControlScanRecordError();
+  }
+  if (response.error || typeof response.data !== "string" || response.data.length === 0) {
+    throw new ExportControlScanRecordError();
+  }
+  return response.data;
+}
+
+/**
+ * Scans one file and records the result: a hit records a block and throws
+ * (`enforceExportControlMarkings`); a clean result records a clean scan. When
+ * the text could not be read (`text === null`), nothing is recorded, so the
+ * file has no clean scan and dispatch denies it.
+ */
+export async function enforceAndRecordExportControlScan(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    jobFileId: string;
+    source: ExportControlMarkingSource;
+    scan: ExportControlMarkingScan | null;
+    textRead: boolean;
+  },
+): Promise<void> {
+  await enforceExportControlMarkings(supabase, input);
+  if (!input.textRead) return;
+  await recordExportControlCleanScan(supabase, input);
+}
+
+/**
+ * Scans a part's staged drawing when extraction is skipped (trusted artifact
+ * reuse). Copied artifacts from another part are never treated as a scan of
+ * this part's file.
+ */
+export async function scanStagedDrawingForExportMarkings(
+  supabase: Pick<SupabaseClient, "rpc">,
+  input: {
+    jobId: string;
+    partId: string | null;
+    drawingFile: { id: string; localPath: string } | null;
+    extractText: (localPath: string) => Promise<{ pages: ReadonlyArray<{ text: string }> } | null>;
+  },
+): Promise<void> {
+  if (!input.drawingFile) return;
+  const pdfText = await input.extractText(input.drawingFile.localPath);
+  await enforceAndRecordExportControlScan(supabase, {
+    jobId: input.jobId,
+    partId: input.partId,
+    jobFileId: input.drawingFile.id,
+    source: "drawing_text",
+    scan: scanDrawingTextForExportMarkings(pdfText),
+    textRead: pdfText !== null,
+  });
 }

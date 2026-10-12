@@ -88,7 +88,9 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
     const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
-        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" } : null;
+        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" }
+          // OVD-723: the unmarked STEP header records a clean scan before dispatch.
+          : name === "api_record_export_control_clean_scan" ? "export-scan" : null;
     const result = Promise.resolve({ data, error: null });
     return Object.assign(result, { abortSignal: () => result });
   };
