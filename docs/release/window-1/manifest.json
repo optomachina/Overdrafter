@@ -3,7 +3,7 @@
   "window": "Migration window 1 (target Wed Oct 21, 2026)",
   "base": {
     "ref": "origin/main",
-    "sha": "57b2647c5bcc86ddfe4e5e9722a59101dd1dc1f2"
+    "sha": "b6a66c839c8043949b92626a308c19abe4033dab"
   },
   "pin": "docs/release/window-1/ovd602-pin.main.json",
   "expectedDiffDir": "docs/release/window-1/ovd602-expected",
@@ -17,13 +17,13 @@
       "id": "ovd-462",
       "title": "Provider session lease (expand)",
       "pr": 675,
-      "sha": "790466d14bea4dfc9f69f844b51a065c5b562d2d",
+      "sha": "42d5cc61092d79bbf5e30fa2c8da371f9f6975aa",
       "slug": "ovd462_provider_session_lease",
       "draft": {
         "path": "docs/migration-drafts/ovd-462.sql"
       },
       "rollback": {
-        "sha": "790466d14bea4dfc9f69f844b51a065c5b562d2d",
+        "sha": "42d5cc61092d79bbf5e30fa2c8da371f9f6975aa",
         "path": "docs/migration-drafts/ovd-462.rollback.sql",
         "singleTransaction": true
       },

@@ -15,20 +15,20 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `57b2647c` (its `supabase/` tree is identical to `3e27c254`), #675 `790466d1`, #677 `673fbe33`, #676 `f3ce78b3`. Earlier heads were rehearsed too; their numbers are superseded and only noted where they still matter.
+Heads: main `b6a66c83` (its `supabase/` tree is identical to `3e27c254`), #675 `42d5cc61`, #677 `673fbe33`, #676 `f3ce78b3`. Earlier heads were rehearsed too; their numbers are superseded and only noted where they still matter.
 
 | Run | Order | Result | Time |
 | --- | --- | --- | --- |
-| `ovd-462-only/` | 462 | **PASS, every gate** | 140 s |
-| `recommended/` | 462, 723, 722 | FAIL: 10 main suites regress (below) | 324 s |
+| `ovd-462-only/` | 462 | **PASS, every gate** | 148 s |
+| `recommended/` | 462, 723, 722 | FAIL: 10 main suites regress (below) | 339 s |
 
 Per migration (recommended run; first apply / reapply):
 
 | | Apply | Own pgTAP after apply | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
-| OVD-462 | ok, 26/22 ms | 122/122 | 122/122 | ok 17 ms, inventory back to the pin exactly; **concurrent writer check: the rollback waited 2.9 s for an uncommitted acquire, then refused, and the table and the active lease remain** | ok; inventory identical to first apply; 122/122 |
-| OVD-723 (one migration) | ok, 30/26 ms | 91/91 | 91/91 | ok 17 ms with `rollback/ovd-723.rollback.sql`; only the 4 audit tables and their 4 read policies remain, as intended | ok; 91/91 |
-| OVD-722 | ok, 28/22 ms | 53/53 | 53/53 | ok 16 ms with the packet rollback, which byte matches the draft's commented section | ok; 53/53 |
+| OVD-462 | ok, 25/22 ms | 128/128 | 128/128 | ok 25 ms, inventory back to the pin exactly; **concurrent writer check: the rollback waited 3.0 s for an uncommitted acquire, then refused, and the table and the active lease remain** | ok; inventory identical to first apply; 128/128 |
+| OVD-723 (one migration) | ok, 39/31 ms | 91/91 | 91/91 | ok 17 ms with `rollback/ovd-723.rollback.sql`; only the 4 audit tables and their 4 read policies remain, as intended | ok; 91/91 |
+| OVD-722 | ok, 20/25 ms | 53/53 | 53/53 | ok 18 ms with the packet rollback, which byte matches the draft's commented section | ok; 53/53 |
 
 Main suites that pass on the baseline and fail after a draft (cumulative):
 

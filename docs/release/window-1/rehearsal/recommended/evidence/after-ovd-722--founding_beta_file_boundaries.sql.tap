@@ -93,5 +93,5 @@
  #       wanted: P0001: A valid SHA-256 content hash is required to finalize a file upload.
 (1 row)
 
-psql:/tmp/ovd635-window1-CRzWBw/src-main/supabase/tests/founding_beta_file_boundaries.sql:200: ERROR:  export_declaration_missing
+psql:/tmp/ovd635-window1-s4oEIg/src-main/supabase/tests/founding_beta_file_boundaries.sql:200: ERROR:  export_declaration_missing
 CONTEXT:  PL/pgSQL function public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text) line 3 at RAISE

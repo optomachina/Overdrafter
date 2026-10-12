@@ -312,4 +312,4 @@
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-CRzWBw/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:27: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-s4oEIg/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:27: NOTICE:  extension "pgtap" already exists, skipping

@@ -260,7 +260,7 @@
 
                                                                 revoke_provider_dispatch_permit                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"reason": "operator_revoked", "permitId": "7d4f6cca-8396-46c1-8803-449eb0e90f4d", "revokedAt": "2026-10-12T03:45:39.452029+00:00", "permitState": "revoked"}
+ {"reason": "operator_revoked", "permitId": "d7e10a07-06f2-4cd4-9a0a-f2712d628e46", "revokedAt": "2026-10-12T04:04:54.171653+00:00", "permitState": "revoked"}
 (1 row)
 
                                                                         is                                                                         
@@ -511,4 +511,4 @@
  # Looks like you failed 17 tests of 64
 (1 row)
 
-psql:/tmp/ovd635-window1-CRzWBw/src-main/supabase/tests/provider_dispatch_preflight.sql:188: NOTICE:  relation "requestable_quote_lanes" already exists, skipping
+psql:/tmp/ovd635-window1-s4oEIg/src-main/supabase/tests/provider_dispatch_preflight.sql:188: NOTICE:  relation "requestable_quote_lanes" already exists, skipping

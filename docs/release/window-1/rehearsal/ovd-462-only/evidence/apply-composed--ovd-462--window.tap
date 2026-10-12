@@ -1,6 +1,6 @@
   plan  
 --------
- 1..122
+ 1..128
 (1 row)
 
          has_table         
@@ -548,33 +548,63 @@
  ok 117 - an expired holder cannot block the binding
 (1 row)
 
-                          is                           
--------------------------------------------------------
- ok 118 - raw account identifier rejected without echo
-(1 row)
-
-               is                
----------------------------------
- ok 119 - unbounded ttl rejected
-(1 row)
-
-                     is                     
---------------------------------------------
- ok 120 - unbounded total duration rejected
+                         is                         
+----------------------------------------------------
+ ok 118 - fresh binding for the provider block case
 (1 row)
 
                     is                    
 ------------------------------------------
- ok 121 - rejected requests store nothing
+ ok 119 - holder reports a provider block
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 120 - a provider block stops the binding until an operator clears it
+(1 row)
+
+                       is                        
+-------------------------------------------------
+ ok 121 - fresh binding for the account ban case
+(1 row)
+
+                   is                   
+----------------------------------------
+ ok 122 - holder reports an account ban
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 123 - an account ban stops the binding until an operator clears it
+(1 row)
+
+                          is                           
+-------------------------------------------------------
+ ok 124 - raw account identifier rejected without echo
+(1 row)
+
+               is                
+---------------------------------
+ ok 125 - unbounded ttl rejected
+(1 row)
+
+                     is                     
+--------------------------------------------
+ ok 126 - unbounded total duration rejected
+(1 row)
+
+                    is                    
+------------------------------------------
+ ok 127 - rejected requests store nothing
 (1 row)
 
                                                  ok                                                  
 -----------------------------------------------------------------------------------------------------
- ok 122 - rollback with the operator override drops every OVD-462 object even with occupants present
+ ok 128 - rollback with the operator override drops every OVD-462 object even with occupants present
 (1 row)
 
  finish 
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-UKES6T/src-ovd-462/supabase/tests/provider_session_leases.sql:3: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-1CfSh9/src-ovd-462/supabase/tests/provider_session_leases.sql:3: NOTICE:  extension "pgtap" already exists, skipping

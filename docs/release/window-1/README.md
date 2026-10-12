@@ -1,12 +1,12 @@
 # Migration window 1: Blaine's run sheet
 
-Target: Wed Oct 21, 2026. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `57b2647c` (production ledger has the same 148 versions, read on Oct 12).
+Target: Wed Oct 21, 2026. Project ref `ozuatdcakezjtevztjlr`. Base: `main` at `b6a66c83` (production ledger has the same 148 versions, read on Oct 12).
 
 ## Status at packet time
 
 | Migration | PR | Rehearsal | Verdict |
 | --- | --- | --- | --- |
-| OVD-462 provider session lease | #675 @ `790466d1` | apply, pgTAP 122/122, 602 diff exact, rollback refuses under a concurrent writer then succeeds, reapply: all pass; no main suite regresses | **GO** |
+| OVD-462 provider session lease | #675 @ `42d5cc61` | apply, pgTAP 128/128, 602 diff exact, rollback refuses under a concurrent writer then succeeds, reapply: all pass; no main suite regresses | **GO** |
 | OVD-723 export control (one migration: upload block, dispatch gate, backfill) | #677 @ `673fbe33` | applies, own suite 91/91, rollback (packet file) and reapply pass; **6 main suites regress** | **NO GO until #677 retargets those suites and Blaine accepts the dispatch outage below** |
 | OVD-722 provider kill switch | #676 @ `f3ce78b3` | applies, own suite 53/53, rollback and reapply pass; **4 more main suites regress** | **NO GO until #676 retargets those suites** |
 | OVD-725 Stripe catalog | #671 | no migration draft (only a test file) | not in window 1 |
@@ -35,8 +35,8 @@ PITR shows a window; baseline diff is empty; `supabase db push --db-url "$DB_URL
 ```
 git switch -c window-1/ovd462 origin/main
 F=supabase/migrations/$(npm run --silent migration:next -- ovd462_provider_session_lease)
-git show 790466d1:docs/migration-drafts/ovd-462.sql > "$F"
-sha256sum "$F"   # must print 757fcd6b419d3ae46eaab1b5a09989a9ceabc1fef9a2b645e622d716b4971418
+git show 42d5cc61:docs/migration-drafts/ovd-462.sql > "$F"
+sha256sum "$F"   # must print 9a95f7e38063dd56d50101b1d87efd3e6d70e445c70576eaf0fc7e0b026bf360
 ```
 Commit, push, open a PR labeled `blaine-window`. Wait for green CI.
 
