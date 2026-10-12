@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EXPORT_CONTROL_CHECKING_REFETCH_MS,
@@ -179,7 +179,7 @@ describe("ExportControlStatusNotice", () => {
 
     renderNotice();
     expect(await screen.findByText("Checking files for export-control markings")).toBeTruthy();
-    await vi.advanceTimersByTimeAsync(EXPORT_CONTROL_CHECKING_REFETCH_MS + 100);
+    await act(() => vi.advanceTimersByTimeAsync(EXPORT_CONTROL_CHECKING_REFETCH_MS + 100));
 
     await waitFor(() => expect(screen.queryByRole("status", { name: "Export control" })).toBeNull());
     expect(api.fetchJobExportControlStatus).toHaveBeenCalledTimes(2);

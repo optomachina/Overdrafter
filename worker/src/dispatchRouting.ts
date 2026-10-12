@@ -233,6 +233,34 @@ export const EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE =
   + "This lane is closed, will not be retried, and must not be quoted manually. An OverDrafter admin should review what was sent.";
 
 /**
+ * The hold note for a generic provider lane whose export-control check could
+ * not be read after its automation started but before the adapter marked any
+ * provider mutation (no upload or quote configuration yet). The lane is still
+ * held and never requeued, but nothing reached the supplier.
+ */
+export const EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE =
+  "Held because the export-control check could not be read before any file was sent to this supplier. "
+  + "Nothing was sent. This lane will not be retried automatically and must not be quoted manually. "
+  + "An OverDrafter admin can retry it once the check is available again.";
+
+/**
+ * Picks the hold note for a lane. `providerMutationStarted` is the lane's
+ * outer phase (fail closed: set once the adapter ran). On the generic route,
+ * `stopBeforeProviderMutation` is true when the export stop was raised while
+ * the pipeline's own mutation phase was still unmarked, so no upload had
+ * started even though the adapter had.
+ */
+export function exportControlHoldNote(input: {
+  providerMutationStarted: boolean;
+  stopBeforeProviderMutation: boolean;
+  lookupFailed: boolean;
+}): string {
+  if (!input.providerMutationStarted) return EXPORT_CONTROL_HOLD_NOTE;
+  if (!input.stopBeforeProviderMutation) return EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE;
+  return input.lookupFailed ? EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE : EXPORT_CONTROL_HOLD_NOTE;
+}
+
+/**
  * OVD-723: a quote lane held by export control. Every export-control code a
  * dispatch boundary returns (from the worker's check or, after the contract,
  * from the preflight wrappers) and a marking hit found while staging the lane

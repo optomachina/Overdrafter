@@ -6,7 +6,9 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  decodeStepStringEscapes,
   detectExportControlMarkings,
+  detectStepHeaderMarkings,
   enforceAndRecordExportControlScan,
   enforceExportControlMarkings,
   evaluateExportControlDispatch,
@@ -355,7 +357,7 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
       jobId: "target-job",
       partId: "target-part",
       drawingFile: { id: "target-drawing", localPath: "/stage/drawing.pdf", contentSha256: "d".repeat(64) },
-      extractText: vi.fn().mockResolvedValue({ pages: [{ text: CLEAN_DRAWING }] }),
+      extractText: vi.fn().mockResolvedValue({ drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }] }),
     });
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
       p_job_id: "target-job",
@@ -378,27 +380,83 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
   });
 
   it("treats a drawing as read only when every page yielded text", () => {
+    const read = { drawingFullyRead: true as const };
     expect(isDrawingTextFullyRead(null)).toBe(false);
     // pdftotext and OCR both found nothing: extractPdfText returns empty pages, not null.
-    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: "" }, { text: "  \n" }] })).toBe(false);
-    expect(isDrawingTextFullyRead({ pageCount: 0, pages: [] })).toBe(false);
-    // OCR reads only page 1: later pages come back empty.
-    expect(isDrawingTextFullyRead({ pageCount: 3, pages: [{ text: CLEAN_DRAWING }, { text: "" }, { text: "" }] })).toBe(false);
-    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }] })).toBe(false);
-    expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(true);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: "" }, { text: "  \n" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 0, pages: [] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 3, pages: [{ text: CLEAN_DRAWING }, { text: "" }, { text: "" }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: CLEAN_DRAWING }] })).toBe(false);
+    expect(isDrawingTextFullyRead({ ...read, pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(true);
   });
 
-  // OVD-723 review round 6, ready for PR #710 (OCR every page): its result
-  // shape fails closed here once the two branches combine.
-  it("treats an unknown page count or a page without an ok OCR status as unread", () => {
-    const page = (ocrStatus: string, text = CLEAN_DRAWING) => ({ text, ocrText: "", ocrStatus });
-    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, pages: [page("ok")] })).toBe(true);
-    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: false, pages: [page("ok")] })).toBe(false);
-    for (const status of ["failed", "unavailable", "not_read"]) {
-      expect(isDrawingTextFullyRead({ pageCount: 2, pageCountKnown: true, pages: [page("ok"), page(status)] })).toBe(false);
-    }
-    // Without the new fields the older rule applies unchanged.
-    expect(isDrawingTextFullyRead({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }] })).toBe(true);
+  // OVD-747 part B: the extractor's own drawingFullyRead is required.
+  it("treats a drawing as unread unless extractPdfText says it was fully read", () => {
+    const pages = [{ text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "ok" }];
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, drawingFullyRead: true, pages })).toBe(true);
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, drawingFullyRead: false, pages })).toBe(false);
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, drawingFullyRead: null, pages })).toBe(false);
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, pages })).toBe(false);
+  });
+
+  it("holds a drawing when OCR is unavailable", () => {
+    // What extractPdfText returns on a host without tesseract (OVD-747 part A).
+    expect(isDrawingTextFullyRead({
+      pageCount: 1,
+      pageCountKnown: true,
+      drawingFullyRead: false,
+      ocr: false,
+      pages: [{ text: CLEAN_DRAWING, ocrText: "", ocrStatus: "unavailable" }],
+    })).toBe(false);
+  });
+
+  it("holds a drawing with a page that has neither layer text nor OCR text", () => {
+    // tesseract returned nothing for a nonblank raster page; the extractor still says ok.
+    expect(isDrawingTextFullyRead({
+      pageCount: 2,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      pages: [
+        { text: CLEAN_DRAWING, ocrText: "SHEET 1", ocrStatus: "ok" },
+        { text: "", ocrText: "  \n", ocrStatus: "ok" },
+      ],
+    })).toBe(false);
+  });
+
+  it("reads a page whose only text came from OCR", () => {
+    expect(isDrawingTextFullyRead({
+      pageCount: 2,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      pages: [
+        { text: CLEAN_DRAWING, ocrText: "", ocrStatus: "ok" },
+        { text: "", ocrText: "SHEET 2 OF 2", ocrStatus: "ok" },
+      ],
+    })).toBe(true);
+  });
+
+  it("detects an OCR only ITAR stamp next to selectable dimensions on a fully read drawing", () => {
+    const pdfText = {
+      pageCount: 1,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      ocr: false,
+      pages: [{ text: "OVERALL LENGTH 120.00 +/- 0.05\nBORE 12.000 H7", ocrText: "ITAR CONTROLLED", ocrStatus: "ok" }],
+    };
+    expect(isDrawingTextFullyRead(pdfText)).toBe(true);
+    expect(scanDrawingTextForExportMarkings(pdfText)).toEqual({ source: "drawing_ocr", patterns: ["itar"] });
+  });
+
+  it("passes a fully read clean drawing", () => {
+    const pdfText = {
+      pageCount: 1,
+      pageCountKnown: true,
+      drawingFullyRead: true,
+      ocr: false,
+      pages: [{ text: CLEAN_DRAWING, ocrText: CLEAN_DRAWING, ocrStatus: "ok" }],
+    };
+    expect(isDrawingTextFullyRead(pdfText)).toBe(true);
+    expect(scanDrawingTextForExportMarkings(pdfText)).toBeNull();
   });
 
   it("scans OCR text next to a text layer, so a raster marking is still found", () => {
@@ -708,7 +766,7 @@ describe("export-control dispatch check (window 1 worker gate)", () => {
     expect(holdAt).toBeLessThan(catchBlock.indexOf("const requiresManualVendorFollowUp ="));
     const hold = catchBlock.slice(holdAt, catchBlock.indexOf("const failureCode = dispatchAuthorizationError", holdAt));
     expect(hold).toContain('status: "failed"');
-    expect(hold).toContain("EXPORT_CONTROL_HOLD_NOTE]");
+    expect(hold).toContain("notes: [exportControlHoldNote({");
     expect(hold).toContain("await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {");
     expect(hold).toContain("requiresManualVendorFollowUp: false");
     expect(hold).toContain("manualFollowUpReason: null");
@@ -1020,6 +1078,20 @@ describe("OVD-723 migration draft", () => {
     );
   });
 
+  // OVD-723 review round 7: the work_queue index build is bounded too, and
+  // the draft never names the online build keyword, which the window 1
+  // rehearsal harness reads as "needs its own transaction".
+  it("bounds the work_queue index build with a lock timeout and never names the online build keyword", () => {
+    const window1 = sqlWindow1();
+    const timeoutAt = window1.indexOf("set local lock_timeout = '3s';");
+    expect(timeoutAt).toBeLessThan(window1.indexOf("create index if not exists work_queue_job_task_type_idx"));
+    expect(draft).not.toMatch(/concurrently/i);
+    expect(expandRollback.indexOf("set local lock_timeout = '5s';")).toBeGreaterThan(-1);
+    expect(expandRollback.indexOf("set local lock_timeout = '5s';")).toBeLessThan(
+      expandRollback.indexOf("drop index public.work_queue_job_task_type_idx;"),
+    );
+  });
+
   it("records marking hits through a service-role-only RPC and audits admin review", () => {
     expect(draft).toMatch(
       /revoke all on function public\.api_record_export_control_marking_hits\([^)]*\)\s+from public, anon, authenticated;/,
@@ -1218,7 +1290,7 @@ describe("OVD-723 review round 3: OCR text is recorded as drawing_ocr", () => {
       jobId: "job-1",
       partId: "part-1",
       drawingFile: { id: "drawing-1", localPath: "/stage/d.pdf", contentSha256 },
-      extractText: vi.fn().mockResolvedValue({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }], ocr: true }),
+      extractText: vi.fn().mockResolvedValue({ pageCount: 1, drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }], ocr: true }),
     });
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.objectContaining({ p_source: "drawing_ocr" }));
   });
@@ -1277,7 +1349,7 @@ describe("OVD-723 review round 3: scan only rescan of files extracted before the
         partId: "part-1",
         file: { id: "drawing-1", original_name: "bracket.pdf", file_kind: "drawing" },
         stage,
-        extractText: vi.fn().mockResolvedValue({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }] }),
+        extractText: vi.fn().mockResolvedValue({ pageCount: 1, drawingFullyRead: true, pages: [{ text: CLEAN_DRAWING }] }),
       }),
     ).resolves.toBe("clean");
     expect(rpc).toHaveBeenCalledWith("api_record_export_control_clean_scan", {
@@ -1575,5 +1647,65 @@ describe("OVD-723 review round 5: extraction records scan outcomes", () => {
       expect(body).toContain("part.drawing_file_id = file_row.id");
       expect(body).not.toContain("file_row.file_kind = 'drawing'");
     }
+  });
+});
+
+// OVD-723 review round 7: real exporters encode non ASCII header text with
+// ISO 10303-21 string escapes, so the scan decodes them before matching.
+describe("OVD-723 review round 7: STEP string escapes", () => {
+  const header = (body: string) => `ISO-10303-21;\nHEADER;\n${body}\nENDSEC;\nDATA;\nENDSEC;\n`;
+
+  it("detects ITAR written as a \\X2\\ UTF-16 escape", () => {
+    const text = header("FILE_DESCRIPTION(('\\X2\\0049005400410052\\X0\\'),'2;1');");
+    expect(detectExportControlMarkings(readStepHeaderText(text))).toEqual([]);
+    expect(scanStepHeaderForExportMarkings(text)).toEqual({ source: "step_header", patterns: ["itar"] });
+  });
+
+  it("detects ITAR written as a \\X4\\ UTF-32 escape", () => {
+    const text = header("FILE_DESCRIPTION(('\\X4\\00000049000000540000004100000052\\X0\\'),'2;1');");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
+  });
+
+  it("detects ITAR written as \\X\\ 8 bit escapes", () => {
+    const text = header("FILE_DESCRIPTION(('\\X\\49\\X\\54\\X\\41\\X\\52'),'2;1');");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
+  });
+
+  it("decodes \\S\\ as the high half of the code page and strips \\P?\\ switches", () => {
+    expect(decodeStepStringEscapes("\\PA\\Stra\\S\\_e")).toBe("Straße");
+    expect(decodeStepStringEscapes("\\PB\\a\\\\b")).toBe("a\\b");
+    const text = header("FILE_NAME('part','2026',('\\PA\\M\\S\\|ller'),('ITAR'),'','','');");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
+  });
+
+  it("detects a marking in a string that mixes escape forms with plain text", () => {
+    const text = header(
+      "FILE_DESCRIPTION(('\\PA\\Exp\\X\\6Frt \\X2\\0063006F006E00740072006F006C006C00650064\\X0\\ \\S\\ for \\X4\\0000004500000041\\X0\\R 99'),'2;1');",
+    );
+    expect(decodeStepStringEscapes(readStepHeaderText(text))).toContain("Export controlled  for EAR 99");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["ear", "export_controlled"]);
+  });
+
+  it("leaves a malformed escape in place and still scans the raw text", () => {
+    // Odd hex group length, a missing \X0\ terminator, and a bad \X\ code.
+    expect(decodeStepStringEscapes("\\X2\\004\\X0\\ ITAR \\X2\\0049 \\X\\ZZ")).toBe("\\X2\\004\\X0\\ ITAR \\X2\\0049 \\X\\ZZ");
+    const text = header("FILE_DESCRIPTION(('\\X2\\004\\X0\\ ITAR'),'2;1');");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toEqual(["itar"]);
+    // An escape that decodes away a raw match does not lose it: raw text is scanned too.
+    expect(detectStepHeaderMarkings("CUI \\X2\\0041\\X0\\")).toEqual(["cui"]);
+  });
+
+  it("records a block, not a clean scan, for an escaped marking in a staged file", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { blockId: "block-1", resolved: false }, error: null });
+    await expect(enforceAndRecordStepHeaderScan({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      jobFileId: "cad-1",
+      localPath: "/stage/part.step",
+      contentSha256: "e".repeat(64),
+      readPrefix: async () => Buffer.from(header("FILE_DESCRIPTION(('\\X2\\0049005400410052\\X0\\'),'2;1');"), "latin1"),
+    })).rejects.toBeInstanceOf(ExportControlMarkingBlockedError);
+    expect(rpc).toHaveBeenCalledWith("api_record_export_control_marking_hits", expect.objectContaining({ p_job_file_id: "cad-1" }));
+    expect(rpc).not.toHaveBeenCalledWith("api_record_export_control_clean_scan", expect.anything());
   });
 });

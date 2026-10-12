@@ -46,6 +46,7 @@ drop function public.api_queue_export_marking_rescan(uuid);
 drop function private.queue_export_marking_rescans(uuid);
 drop function private.job_export_scan_state(uuid);
 drop function private.export_rescan_final_outcome(uuid, uuid, text);
+-- Under the 5s lock timeout set above, as the expand build is under its own.
 drop index public.work_queue_job_task_type_idx;
 drop function public.api_check_export_control_dispatch(uuid, text);
 drop function public.api_check_export_control_extraction(uuid);

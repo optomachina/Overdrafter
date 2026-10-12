@@ -9,13 +9,13 @@ import type { Page } from "patchright";
 import type { EngineeringCatalogAuthority, EngineeringCatalogArtifact } from "./engineeringCatalog";
 import { chooseOptionByTerms, XometryAdapter } from "../adapters/xometry";
 import { buildAdapterRegistry } from "../adapters/index";
-import { markProviderMutationStarted } from "../providerMutationPhase";
+import { createProviderMutationPhase, markProviderMutationStarted, runInProviderMutationPhase } from "../providerMutationPhase";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
 import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
 import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight";
 import { ExportControlLookupError } from "../exportControl";
-import { EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE } from "../dispatchRouting";
+import { EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE, EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE } from "../dispatchRouting";
 import type { ProviderTaskRouteInput } from "../providerTaskRoute";
 import type { ProviderTaskOutcome } from "../providerTaskPipeline";
 
@@ -377,15 +377,20 @@ describe("actual worker operational advisory seam", () => {
   });
 
   // OVD-723 x OVD-464: a lookup that fails inside the wrapped adapter after it
-  // started (the recheck before the drawing upload) must not requeue the task:
-  // the provider may already hold the CAD upload.
-  it("holds a generic lane, never requeues it, when the export lookup fails after the adapter started (OVD-723)", async () => {
+  // started must not requeue the task. The note depends on the pipeline's own
+  // mutation phase: unmarked means no upload had started, so nothing was sent.
+  const holdAfterLookupFailure = async (innerPhaseMarked: boolean) => {
     const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
     const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
       providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
     let adapterError: unknown = null;
     genericRoute.run = async (route) => {
-      adapterError = await route.adapter.quote({} as VendorQuoteAdapterInput).catch((error: unknown) => error);
+      // The pipeline runs the adapter in its own mutation phase; an adapter
+      // marks it right before its first upload.
+      const innerPhase = createProviderMutationPhase();
+      innerPhase.started = innerPhaseMarked;
+      adapterError = await runInProviderMutationPhase(innerPhase, () => route.adapter.quote({} as VendorQuoteAdapterInput))
+        .catch((error: unknown) => error);
       return { disposition: "manual_follow_up", code: "adapter_failed", stage: "adapter", adapterStarted: true, retryAt: null,
         providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
     };
@@ -393,6 +398,7 @@ describe("actual worker operational advisory seam", () => {
     const baseRpc = db.client.rpc.bind(db.client);
     let dispatchChecks = 0;
     (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => {
+      // Checks 1 and 2 run before the adapter; check 3 is the wrapper's recheck right before adapter.quote.
       if (name === "api_check_export_control_dispatch" && ++dispatchChecks > 2) {
         db.writes.push({ rpc: name, args: structuredClone(args) });
         const failed = Promise.resolve({ data: null, error: { message: "transient RPC failure" } });
@@ -402,16 +408,29 @@ describe("actual worker operational advisory seam", () => {
     };
     await expect(processClaimedTask(db.client, generic, live, createWorkerRuntimeState())).resolves.toBeUndefined();
     expect(adapterError).toBeInstanceOf(ExportControlLookupError);
-    const laneWrites = db.writes.filter((write) => (write as { table?: string }).table === "vendor_quote_results");
-    expect(laneWrites.at(-1)).toEqual(expect.objectContaining({ update: expect.objectContaining({ status: "failed",
-      notes: [EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE],
-      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_control_lookup_failed",
-        providerMutationPossible: true, retryScheduledFor: null }) }) }));
-    expect(JSON.stringify(db.writes)).not.toContain("Nothing was sent");
     const queueWrites = db.writes.filter((write) => (write as { table?: string }).table === "work_queue");
     expect(queueWrites).not.toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }]));
     expect(queueWrites).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "completed",
       payload: expect.objectContaining({ exportControlHold: true, failureCode: "export_control_lookup_failed" }) }) }]));
+    return db.writes.filter((write) => (write as { table?: string }).table === "vendor_quote_results");
+  };
+
+  it("holds a generic lane, never requeues it, when the pre quote export lookup fails before any upload (OVD-723)", async () => {
+    const laneWrites = await holdAfterLookupFailure(false);
+    expect(laneWrites.at(-1)).toEqual(expect.objectContaining({ update: expect.objectContaining({ status: "failed",
+      notes: [EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE],
+      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_control_lookup_failed",
+        providerMutationPossible: true, retryScheduledFor: null }) }) }));
+    expect(JSON.stringify(laneWrites)).not.toContain("may already have reached it");
+  });
+
+  it("holds a generic lane with the after start note when the lookup fails once the adapter marked a mutation (OVD-723)", async () => {
+    const laneWrites = await holdAfterLookupFailure(true);
+    expect(laneWrites.at(-1)).toEqual(expect.objectContaining({ update: expect.objectContaining({ status: "failed",
+      notes: [EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE],
+      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_control_lookup_failed",
+        providerMutationPossible: true, retryScheduledFor: null }) }) }));
+    expect(JSON.stringify(laneWrites)).not.toContain("Nothing was sent");
   });
 
   it("never overwrites a committed generic result whose persistence acknowledgement was lost (OVD-464)", async () => {
@@ -463,6 +482,27 @@ describe("actual worker operational advisory seam", () => {
     await fixture.capability.observations.drain();
     expect(fixture.caps.audit.mock.calls.every(([receipt]) => receipt.reason === "scope_denied")).toBe(true);
     expect(fixture.caps.decide).not.toHaveBeenCalled();
+  });
+
+  // OVD-723: the registry wrapper itself skips the Jev failure report for a
+  // dispatch decision. The Xometry adapter's own quote is stubbed here, so its
+  // separate skip cannot cover for the wrapper.
+  it("registry wrapper does not report a dispatch decision to Jev as an operational failure", async () => {
+    const fixture = sessionFixture();
+    const enqueue = vi.spyOn(fixture.capability.observations, "enqueue");
+    const registry = buildAdapterRegistry(config, { session: fixture.session, scope, observations: fixture.capability.observations });
+    const input = { organizationId: scope.organizationId, quoteRunId: scope.quoteRunId, part, requirement, requestedQuantity: 2,
+      cadFile: cad, drawingFile: null, stagedCadFile: null, stagedDrawingFile: null } as VendorQuoteAdapterInput;
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    for (const decision of [new ProviderDispatchAuthorizationError("export_review_pending"), new ExportControlLookupError("dispatch")]) {
+      quote.mockRejectedValueOnce(decision);
+      await expect(registry.xometry!.quote(input)).rejects.toBe(decision);
+    }
+    expect(enqueue.mock.calls.map(([use]) => use)).not.toContain("exception_routing");
+    const failure = new Error("session expired");
+    quote.mockRejectedValueOnce(failure);
+    await expect(registry.xometry!.quote(input)).rejects.toBe(failure);
+    expect(enqueue.mock.calls.map(([use]) => use)).toContain("exception_routing");
   });
 
   it("keeps the consumer methods selected at task entry through capture and drain", async () => {

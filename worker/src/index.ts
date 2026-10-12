@@ -116,8 +116,7 @@ import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
   assertExportControlDispatchAllowed,
   dispatchAuthorizationFailure,
-  EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE,
-  EXPORT_CONTROL_HOLD_NOTE,
+  exportControlHoldNote,
   exportControlHoldReason,
   providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
@@ -1241,6 +1240,10 @@ export async function handleVendorQuoteTask(
   // before the browser ever launches, and settling the full estimate for a lane
   // that never started would hold budget for spend that did not happen.
   let vendorAutomationStarted = false;
+  // OVD-723: the export stop the generic route raised while the pipeline's own
+  // mutation phase was still unmarked (no upload yet). The lane is held either
+  // way; this only picks the note that says nothing was sent.
+  let exportStopBeforeProviderMutation: unknown = null;
   // Set once vendor_quote_results and its offers are written atomically. From
   // then on a bookkeeping failure must never overwrite that result.
   let resultPersisted = false;
@@ -1295,7 +1298,11 @@ export async function handleVendorQuoteTask(
     if (exportControlHold) {
       const holdWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
         status: "failed",
-        notes: [providerMutationStarted ? EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE : EXPORT_CONTROL_HOLD_NOTE],
+        notes: [exportControlHoldNote({
+          providerMutationStarted,
+          stopBeforeProviderMutation: error === exportStopBeforeProviderMutation,
+          lookupFailed: error instanceof ExportControlLookupError,
+        })],
         raw_payload: {
           ...buildFailureRawPayload(vendor, retryCount, exportControlHold, {}, failureArtifactStoragePaths),
           ...providerMutationEvidence(),
@@ -1616,7 +1623,12 @@ export async function handleVendorQuoteTask(
             try {
               return await exportCheckedAdapter.quote(input);
             } catch (error) {
-              if (exportControlHoldReason(error) || error instanceof ExportControlLookupError) exportControlStop = error;
+              if (exportControlHoldReason(error) || error instanceof ExportControlLookupError) {
+                exportControlStop = error;
+                // The pipeline runs this call in its own mutation phase, which
+                // adapters mark right before their first upload.
+                if (currentProviderMutationPhase()?.started !== true) exportStopBeforeProviderMutation = error;
+              }
               throw error;
             }
           },

@@ -1541,9 +1541,15 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- task type predicates use work_queue_job_task_type_idx below, so a status
 -- read only touches this job's tasks instead of every completed task.
 --
--- No index on work_queue led with job_id before this. A plain build (not
--- CONCURRENTLY) because the window applies in one transaction; it takes a
+-- No index on work_queue led with job_id before this. A plain build, not the
+-- online variant, because the window applies in one transaction; it takes a
 -- SHARE lock on work_queue for the build, which is short at current volume.
+-- The lock timeout is set here, before the build, so a long running query on
+-- work_queue makes the migration fail fast (and roll back whole) instead of
+-- queueing every queue write behind it. It stays in force for the rest of the
+-- transaction, including the Storage policy in 1.18. On a timeout, rerun at
+-- lower traffic.
+set local lock_timeout = '3s';
 create index if not exists work_queue_job_task_type_idx
   on public.work_queue (job_id, task_type);
 
@@ -1866,8 +1872,8 @@ where declaration.answer = 'missing'
 -- declaration backed grant (1.14). Creating a policy takes ACCESS EXCLUSIVE
 -- on storage.objects; the lock timeout makes the migration fail fast (and
 -- roll back whole) rather than queue every Storage read and write behind a
--- long running query. On a timeout, rerun at lower traffic.
-set local lock_timeout = '3s';
+-- long running query. The 3s lock timeout set before the work_queue index
+-- build (1.16c) is still in force here. On a timeout, rerun at lower traffic.
 drop policy if exists "job_files_storage_insert_export_cleared" on storage.objects;
 create policy "job_files_storage_insert_export_cleared"
 on storage.objects

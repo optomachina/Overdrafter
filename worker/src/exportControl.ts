@@ -260,6 +260,56 @@ export function readStepHeaderText(content: Uint8Array | string): string {
 }
 
 /**
+ * Decodes ISO 10303-21 string escapes, which real exporters use for any
+ * non ASCII text: `\X2\hhhh...\X0\` (UTF-16 hex), `\X4\hhhhhhhh...\X0\`
+ * (UTF-32 hex), `\X\hh` (one 8 bit code), `\S\c` (the high half of the
+ * current ISO 8859 part), and `\\` (one backslash). `\P?\` switches the code
+ * page and is stripped. A malformed escape is left as is.
+ */
+export function decodeStepStringEscapes(text: string): string {
+  return text.replace(
+    STEP_STRING_ESCAPE,
+    (match, x2: string | undefined, x4: string | undefined, x: string | undefined, high: string | undefined) => {
+      if (x2 !== undefined) return String.fromCharCode(...hexGroups(x2, 4));
+      if (x4 !== undefined) {
+        const codePoints = hexGroups(x4, 8);
+        return codePoints.every((codePoint) => codePoint <= 0x10ffff) ? String.fromCodePoint(...codePoints) : match;
+      }
+      if (x !== undefined) return String.fromCharCode(Number.parseInt(x, 16));
+      if (high !== undefined) return String.fromCharCode(high.charCodeAt(0) + 0x80);
+      if (match === "\\\\") return "\\";
+      return "";
+    },
+  );
+}
+
+const STEP_STRING_ESCAPE =
+  /\\X2\\((?:[0-9A-F]{4})+)\\X0\\|\\X4\\((?:[0-9A-F]{8})+)\\X0\\|\\X\\([0-9A-F]{2})|\\S\\([\x20-\x7e])|\\P[A-I]\\|\\\\/gi;
+
+function hexGroups(hex: string, width: number): number[] {
+  const groups: number[] = [];
+  for (let index = 0; index < hex.length; index += width) {
+    groups.push(Number.parseInt(hex.slice(index, index + width), 16));
+  }
+  return groups;
+}
+
+/**
+ * Marking ids found in STEP header text, raw or with its string escapes
+ * decoded. The raw text is always scanned too, so a malformed escape never
+ * hides text that was readable before decoding.
+ */
+export function detectStepHeaderMarkings(text: string): string[] {
+  const decoded = decodeStepStringEscapes(text);
+  const raw = detectExportControlMarkings(text);
+  if (decoded === text) return raw;
+  const fromDecoded = detectExportControlMarkings(decoded);
+  return EXPORT_CONTROL_MARKING_PATTERNS
+    .map(({ id }) => id)
+    .filter((id) => raw.includes(id) || fromDecoded.includes(id));
+}
+
+/**
  * Reads at most STEP_HEADER_SCAN_BYTES from a staged STEP file. A read error
  * propagates, so a file that cannot be scanned fails the task.
  */
@@ -284,38 +334,37 @@ export type ExportControlMarkingScan = {
 };
 
 /**
- * The shape of `extractPdfText`'s result that the export scan reads. The
- * optional fields arrive with PR #710 (OCR every page): `pageCountKnown` is
- * false when pdfinfo failed, `ocrStatus` is each page's OCR outcome, and
- * `ocrText` is OCR output alone, never mixed with the text layer.
+ * The shape of `extractPdfText`'s result that the export scan reads.
+ * `drawingFullyRead` is OVD-747's single fail closed answer: true only when the
+ * page count is known, every text layer read cleanly, and every page's OCR
+ * status is ok. `ocrText` is OCR output alone, never mixed with the text layer.
  */
 export type DrawingTextForExportScan = {
   pageCount?: number;
   pageCountKnown?: boolean;
+  drawingFullyRead?: boolean | null;
   ocr?: boolean;
   pages: ReadonlyArray<{ text: string; ocrText?: string; ocrStatus?: string }>;
 };
 
 /**
- * True only when every page of the drawing yielded text. `extractPdfText`
- * returns pages with empty text when neither pdftotext nor OCR found any (a
- * raster drawing on a host without tesseract, or OCR that reads only page 1),
- * so a non-null result is not proof the drawing was read. A drawing with any
- * unread page is unread as a whole: no clean scan is recorded for it, so
- * dispatch stays denied, and its content never goes to an extraction model.
- *
- * When the fields exist (PR #710), an unknown page count (`pageCountKnown`
- * false) or any page whose OCR status is not `ok` is also unread: later pages
- * may exist, or a raster marking on that page was never read.
+ * True only when `extractPdfText` says the drawing was fully read
+ * (`drawingFullyRead === true`; missing or null is unread) and every page has
+ * text from its text layer or its OCR. A page with neither is unread: an empty
+ * tesseract result on a nonblank page looks the same as a blank page, so a
+ * drawing with a truly blank page is held too. A drawing with any unread page
+ * is unread as a whole: no clean scan is recorded for it, so dispatch stays
+ * denied, and its content never goes to an extraction model.
  */
 export function isDrawingTextFullyRead(pdfText: DrawingTextForExportScan | null | undefined): boolean {
-  if (!pdfText || !Array.isArray(pdfText.pages) || pdfText.pages.length === 0) return false;
-  if (pdfText.pageCountKnown === false) return false;
+  if (pdfText?.drawingFullyRead !== true) return false;
+  if (!Array.isArray(pdfText.pages) || pdfText.pages.length === 0) return false;
   if (typeof pdfText.pageCount === "number" && pdfText.pages.length < pdfText.pageCount) return false;
-  return pdfText.pages.every((page) =>
-    typeof page.text === "string"
-    && page.text.trim().length > 0
-    && (page.ocrStatus === undefined || page.ocrStatus === "ok"));
+  return pdfText.pages.every((page) => hasText(page.text) || hasText(page.ocrText));
+}
+
+function hasText(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 /**
@@ -350,7 +399,7 @@ export function scanDrawingTextForExportMarkings(
 }
 
 export function scanStepHeaderForExportMarkings(content: Uint8Array | string): ExportControlMarkingScan | null {
-  const patterns = detectExportControlMarkings(readStepHeaderText(content));
+  const patterns = detectStepHeaderMarkings(readStepHeaderText(content));
   return patterns.length > 0 ? { source: "step_header", patterns } : null;
 }
 
@@ -373,7 +422,7 @@ export async function enforceAndRecordStepHeaderScan(
   },
 ): Promise<boolean> {
   const header = readStepHeader(await (input.readPrefix ?? readStagedStepHeaderPrefix)(input.localPath));
-  const patterns = detectExportControlMarkings(header.text);
+  const patterns = detectStepHeaderMarkings(header.text);
   await enforceAndRecordExportControlScan(supabase, {
     jobId: input.jobId,
     partId: input.partId,

@@ -245,8 +245,14 @@ no declaration, so dispatch still denies it.
   declaration. Its hash is still verified by the worker before any scan or
   dispatch.
 - Native CAD formats are verified by hash but not scanned for markings.
-- A stamp or marking that is only an image on a page that also has a text
-  layer is not read: OCR runs only when a page has no text layer.
+- Since OVD-747 part A (#710) every page is OCR'd, so a raster stamp next to
+  a text layer is read. OCR does not cover content outside the PDF CropBox,
+  which is not rendered. A dense large format sheet (an E size page) can
+  exceed the 60 s tesseract timeout; that page is then not read and the
+  drawing is held.
+- The STEP header scan does not support nested comments
+  (`/* a /* b */ HEADER;ENDSEC; */`). They are not valid STEP and only a
+  crafted file has them; such crafted evasions stay on this list.
 - Until the contract (window 2), a client can still send a manual quote
   request for a held part. The part page asks the owner not to; the contract
   refuses it (C.6).
@@ -623,3 +629,34 @@ assertions; the contract suite is unchanged (103).
    treats the lookup error as structured.
 7. **PR #710 readiness.** An unknown page count or a page whose OCR status is
    not `ok` is unread, and per page `ocrText` is scanned for markings.
+
+## Review round 7 (cross review after the round 6 APPROVE at 5861ad52)
+
+Merged main, which brings #710 (OVD-747 part A). This branch's own OCR
+fallback and its optional `ocr` field are dropped; #710's `ocr` meaning
+(no text layer, OCR text found) is kept.
+
+1. **STEP string escapes.** The header scan decodes ISO 10303-21 escapes
+   before matching: `\X2\...\X0\` (UTF-16 hex), `\X4\...\X0\` (UTF-32 hex),
+   `\X\hh` (8 bit), `\S\c` (high half of the ISO 8859 part), and `\\`;
+   `\P?\` code page switches are stripped. The raw text is always scanned
+   too, and a malformed escape is left in place.
+2. **OVD-747 part B.** A drawing counts as fully read only when
+   `drawingFullyRead === true` (null or missing is unread) and every page has
+   text from its text layer or its OCR. A page with neither holds the
+   drawing, which also holds a drawing with a truly blank page. The marking
+   scan reads both `text` and `ocrText`. The page 1 only OCR fallback on a
+   failed pdfinfo is gone with the merge; #710 reports a failed pdfinfo as
+   not fully read.
+3. **Hold note on the generic route.** The hold stays (fail closed, no
+   requeue), but the note now follows the pipeline's own mutation phase. An
+   export lookup that fails before any upload says nothing was sent and an
+   admin can retry; after an adapter marked a mutation it says files may
+   already have reached the supplier.
+4. **Jev.** A test pins the registry wrapper's own dispatch decision skip.
+5. **SQL.** The comment on the `work_queue` index no longer names the online
+   build keyword, so the rehearsal harness applies 723 in one transaction.
+   The 3 s `set local lock_timeout` now sits above the index build and still
+   covers the Storage policy; the rollback already sets its 5 s timeout first.
+6. **Residuals** are listed under Residual risks above: nested STEP comments,
+   content outside the CropBox, and dense large format sheets.
