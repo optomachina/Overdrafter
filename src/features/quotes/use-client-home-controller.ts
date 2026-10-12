@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -190,7 +191,9 @@ export function useClientHomeController() {
   });
 
   const bootstrapErrorMessage =
-    bootstrapAccountMutation.error instanceof Error ? bootstrapAccountMutation.error.message : null;
+    bootstrapAccountMutation.error instanceof Error
+      ? getUserFacingErrorMessage(bootstrapAccountMutation.error)
+      : null;
   const shouldRecoverMembership =
     Boolean(user) &&
     isVerifiedAuth &&

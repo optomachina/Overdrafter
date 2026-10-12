@@ -30,6 +30,18 @@ export const DENY_PATTERNS: readonly RegExp[] = Object.freeze([
   /\b(?:set-)?cookie\s*:\s*[^\s=;]+=/i,
   // V8 stack frames with a path or URL: "at fn (https://x.invalid/a.js:1:2)" or "at /srv/app.ts:12:3".
   /\bat (?:[^\s()]+ ){0,4}\(?(?:[^\s()/\\]*[/\\])+[^\s()/\\:]*:\d+:\d+/,
+  // Internal hostnames: cluster and private DNS suffixes, loopback or RFC 1918 addresses, and the
+  // direct Supabase database host. Public marketing domains and support addresses are not matched.
+  /(?:^|[^\w-])[a-z\d](?:[a-z\d.-]{0,60})\.(?:internal|local|localdomain|svc|cluster\.local|corp|lan)\b/i,
+  /\bdb\.[a-z\d]{8,40}\.supabase\.co\b/i,
+  /(?:^|[^\d.])(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?![\d.]*\d)/,
+  /\blocalhost:\d{2,5}\b/i,
+  // SQL error internals: row values and schema objects from Postgres DETAIL lines, plus statement fragments.
+  /\bKey \([^)]{1,80}\)=\([^)]{0,200}\)/,
+  /\b(?:relation|column|function|schema|constraint) "[^"]{1,80}" (?:of relation "[^"]{1,80}" )?(?:does not exist|already exists)/i,
+  /\bsyntax error at or near\b/i,
+  /\bSQLSTATE\b/,
+  /\b(?:select\s[^;]{1,200}\sfrom|insert\s+into|update\s+[\w."]{1,80}\s+set|delete\s+from)\s/i,
 ]);
 
 export function containsSensitiveErrorDetail(text: string): boolean {

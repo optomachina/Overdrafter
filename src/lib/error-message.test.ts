@@ -16,6 +16,15 @@ const SENSITIVE_MESSAGES: ReadonlyArray<readonly [label: string, message: string
   ["auth storage key", "Stored session sb-127-auth-token is unreadable"],
   ["cookie header", "Cookie: __session=synthetic; theme=dark"],
   ["stack frame", "TypeError: boom\n    at fn (https://x.invalid/a.js:1:2)"],
+  ["internal service hostname", "connect ECONNREFUSED worker-api.prod.svc.cluster.local"],
+  ["direct database host", "could not connect to server at db.abcdefghijklmnop.supabase.co"],
+  ["private IP address", "connect ETIMEDOUT 10.4.7.19"],
+  ["localhost with port", "fetch failed: localhost:54321 refused"],
+  ["SQL row detail", 'duplicate key value violates unique constraint "jobs_pkey". Key (id)=(0b1e5c7a-synthetic) already exists.'],
+  ["SQL missing object", 'relation "private_provider_accounts" does not exist'],
+  ["SQL syntax error", 'syntax error at or near "FROM"'],
+  ["SQLSTATE code line", "ERROR: boom SQLSTATE 23505"],
+  ["SQL statement text", "failed query: select token from vault.secrets where id = 1"],
 ];
 
 describe("error-message", () => {
@@ -110,6 +119,40 @@ describe("customer-visible error deny list", () => {
     SENSITIVE_MESSAGES.forEach(([label, message], index) => {
       expect(DENY_PATTERNS[index].test(message), label).toBe(true);
     });
+  });
+
+  it("keeps ordinary customer copy, support addresses and PostgREST summaries", () => {
+    for (const message of [
+      "Download failed",
+      "Contact support@overdrafter.com for help",
+      "new row violates row-level security policy",
+      "permission denied",
+      "File is larger than 50 MB.",
+    ]) {
+      expect(containsSensitiveErrorDetail(message), message).toBe(false);
+    }
+  });
+
+  it("keeps the raw detail on the wrapped error for operator and admin logs", () => {
+    const raw = Object.assign(new Error('relation "private_provider_accounts" does not exist'), {
+      code: "42P01",
+      details: "db.abcdefghijklmnop.supabase.co",
+    });
+    const wrapped = toUserFacingError(raw, "Could not load quotes.");
+
+    expect(wrapped.message).toBe("Could not load quotes.");
+    expect((wrapped as Error & { cause?: unknown }).cause).toBe(raw);
+    expect(((wrapped as Error & { cause?: unknown }).cause as Error).message).toBe('relation "private_provider_accounts" does not exist');
+    expect(wrapped.code).toBe("42P01");
+    expect(wrapped.details).toBe("db.abcdefghijklmnop.supabase.co");
+    expect(JSON.stringify(wrapped.message)).not.toContain("private_provider_accounts");
+  });
+
+  it("never lets a leaking message through any customer facing wrapper", () => {
+    for (const [label, message] of SENSITIVE_MESSAGES) {
+      const wrapped = toUserFacingError(new Error(message), "bounded copy");
+      expect(wrapped.message, label).toBe("bounded copy");
+    }
   });
 
   it("recognizes a bare stack frame without a function name", () => {
