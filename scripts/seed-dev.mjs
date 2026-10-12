@@ -42,6 +42,8 @@ const ids = {
   projectMembershipClientPublished: uuid(302),
   projectMembershipEstimatorQuoted: uuid(303),
   projectMembershipAdminPublished: uuid(304),
+  projectMembershipOwnerProbeQuoted: uuid(305),
+  projectMembershipSwitchProbeQuoted: uuid(306),
   organizationMembershipClient: uuid(310),
   organizationMembershipEstimator: uuid(311),
   organizationMembershipAdmin: uuid(312),
@@ -128,7 +130,7 @@ const userSpecs = [
     name: "Demo Unenrolled Client",
     role: "client",
   },
-  // Further members of Fixture Machine Co. for the access-scope specs. Signing out
+  // Further members of Fixture Machine Co., and of its quoted project, for the access-scope specs. Signing out
   // revokes every session of the signed-in user (scope "global"), so specs that log
   // out must not share an account with specs that run in parallel: smoke.spec.ts and
   // intake.spec.ts use client.demo, access-scope.spec.ts uses these.
@@ -643,6 +645,25 @@ async function upsertAccessScopeOrganizations(admin, users) {
       organization_id: ids.organization,
       user_id: users.switchProbe.id,
       role: "client",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+  ]);
+
+  // Project access for non internal users comes from project_memberships, so the two
+  // probe clients need the quoted project to read its parts and review page.
+  await upsertRows(admin, "project_memberships", [
+    {
+      id: ids.projectMembershipOwnerProbeQuoted,
+      project_id: ids.quotedProject,
+      user_id: users.ownerProbe.id,
+      role: "editor",
+      created_at: FIXTURE_TIMESTAMP,
+    },
+    {
+      id: ids.projectMembershipSwitchProbeQuoted,
+      project_id: ids.quotedProject,
+      user_id: users.switchProbe.id,
+      role: "editor",
       created_at: FIXTURE_TIMESTAMP,
     },
   ]);

@@ -8,7 +8,7 @@ import { test, expect } from "./test";
 // sign out) and intake.spec.ts counts Fixture Machine Co. jobs as client.demo. These
 // cases never sign in as client.demo and create no jobs in that organization; they
 // use owner.demo (read only) and switch.demo (the only one that signs out), both
-// members of the same organization with their own sessions.
+// members of the same organization and of its quoted project, with their own sessions.
 const PASSWORD = "Overdrafter123!";
 const OWNER_PROBE_EMAIL = "owner.demo@overdrafter.local";
 const SWITCH_PROBE_EMAIL = "switch.demo@overdrafter.local";
