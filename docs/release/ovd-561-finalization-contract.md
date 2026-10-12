@@ -84,7 +84,9 @@ finalization behavior and concurrency checks. That order verifies source
 compatibility; it does not qualify applying OVD-558 to a database already on
 current production. No shared OVD-558 pin is regenerated or waived.
 
-Reverse acquires exclusive key/history table locks before inspecting history;
+Reverse refuses any isolation other than READ COMMITTED, takes the shared
+window 2 reverse lock `pg_advisory_xact_lock(510, 2)`, and acquires exclusive
+key/history table locks before inspecting history;
 a concurrent committed finalization prevents rollback from dropping its receipt.
 
 The current-source clone suffix creates two cluster-wide validator roles. The

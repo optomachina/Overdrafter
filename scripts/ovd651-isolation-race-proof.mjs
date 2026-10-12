@@ -31,7 +31,10 @@ if (process.env.PGHOSTADDR || process.env.PGSERVICE || process.env.PGSERVICEFILE
 }
 const host = process.env.PGHOST ?? "";
 const port = process.env.PGPORT ?? "5432";
-if (!(host.startsWith("/") || host === "localhost" || host === "127.0.0.1") || !/^\d+$/.test(port)) {
+// A comma makes libpq treat the value as a host list ("/x,remote.host"), so
+// the local check must see exactly one host.
+if (host.includes(",") || !(host.startsWith("/") || host === "localhost" || host === "127.0.0.1")
+  || !/^\d+$/.test(port)) {
   throw new Error("ovd651_race_requires_local_disposable_postgres");
 }
 const revIndex = process.argv.indexOf("--source-rev");
@@ -95,13 +98,19 @@ alter default privileges in schema engineering_private revoke execute on functio
 alter default privileges in schema public revoke execute on functions from public;
 `;
 
-// OVD-560 shape after forward: the dropped columns hold the result binding.
+// OVD-560 shape after forward: the dropped columns hold the result binding,
+// and storage_object_id keeps its foreign key to storage.objects, so the drop
+// needs the storage.objects lock as on the real schema.
+const storageObject = "00000000-0000-4000-8000-0000000000f1";
 const registryFixture = `
+create schema storage;
+create table storage.objects (id uuid primary key, bucket_id text, name text);
+insert into storage.objects values ('${storageObject}', 'result-bucket', 'task/attempt/result.json');
 create table engineering_private.native_verifier_registered_objects (
   bucket_id text not null, object_name text not null,
   organization_id uuid, project_id uuid, task_id uuid, attempt_id uuid, fence bigint,
   input_snapshot_id uuid, candidate_snapshot_id uuid, artifact_role text,
-  storage_object_id uuid, storage_version text, storage_updated_at timestamptz,
+  storage_object_id uuid references storage.objects(id), storage_version text, storage_updated_at timestamptz,
   byte_length bigint, sha256 text, registered_at timestamptz,
   constraint native_result_bucket_name_bound check (octet_length(bucket_id) > 0));
 create function engineering_private.register_native_result_object(uuid,uuid,uuid,uuid,bigint,uuid,uuid,text,text,text,uuid,text,timestamptz,bigint,text)
@@ -124,7 +133,7 @@ end $grants$;
 const registryRow = `insert into engineering_private.native_verifier_registered_objects values
   ('result-bucket','task/attempt/result.json',gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
    '00000000-0000-4000-8000-0000000000a1',1,gen_random_uuid(),gen_random_uuid(),'result',
-   gen_random_uuid(),'v1',now(),10,repeat('a',64),now());`;
+   '${storageObject}','v1',now(),10,repeat('a',64),now());`;
 const registryState = () => run(`select count(*)||':'||coalesce((select count(*) from pg_attribute
   where attrelid='engineering_private.native_verifier_registered_objects'::regclass
   and attname='attempt_id' and not attisdropped),0)
@@ -261,6 +270,46 @@ await scenario("560_reverse_empty_positive_control", registryFixture, async () =
   const { code } = await reverser.finish();
   const [, bindingColumn] = registryState().split(":");
   return { reverseExit: code, safe: code === 0 && bindingColumn === "0" };
+});
+
+// A registration holds storage.objects FOR SHARE and only then reads the
+// registry, as register_native_result_object does. The reverse must take
+// storage.objects before the registry: registry first deadlocks with it.
+const storageFirstLock = "lock table storage.objects, engineering_private.native_verifier_registered_objects\n  in access exclusive mode;";
+const registryFirstLock = "lock table engineering_private.native_verifier_registered_objects in access exclusive mode;";
+if (!sourceRev && reverse560.split(storageFirstLock).length !== 2) throw new Error("ovd651_storage_first_lock_drift");
+const registration = `select count(*) from engineering_private.native_verifier_registered_objects
+  where attempt_id = '00000000-0000-4000-8000-0000000000a1'; ${registryRow} commit;`;
+async function registrationRace(reverseSql) {
+  const writer = session("writer");
+  await writer.step(`begin; select id from storage.objects where id = '${storageObject}' for share;`);
+  const reverser = session("reverser");
+  reverser.send(reverseSql);
+  await waitBlocked(reverser);
+  writer.send(registration);
+  const [written, reversed] = await Promise.all([writer.finish(), reverser.finish()]);
+  const [rows, bindingColumn] = registryState().split(":");
+  const deadlock = /deadlock detected/.test(written.stderr + reversed.stderr);
+  // A committed registration is lost if the reverse still dropped its binding.
+  const lostCommittedRow = written.code === 0 && (rows !== "1" || bindingColumn !== "1");
+  return { writerExit: written.code, reverseExit: reversed.code, deadlock, lostCommittedRow,
+    refusal: reversed.stderr.match(/ovd560_[a-z_]+/)?.[0] ?? null,
+    rows: Number(rows), bindingRetained: bindingColumn === "1" };
+}
+// Control: the registry first order (cf3a9738) must reproduce the hazard, or
+// this harness could not tell the two orders apart.
+if (!sourceRev) {
+  await scenario("560_reverse_registry_first_registration_control", registryFixture, async () => {
+    const outcome = await registrationRace(reverse560.replace(storageFirstLock, registryFirstLock));
+    return { ...outcome, reproduced: outcome.deadlock || outcome.lostCommittedRow,
+      safe: outcome.deadlock || outcome.lostCommittedRow };
+  });
+}
+await scenario("560_reverse_storage_first_concurrent_registration", registryFixture, async () => {
+  const outcome = await registrationRace(reverse560);
+  return { ...outcome, safe: !outcome.deadlock && !outcome.lostCommittedRow && outcome.writerExit === 0
+    && outcome.reverseExit !== 0 && outcome.refusal === "ovd560_reverse_requires_empty_exact_registry"
+    && outcome.rows === 1 && outcome.bindingRetained };
 });
 
 // Finding 2: a snapshot taken before the reverse lock misses committed evidence.

@@ -17,6 +17,10 @@ const guardedReverse = new RegExp([
   "^begin;",
   "set local lock_timeout = '5s';",
   "set local statement_timeout = '30s';",
+  String.raw`do \$isolation\$ begin if current_setting\('transaction_isolation'\) <> 'read committed' then`,
+  "raise exception 'native_result_binding_reverse_requires_read_committed';",
+  String.raw`end if; end \$isolation\$;`,
+  String.raw`select pg_advisory_xact_lock\(510, 2\);`,
   String.raw`lock table engineering_private\.native_result_read_bindings in access exclusive mode;`,
   String.raw`do \$preflight\$ begin`,
   String.raw`if current_user <> 'postgres' or current_setting\('transaction_isolation'\) <> 'read committed'`,
@@ -29,7 +33,7 @@ const guardedReverse = new RegExp([
 ].join(" "));
 
 describe("staged native result reader reverse source contract", () => {
-  it("holds the exclusive history lock through owner/isolation/emptiness refusal and both drops", () => {
+  it("refuses non READ COMMITTED, takes the shared reverse lock, then holds the history lock through owner/isolation/emptiness refusal and both drops", () => {
     expect(normalize(reverse)).toMatch(guardedReverse);
   });
 
@@ -62,6 +66,9 @@ describe("staged native result reader reverse source contract", () => {
     ["inverted history refusal", (sql) => sql.replace("or exists", "or not exists")],
     ["missing history refusal", (sql) => sql.replace("or exists (select 1 from engineering_private.native_result_read_bindings)", "")],
     ["refusal downgraded to notice", (sql) => sql.replace("raise exception", "raise notice")],
+    ["missing shared reverse lock", (sql) => sql.replace("select pg_advisory_xact_lock(510, 2);", "")],
+    ["shared reverse lock after relation lock", (sql) => sql.replace("select pg_advisory_xact_lock(510, 2);\n", "").replace(lock, `${lock} select pg_advisory_xact_lock(510, 2);`)],
+    ["isolation refusal after relation lock", (sql) => sql.replace(/do \$isolation\$[\s\S]*?end \$isolation\$;\n/, "").replace(lock, `${lock} do $isolation$ begin if current_setting('transaction_isolation') <> 'read committed' then raise exception 'native_result_binding_reverse_requires_read_committed'; end if; end $isolation$;`)],
     ["lock after preflight", (sql) => sql.replace(lock, "").replace("end $preflight$;", `end $preflight$; ${lock}`)],
     ["drop before guard", (sql) => sql.replace(drop, "").replace("begin;", `begin; ${drop}`)],
     ["commit releases lock before drop", (sql) => sql.replace(drop, `commit; ${drop}`)],
