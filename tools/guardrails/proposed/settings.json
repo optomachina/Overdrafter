@@ -1,0 +1,111 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(/supabase/migrations/**)",
+      "Edit(//**/supabase/migrations/**)",
+      "mcp__*__apply_migration",
+      "mcp__*upabase*__create_branch",
+      "mcp__*upabase*__merge_branch",
+      "mcp__*upabase*__reset_branch",
+      "mcp__*upabase*__rebase_branch",
+      "mcp__*upabase*__delete_branch",
+      "mcp__*upabase*__deploy_edge_function",
+      "mcp__*upabase*__create_edge_function_secret",
+      "mcp__*upabase*__pause_project",
+      "mcp__*upabase*__restore_project",
+      "mcp__*upabase*__create_project",
+      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__create_branch",
+      "mcp__Supabase__merge_branch",
+      "mcp__Supabase__reset_branch",
+      "mcp__Supabase__rebase_branch",
+      "mcp__Supabase__delete_branch",
+      "mcp__Supabase__deploy_edge_function",
+      "mcp__Supabase__create_edge_function_secret",
+      "mcp__Supabase__pause_project",
+      "mcp__Supabase__restore_project",
+      "mcp__Supabase__create_project",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__create_branch",
+      "mcp__supabase__merge_branch",
+      "mcp__supabase__reset_branch",
+      "mcp__supabase__rebase_branch",
+      "mcp__supabase__delete_branch",
+      "mcp__supabase__deploy_edge_function",
+      "mcp__supabase__create_edge_function_secret",
+      "mcp__supabase__pause_project",
+      "mcp__supabase__restore_project",
+      "mcp__supabase__create_project",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__create_branch",
+      "mcp__claude_ai_Supabase__merge_branch",
+      "mcp__claude_ai_Supabase__reset_branch",
+      "mcp__claude_ai_Supabase__rebase_branch",
+      "mcp__claude_ai_Supabase__delete_branch",
+      "mcp__claude_ai_Supabase__deploy_edge_function",
+      "mcp__claude_ai_Supabase__create_edge_function_secret",
+      "mcp__claude_ai_Supabase__pause_project",
+      "mcp__claude_ai_Supabase__restore_project",
+      "mcp__claude_ai_Supabase__create_project",
+      "mcp__plugin_supabase_supabase__apply_migration",
+      "mcp__plugin_supabase_supabase__create_branch",
+      "mcp__plugin_supabase_supabase__merge_branch",
+      "mcp__plugin_supabase_supabase__reset_branch",
+      "mcp__plugin_supabase_supabase__rebase_branch",
+      "mcp__plugin_supabase_supabase__delete_branch",
+      "mcp__plugin_supabase_supabase__deploy_edge_function",
+      "mcp__plugin_supabase_supabase__create_edge_function_secret",
+      "mcp__plugin_supabase_supabase__pause_project",
+      "mcp__plugin_supabase_supabase__restore_project",
+      "mcp__plugin_supabase_supabase__create_project",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__apply_migration",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__create_branch",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__merge_branch",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__reset_branch",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__rebase_branch",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__delete_branch",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__deploy_edge_function",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__create_edge_function_secret",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__pause_project",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__restore_project",
+      "mcp__fb51b900-5d04-4884-9f50-844879db0029__create_project"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-migrations.mjs",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
