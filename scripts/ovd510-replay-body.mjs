@@ -857,6 +857,14 @@ end $ovd560_temp$;`;
         if (!unknownRejected) throw new Error("reverse_unknown_state_not_rejected");
         const afterUnknown = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
         if (afterUnknown !== postRaw) throw new Error("reverse_unknown_state_catalog_drift");
+        stage = "durable_reverse_lock_proof";
+        const { runOvd558ReverseLockProof } = await import("./ovd510-reverse-lock-proof.mjs");
+        const lockProof = await runOvd558ReverseLockProof({ dockerExecutable, container,
+          password: fixturePassword, psql, reverseSql, expectedCatalog: postRaw,
+          catalog: () => psql(catalogSql).split("\n").find((line) => line.startsWith("{")) });
+        save("durable-reverse-lock-proof.json", { status: "passed", fixtureId,
+          sourceRevision: revision.stdout.trim(), reverseSha256: sha(reverseBytes), ...lockProof });
+        stage = "durable_reverse";
         psql(reverseSql, 240_000, "supabase_admin");
         const restoredRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
         const restoredCatalog = JSON.parse(restoredRaw);
@@ -888,6 +896,16 @@ end $ovd560_temp$;`;
           unknownState: "rejected_before_mutation", normalizedCatalogSha256: sha(Buffer.from(JSON.stringify(restoredCatalog))),
           rawStorageAclNormalizationCount: catalog.functions.filter((fn) =>
             fn.schema_name === "storage" && fn.acl === null).length });
+        stage = "durable_reapply";
+        psql(forwardSql, 240_000, "supabase_admin");
+        const reappliedRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (reappliedRaw !== postRaw) throw new Error("durable_reapply_forward_catalog_drift");
+        psql(reverseSql, 240_000, "supabase_admin");
+        const reReversedRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (reReversedRaw !== restoredRaw) throw new Error("durable_reapply_reverse_catalog_drift");
+        save("durable-reapply.json", { status: "passed", fixtureId,
+          forwardCatalogSha256: sha(Buffer.from(reappliedRaw)),
+          reversedCatalogSha256: sha(Buffer.from(reReversedRaw)) });
       }
     }
     if (process.argv.includes("--authority-proof")) {
