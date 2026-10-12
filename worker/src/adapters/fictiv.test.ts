@@ -1120,7 +1120,10 @@ describe("FictivAdapter", () => {
       };
       return { state, providerKillSwitchCheckpoint };
     };
-    const flowPage = (spies: { upload?: () => void; process?: () => void; material?: () => void; finish?: () => void }) => {
+    const flowPage = (
+      spies: { upload?: () => void; process?: () => void; material?: () => void; finish?: () => void },
+      extraSelectors: Record<string, LocatorBehavior> = {},
+    ) => {
       let cncSelected = false;
       return createFakePage({
         bodyTextSequence: [
@@ -1144,6 +1147,7 @@ describe("FictivAdapter", () => {
           [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $88.00" },
           [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "4 business days" },
           [FICTIV_LOCATORS.quoteLinkAnchors[0]]: { count: 1, href: "/quotes/kill-switch" },
+          ...extraSelectors,
         },
         optionTexts: ["CNC", "6061-T6", "Type II Anodize Black"],
       });
@@ -1197,15 +1201,102 @@ describe("FictivAdapter", () => {
       expect(upload).not.toHaveBeenCalled();
     });
 
-    it("engaged while the material is selected: the finish is never opened", async () => {
+    /** Records which dropdown options get clicked, by the option name the adapter asks for. */
+    const trackOptionClicks = (page: ReturnType<typeof flowPage>) => {
+      const clicked: string[] = [];
+      const getByRole = page.getByRole.bind(page);
+      page.getByRole = ((role: string, input: { name?: RegExp }) => {
+        const locator = getByRole(role, input);
+        const click = locator.click.bind(locator);
+        locator.click = async () => {
+          clicked.push(String(input.name));
+          await click();
+        };
+        return locator;
+      }) as typeof page.getByRole;
+      return clicked;
+    };
+    const runExpectingKillSwitch = async (page: ReturnType<typeof flowPage>, providerKillSwitchCheckpoint: Parameters<typeof makeInput>[0] extends infer T ? NonNullable<T> extends { providerKillSwitchCheckpoint?: infer C } ? C : never : never) => {
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+    };
+
+    it("engaged while the material is selected: the material option and the finish are never clicked", async () => {
       const { state, providerKillSwitchCheckpoint } = killSwitch();
       const finish = vi.fn();
-      launchMock.mockResolvedValue(createFakeBrowser(flowPage({ material: () => { state.engaged = true; }, finish })));
+      const page = flowPage({ material: () => { state.engaged = true; }, finish });
+      const clicked = trackOptionClicks(page);
 
-      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
 
-      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(clicked.some((name) => /6061/.test(name))).toBe(false);
       expect(finish).not.toHaveBeenCalled();
+    });
+
+    it("engaged while the finish dropdown opens: the finish option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = flowPage({ finish: () => { state.engaged = true; } });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /Type II|Black/.test(name))).toBe(false);
+    });
+
+    it("engaged while the end use dropdown opens: the end use option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = createFakePage({
+        bodyText: "Active quotes Total price USD $88.00 Lead time 4 business days",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC", click: vi.fn() },
+          [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Select", click: vi.fn(() => { state.engaged = true; }) },
+        },
+        optionTexts: ["CNC", "6061-T6", "Type II Anodize Black", "Prototype"],
+      });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /Prototype/.test(name))).toBe(false);
+    });
+
+    it("engaged while the configuration drawer opens: the CNC radio card is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const radio = vi.fn();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: { count: 1, click: vi.fn(() => { state.engaged = true; }) },
+        [FICTIV_LOCATORS.processRadioCards[0]]: { count: 1, text: "CNC Machining", click: radio },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      // One click is the pre upload selection; none may follow the drawer open.
+      expect(radio).toHaveBeenCalledTimes(1);
+    });
+
+    it("engaged during the failed radio click wait: the process dropdown fallback is never opened", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const process = vi.fn();
+      const page = createFakePage({
+        bodyText: "Select process to continue",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processRadioCards[0]]: {
+            count: 1,
+            text: "CNC Machining",
+            click: vi.fn(() => {
+              state.engaged = true;
+              throw new Error("radio card click timed out");
+            }),
+          },
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "Process", click: process },
+        },
+        optionTexts: ["CNC"],
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(process).not.toHaveBeenCalled();
     });
   });
 

@@ -811,6 +811,8 @@ async function trySetMaterialAndFinish(
 
   const materialButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.materialButtons);
   if (materialButtonSelector) {
+    // OVD-722: the dropdown open above is a click; recheck before choosing.
+    await beforeStep();
     selectedMaterial = await chooseOptionByTerms(page, materialTerms, FICTIV_LOCATORS.materialOptions);
   }
 
@@ -819,6 +821,7 @@ async function trySetMaterialAndFinish(
     await beforeStep();
     const finishButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.finishButtons);
     if (finishButtonSelector) {
+      await beforeStep();
       selectedFinish = await chooseOptionByTerms(page, finishTerms, FICTIV_LOCATORS.finishOptions);
     }
   }
@@ -928,16 +931,22 @@ async function trySelectCncProcess(
     return "CNC";
   }
 
+  // OVD-722: the radio click wait above may have outlasted an engagement.
+  await beforeClick();
   const processButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.processButtons);
   if (!processButtonSelector) {
     return null;
   }
 
+  await beforeClick();
   const selectedProcess = await chooseOptionByTerms(page, processTerms, FICTIV_LOCATORS.processOptions);
   return selectedProcess ?? null;
 }
 
-async function trySetEndUsePrototype(page: Page) {
+async function trySetEndUsePrototype(
+  page: Page,
+  beforeStep: () => Promise<void> = async () => undefined,
+) {
   const assumedDefaultSelection = {
     selectedEndUse: "Prototype",
     selectedEndUseSource: "assumed_default" as FictivEndUseSource,
@@ -961,6 +970,9 @@ async function trySetEndUsePrototype(page: Page) {
   if (!endUseButtonSelector) {
     return assumedDefaultSelection;
   }
+
+  // OVD-722: outside the try/catch so a kill switch error is not swallowed.
+  await beforeStep();
 
   let selectedEndUse: string | null = null;
   try {
@@ -1493,7 +1505,9 @@ export class FictivAdapter extends VendorAdapter {
     await input.providerKillSwitchCheckpoint?.("before_configure");
     markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
-    const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
+    const selectedProcess = (await trySelectCncProcess(page, async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    )) ?? selectedProcessBeforeUpload;
     // OVD-722: fresh read before each configuration step, not only the first.
     await input.providerKillSwitchCheckpoint?.("before_configure");
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
@@ -1505,7 +1519,9 @@ export class FictivAdapter extends VendorAdapter {
       async () => input.providerKillSwitchCheckpoint?.("before_configure"),
     );
     await input.providerKillSwitchCheckpoint?.("before_configure");
-    const endUseSelection = await trySetEndUsePrototype(page);
+    const endUseSelection = await trySetEndUsePrototype(page, async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
 
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await detectBlockingState(page, runDir);
