@@ -218,9 +218,13 @@ $$;
 
 -- OVD-723 (window 1): seed a clean declaration for each fixture job when the
 -- export-control upload block exists. Without it this block does nothing.
+-- The guard is the declaring prepare overload, not the declarations table:
+-- an expand rollback keeps the table (audit data) but drops the overloads.
 do $ovd723$
 begin
-  if pg_catalog.to_regclass('private.job_export_declarations') is null then
+  if pg_catalog.to_regprocedure(
+    'public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid)'
+  ) is null then
     return;
   end if;
   with declared as (

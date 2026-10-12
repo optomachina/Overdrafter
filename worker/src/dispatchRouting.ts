@@ -224,6 +224,15 @@ export const EXPORT_CONTROL_HOLD_NOTE =
   + "or replace a drawing or STEP file that could not be read. Parts with export-control markings stay held until an OverDrafter admin reviews them.";
 
 /**
+ * The hold note for a lane whose provider automation had already started when
+ * the export-control gate refused or could not be read, so an upload may have
+ * reached the supplier. It never claims that nothing was sent.
+ */
+export const EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE =
+  "Held by export control after automation with this supplier had started, so some files may already have reached it. "
+  + "This lane is closed, will not be retried, and must not be quoted manually. An OverDrafter admin should review what was sent.";
+
+/**
  * OVD-723: a quote lane held by export control. Every export-control code a
  * dispatch boundary returns (from the worker's check or, after the contract,
  * from the preflight wrappers) and a marking hit found while staging the lane

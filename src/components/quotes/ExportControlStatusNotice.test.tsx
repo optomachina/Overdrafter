@@ -1,7 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getExportControlNoticeCopy } from "@/features/quotes/export-control-notice";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  EXPORT_CONTROL_CHECKING_REFETCH_MS,
+  exportControlStatusRefetchInterval,
+  getExportControlNoticeCopy,
+} from "@/features/quotes/export-control-notice";
 import { ExportControlStatusNotice } from "./ExportControlStatusNotice";
 
 const api = vi.hoisted(() => ({
@@ -87,6 +91,10 @@ describe("getExportControlNoticeCopy", () => {
 });
 
 describe("ExportControlStatusNotice", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     api.fetchJobExportControlStatus.mockReset();
     api.declareJobExportStatus.mockReset();
@@ -150,6 +158,31 @@ describe("ExportControlStatusNotice", () => {
     expect(prompt.requestExportControlAnswer).not.toHaveBeenCalled();
     expect(api.declareJobExportStatus).not.toHaveBeenCalled();
     expect(await screen.findByText("Checking files for export-control markings")).toBeTruthy();
+  });
+
+  // Review round 6: a running check clears on its own, without a focus
+  // change or reload.
+  it("polls only while the files are being checked", () => {
+    const base = { jobId: "j", latestAnswer: "not_controlled", exportReviewState: "clear" } as const;
+    expect(exportControlStatusRefetchInterval({ ...base, scanState: "pending" })).toBe(EXPORT_CONTROL_CHECKING_REFETCH_MS);
+    for (const scanState of ["complete", "missing", "drawing_unread", "step_header_incomplete", null] as const) {
+      expect(exportControlStatusRefetchInterval({ ...base, scanState })).toBe(false);
+    }
+    expect(exportControlStatusRefetchInterval(undefined)).toBe(false);
+  });
+
+  it("clears the checking notice once the check finishes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.fetchJobExportControlStatus
+      .mockResolvedValueOnce({ jobId: "job-1", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "pending" })
+      .mockResolvedValue({ jobId: "job-1", latestAnswer: "not_controlled", exportReviewState: "clear", scanState: "complete" });
+
+    renderNotice();
+    expect(await screen.findByText("Checking files for export-control markings")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(EXPORT_CONTROL_CHECKING_REFETCH_MS + 100);
+
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Export control" })).toBeNull());
+    expect(api.fetchJobExportControlStatus).toHaveBeenCalledTimes(2);
   });
 
   it("renders nothing when the status cannot be read", async () => {

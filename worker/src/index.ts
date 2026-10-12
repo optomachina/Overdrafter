@@ -78,6 +78,7 @@ import {
 } from "./vendorTaskRetry.js";
 import {
   createProviderMutationPhase,
+  currentProviderMutationPhase,
   markProviderMutationStarted,
   providerMutationEvidence,
   runInProviderMutationPhase,
@@ -101,6 +102,7 @@ import {
   runExportMarkingRescan,
   scanDrawingTextForExportMarkings,
   scanPartStepHeaderForExtraction,
+  ExportControlStepScanRetryableError,
   scanStagedDrawingForExportMarkings,
 } from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
@@ -114,6 +116,7 @@ import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
   assertExportControlDispatchAllowed,
   dispatchAuthorizationFailure,
+  EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE,
   EXPORT_CONTROL_HOLD_NOTE,
   exportControlHoldReason,
   providerDispatchClaimFromTask,
@@ -1281,28 +1284,33 @@ export async function handleVendorQuoteTask(
     // never becomes manual vendor follow-up: quoting held files by hand would
     // send them to the vendor the gate refused. The lane is closed as failed,
     // so it stays out of the manual quote queue, and the task completes so it
-    // is never retried (a retry would only rescan and refuse again).
+    // is never retried (a retry would only rescan and refuse again). A lookup
+    // that failed after the adapter started is held too: the provider may
+    // already hold an upload, so the task is never requeued.
+    const providerMutationStarted = currentProviderMutationPhase()?.started === true;
     const exportControlHold =
       exportControlHoldReason(error)
-      ?? (error instanceof ExportControlLookupError && nextRetryAt(task.attempts) === null ? error.reasonCode : null);
+      ?? (error instanceof ExportControlLookupError
+        && (providerMutationStarted || nextRetryAt(task.attempts) === null) ? error.reasonCode : null);
     if (exportControlHold) {
-      await supabase
-        .from("vendor_quote_results")
-        .update({
-          status: "failed",
-          notes: [EXPORT_CONTROL_HOLD_NOTE],
-          raw_payload: {
-            ...buildFailureRawPayload(vendor, retryCount, exportControlHold, {}, failureArtifactStoragePaths),
-            ...providerMutationEvidence(),
-            requestedQuantity: currentResult.requested_quantity,
-            retryScheduledFor: null,
-            requiresManualVendorFollowUp: false,
-            manualFollowUpReason: null,
-            exportControlHold: true,
-            exportControlReasonCode: exportControlHold,
-          },
-        })
-        .eq("id", currentResult.id);
+      const holdWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+        status: "failed",
+        notes: [providerMutationStarted ? EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE : EXPORT_CONTROL_HOLD_NOTE],
+        raw_payload: {
+          ...buildFailureRawPayload(vendor, retryCount, exportControlHold, {}, failureArtifactStoragePaths),
+          ...providerMutationEvidence(),
+          requestedQuantity: currentResult.requested_quantity,
+          retryScheduledFor: null,
+          requiresManualVendorFollowUp: false,
+          manualFollowUpReason: null,
+          exportControlHold: true,
+          exportControlReasonCode: exportControlHold,
+        },
+      });
+      if (holdWrite !== "written") {
+        await settleUnwrittenProviderOutcome(supabase, task, holdWrite, providerMutationStarted);
+        return;
+      }
       await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
       await markTaskCompleted(supabase, task, {
         vendorStatus: "failed",
@@ -1668,10 +1676,12 @@ export async function handleVendorQuoteTask(
           return { artifactCount: artifactStoragePaths.length };
         },
       });
-      if (exportControlStop) throw exportControlStop;
       // Once the adapter ran, nothing later in this task may be retried by the
-      // generic task retry: the provider may hold an upload or a quote.
+      // generic task retry: the provider may hold an upload or a quote. This
+      // is marked before an export stop is rethrown, so a lookup that failed
+      // after an upload closes the lane as held instead of requeueing it.
       if (outcome.adapterStarted) markProviderMutationStarted();
+      if (exportControlStop) throw exportControlStop;
       const failureArtifactStoragePaths = await keepGenericProviderFailureEvidence(supabase, config, task, {
         vendor,
         vendorQuoteResultId: currentResult.id,
@@ -2302,6 +2312,7 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
         (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
         (task.task_type === "extract_part" && error instanceof ExportControlLookupError) ||
+        (task.task_type === "extract_part" && error instanceof ExportControlStepScanRetryableError) ||
         (task.task_type === "export_marking_rescan" && isRetryableExportRescanError(error)) ||
         (task.task_type === "run_vendor_quote" &&
           isRetryableVendorTaskError(error, providerMutationPhase));

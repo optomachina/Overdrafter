@@ -14,6 +14,8 @@ import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
 import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
 import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight";
+import { ExportControlLookupError } from "../exportControl";
+import { EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE } from "../dispatchRouting";
 import type { ProviderTaskRouteInput } from "../providerTaskRoute";
 import type { ProviderTaskOutcome } from "../providerTaskPipeline";
 
@@ -372,6 +374,44 @@ describe("actual worker operational advisory seam", () => {
     expect(JSON.stringify(laneWrites)).not.toContain("manual_vendor_followup");
     expect(db.writes).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "completed",
       payload: expect.objectContaining({ exportControlHold: true, failureCode: "export_review_pending" }) }) }]));
+  });
+
+  // OVD-723 x OVD-464: a lookup that fails inside the wrapped adapter after it
+  // started (the recheck before the drawing upload) must not requeue the task:
+  // the provider may already hold the CAD upload.
+  it("holds a generic lane, never requeues it, when the export lookup fails after the adapter started (OVD-723)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    let adapterError: unknown = null;
+    genericRoute.run = async (route) => {
+      adapterError = await route.adapter.quote({} as VendorQuoteAdapterInput).catch((error: unknown) => error);
+      return { disposition: "manual_follow_up", code: "adapter_failed", stage: "adapter", adapterStarted: true, retryAt: null,
+        providerDisabledForDay: false, rejection: null, persisted: null, evidence: { adapterError: null, artifacts: [] } };
+    };
+    const db = database(false, false, undefined, requirement, true);
+    const baseRpc = db.client.rpc.bind(db.client);
+    let dispatchChecks = 0;
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => {
+      if (name === "api_check_export_control_dispatch" && ++dispatchChecks > 2) {
+        db.writes.push({ rpc: name, args: structuredClone(args) });
+        const failed = Promise.resolve({ data: null, error: { message: "transient RPC failure" } });
+        return Object.assign(failed, { abortSignal: () => failed });
+      }
+      return baseRpc(name, args as never);
+    };
+    await expect(processClaimedTask(db.client, generic, live, createWorkerRuntimeState())).resolves.toBeUndefined();
+    expect(adapterError).toBeInstanceOf(ExportControlLookupError);
+    const laneWrites = db.writes.filter((write) => (write as { table?: string }).table === "vendor_quote_results");
+    expect(laneWrites.at(-1)).toEqual(expect.objectContaining({ update: expect.objectContaining({ status: "failed",
+      notes: [EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE],
+      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_control_lookup_failed",
+        providerMutationPossible: true, retryScheduledFor: null }) }) }));
+    expect(JSON.stringify(db.writes)).not.toContain("Nothing was sent");
+    const queueWrites = db.writes.filter((write) => (write as { table?: string }).table === "work_queue");
+    expect(queueWrites).not.toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "queued" }) }]));
+    expect(queueWrites).toEqual(expect.arrayContaining([{ table: "work_queue", update: expect.objectContaining({ status: "completed",
+      payload: expect.objectContaining({ exportControlHold: true, failureCode: "export_control_lookup_failed" }) }) }]));
   });
 
   it("never overwrites a committed generic result whose persistence acknowledgement was lost (OVD-464)", async () => {

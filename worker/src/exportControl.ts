@@ -182,31 +182,37 @@ export const STEP_HEADER_SCAN_BYTES = 256 * 1024;
  * or a file with no `HEADER;` in the prefix, is incomplete: its text is still
  * scanned for markings (a hit still blocks), but no clean scan may be
  * recorded for it, so dispatch stays denied (held).
+ *
+ * Both keywords are found with the same tokenizer, outside quoted strings and
+ * comments, so a commented `HEADER; ENDSEC;` before the real header cannot
+ * stand in for it. The returned text runs from the start of the file through
+ * the header, so anything before `HEADER;` (comments included) is scanned too.
  */
 export function readStepHeader(content: Uint8Array | string): { text: string; complete: boolean } {
   const prefix =
     typeof content === "string"
       ? content.slice(0, STEP_HEADER_SCAN_BYTES)
       : Buffer.from(content.subarray(0, STEP_HEADER_SCAN_BYTES)).toString("latin1");
-  const start = prefix.search(/\bHEADER\s*;/i);
+  const start = findStepKeyword(prefix, 0, STEP_HEADER);
   if (start < 0) return { text: prefix, complete: false };
-  const end = findStepHeaderEnd(prefix, start);
+  const end = findStepKeyword(prefix, start, STEP_ENDSEC);
   return end < 0
-    ? { text: prefix.slice(start), complete: false }
-    : { text: prefix.slice(start, end), complete: true };
+    ? { text: prefix, complete: false }
+    : { text: prefix.slice(0, end), complete: true };
 }
 
+const STEP_HEADER = /^HEADER\s*;/i;
 const STEP_ENDSEC = /^ENDSEC\s*;/i;
 
 /**
- * Index of the `ENDSEC;` that closes the header section starting at `start`,
- * or -1 when it is not in `text`. Text inside a quoted string (single quotes;
- * a doubled `''` is an escaped quote) or a `/* ... *\/` comment never ends the
- * header, so a header that quotes or comments `ENDSEC;` cannot hide the text
- * after it from the scan. An unbalanced quote or comment reaches the end of
- * the text and returns -1 (incomplete, held).
+ * Index of the first `keyword` at or after `start` that is outside any quoted
+ * string (single quotes; a doubled `''` is an escaped quote) or `/* ... *\/`
+ * comment, or -1 when there is none in `text`. A quoted or commented keyword
+ * never counts, so it cannot open or close the header early and hide text
+ * from the scan. An unbalanced quote or comment reaches the end of the text
+ * and returns -1 (incomplete, held).
  */
-function findStepHeaderEnd(text: string, start: number): number {
+function findStepKeyword(text: string, start: number, keyword: RegExp): number {
   let index = start;
   while (index < text.length) {
     const char = text[index];
@@ -233,9 +239,9 @@ function findStepHeaderEnd(text: string, start: number): number {
       continue;
     }
     if (
-      (char === "E" || char === "e")
+      /[a-z]/i.test(char)
       && (index === 0 || !/\w/.test(text[index - 1]))
-      && STEP_ENDSEC.test(text.slice(index, index + 64))
+      && keyword.test(text.slice(index, index + 64))
     ) {
       return index;
     }
@@ -278,19 +284,38 @@ export type ExportControlMarkingScan = {
 };
 
 /**
+ * The shape of `extractPdfText`'s result that the export scan reads. The
+ * optional fields arrive with PR #710 (OCR every page): `pageCountKnown` is
+ * false when pdfinfo failed, `ocrStatus` is each page's OCR outcome, and
+ * `ocrText` is OCR output alone, never mixed with the text layer.
+ */
+export type DrawingTextForExportScan = {
+  pageCount?: number;
+  pageCountKnown?: boolean;
+  ocr?: boolean;
+  pages: ReadonlyArray<{ text: string; ocrText?: string; ocrStatus?: string }>;
+};
+
+/**
  * True only when every page of the drawing yielded text. `extractPdfText`
  * returns pages with empty text when neither pdftotext nor OCR found any (a
  * raster drawing on a host without tesseract, or OCR that reads only page 1),
  * so a non-null result is not proof the drawing was read. A drawing with any
  * unread page is unread as a whole: no clean scan is recorded for it, so
  * dispatch stays denied, and its content never goes to an extraction model.
+ *
+ * When the fields exist (PR #710), an unknown page count (`pageCountKnown`
+ * false) or any page whose OCR status is not `ok` is also unread: later pages
+ * may exist, or a raster marking on that page was never read.
  */
-export function isDrawingTextFullyRead(
-  pdfText: { pageCount?: number; pages: ReadonlyArray<{ text: string }> } | null | undefined,
-): boolean {
+export function isDrawingTextFullyRead(pdfText: DrawingTextForExportScan | null | undefined): boolean {
   if (!pdfText || !Array.isArray(pdfText.pages) || pdfText.pages.length === 0) return false;
+  if (pdfText.pageCountKnown === false) return false;
   if (typeof pdfText.pageCount === "number" && pdfText.pages.length < pdfText.pageCount) return false;
-  return pdfText.pages.every((page) => typeof page.text === "string" && page.text.trim().length > 0);
+  return pdfText.pages.every((page) =>
+    typeof page.text === "string"
+    && page.text.trim().length > 0
+    && (page.ocrStatus === undefined || page.ocrStatus === "ok"));
 }
 
 /**
@@ -303,14 +328,24 @@ export function drawingTextScanSource(
   return pdfText?.ocr === true ? "drawing_ocr" : "drawing_text";
 }
 
-/** Scans every drawing page; OCR-derived text is reported as `drawing_ocr`. */
+/**
+ * Scans every drawing page; OCR-derived text is reported as `drawing_ocr`.
+ * When a page carries separate OCR output (`ocrText`, PR #710), it is scanned
+ * too, so a raster marking next to a selectable text layer is still found.
+ */
 export function scanDrawingTextForExportMarkings(
-  pdfText: { pages: ReadonlyArray<{ text: string }>; ocr?: boolean } | null | undefined,
+  pdfText: DrawingTextForExportScan | null | undefined,
   options: { ocr?: boolean } = {},
 ): ExportControlMarkingScan | null {
   if (!pdfText) return null;
-  const patterns = detectExportControlMarkings(pdfText.pages.map((page) => page.text).join("\n"));
-  const ocr = options.ocr ?? pdfText.ocr === true;
+  const layerPatterns = detectExportControlMarkings(pdfText.pages.map((page) => page.text).join("\n"));
+  const ocrPatterns = detectExportControlMarkings(
+    pdfText.pages.map((page) => (typeof page.ocrText === "string" ? page.ocrText : "")).join("\n"),
+  );
+  const patterns = EXPORT_CONTROL_MARKING_PATTERNS
+    .map(({ id }) => id)
+    .filter((id) => layerPatterns.includes(id) || ocrPatterns.includes(id));
+  const ocr = options.ocr ?? (pdfText.ocr === true || (layerPatterns.length === 0 && ocrPatterns.length > 0));
   return patterns.length > 0 ? { source: ocr ? "drawing_ocr" : "drawing_text", patterns } : null;
 }
 
@@ -439,16 +474,26 @@ export async function scanPartStepHeaderForExtraction(
   outcomes: ExportScanOutcomes,
 ): Promise<void> {
   if (!input.cadFile || !isStepFileName(input.cadFile.original_name)) return;
-  if (!input.stagedCad) throw new ExportControlScanRecordError();
+  if (!input.stagedCad) throw new ExportControlStepScanRetryableError();
   const contentSha256 = input.stagedCad.trustedContentSha256 ?? "";
-  const complete = await enforceAndRecordStepHeaderScan(supabase, {
-    jobId: input.jobId,
-    partId: input.partId,
-    jobFileId: input.cadFile.id,
-    localPath: input.stagedCad.localPath,
-    contentSha256,
-    readPrefix: input.readPrefix,
-  });
+  let complete: boolean;
+  try {
+    complete = await enforceAndRecordStepHeaderScan(supabase, {
+      jobId: input.jobId,
+      partId: input.partId,
+      jobFileId: input.cadFile.id,
+      localPath: input.stagedCad.localPath,
+      contentSha256,
+      readPrefix: input.readPrefix,
+    });
+  } catch (error) {
+    // A scan or block that could not be recorded is not an answer about the
+    // file: retry extraction on the bounded schedule (no model has run yet).
+    if (error instanceof ExportControlScanRecordError || error instanceof ExportControlMarkingRecordError) {
+      throw new ExportControlStepScanRetryableError();
+    }
+    throw error;
+  }
   addExportScanOutcome(outcomes, input.cadFile.id, contentSha256, complete ? "clean" : "step_header_incomplete");
 }
 
@@ -478,6 +523,21 @@ export class ExportControlScanRecordError extends Error {
   constructor() {
     super("Export-control clean scan could not be recorded; failing closed.");
     this.name = "ExportControlScanRecordError";
+  }
+}
+
+/**
+ * OVD-723 review round 6: extraction's STEP header scan could not be staged
+ * or recorded (a Storage or RPC error). It runs before any model call, so
+ * extract_part retries it on the bounded schedule instead of failing the
+ * part's extraction for good after one blip. Until it succeeds the file has
+ * no scan of record and dispatch stays denied.
+ */
+export class ExportControlStepScanRetryableError extends ExportControlScanRecordError {
+  constructor() {
+    super();
+    this.message = "Export-control STEP header scan could not be recorded; extraction will retry.";
+    this.name = "ExportControlStepScanRetryableError";
   }
 }
 

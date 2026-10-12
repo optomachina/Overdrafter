@@ -19,6 +19,7 @@ import {
   ExportControlLookupError,
   ExportControlMarkingRecordError,
   ExportControlScanRecordError,
+  ExportControlStepScanRetryableError,
   isDrawingTextFullyRead,
   exportControlProviderJurisdiction,
   FOREIGN_JURISDICTION_PROVIDERS,
@@ -387,6 +388,26 @@ describe("clean scans of record (reused files and skipped extraction)", () => {
     expect(isDrawingTextFullyRead({ pageCount: 2, pages: [{ text: CLEAN_DRAWING }, { text: "SHEET 2" }] })).toBe(true);
   });
 
+  // OVD-723 review round 6, ready for PR #710 (OCR every page): its result
+  // shape fails closed here once the two branches combine.
+  it("treats an unknown page count or a page without an ok OCR status as unread", () => {
+    const page = (ocrStatus: string, text = CLEAN_DRAWING) => ({ text, ocrText: "", ocrStatus });
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: true, pages: [page("ok")] })).toBe(true);
+    expect(isDrawingTextFullyRead({ pageCount: 1, pageCountKnown: false, pages: [page("ok")] })).toBe(false);
+    for (const status of ["failed", "unavailable", "not_read"]) {
+      expect(isDrawingTextFullyRead({ pageCount: 2, pageCountKnown: true, pages: [page("ok"), page(status)] })).toBe(false);
+    }
+    // Without the new fields the older rule applies unchanged.
+    expect(isDrawingTextFullyRead({ pageCount: 1, pages: [{ text: CLEAN_DRAWING }] })).toBe(true);
+  });
+
+  it("scans OCR text next to a text layer, so a raster marking is still found", () => {
+    const pdfText = { pageCount: 1, pageCountKnown: true, ocr: false,
+      pages: [{ text: CLEAN_DRAWING, ocrText: "ITAR CONTROLLED", ocrStatus: "ok" }] };
+    expect(scanDrawingTextForExportMarkings(pdfText)).toEqual({ source: "drawing_ocr", patterns: ["itar"] });
+    expect(scanDrawingTextForExportMarkings({ ...pdfText, pages: [{ ...pdfText.pages[0], ocrText: "" }] })).toBeNull();
+  });
+
   it.each([
     ["an extraction with only empty pages", { pageCount: 2, pages: [{ page: 1, text: "" }, { page: 2, text: "" }] }],
     ["page 1 text with empty later pages", { pageCount: 3, pages: [{ page: 1, text: CLEAN_DRAWING }, { page: 2, text: "" }, { page: 3, text: " " }] }],
@@ -685,15 +706,16 @@ describe("export-control dispatch check (window 1 worker gate)", () => {
     expect(holdAt).toBeGreaterThan(-1);
     // The hold returns before the manual follow-up decision is ever made.
     expect(holdAt).toBeLessThan(catchBlock.indexOf("const requiresManualVendorFollowUp ="));
-    const hold = catchBlock.slice(holdAt, catchBlock.indexOf("return;", holdAt));
+    const hold = catchBlock.slice(holdAt, catchBlock.indexOf("const failureCode = dispatchAuthorizationError", holdAt));
     expect(hold).toContain('status: "failed"');
-    expect(hold).toContain("notes: [EXPORT_CONTROL_HOLD_NOTE]");
+    expect(hold).toContain("EXPORT_CONTROL_HOLD_NOTE]");
+    expect(hold).toContain("await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {");
     expect(hold).toContain("requiresManualVendorFollowUp: false");
     expect(hold).toContain("manualFollowUpReason: null");
     expect(hold).toContain("await markTaskCompleted(");
     expect(hold).not.toContain("manual_vendor_followup");
     expect(catchBlock).toContain(
-      "?? (error instanceof ExportControlLookupError && nextRetryAt(task.attempts) === null ? error.reasonCode : null);",
+      "&& (providerMutationStarted || nextRetryAt(task.attempts) === null) ? error.reasonCode : null);",
     );
     expect(EXPORT_CONTROL_HOLD_NOTE).toContain("must not be quoted manually");
     expect(EXPORT_CONTROL_HOLD_NOTE).not.toMatch(/manual follow-up is required/i);
@@ -1095,6 +1117,27 @@ describe("OVD-723 review round 3: STEP header completeness", () => {
     expect(detectExportControlMarkings(result.text)).toContain("itar");
   });
 
+  // OVD-723 review round 6: HEADER; is found with the same tokenizer, so a
+  // commented HEADER; ENDSEC; before the real header cannot stand in for it.
+  it("does not start the header at a HEADER; inside a comment", () => {
+    const text = "ISO-10303-21; /* HEADER; ENDSEC; */ HEADER;FILE_DESCRIPTION(('ITAR'),'2;1');ENDSEC;";
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(detectExportControlMarkings(result.text)).toContain("itar");
+    expect(scanStepHeaderForExportMarkings(text)?.patterns).toContain("itar");
+  });
+
+  it("does not start the header at a HEADER; inside a quoted string", () => {
+    const text = "ISO-10303-21; 'HEADER; ENDSEC;' HEADER;FILE_NAME('part','2026',('ITAR'),(''),'','','');ENDSEC;";
+    const result = readStepHeader(text);
+    expect(result.complete).toBe(true);
+    expect(detectExportControlMarkings(result.text)).toContain("itar");
+  });
+
+  it("holds a file whose only HEADER; is commented out as incomplete", () => {
+    expect(readStepHeader("ISO-10303-21;\n/* HEADER; ENDSEC; */\nDATA;\nENDSEC;\n").complete).toBe(false);
+  });
+
   it("holds a header with an unbalanced quote or comment as incomplete", () => {
     expect(readStepHeader("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('open);\nENDSEC;\n").complete).toBe(false);
     expect(readStepHeader("ISO-10303-21;\nHEADER;\n/* open comment\nENDSEC;\n").complete).toBe(false);
@@ -1436,8 +1479,36 @@ describe("OVD-723 review round 5: extraction records scan outcomes", () => {
     expect(outcomes).toEqual({});
     await expect(scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
       jobId: "job-1", partId: "part-1", cadFile: { id: "cad-1", original_name: "part.step" }, stagedCad: null,
-    }, outcomes)).rejects.toBeInstanceOf(ExportControlScanRecordError);
+    }, outcomes)).rejects.toBeInstanceOf(ExportControlStepScanRetryableError);
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  // OVD-723 review round 6: one transient RPC error must not fail a fresh
+  // STEP part's extraction for good; the extract task retries it.
+  it("turns a transient scan record error into a retryable extraction error", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "connection reset" } });
+    const outcomes: ExportScanOutcomes = {};
+    const failure = await scanPartStepHeaderForExtraction({ rpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      cadFile: { id: "cad-1", original_name: "fresh.step" },
+      stagedCad: { localPath: "/stage/fresh.step", trustedContentSha256: cadSha },
+      readPrefix: async () => cleanStep,
+    }, outcomes).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ExportControlStepScanRetryableError);
+    expect(failure).toBeInstanceOf(ExportControlScanRecordError);
+    expect(outcomes).toEqual({});
+    const markedRpc = vi.fn().mockResolvedValue({ data: null, error: { message: "timeout" } });
+    await expect(scanPartStepHeaderForExtraction({ rpc: markedRpc } as unknown as SupabaseClient, {
+      jobId: "job-1",
+      partId: "part-1",
+      cadFile: { id: "cad-1", original_name: "fresh.step" },
+      stagedCad: { localPath: "/stage/fresh.step", trustedContentSha256: cadSha },
+      readPrefix: async () => new TextEncoder().encode(STEP_WITH_ITAR),
+    }, {})).rejects.toBeInstanceOf(ExportControlStepScanRetryableError);
+    expect(workerIndex).toContain(
+      '(task.task_type === "extract_part" && error instanceof ExportControlStepScanRetryableError) ||',
+    );
   });
 
   it("opens a block and stops when the STEP header is marked", async () => {

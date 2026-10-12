@@ -42,7 +42,7 @@
 --      not hold the scan state
 begin;
 
-select plan(152);
+select plan(153);
 
 create function pg_temp.set_ovd723_request_identity(
   p_user_id uuid,
@@ -1482,6 +1482,19 @@ select ok(
    from pg_catalog.pg_proc
    where oid = 'private.export_rescan_final_outcome(uuid, uuid, text)'::regprocedure),
   'the final outcome lookup is scoped to the job and compares the task type as the enum (work_queue index)'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_catalog.pg_index idx
+    join pg_catalog.pg_class index_class on index_class.oid = idx.indexrelid
+    where idx.indrelid = 'public.work_queue'::regclass
+      and index_class.relname = 'work_queue_job_task_type_idx'
+      and idx.indkey[0] = (select attnum from pg_catalog.pg_attribute
+                           where attrelid = 'public.work_queue'::regclass and attname = 'job_id')
+  ),
+  'work_queue has an index leading with job_id for the final outcome lookup'
 );
 
 -- 12. Admin clearance of a false positive (review round 3, blocker 3). A

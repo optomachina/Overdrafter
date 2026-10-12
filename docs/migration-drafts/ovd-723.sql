@@ -1538,8 +1538,15 @@ grant execute on function public.api_check_export_control_extraction(uuid)
 -- (step_header_incomplete) gives the same answer for the same bytes, so
 -- neither is queued again for that hash; replacing the file (a new hash)
 -- queues a fresh rescan. Null when there is no such outcome. The job and
--- task type predicates match work_queue's (status, task_type) index, so a
--- status read does not walk every completed task.
+-- task type predicates use work_queue_job_task_type_idx below, so a status
+-- read only touches this job's tasks instead of every completed task.
+--
+-- No index on work_queue led with job_id before this. A plain build (not
+-- CONCURRENTLY) because the window applies in one transaction; it takes a
+-- SHARE lock on work_queue for the build, which is short at current volume.
+create index if not exists work_queue_job_task_type_idx
+  on public.work_queue (job_id, task_type);
+
 create or replace function private.export_rescan_final_outcome(
   p_job_id uuid,
   p_job_file_id uuid,

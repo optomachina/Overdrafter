@@ -8,7 +8,10 @@ import {
   fetchJobExportControlStatus,
   requestExportMarkingRescan,
 } from "@/features/quotes/api/export-control-api";
-import { getExportControlNoticeCopy } from "@/features/quotes/export-control-notice";
+import {
+  exportControlStatusRefetchInterval,
+  getExportControlNoticeCopy,
+} from "@/features/quotes/export-control-notice";
 import { EXPORT_CONTROL_HELP_PATH, requestExportControlAnswer } from "@/features/quotes/export-control";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +34,7 @@ export function ExportControlStatusNotice({ jobId, className }: ExportControlSta
     queryFn: () => fetchJobExportControlStatus(jobId),
     enabled: Boolean(jobId),
     retry: false,
+    refetchInterval: (query) => exportControlStatusRefetchInterval(query.state.data),
   });
   const declareMutation = useMutation({
     mutationFn: async () => {

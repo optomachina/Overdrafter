@@ -54,7 +54,8 @@ function database(options: {
     let columns = "";
     let mutation = false;
     const response = () => {
-      if (mutation) return { data: null, error: null };
+      // The lane's compare and set update matches the unsettled row.
+      if (mutation) return { data: table === "vendor_quote_results" ? [{ id: "result" }] : null, error: null };
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "failed" }] : { id: "result", requested_quantity: 2 })

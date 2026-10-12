@@ -107,3 +107,16 @@ function getExportScanNoticeCopy(scanState: JobExportControlStatus["scanState"])
       return null;
   }
 }
+
+/** How often the notice rereads the status while a file check is running. */
+export const EXPORT_CONTROL_CHECKING_REFETCH_MS = 15_000;
+
+/**
+ * While a clean answer waits for its file check (scanState `pending`), the
+ * notice rereads the status on an interval, so it clears or moves on without
+ * a focus change or reload. Every other state waits for the owner or an
+ * admin, so it is not polled.
+ */
+export function exportControlStatusRefetchInterval(status: JobExportControlStatus | undefined): number | false {
+  return status?.scanState === "pending" ? EXPORT_CONTROL_CHECKING_REFETCH_MS : false;
+}
