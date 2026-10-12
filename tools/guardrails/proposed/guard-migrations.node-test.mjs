@@ -989,7 +989,7 @@ const REAL_SCRIPTS = {
       "verify:migration-lineage", "verify:ovd372-head", "verify:ovd417-head", "compare:ovd372-schema", "verify:public-assets",
       "verify:removed-public-assets", "verify:xometry-egress", "verify:xometry-recovery-host", "render:pr-body", "verify:worker", "verify",
       "test:engineering-inbox", "test:engineering-queue", "test:engineering-worker-sessions", "test:engineering-native-ownership",
-      "demo:engineering-evidence", "test:agent-control-plane", "test:portable-node"
+      "demo:engineering-evidence", "test:agent-control-plane", "test:portable-node", "stripe:catalog"
     ],
   },
   "worker/package.json": {

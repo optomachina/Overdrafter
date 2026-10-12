@@ -12,6 +12,7 @@ const {
   api,
   mockQuoteCollectionMode,
   mockUseAppSession,
+  mockUsePartDeadline,
   prefetchProjectPage,
   prefetchPartPage,
   toastMock,
@@ -74,6 +75,7 @@ const {
     refresh: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUsePartDeadline: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -182,6 +184,10 @@ vi.mock("@/features/quotes/workspace-navigation", async () => {
     prefetchPartPage,
   };
 });
+
+vi.mock("@/features/quotes/use-part-deadline", () => ({
+  usePartDeadline: (...args: unknown[]) => mockUsePartDeadline(...args),
+}));
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
@@ -354,6 +360,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     options,
     selectedOption,
     activePreset,
+    deadline,
     controls,
     headerActions,
     onSelect,
@@ -370,6 +377,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       selectionTarget?: unknown;
     } | null;
     activePreset?: string | null;
+    deadline?: { date: string | null; state: string } | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
     onSelect?: (option: unknown) => void;
@@ -381,6 +389,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       lastOption: options?.at(-1) ?? null,
       selectedOption,
       activePreset,
+      deadline,
       onSelect,
     };
 
@@ -607,6 +616,124 @@ function createXometryDispatchScope() {
       },
     },
   };
+}
+
+function renderPartControllerHook() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rendered = renderHook(() => useClientPartController("job-1", { warmNavigation: false }), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+    ),
+  });
+  return { ...rendered, queryClient };
+}
+
+/** A part detail with one live Xometry offer (`offer-1`), selected by the given stored offer id. */
+function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: string | null = "offer-1") {
+  const base = createPartDetail();
+  return createPartDetail({
+    job: { ...base.job, selected_vendor_quote_offer_id: selectedOfferId },
+    summary: {
+      ...createPartDetail().summary,
+      selectedSupplier: null,
+    },
+    part: {
+      ...createPartDetail().part,
+      cadFile: {
+        id: "cad-file-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "org-1/job-1/bracket.step",
+        normalized_name: "bracket.step",
+        original_name: "bracket.step",
+        mime_type: "application/step",
+        size_bytes: 1024,
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6 aluminum",
+        finish: "Black anodize",
+        tightest_tolerance_inch: 0.005,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: ["xometry"],
+        spec_snapshot: { process: "CNC milling" },
+        approved_by: "user-1",
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+      vendorQuotes: [
+        {
+          id: "quote-1",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "xometry",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 10,
+          total_price_usd: 100,
+          lead_time_business_days: 7,
+          quote_url: "https://www.xometry.com/quoting/home/quote-1",
+          dfm_issues: [],
+          notes: [],
+          raw_payload: {
+            automationVersion: "xometry-worker-v1",
+            detectedFlow: "quote_ready",
+            requirementCapturedAt: liveTimestamp,
+          },
+          created_at: liveTimestamp,
+          updated_at: liveTimestamp,
+          offers: [
+            {
+              id: "offer-1",
+              vendor_quote_result_id: "quote-1",
+              organization_id: "org-1",
+              offer_key: "xometry-standard",
+              supplier: "Xometry",
+              lane_label: "USA / Standard",
+              sourcing: "USA",
+              tier: "Standard",
+              quote_ref: "Q-1",
+              quote_date: liveTimestamp.slice(0, 10),
+              unit_price_usd: 10,
+              total_price_usd: 100,
+              lead_time_business_days: 7,
+              ship_receive_by: "2026-03-10",
+              due_date: "2026-04-15",
+              process: "CNC Machining",
+              material: "6061-T6",
+              finish: "Black anodize",
+              tightest_tolerance: "±.005\"",
+              tolerance_source: "Drawing",
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 0,
+              raw_payload: {},
+              created_at: liveTimestamp,
+              updated_at: liveTimestamp,
+            },
+          ],
+          artifacts: [],
+        },
+      ],
+    },
+  });
 }
 
 async function findActivityCommentField() {
@@ -1178,108 +1305,7 @@ describe("ClientPart", () => {
     const liveTimestamp = new Date().toISOString();
     api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
     api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        summary: {
-          ...createPartDetail().summary,
-          selectedSupplier: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cadFile: {
-            id: "cad-file-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "org-1/job-1/bracket.step",
-            normalized_name: "bracket.step",
-            original_name: "bracket.step",
-            mime_type: "application/step",
-            size_bytes: 1024,
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6 aluminum",
-            finish: "Black anodize",
-            tightest_tolerance_inch: 0.005,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: { process: "CNC milling" },
-            approved_by: "user-1",
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-          vendorQuotes: [
-            {
-              id: "quote-1",
-              quote_run_id: "run-1",
-              part_id: "part-1",
-              organization_id: "org-1",
-              vendor: "xometry",
-              requested_quantity: 10,
-              status: "official_quote_received",
-              unit_price_usd: 10,
-              total_price_usd: 100,
-              lead_time_business_days: 7,
-              quote_url: "https://www.xometry.com/quoting/home/quote-1",
-              dfm_issues: [],
-              notes: [],
-              raw_payload: {
-                automationVersion: "xometry-worker-v1",
-                detectedFlow: "quote_ready",
-                requirementCapturedAt: liveTimestamp,
-              },
-              created_at: liveTimestamp,
-              updated_at: liveTimestamp,
-              offers: [
-                {
-                  id: "offer-1",
-                  vendor_quote_result_id: "quote-1",
-                  organization_id: "org-1",
-                  offer_key: "xometry-standard",
-                  supplier: "Xometry",
-                  lane_label: "USA / Standard",
-                  sourcing: "USA",
-                  tier: "Standard",
-                  quote_ref: "Q-1",
-                  quote_date: liveTimestamp.slice(0, 10),
-                  unit_price_usd: 10,
-                  total_price_usd: 100,
-                  lead_time_business_days: 7,
-                  ship_receive_by: "2026-03-10",
-                  due_date: "2026-04-15",
-                  process: "CNC Machining",
-                  material: "6061-T6",
-                  finish: "Black anodize",
-                  tightest_tolerance: "±.005\"",
-                  tolerance_source: "Drawing",
-                  thread_callouts: null,
-                  thread_match_notes: null,
-                  notes: null,
-                  sort_rank: 0,
-                  raw_payload: {},
-                  created_at: liveTimestamp,
-                  updated_at: liveTimestamp,
-                },
-              ],
-              artifacts: [],
-            },
-          ],
-        },
-      }),
+      createLiveOfferPartDetail(liveTimestamp),
     );
 
     renderWithClient("/parts/job-1");
@@ -1292,6 +1318,105 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({
       optionCount: 1,
       totalPrices: [100],
+    });
+  });
+
+  describe("when the stored quote selection is gone", () => {
+    const missingSelectionDetail = () => createLiveOfferPartDetail(new Date().toISOString(), "offer-gone");
+
+    it("selects no substitute at the controller level while options still exist", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const { result, queryClient } = renderPartControllerHook();
+
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+      expect(result.current.rankedQuoteOptions.some((option) => option.eligible)).toBe(true);
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(result.current.previousQuoteSelectionUnavailable).toBe(true);
+      queryClient.clear();
+    });
+
+    it("never persists a selection when a preset or the sourcing toggle is applied", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      act(() => result.current.handlePresetSelection("cheapest_global"));
+      act(() => result.current.handlePresetSelection("balanced_domestic"));
+
+      expect(result.current.activePreset).toBe("balanced_domestic");
+      expect(result.current.selectedQuoteOption).toBeNull();
+      // TanStack Query runs mutationFn asynchronously, so let it flush before asserting nothing was persisted.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(result.current.activePreset).toBe("balanced_domestic"));
+      expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+      expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    async function findReviewOrderButton(selectedOfferId: string) {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString(), selectedOfferId));
+      renderWithClient("/parts/job-1");
+      await screen.findByText("Xometry · Standard");
+      return screen.getByRole("button", { name: "Review order" });
+    }
+
+    it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
+      const button = await findReviewOrderButton("offer-gone");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    });
+
+    it("passes an expired confirmed deadline to the panel as expired with its recorded date", async () => {
+      mockUsePartDeadline.mockReturnValue({
+        partId: "part-1",
+        revision: null,
+        recordedDate: "2026-01-15",
+        activeDate: null,
+        state: "expired",
+      });
+      await findReviewOrderButton("offer-1");
+      expect(lastQuoteDecisionPanelProps?.deadline).toEqual({ date: "2026-01-15", state: "expired" });
+    });
+
+    it("rolls the selection back and keeps the error state when persisting a selection fails", async () => {
+      const button = await findReviewOrderButton("offer-1");
+      expect(button).toBeEnabled();
+      const persistedKey = (lastQuoteDecisionPanelProps?.selectedOption as { key: string }).key;
+      api.setJobSelectedVendorQuoteOffer.mockRejectedValue(new Error("boom"));
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("boom"));
+
+      await act(async () => {
+        (lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void)(null);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("boom"));
+      await waitFor(() => {
+        expect((lastQuoteDecisionPanelProps?.selectedOption as { key: string } | null)?.key).toBe(persistedKey);
+      });
+      expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled();
+    });
+
+    it("rolls back an optimistic selection to the persisted one when the persist mutation rejects", async () => {
+      const button = await findReviewOrderButton("offer-gone");
+      expect(button).toBeDisabled();
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("persist failed"));
+
+      await act(async () => {
+        const onSelect = lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void;
+        onSelect(lastQuoteDecisionPanelProps?.firstOption);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("persist failed"));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled());
+      expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
+    });
+
+    it("enables the Review order button when the stored selection is still current", async () => {
+      const button = await findReviewOrderButton("offer-1");
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAttribute("aria-describedby");
     });
   });
 
@@ -1412,6 +1537,9 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global");
     });
+    // The sourcing toggle only filters and reorders; it must not persist a hidden winner.
+    expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
     api.persistClientQuoteSelection.mockClear();
     await act(async () => {
       const onSelect = lastQuoteDecisionPanelProps?.onSelect as
@@ -2676,11 +2804,19 @@ describe("ClientPart", () => {
     );
     expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
-    await act(async () => updateRequest.resolve());
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    // The draft already shows the newer edit, so waiting on its value cannot observe the
+    // acknowledgement. Wait on the acknowledgement itself, inside one act scope: the save reports
+    // success only after its own refresh lands, and its per-call onSuccess marks the patch
+    // preservation completed in the microtasks that follow. Leaving act then commits that state
+    // and flushes the effect that clears the preservation. Refreshing before that commit lets the
+    // acknowledgement and the next server refresh land in one commit, which keeps the draft.
+    await act(async () => {
+      updateRequest.resolve();
+      await vi.waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+      });
     });
+    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
     persistedDescription = "Server description after acknowledgement";
     await act(async () => {
@@ -2751,11 +2887,22 @@ describe("ClientPart", () => {
       resolvePatchRequest?.();
     });
 
+    // Wait on each stage of the serialized pipeline in order instead of asserting its final state
+    // inside one real-time window: the pending save settles after its refresh, the queued reset
+    // runs, and the reset settles only after it has refreshed and reconciled the draft.
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+    });
     await waitFor(() => {
       expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
         jobId: "job-1",
         fields: ["description"],
       });
+    });
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Field reset to extracted value.");
+    });
+    await waitFor(() => {
       expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
       expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });

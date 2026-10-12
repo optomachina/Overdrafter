@@ -4,7 +4,7 @@ import { ensureData } from "@/features/quotes/api/shared/response";
 import { isFixtureModeEnabled } from "@/features/quotes/client-workspace-fixtures";
 
 export type OrganizationEntitlements = {
-  plan: "free" | "pro";
+  plan: "free" | "pro" | "team" | "founding_team";
   source: string;
   automaticQuoteCollection: boolean;
   canManageBilling: boolean;

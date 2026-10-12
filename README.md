@@ -447,6 +447,7 @@ Docker note:
 - `npm run db:start` and `npm run db:reset` require Docker Desktop because local Supabase runs in Docker
 - if `supabase start` fails with `Cannot connect to the Docker daemon`, start Docker Desktop first
 - if you do not want to use Docker, use the built-in fixture surfaces instead
+- `npm run seed:dev` also applies `e2e/fixtures/beta-access.sql` with `psql` (Founding Beta enrollment for the demo clients), so it needs the PostgreSQL client installed (for example `postgresql-client`, or `brew install libpq`); it looks in fixed system directories only, never `PATH`; for keg only libpq or Postgres.app set `SEED_PSQL_PATH` to the absolute path of the `psql` binary, for example `SEED_PSQL_PATH=/opt/homebrew/opt/libpq/bin/psql npm run seed:dev`; the step runs against a local database only and is skipped under `--allow-remote`
 
 Typical usage:
 
@@ -478,6 +479,8 @@ Seeded local users:
 - `client.demo@overdrafter.local`
 - `estimator.demo@overdrafter.local`
 - `admin.demo@overdrafter.local`
+- `outsider.demo@overdrafter.local` (client of a different organization)
+- `unenrolled.demo@overdrafter.local` (client whose organization has no Founding Beta enrollment)
 - password: `Overdrafter123!`
 
 Dev-only instant login shortcut:

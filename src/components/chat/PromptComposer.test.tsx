@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptComposer } from "./PromptComposer";
@@ -274,6 +274,24 @@ describe("PromptComposer reentrancy guards", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     await settle();
     expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows bounded copy when a submit failure carries a stack trace or SQL detail", async () => {
+    const leaks = [
+      "TypeError: boom\n    at fn (https://x.invalid/a.js:1:2)",
+      'relation "private_provider_accounts" does not exist',
+      "connect ECONNREFUSED worker-api.prod.svc.cluster.local",
+    ];
+    for (const leak of leaks) {
+      mockToastError.mockClear();
+      const onSubmit = vi.fn().mockRejectedValueOnce(new Error(leak));
+      const { textarea } = renderComposerWith({ onSubmit });
+      fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      await settle();
+      expect(mockToastError).toHaveBeenCalledWith("Unable to submit this part right now.");
+      cleanup();
+    }
   });
 
   it("does not hold the guard after the empty-prompt early return", async () => {

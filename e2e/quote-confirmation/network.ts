@@ -17,6 +17,8 @@ export class QuoteBrowserBackend {
   changed = false;
   nextReply: ReplyMode = "success";
   denialCode = "xometry_beta_scope_changed";
+  /** Optional status and PostgREST body for every failing RPC reply; null keeps the default P0001 400. */
+  failureReply: { status: number; body: Record<string, unknown> } | null = null;
   private pendingGate: Promise<void> | null = null;
 
   get dispatches() { return this.calls.filter(call => call.name === "api_request_xometry_beta_dispatch"); }
@@ -70,6 +72,7 @@ export class QuoteBrowserBackend {
     return route.fulfill({ status, json, headers: { ...cors, "cache-control": "no-store" } });
   }
   private denial(route: Route, message: string) {
+    if (this.failureReply) return this.json(route, this.failureReply.body, this.failureReply.status);
     return this.json(route, { code: "P0001", message, details: null, hint: null }, 400);
   }
   private async respond(route: Route, name: string, input: Record<string, unknown>) {

@@ -176,41 +176,6 @@ export function getClientQuoteOptionStateReasons(input: {
   return reasons;
 }
 
-export function describeClientPresetUnavailableReason(input: {
-  options: readonly ClientQuoteSelectionOption[];
-  preset: QuotePreset;
-  requestedByDate?: string | null;
-}): string {
-  const requestedByDate = input.requestedByDate ?? null;
-  const selectableOptions = input.options.filter((option) => option.isSelectable);
-  const eligibleOptions = input.options.filter((option) => option.eligible);
-  const dueDateBlockedOptions = input.options.filter(
-    (option) => requestedByDate !== null && option.isSelectable && !option.dueDateEligible,
-  );
-  const excludedOptions = input.options.filter((option) => option.excluded);
-  const domesticReadyOptions = eligibleOptions.filter((option) => option.domesticStatus === "domestic");
-
-  if (requestedByDate && dueDateBlockedOptions.length > 0 && eligibleOptions.length === 0) {
-    return `No quote currently meets the requested date of ${requestedByDate}.`;
-  }
-
-  if (input.preset === "domestic" && eligibleOptions.length > 0 && domesticReadyOptions.length === 0) {
-    return "No domestic quote is ready for this preset.";
-  }
-
-  if (selectableOptions.length === 0 && input.options.length > 0) {
-    return "Quote responses need review before this preset can apply.";
-  }
-
-  if (excludedOptions.length === input.options.length && input.options.length > 0) {
-    return "All current quote lanes are excluded from presets.";
-  }
-
-  return input.preset === "domestic"
-    ? "No domestic quote is available for this preset."
-    : "No eligible quote is available for this preset.";
-}
-
 export function buildClientWorkspaceState(input: {
   job: JobRecord;
   summary?: JobPartSummary | null;

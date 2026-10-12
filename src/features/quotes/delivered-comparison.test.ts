@@ -22,6 +22,22 @@ describe("buildDeliveredComparisonModel", () => {
     expect(row.arrival).toEqual({ kind: "arrival", date: "2026-10-20", provenance: "confirmed" });
   });
 
+  it("treats a provider delivery date already in the past as unknown, not as the fastest arrival", () => {
+    const rows = rowsFor([
+      makeClientQuoteOption({ key: "stale", shipReceiveBy: "2026-10-01", leadTimeBusinessDays: null }),
+      makeClientQuoteOption({ key: "live", shipReceiveBy: "2026-10-20", leadTimeBusinessDays: null }),
+    ]);
+    const [stale, live] = rows;
+    expect(stale.arrival).toEqual({ kind: "unknown" });
+    expect(stale.plot).toBeNull();
+    expect(getDeadlineStatus(stale, "2026-10-22")).toBe("unconfirmed");
+    expect(sortDeliveredComparisonRows(rows, "fastest", "2026-10-22").map((row) => row.key)).toEqual([
+      "live",
+      "stale",
+    ]);
+    expect(live.arrival.kind).toBe("arrival");
+  });
+
   it("keeps a lead-time ship date as a lower bound instead of inventing transit", () => {
     const [row] = rowsFor([makeClientQuoteOption({ leadTimeBusinessDays: 7, shipReceiveBy: null, dueDate: null })]);
     expect(row.arrival).toEqual({ kind: "ships_by", shipDate: "2026-10-21" });
@@ -74,6 +90,12 @@ describe("getDeadlineStatus", () => {
     expect(getDeadlineStatus(shipsBefore, deadline)).toBe("unconfirmed");
     expect(getDeadlineStatus(unknown, deadline)).toBe("unconfirmed");
     expect(getDeadlineStatus(onTime, null)).toBe("no_deadline");
+  });
+
+  it("does not call a ship on the deadline day a miss, since zero transit days is valid", () => {
+    const row = (shipDate: string) => ({ arrival: { kind: "ships_by" as const, shipDate } });
+    expect(getDeadlineStatus(row("2026-10-22"), "2026-10-22")).toBe("unconfirmed");
+    expect(getDeadlineStatus(row("2026-10-23"), "2026-10-22")).toBe("late");
   });
 });
 

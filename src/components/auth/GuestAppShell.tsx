@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { ArrowUp, ChevronDown, CircleHelp, Loader2, Menu, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ type GuestAppShellProps = {
 };
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Authentication failed.";
+  return getUserFacingErrorMessage(error, "Authentication failed.");
 }
 
 export function GuestAppShell({
