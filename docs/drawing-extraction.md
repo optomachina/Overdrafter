@@ -34,8 +34,23 @@ Priority order per field:
 `extractPdfText` reads the text layer of every page with `pdftotext` and also renders and OCRs every page with `tesseract`, even when a text layer exists. A drawing can have a selectable title block next to an embedded raster image, such as a marking stamp, that has no text layer. Reading only the text layer, or only page 1, would treat that drawing as fully read.
 
 - Each page carries `text` (text layer, or the OCR text when the whole document has no text layer, as before), `ocrText` (OCR output only, never mixed with the text layer), and `ocrStatus`.
-- `ocrStatus` is `ok`, `failed` (render error, timeout, or tesseract error), `unavailable` (no tesseract binary), or `not_read` (page past the cap). Only `ok` means the raster content of the page was read. Callers that need a complete read must treat every other status as unread and hold the drawing.
-- Work is bounded by `PDF_OCR_MAX_PAGES` (12) and `PDF_OCR_PAGE_TIMEOUT_MS` (60 seconds per render and per tesseract run). Pages past the cap are `not_read`.
+- `ocrStatus` is one of:
+  - `ok`: the page was rendered and tesseract ran on it. The text may be empty.
+  - `failed`: the page size could not be read, the page is over the pixel cap, or the render or tesseract errored or timed out.
+  - `unavailable`: the tesseract binary is missing, or its `--version` probe failed or timed out.
+  - `not_read`: the page is past `PDF_OCR_MAX_PAGES`, or the total OCR budget ran out before the next call for that page could start. No tool ran to completion on that page, so nothing about its content is known.
+- Only `ok` means the raster content of the page was read.
+- `pageCountKnown` is false when `pdfinfo` failed or printed no page count. `pageCount` is then a floor of 1, and later pages may exist unread.
+- `drawingFullyRead` is the single fail closed answer for part B and any export gate. It is true only when `pageCountKnown` is true, the text layer of every page was read without error, and every page has `ocrStatus` `ok`. Anything else must hold the drawing. `ocr` keeps its older meaning: no text layer anywhere and OCR produced text.
+- Each page is rendered at no less than `PDF_OCR_MIN_DPI` (200) so small print stays legible. The render covers the page CropBox (`pdftoppm -cropbox`), which is the size `pdfinfo` reports, and a page whose CropBox would exceed `PDF_OCR_MAX_PIXELS` (70 MP) at that resolution is `failed` instead of rendered. An E size sheet at 200 DPI is about 60 MP. Rendering the CropBox keeps the checked size and the rendered size the same, so a small CropBox on a huge MediaBox cannot slip past the cap.
+- tesseract runs with `OMP_THREAD_LIMIT=1`. On a loaded host more threads were many times slower and could hit the page timeout.
+- Time bounds:
+  - each `pdfinfo` and `pdftotext` call, and the tesseract version probe: `PDF_TOOL_TIMEOUT_MS` (30 seconds);
+  - each OCR render and each tesseract run: `PDF_OCR_PAGE_TIMEOUT_MS` (60 seconds);
+  - the whole OCR pass: `PDF_OCR_TOTAL_TIMEOUT_MS` (120 seconds). The clock starts before the version probe. Immediately before each `pdfinfo`, `pdftoppm`, and tesseract call the time left is computed, the call gets at most that, and when none is left the call is skipped and the page reports `not_read`;
+  - the text layer loop: `PDF_TEXT_LAYER_MAX_PAGES` (50 pages) and `PDF_TEXT_LAYER_TOTAL_TIMEOUT_MS` (60 seconds). Pages it does not reach have an empty `text`, and `drawingFullyRead` is false;
+  - the preview and title block crop renders: `PDF_OCR_PAGE_TIMEOUT_MS`.
+- The title block crop also renders the CropBox, since its crop rectangle is computed from the size `pdfinfo` reports. The page size parser accepts size lines that end with a paper name, such as `612 x 792 pts (letter)`, so the crop now works for letter, legal, and A series pages.
 - If the tesseract binary is missing, every page reports `unavailable` and the function does not throw. It logs the fixed code `pdf_ocr_tesseract_unavailable` once and never logs file names or contents.
 - The worker image installs `tesseract-ocr` and the English data at pinned distro versions. Nothing is downloaded at runtime.
 

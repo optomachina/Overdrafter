@@ -56,7 +56,9 @@ jobs:
 
   test:
     needs: ovd591-qualification
-    runs-on: ubuntu-latest
+    # Pinned to noble: the OCR step below installs exact noble package versions,
+    # so an ubuntu-latest image change must not break every PR.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
