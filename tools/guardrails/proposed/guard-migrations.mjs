@@ -37,13 +37,20 @@
  * - hosted Supabase write tools under any MCP server name, and execute_sql
  *   unless it is a single read only statement that calls no function in an
  *   app schema;
- * - git push to main: a destination that is or can match main (heads/main,
- *   an empty destination, a wildcard), and a push of the current branch (no
- *   refspec, HEAD, or a generated refspec) while that branch is main. The
- *   branch is the one checked out, followed through git checkout, switch and
- *   branch -m earlier in the same command, failing closed when it cannot be
- *   resolved. Aliases from -c, git config and the repository config (include
- *   files too) are expanded. Also the merges API and writes to the main ref;
+ * - git push to main. A literal destination that is main or master blocks,
+ *   and a wildcard one blocks when it matches refs/heads/main or master. A
+ *   push of the current branch (no refspec, HEAD, @, an empty destination, or
+ *   a destination built by a variable or substitution that could spell
+ *   main) is judged in two ways:
+ *   with no git checkout, switch or branch -m before it in the command, git
+ *   reads the branch in the push's own directory (failing closed when it
+ *   cannot) and main or master blocks; after one, only a new branch made
+ *   right before the push (checkout -b, switch -c, a literal name that is not
+ *   main or master, same directory, no cd, no subshell, joined by && or ;)
+ *   passes and everything else fails closed. A dry run and tags only pass.
+ *   Aliases from -c, git config, the repository config (include files too)
+ *   and the GIT_CONFIG environment are expanded. Also the merges API and
+ *   writes to the main ref;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -96,6 +103,8 @@ const GIT_CANDIDATES =
 // git config keys that pull another config file in, so an alias can come from it.
 const GIT_INCLUDE_KEY = /^(include\.path|includeif\..+\.path)$/i;
 const GIT_ALIAS_DEPTH = 5;
+// Environment variables that change which git config is read, so an alias can come from them.
+const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
 const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
@@ -187,9 +196,13 @@ function ansiC(src, i) {
   return [out, i + 1];
 }
 
-/** Shell lexer: returns segments ({ words, outs, ins, heredocs, op }) and the bodies of $( ), backticks and <( ). */
+/**
+ * Shell lexer: returns segments ({ words, outs, ins, heredocs, op, depth }) and the bodies of $( ), backticks and <( ).
+ * op is the operator before the segment and depth the number of subshell parentheses it sits in.
+ */
 function parse(src) {
-  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], op });
+  let depth = 0;
+  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], op, depth });
   const segments = [newSegment(null)];
   const substs = [];
   const pendingDocs = [];
@@ -278,6 +291,8 @@ function parse(src) {
     } else if (/[;&|()\n]/.test(c)) {
       flush();
       const op = /^(&&|\|\||\|&|[;&|()\n])/.exec(src.slice(i))[0];
+      if (op === "(") depth++;
+      else if (op === ")") depth = Math.max(0, depth - 1);
       segments.push(newSegment(op));
       i += op.length;
     } else if (c === "#" && word === null) {
@@ -536,14 +551,23 @@ function ghCall(argv) {
 /**
  * git argv with global options (-C, -c, --git-dir, --work-tree, --no-pager,
  * pathspec switches and so on) removed, the directory -C or --work-tree
- * names, and any -c value that names a protected path.
+ * names, and any -c value that names a protected path. state carries the
+ * aliases and include files set earlier in the command, and env the
+ * assignments in effect for the call (only the GIT_CONFIG ones are used).
  */
-function gitCall(argv, dir, ctx, known = {}, knownIncludes = []) {
+function gitCall(argv, dir, ctx, state = {}, env = {}) {
   let cwd = dir;
   let gitDir;
   let config = null;
-  const aliases = { ...known };
-  const includes = [...knownIncludes];
+  const aliases = { ...state.gitAliases };
+  const includes = [...(state.gitIncludes ?? [])];
+  const configEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!GIT_CONFIG_ENV.test(key)) continue;
+    // As in the shell, a leading ~ is expanded; git reads a relative config path from the directory the command runs in.
+    const path = value.replace(/^~(?=\/|$)/, process.env.HOME ?? "~");
+    configEnv[key] = /^GIT_CONFIG_(GLOBAL|SYSTEM)$/.test(key) && path && !path.startsWith("/") ? pathOf(dir, path) : path;
+  }
   let i = 1;
   for (; i < argv.length && argv[i].startsWith("-"); i++) {
     const w = argv[i];
@@ -560,17 +584,18 @@ function gitCall(argv, dir, ctx, known = {}, knownIncludes = []) {
     if (flag === "-c" && GIT_INCLUDE_KEY.test(value.split("=")[0])) includes.push(value);
   }
   let rest = argv.slice(i);
-  const call = { dir: cwd, gitDir, config, includes };
+  const call = { dir: cwd, gitDir, config, includes, configEnv };
   // An alias is expanded, a few levels deep: a ! alias is returned as shell text to check, any other becomes git
   // arguments. Aliases come from -c, from git config set earlier in the same command, or from the repository config
-  // and the files it includes (also an include.path given with -c or set earlier in the command). Past the depth
-  // limit, or when an include file cannot be read, an alias is not known, so the call fails closed.
+  // and the files it includes (also an include.path given with -c or set earlier in the command), with the GIT_CONFIG
+  // environment of the call. An alias written with git config --file counts only when that file is read. Past the depth
+  // limit, or when an include file or the GIT_CONFIG environment cannot be read, an alias is not known, so the call fails closed.
   for (let depth = 0; rest[0] !== undefined && !GIT_BUILTINS.has(rest[0]); depth++) {
     const name = rest[0].toLowerCase();
     let alias = Object.hasOwn(aliases, name) ? aliases[name] : undefined;
     if (alias === undefined && ctx) {
       try {
-        alias = configAlias(name, call, ctx);
+        alias = fileAlias(name, call, state.gitFileAliases ?? []) ?? configAlias(name, call, ctx);
       } catch (error) {
         return { ...call, argv: [argv[0]], error: `git ${rest[0]} may be an alias, and git config could not be read to check it (${error.message}); failing closed` };
       }
@@ -588,8 +613,10 @@ function runGit(args, call) {
   if (!git) throw new Error(`git not found in ${GIT_CANDIDATES.join(", ")}`);
   const where = call.dir.some((part) => part.includes(SUB) || part.includes("$")) ? null : pathOf(call.dir, ".");
   if (where === null) throw new Error("the directory cannot be resolved");
+  const configEnv = call.configEnv ?? {};
+  if (Object.values(configEnv).some((v) => v.includes(SUB) || v.includes("$"))) throw new Error("the GIT_CONFIG environment cannot be resolved");
   const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...(call.includes ?? []).flatMap((c) => ["-c", c]), ...args];
-  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS });
+  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv } });
   if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
   return result;
 }
@@ -600,7 +627,7 @@ function runGit(args, call) {
  * given in the command does not exist yet (git skips a missing include, and the command may write it first).
  */
 function configAlias(name, call, ctx) {
-  const key = `${call.dir.join("/")}#${call.gitDir ?? ""}#${(call.includes ?? []).join("\n")}#${name}`;
+  const key = `${call.dir.join("/")}#${call.gitDir ?? ""}#${(call.includes ?? []).join("\n")}#${JSON.stringify(call.configEnv ?? {})}#${name}`;
   if (!ctx.gitAliases.has(key)) {
     for (const include of call.includes ?? []) {
       const file = include.slice(include.indexOf("=") + 1).replace(/^~(?=\/)/, process.env.HOME ?? "~");
@@ -613,6 +640,26 @@ function configAlias(name, call, ctx) {
     ctx.gitAliases.set(key, result.status === 0 ? result.stdout.replace(/\n$/, "") : undefined);
   }
   return ctx.gitAliases.get(key);
+}
+
+/**
+ * The alias set earlier in the command with git config --file <path>, when git reads that file for the call: the
+ * global or system file (GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM included), an include file, or the repository config.
+ * A file git does not read gives undefined, so it cannot hide or invent an alias.
+ */
+function fileAlias(name, call, recorded) {
+  const candidates = recorded.filter((r) => r.name === name);
+  if (candidates.length === 0) return undefined;
+  const env = { ...process.env, ...call.configEnv };
+  const home = process.env.HOME ?? "";
+  const loaded = new Set([
+    ...(env.GIT_CONFIG_GLOBAL !== undefined ? [env.GIT_CONFIG_GLOBAL] : [`${home}/.gitconfig`, `${env.XDG_CONFIG_HOME || `${home}/.config`}/git/config`]),
+    env.GIT_CONFIG_SYSTEM ?? "/etc/gitconfig",
+    ...(call.includes ?? []).map((c) => c.slice(c.indexOf("=") + 1).replace(/^~(?=\/)/, home)),
+  ]);
+  const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], call);
+  if (common.status === 0 && common.stdout.trim()) loaded.add(`${common.stdout.trim()}/config`);
+  return candidates.findLast((r) => loaded.has(r.file))?.value;
 }
 
 /** The branch checked out in the call's directory. Throws when it cannot be resolved (detached HEAD included). */
@@ -1177,8 +1224,9 @@ function patchReason(files, dir, what) {
 }
 
 /**
- * The branch a git checkout, switch or branch -m leaves checked out: its name, null when it cannot be resolved
- * (a generated or variable name, -, --detach), or undefined when the command does not change the branch.
+ * Whether a git checkout, switch or branch -m changes the branch: undefined when it does not (a path restore, a patch),
+ * else { name, created }. name is the branch left checked out, or null when it cannot be read from the command (a
+ * generated or variable name, -, --detach); created is true for -b, -B, -c, -C and --orphan, which make a new branch.
  */
 function branchChange([sub, ...args], dir) {
   if (sub !== "checkout" && sub !== "switch" && sub !== "branch") return undefined;
@@ -1202,55 +1250,83 @@ function branchChange([sub, ...args], dir) {
     else if (/^(-p|--patch)$/.test(w) || w.startsWith("--pathspec-from-file")) return undefined;
     else if (w === "-" || !w.startsWith("-")) positional.push(w);
   }
-  const named = (name) => (name.includes(SUB) || name.includes("$") || name === "-" || name.startsWith("@{") ? null : name);
-  if (sub === "branch") {
-    if (!move || positional.length === 0) return undefined;
-    // branch -m new renames the current branch; branch -m old new renames old, which may be the current branch.
-    if (positional.length === 1) return named(positional[0]);
-    return MAIN_REF.test(positional[1]) || named(positional[1]) === null ? null : undefined;
-  }
-  if (detach) return null;
-  if (created !== undefined) return named(created);
+  const named = (name) => (name.includes(SUB) || name.includes("$") || name === "-" || name.startsWith("@{") || name === "" ? null : name);
+  const change = (name, isNew = false) => ({ name: named(name), created: isNew });
+  if (sub === "branch") return move && positional.length > 0 ? change(positional.at(-1)) : undefined;
+  if (detach) return change("-");
+  if (created !== undefined) return change(created, true);
   if (positional.length !== 1) return undefined;
   const [target] = positional;
-  // --track origin/x creates and checks out x; a lone checkout argument that is an existing path restores that path.
-  if (track) return named(target.replace(/^[^/]*\//, ""));
-  if (sub === "checkout" && dash < 0 && !target.includes(SUB) && !target.includes("$") && existsSync(pathOf(dir, target))) return undefined;
-  return named(target);
+  // A lone checkout argument that is an existing path restores that path.
+  if (!track && sub === "checkout" && dash < 0 && target !== "-" && !target.includes(SUB) && !target.includes("$") && existsSync(pathOf(dir, target))) return undefined;
+  return change(target);
 }
 
-/** Records the branch an earlier git checkout, switch or branch -m in this command leaves checked out in its repository. */
-function recordBranch(argv, dir, state, ctx) {
+/** Records a git checkout, switch or branch -m in this command, in the order the hook reads them. */
+function recordBranch(argv, dir, state, ctx, env) {
   if (base(argv[0]) !== "git") return;
-  const git = gitCall(argv, dir, ctx, state.gitAliases, state.gitIncludes);
+  const git = gitCall(argv, dir, ctx, state, env);
   if (git.error || git.shell !== undefined) return;
-  const branch = branchChange(git.argv.slice(1), git.dir);
-  if (branch !== undefined) ctx.branches.push({ dir: git.dir, gitDir: git.gitDir, branch });
+  const change = branchChange(git.argv.slice(1), git.dir);
+  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, dir: git.dir, gitDir: git.gitDir });
+}
+
+const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin <branch>";
+
+/**
+ * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b
+ * or git switch -c with a literal name that is not main or master, in the same command text, the same directory (no
+ * cd before the push, no differing -C) and outside any subshell, joined to the push only by && or ;.
+ */
+function newBranchBeforePush(change, call, state) {
+  if (!change.created || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv || state.cdSeen) return false;
+  if (change.gitDir !== call.gitDir || change.dir.join("/") !== call.dir.join("/")) return false;
+  const chain = state.segments.slice(change.index, state.index + 1);
+  if (chain.some((s) => s.depth !== 0)) return false;
+  const joins = chain.slice(1).map((s) => s.op);
+  if (!joins.every((op) => op === "&&" || op === ";" || op === "\n")) return false;
+  // A change that runs only after an earlier && can be skipped; then a later ; still runs the push on the old branch.
+  const own = chain[0].op;
+  return own === null || own === ";" || own === "\n" || (own === "&&" && joins.every((op) => op === "&&"));
 }
 
 /**
- * The branch a push of the current branch runs on: the last checkout or switch recorded earlier in the command for
- * the same repository (a directory within the other), else the branch checked out now. Throws when it cannot be resolved.
+ * Block reason for a push whose destination is the current branch. With no branch change earlier in the command the
+ * branch is read with git symbolic-ref in the push's directory; after one, only a new branch made right before the push
+ * passes, and anything else fails closed.
  */
-function pushBranch(call, ctx) {
-  const related = (a, b) => within(a, b) || within(b, a);
-  const recorded = ctx.branches.findLast((r) => r.gitDir === call.gitDir && related(r.dir, call.dir));
-  if (recorded === undefined) return currentBranch(call);
-  if (recorded.branch === null) throw new Error("an earlier git checkout or switch in this command names a branch that cannot be resolved");
-  return recorded.branch;
+function currentPushReason(call, ctx, state) {
+  const last = ctx.branchChanges.at(-1);
+  if (last !== undefined) return newBranchBeforePush(last, call, state) ? null : `git push of the current branch after a branch change in the same command; failing closed, ${NAME_THE_BRANCH}`;
+  let branch;
+  try {
+    branch = currentBranch(call);
+  } catch (error) {
+    return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+  }
+  return MAIN_REF.test(branch) ? `git push from ${branch} would update ${branch}; agents never push to main` : null;
+}
+
+/** Whether a literal push destination is main or master, or a wildcard that matches refs/heads/main or refs/heads/master. */
+function destinationIsMain(dest) {
+  if (!/[*?[]/.test(dest)) return MAIN_REF.test(dest);
+  return ["main", "master"].some((name) => [name, `heads/${name}`, `refs/heads/${name}`].some((ref) => globEq(dest, ref)));
 }
 
 /** Block reason for a git push that would update main. */
-function pushReason(args, call, ctx) {
+function pushReason(args, call, ctx, state) {
   const positional = [];
   let tags = false;
+  let every = null;
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
     if (/^(--repo|-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
-    else if (/^--(all|mirror|branches)$/.test(w)) return `git push ${w} would push main; agents never push to main`;
+    else if (w === "--dry-run" || w === "-n") return null; // a dry run writes nothing
+    else if (/^--(all|mirror|branches)$/.test(w)) every = w;
     else if (w === "--tags") tags = true;
     else if (!w.startsWith("-")) positional.push(w);
   }
+  if (every) return `git push ${every} would push main; agents never push to main`;
   // As in git, the first positional argument is the repository (it overrides --repo) and the rest are refspecs.
   const specs = positional.slice(1);
   // With no refspec, a push updates the current branch; --tags alone pushes only tags.
@@ -1264,32 +1340,30 @@ function pushReason(args, call, ctx) {
     }
     const plain = spec.replace(/^\+/, "");
     if (plain === ":") return `git push ${spec} pushes every matching branch, main included; agents never push to main`;
-    const colon = plain.lastIndexOf(":");
+    // The colon inside a ${VAR:-x} expansion is not the refspec colon.
+    const colon = plain.replace(/\$\{[^}]*\}/g, (m) => "_".repeat(m.length)).lastIndexOf(":");
     // An empty destination (HEAD:, main:) names the same ref as the source.
     const dest = (colon < 0 ? plain : plain.slice(colon + 1)) || plain.slice(0, colon);
-    // A destination built by substitution or a variable ("$(git branch --show-current)") stands for the current branch
-    // when it could spell main; a wildcard destination (refs/heads/*) blocks when it can match main.
-    const generated = dest.includes(SUB) || dest.includes("$");
-    const filled = dest.replaceAll(SUB, "main").replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*])/g, "main").replaceAll("*", "main");
-    if (!generated && MAIN_REF.test(filled)) return `git push ${spec} would update main; agents never push to main`;
-    if (/^(HEAD|@)$/.test(dest) || (generated && MAIN_REF.test(filled))) current = true;
+    if (dest.includes(SUB) || dest.includes("$")) {
+      // A default or alternate value written in the destination (HEAD:${TARGET:-main}) is judged as written. Otherwise a
+      // destination built by substitution or a variable is read as the current branch, unless it cannot spell main
+      // whatever the values are (HEAD:fix/$(date +%s)), which is judged like a wildcard.
+      const filled = dest.replace(/\$\{[A-Za-z_]\w*:?[-=+?]([^}]*)\}/g, "$1").replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "").replaceAll(SUB, "");
+      if (destinationIsMain(filled)) return `git push ${spec} can expand to main; agents never push to main`;
+      const pattern = dest.replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "*").replaceAll(SUB, "*");
+      if (destinationIsMain(pattern)) current = true;
+    } else if (/^(HEAD|@)$/.test(dest)) current = true;
+    else if (destinationIsMain(dest)) return `git push ${spec} would update main; agents never push to main`;
   }
-  if (!current) return null;
-  let branch;
-  try {
-    branch = pushBranch(call, ctx);
-  } catch (error) {
-    return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, name the destination branch`;
-  }
-  return MAIN_REF.test(branch) ? `git push from ${branch} would update ${branch}; agents never push to main` : null;
+  return current ? currentPushReason(call, ctx, state) : null;
 }
 
-function gitReason(argv, segment, call, ctx) {
+function gitReason(argv, segment, call, ctx, state) {
   const dir = call.dir;
   const sub = argv[1];
   const args = argv.slice(2);
   if (sub === "commit") return commitArgs(argv).some((w) => protectedName(w, dir, true)) ? "git commit reads or writes a protected file" : null;
-  if (sub === "push") return pushReason(args, call, ctx);
+  if (sub === "push") return pushReason(args, call, ctx, state);
   const output = args.find((w) => w.startsWith("--output"));
   if (output) return protectedName(output.replace(/^--output=?/, "") || args[args.indexOf(output) + 1] || "", dir, true) ? "git writes output to a protected path" : null;
   // reflog expire and reflog delete change the reflog; its other forms read it.
@@ -1458,12 +1532,12 @@ function protectedWrite(argv, segment, dir, substs, ctx, state) {
     }
   }
   if (cmd === "git") {
-    const git = gitCall(argv, dir, ctx, state.gitAliases, state.gitIncludes);
+    const git = gitCall(argv, dir, ctx, state, { ...state.env, ...unwrap(segment.words).env });
     if (git.error) return git.error;
     if (git.config) return `git -c ${git.config} names a protected path`;
     // Plain arguments were checked with the alias text (checkSegment); a generated one that names a protected path cannot be.
     if (git.shell !== undefined) return git.shellArgs.some((w) => w.includes(SUB) && protectedName(w, git.dir, true)) ? "git shell alias gets a generated protected path as an argument" : null;
-    return gitReason(git.argv, segment, git, ctx);
+    return gitReason(git.argv, segment, git, ctx, state);
   }
   if (cmd === "gh") {
     const gh = ghCall(argv).argv;
@@ -1660,7 +1734,7 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   const { argv, wrappers, env } = unwrap(segment.words);
   const cmd = base(argv[0]);
   if (runsInstaller(argv, dir)) return "runs tools/guardrails/apply.mjs, which installs the guardrail; only the lead runs it, with Blaine's approval";
-  const shellAlias = cmd === "git" ? gitCall(argv, dir, ctx, state.gitAliases, state.gitIncludes) : null;
+  const shellAlias = cmd === "git" ? gitCall(argv, dir, ctx, state, { ...state.env, ...env }) : null;
   if (shellAlias?.shell !== undefined) {
     // git runs sh -c '<alias> "$@"' '<alias>' <arguments>, so the arguments are put where the text uses them. A generated
     // argument becomes a placeholder word, so the later ones keep their positions.
@@ -1737,25 +1811,36 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   return protectedWrite(fullArgv, segment, dir, substs, ctx, state);
 }
 
-/** Records an alias or include file that git config sets in this command, so a later git <alias> in it is expanded. */
+/**
+ * Records an alias or include file that git config sets in this command, so a later git <alias> in it is expanded. An
+ * alias written with --file is kept with its file and used only where git reads that file (fileAlias).
+ */
 function recordGitAlias(argv, dir, state) {
   if (base(argv[0]) !== "git") return;
-  const git = gitCall(argv, dir, null, state.gitAliases, state.gitIncludes);
+  const git = gitCall(argv, dir, null, state);
   const args = git.argv.slice(2);
-  if (git.argv[1] !== "config" || args.some((w) => /^--(get|get-all|get-regexp|unset|unset-all|list)$|^-l$/.test(w))) return;
-  const at = args.findIndex((w) => /^alias\.[^=]+$/i.test(w));
-  if (at >= 0 && args[at + 1] !== undefined) state.gitAliases[args[at].slice(6).toLowerCase()] = args[at + 1];
+  if (git.argv[1] !== "config" || args.some((w) => /^--(get|get-all|get-regexp|unset|unset-all|list|blob)(=|$)|^-l$/.test(w))) return;
+  const fileAt = args.findIndex((w) => /^(-f|--file)(=|$)/.test(w));
+  const file = fileAt < 0 ? undefined : /^--file=/.test(args[fileAt]) ? args[fileAt].slice(7) : args[fileAt + 1];
+  const at = args.findIndex((w, i) => /^alias\.[^=]+$/i.test(w) && (fileAt < 0 || i !== fileAt + 1));
+  if (at >= 0 && args[at + 1] !== undefined) {
+    const name = args[at].slice(6).toLowerCase();
+    if (file === undefined) state.gitAliases[name] = args[at + 1];
+    else if (!file.includes(SUB) && !file.includes("$")) state.gitFileAliases.push({ file: pathOf(git.dir, file.replace(/^~(?=\/|$)/, process.env.HOME ?? "~")), name, value: args[at + 1] });
+  }
   const include = args.findIndex((w) => GIT_INCLUDE_KEY.test(w));
   if (include >= 0 && args[include + 1] !== undefined) state.gitIncludes.push(`${args[include]}=${args[include + 1]}`);
 }
 
 /**
- * The directory a cd leads to. ~ and a bare cd are expanded from HOME; cd - goes back to the directory before the last
+ * The directory a cd leads to. ~, $HOME, ${HOME} and a bare cd are expanded from HOME; cd - goes back to the directory before the last
  * cd in this command. A directory that cannot be known gets an unresolved part, so git calls there fail closed.
  */
 function cdTarget(dir, target, oldDir) {
   if (target === "-") return oldDir ?? [...dir, "$OLDPWD"];
   const home = process.env.HOME;
+  const homeVar = /^\$(\{HOME\}|HOME)(?=\/|$)/.exec(target ?? "");
+  if (homeVar) target = `~${target.slice(homeVar[0].length)}`;
   if (target === undefined || target === "~" || target.startsWith("~/")) {
     return home?.startsWith("/") ? changeDir(changeDir([], home), (target ?? "~").slice(2)) : [...dir, "$HOME"];
   }
@@ -1776,8 +1861,15 @@ function checkCommand(src, dir, ctx, depth = 0) {
     const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;
   }
-  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitAliases: {}, gitIncludes: [], oldDir: undefined };
-  for (const segment of segments) {
+  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitAliases: {}, gitIncludes: [], gitFileAliases: [], oldDir: undefined };
+  // Each command text checked gets its own number, so a branch change and a push are known to be in the same text.
+  Object.assign(state, { inv: ctx.invocations++, segments, index: 0, cdSeen: false });
+  // A subshell gets a copy of the directory; a cd inside it does not change the directory after it.
+  const outer = [];
+  for (const [index, segment] of segments.entries()) {
+    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, cdSeen: state.cdSeen });
+    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, cdSeen: state.cdSeen } = outer.pop());
+    state.index = index;
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
     if (argv.length === 0 || cmd === "export") {
@@ -1791,12 +1883,13 @@ function checkCommand(src, dir, ctx, depth = 0) {
     if (cmd === "[[" && !segment.words.includes("]]")) state.inTest = true;
     if (cmd === "cd" || cmd === "pushd") {
       [dir, state.oldDir] = [cdTarget(dir, argv.slice(1).find((w) => w === "-" || !w.startsWith("-")), state.oldDir), dir];
+      state.cdSeen = true;
       continue;
     }
     const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
     if (reason) return reason;
     recordGitAlias(argv, dir, state);
-    recordBranch(argv, dir, state, ctx);
+    recordBranch(argv, dir, state, ctx, { ...state.env, ...env });
     state.prevArgs = argv.slice(1);
   }
   return null;
@@ -1919,7 +2012,7 @@ export function decide(payload, options = {}) {
   if (input == null || typeof input !== "object") return "tool_input is missing; failing closed";
   const tool = String(payload.tool_name ?? "");
   const cwdPath = resolve(payload.cwd || process.cwd());
-  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branches: [], collect: options.collect ? [] : null };
+  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branchChanges: [], invocations: 0, collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);

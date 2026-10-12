@@ -119,6 +119,28 @@ git("gitfeat", "config", "alias.lg", "log --oneline");
 writeFileSync(join(FIXTURE, "alias.gitconfig"), "[alias]\n\tx = !git push origin HEAD:main\n\ty = push origin HEAD:main\n");
 git("gitincl", "config", "include.path", join(FIXTURE, "alias.gitconfig"));
 writeFileSync(join(FIXTURE, "gitfeat/notes.md"), "notes\n");
+// Round 17: real repositories with commits and a bare remote. gitlive has main checked out, src and docs directories and
+// a nested worktree at .claude/worktrees/w1 on feature/w; gitlivefeat is on feature/x and its previous branch is main.
+const ID = ["-c", "user.name=guard", "-c", "user.email=guard@example.com"];
+mkdirSync(join(FIXTURE, "remote.git"));
+git("remote.git", "init", "-q", "--bare");
+for (const sub of ["gitlive", "gitlivefeat"]) {
+  mkdirSync(join(FIXTURE, sub, "src"), { recursive: true });
+  mkdirSync(join(FIXTURE, sub, "docs"));
+  writeFileSync(join(FIXTURE, sub, "src/a.ts"), "a\n");
+  writeFileSync(join(FIXTURE, sub, "docs/a.md"), "a\n");
+  git(sub, "init", "-q");
+  git(sub, "symbolic-ref", "HEAD", "refs/heads/main");
+  git(sub, "add", ".");
+  git(sub, ...ID, "commit", "-qm", "init");
+  git(sub, "remote", "add", "origin", join(FIXTURE, "remote.git"));
+}
+git("gitlive", "push", "-q", "origin", "main");
+git("gitlive", "worktree", "add", "-q", "-b", "feature/w", ".claude/worktrees/w1");
+git("gitlivefeat", "checkout", "-q", "-b", "feature/x");
+git("gitlivefeat", "checkout", "-q", "main");
+git("gitlivefeat", "checkout", "-q", "feature/x");
+writeFileSync(join(FIXTURE, "global-alias.gitconfig"), "[alias]\n\tx = push origin HEAD:main\n");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
 const mcp = (tool_name, tool_input) => ({ tool_name, tool_input });
@@ -667,8 +689,9 @@ pass fixture:gitmain | git checkout -B feature/y origin/main && git push -u orig
 pass fixture:gitmain | git switch --create=feature/y && git push origin HEAD
 pass fixture:gitfeat | git checkout notes.md && git push -u origin HEAD
 pass fixture:gitfeat | git checkout main -- notes.md && git push origin HEAD
-pass fixture:gitfeat | git checkout main && git checkout feature/x && git push
-pass | git -C $FIXTURE/gitmain checkout main && git -C $FIXTURE/gitfeat push origin HEAD
+# Rewritten in round 17: after a branch change that is not a new branch made right before the push, the push fails closed.
+block fixture:gitfeat | git checkout main && git checkout feature/x && git push
+block | git -C $FIXTURE/gitmain checkout main && git -C $FIXTURE/gitfeat push origin HEAD
 # 2. An empty destination names the source ref.
 block fixture:gitmain | git push origin HEAD:
 block fixture:gitfeat | git push origin main:
@@ -757,6 +780,121 @@ block fixture:gitfeat | git -c alias.sw='!git switch main' sw && git push
 block fixture:gitfeat | bash -c 'git checkout main' && git push
 residual fixture:gitfeat (a branch change made outside git checkout, switch or branch -m, such as gh pr checkout, is not followed) | gh pr checkout 1 && git push
 `;
+
+// Round 17: the fourth polish round. A push whose destination is the current branch is judged by three rules: with no
+// branch change before it, git reads the branch in the push's directory (A); after one, only a new branch made right
+// before it passes (B); a literal or wildcard destination is judged directly (C). The containment logic is gone.
+const ROUND_17 = String.raw`
+# A. No branch change before the push: the branch is read with git symbolic-ref in the push's own directory.
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push
+block fixture:gitlive | git push -u origin HEAD
+block fixture:gitlive | git push
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+pass fixture:gitlive | git -C .claude/worktrees/w1 push -u origin HEAD
+block fixture:gitlive | cd .claude/worktrees/w1 && cd ../../.. && git push -u origin HEAD
+block fixture:gitlivefeat | cd ../gitlive && git push -u origin HEAD
+block fixture:gitlivefeat | cd "$OTHER" && git push -u origin HEAD
+# A cd inside a subshell does not change the directory for the rest of the command.
+pass fixture:gitlivefeat | (cd ../gitlive && git status) && git push
+block fixture:gitlive | (cd ../gitlivefeat && git status) && git push
+pass fixture:gitlivefeat | (cd ../gitlive; git log --oneline -1); git push -u origin HEAD
+# B. After a branch change, only git checkout -b or git switch -c with a literal name that is not main or master, in
+# the same directory with no cd, outside a subshell and joined by && or ;, lets the push through.
+block fixture:gitlivefeat | git checkout - && git push
+block fixture:gitlivefeat | git switch - && git push -u origin HEAD
+block fixture:gitlive | git checkout -b fix/y && git checkout - && git push
+block fixture:gitlive | git -C .claude/worktrees/w1 switch -c fix/y && git push -u origin HEAD
+block fixture:gitlive | git checkout -b fix/y && git -C .claude/worktrees/w1 push -u origin HEAD
+block fixture:gitlivefeat | git checkout main || git checkout feature/y; git push
+block fixture:gitlivefeat | git -C src checkout main && git -C docs push
+block fixture:gitlivefeat | git checkout main && git checkout feature/x && git push
+block fixture:gitlive | git checkout -b fix/y || true; git push
+block fixture:gitlive | false && git checkout -b fix/y; git push
+block fixture:gitlive | git checkout -b main && git push
+block fixture:gitlive | git switch -C master && git push origin HEAD
+block fixture:gitlive | git checkout -b fix/y & git push
+block fixture:gitlive | git checkout -b fix/y | cat && git push
+block fixture:gitlive | (git checkout -b fix/y) && git push
+block fixture:gitlive | (git checkout -b fix/y && git push)
+block fixture:gitlive | cd . && git checkout -b fix/y && git push
+block fixture:gitlive | git checkout -b fix/y && cd . && git push
+block fixture:gitlive | git checkout -b "$NAME" && git push
+block fixture:gitlive | git checkout -t origin/fix && git push
+block fixture:gitlive | git checkout --detach && git push
+block fixture:gitlive | git branch -m main && git push
+block fixture:gitlive | bash -c 'git checkout -b fix/y' && git push
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | git switch -c feature/y; git push -u origin HEAD
+pass fixture:gitlive | git checkout -B feature/y origin/main && git push -u origin HEAD
+pass fixture:gitlive | git switch --create=feature/y && git commit -am wip && git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/y && npm test && git push -u origin HEAD
+pass fixture:gitlive | git -C .claude/worktrees/w1 switch -c fix/y && git -C .claude/worktrees/w1 push -u origin HEAD
+pass fixture:gitlive | bash -c 'git checkout -b fix/y && git push -u origin HEAD'
+pass fixture:gitlive | git checkout main && git push origin HEAD:feature/x
+pass fixture:gitlive | git checkout src/a.ts && git push origin HEAD:feature/x
+pass fixture:gitlivefeat | git checkout main -- src/a.ts && git push -u origin HEAD
+# C. Literal destinations are judged directly; wildcards are matched against refs/heads/main and refs/heads/master; a
+# default value written in a variable destination is judged as written; a dry run writes nothing; tags pass.
+pass fixture:gitlivefeat | git push origin $\{BRANCH:-HEAD}
+block fixture:gitlive | git push origin $\{BRANCH:-HEAD}
+block fixture:gitlivefeat | git push origin HEAD:$\{TARGET:-main}
+block fixture:gitlivefeat | git push origin "HEAD:$\{TARGET:=master}"
+pass fixture:gitlivefeat | git push origin HEAD:$\{TARGET:-feature/x}
+block fixture:gitlivefeat | git push origin 'refs/heads/m*:refs/heads/m*'
+block fixture:gitlivefeat | git push origin '*n'
+block fixture:gitlivefeat | git push origin 'HEAD:refs/heads/ma?n'
+pass fixture:gitlive | git push origin 'refs/heads/feature/*:refs/heads/feature/*'
+pass fixture:gitlive | git push origin HEAD:fix/y
+block fixture:gitlive | git push origin HEAD:refs/heads/master
+pass fixture:gitlive | git push --dry-run origin HEAD:main
+pass fixture:gitlive | git push -n origin main
+pass fixture:gitlive | git push --tags
+block fixture:gitlive | git push --all origin
+# 1. Aliases read from the GIT_CONFIG environment of the call; an alias written with git config --file counts only
+# when git reads that file.
+block fixture:gitlivefeat | GIT_CONFIG_GLOBAL=$FIXTURE/global-alias.gitconfig git x
+block fixture:gitlivefeat | export GIT_CONFIG_GLOBAL=$FIXTURE/global-alias.gitconfig; git x
+pass fixture:gitlivefeat | GIT_CONFIG_GLOBAL=$FIXTURE/global-alias.gitconfig git log --oneline -1
+block fixture:gitlivefeat | GIT_CONFIG_SYSTEM=$FIXTURE/global-alias.gitconfig git x
+block fixture:gitlivefeat | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='push origin HEAD:main' git x
+pass fixture:gitlivefeat | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0=status git x
+block fixture:gitlivefeat | GIT_CONFIG_PARAMETERS="'alias.x=push origin HEAD:main'" git x
+block fixture:gitlivefeat | GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0="$V" git x
+pass fixture:gitlivefeat | git config --file /tmp/guard-unloaded.gitconfig alias.x 'push origin HEAD:main' && git x
+pass fixture:gitlivefeat | git config --file=/tmp/guard-unloaded.gitconfig alias.st 'push origin HEAD:main' && git st
+block fixture:gitlivefeat | git config --file .git/config alias.x 'push origin HEAD:main' && git x
+block fixture:gitlivefeat | git config -f $FIXTURE/g2.gitconfig alias.x 'push origin HEAD:main' && GIT_CONFIG_GLOBAL=$FIXTURE/g2.gitconfig git x
+block fixture:gitlivefeat | git config --file $FIXTURE/g3.gitconfig alias.x 'push origin HEAD:main' && git -c include.path=$FIXTURE/g3.gitconfig x
+# Normal review commands the lead runs; all pass.
+pass | git -C /tmp/wt log -- supabase/migrations
+pass | sed -n 1,80p supabase/migrations/x.sql
+pass | grep -rn "security definer" supabase/migrations 2>/dev/null
+pass | cat supabase/migrations/x.sql > /tmp/x.sql
+pass | npm run test:portable-node
+pass | gh pr diff 676
+pass | gh api repos/o/r/pulls/1
+# Residuals that stay.
+residual fixture:gitlive (a git checkout -b that fails because the branch exists, followed by ;, leaves the old branch checked out) | git checkout -b feature/w; git push
+residual fixture:gitlivefeat (a refspec generated to spell main is read as the current branch; a deliberate evasion) | git push origin "$(echo main)"
+residual fixture:gitlivefeat (a branch change made outside git checkout, switch or branch -m, such as gh pr checkout, is not seen) | gh pr checkout 1 && git push
+`;
+
+test("round 17: cd $HOME and cd ${HOME} are expanded from HOME before the branch is read", () => {
+  const home = process.env.HOME;
+  process.env.HOME = FIXTURE;
+  try {
+    const run = (command) => decide({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, "gitlivefeat") }, { prFiles: fakePrFiles });
+    assert.ok(run("cd $HOME/gitlive && git push -u origin HEAD"), "cd $HOME/gitlive && git push should block");
+    assert.ok(run('cd "${HOME}/gitlive" && git push'), "cd ${HOME}/gitlive && git push should block");
+    assert.ok(run("cd $HOME/gitlive/.claude/worktrees/w1 && cd $HOME/gitlive && git push origin HEAD"), "the last cd decides");
+    assert.equal(run("cd $HOME/gitlivefeat && git push -u origin HEAD"), null);
+    assert.equal(run("cd ${HOME}/gitlive/.claude/worktrees/w1 && git push -u origin HEAD"), null);
+    assert.ok(run("cd $HOMEDIR/gitlive && git push"), "$HOMEDIR is not HOME, so the directory is unresolved and the push fails closed");
+  } finally {
+    process.env.HOME = home;
+  }
+});
 
 test("cd ~ is expanded from HOME, so a push is resolved in the right repository", () => {
   const home = process.env.HOME;
@@ -1230,6 +1368,7 @@ const PROBES = [
   ...tableRows(14, ROUND_14),
   ...tableRows(15, ROUND_15),
   ...tableRows(16, ROUND_16),
+  ...tableRows(17, ROUND_17),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
