@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,6 +50,7 @@ const {
     getQuoteLaneEligibility: vi.fn(),
     getXometryBetaDispatchScope: vi.fn(),
     getProviderDispatchScope: vi.fn(),
+    getProviderFanoutGuards: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
     requestXometryBetaDispatch: vi.fn(),
@@ -127,6 +128,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   getQuoteLaneEligibility: api.getQuoteLaneEligibility,
   getXometryBetaDispatchScope: api.getXometryBetaDispatchScope,
   getProviderDispatchScope: api.getProviderDispatchScope,
+  getProviderFanoutGuards: api.getProviderFanoutGuards,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   requestXometryBetaDispatch: api.requestXometryBetaDispatch,
@@ -1839,6 +1841,110 @@ describe("ClientPart", () => {
       expect(api.getProviderDispatchScope).toHaveBeenCalledWith("job-1", "fictiv", "inch");
       expect(api.getXometryBetaDispatchScope).not.toHaveBeenCalled();
       expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  function mockFanoutVendors(vendors: string[]) {
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      availableVendors: vendors,
+      projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
+      jobVendorPreferences: { includedVendors: vendors, excludedVendors: [] },
+    });
+  }
+
+  async function confirmXometryDialog() {
+    fireEvent.click(await findRequestQuoteButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    fireEvent.click(confirm);
+  }
+
+  it("keeps the single provider flow when the fan out flag is off", async () => {
+    mockFanoutVendors(["xometry", "fictiv", "sendcutsend"]);
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv", "sendcutsend"]));
+
+    renderWithClient("/parts/job-1");
+    await confirmXometryDialog();
+
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Providers for this request")).not.toBeInTheDocument();
+    expect(api.getProviderFanoutGuards).not.toHaveBeenCalled();
+    expect(api.getProviderDispatchScope).not.toHaveBeenCalled();
+    expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+  });
+
+  it("fans one confirmation out to every applicable provider when the flag is on", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv", "protolabs", "sendcutsend", "geomiq"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: ["protolabs"],
+        exportDeclaration: "not_clean",
+        dailyQuoteCounts: {},
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestXometryBetaDispatch.mockRejectedValue({ message: "xometry_beta_scope_changed", code: "P0001" });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-2",
+        quoteRequestId: "request-2",
+        quoteRunId: "run-2",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(
+        createDispatchReadyPartDetail(["xometry", "fictiv", "protolabs", "sendcutsend", "geomiq"]),
+      );
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      expect(within(sent).getByText("Xometry")).toBeInTheDocument();
+      expect(within(sent).getByText("Fictiv")).toBeInTheDocument();
+      const skipped = screen.getByRole("list", { name: "Providers skipped" });
+      expect(within(skipped).getByText("Protolabs").parentElement).toHaveTextContent("Switched off");
+      expect(within(skipped).getByText("SendCutSend").parentElement).toHaveTextContent("process");
+      expect(within(skipped).getByText("Geomiq").parentElement).toHaveTextContent("export declaration");
+      expect(
+        screen.getByRole("checkbox", {
+          name: "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.",
+        }),
+      ).toBeInTheDocument();
+
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      // Xometry is denied, and Fictiv is still sent with its own scope.
+      await waitFor(() => {
+        expect(api.requestProviderDispatch).toHaveBeenCalledWith({
+          jobId: "job-1",
+          provider: "fictiv",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          noticeRevision: "founding-beta-2026-08-15",
+          expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+          approvalReference: expect.any(String),
+        });
+      });
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.getProviderDispatchScope).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "queued");
+      });
+      expect(sent.querySelector('[data-provider="xometry"]')).toHaveAttribute("data-status", "denied");
     } finally {
       vi.unstubAllEnvs();
     }

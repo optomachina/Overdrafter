@@ -12,12 +12,12 @@ import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-worksp
 import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { selectQuoteOption } from "./packages-api";
+import type { ProviderFanoutGuards } from "@/features/quotes/provider-fanout";
 import {
   parseProviderDispatchResult,
   parseProviderDispatchScope,
   parseXometryBetaDispatchResult,
   parseXometryBetaDispatchScope,
-  type LiveDispatchProvider,
   type ProviderDispatchScope,
   type XometryBetaDispatchResult,
   type XometryBetaDispatchScope,
@@ -99,6 +99,9 @@ export async function getXometryBetaDispatchScope(
   return parseXometryBetaDispatchScope(ensureData(data, error));
 }
 
+/** Any provider on the generic admission path; Xometry keeps its legacy RPCs. */
+export type GenericDispatchProvider = Exclude<VendorName, "xometry">;
+
 export async function requestXometryBetaDispatch(input: {
   jobId: string;
   declaredModelUnits: XometryBetaModelUnits;
@@ -127,7 +130,7 @@ export async function requestXometryBetaDispatch(input: {
  */
 export async function getProviderDispatchScope(
   jobId: string,
-  provider: Exclude<LiveDispatchProvider, "xometry">,
+  provider: GenericDispatchProvider,
   declaredModelUnits: XometryBetaModelUnits,
 ): Promise<ProviderDispatchScope> {
   const { data, error } = await callRpc("api_get_provider_dispatch_scope", {
@@ -141,7 +144,7 @@ export async function getProviderDispatchScope(
 
 export async function requestProviderDispatch(input: {
   jobId: string;
-  provider: Exclude<LiveDispatchProvider, "xometry">;
+  provider: GenericDispatchProvider;
   declaredModelUnits: XometryBetaModelUnits;
   expectedScopeFingerprint: string;
   noticeRevision: string;
@@ -162,6 +165,39 @@ export async function requestProviderDispatch(input: {
   });
 
   return parseProviderDispatchResult(ensureData(data, error), input.provider);
+}
+
+function isVendorArray(value: unknown): value is VendorName[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.length > 0);
+}
+
+/**
+ * Kill switch, export declaration, and today's per provider quote counts for a
+ * job (drafted in docs/migration-drafts/provider-fanout-guards.sql). Any
+ * malformed field throws, and the caller then sends to the primary provider only.
+ */
+export async function getProviderFanoutGuards(jobId: string): Promise<ProviderFanoutGuards> {
+  const { data, error } = await callUntypedRpc("api_get_provider_fanout_guards", {
+    p_job_id: jobId,
+  });
+  const result = ensureData(data, error) as Record<string, unknown> | null;
+  const counts = result?.dailyQuoteCounts;
+  if (
+    !result ||
+    !isVendorArray(result.killSwitchedProviders) ||
+    (result.exportDeclaration !== "clean" && result.exportDeclaration !== "not_clean") ||
+    typeof counts !== "object" ||
+    counts === null ||
+    Array.isArray(counts) ||
+    Object.values(counts).some((count) => typeof count !== "number" || !Number.isSafeInteger(count) || count < 0)
+  ) {
+    throw new TypeError("Provider fan out guards are unavailable.");
+  }
+  return {
+    killSwitchedProviders: result.killSwitchedProviders,
+    exportDeclaration: result.exportDeclaration,
+    dailyQuoteCounts: counts as ProviderFanoutGuards["dailyQuoteCounts"],
+  };
 }
 
 export async function getQuoteLaneEligibility(
