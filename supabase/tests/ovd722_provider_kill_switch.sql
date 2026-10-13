@@ -1,10 +1,8 @@
 -- OVD-722 per-provider and global provider kill switch.
 --
--- PENDING: this suite targets docs/migration-drafts/ovd-722.sql, which is
--- NOT applied (NEEDS BLAINE MIGRATION WINDOW). It carries a .pending suffix so
--- the policy-test runner stages it but never executes it. In the approved
--- window, the draft becomes one migration and this file is renamed to
--- supabase/tests/ovd722_provider_kill_switch.sql in the same change.
+-- Targets migration 20261013043100_ovd722_provider_kill_switch.sql, applied to
+-- production in migration window 1 (bytes identical to the reviewed draft
+-- docs/migration-drafts/ovd-722.sql).
 --
 -- Covers plan tests 1, 4, 5, 6 and the SQL side of 7:
 --   * seeded rows for every vendor_name value and the global singleton
@@ -401,7 +399,8 @@ reset role;
 
 -- Engage Xometry as the admin. The version is captured first because the
 -- authenticated role cannot read the private switch table.
-update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry')
+where true;
 set local role authenticated;
 select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
 select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: end to end enqueue drill');
@@ -427,7 +426,8 @@ select is((select pg_catalog.count(*)::int from public.work_queue where job_id =
   0, 'the refused dispatch left no work_queue task');
 
 -- Release Xometry: the same call now succeeds, so the refusal above was the switch.
-update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry')
+where true;
 set local role authenticated;
 select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
 select public.api_admin_set_provider_kill_switch('xometry', false, 'OVD-722 test: end to end enqueue released',
@@ -471,7 +471,8 @@ values ('00000000-0000-4000-8000-000000722213', '00000000-0000-4000-8000-0000007
   'run_vendor_quote', 'queued',
   '{"vendor":"xometry","vendorQuoteResultId":"00000000-0000-4000-8000-000000722314"}');
 
-update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry')
+where true;
 set local role authenticated;
 select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
 select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: sweep bad row drill');
@@ -502,7 +503,8 @@ select is((select r.status::text from public.vendor_quote_results r
 drop trigger ovd722_fence_stub on public.vendor_quote_results;
 
 -- Leave Xometry released so the later global switch assertions see only fictiv engaged.
-update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry')
+where true;
 set local role authenticated;
 select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
 select is(

@@ -105,10 +105,12 @@ admin's own session (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
 11. **Name clash.** `api_spend_summary`/`api_set_global_spend_cap` already have a
     spend `killSwitch`. That is a spend halt, unrelated; the new feature is
     always called the *provider* kill switch.
-12. **pgTAP cannot run against the draft in CI.** The suite lives at
-    `supabase/tests/pending/ovd722_provider_kill_switch.sql.pending`; the policy
-    runner stages but does not execute non-`.sql` files. It has not been
-    executed (no Docker daemon or Supabase CLI in this environment). The admin
+12. **pgTAP suite.** Before window 1 the suite lived at
+    `supabase/tests/pending/ovd722_provider_kill_switch.sql.pending`, which the
+    policy runner stages but does not execute. Window 1 (#728) promoted it to
+    `supabase/tests/ovd722_provider_kill_switch.sql` alongside migration
+    `20261013043100_ovd722_provider_kill_switch.sql`, and the pending copy was
+    removed. The admin
     RPCs and tables themselves are executed by
     `docs/migration-drafts/ovd-722-race-check.sh` on a disposable local
     Postgres (see "Cross review fixes").
