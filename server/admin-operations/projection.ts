@@ -13,7 +13,7 @@ const DATABASE_AGE = 60_000;
 const WORKER_AGE = 120_000;
 const FAILURE_WINDOW = 86_400_000;
 const MAX_ROWS = 200;
-const LEGACY_FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached"];
+const LEGACY_FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached", "provider_kill_switch_engaged", "provider_kill_switch_unavailable"];
 /** OVD-723 failure codes a worker task can record (export-control holds). */
 export const EXPORT_CONTROL_FAILURE_CODES = [
   "export_review_pending", "export_scan_unread", "export_declaration_missing", "export_declaration_not_clean",

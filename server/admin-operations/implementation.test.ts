@@ -66,6 +66,10 @@ describe("operations implementation", () => {
     expect(OPERATIONS_TASK_TYPES).toContain("export_marking_rescan");
     expect(projectOperations({failures:source([queue({status:"failed",failureCode:"export_unknown",provider:null})])},now).items.find((i)=>i.category==="task_failure")?.reasonCode).toBe("source_malformed");
   });
+  it.each(["provider_kill_switch_engaged","provider_kill_switch_unavailable"])("projects the OVD-722 kill-switch failure code %s instead of marking the source malformed", (failureCode) => {
+    const result = projectOperations({failures:source([queue({status:"failed",provider:"fictiv",failureCode})])},now);
+    expect(result.items.find((i) => i.category === "task_failure")).toMatchObject({key:"task_failure:fictiv",severity:"attention",occurrenceCount:1});
+  });
   it("keeps uncoded failed evidence unknown and a proven empty failure window healthy", () => {
     expect(projectOperations({failures:source([queue({status:"failed",failureCode:null,provider:null})])},now).items.find((i)=>i.category==="task_failure")?.severity).toBe("unknown");
     expect(projectOperations({failures:source([])},now).items.find((i)=>i.category==="task_failure")).toMatchObject({severity:"healthy",occurrenceCount:0});

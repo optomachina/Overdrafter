@@ -50,6 +50,7 @@ import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { isDispatchDecisionError } from "../dispatchDecisionError.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
@@ -1055,6 +1056,7 @@ async function navigateToQuoteConfigurationPage(
   timeoutMs: number,
   runDir: string,
   nonExportControlled: boolean,
+  beforeSubmit: () => Promise<void> = async () => undefined,
 ) {
   if (nonExportControlled !== true) {
     throw new VendorAutomationError(
@@ -1112,6 +1114,10 @@ async function navigateToQuoteConfigurationPage(
         reviewedNoType === "radio" &&
         reviewedNoValue === "confirmed-not-itar" &&
         reviewedContinueTestId === "ItarView-itar-continue";
+      if (reviewedShapeValid) {
+        // OVD-722: outside the try below so a refusal is never relabelled.
+        await beforeSubmit();
+      }
       if (!reviewedShapeValid) {
         const ambiguityArtifacts = await capturePageArtifacts(
           page,
@@ -1134,6 +1140,23 @@ async function navigateToQuoteConfigurationPage(
           ambiguityArtifacts,
         );
       }
+      const exportControlAnswerUnverified = async () => {
+        const ambiguityArtifacts = await capturePageArtifacts(
+          page,
+          runDir,
+          "export-control-ambiguous",
+        ).catch(() => []);
+        return new VendorAutomationError(
+          "Xometry's reviewed export-control answer could not be verified.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "export_control_state_ambiguous",
+            url: page.url(),
+          },
+          ambiguityArtifacts,
+        );
+      };
       try {
         await reviewedNo.evaluate((element) => {
           if (!(element instanceof HTMLInputElement)) {
@@ -1145,6 +1168,13 @@ async function navigateToQuoteConfigurationPage(
         if (!reviewedNoChecked) {
           throw new Error("reviewed non-export-controlled action was not selected");
         }
+      } catch {
+        throw await exportControlAnswerUnverified();
+      }
+      // OVD-722: Continue submits the answer, so the switch is read again
+      // right before it, outside the catches that relabel errors.
+      await beforeSubmit();
+      try {
         await reviewedContinue.evaluate((element) => {
           if (!(element instanceof HTMLButtonElement)) {
             throw new TypeError("reviewed export-control submit is not a button");
@@ -1153,21 +1183,7 @@ async function navigateToQuoteConfigurationPage(
         });
         modalSelector = reviewedContinueSelector;
       } catch {
-        const ambiguityArtifacts = await capturePageArtifacts(
-          page,
-          runDir,
-          "export-control-ambiguous",
-        ).catch(() => []);
-        throw new VendorAutomationError(
-          "Xometry's reviewed export-control answer could not be verified.",
-          "unexpected_ui_state",
-          {
-            vendor: "xometry",
-            reason: "export_control_state_ambiguous",
-            url: page.url(),
-          },
-          ambiguityArtifacts,
-        );
+        throw await exportControlAnswerUnverified();
       }
       break;
     }
@@ -1176,6 +1192,7 @@ async function navigateToQuoteConfigurationPage(
       const locator = page.locator(selector).first();
       const visible = await locator.isVisible().catch(() => false);
       if (!visible) continue;
+      await beforeSubmit();
       let nonExportControlledSelector: string | null = null;
       for (const noSelector of XOMETRY_LOCATORS.exportControlNo.slice(1)) {
         const noControl = page.locator(noSelector).first();
@@ -1206,6 +1223,9 @@ async function navigateToQuoteConfigurationPage(
           ambiguityArtifacts,
         );
       }
+      // OVD-722: Continue submits the negative answer; read the switch again
+      // right before it, outside the catch below.
+      await beforeSubmit();
       try {
         await locator.click();
         modalSelector = selector;
@@ -1460,6 +1480,7 @@ async function hasVisibleReviewedExportControl(page: Page) {
 async function submitApprovedQuoteModal(
   page: Page,
   target: ApprovedUploadTarget,
+  beforeSubmit: () => Promise<void> = async () => undefined,
 ) {
   if (
     !target.postUploadButtonSelectors ||
@@ -1529,6 +1550,9 @@ async function submitApprovedQuoteModal(
       },
     );
   }
+  // OVD-722: the polling above can take up to a minute; re-read the switch
+  // right before the submit click.
+  await beforeSubmit();
   await button.locator.evaluate((element) => {
     if (!(element instanceof HTMLElement)) {
       throw new TypeError("approved quote submit action is not an HTML element");
@@ -1543,6 +1567,7 @@ async function setFilesOnApprovedUploadTarget(
   filePaths: string[],
   target: ApprovedUploadTarget,
   runDir: string,
+  beforeMutation: () => Promise<void> = async () => undefined,
   beforeProviderDisclosure?: () => Promise<void>,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
@@ -1586,6 +1611,9 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
+  // OVD-722: readiness polling can take many seconds; re-read the switch
+  // immediately before the upload.
+  await beforeMutation();
   markProviderMutationStarted();
   await target.locator.setInputFiles(files);
   if (target.panel) {
@@ -1596,7 +1624,7 @@ async function setFilesOnApprovedUploadTarget(
       runDir,
     );
   }
-  await submitApprovedQuoteModal(page, target);
+  await submitApprovedQuoteModal(page, target, beforeMutation);
   return { selector: target.selector };
 }
 
@@ -1754,7 +1782,11 @@ async function configureRequiredOption(
   return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector, observer);
 }
 
-async function saveConfiguration(page: Page, timeoutMs: number) {
+async function saveConfiguration(
+  page: Page,
+  timeoutMs: number,
+  beforeSave: () => Promise<void> = async () => undefined,
+) {
   // Xometry can take longer than the general browser timeout to recalculate a
   // configured quote. Keep this vendor-specific floor explicit and bounded.
   const postSaveTimeoutMs = Math.max(timeoutMs, XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS);
@@ -1769,6 +1801,7 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
     }
 
     const configurationUrl = page.url();
+    await beforeSave();
     await button.click();
     const navigated = await page
       .waitForURL((url) => url.toString() !== configurationUrl, {
@@ -1841,7 +1874,12 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
   );
 }
 
-export async function setQuantity(page: Page, quantity: number, binding?: OperationalJevBinding) {
+export async function setQuantity(
+  page: Page,
+  quantity: number,
+  binding?: OperationalJevBinding,
+  beforeSubmit: () => Promise<void> = async () => undefined,
+) {
   const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
 
   if (!match) {
@@ -1876,6 +1914,9 @@ export async function setQuantity(page: Page, quantity: number, binding?: Operat
   }
 
   await match.locator.fill(String(quantity));
+  // OVD-722: Enter can submit the form; read the switch again between the
+  // fill and the key press.
+  await beforeSubmit();
   await match.locator.press("Enter");
 }
 
@@ -2238,6 +2279,7 @@ async function attachDrawingFallback(
   drawingFile: string | LiveEvaluationUploadFile,
   drawingName: string,
   timeoutMs: number,
+  beforeAttempt: () => Promise<void> = async () => undefined,
 ) {
   for (const selector of XOMETRY_LOCATORS.drawingInputs) {
     const locator = page.locator(selector).first();
@@ -2245,6 +2287,9 @@ async function attachDrawingFallback(
 
     if (count < 1) continue;
 
+    // OVD-722: a fresh check before every attempt, outside the try so the
+    // catch below can never swallow a refusal.
+    await beforeAttempt();
     try {
       const attempt = await attemptDrawingAttachment(
         page,
@@ -2256,7 +2301,8 @@ async function attachDrawingFallback(
       );
       if (attempt.outcome === "verified") return attempt.result;
       if (attempt.outcome === "terminal_failure") return null;
-    } catch {
+    } catch (error) {
+      if (error instanceof ProviderKillSwitchError) throw error;
       // Try the next drawing-specific input.
     }
   }
@@ -2724,6 +2770,8 @@ export class XometryAdapter extends VendorAdapter {
     let pendingError: VendorAutomationError | null = null;
     // OVD-723: a gate denial raised before an upload, rethrown unchanged after teardown.
     let dispatchDecisionError: Error | null = null;
+    // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
+    let killSwitchError: ProviderKillSwitchError | null = null;
     let snapshotError: VendorAutomationError | null = null;
 
     try {
@@ -2809,6 +2857,7 @@ export class XometryAdapter extends VendorAdapter {
       }
 
       const page = await browserContext.newPage();
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
       await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "load" });
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await waitForAuthenticatedDashboardHydration(
@@ -2839,12 +2888,14 @@ export class XometryAdapter extends VendorAdapter {
       const uploadedFileNames = liveEvaluationUploadFiles
         ? [liveEvaluationUploadFiles.cad.name]
         : [input.stagedCadFile.localPath];
+      await input.providerKillSwitchCheckpoint?.("before_upload");
       const uploadResult = await setFilesOnApprovedUploadTarget(
         page,
         uploadFiles,
         uploadedFileNames,
         uploadTarget,
         runDir,
+        async () => input.providerKillSwitchCheckpoint?.("before_upload"),
         input.beforeProviderDisclosure,
       );
       uploadSelector = uploadResult.selector;
@@ -2869,6 +2920,7 @@ export class XometryAdapter extends VendorAdapter {
         120_000,
         runDir,
         nonExportControlled,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"),
       );
 
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
@@ -2911,13 +2963,16 @@ export class XometryAdapter extends VendorAdapter {
             : null;
         selectedTolerance = requestedTolerance.tier;
       } else {
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         await openPartConfigurationIfNeeded(
           page,
           this.config.browserTimeoutMs,
         );
         await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
-          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined);
+          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
+        async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         selectedMaterial = await configureRequiredOption(
           page,
           materialTerms,
@@ -2928,6 +2983,7 @@ export class XometryAdapter extends VendorAdapter {
         );
 
         if (finishTerms && finishTerms.length > 0) {
+          await input.providerKillSwitchCheckpoint?.("before_configure");
           selectedFinish = await configureRequiredOption(
             page,
             finishTerms,
@@ -2938,6 +2994,7 @@ export class XometryAdapter extends VendorAdapter {
           );
         }
 
+        await input.providerKillSwitchCheckpoint?.("before_configure");
         const toleranceSelection = await setTolerance(
           page,
           input.requirement.tightest_tolerance_inch,
@@ -2950,6 +3007,7 @@ export class XometryAdapter extends VendorAdapter {
         saveConfigurationSelector = await saveConfiguration(
           page,
           this.config.browserTimeoutMs,
+          async () => input.providerKillSwitchCheckpoint?.("before_save"),
         );
       }
 
@@ -2975,12 +3033,14 @@ export class XometryAdapter extends VendorAdapter {
             },
           );
         }
+        await input.providerKillSwitchCheckpoint?.("before_upload");
         await input.beforeProviderDisclosure?.();
         const drawingFallbackResult = await attachDrawingFallback(
           page,
           liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
           input.stagedDrawingFile.originalName,
           this.config.browserTimeoutMs,
+          async () => input.providerKillSwitchCheckpoint?.("before_upload"),
         );
         if (!drawingFallbackResult) {
           throw new VendorAutomationError(
@@ -3191,6 +3251,13 @@ export class XometryAdapter extends VendorAdapter {
         await browserContext.tracing.stop();
         traceStopped = true;      }
 
+      // OVD-722: when Xometry redirected on its own and the uploaded summary
+      // already matched, no configure or save checkpoint ran after the
+      // upload. Check once more before the result is returned.
+      if (uploadedSummaryMatches) {
+        await input.providerKillSwitchCheckpoint?.("before_save");
+      }
+
       quoteResult = {
         vendor: "xometry",
         status: manualReview ? "manual_review_pending" : "instant_quote_received",
@@ -3240,6 +3307,8 @@ export class XometryAdapter extends VendorAdapter {
         provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
       if (isDispatchDecisionError(error)) {
         dispatchDecisionError = error;
+      } else if (error instanceof ProviderKillSwitchError) {
+        killSwitchError = error;
       } else if (error instanceof VendorAutomationError) {
         pendingError = new VendorAutomationError(
           error.message,
@@ -3326,6 +3395,7 @@ export class XometryAdapter extends VendorAdapter {
     }
 
     if (dispatchDecisionError) throw dispatchDecisionError;
+    if (killSwitchError) throw killSwitchError;
     if (pendingError) {
       // The quote failure is the primary cause; a teardown snapshot failure is
       // secondary diagnostic evidence and must not mask it.

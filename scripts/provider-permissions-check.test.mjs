@@ -762,13 +762,17 @@ describe("OVD-728 playbook structure and pending marker", () => {
   it("rejects kill_switch_shipped true unless the OVD-722 switch exists in code", async () => {
     const { document, markdown } = await readRepoMatrix();
     expect(document.kill_switch_shipped).toBe(false);
-    await expect(assertOvd722KillSwitchShipped(repoRoot)).rejects.toThrow("scripts/provider-kill.mjs");
+    // The OVD-722 CLI and RPC client are in this repository now; a temporary
+    // repository without them is the "switch absent" case.
+    await expect(assertOvd722KillSwitchShipped(repoRoot)).resolves.toBeUndefined();
+    const { temporaryRoot } = await writeTempRepo();
+    await expect(assertOvd722KillSwitchShipped(temporaryRoot)).rejects.toThrow("scripts/provider-kill.mjs");
     const text = (await playbook()).replace("**pending OVD-722**", "ready");
     const shipped = { ...clone(document), kill_switch_shipped: true };
-    await expect(checkProviderPermissions({ rootDir: repoRoot, today: "2026-10-11", playbook: text, markdown }))
+    await expect(checkProviderPermissions({ rootDir: temporaryRoot, today: "2026-10-11", playbook: text, markdown }))
       .rejects.toThrow("pending OVD-722");
     await expect(checkProviderPermissions({
-      rootDir: repoRoot,
+      rootDir: temporaryRoot,
       today: "2026-10-11",
       playbook: text,
       markdown,

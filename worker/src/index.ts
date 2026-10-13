@@ -119,6 +119,19 @@ import {
   quoteWithRoutedDispatchPreflight,
   withExportControlDispatchRecheck,
 } from "./dispatchRouting.js";
+import {
+  cancelVendorTaskForDisabledProvider,
+  checkProviderKillSwitchAtClaim,
+  createProviderKillSwitchGuard,
+  guardProviderQuote,
+  markTaskCancelledForDisabledProvider,
+  supabaseProviderKillSwitchReader,
+  failVendorResultForUnavailableKillSwitch,
+  ProviderKillSwitchError,
+  isProviderKillSwitchEngaged,
+  providerKillSwitchSweepWarnings,
+  sweepProviderDisabledTasks,
+} from "./providerKillSwitch.js";
 import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
 import { createProviderDaySwitch, type ProviderTaskOutcome } from "./providerTaskPipeline.js";
 import {
@@ -1193,6 +1206,53 @@ export async function handleVendorQuoteTask(
 
   const retryCount = retryCountForAttempts(task.attempts);
 
+  // OVD-722: a switched-off provider's queued task ends truthfully at claim,
+  // before the lane is marked running or anything is staged.
+  if (config.workerMode === "live") {
+    let claimCheck: "proceed" | "cancelled";
+    try {
+      claimCheck = await checkProviderKillSwitchAtClaim({
+        supabase,
+        task,
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        requestedQuantity: currentResult.requested_quantity,
+      });
+    } catch (error) {
+      // An unreadable switch is retried by the queue loop. When its retries are
+      // spent the loop fails the task, so the lane must settle visibly too;
+      // otherwise it would stay queued with no task left to run it.
+      if (error instanceof ProviderKillSwitchError && nextRetryAt(task.attempts) === null) {
+        // A database error while settling must not replace the kill switch
+        // error: the queue loop needs it to fail the task with the right code.
+        try {
+          await failVendorResultForUnavailableKillSwitch(supabase, {
+            vendorQuoteResultId: currentResult.id,
+            error,
+            retryCount,
+            requestedQuantity: currentResult.requested_quantity,
+          });
+          await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+        } catch (settleError) {
+          console.warn(
+            JSON.stringify({
+              service: "overdrafter-cad-worker",
+              level: "warn",
+              source: "worker.kill_switch",
+              message: `Could not settle the lane after the kill switch read failed: ${summarizeWorkerError(settleError)}`,
+              context: { taskId: task.id, vendorQuoteResultId: currentResult.id },
+            }),
+          );
+        }
+      }
+      throw error;
+    }
+    if (claimCheck === "cancelled") {
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      return;
+    }
+  }
+
   await supabase
     .from("vendor_quote_results")
     .update({
@@ -1244,6 +1304,19 @@ export async function handleVendorQuoteTask(
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     if (resultPersisted) {
       await settlePostPersistBookkeepingFailure(supabase, task, error);
+      return;
+    }
+    // OVD-722: an engaged switch at any checkpoint (before launch, or inside
+    // the adapter before navigation/upload/configure) ends the task as
+    // cancelled_provider_disabled, never as a provider failure or a retry.
+    if (isProviderKillSwitchEngaged(error)) {
+      await cancelVendorTaskForDisabledProvider(supabase, task, {
+        vendorQuoteResultId: currentResult.id,
+        error,
+        requestedQuantity: currentResult.requested_quantity,
+        providerMutationPossible: providerMutationEvidence().providerMutationPossible === true,
+      });
+      await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
       return;
     }
     const vendorError =
@@ -1316,8 +1389,10 @@ export async function handleVendorQuoteTask(
       ? dispatchAuthorizationError.reasonCode
       : failureCodeForError(error);
     const failureMessage = summarizeWorkerError(error);
+    // An unreadable kill switch is retryable only before any provider mutation.
     const retryableDispatchAuthorizationError =
-      dispatchAuthorizationError?.retryable === true;
+      dispatchAuthorizationError?.retryable === true &&
+      (dispatchAuthorizationError.boundary !== "kill_switch" || isRetryableVendorTaskError(error));
     const requiresManualVendorFollowUp =
       vendorError?.code === "not_implemented" ||
       Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
@@ -1339,7 +1414,18 @@ export async function handleVendorQuoteTask(
       resultStatus = "queued";
     }
     let failureNote = failureMessage;
-    if (dispatchAuthorizationError?.boundary === "provider") {
+    if (dispatchAuthorizationError?.boundary === "kill_switch") {
+      // After a provider mutation may have started the read failure is not
+      // retryable and the lane goes to manual follow up; the note must not say
+      // nothing was sent.
+      if (requiresManualVendorFollowUp) {
+        failureNote = `${vendor} kill switch state could not be confirmed after the upload started, so the provider may already hold the upload. Automation stopped and manual follow-up is required.`;
+      } else if (retryableDispatchAuthorizationError && retryAt) {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`;
+      } else {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
+      }
+    } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
         : `Automatic ${vendor} dispatch authorization was denied before adapter launch; manual follow-up is required.`;
@@ -1483,31 +1569,37 @@ export async function handleVendorQuoteTask(
       // terminal path here moves it on; without this it would sit reporting
       // "running" forever on a lane that was never going to run -- a
       // customer-facing quote that silently never resolves.
-      await supabase
-        .from("vendor_quote_results")
-        .update({
-          status: retryAt ? "queued" : "manual_vendor_followup",
-          notes: [
-            retryAt
-              ? `Spend cap reached; this lane will retry. ${error.message}`
-              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
-          ],
-          raw_payload: {
-            mode: config.workerMode,
-            requiresManualVendorFollowUp: !retryAt,
-            manualFollowUpReason: "spend_cap_reached",
-            spendCapReasonCode: error.reasonCode,
-            requestedQuantity: currentResult.requested_quantity,
-            failureCode: "spend_cap_reached",
-          },
-        })
-        .eq("id", currentResult.id);
+      const writeSpendCapLane = () =>
+        supabase
+          .from("vendor_quote_results")
+          .update({
+            status: retryAt ? "queued" : "manual_vendor_followup",
+            notes: [
+              retryAt
+                ? `Spend cap reached; this lane will retry. ${error.message}`
+                : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+            ],
+            raw_payload: {
+              mode: config.workerMode,
+              requiresManualVendorFollowUp: !retryAt,
+              manualFollowUpReason: "spend_cap_reached",
+              spendCapReasonCode: error.reasonCode,
+              requestedQuantity: currentResult.requested_quantity,
+              failureCode: "spend_cap_reached",
+            },
+          })
+          .eq("id", currentResult.id);
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
+        // Requeue first: the lane may only advertise a retry that is actually
+        // scheduled. False means the task was settled elsewhere (cancelled,
+        // say); queue.ts logs that and the lane is left as it is.
+        const requeued = await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
           spendCapReasonCode: error.reasonCode,
         });
+        if (requeued) await writeSpendCapLane();
       } else {
+        await writeSpendCapLane();
         // Retries are exhausted, but nothing about this lane is broken -- it was
         // priced out. Cancelling rather than failing keeps the distinction, so it
         // reads as "not run" instead of "tried and defective" and can simply be
@@ -1574,7 +1666,15 @@ export async function handleVendorQuoteTask(
       // returns, so the lane is closed as held (or retried, for a lookup),
       // never recorded as a provider failure or manual follow-up.
       let exportControlStop: unknown = null;
-      const exportCheckedAdapter = withExportControlDispatchRecheck(adapter, supabase, { taskId: task.id, vendor });
+      // Vendor automation counts as started (full spend estimate) only once
+      // both the kill switch read and this recheck passed.
+      const exportCheckedAdapter = withExportControlDispatchRecheck(adapter, supabase, {
+        taskId: task.id,
+        vendor,
+        onAllowed: () => {
+          vendorAutomationStarted = true;
+        },
+      });
       const approvedRequirement = context.requirement;
       const quoteInput: VendorQuoteAdapterInput = {
         organizationId: task.organization_id,
@@ -1602,29 +1702,37 @@ export async function handleVendorQuoteTask(
         // with the setting on the pipeline fails closed with
         // session_lease_unavailable.
         quoteInput,
+        // OVD-722: the kill switch is read again immediately before the
+        // launch, inside the pipeline's adapter step, and the same guard goes
+        // to the adapter for its own checkpoints. An engaged switch comes back
+        // as the cancelled_provider_disabled outcome. Never marks a provider
+        // mutation here: the pipeline runs the adapter in its own mutation
+        // phase, which the adapter marks itself.
+        // OVD-723: inside that guard the export-control recheck runs before
+        // adapter.quote. Both gates must pass before any provider call; the
+        // kill switch is read first, so an engaged switch ends the lane as
+        // cancelled_provider_disabled even when the job is also held.
         adapter: {
           provider: vendor,
-          quote: async (input) => {
-            try {
-              return await exportCheckedAdapter.quote(input);
-            } catch (error) {
-              if (exportControlHoldReason(error) || error instanceof ExportControlLookupError) {
-                exportControlStop = error;
-                // The pipeline runs this call in its own mutation phase, which
-                // adapters mark right before their first upload.
-                if (currentProviderMutationPhase()?.started !== true) exportStopBeforeProviderMutation = error;
+          quote: guardProviderQuote(
+            createProviderKillSwitchGuard(supabaseProviderKillSwitchReader(supabase), vendor),
+            async (input) => {
+              try {
+                return await exportCheckedAdapter.quote(input);
+              } catch (error) {
+                if (exportControlHoldReason(error) || error instanceof ExportControlLookupError) {
+                  exportControlStop = error;
+                  // The pipeline runs this call in its own mutation phase, which
+                  // adapters mark right before their first upload.
+                  if (currentProviderMutationPhase()?.started !== true) exportStopBeforeProviderMutation = error;
+                }
+                throw error;
               }
-              throw error;
-            }
-          },
+            },
+          ),
         },
         consumer: providerAuthorizationConsumer,
         daySwitch: providerDaySwitch,
-        // Never marks a provider mutation here: the pipeline runs the adapter
-        // in its own mutation phase, which the adapter marks itself.
-        onAdapterStart: () => {
-          vendorAutomationStarted = true;
-        },
         persist: async (output) => {
           output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
           const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
@@ -2081,13 +2189,6 @@ async function recordGenericProviderOutcome(
     requestedQuantity: input.requestedQuantity,
     artifactStoragePaths: input.failureArtifactStoragePaths ?? [],
   });
-  const laneWrite = await writeUnsettledVendorQuoteResult(supabase, input.vendorQuoteResultId, record);
-  if (laneWrite !== "written") {
-    await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
-    return;
-  }
-  await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
-
   const note = providerTaskOutcomeNote(vendor, outcome);
   const taskPatch = {
     failureCode: outcome.code,
@@ -2095,8 +2196,27 @@ async function recordGenericProviderOutcome(
     adapterStarted: outcome.adapterStarted,
     providerDisabledForDay: outcome.providerDisabledForDay,
   };
-  if (outcome.disposition === "requeue" && outcome.retryAt) {
-    await markTaskQueuedForRetry(supabase, task, note, outcome.retryAt, { ...taskPatch, nextRetryAt: outcome.retryAt });
+  // A requeue is scheduled before the lane says "queued", so the lane never
+  // advertises a retry that did not happen. False means the task was settled
+  // elsewhere (cancelled, say); queue.ts logs that and the lane is left as it is.
+  const retryAt = outcome.disposition === "requeue" ? outcome.retryAt : null;
+  if (retryAt && !(await markTaskQueuedForRetry(supabase, task, note, retryAt, { ...taskPatch, nextRetryAt: retryAt }))) {
+    return;
+  }
+
+  const laneWrite = await writeUnsettledVendorQuoteResult(supabase, input.vendorQuoteResultId, record);
+  if (laneWrite !== "written") {
+    await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
+    return;
+  }
+  await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+
+  if (outcome.disposition === "cancelled_provider_disabled" && outcome.killSwitch) {
+    await markTaskCancelledForDisabledProvider(supabase, task, outcome.killSwitch.error);
+    return;
+  }
+  if (retryAt) {
+    return;
   } else if (outcome.disposition === "manual_follow_up") {
     await markTaskCompleted(supabase, task, {
       ...taskPatch,
@@ -2323,12 +2443,15 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
         retryCount,
       );
       const message = failureEvidence.failureMessage;
+      let settledElsewhere = false;
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+        // False when the row was already settled elsewhere (cancelled, say):
+        // it stays as it is, nothing is scheduled, and queue.ts logs it.
+        settledElsewhere = !(await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
           ...failureEvidence.payload,
           nextRetryAt: retryAt,
-        });
+        }));
       } else {
         await markTaskFailed(
           supabase,
@@ -2342,20 +2465,22 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
       runtimeState.lastTaskFailedAt = new Date().toISOString();
       runtimeState.lastFailedTask = taskSummary;
       runtimeState.lastError = message;
-      logWorkerEvent(runtimeState, {
-        level: retryAt ? "warn" : "error",
-        source: retryAt ? "worker.task.retry" : "worker.task.failure",
-        message: retryAt
-          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
-          : `Failed ${task.task_type} ${task.id}: ${message}`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-          retryCount,
-          nextRetryAt: retryAt,
-        },
-        error: failureEvidence.runtimeError,
-      });
+      if (!settledElsewhere) {
+        logWorkerEvent(runtimeState, {
+          level: retryAt ? "warn" : "error",
+          source: retryAt ? "worker.task.retry" : "worker.task.failure",
+          message: retryAt
+            ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
+            : `Failed ${task.task_type} ${task.id}: ${message}`,
+          context: {
+            ...buildTaskContext(task),
+            task_duration_ms: Date.now() - taskStartMs,
+            retryCount,
+            nextRetryAt: retryAt,
+          },
+          error: failureEvidence.runtimeError,
+        });
+      }
     } finally {
       runtimeState.currentTask = null;
     }
@@ -2552,6 +2677,31 @@ export async function main(operationalHost?: OperationalJevHost) {
           message: `Dead-task reaper failed: ${summarizeWorkerError(reaperError)}`,
           error: reaperError,
         });
+      }
+      // OVD-722: cancel queued lanes for switched-off providers so none stay
+      // parked. Claim-time and pre-launch checks still refuse on their own.
+      if (config.workerMode === "live") {
+        try {
+          const sweep = await sweepProviderDisabledTasks(supabase);
+          for (const run of sweep.quoteRuns) {
+            await syncJobStatusAfterVendorUpdate(supabase, run.jobId, run.quoteRunId);
+          }
+          for (const warning of providerKillSwitchSweepWarnings(sweep)) {
+            logWorkerEvent(runtimeState, {
+              level: "warn",
+              source: "worker.kill_switch",
+              message: warning.message,
+              context: warning.context,
+            });
+          }
+        } catch (sweepError) {
+          logWorkerEvent(runtimeState, {
+            level: "error",
+            source: "worker.kill_switch",
+            message: `Kill-switch sweep failed: ${summarizeWorkerError(sweepError)}`,
+            error: sweepError,
+          });
+        }
       }
     }
 

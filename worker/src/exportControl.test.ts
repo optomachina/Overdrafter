@@ -1535,8 +1535,11 @@ describe("OVD-723 review round 3: point in time checks", () => {
     expect(xometry).toContain("if (dispatchDecisionError) throw dispatchDecisionError;");
     const fictiv = readFileSync(new URL("./adapters/fictiv.ts", import.meta.url), "utf8");
     const upload = fictiv.slice(fictiv.indexOf("async function setFilesOnUpload("));
-    expect(upload.indexOf("await beforeProviderDisclosure?.();")).toBeLessThan(upload.indexOf("markProviderMutationStarted();"));
-    expect(fictiv).toContain("await setFilesOnUpload(page, uploadFiles, input.beforeProviderDisclosure);");
+    // OVD-722 merge: setFilesOnUpload takes one beforeMutation callback that
+    // reads the kill switch and then asks the export-control gate.
+    expect(upload.indexOf("await beforeMutation();")).toBeGreaterThan(-1);
+    expect(upload.indexOf("await beforeMutation();")).toBeLessThan(upload.indexOf("markProviderMutationStarted();"));
+    expect(fictiv).toContain("uploadFiles,\n        async () => {\n          await input.providerKillSwitchCheckpoint?.(\"before_upload\");\n          await input.beforeProviderDisclosure?.();\n        },\n      );");
     expect(fictiv).toContain("if (isDispatchDecisionError(error)) {\n        throw error;");
   });
 
