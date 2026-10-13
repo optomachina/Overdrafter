@@ -9,7 +9,6 @@
     "quickparts",
     "rmfg",
     "sendcutsend",
-    "weerg",
     "xometry"
   ],
   "providers": [
@@ -47,7 +46,11 @@
           "requiredWhenListed": true
         }
       ],
-      "egress": "stable_nat"
+      "egress": "stable_nat",
+      "adoptedAdapter": {
+        "module": "worker/src/adapters/fictiv.ts",
+        "defaultDenyTest": "worker/src/adapters/fictiv.test.ts"
+      }
     },
     {
       "key": "geomiq",
@@ -101,7 +104,10 @@
           "requiredWhenListed": true
         }
       ],
-      "egress": "stable_nat"
+      "egress": "stable_nat",
+      "adoptedAdapter": {
+        "module": "worker/src/adapters/quickpartsPortal.ts"
+      }
     },
     {
       "key": "rapiddirect",
@@ -112,8 +118,15 @@
     {
       "key": "rmfg",
       "liveAdapter": false,
-      "sessionSecrets": [],
-      "egress": "none"
+      "sessionSecrets": [
+        {
+          "secretNameEnv": "RMFG_API_KEY_SECRET_NAME",
+          "mountEnv": "RMFG_API_KEY",
+          "requiredWhenListed": true
+        }
+      ],
+      "egress": "none",
+      "adapterKind": "api"
     },
     {
       "key": "sendcutsend",

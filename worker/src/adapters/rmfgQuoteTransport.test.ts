@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
-import { LIVE_AUTOMATION_VENDORS } from "../types.js";
+import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope.js";
 import { runRmfgQuoteOnly, type RmfgQuoteInput, type RmfgQuoteRequest,
   type RmfgQuoteTransport } from "./rmfgQuoteTransport.js";
 
@@ -65,7 +65,8 @@ describe("RMFG offline quote transport", () => {
       offer: { quantity: 10, currency: "USD", unitPriceUsd: 12.5,
         totalPriceUsd: 125, leadTimeBusinessDays: null,
         provenance: { leadTimeBusinessDays: "unknown" } } });
-    expect(LIVE_AUTOMATION_VENDORS).not.toContain("rmfg");
+    // OVD-678 lists rmfg for live automation; its dispatch envelope stays unreviewed.
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 
   it("stops before quoting for an unverified stock ID or missing part selection", async () => {

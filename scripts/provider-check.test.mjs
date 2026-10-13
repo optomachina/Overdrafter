@@ -530,7 +530,18 @@ describe("reviewed envelope completeness", () => {
     expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "quickparts", "weerg"]));
   });
 
-  it("accepts simulated provider:onboard --stage=live output once the envelope is marked reviewed", async () => {
+  it("keeps the Fictiv exception because the adopted real tests omit two registrar refusals", { timeout: 180_000 }, async () => {
+    const gaps = await collectReviewedEnvelopeGaps({ rootDir: repoRoot, today: "2026-10-11", exceptions: [] });
+
+    expect(gaps).toEqual([expect.objectContaining({
+      key: "fictiv",
+      artifact: "productionPortalDefaultDeny test",
+      expectedPath: "worker/src/adapters/fictiv.test.ts",
+      detail: expect.stringContaining("cad_file_type_outside_envelope, drawing_upload_outside_adapter_contract"),
+    })]);
+  });
+
+  it("accepts simulated fixture:onboard --stage=live output once the envelope is marked reviewed", async () => {
     const rootDir = await createEnvelopeRoot();
     await writeSimulatedOnboardLive(rootDir, "tempkey");
     await expect(assertReviewedEnvelopeCompleteness({

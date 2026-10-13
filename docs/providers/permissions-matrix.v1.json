@@ -97,19 +97,19 @@
     {
       "key": "weerg",
       "displayName": "Weerg",
-      "in_1_0": true,
+      "in_1_0": false,
       "api_availability": "none",
       "tos_automation_clause": {
         "quote": "By accessing the website www.weerg.com you can use our services. By using our services, you signify your agreement to be bound by the general conditions of use. Weerg reserves the right to prevent you from accessing the site and/or your account ... if you are in breach of applicable laws, these General Conditions of Use or applicable guidelines or policies.",
         "url": "https://www.weerg.com/faq/general-terms-and-conditions-for-the-purchase-of-services-and-supplies-supplier"
       },
       "tos_stance": "silent",
-      "partner_program": "No public quote API found. Instant quoting is a website configurator.",
+      "partner_program": "Not in 1.0. Weerg is blocked and RMFG substitutes. No 1.0 partner-API outreach.",
       "contact": {
         "role": "Published company contact",
         "published_address": "info@weerg.com"
       },
-      "permission_status": "draft_outreach_prepared",
+      "permission_status": "not_in_1_0",
       "date_checked": "2026-10-11",
       "kill_switch_state": {
         "source": "OVD-722",
@@ -118,7 +118,7 @@
       "written_permission": null,
       "enabled_for_paid_automation": false,
       "replies": [],
-      "notes": "Published general conditions do not mention robots, scrapers, or partner APIs. Ask for partner API access and written permission."
+      "notes": "Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set."
     },
     {
       "key": "geomiq",
