@@ -1222,6 +1222,46 @@ pass fixture:gitlive | git push --dry-run origin HEAD:main
 pass fixture:gitlive | git push --tags
 `;
 
+// Round 22 is PR round 9.
+const ROUND_22 = String.raw`
+# 1. A command substitution in a variable value becomes a placeholder that still holds $, so the literal suffix after it
+# is still checked and a cd to the value stays unresolved. Quoted, unquoted and backtick forms.
+block | D="$(pwd)/supabase/migrations"; cat > "$D/x.sql" <<'SQL'⏎create table t();⏎SQL
+block | D="$(git rev-parse --show-toplevel)/supabase/migrations"; echo x > "$D/x.sql"
+block | D=$(pwd)/supabase/migrations; echo x > $D/x.sql
+block | D=$(git rev-parse --show-toplevel)/supabase/migrations; echo x > "$D/x.sql"
+block | D="` + "`pwd`" + String.raw`/supabase/migrations"; echo x > "$D/x.sql"
+block | D=` + "`pwd`" + String.raw`/supabase/migrations; echo x > $D/x.sql
+block | D="$(pwd)"; cd "$D/supabase" && echo x > migrations/x.sql
+block | G="$(pwd)/.claude/hooks"; echo x > "$G/guard-migrations.mjs"
+block | T=$(git rev-parse --show-toplevel)/tools/guardrails; node "$T/apply.mjs"
+block fixture:gitlive | ROOT=$(pwd) && cd .claude/worktrees/w1 && cd "$ROOT" && git push origin HEAD
+pass | D="$(pwd)/docs"; echo x > "$D/notes.md"
+pass | D=$(git rev-parse --show-toplevel)/docs; echo x > $D/notes.md
+# 2. Quoted and unquoted parts of a value are joined the way the shell joins them.
+block | D="$PWD"/supabase/migrations; echo > "$D/a.sql"
+block | D=$PWD/"supabase/migrations"; echo > "$D/a.sql"
+block | D="supabase"/migrations; echo > "$D/a.sql"
+block | D='supabase'/"migrations"; echo > $D/a.sql
+block | D="$(pwd)"/'supabase/migrations'; tee "$D/a.sql" < /tmp/a
+pass | D="docs"/notes; echo x > "$D/n.md"
+residual (a single quoted $ in a value is literal and is not recorded, so the variable stays unresolved) | X='$Y'/supabase/migrations; echo x > "$X/a.sql"
+# 3. An empty branch field in a contents API write is the default branch.
+block | gh api -X PUT repos/o/r/contents/docs/new.md -f branch= -f message=update -f content=eA==
+block | gh api -X PUT repos/o/r/contents/docs/new.md -f branch="" -f message=update -f content=eA==
+block | gh api -X DELETE repos/o/r/contents/docs/old.md -f sha=abc -f message=remove -F branch=
+block | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":""}'
+pass | gh api -X PUT repos/o/r/contents/docs/new.md -f branch=feature/x -f message=update -f content=eA==
+residual (the branch field of a JSON body is matched as text, so an escaped spelling of main such as m\u0061in is not decoded) | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":"m\u0061in"}'
+# The required passes, also with the round 22 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+`;
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
@@ -1748,6 +1788,7 @@ const PROBES = [
   ...tableRows(19, ROUND_19),
   ...tableRows(20, ROUND_20),
   ...tableRows(21, ROUND_21),
+  ...tableRows(22, ROUND_22),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

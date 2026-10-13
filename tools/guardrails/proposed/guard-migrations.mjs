@@ -55,13 +55,14 @@
  *   names a local branch is mapped as git maps it (remote.<name>.push, then
  *   push.default upstream through branch.<name>.merge), and a push with no
  *   refspec to a remote with remote.<name>.mirror true blocks. In a variable
- *   assigned from $PWD or $OLDPWD that directory becomes an unresolved
- *   placeholder and the rest of the path is kept, and a .. after an
+ *   assigned from $PWD, $OLDPWD or a command substitution that part becomes
+ *   an unresolved placeholder and the rest of the path is kept (quoted and
+ *   unquoted parts of the value are joined), and a .. after an
  *   unresolved part keeps it unresolved. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
  *   and the GIT_CONFIG environment are expanded. Also the merges API,
  *   writes to the main ref, and contents API writes to main, master or an
- *   unnamed (default) branch;
+ *   unnamed or empty (default) branch;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -328,27 +329,82 @@ function parse(src) {
 
 /**
  * Expands $VAR and ${VAR} with the value assigned most recently before the
- * reference. Arrays, substitutions and quoted or escaped values are not
- * recorded, so references to them stay unresolved.
+ * reference. Quoted and unquoted parts of a value are joined the way the shell
+ * joins them. Arrays, escaped values and values that would split into several
+ * words are not recorded, so references to them stay unresolved.
  */
 const PWD_REF = /\$(?:\{((?:OLD)?PWD)\}|((?:OLD)?PWD)(?!\w))/g;
+// A command substitution in a value is not known from the text. Like $PWD it becomes a placeholder that still holds $, so
+// a cd to the value stays unresolved while the literal segments after it (supabase/migrations, .claude/hooks) are checked.
+const SUBST_AT_ASSIGN = "$__SUBST_AT_ASSIGN";
+
+/** The index just past the ) that closes a $( substitution whose body starts at i. Quoted spans are skipped. */
+function substitutionEnd(src, i) {
+  for (let depth = 1; i < src.length; i++) {
+    const c = src[i];
+    if (c === "\\") i++;
+    else if (c === "'" || c === '"') i = indexOrEnd(src, c, i + 1);
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i + 1;
+  }
+  return src.length;
+}
+
+/** Reads the assignment value that starts at i. Returns where it ends and its text, or text null when it cannot be recorded. */
+function readValue(src, i) {
+  if (src[i] === "(") return { end: i, text: null };
+  let text = "";
+  let recordable = true;
+  let quoted = false;
+  while (i < src.length) {
+    const c = src[i];
+    if (!quoted && /[\s;&|<>)]/.test(c)) break;
+    if (c === '"') {
+      quoted = !quoted;
+      i++;
+    } else if (c === "'" && !quoted) {
+      const close = indexOrEnd(src, "'", i + 1);
+      // A single quoted $ is literal; recording it would let a later expansion read it as a reference.
+      if (src.slice(i + 1, close).includes("$")) recordable = false;
+      text += src.slice(i + 1, close);
+      i = close + 1;
+    } else if (c === "`") {
+      text += SUBST_AT_ASSIGN;
+      i = indexOrEnd(src, "`", i + 1) + 1;
+    } else if (c === "$" && src[i + 1] === "(") {
+      text += SUBST_AT_ASSIGN;
+      i = substitutionEnd(src, i + 2);
+    } else {
+      if (c === "\\" || (c === "$" && src[i + 1] === "'")) recordable = false;
+      text += c;
+      i++;
+    }
+  }
+  if (quoted || /[\s"'\\`;&|<>()]/.test(text)) recordable = false;
+  return { end: Math.min(i, src.length), text: recordable ? text : null };
+}
 
 function expandVars(src) {
   const vars = Object.create(null);
   const ref = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
-  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|)]*)|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
-  return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
+  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+  let out = "";
+  let last = 0;
+  for (let m = assignOrRef.exec(src); m !== null; m = assignOrRef.exec(src)) {
+    const [all, , name, braced, bare] = m;
     if (name !== undefined) {
-      const raw = value.replace(/(^["'])|(["']$)/g, "");
+      const { end, text } = readValue(src, m.index + all.length);
       // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the
-      // text. It becomes a placeholder that still holds $, so a cd to the value stays unresolved while the literal
-      // segments after it (supabase/migrations, .claude/hooks) are still checked.
-      if (/(^\()|\$\(|[`"'\\]/.test(raw)) delete vars[name];
-      else vars[name] = raw.replace(PWD_REF, (seen, braced, bare) => `$__${braced ?? bare}_AT_ASSIGN`).replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
-      return all;
+      // text. It becomes a placeholder that still holds $, like a command substitution.
+      if (text === null) delete vars[name];
+      else vars[name] = text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
+      assignOrRef.lastIndex = end;
+      continue;
     }
-    return vars[braced ?? bare] ?? all;
-  });
+    out += src.slice(last, m.index) + (vars[braced ?? bare] ?? all);
+    last = m.index + all.length;
+  }
+  return out + src.slice(last);
 }
 
 const base = (word = "") => word.split("/").pop();
@@ -1151,12 +1207,14 @@ function mergeTarget(argv, env, dir) {
 
 /**
  * Block reason for a contents API write by the branch it commits to: main or master, a branch the body does not name
- * (the default branch), or one that cannot be read. An explicit other branch passes.
+ * or leaves empty (the default branch), or one that cannot be read. JSON fields are matched as text, so an escaped
+ * spelling such as m\u0061in is not decoded (a documented residual). An explicit other branch passes.
  */
 function contentsBranchReason(body) {
   if (body === null) return "a contents API write whose body cannot be read; failing closed";
   const branches = [...body.matchAll(/(?:^|\n)branch=([^\n]*)|"branch"\s*:\s*"([^"]*)"/g)].map((m) => m[1] ?? m[2]);
-  if (branches.length === 0) return "a contents API write that names no branch commits to the default branch; agents never push to main";
+  // An empty branch field is the default branch too.
+  if (branches.length === 0 || branches.includes("")) return "a contents API write that names no branch commits to the default branch; agents never push to main";
   if (branches.some((b) => b.includes("$") || b.includes(SUB))) return "a contents API write to a branch that cannot be read; failing closed";
   if (branches.some((b) => /^(refs\/)?(heads\/)?(main|master)$/.test(b))) return "a contents API write to the main branch; agents never push to main";
   return null;
