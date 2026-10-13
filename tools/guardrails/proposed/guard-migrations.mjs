@@ -707,15 +707,15 @@ function expandVars(src, picks = [], counts = [], scripts = new Set()) {
       return w.startsWith('"') ? [text] : text.split(/[ \t]+/).filter(Boolean);
     });
   const forName = /[ \t]+([A-Za-z_]\w*)/y;
-  // Whether every reference to name after from is a plain $name or ${name} that stands as a whole argument: false when
-  // one does not, "value" when one follows an = (so the value may be stored and glued later), and true otherwise.
+  // Whether every reference to name after from is a plain $name or ${name} that stands as a whole argument: "glued" when
+  // one does not, "value" when one follows an = (so the value may be stored and glued later), and "whole" otherwise.
   const usesWhole = (name, from) => {
     const uses = new RegExp(String.raw`\$(?:\{[#!]?)?${name}(?!\w)\}?`, "g");
     uses.lastIndex = from;
-    let whole = true;
+    let whole = "whole";
     for (let m; (m = uses.exec(src)); ) {
-      if (m[0] !== `$${name}` && m[0] !== `\${${name}}`) return false;
-      if (!wholeRef(src, m.index, m.index + m[0].length)) return false;
+      if (m[0] !== `$${name}` && m[0] !== `\${${name}}`) return "glued";
+      if (!wholeRef(src, m.index, m.index + m[0].length)) return "glued";
       if (afterEquals(src, m.index)) whole = "value";
     }
     return whole;
@@ -790,8 +790,8 @@ function expandVars(src, picks = [], counts = [], scripts = new Set()) {
           let value;
           if (list) {
             // A safe word is read once only when every use of the loop variable is a whole argument.
-            const uses = name === undefined ? false : usesWhole(name, i);
-            value = loopValue((words = forItems(list[2]).map(mark)), (w) => !uses || forks(w, uses === "value"));
+            const uses = usesWhole(list[1], i);
+            value = loopValue((words = forItems(list[2]).map(mark)), (w) => uses === "glued" || forks(w, uses === "value"));
           } else if (globs) {
             words = globs[2].trim().split(/[ \t]+/).map((w) => w.replace(new RegExp(REF, "g"), resolve(false, true, true)));
             value = loopValue(words, (w) => PROTECTED_TEXT.test(w));
