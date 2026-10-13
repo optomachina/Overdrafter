@@ -45,6 +45,14 @@ export const PDF_OCR_UNAVAILABLE_WARNING_CODE = "pdf_ocr_tesseract_unavailable";
  */
 export type PdfOcrStatus = "ok" | "failed" | "unavailable" | "not_read";
 
+/**
+ * Set on a page that a fixed limit kept from being read, so no rerun of the
+ * same bytes can read it: `page_cap` (not_read, past PDF_OCR_MAX_PAGES) or
+ * `pixel_cap` (failed, over PDF_OCR_MAX_PIXELS at the DPI floor). A timeout,
+ * a spent budget, or a tool error sets no limit.
+ */
+export type PdfOcrLimit = "page_cap" | "pixel_cap";
+
 export type PdfTextPage = {
   page: number;
   /**
@@ -55,6 +63,8 @@ export type PdfTextPage = {
   /** OCR output only, never mixed with the text layer. */
   ocrText: string;
   ocrStatus: PdfOcrStatus;
+  /** Present only when a fixed limit kept the page from being read. */
+  ocrLimit?: PdfOcrLimit;
 };
 
 export type PdfTextExtraction = {
@@ -1026,6 +1036,7 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
       text: hasTextLayer ? layerText : ocrResults[index].text,
       ocrText: ocrResults[index].text,
       ocrStatus: ocrResults[index].status,
+      ...(ocrResults[index].limit ? { ocrLimit: ocrResults[index].limit } : {}),
     })),
   };
 }
@@ -1052,7 +1063,7 @@ async function isTesseractAvailable(deadline: number): Promise<boolean> {
   }
 }
 
-type PageOcrResult = { status: PdfOcrStatus; text: string };
+type PageOcrResult = { status: PdfOcrStatus; text: string; limit?: PdfOcrLimit };
 
 async function ocrPdfPages(localPath: string, pageCount: number): Promise<PageOcrResult[]> {
   // The clock starts before the version probe so the probe counts too.
@@ -1072,7 +1083,7 @@ async function ocrPdfPages(localPath: string, pageCount: number): Promise<PageOc
     // tesseract run is memory heavy, so parallel pages would risk the worker.
     for (let page = 1; page <= pageCount; page += 1) {
       if (page > PDF_OCR_MAX_PAGES) {
-        results.push({ status: "not_read", text: "" });
+        results.push({ status: "not_read", text: "", limit: "page_cap" });
         continue;
       }
       results.push(await ocrPdfPage(localPath, path.join(runDir, `drawing-page-${page}.png`), page, deadline));
@@ -1092,6 +1103,9 @@ async function ocrPdfPage(
 ): Promise<PageOcrResult> {
   try {
     const rendered = await renderPdfPageForOcr(localPath, previewPath, page, deadline);
+    if (rendered === "too_large") {
+      return { status: "failed", text: "", limit: "pixel_cap" };
+    }
     if (rendered !== "ok") {
       return { status: rendered, text: "" };
     }
@@ -1122,8 +1136,10 @@ async function ocrPdfPage(
  * size and pdftoppm renders the CropBox only with -cropbox, so the pixel cap is
  * checked against the area actually rendered; without it a small CropBox on a
  * huge MediaBox would pass the cap and render the whole MediaBox.
- * Returns failed when the page size is unknown or over PDF_OCR_MAX_PIXELS, and
- * not_read when the OCR budget runs out before a call can start. Quick Look is
+ * Returns failed when the page size is unknown, too_large when it is over
+ * PDF_OCR_MAX_PIXELS (the caller reports that page failed with the pixel cap
+ * as its limit), and not_read when the OCR budget runs out before a call can
+ * start. Quick Look is
  * not used here because it cannot honour a resolution floor.
  */
 export async function renderPdfPageForOcr(
@@ -1131,7 +1147,7 @@ export async function renderPdfPageForOcr(
   outputPath: string,
   page: number,
   deadline: number,
-): Promise<"ok" | "failed" | "not_read"> {
+): Promise<"ok" | "failed" | "not_read" | "too_large"> {
   const sizeTimeout = remainingBudgetMs(deadline, PDF_TOOL_TIMEOUT_MS);
   if (sizeTimeout <= 0) {
     return "not_read";
@@ -1144,8 +1160,11 @@ export async function renderPdfPageForOcr(
 
   const scale = PDF_OCR_MIN_DPI / 72;
   const pixels = size.widthPoints * scale * (size.heightPoints * scale);
-  if (!Number.isFinite(pixels) || pixels > PDF_OCR_MAX_PIXELS) {
+  if (!Number.isFinite(pixels)) {
     return "failed";
+  }
+  if (pixels > PDF_OCR_MAX_PIXELS) {
+    return "too_large";
   }
 
   const renderTimeout = remainingBudgetMs(deadline, PDF_OCR_PAGE_TIMEOUT_MS);

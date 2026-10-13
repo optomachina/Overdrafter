@@ -15,6 +15,11 @@ vi.mock("./files.js", async (original) => ({
   cleanupPaths: vi.fn(async () => undefined),
 }));
 vi.mock("./scoringIntegration.js", () => ({ computeAndStoreRoutingScores: vi.fn(async () => undefined) }));
+// OVD-723: the staged STEP header is read for the export-control scan; a clean header records a clean scan.
+vi.mock("./exportControl.js", async (original) => ({
+  ...await original<typeof import("./exportControl.js")>(),
+  readStagedStepHeaderPrefix: vi.fn(async () => new TextEncoder().encode("ISO-10303-21;\nHEADER;\nENDSEC;\n")),
+}));
 
 const task = { id: "task", organization_id: "org", quote_run_id: "run", part_id: "part", job_id: "job",
   task_type: "run_vendor_quote", attempts: 1, locked_at: "2026-10-11T00:00:00Z",
@@ -79,6 +84,9 @@ function database() {
   let onPreflight = () => undefined as void;
   let preflight: unknown = xometryAuthorized;
   let spend: unknown = { allowed: true, reservationId: "r" };
+  // OVD-723: answers to api_check_export_control_dispatch, in call order; the last one repeats.
+  let exportChecks: unknown[] = [{ allowed: true }];
+  let exportCalls = 0;
   let stateReads = 0;
   let readableStateReads = Number.POSITIVE_INFINITY;
   const rpc = (name: string, args: Record<string, unknown>) => {
@@ -92,6 +100,8 @@ function database() {
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.xometry, globalEngaged: switches.global }
       : name === "api_authorize_xometry_beta_worker_dispatch" ? preflight
         : name === "api_reserve_spend" ? spend
+          : name === "api_record_export_control_clean_scan" ? "export-scan"
+          : name === "api_check_export_control_dispatch" ? exportChecks[Math.min(exportCalls++, exportChecks.length - 1)]
           : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
             street: "s", city: "c", region: "WA", postalCode: "z", country: "US" } } : null;
     const result = Promise.resolve({ data, error: null });
@@ -106,6 +116,7 @@ function database() {
     unreadableAfter: (reads: number) => { readableStateReads = reads; },
     unreadableNow: () => { readableStateReads = stateReads; },
     failResultUpdates: () => { failResultUpdates = true; },
+    answerExportChecks: (answers: unknown[]) => { exportChecks = answers; },
   };
 }
 
@@ -334,5 +345,63 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(note).toMatch(/manual follow-up is required/i);
     expect(manual?.raw_payload).toEqual(expect.objectContaining({
       failureCode: "provider_kill_switch_unavailable", providerMutationPossible: true, requiresManualVendorFollowUp: true }));
+  });
+});
+
+/** OVD-723 with OVD-722 on the merged tree: each gate refuses on its own; neither one stands in for the other. */
+describe("handleVendorQuoteTask with both the export-control gate and the kill switch", () => {
+  const exportCheckAnswers = (db: ReturnType<typeof database>) =>
+    db.rpcNames().filter((name) => name === "api_check_export_control_dispatch").length;
+  const heldLane = expect.objectContaining({ table: "vendor_quote_results", update: expect.objectContaining({
+    status: "failed",
+    raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_review_pending" }),
+  }) });
+  // This fixture's lane compare and set matches no row, so task settlement is
+  // not asserted here; exportControlQuoteGate.test.ts covers the held task.
+  const requeuedTask = expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "queued" }) });
+
+  it("an export blocked job is refused with the kill switch off: held at the first gate, no preflight, no adapter", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.answerExportChecks([{ allowed: false, reasonCode: "export_review_pending" }]);
+    await handleVendorQuoteTask(db.client, task, live);
+    expect(quote).not.toHaveBeenCalled();
+    // The switch was read and is off; the export gate alone refused.
+    expect(db.rpcNames()).toContain("api_worker_provider_kill_switch_state");
+    expect(db.switches).toEqual({ xometry: false, global: false });
+    expect(db.rpcNames()).not.toContain("api_authorize_xometry_beta_worker_dispatch");
+    expect(db.writes).toEqual(expect.arrayContaining([heldLane]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([cancelledTaskWrite]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([requeuedTask]));
+  });
+
+  it("an export blocked job is refused with the kill switch off even after the before_launch read passed", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    // Cleared at the first gate and before the preflight; blocked at the recheck right before adapter.quote.
+    db.answerExportChecks([{ allowed: true }, { allowed: true }, { allowed: false, reasonCode: "export_review_pending" }]);
+    await handleVendorQuoteTask(db.client, task, live);
+    expect(quote).not.toHaveBeenCalled();
+    const names = db.rpcNames();
+    // claim read, then the before_launch read after the preflight, then the denied export recheck.
+    expect(names.filter((name) => name === "api_worker_provider_kill_switch_state")).toHaveLength(2);
+    expect(names.lastIndexOf("api_worker_provider_kill_switch_state")).toBeLessThan(names.lastIndexOf("api_check_export_control_dispatch"));
+    expect(exportCheckAnswers(db)).toBe(3);
+    expect(db.writes).toEqual(expect.arrayContaining([heldLane]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([cancelledTaskWrite]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([requeuedTask]));
+  });
+
+  it("an engaged kill switch refuses an export cleared job: cancelled_provider_disabled before launch, no adapter", async () => {
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database();
+    db.answerExportChecks([{ allowed: true }]);
+    db.flipDuringPreflight();
+    await handleVendorQuoteTask(db.client, task, live);
+    expect(quote).not.toHaveBeenCalled();
+    // Both export checks before the launch cleared the job; the switch alone refused.
+    expect(exportCheckAnswers(db)).toBe(2);
+    expect(db.writes).toEqual(expect.arrayContaining([unavailableResultWrite, cancelledTaskWrite]));
+    expect(db.writes).not.toEqual(expect.arrayContaining([heldLane]));
   });
 });

@@ -83,6 +83,13 @@ export type CallModelOptions = {
     estimatedUsd: number;
     context?: SpendContext;
   };
+  /**
+   * OVD-723: awaited before EVERY provider request, retries included. A
+   * throw stops the call before any content is sent and propagates unchanged
+   * (never wrapped as a ModelCallError), so an export-control denial still
+   * stops extraction instead of degrading to parser only output.
+   */
+  beforeRequest?: () => Promise<void>;
 };
 
 function defaultSleep(ms: number) {
@@ -149,6 +156,14 @@ async function callModelWithinBudget(
   let lastError: { errorType: ModelErrorType; errorMessage: string } | null = null;
 
   while (attempts < maxAttempts) {
+    if (deadlineMs - (Date.now() - startedAt) <= 0) {
+      break;
+    }
+
+    await options.beforeRequest?.();
+
+    // Measured after the check, so time spent in beforeRequest is not given
+    // back to the provider request.
     const remainingMs = deadlineMs - (Date.now() - startedAt);
     if (remainingMs <= 0) {
       break;

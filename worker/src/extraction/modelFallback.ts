@@ -308,6 +308,8 @@ async function runModelAttempt(input: {
   fullPagePath: string | null;
   attempt: ModelAttempt;
   spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
+  /** OVD-723: asked before every provider request of this attempt, retries included. */
+  beforeModelAttempt?: (attempt: ModelAttempt) => Promise<void>;
 }): Promise<{ parsed: ParsedModelResponse; usage: ModelCallUsage }> {
   const { output, usage } = await callModel(
     input.provider,
@@ -322,7 +324,12 @@ async function runModelAttempt(input: {
       attempt: input.attempt,
     },
     input.model,
-    input.spend ? { spend: input.spend } : {},
+    {
+      ...(input.spend ? { spend: input.spend } : {}),
+      ...(input.beforeModelAttempt
+        ? { beforeRequest: () => input.beforeModelAttempt!(input.attempt) }
+        : {}),
+    },
   );
 
   return { parsed: output.fields, usage };
@@ -338,6 +345,12 @@ export async function extractDrawingFieldsWithModel(
     pagePreviewPath: string | null;
     /** Budget enforcement. Each attempt reserves and settles independently. */
     spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
+    /**
+     * OVD-723: run before EACH provider request (title block crop, full page,
+     * and every retry of either inside callModel). It throws when the job may
+     * no longer send content to a model, so the request never starts.
+     */
+    beforeModelAttempt?: (attempt: ModelAttempt) => Promise<void>;
   },
   dependencies: {
     provider?: ExtractionProvider;
@@ -376,6 +389,7 @@ export async function extractDrawingFieldsWithModel(
       fullPagePath: null,
       attempt: "title_block_crop",
       spend: input.spend,
+      beforeModelAttempt: input.beforeModelAttempt,
     });
     usages.push(usage);
 
@@ -428,6 +442,7 @@ export async function extractDrawingFieldsWithModel(
     fullPagePath: input.pagePreviewPath,
     attempt: "full_page",
     spend: input.spend,
+    beforeModelAttempt: input.beforeModelAttempt,
   });
   usages.push(fullPageUsage);
 

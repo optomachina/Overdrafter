@@ -317,6 +317,60 @@ describe("modelFallback", () => {
     expect(result?.usage).toMatchObject({ inputTokens: 100, outputTokens: 50, attempts: 1 });
   });
 
+  // OVD-723: the export-control check is asked again before each model
+  // attempt; a denial on any attempt stops it before content is sent.
+  it("asks the export-control guard before each model attempt and stops on a denial", async () => {
+    const run = vi.fn().mockResolvedValue(makeProviderOutput(makeModelResponse(false), "gpt-5.4"));
+    const input = await makeModelInput();
+    const calls: string[] = [];
+    const beforeModelAttempt = vi.fn(async (attempt: string) => {
+      calls.push(`guard:${attempt}`);
+    });
+    run.mockImplementation(async () => {
+      calls.push("model");
+      return makeProviderOutput(makeModelResponse(false), "gpt-5.4");
+    });
+
+    await extractDrawingFieldsWithModel(
+      { ...input, config: makeConfig({ openAiApiKey: "test-openai-key" }), beforeModelAttempt },
+      { provider: makeFakeProvider(run) },
+    );
+    expect(calls).toEqual(["guard:title_block_crop", "model", "guard:full_page", "model"]);
+
+    // Denied before the full page attempt: only the crop attempt ran.
+    const denied = vi.fn().mockResolvedValue(makeProviderOutput(makeModelResponse(false), "gpt-5.4"));
+    const denial = new Error("export_review_pending");
+    await expect(
+      extractDrawingFieldsWithModel(
+        {
+          ...input,
+          config: makeConfig({ openAiApiKey: "test-openai-key" }),
+          beforeModelAttempt: async (attempt) => {
+            if (attempt === "full_page") throw denial;
+          },
+        },
+        { provider: makeFakeProvider(denied) },
+      ),
+    ).rejects.toBe(denial);
+    expect(denied).toHaveBeenCalledTimes(1);
+
+    // Denied before the first attempt: no model call at all.
+    const none = vi.fn();
+    await expect(
+      extractDrawingFieldsWithModel(
+        {
+          ...input,
+          config: makeConfig({ openAiApiKey: "test-openai-key" }),
+          beforeModelAttempt: async () => {
+            throw denial;
+          },
+        },
+        { provider: makeFakeProvider(none) },
+      ),
+    ).rejects.toBe(denial);
+    expect(none).not.toHaveBeenCalled();
+  });
+
   it("does not trigger fallback when parser signals are strong", () => {
     expect(
       shouldTriggerDrawingModelFallback({

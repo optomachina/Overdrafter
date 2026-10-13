@@ -33,6 +33,7 @@ import {
   isManualReviewText,
   parseFirstCurrency,
   parseLeadTime,
+  setFilesOnUpload,
 } from "./fictiv";
 import {
   buildFinishSearchTerms,
@@ -1720,5 +1721,52 @@ describe("FictivAdapter", () => {
         (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("setFilesOnUpload export-control gate (OVD-723)", () => {
+  function fakeUploadPage(options: { appearsAfterWaits: number }) {
+    let waits = 0;
+    const setInputFiles = vi.fn(async () => undefined);
+    const page = {
+      locator: () => ({
+        first: () => ({
+          count: async () => (waits >= options.appearsAfterWaits ? 1 : 0),
+          setInputFiles,
+        }),
+      }),
+      waitForTimeout: vi.fn(async () => {
+        waits += 1;
+      }),
+      url: () => "https://www.fictiv.com/quote",
+    };
+    return { page, setInputFiles };
+  }
+
+  it("asks the gate right before the upload, after the locator wait", async () => {
+    const { page, setInputFiles } = fakeUploadPage({ appearsAfterWaits: 2 });
+    const order: string[] = [];
+    const gate = vi.fn(async () => {
+      order.push("gate");
+    });
+    setInputFiles.mockImplementation(async () => {
+      order.push("upload");
+    });
+
+    await setFilesOnUpload(page as never, ["/tmp/part.step"], gate);
+
+    expect(page.waitForTimeout).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(["gate", "upload"]);
+  });
+
+  it("stops the upload when a hold lands while the locator loop waits", async () => {
+    const { page, setInputFiles } = fakeUploadPage({ appearsAfterWaits: 1 });
+    const hold = new Error("export_review_pending");
+    const gate = vi.fn(async () => {
+      throw hold;
+    });
+
+    await expect(setFilesOnUpload(page as never, ["/tmp/part.step"], gate)).rejects.toBe(hold);
+    expect(setInputFiles).not.toHaveBeenCalled();
   });
 });

@@ -23,6 +23,7 @@ import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extend
 import { OperationalEvidenceCapture, type EvidenceUse } from "../jev/operationalEvidence.js";
 import { VendorAdapter } from "./base.js";
 import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import type { LocalEvaluationAdapter, LocalEvaluationResult } from "./localEvaluationResult.js";
 import {
   CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
@@ -180,7 +181,9 @@ class OperationalAdvisoryAdapter extends VendorAdapter {
     this.delegate.operationalProviderObserver = capture?.observe;
     try { return await this.delegate.quote(input); }
     catch (error) {
-      await observeBoundOperationalFailure(this.binding, actualScope, error);
+      // OVD-723: a dispatch or export-control decision is a hold, not an
+      // operational failure, so it is not reported to Jev (as in the adapters).
+      if (!isDispatchDecisionError(error)) await observeBoundOperationalFailure(this.binding, actualScope, error);
       throw error;
     } finally {
       this.delegate.operationalProviderObserver = undefined;

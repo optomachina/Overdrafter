@@ -24,6 +24,7 @@ import { VendorAdapter } from "./base.js";
 import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
@@ -583,7 +584,7 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
   );
 }
 
-async function setFilesOnUpload(
+export async function setFilesOnUpload(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
   beforeMutation: () => Promise<void> = async () => undefined,
@@ -602,8 +603,9 @@ async function setFilesOnUpload(
 
       if (count < 1) continue;
 
-      // OVD-722: this loop can poll for 30 s; re-read the switch right before
-      // each upload attempt, outside the try so a refusal is never swallowed.
+      // OVD-722 and OVD-723: this loop can poll for 30 s; re-read the kill
+      // switch and ask the export-control gate right before each upload
+      // attempt, outside the try so a refusal is never swallowed.
       await beforeMutation();
       try {
         markProviderMutationStarted();
@@ -1515,7 +1517,10 @@ export class FictivAdapter extends VendorAdapter {
       const uploadResult = await setFilesOnUpload(
         page,
         uploadFiles,
-        async () => input.providerKillSwitchCheckpoint?.("before_upload"),
+        async () => {
+          await input.providerKillSwitchCheckpoint?.("before_upload");
+          await input.beforeProviderDisclosure?.();
+        },
       );
       uploadSelector = uploadResult.selector;
       await appendArtifacts(artifacts, page, runDir, "uploaded");
@@ -1934,6 +1939,10 @@ export class FictivAdapter extends VendorAdapter {
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
         traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
+      }
+
+      if (isDispatchDecisionError(error)) {
+        throw error;
       }
 
       // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.

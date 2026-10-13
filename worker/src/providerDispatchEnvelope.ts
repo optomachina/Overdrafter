@@ -15,6 +15,7 @@ import {
 } from "./providerDispatchTypes.js";
 import type { VendorName, XometryDispatchAuthorization } from "./types.js";
 import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
+import { EXPORT_CONTROL_DENIAL_CODES } from "./exportControl.js";
 
 /**
  * OVD-457 provider-neutral dispatch envelope and admission contract.
@@ -37,6 +38,7 @@ export {
   type ProviderDispatchOutboundFile,
   type ProviderDispatchSourceFile,
 } from "./providerDispatchTypes.js";
+
 export const SUPPORTED_PROVIDER_DISPATCH_ENVELOPE_SCHEMAS: readonly string[] = [
   PROVIDER_DISPATCH_ENVELOPE_SCHEMA,
 ];
@@ -82,6 +84,8 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "observation_denied",
   "preflight_rejected",
   "preflight_unavailable",
+  // OVD-723: terminal export-control denials from the preflight wrappers.
+  ...EXPORT_CONTROL_DENIAL_CODES,
   // OVD-722: the provider or global kill switch is engaged. Terminal.
   "provider_kill_switch_engaged",
 ] as const;
