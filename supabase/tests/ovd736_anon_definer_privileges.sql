@@ -171,7 +171,7 @@ insert into ovd736_anon_reads (rel)
 select distinct quote_ident(schemaname) || '.' || quote_ident(tablename) from pg_policies
 where coalesce(qual, '') || ' ' || coalesce(with_check, '') ~
   ('\m(' || (select string_agg(regexp_replace(sig, '^public\.|\(.*$', '', 'g'), '|') from ovd736_target) || ')\(');
-update ovd736_anon_reads set before = pg_temp.ovd736_anon_outcome('select 1 from ' || rel);
+update ovd736_anon_reads set before = pg_temp.ovd736_anon_outcome('select 1 from ' || rel) where before is null;
 
 -- OVD-736 is a proposed migration that is intentionally NOT in supabase/migrations
 -- yet. fixtures/ holds a byte copy of docs/migration-drafts/ovd-736.sql, kept
@@ -319,13 +319,13 @@ select ok((select bool_and(has_function_privilege('service_role', sig, 'EXECUTE'
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 set local role anon;
 select throws_ok(t.call_sql, '42501', null, 'anon cannot execute ' || t.sig)
-from ovd736_target t order by t.sig;
+from ovd736_target t order by t.sig asc;
 reset role;
 
 select pg_temp.act_as(:'user_a');
 set local role authenticated;
 select throws_ok(t.call_sql, '42501', null, 'authenticated cannot execute internal only ' || t.sig)
-from ovd736_target t where not t.keeps_authenticated order by t.sig;
+from ovd736_target t where not t.keeps_authenticated order by t.sig asc;
 reset role;
 
 -- ---------------------------------------------------------------- (c) logged out flows
@@ -333,7 +333,7 @@ reset role;
 -- What anon can still reach is direct table reads, and every policy that calls one
 -- of these helpers is TO authenticated, so anon never evaluates them: each read
 -- must give exactly the outcome it gave before the revoke.
-update ovd736_anon_reads set after = pg_temp.ovd736_anon_outcome('select 1 from ' || rel);
+update ovd736_anon_reads set after = pg_temp.ovd736_anon_outcome('select 1 from ' || rel) where after is null;
 select is_empty($$ select rel, before, after from ovd736_anon_reads where before is distinct from after $$,
   'anon reads of every helper guarded table behave exactly as before the revoke');
 
