@@ -44,11 +44,12 @@
  *   main) is judged in two ways:
  *   with no git checkout, switch or branch -m before it in the command, git
  *   reads the branch in the push's own directory (failing closed when it
- *   cannot) and main or master blocks, and for a push with no refspec git
- *   rev-parse @{push} reads where push.default and remote.<name>.push send
- *   it; after one, only a new branch made right before the push (checkout -b,
- *   -B or --orphan, switch -c or -C, a literal name that is not main or
- *   master, same directory, no cd after it, no subshell or compound command,
+ *   cannot) and main or master blocks, and for a push with no refspec every
+ *   remote.<name>.push refspec of the remote counts, else push.default is
+ *   applied as git does (git rev-parse @{push} for the push remote); after
+ *   one, only a new branch made right before the push (checkout -b, -B or
+ *   --orphan, switch -c or -C, a literal name that is not main or master,
+ *   same directory, no cd after it, no subshell, compound command or !,
  *   joined by && only; with no refspec also push.default simple or current)
  *   passes and everything else fails closed. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
@@ -110,7 +111,7 @@ const GIT_ALIAS_DEPTH = 5;
 const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
 // Environment variables that change which git config is read, so an alias can come from them.
 const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
-const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
+const WRAPPERS = new Set(["env", "sudo", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
 // Words that open and close a compound command, and the keywords inside one.
@@ -632,7 +633,7 @@ function runGit(args, call) {
   const configEnv = call.configEnv ?? {};
   if (Object.values(configEnv).some((v) => v.includes(SUB) || v.includes("$"))) throw new Error("the GIT_CONFIG environment cannot be resolved");
   const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...[...(call.includes ?? []), ...(call.pushConfig ?? [])].flatMap((c) => ["-c", c]), ...args];
-  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv } });
+  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv, LC_ALL: "C" } });
   if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
   return result;
 }
@@ -1284,7 +1285,7 @@ function recordBranch(argv, dir, state, ctx, env) {
   const git = gitCall(argv, dir, ctx, state, env);
   if (git.error || git.shell !== undefined) return;
   const change = branchChange(git.argv.slice(1), git.dir);
-  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, dir: git.dir, gitDir: git.gitDir });
+  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, negated: state.negated, dir: git.dir, gitDir: git.gitDir });
 }
 
 const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin <branch>";
@@ -1293,11 +1294,11 @@ const NAME_THE_BRANCH = "name the destination branch explicitly, for example git
  * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b,
  * -B or --orphan, or git switch -c or -C, with a literal name that is not main or master, in the same command text, the
  * same directory (no cd after the change, no differing -C), outside any subshell and any compound command (if, while,
- * until, for, select, case or a { } group), and joined to the push by && all the way, so a creation that fails (the
- * branch already exists) stops the push.
+ * until, for, select, case or a { } group), not negated with !, and joined to the push by && all the way, so a creation
+ * that fails (the branch already exists) stops the push.
  */
 function newBranchBeforePush(change, call, state) {
-  if (!change.created || change.compound || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv) return false;
+  if (!change.created || change.compound || change.negated || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv) return false;
   if (state.lastCd > change.index) return false;
   if (change.gitDir !== call.gitDir || change.dir.join("/") !== call.dir.join("/")) return false;
   const chain = state.segments.slice(change.index, state.index + 1);
@@ -1328,19 +1329,37 @@ const pushMode = (config) => (configValue(config, "push.default") ?? "simple").t
 const NO_PUSH_UPSTREAM = /no upstream configured for branch|no such branch|has no remote for pushing/;
 
 /**
- * Where a push with no refspec sends the current branch: { matching: true } for push.default matching, else the branch
- * name on the remote. push.default and remote.<name>.push decide it, so it is read with git rev-parse @{push}; with no
- * upstream it is the branch name, as push.default simple and current do. Throws when it cannot be resolved.
+ * Where a push with no refspec sends the current branch. The remote is the one named, else the branch's push remote
+ * (branch.<b>.pushRemote, remote.pushDefault, branch.<b>.remote, origin). When that remote has remote.<name>.push
+ * values git pushes every one of them, so they are all returned as { refspecs }. Otherwise push.default decides:
+ * { matching: true } for matching, { nothing: true } when git pushes nothing, else the branch name on the remote.
+ * For the push remote it is read with git rev-parse @{push}, with no upstream the branch name, as simple and current
+ * push; for another named remote, which @{push} does not describe, push.default is applied as git does. Throws when
+ * it cannot be resolved.
  */
 function pushDestination(branch, remoteArg, call) {
   const config = gitConfigList(call);
-  if (pushMode(config) === "matching") return { matching: true };
   if (remoteArg !== undefined && (remoteArg.includes(SUB) || remoteArg.includes("$"))) throw new Error("the remote cannot be resolved");
-  const pushRemote = configValue(config, `branch.${branch}.pushremote`) ?? configValue(config, "remote.pushdefault") ?? configValue(config, `branch.${branch}.remote`) ?? "origin";
-  if (remoteArg !== undefined && remoteArg !== pushRemote) {
-    // @{push} describes the branch's own push remote; another remote gets the branch name unless it has a push refspec.
-    if (config.some(([k]) => k === `remote.${remoteArg}.push`)) throw new Error(`remote.${remoteArg}.push is set`);
-    return branch;
+  const fetchRemote = configValue(config, `branch.${branch}.remote`) ?? "origin";
+  const pushRemote = configValue(config, `branch.${branch}.pushremote`) ?? configValue(config, "remote.pushdefault") ?? fetchRemote;
+  const remote = remoteArg ?? pushRemote;
+  const refspecs = config.filter(([k]) => k === `remote.${remote}.push`).map(([, v]) => v);
+  if (refspecs.length > 0) return { refspecs };
+  const mode = pushMode(config);
+  if (mode === "matching") return { matching: true };
+  if (mode === "nothing") return { nothing: true };
+  if (!["simple", "current", "upstream", "tracking"].includes(mode)) throw new Error(`push.default ${mode} is not known`);
+  // As git does: current pushes to the branch name, and so does simple to a remote that is not the branch's upstream
+  // remote (@{push} cannot resolve that one).
+  if (mode === "current" || (mode === "simple" && remote !== fetchRemote)) return branch;
+  if (remote !== pushRemote) {
+    // simple pushes to the branch name or refuses when the upstream has another name; upstream pushes to
+    // branch.<b>.merge when the remote is the branch's upstream remote, and refuses otherwise.
+    if (mode === "simple") return branch;
+    if (remote !== fetchRemote) return { nothing: true };
+    const merges = config.filter(([k]) => k === `branch.${branch}.merge`);
+    if (merges.length !== 1) throw new Error(`branch.${branch}.merge has ${String(merges.length)} values`);
+    return merges[0][1];
   }
   const at = runGit(["rev-parse", "--symbolic-full-name", "@{push}"], call);
   let full = at.stdout.trim();
@@ -1352,10 +1371,22 @@ function pushDestination(branch, remoteArg, call) {
     full = runGit(["for-each-ref", "--format=%(push)", `refs/heads/${branch}`], call).stdout.trim();
   }
   const remotes = [...new Set(config.map(([k]) => /^remote\.(.+)\.url$/.exec(k)?.[1]).filter(Boolean))].sort((a, b) => b.length - a.length);
-  const remote = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
-  const fetch = config.filter(([k]) => k === `remote.${remote}.fetch`).map(([, v]) => v.replace(/^\+/, ""));
-  if (!remote || fetch.length !== 1 || fetch[0] !== `refs/heads/*:refs/remotes/${remote}/*`) throw new Error(`the push destination ${full || "(none)"} cannot be mapped to a remote branch`);
-  return full.slice(`refs/remotes/${remote}/`.length);
+  const tracking = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
+  const fetch = config.filter(([k]) => k === `remote.${tracking}.fetch`).map(([, v]) => v.replace(/^\+/, ""));
+  if (!tracking || fetch.length !== 1 || fetch[0] !== `refs/heads/*:refs/remotes/${tracking}/*`) throw new Error(`the push destination ${full || "(none)"} cannot be mapped to a remote branch`);
+  return full.slice(`refs/remotes/${tracking}/`.length);
+}
+
+/** Whether a configured push refspec updates main or master: : (matching), a destination that is main, or a wildcard matching it. */
+function refspecIsMain(spec, branch) {
+  const text = spec.replace(/^\+/, "");
+  if (text.startsWith("^")) return false;
+  if (text === ":") return true;
+  const colon = text.indexOf(":");
+  const src = colon < 0 ? text : text.slice(0, colon);
+  let dst = colon < 0 || text.slice(colon + 1) === "" ? src : text.slice(colon + 1);
+  if (dst === "HEAD" || dst === "@") dst = branch;
+  return dst === "" || destinationIsMain(dst);
 }
 
 /**
@@ -1394,6 +1425,11 @@ function currentPushReason(call, ctx, state, push) {
   } catch (error) {
     return `git push with no refspec, whose destination cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
   }
+  if (dest.refspecs) {
+    const main = dest.refspecs.find((spec) => refspecIsMain(spec, branch));
+    return main === undefined ? null : `git push with no refspec pushes every remote.<name>.push refspec, and ${main} updates main; agents never push to main; ${NAME_THE_BRANCH}`;
+  }
+  if (dest.nothing) return null;
   if (dest.matching) return `git push with no refspec and push.default matching also pushes main; failing closed, ${NAME_THE_BRANCH}`;
   return MAIN_REF.test(dest) ? `git push from ${branch} goes to ${dest} on the remote (push.default or remote.<name>.push), and agents never push to main; ${NAME_THE_BRANCH}` : null;
 }
@@ -1930,11 +1966,14 @@ function recordGitAlias(argv, dir, state) {
 }
 
 /**
- * The directory a cd leads to. ~, $HOME, ${HOME} and a bare cd are expanded from HOME; cd - goes back to the directory before the last
+ * The directory a cd leads to. $PWD and ${PWD} are the current directory; ~, $HOME, ${HOME} and a bare cd are expanded from HOME; cd - goes back to the directory before the last
  * cd in this command. A directory that cannot be known gets an unresolved part, so git calls there fail closed.
  */
 function cdTarget(dir, target, oldDir) {
   if (target === "-") return oldDir ?? [...dir, "$OLDPWD"];
+  // $PWD is the directory the cd runs in.
+  const pwdVar = /^\$(\{PWD\}|PWD)(?=\/|$)/.exec(target ?? "");
+  if (pwdVar) return changeDir(dir, `.${target.slice(pwdVar[0].length)}`);
   const home = process.env.HOME;
   const homeVar = /^\$(\{HOME\}|HOME)(?=\/|$)/.exec(target ?? "");
   if (homeVar) target = `~${target.slice(homeVar[0].length)}`;
@@ -1964,13 +2003,17 @@ function checkCommand(src, dir, ctx, depth = 0) {
   Object.assign(state, { inv: ctx.invocations++, segments, index: 0, lastCd: -1, compound: 0 });
   // A subshell gets a copy of the directory; a cd inside it does not change the directory after it.
   const outer = [];
+  state.dirStack = [];
   for (const [index, segment] of segments.entries()) {
-    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd });
-    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd } = outer.pop());
+    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: [...state.dirStack] });
+    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: state.dirStack } = outer.pop());
     state.index = index;
+    // A pipeline negated with ! succeeds when its command fails, so a creation there never stops a push after it.
+    state.negated = false;
     for (const w of segment.words) {
       if (COMPOUND_OPEN.has(w)) state.compound++;
       else if (COMPOUND_CLOSE.has(w)) state.compound = Math.max(0, state.compound - 1);
+      else if (w === "!") state.negated = true;
       else if (!COMPOUND_INNER.has(w)) break;
     }
     const { argv, env } = unwrap(segment.words);
@@ -1985,11 +2028,18 @@ function checkCommand(src, dir, ctx, depth = 0) {
     }
     if (cmd === "[[" && !segment.words.includes("]]")) state.inTest = true;
     if (cmd === "cd" || cmd === "pushd" || cmd === "popd") {
-      // popd returns to a directory on the stack, and a cd in a pipeline runs in its own subshell; neither is followed,
-      // so the directory after them is unresolved.
+      // popd returns to a directory on the stack, a pushd with no directory or a +N or -N rotates the stack, and a cd in
+      // a pipeline runs in its own subshell; none is followed, so the directory after them is unresolved. popd's
+      // unresolved part goes on the directory before the last pushd in this command, where popd most likely returns.
       const piped = /^\|&?$/.test(segment.op ?? "") || /^\|&?$/.test(segments[index + 1]?.op ?? "");
       const target = argv.slice(1).find((w) => w === "-" || !w.startsWith("-"));
-      [dir, state.oldDir] = [cmd === "popd" || piped ? [...dir, "$DIRSTACK"] : cdTarget(dir, target, state.oldDir), dir];
+      let next;
+      if (piped) next = [...dir, "$DIRSTACK"];
+      else if (cmd === "popd") next = [...(state.dirStack.pop() ?? dir), "$DIRSTACK"];
+      else if (cmd === "pushd" && (target === undefined || /^[+-]\d+$/.test(target))) next = [...dir, "$DIRSTACK"];
+      else next = cdTarget(dir, target, state.oldDir);
+      if (cmd === "pushd" && !piped) state.dirStack.push(dir);
+      [dir, state.oldDir] = [next, dir];
       state.lastCd = index;
       continue;
     }

@@ -47,6 +47,18 @@ const residual = (why) => ({ residual: why });
 const retired = (why) => ({ retired: why });
 const LABEL_RETIRED = retired("the blaine-window label is retired and grants nothing");
 
+// apply.mjs runs this suite before it installs, so the machine running it must not change a verdict. Every decide() call
+// and every spawned hook gets an empty HOME, empty global and system git config, no GIT_CONFIG_COUNT or
+// GIT_CONFIG_PARAMETERS and the C locale; the fixtures set remote.pushDefault themselves.
+const ISOLATED_HOME = mkdtempSync(join(tmpdir(), "guard-migrations-home-"));
+const EMPTY_GIT_CONFIG = join(ISOLATED_HOME, "empty.gitconfig");
+writeFileSync(EMPTY_GIT_CONFIG, "");
+for (const key of Object.keys(process.env)) {
+  if (/^(GIT_CONFIG_(COUNT|PARAMETERS|NOSYSTEM|KEY_\d+|VALUE_\d+)|GIT_CONFIG|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_INDEX_FILE|XDG_CONFIG_HOME|LANGUAGE)$/.test(key)) delete process.env[key];
+}
+Object.assign(process.env, { HOME: ISOLATED_HOME, GIT_CONFIG_GLOBAL: EMPTY_GIT_CONFIG, GIT_CONFIG_SYSTEM: EMPTY_GIT_CONFIG, LC_ALL: "C" });
+after(() => rmSync(ISOLATED_HOME, { recursive: true, force: true }));
+
 // A package.json fixture for the npm, yarn and pnpm run rows.
 const FIXTURE = mkdtempSync(join(tmpdir(), "guard-migrations-"));
 writeFileSync(
@@ -116,8 +128,9 @@ for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"], ["gi
   mkdirSync(join(FIXTURE, sub));
   git(sub, "init", "-q");
   git(sub, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
-  // The hook reads push.default; set it here so a global setting cannot change the verdicts.
+  // The hook reads push.default and remote.pushDefault; set them here so a global setting cannot change the verdicts.
   git(sub, "config", "push.default", "simple");
+  git(sub, "config", "remote.pushDefault", "origin");
 }
 git("gitfeat", "config", "alias.shipit", "!git push origin HEAD:main");
 git("gitfeat", "config", "alias.pm", "push origin main");
@@ -136,7 +149,13 @@ git("remote.git", "init", "-q", "--bare");
 // Round 18 adds gitup (feature/u made from origin/main, push.default upstream), gitrpush (remote.origin.push maps
 // feature/r to main), gitmatch (push.default matching) and gitupmain (main, push.default upstream); gitlive also gets
 // a feature/x branch that already exists.
-const LIVE = ["gitlive", "gitlivefeat", "gitup", "gitrpush", "gitmatch", "gitupmain"];
+// Round 19 adds gitpd (feature/u made from origin/main, push.default upstream, remote.pushDefault fork), gitpdbr (the
+// same with branch.feature/u.pushRemote fork), gitpdsimple (push.default simple, remote.pushDefault fork, and a remote
+// mirror whose remote.mirror.push maps feature/u to main), gitmulti and gitmultifull (remote.origin.push holds
+// feature/x and main, short and full), gitmultiok (feature/x and tags), gitnofetch (upstream to origin/main with no
+// fetch refspec, so @{push} fails) and gitoddfetch (a fetch refspec that maps main to refs/remotes/origin/feature/z).
+const ROUND_19_LIVE = ["gitpd", "gitpdbr", "gitpdsimple", "gitmulti", "gitmultifull", "gitmultiok", "gitnofetch", "gitoddfetch"];
+const LIVE = ["gitlive", "gitlivefeat", "gitup", "gitrpush", "gitmatch", "gitupmain", ...ROUND_19_LIVE];
 for (const sub of LIVE) {
   mkdirSync(join(FIXTURE, sub, "src"), { recursive: true });
   mkdirSync(join(FIXTURE, sub, "docs"));
@@ -148,6 +167,7 @@ for (const sub of LIVE) {
   git(sub, ...ID, "commit", "-qm", "init");
   git(sub, "remote", "add", "origin", join(FIXTURE, "remote.git"));
   git(sub, "config", "push.default", "simple");
+  git(sub, "config", "remote.pushDefault", "origin");
 }
 git("gitlive", "push", "-q", "origin", "main");
 for (const sub of LIVE) git(sub, "fetch", "-q", "origin");
@@ -163,6 +183,31 @@ git("gitlive", "worktree", "add", "-q", "-b", "feature/w", ".claude/worktrees/w1
 git("gitlivefeat", "checkout", "-q", "-b", "feature/x");
 git("gitlivefeat", "checkout", "-q", "main");
 git("gitlivefeat", "checkout", "-q", "feature/x");
+for (const sub of ["gitpd", "gitpdbr", "gitpdsimple"]) {
+  git(sub, "remote", "add", "fork", join(FIXTURE, "remote.git"));
+  git(sub, "fetch", "-q", "fork");
+  git(sub, "checkout", "-q", "-b", "feature/u", "--track", "origin/main");
+}
+git("gitpd", "config", "push.default", "upstream");
+git("gitpd", "config", "remote.pushDefault", "fork");
+git("gitpdbr", "config", "push.default", "upstream");
+git("gitpdbr", "config", "branch.feature/u.pushRemote", "fork");
+git("gitpdsimple", "config", "remote.pushDefault", "fork");
+git("gitpdsimple", "remote", "add", "mirror", join(FIXTURE, "remote.git"));
+git("gitpdsimple", "config", "remote.mirror.push", "refs/heads/feature/u:refs/heads/main");
+for (const [sub, specs] of [["gitmulti", ["feature/x:feature/x", "main:main"]], ["gitmultifull", ["refs/heads/feature/x:refs/heads/feature/x", "refs/heads/main:refs/heads/main"]], ["gitmultiok", ["refs/heads/feature/x:refs/heads/feature/x", "refs/tags/*:refs/tags/*"]]]) {
+  git(sub, "checkout", "-q", "-b", "feature/x");
+  for (const spec of specs) git(sub, "config", "--add", "remote.origin.push", spec);
+}
+for (const sub of ["gitnofetch", "gitoddfetch"]) {
+  git(sub, "checkout", "-q", "-b", "feature/u", "--track", "origin/main");
+  git(sub, "config", "push.default", "upstream");
+}
+git("gitnofetch", "config", "--unset-all", "remote.origin.fetch");
+git("gitoddfetch", "config", "--replace-all", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/feature/z");
+// pushd and popd rows: tool.sh writes a migration, safe/tool.sh does not.
+writeFileSync(join(FIXTURE, "tool.sh"), "#!/bin/sh\necho x > supabase/migrations/x.sql\n");
+writeFileSync(join(FIXTURE, "safe/tool.sh"), "#!/bin/sh\necho hello\n");
 writeFileSync(join(FIXTURE, "global-alias.gitconfig"), "[alias]\n\tx = push origin HEAD:main\n");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
@@ -983,6 +1028,77 @@ pass fixture:gitlive | git push --dry-run origin HEAD:main
 pass fixture:gitlive | git push --tags
 `;
 
+// Round 19 rows: a push with no refspec to a named remote is judged by what git would push there, every
+// remote.<name>.push refspec counts, a negated creation does not count, $PWD and builtin cd are followed, and popd goes
+// back to the directory before pushd.
+const ROUND_19 = String.raw`
+# 1. A named remote that is not the push remote: push.default is applied as git does. remote.pushDefault is fork and
+# feature/u tracks origin/main with push.default upstream, so git push origin goes to main.
+block fixture:gitpd | git push origin
+block fixture:gitpd | git push --set-upstream origin
+block fixture:gitpd | git -C ../gitpd push origin
+block fixture:gitpdbr | git push origin
+block fixture:gitpd | git push
+pass fixture:gitpd | git push origin HEAD
+pass fixture:gitpd | git push -u origin HEAD:feature/u
+pass fixture:gitpd | git -c push.default=current push origin
+pass fixture:gitpd | git -c push.default=nothing push origin
+block fixture:gitpd | git -c push.default=tracking push origin
+block fixture:gitpd | git -c push.default=matching push origin
+block fixture:gitpd | git -c push.default=bogus push origin
+# simple pushes to the branch name or refuses, so it passes; remote.mirror.push maps feature/u to main, so that blocks.
+# The mirror row fails if the remote.<name>.push check is dropped.
+pass fixture:gitpdsimple | git push origin
+pass fixture:gitpdsimple | git push fork
+pass fixture:gitpdsimple | git push
+block fixture:gitpdsimple | git push mirror
+# 2. Every remote.origin.push refspec counts, whatever @{push} says.
+block fixture:gitmulti | git push origin
+block fixture:gitmulti | git push
+block fixture:gitmultifull | git push origin
+block fixture:gitmultifull | git push
+pass fixture:gitmultifull | git push origin HEAD
+pass fixture:gitmultiok | git push origin
+pass fixture:gitmultiok | git push
+block fixture:gitmultiok | git -c remote.origin.push=: push
+block fixture:gitmultiok | git -c remote.origin.push=refs/heads/*:refs/heads/* push
+block fixture:gitmultiok | git -c remote.origin.push=+main push
+pass fixture:gitmultiok | git -c remote.origin.push=^refs/heads/main push
+# 5. @{push} fails because origin has no fetch refspec: this row fails if any @{push} error is read as no upstream.
+block fixture:gitnofetch | git push
+# A fetch refspec that maps main to refs/remotes/origin/feature/z: this row fails if the fetch refspec check is dropped.
+block fixture:gitoddfetch | git push
+pass fixture:gitoddfetch | git push origin HEAD
+# 4. A negated creation never counts: the checkout fails because feature/x exists, ! makes that success, and the push
+# runs on main.
+block fixture:gitlive | ! git checkout -b feature/x && git push -u origin HEAD
+block fixture:gitlive | ! git switch -c feature/x && git push origin HEAD
+block fixture:gitlive | true && ! git checkout -b feature/q && git push
+pass fixture:gitlive | ! git rev-parse --verify -q feature/q && git checkout -b feature/q && git push -u origin HEAD
+# 6. cd "$PWD" stays in the hook's directory, builtin cd is followed like cd, and popd goes back to the directory before
+# pushd (unresolved, so a push of the current branch there still fails closed).
+pass fixture:gitlivefeat | cd "$PWD" && git push origin HEAD
+pass fixture:gitlivefeat | cd "$\{PWD}" && git push -u origin HEAD
+block fixture:gitlive | cd "$PWD" && git push origin HEAD
+pass fixture:gitlive | cd "$PWD/.claude/worktrees/w1" && git push -u origin HEAD
+block fixture:gitlive | cd .claude/worktrees/w1 && cd "$PWD/../../.." && git push origin HEAD
+block fixture:gitlivefeat | builtin cd ../gitlive && git push origin HEAD
+pass fixture:gitlive | builtin cd ../gitlivefeat && git push origin HEAD
+block fixture:gitlivefeat | builtin cd ../gitlive && git checkout -b feature/q; git push
+block fixture | pushd safe && popd && ./tool.sh
+pass fixture | pushd safe && popd && ./clean.sh
+pass fixture | pushd safe && ./tool.sh
+pass fixture | cd safe && pushd .. && popd && ./tool.sh
+block fixture:gitlive | pushd ../gitlivefeat && popd && git push origin HEAD
+block fixture:gitlive | pushd && git push origin HEAD
+# The required passes, also with the round 19 fixtures in place.
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+pass fixture:gitlive | git push --dry-run origin HEAD:main
+pass fixture:gitlive | git push --tags
+`;
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
@@ -1506,6 +1622,7 @@ const PROBES = [
   ...tableRows(16, ROUND_16),
   ...tableRows(17, ROUND_17),
   ...tableRows(18, ROUND_18),
+  ...tableRows(19, ROUND_19),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
