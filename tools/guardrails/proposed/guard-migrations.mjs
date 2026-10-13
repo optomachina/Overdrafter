@@ -1676,7 +1676,7 @@ function patchTarget(text, strip, isProtected) {
     if ((m = /^diff --git (\S+) (\S+)$/.exec(line)) && !line.includes('"')) paths = [cut(m[1]), cut(m[2])];
     else if ((m = /^(?:---|\+\+\+) ([^\s"]+)(\t.*)?$/.exec(line))) paths = m[1] === "/dev/null" ? [] : [cut(m[1])];
     else if ((m = /^(?:rename|copy) (?:from|to) ([^"]+)$/.exec(line))) paths = [m[1]];
-    if (paths === null ? PROTECTED_TEXT.test(line) : paths.some(isProtected)) return line;
+    if (paths === null ? PROTECTED_TEXT.test(line) : paths.some((path) => isProtected(path))) return line;
   }
   return null;
 }
