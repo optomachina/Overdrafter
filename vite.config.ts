@@ -123,6 +123,7 @@ export default defineConfig(({ mode }) => ({
       "src/**/*.test.tsx",
       "worker/src/**/*.test.ts",
       "scripts/**/*.test.mjs",
+      "scripts/native-storage-qualification.test.ts",
     ],
     exclude: [
       ...configDefaults.exclude,
