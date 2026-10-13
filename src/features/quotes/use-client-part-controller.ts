@@ -46,6 +46,7 @@ import {
   isDispatchScopeChangeDenial,
 } from "@/features/quotes/provider-fanout";
 import { useProviderFanout } from "@/features/quotes/use-provider-fanout";
+import { getXometryFanoutVendors } from "@/features/quotes/provider-fanout-dispatch";
 import {
   LIVE_DISPATCH_PROVIDER_LABELS,
   classifyXometryBetaDispatchFailure,
@@ -428,11 +429,26 @@ export function useClientPartController(
       !vendorPreferenceQuery.isLoading,
     retry: false,
   });
+  // With fan out on, a Xometry primary reads its scope with the fan out marker,
+  // since the server refuses Xometry beside another enabled provider without it.
+  const isXometryFanoutScope = isFanoutEnabled && dispatchProvider === "xometry";
+  const xometryScopeFanoutVendors = useMemo(
+    () => (isXometryFanoutScope ? getXometryFanoutVendors(selectedQuoteVendors) : null),
+    [isXometryFanoutScope, selectedQuoteVendors],
+  );
   const xometryDispatchScopeQuery = useQuery({
-    queryKey: ["xometry-beta-dispatch-scope", canonicalJobId, user?.id, partDetail?.job.organization_id, xometryDispatchUnits, dispatchProvider],
+    queryKey: [
+      "xometry-beta-dispatch-scope",
+      canonicalJobId,
+      user?.id,
+      partDetail?.job.organization_id,
+      xometryDispatchUnits,
+      dispatchProvider,
+      xometryScopeFanoutVendors,
+    ],
     queryFn: async () => {
       const scope = dispatchProvider === "xometry"
-        ? await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!)
+        ? await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!, xometryScopeFanoutVendors)
         : await getProviderDispatchScope(canonicalJobId, dispatchProvider, xometryDispatchUnits!);
       if (scope.jobId !== canonicalJobId || scope.organizationId !== partDetail?.job.organization_id) {
         throw new TypeError("The confirmation scope identity could not be verified.");
@@ -443,7 +459,8 @@ export function useClientPartController(
       Boolean(user) &&
       Boolean(canonicalJobId) &&
       quoteCollectionMode.automaticEnabled &&
-      xometryDispatchUnits !== null,
+      xometryDispatchUnits !== null &&
+      (!isXometryFanoutScope || Boolean(vendorPreferenceQuery.data)),
     retry: false,
   });
   const providerFanout = useProviderFanout({
@@ -700,6 +717,8 @@ export function useClientPartController(
       envelopeRevision?: string;
       policyRevision: string;
       scopeFingerprint: string;
+      /** Set only for a Xometry primary in a fan out confirmation. */
+      xometryFanoutVendors?: VendorName[] | null;
     }) => {
       const exactUnknownReplay = isExactUnknownReplay(input);
       if (isVerifiedAuth !== true || (!quoteCollectionMode.automaticEnabled && !exactUnknownReplay)) {
@@ -730,6 +749,9 @@ export function useClientPartController(
         expectedScopeFingerprint: input.scopeFingerprint,
         policyRevision: input.policyRevision,
         approvalReference: input.approvalReference,
+        fanout: input.xometryFanoutVendors
+          ? { confirmationReference: input.approvalReference, vendors: input.xometryFanoutVendors }
+          : null,
       });
     },
     onSuccess: async (result) => {
@@ -1627,7 +1649,11 @@ export function useClientPartController(
     providerFanout?.recordOutcome({ provider: dispatchProvider, status: "pending" });
 
     try {
-      const result = await requestQuoteMutation.mutateAsync(input);
+      const result = await requestQuoteMutation.mutateAsync({
+        ...input,
+        // The marker names exactly the providers this confirmation reaches.
+        xometryFanoutVendors: dispatchProvider === "xometry" ? getXometryFanoutVendors(fanoutPlan?.send) : null,
+      });
       providerFanout?.recordOutcome({ provider: dispatchProvider, status: "queued", created: result.created });
       startFanoutExtras();
       return result;

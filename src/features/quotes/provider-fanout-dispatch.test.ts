@@ -12,6 +12,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => api);
 import {
   deriveFanoutApprovalReference,
   dispatchFanoutProvider,
+  getXometryFanoutVendors,
   isSameConfirmedPackage,
 } from "@/features/quotes/provider-fanout-dispatch";
 
@@ -79,6 +80,7 @@ describe("dispatchFanoutProvider", () => {
       declaredModelUnits: "inch",
       confirmedScope: scope(),
       confirmationReference: CONFIRMATION_REFERENCE,
+      confirmedProviders: ["fictiv", "xometry"],
     });
 
     expect(api.requestProviderDispatch).toHaveBeenCalledWith({
@@ -102,13 +104,14 @@ describe("dispatchFanoutProvider", () => {
         declaredModelUnits: "inch",
         confirmedScope: scope(),
         confirmationReference: CONFIRMATION_REFERENCE,
+        confirmedProviders: ["xometry", "fictiv"],
       }),
     ).rejects.toThrow("provider_dispatch_scope_mismatch");
     expect(api.requestProviderDispatch).not.toHaveBeenCalled();
     expect(isSameConfirmedPackage(scope(), scope({ requestedQuantity: 11 }))).toBe(false);
   });
 
-  it("uses the legacy Xometry path when Xometry is an extra provider", async () => {
+  it("sends Xometry as an extra with the fan out marker bound to the confirmation", async () => {
     api.getXometryBetaDispatchScope.mockResolvedValue(scope());
     api.requestXometryBetaDispatch.mockResolvedValue({ created: false });
 
@@ -118,15 +121,27 @@ describe("dispatchFanoutProvider", () => {
       declaredModelUnits: "inch",
       confirmedScope: scope({ provider: "fictiv" }),
       confirmationReference: CONFIRMATION_REFERENCE,
+      confirmedProviders: ["xometry", "fictiv", "xometry"],
     });
 
-    expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        policyRevision: "founding-beta-2026-08-15",
-        approvalReference: await deriveFanoutApprovalReference(CONFIRMATION_REFERENCE, "xometry"),
-      }),
-    );
+    expect(api.getXometryBetaDispatchScope).toHaveBeenCalledWith("job-1", "inch", ["fictiv", "xometry"]);
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith({
+      jobId: "job-1",
+      declaredModelUnits: "inch",
+      expectedScopeFingerprint: "a".repeat(64),
+      policyRevision: "founding-beta-2026-08-15",
+      approvalReference: await deriveFanoutApprovalReference(CONFIRMATION_REFERENCE, "xometry"),
+      fanout: { confirmationReference: CONFIRMATION_REFERENCE, vendors: ["fictiv", "xometry"] },
+    });
     expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+  });
+
+  it("derives the same Xometry fan out reference the server recomputes", async () => {
+    // Pinned in supabase/tests/ovd762_xometry_fanout_scope_draft.sql against
+    // private.xometry_beta_fanout_approval_reference.
+    await expect(deriveFanoutApprovalReference("76200000-0000-4000-8000-000000000101", "xometry")).resolves.toBe(
+      "baa924a1-8f7d-5229-a543-117c80714c23",
+    );
   });
 
   it("refuses an extra when the requirement row was edited after review under the same id", async () => {
@@ -154,6 +169,7 @@ describe("dispatchFanoutProvider", () => {
         declaredModelUnits: "inch",
         confirmedScope: confirmed,
         confirmationReference: CONFIRMATION_REFERENCE,
+        confirmedProviders: ["xometry", "fictiv"],
       }),
     ).rejects.toThrow("provider_dispatch_scope_mismatch");
     expect(api.requestProviderDispatch).not.toHaveBeenCalled();
@@ -210,5 +226,14 @@ describe("deriveFanoutApprovalReference", () => {
     expect(await deriveFanoutApprovalReference(CONFIRMATION_REFERENCE, "sendcutsend")).not.toBe(fictiv);
     expect(fictiv).not.toBe(CONFIRMATION_REFERENCE);
     await expect(deriveFanoutApprovalReference("not-a-uuid", "fictiv")).rejects.toThrow(TypeError);
+  });
+});
+
+describe("getXometryFanoutVendors", () => {
+  it("returns a sorted marker only for Xometry plus another provider", () => {
+    expect(getXometryFanoutVendors(["xometry", "fictiv", "fictiv"])).toEqual(["fictiv", "xometry"]);
+    expect(getXometryFanoutVendors(["xometry"])).toBeNull();
+    expect(getXometryFanoutVendors(["fictiv", "protolabs"])).toBeNull();
+    expect(getXometryFanoutVendors(null)).toBeNull();
   });
 });

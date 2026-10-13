@@ -87,6 +87,7 @@ export function useProviderFanout(input: {
             declaredModelUnits: args.declaredModelUnits,
             confirmedScope: args.confirmedScope,
             confirmationReference: args.approvalReference,
+            confirmedProviders: args.plan.send,
           }),
         classifyFailure: (error) => classifyXometryBetaDispatchFailure(error).status,
         onOutcome: recordOutcome,

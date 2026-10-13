@@ -56,6 +56,20 @@ test('CI requires replacement success before the standard lane and final aggrega
   assert.match(ci, /\[ "\$OVD591_SQL_RESULT" != "success" \]/);
 });
 
+test('OVD-762 pgTAP fixtures are byte copies of the Xometry fan out draft and its rollback', () => {
+  // Draft only until a migration window promotes it; neither file may drop anything.
+  const drafts = [['ovd762_xometry_fanout_scope.inc', 'ovd-762-xometry-fanout-scope.sql'],
+    ['ovd762_xometry_fanout_scope_rollback.inc', 'ovd-762-xometry-fanout-scope.rollback.sql']];
+  for (const [fixtureName, draftName] of drafts) {
+    const draft = readFileSync(fileURLToPath(new URL(`../docs/migration-drafts/${draftName}`, import.meta.url)));
+    assert.deepEqual(readFileSync(join(source, 'fixtures', fixtureName)), draft);
+    assert.doesNotMatch(draft.toString('utf8'), /^\s*drop\s/im, `${draftName} must not drop anything`);
+  }
+  const suite = readFileSync(join(source, 'ovd762_xometry_fanout_scope_draft.sql'), 'utf8');
+  assert.match(suite, /\\ir fixtures\/ovd762_xometry_fanout_scope\.inc\n/);
+  assert.match(suite, /\\ir fixtures\/ovd762_xometry_fanout_scope_rollback\.inc\n/);
+});
+
 test('OVD-684 pgTAP fixture is a byte copy of the migration it exercises', () => {
   const name = '20261011130000_ovd684_backfill_object_finish.sql';
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd684_backfill_object_finish.inc')),
