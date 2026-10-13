@@ -58,9 +58,15 @@
  *   refspec to a remote with remote.<name>.mirror true blocks. In a variable
  *   assigned from $PWD, $OLDPWD or a command substitution that part becomes
  *   an unresolved placeholder and the rest of the path is kept (quoted and
- *   unquoted parts of the value are joined; assignments before a command
- *   word apply to that command only; ${VAR:-x} and ${VAR-x} give the value
- *   of a known VAR and stay as written otherwise), and a .. after an
+ *   unquoted parts of the value are joined; NAME= counts only at a word
+ *   start outside quotes; assignments before a command word reach only the
+ *   single quoted or escaped text of that command, such as its -c text;
+ *   X+=v appends and unset X unsets; an assignment in a subshell ends with
+ *   it, and one that may not run (after && or ||, in a pipeline, or in an
+ *   if, case, loop or { } body) leaves both values possible, each checked;
+ *   ${VAR:-x} and ${VAR-x} give the value of a known VAR and stay as
+ *   written otherwise; eval of a command that is not known fails closed;
+ *   timeout and time options with values are skipped), and a .. after an
  *   unresolved part keeps it unresolved. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
  *   and the GIT_CONFIG environment are expanded. Also the merges API,
@@ -131,6 +137,13 @@ const COMPOUND_CLOSE = new Set(["fi", "done", "esac", "}"]);
 const COMPOUND_INNER = new Set(["then", "do", "else", "elif", "!"]);
 const NO_WRITE_WORDS = new Set(["for", "select", "case", "in", "done", "fi", "esac", "}", "[[", "]]", "readonly", "local", "declare", "typeset", "export", "return", "exit", "shift", "set", "unset", "trap"]);
 const VALUE_FLAGS = new Set(["-I", "-n", "-P", "-L", "-d", "-s", "-u", "-g"]);
+// Wrapper options that take the next word as their value, beyond VALUE_FLAGS.
+const WRAPPER_VALUE_FLAGS = {
+  timeout: new Set(["--signal", "-k", "--kill-after"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+  env: new Set(["--unset", "-C", "--chdir"]),
+  nice: new Set(["--adjustment"]),
+};
 const GH_TEXT_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "--message", "-m"]);
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 // Hosted Supabase write tools. The first set has no namesake on the GitHub or Vercel servers.
@@ -407,18 +420,21 @@ function readValue(src, i) {
       i++;
     }
   }
-  if (quoted || /[\s"'\\`;&|<>()]/.test(text)) recordable = false;
+  // Blanks are kept: an unquoted reference splits into words as the shell splits it. A newline, quote or operator would be
+  // read as syntax when the value is put back into the text, so such a value is not recorded.
+  if (quoted || /[\n"'\\`;&|<>()]/.test(text)) recordable = false;
   return { end: Math.min(i, src.length), text: recordable ? text : null };
 }
 
 /**
- * The value of ${name<op>word} when name is known: the - and = forms give the value when it is set (with a colon, set and
+ * The value of ${name<op>word} when name is known (null when it is known to be unset): the - and = forms give the value when it is set (with a colon, set and
  * not empty) and else the word, + gives the word or nothing the other way round, and ? gives the value or stays as
  * written. An unknown name stays as written, so a default is never taken for a value that may be set outside the command.
  */
 function expandDefault(value, colon, op, word, seen) {
   if (value === undefined) return seen;
-  const set = colon ? value !== "" : true;
+  // null is a variable known to be unset.
+  const set = value !== null && (colon ? value !== "" : true);
   if (op === "+") return set ? word : "";
   if (op === "?") return set ? value : seen;
   return set ? value : word;
@@ -427,16 +443,19 @@ function expandDefault(value, colon, op, word, seen) {
 // A reference: ${name<op>word} with a plain word, ${name} or $name.
 const REF = String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])([^}$` + "`" + String.raw`]*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
 
-/** An assignment group starting at i: name=value words separated by blanks. Returns the end, the values read, and whether a command follows. */
+/**
+ * An assignment group starting at i: name=value and name+=value words separated by blanks. Returns the end, the values
+ * read as [name, text, append], and whether a command follows.
+ */
 function readAssignments(src, i) {
   const values = [];
-  const head = /([A-Za-z_]\w*)=/y;
+  const head = /([A-Za-z_]\w*)(\+?)=/y;
   for (;;) {
     head.lastIndex = i;
     const m = head.exec(src);
     if (!m) break;
     const { end, text } = readValue(src, i + m[0].length);
-    values.push([m[1], text]);
+    values.push([m[1], text, m[2] === "+"]);
     i = end;
     const blank = /[ \t]*/y;
     blank.lastIndex = i;
@@ -445,7 +464,7 @@ function readAssignments(src, i) {
     i = blank.lastIndex;
   }
   // Assignments before a command word apply to that command only and leave the shell variables as they were.
-  const prefix = i < src.length && !/[\s;&|)#]/.test(src[i]) && values.length > 0 && !/^[A-Za-z_]\w*=/.test(src.slice(i));
+  const prefix = i < src.length && !/[\s;&|)#]/.test(src[i]) && values.length > 0 && !/^[A-Za-z_]\w*\+?=/.test(src.slice(i));
   return { end: i, values, prefix };
 }
 
@@ -463,36 +482,137 @@ function commandEnd(src, i) {
   return src.length;
 }
 
+// X+=v when X is not known: the old part is a placeholder that still holds $, like a command substitution.
+const APPEND_AT_ASSIGN = "$__APPEND_AT_ASSIGN";
+// Keywords that open, divide and close a compound command whose body may not run, or may run in one branch only.
+// A { } group is counted too, since it may be a function body that runs later or never.
+const BODY_OPEN = /^(if|case|while|until|for|select|\{)$/;
+const BODY_SPLIT = /^(else|elif|;;)$/;
+const BODY_CLOSE = /^(fi|esac|done|\})$/;
+// The most variable value combinations checked for one command text; past it the command fails closed.
+const MAX_VARIANTS = 32;
+
+/** The possible values held in a variable slot: undefined (not known), null (unset) or a string. */
+const altsOf = (v) => (v !== null && typeof v === "object" ? v.alts : [v]);
+function union(values) {
+  const alts = [];
+  for (const v of values.flatMap(altsOf)) if (!alts.includes(v)) alts.push(v);
+  return alts.length === 1 ? alts[0] : { alts };
+}
+
+/**
+ * Every text the command can expand to, or null when there are more than MAX_VARIANTS. A variable that an assignment may
+ * or may not have changed holds both values, and each combination of the values used is one text.
+ */
+function expandVariants(src) {
+  const texts = [];
+  let picks = [];
+  for (let n = 0; n < MAX_VARIANTS; n++) {
+    const counts = [];
+    const text = expandVars(src, picks, counts);
+    if (!texts.includes(text)) texts.push(text);
+    const next = counts.map((_, j) => picks[j] ?? 0);
+    let k = counts.length - 1;
+    while (k >= 0 && next[k] + 1 >= counts[k]) k--;
+    if (k < 0) return texts;
+    next[k]++;
+    picks = next.slice(0, k + 1);
+  }
+  return null;
+}
+
 /**
  * Scans the command once, tracking quotes, substitutions and heredoc bodies. An assignment is recognized only at a word
  * start outside quotes, so NAME= inside a quoted string is text. A reference is expanded wherever it stands, since quoted
  * text may run again as -c or eval text. A prefix assignment (X=v cmd, env X=v cmd) does not change the shell variable;
  * its value is used only for the references that the child expands: single quoted and escaped ones in the rest of that
- * simple command.
+ * simple command. unset makes a variable known to be unset, and X+=v appends.
+ *
+ * An assignment in a subshell, $( ) or backticks is dropped at its end. One that may not run keeps the old value possible
+ * too: after || or in a pipeline at once; after && or in the body of if, case or a loop it holds for the commands that run
+ * only after it, and both values are possible once the && list ends, at else, elif and ;;, and after the body (a { }
+ * group counts as a body, since it may be a function that runs later or never). picks and
+ * counts choose among the possible values in the order they are read (see expandVariants).
  */
-function expandVars(src) {
-  const vars = Object.create(null);
+function expandVars(src, picks = [], counts = []) {
+  let vars = Object.create(null);
   let prefix = null;
-  const lookup = (name, child) => (child && prefix && name in prefix.values ? (prefix.values[name] ?? undefined) : vars[name]);
+  // Each scope records, for the variables assigned in it, the value before it and the values given in it.
+  let scopes = [];
+  let lastOp = null;
+  let cmdStart = true;
+  const choose = (alts) => {
+    const at = counts.length;
+    counts.push(alts.length);
+    return alts[picks[at] ?? 0];
+  };
+  const lookup = (name, child) => {
+    const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
+    return raw !== null && typeof raw === "object" ? choose(raw.alts) : raw;
+  };
+  const store = (name, value) => {
+    if (value === undefined) delete vars[name];
+    else vars[name] = value;
+  };
+  const note = (scope, name, values) => {
+    scope.pending[name] ??= { old: vars[name], seen: [] };
+    scope.pending[name].seen.push(...values);
+  };
+  const merge = (scope) => {
+    for (const [name, { old, seen }] of Object.entries(scope.pending)) {
+      const parent = scopes[scopes.indexOf(scope) - 1];
+      if (parent) note(parent, name, seen);
+      store(name, union([old, ...seen, vars[name]]));
+    }
+    scope.pending = {};
+  };
+  const assign = (name, value) => {
+    // After || the next command may run whether or not the assignment did.
+    if (lastOp === "||") return store(name, union([vars[name], value]));
+    const scope = scopes.at(-1);
+    if (scope) note(scope, name, [value]);
+    store(name, value);
+  };
+  const endList = () => {
+    while (scopes.at(-1)?.kind === "chain") merge(scopes.pop());
+    lastOp = null;
+  };
   const resolve = (child) => (seen, name, colon, op, word, braced, bare) => {
-    if (name === undefined) return lookup(braced ?? bare, child) ?? seen;
+    if (name === undefined) {
+      const value = lookup(braced ?? bare, child);
+      return value === undefined ? seen : (value ?? "");
+    }
     const value = lookup(name, child);
     const result = expandDefault(value, colon, op, word, seen);
     // ${X:=word} also assigns X.
-    if (op === "=" && value !== undefined && !child) vars[name] = result;
+    if (op === "=" && value !== undefined && !child) assign(name, result);
     return result;
   };
   const ref = new RegExp(REF, "g");
   const refAt = new RegExp(REF, "y");
-  const head = /[A-Za-z_]\w*=/y;
+  const head = /[A-Za-z_]\w*\+?=/y;
+  const keyword = /(if|case|while|until|for|select|else|elif|fi|esac|done|then|do|\{|\}|!)(?=[\s;&|()]|$)/y;
+  const unset = /unset((?:[ \t]+-[a-z]+)*)((?:[ \t]+[A-Za-z_]\w*)+)[ \t]*(?=[;&|)\n#]|$)/y;
   // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
-  // It becomes a placeholder that still holds $, like a command substitution.
-  const valueOf = (text) => (text === null ? null : text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false)));
+  // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
+  const valueOf = (text) => (text === null ? undefined : text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false)));
+  const appendTo = (old, text) => (old === undefined || text === undefined ? (text === undefined ? undefined : APPEND_AT_ASSIGN + text) : (old ?? "") + text);
   let out = "";
   let quote = null;
   let wordStart = true;
   const frames = [];
   const docs = [];
+  const openFrame = (frame) => {
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp });
+    lastOp = null;
+    cmdStart = true;
+  };
+  const closeFrame = () => {
+    const frame = frames.pop();
+    if (frame.vars) ({ vars, lastOp } = frame);
+    if (frame.vars) scopes = scopes.slice(0, frame.scopes);
+    return frame.quote;
+  };
   for (let i = 0; i < src.length; ) {
     if (prefix && i >= prefix.end) prefix = null;
     const c = src[i];
@@ -503,25 +623,49 @@ function expandVars(src) {
       i = eol;
       continue;
     }
+    if (quote === null && wordStart) {
+      keyword.lastIndex = i;
+      const k = keyword.exec(src)?.[1];
+      if (k !== undefined && cmdStart) {
+        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {} });
+        const body = scopes.findLast((sc) => sc.kind === "body");
+        if (BODY_SPLIT.test(k) && body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
+        if (BODY_CLOSE.test(k) && body) {
+          while (scopes.at(-1) !== body) merge(scopes.pop());
+          merge(scopes.pop());
+        }
+        out += k;
+        i += k.length;
+        wordStart = false;
+        continue;
+      }
+      unset.lastIndex = i;
+      const u = cmdStart ? unset.exec(src) : null;
+      if (u && !/f/.test(u[1])) {
+        for (const name of u[2].trim().split(/[ \t]+/)) assign(name, null);
+        out += u[0];
+        i += u[0].length;
+        wordStart = false;
+        cmdStart = false;
+        continue;
+      }
+    }
     head.lastIndex = i;
     if (quote === null && wordStart && head.test(src)) {
       const { end, values, prefix: isPrefix } = readAssignments(src, i);
       if (isPrefix) {
         const at = commandEnd(src, end);
         prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
-        for (const [name, text] of values) prefix.values[name] = valueOf(text);
+        for (const [name, text, append] of values) prefix.values[name] = append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text);
       } else {
-        for (const [name, text] of values) {
-          const value = valueOf(text);
-          if (value === null) delete vars[name];
-          else vars[name] = value;
-        }
+        for (const [name, text, append] of values) assign(name, append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text));
       }
       out += src.slice(i, end);
       wordStart = /[ \t]/.test(src[end - 1]);
       i = Math.max(end, i + 1);
       continue;
     }
+    if (quote === null && wordStart && !/[\s;&|()]/.test(c)) cmdStart = false;
     wordStart = false;
     if (c === "$" && quote !== "$'") {
       refAt.lastIndex = i;
@@ -542,13 +686,13 @@ function expandVars(src) {
     } else if (c === '"') {
       quote = quote === '"' ? null : '"';
     } else if (c === "`") {
-      if (frames.at(-1)?.tick) quote = frames.pop().quote;
+      if (frames.at(-1)?.tick) quote = closeFrame();
       else {
-        frames.push({ quote, tick: true });
+        openFrame({ quote, tick: true });
         quote = null;
       }
     } else if (c === "$" && next === "(") {
-      frames.push({ quote });
+      openFrame({ quote });
       quote = null;
       take = 2;
     } else if (quote === null) {
@@ -556,16 +700,29 @@ function expandVars(src) {
       else if (c === "$" && next === "'") {
         quote = "$'";
         take = 2;
-      } else if (c === "(") frames.push({ quote: null });
-      else if (c === ")" && frames.length > 0 && !frames.at(-1).tick) quote = frames.pop().quote;
+      } else if (c === "(") openFrame({ quote: null });
+      else if (c === ")" && frames.length > 0 && !frames.at(-1).tick) quote = closeFrame();
       else if (c === "<" && next === "<" && src[i + 2] !== "<" && src[i - 1] !== "<") {
         const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
         if (m) {
           docs.push(m[2]);
           take = m[0].length;
         } else take = 2;
-      }
+      } else if ((c === "&" && next === "&") || (c === "|" && next === "|")) {
+        // A list joined by && or || : an assignment after it may not run.
+        if (c === "|") for (const scope of scopes.filter((sc) => sc.kind === "chain")) merge(scope);
+        else if (scopes.at(-1)?.kind !== "chain") scopes.push({ kind: "chain", pending: {} });
+        lastOp = c === "&" ? "&&" : "||";
+        take = 2;
+      } else if (c === "|") lastOp = "||";
+      else if (c === ";" && next === ";") {
+        endList();
+        const body = scopes.findLast((sc) => sc.kind === "body");
+        if (body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
+        take = 2;
+      } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
       if (/[\s;&|()]/.test(c)) wordStart = true;
+      if (/[;&|(\n]/.test(c)) cmdStart = true;
       if (c === "\n" && docs.length > 0) {
         // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
         out += c;
@@ -589,7 +746,12 @@ function expandVars(src) {
 }
 
 const base = (word = "") => word.split("/").pop();
-const isAssignment = (w) => /^[A-Za-z_]\w*=/.test(w);
+const isAssignment = (w) => /^[A-Za-z_]\w*\+?=/.test(w);
+/** The name and value of an assignment word; X+=v gives v. */
+const assignmentOf = (w) => {
+  const at = w.indexOf("=");
+  return [w.slice(0, at).replace(/\+$/, ""), w.slice(at + 1)];
+};
 
 /** Strips leading assignments and wrapper commands; returns the argv, the wrappers seen and the assignments. */
 function unwrap(words) {
@@ -598,8 +760,8 @@ function unwrap(words) {
   const wrappers = new Set();
   const takeAssignments = () => {
     while (argv.length > 0 && isAssignment(argv[0])) {
-      const at = argv[0].indexOf("=");
-      env[argv[0].slice(0, at)] = argv[0].slice(at + 1);
+      const [name, value] = assignmentOf(argv[0]);
+      env[name] = value;
       argv = argv.slice(1);
     }
   };
@@ -610,10 +772,11 @@ function unwrap(words) {
     wrappers.add(wrapper);
     const isOption = (w) => w.startsWith("-") || isAssignment(w) || (wrapper === "timeout" && /^\d/.test(w));
     let i = 1;
-    for (; i < argv.length && isOption(argv[i]); i += VALUE_FLAGS.has(argv[i]) ? 2 : 1) {
+    const takesValue = (w) => VALUE_FLAGS.has(w) || (WRAPPER_VALUE_FLAGS[wrapper]?.has(w) ?? false);
+    for (; i < argv.length && isOption(argv[i]); i += takesValue(argv[i]) ? 2 : 1) {
       if (isAssignment(argv[i])) {
-        const at = argv[i].indexOf("=");
-        env[argv[i].slice(0, at)] = argv[i].slice(at + 1);
+        const [name, value] = assignmentOf(argv[i]);
+        env[name] = value;
       }
     }
     argv = argv.slice(i);
@@ -1499,14 +1662,23 @@ function broadPathspec(spec, dir) {
   return segs.length <= dir.length && segs.every((s, i) => s === dir[i]);
 }
 
-/** The paths a patch names, with strip leading parts removed from the a/ and b/ forms as git apply -p does. */
-function patchPaths(text, strip) {
+/**
+ * The first line of a patch that writes a protected path, or null. Paths in diff --git, --- and +++ headers lose strip
+ * leading parts as git apply -p does before they are checked; rename and copy lines are checked as written. Hunk content
+ * is text, not a path. Any other line that names a protected path (a binary or quoted header) fails closed.
+ */
+function patchTarget(text, strip, isProtected) {
   const cut = (path) => path.split("/").slice(strip).join("/");
-  const paths = [];
-  for (const m of text.matchAll(/^diff --git (\S+) (\S+)/gm)) paths.push(cut(m[1]), cut(m[2]));
-  for (const m of text.matchAll(/^(?:---|\+\+\+) (\S+)/gm)) if (m[1] !== "/dev/null") paths.push(cut(m[1]));
-  for (const m of text.matchAll(/^(?:rename|copy) (?:from|to) (.+)$/gm)) paths.push(m[1]);
-  return paths;
+  for (const line of text.split("\n")) {
+    if (/^[ +\-\\]/.test(line) && !/^(---|\+\+\+) /.test(line)) continue;
+    let m;
+    let paths = null;
+    if ((m = /^diff --git (\S+) (\S+)$/.exec(line)) && !line.includes('"')) paths = [cut(m[1]), cut(m[2])];
+    else if ((m = /^(?:---|\+\+\+) ([^\s"]+)(\t.*)?$/.exec(line))) paths = m[1] === "/dev/null" ? [] : [cut(m[1])];
+    else if ((m = /^(?:rename|copy) (?:from|to) ([^"]+)$/.exec(line))) paths = [m[1]];
+    if (paths === null ? PROTECTED_TEXT.test(line) : paths.some(isProtected)) return line;
+  }
+  return null;
 }
 
 /**
@@ -1519,10 +1691,8 @@ function patchReason(files, dir, what, { directory, strip = 1 } = {}) {
   for (const file of files) {
     const text = readNamed(file, dir);
     if (text === null) return `${what} patch ${file} cannot be read to check it; failing closed`;
-    if (PROTECTED_TEXT.test(text)) return `${what} patch ${file} changes a protected path`;
-    if (directory !== undefined && patchPaths(text, strip).some((path) => protectedName(`${directory}/${path}`, dir))) {
-      return `${what} patch ${file} lands in a protected path under --directory=${directory}`;
-    }
+    const target = patchTarget(text, strip, (path) => protectedName(directory === undefined ? path : `${directory}/${path}`, dir));
+    if (target) return `${what} patch ${file} ${directory === undefined ? "changes a protected path" : `lands in a protected path under --directory=${directory}`}: ${target}`;
   }
   return null;
 }
@@ -2271,7 +2441,11 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
     if (reason) return `${cmd} script: ${reason}`;
   }
   let inline = [];
-  if (cmd === "eval") inline = [argv.slice(1).join(" ")];
+  if (cmd === "eval") {
+    inline = [argv.slice(1).join(" ")];
+    // A command word that is still a reference or a placeholder is not known, so what eval runs cannot be checked.
+    if (parse(inline[0]).segments.some((s) => (unwrap(s.words).argv[0] ?? "").includes("$"))) return "eval runs a command from a variable that is not known; failing closed";
+  }
   else if (SCRIPT_SHELLS.has(cmd)) inline = shellInline(argv) ?? [];
   else if (SHELLS.has(cmd) || /^(npx|npm)$/.test(cmd)) inline = argv.filter((w, i) => /^(-c|--call)$/.test(argv[i - 1] ?? ""));
   for (const text of inline) {
@@ -2368,7 +2542,18 @@ function checkCommand(src, dir, ctx, depth = 0) {
     ctx.collect.push(reason);
     return null;
   };
-  const { segments, substs } = parse(expandVars(src));
+  const texts = expandVariants(src);
+  if (texts === null) return report("the command has too many possible variable values to check; failing closed");
+  for (const text of texts) {
+    const reason = checkExpanded(text, dir, ctx, depth, report);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+/** checkCommand for one expansion of the command text. */
+function checkExpanded(text, dir, ctx, depth, report) {
+  const { segments, substs } = parse(text);
   for (const inner of substs) {
     const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;

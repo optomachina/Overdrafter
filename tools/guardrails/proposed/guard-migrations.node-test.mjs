@@ -110,6 +110,9 @@ writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1
 // Patches whose paths are only protected once a --directory value is put in front of them.
 writeFileSync(join(FIXTURE, "new.patch"), "diff --git a/x.sql b/x.sql\nnew file mode 100644\n--- /dev/null\n+++ b/x.sql\n@@ -0,0 +1 @@\n+create table t();\n");
 writeFileSync(join(FIXTURE, "sub.patch"), "diff --git a/migrations/x.sql b/migrations/x.sql\nnew file mode 100644\n--- /dev/null\n+++ b/migrations/x.sql\n@@ -0,0 +1 @@\n+x\n");
+writeFileSync(join(FIXTURE, "mig.patch"), "diff --git a/supabase/migrations/x.sql b/supabase/migrations/x.sql\nnew file mode 100644\n--- /dev/null\n+++ b/supabase/migrations/x.sql\n@@ -0,0 +1 @@\n+x\n");
+writeFileSync(join(FIXTURE, "body.patch"), "diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+see supabase/migrations/x.sql\n");
+writeFileSync(join(FIXTURE, "binary.patch"), "diff --git a/docs/a.png b/docs/a.png\nBinary files a/supabase/migrations/x.sql and b/supabase/migrations/x.sql differ\n");
 writeFileSync(join(FIXTURE, "fn.patch"), "diff --git a/functions/f/index.ts b/functions/f/index.ts\n--- a/functions/f/index.ts\n+++ b/functions/f/index.ts\n@@ -1 +1 @@\n-a\n+b\n");
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 // Two git repositories for the push and alias rows: gitmain has main checked out, gitfeat a feature branch and some aliases.
@@ -1336,6 +1339,66 @@ pass | X=supabase/migrations; X=(docs); echo x > "$X/x.sql"
 residual (an array value is not recorded, so $X, its first element, stays unresolved) | X=docs; X=(supabase/migrations); echo x > "$X/x.sql"
 block | X=; echo "$\{X:=supabase/migrations}"; echo x > "$X/x.sql"
 pass | X=; echo "$\{X:=docs}"; echo x > "$X/x.md"
+# 5. Lead forwarded findings from the Codex check of e3346e1.
+# A quoted value with blanks is recorded; unquoted, its words split as the shell splits them.
+block | D="/repo/My Docs/supabase/migrations"; echo x > "$D/x.sql"
+block fixture:gitlivefeat | C="git push origin HEAD:main"; $C
+pass | D="/repo/My Docs/notes"; echo x > "$D/x.md"
+# timeout and time options that take a value.
+block fixture:gitlivefeat | timeout --signal TERM 10 git push origin HEAD:main
+block fixture:gitlivefeat | timeout -k 5 --signal=TERM 10 git push origin HEAD:main
+block fixture:gitlivefeat | /usr/bin/time -f %E git push origin HEAD:main
+block fixture:gitlivefeat | time -o /tmp/t git push origin HEAD:main
+pass fixture:gitlivefeat | timeout --signal TERM 10 git push -u origin HEAD:feature/x
+pass fixture:gitlivefeat | /usr/bin/time -f %E git push -u origin HEAD
+# Appends.
+block fixture:gitlivefeat | DEST=ma; DEST+=in; git push origin HEAD:$DEST
+block | MIG=supabase; MIG+=/migrations; echo x > "$MIG/x.sql"
+block fixture:gitlivefeat | X+=1 git push origin HEAD:main
+pass fixture:gitlivefeat | DEST=feature; DEST+=/x; git push origin HEAD:$DEST
+# unset makes the variable known to be unset.
+block fixture:gitlivefeat | X=feature/x; unset X; git push origin "HEAD:$\{X:-main}"
+block fixture:gitlivefeat | X=feature/x; unset -v X; git push origin "HEAD:$\{X-main}"
+pass | MIG=supabase/migrations; unset MIG; echo x > "$MIG/x.sql"
+# An assignment in a subshell does not outlive it; one that may not run (after && or ||, or inside if, case or a loop)
+# leaves both values possible, and each is checked.
+block | MIG=supabase/migrations; (MIG=docs); echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; false && MIG=docs; echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; true || MIG=docs; echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; if false; then MIG=docs; fi; echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; false && unset MIG; echo x > "$MIG/x.sql"
+block fixture:gitlivefeat | B=feature/x; false && B=main; git push origin HEAD:$B
+block fixture:gitlivefeat | B=feature/x; (B=main; git push origin HEAD:$B)
+pass fixture:gitlivefeat | B=feature/x; (B=main); git push origin HEAD:$B
+pass | MIG=docs; (MIG=supabase/migrations); echo x > "$MIG/x.sql"
+block fixture:gitlivefeat | B=feature/x; [ -z "$CI" ] || B=main; git push origin HEAD:$B
+block fixture:gitlivefeat | B=feature/x; for x in 1; do B=main; done; git push origin HEAD:$B
+block fixture:gitlivefeat | B=main; case $x in a) B=feature/x;; esac; git push origin HEAD:$B
+block fixture:gitlivefeat | B=main; if x; then B=feature/x; else git push origin HEAD:$B; fi
+block fixture:gitlivefeat | B=main; f() { B=feature/x; }; git push origin HEAD:$B
+block fixture:gitlivefeat | B=main; x | B=feature/x; git push origin HEAD:$B
+pass fixture:gitlive | B=main; if x; then B=feature/x; git push origin HEAD:$B; fi
+pass fixture:gitlive | cd . && B=feature/x && git push -u origin HEAD:$B
+pass fixture:gitlivefeat | A=1 && B=2 && C=3 && D=4 && E=5 && F=6; echo $A $B $C $D $E $F; git push
+pass fixture:gitlivefeat | B=feature/x; test -n "$B" && git push -u origin HEAD:$B
+# eval of a known value is expanded and checked; eval of a command that is not known fails closed.
+block fixture:gitlivefeat | C="git push origin HEAD:main"; eval "$C"
+block | C="echo x > supabase/migrations/x.sql"; eval "$C"
+block | eval "$C"
+block | eval "$C" x
+pass | C="echo hi"; eval "$C"
+pass | eval 'echo $HOME'
+# git apply -p strips leading parts before the path is checked.
+pass | git apply -p2 $FIXTURE/mig.patch
+pass | git apply -p2 --directory=docs $FIXTURE/mig.patch
+block | git apply $FIXTURE/mig.patch
+block | git apply -p1 $FIXTURE/mig.patch
+block | git apply -p2 --directory=supabase $FIXTURE/mig.patch
+pass | git apply $FIXTURE/body.patch
+block | git apply $FIXTURE/binary.patch
+residual (an array element and an indirect reference such as $\{!X} are not recorded, so they stay unresolved) | X=docs; X=(supabase/migrations); echo x > "$\{X[0]}/x.sql"
+residual (an array element and an indirect reference such as $\{!X} are not recorded, so they stay unresolved) | N=MIG; MIG=supabase/migrations; echo x > "$\{!N}/x.sql"
+residual (a protected name built inside a command substitution is not known from the text) | D=$(printf supabase)/migrations; echo x > "$D/x.sql"
 # The required passes, also with the round 23 rows in place.
 pass fixture:gitlivefeat | git push
 pass fixture:gitlivefeat | git push -u origin HEAD
