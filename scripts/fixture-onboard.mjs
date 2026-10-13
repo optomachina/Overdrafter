@@ -22,10 +22,12 @@ import { assertSafeGeneratedOutput, syncProviderIntegrations } from "./provider-
 import {
   GENERATOR_ISSUE,
   admissionRevisionSql,
+  apiDefaultDenyTestTs,
   authorizationBindingTs,
   dispatchFixtureTs,
   envelopeFixtureJson,
   envelopeReviewSql,
+  isApiProvider,
   productionPortalBrowserTestTs,
   productionPortalTestTs,
   productionPortalTs,
@@ -64,6 +66,7 @@ export function livePaths(key) {
     dispatchFixture: `worker/test-support/${key}DispatchFixture.ts`,
     productionPortalTest: `worker/src/adapters/${key}ProductionPortal.test.ts`,
     productionPortalBrowserTest: `worker/src/adapters/${key}ProductionPortal.browser.test.ts`,
+    apiDefaultDenyTest: `worker/src/adapters/${key}ApiDispatch.test.ts`,
     readinessDoc: `docs/workflows/${key}-live-readiness.md`,
     sessionSecret: "worker/.env.example",
   };
@@ -182,6 +185,27 @@ async function requireManifest(rootDir, key) {
   return entry.manifest;
 }
 
+async function registryEntryFor(rootDir, key) {
+  const registry = await readProviderRegistry(rootDir);
+  return registry.providers.find((entry) => entry.key === key);
+}
+
+/** Verifies an adopted adapter exists, so adoption can never point at a missing or placeholder module. */
+async function requireAdoptedAdapter(rootDir, key, adopted) {
+  const required = [adopted.module, ...(adopted.defaultDenyTest ? [adopted.defaultDenyTest] : [])];
+  for (const file of required) {
+    if (!(await exists(path.join(rootDir, file)))) {
+      throw new Error(`${key} adoptedAdapter names ${file}, which does not exist`);
+    }
+  }
+}
+
+/** A readiness doc under the `ovd<N>-<key>-` name already satisfies the artifact; do not add a second one. */
+async function hasNamedReadinessDoc(rootDir, key) {
+  const names = await listOrEmpty(path.join(rootDir, "docs/workflows"));
+  return names.some((name) => name === `${key}-live-readiness.md` || new RegExp(`^ovd\\d+-${key}-live-readiness\\.md$`).test(name));
+}
+
 async function planLive(rootDir, key, issue) {
   const manifest = await requireManifest(rootDir, key);
   const files = manifest.capabilityEnvelope.files;
@@ -191,32 +215,64 @@ async function planLive(rootDir, key, issue) {
   if (!unauthorizedCadExtension(manifest)) {
     throw new Error(`${key} manifest lists every candidate CAD extension; the default-deny test needs one outside it`);
   }
-  if (!(await readLiveAutomationVendors(rootDir)).includes(key)) {
+  const api = isApiProvider(manifest);
+  const adopted = (await registryEntryFor(rootDir, key))?.adoptedAdapter;
+  // API providers have no browser automation vendor entry; adopted adapters already have theirs.
+  if (!api && !adopted && !(await readLiveAutomationVendors(rootDir)).includes(key)) {
     throw new Error(`${key} is not in worker LIVE_AUTOMATION_VENDORS; apply the reviewed enum change first`);
+  }
+  if (adopted) {
+    await requireAdoptedAdapter(rootDir, key, adopted);
   }
   const context = { key, displayName: manifest.displayName, manifest, issue };
   const paths = livePaths(key);
-  return [
+  const common = [
     { path: paths.envelopeFixture, contents: envelopeFixtureJson(context) },
-    { path: paths.authorizationBinding, contents: authorizationBindingTs(context) },
-    { path: paths.productionPortal, contents: productionPortalTs(context) },
     { path: paths.dispatchFixture, contents: dispatchFixtureTs(context) },
+  ];
+  const secret = {
+    path: paths.sessionSecret,
+    append: true,
+    marker: sessionSecretMarker(key),
+    contents: sessionSecretBlock(context),
+  };
+  const readiness = { path: paths.readinessDoc, contents: readinessDoc(context) };
+  if (adopted) {
+    // The real adapter, its authorization binding, its tests, and its secret wiring already exist.
+    // A placeholder stub next to them would let provider:check pass on dead code.
+    return [...common, ...((await hasNamedReadinessDoc(rootDir, key)) ? [] : [readiness])];
+  }
+  const binding = { path: paths.authorizationBinding, contents: authorizationBindingTs(context) };
+  if (api) {
+    return [
+      ...common.slice(0, 1),
+      binding,
+      ...common.slice(1),
+      { path: paths.apiDefaultDenyTest, contents: apiDefaultDenyTestTs(context) },
+      readiness,
+      secret,
+    ];
+  }
+  return [
+    common[0],
+    binding,
+    { path: paths.productionPortal, contents: productionPortalTs(context) },
+    common[1],
     { path: paths.productionPortalTest, contents: productionPortalTestTs(context) },
     { path: paths.productionPortalBrowserTest, contents: productionPortalBrowserTestTs(context) },
-    { path: paths.readinessDoc, contents: readinessDoc(context) },
-    {
-      path: paths.sessionSecret,
-      append: true,
-      marker: sessionSecretMarker(key),
-      contents: sessionSecretBlock(context),
-    },
+    readiness,
+    secret,
   ];
 }
 
 async function planAdmit(rootDir, key, issue) {
   const manifest = await requireManifest(rootDir, key);
   const paths = livePaths(key);
-  const required = [paths.envelopeFixture, paths.authorizationBinding];
+  const adopted = (await registryEntryFor(rootDir, key))?.adoptedAdapter;
+  if (adopted) {
+    await requireAdoptedAdapter(rootDir, key, adopted);
+  }
+  const required = [paths.envelopeFixture, adopted ? adopted.module : paths.authorizationBinding];
   const present = await Promise.all(required.map((file) => exists(path.join(rootDir, file))));
   const missing = required.find((_, index) => !present[index]);
   if (missing) {

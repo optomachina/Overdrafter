@@ -127,7 +127,9 @@ async function snapshot(root) {
   return files;
 }
 
-const LIVE_OUTPUTS = Object.values(livePaths("shopname"));
+// A portal provider generates every live path except the API default-deny scaffold.
+const { apiDefaultDenyTest: _apiOnly, ...PORTAL_LIVE_PATHS } = livePaths("shopname");
+const LIVE_OUTPUTS = Object.values(PORTAL_LIVE_PATHS);
 
 describe("fixture:onboard --stage=envelope", () => {
   it("scaffolds what provider:add does, adds a default-off registry entry, syncs, and is a no-op on rerun", async () => {
@@ -393,6 +395,75 @@ describe("fixture:onboard --stage=admit", () => {
     const mine = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "admit" });
     expect(other.migrationTimestamp).toBe("20261011190000");
     expect(mine.migrationTimestamp).toBe("20261011200000");
+  });
+});
+
+describe("fixture:onboard for API providers and adopted adapters", () => {
+  async function addApiManifest(root, key = "apishop") {
+    const manifest = await addEnvelopeManifest(root, key);
+    manifest.integration = { ...manifest.integration, adapterKind: "api" };
+    await fs.writeFile(
+      path.join(root, "provider-integrations", key, PROVIDER_MANIFEST_FILE),
+      formatManifest(manifest),
+    );
+  }
+
+  it("takes an api provider through live and admit without a portal stub or a worker vendor entry", async () => {
+    const root = await createRoot({ vendorKeys: ["xometry", "apishop"], liveKeys: ["xometry"] });
+    await addApiManifest(root);
+
+    const live = await runFixtureOnboard({ rootDir: root, key: "apishop", stage: "live" });
+    const files = [...live.created, ...live.appended];
+    expect(files).toEqual(expect.arrayContaining([
+      "worker/src/adapters/apishopApiDispatch.test.ts",
+      "worker/src/adapters/apishopDispatchAuthorization.ts",
+      "docs/workflows/apishop-live-readiness.md",
+      "worker/.env.example",
+    ]));
+    expect(files.some((file) => file.includes("ProductionPortal"))).toBe(false);
+
+    const env = await fs.readFile(path.join(root, "worker/.env.example"), "utf8");
+    expect(env).toContain("APISHOP_API_KEY_SECRET_NAME");
+    expect(env).toContain("mounted as APISHOP_API_KEY");
+    const doc = await fs.readFile(path.join(root, "docs/workflows/apishop-live-readiness.md"), "utf8");
+    expect(validateReadinessDoc(doc)).toEqual([]);
+
+    const admit = await runFixtureOnboard({ rootDir: root, key: "apishop", stage: "admit" });
+    expect(admit.created.every((file) => file.endsWith(".review") || file.endsWith(".md"))).toBe(true);
+    const rerun = await runFixtureOnboard({ rootDir: root, key: "apishop", stage: "live" });
+    expect(rerun).toMatchObject({ created: [], appended: [], kept: [] });
+  });
+
+  it("adopts an existing adapter: no stub, no secret block, and admit binds to the real module", async () => {
+    const root = await createRoot();
+    await addEnvelopeManifest(root);
+    await writeRegistry(root, [{
+      key: "shopname",
+      liveAdapter: true,
+      sessionSecrets: [{
+        secretNameEnv: "SHOPNAME_STORAGE_STATE_SECRET_NAME",
+        mountEnv: "SHOPNAME_STORAGE_STATE_JSON",
+        requiredWhenListed: true,
+      }],
+      egress: "none",
+      adoptedAdapter: { module: "worker/src/adapters/shopname.ts" },
+    }, XOMETRY_ENTRY]);
+
+    await expect(runFixtureOnboard({ rootDir: root, key: "shopname", stage: "live" }))
+      .rejects.toThrow("adoptedAdapter names worker/src/adapters/shopname.ts, which does not exist");
+
+    await fs.mkdir(path.join(root, "worker/src/adapters"), { recursive: true });
+    await fs.writeFile(path.join(root, "worker/src/adapters/shopname.ts"), "export const real = true;\n");
+    const live = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "live" });
+    const paths = livePaths("shopname");
+    expect(live.created).toEqual(expect.arrayContaining([paths.envelopeFixture, paths.dispatchFixture]));
+    for (const stub of [paths.productionPortal, paths.productionPortalTest, paths.authorizationBinding]) {
+      await expect(fs.lstat(path.join(root, stub))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(await fs.readFile(path.join(root, "worker/.env.example"), "utf8")).toBe("WORKER_MODE=simulate\n");
+
+    const admit = await runFixtureOnboard({ rootDir: root, key: "shopname", stage: "admit" });
+    expect(admit.created).toHaveLength(3);
   });
 });
 

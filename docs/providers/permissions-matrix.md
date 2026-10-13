@@ -10,7 +10,7 @@ This matrix is the ToS and partner-API clearance record for paid automated quoti
 
 `enabled_for_paid_automation` is true only when all of these hold:
 
-1. `in_1_0` is true (Protolabs stays in the matrix and is marked **not in 1.0**).
+1. `in_1_0` is true (Protolabs and Weerg stay in the matrix and are marked **not in 1.0**).
 2. `permission_status` is not `cease_and_desist`.
 3. `tos_stance` is `allowed`, or a written permission is recorded on the row.
 
@@ -27,7 +27,7 @@ Runtime off-switch: **OVD-722**. CLI: `npm run provider:kill -- <key>|--all --on
 | xometry | true | partner_or_request_only | prohibited | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
 | fictiv | true | none | prior-consent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
 | quickparts | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
-| weerg | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
+| weerg | false | none | silent | not_in_1_0 | false | 2026-10-11 | OVD-722 |
 | geomiq | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
 | rmfg | true | public_agent_api | allowed | oct23_checkpoint_referenced | true | 2026-10-11 | OVD-722 |
 | oshcut | true | none | silent | draft_outreach_prepared | false | 2026-10-11 | OVD-722 |
@@ -88,15 +88,15 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - displayName: Weerg
 - api_availability: none
 - tos_stance: silent
-- partner_program: No public quote API found. Instant quoting is a website configurator.
+- partner_program: Not in 1.0. Weerg is blocked and RMFG substitutes. No 1.0 partner-API outreach.
 - contact: Published company contact; info@weerg.com
-- permission_status: draft_outreach_prepared
+- permission_status: not_in_1_0
 - date_checked: 2026-10-11
 - kill_switch_state: OVD-722 `private.provider_kill_switches` row for weerg
 - enabled_for_paid_automation: false
 - tos_automation_clause: [Weerg General Terms of Use and Delivery](https://www.weerg.com/faq/general-terms-and-conditions-for-the-purchase-of-services-and-supplies-supplier) — no published robots, scraper, or partner-API clause.
 - replies: 0
-- notes: Ask for partner API access and written permission.
+- notes: Kept in the matrix and marked **not in 1.0**. Weerg is blocked; RMFG substitutes in the 1.0 set.
 
 ### geomiq
 

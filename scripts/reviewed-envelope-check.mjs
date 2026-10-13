@@ -74,7 +74,10 @@ export const REVIEWED_ENVELOPE_EXCEPTIONS = Object.freeze([
   },
 ]);
 
-export function formatReviewedEnvelopeGap(key, artifact, expectedPath) {
+export function formatReviewedEnvelopeGap(key, artifact, expectedPath, detail = null) {
+  if (detail) {
+    return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); ${detail}`;
+  }
   return `provider:check: ${key} reviewed envelope missing ${artifact} (expected ${expectedPath}); run npm run fixture:onboard -- ${key} --stage=live`;
 }
 
@@ -205,7 +208,7 @@ export async function collectReviewedEnvelopeGaps({
 export async function assertReviewedEnvelopeCompleteness(options) {
   const gaps = await collectReviewedEnvelopeGaps(options);
   if (gaps.length > 0) {
-    throw new Error(gaps.map((gap) => formatReviewedEnvelopeGap(gap.key, gap.artifact, gap.expectedPath)).join("\n"));
+    throw new Error(gaps.map((gap) => formatReviewedEnvelopeGap(gap.key, gap.artifact, gap.expectedPath, gap.detail)).join("\n"));
   }
   const reviewed = await readReviewedEnvelopes(options.rootDir);
   return { reviewedProviders: reviewed.map((envelope) => envelope.key) };
@@ -397,13 +400,23 @@ async function missingArtifactsForProvider(rootDir, envelope) {
     ["deployWiring", hasDeployWiring],
   ];
   const results = await Promise.all(checks.map(([, check]) => check(rootDir, envelope)));
-  return checks
+  return Promise.all(checks
     .filter((_, index) => !results[index])
-    .map(([artifactId]) => gap(envelope, artifactId));
+    .map(([artifactId]) => gap(rootDir, envelope, artifactId)));
 }
 
-function gap(envelope, artifactId) {
+async function gap(rootDir, envelope, artifactId) {
   const spec = REVIEWED_ENVELOPE_ARTIFACTS[artifactId];
+  const adopted = artifactId === "defaultDenyTest" ? await readAdoptedDefaultDenyTest(rootDir, envelope.key) : null;
+  if (adopted) {
+    const missing = await adoptedDefaultDenyProblems(rootDir, envelope, adopted);
+    return {
+      key: envelope.key,
+      artifact: spec.artifact,
+      expectedPath: adopted.defaultDenyTest,
+      detail: `the adopted test must import ${adopted.module} and cover: ${missing.join(", ")}`,
+    };
+  }
   return {
     key: envelope.key,
     artifact: spec.artifact,
@@ -450,7 +463,61 @@ async function hasDispatchFixture(rootDir, envelope) {
  * default-deny registrar and call it with a harness whose `vendor` is this
  * provider and whose `envelopeId` is this provider's reviewed envelope id.
  */
+const DEFAULT_DENY_REGISTRAR_SOURCE = "worker/test-support/productionPortalDefaultDeny.ts";
+const DEFAULT_DENY_REASON = /^(?:dispatch_authorization|drawing_upload|cad_file_type)_[a-z_]+$/;
+
+/** The registry's adoptedAdapter entry when it names its own default-deny test; the kit then checks that test, not the shared registrar call. */
+async function readAdoptedDefaultDenyTest(rootDir, key) {
+  const registry = await readJsonIfPresent(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH));
+  const entry = Array.isArray(registry?.providers) ? registry.providers.find((candidate) => candidate?.key === key) : null;
+  const adopted = entry?.adoptedAdapter;
+  return isPlainObject(adopted) && typeof adopted.module === "string" && typeof adopted.defaultDenyTest === "string"
+    ? { module: adopted.module, defaultDenyTest: adopted.defaultDenyTest }
+    : null;
+}
+
+function stringLiteralValues(source, fileName) {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return {
+    sourceFile,
+    values: new Set(findNodes(sourceFile, ts.isStringLiteralLike).map((node) => node.text)),
+  };
+}
+
+/**
+ * An adopted adapter has no shared-registrar call, so its own test must prove
+ * the same refusals: it imports the adopted module and asserts every reason
+ * code the shared registrar covers. Returns the problems (empty when it does).
+ */
+async function adoptedDefaultDenyProblems(rootDir, envelope, adopted) {
+  const test = await readTextIfPresent(path.join(rootDir, adopted.defaultDenyTest));
+  if (test === null) {
+    return [`${adopted.defaultDenyTest} is missing`];
+  }
+  const registrar = await readTextIfPresent(path.join(rootDir, DEFAULT_DENY_REGISTRAR_SOURCE));
+  if (registrar === null) {
+    return [`${DEFAULT_DENY_REGISTRAR_SOURCE} is missing`];
+  }
+  const required = [...stringLiteralValues(registrar, DEFAULT_DENY_REGISTRAR_SOURCE).values]
+    .filter((value) => DEFAULT_DENY_REASON.test(value))
+    .sort(compareStrings);
+  const { sourceFile, values } = stringLiteralValues(test, adopted.defaultDenyTest);
+  const moduleBase = path.posix.basename(adopted.module, ".ts");
+  const importsModule = importDeclarations(sourceFile).some((declaration) => (
+    /^\.\/[A-Za-z0-9]+(?:\.js)?$/.test(declaration.moduleSpecifier.text)
+    && declaration.moduleSpecifier.text.replace(/^\.\//, "").replace(/\.js$/, "") === moduleBase
+  ));
+  return [
+    ...(importsModule ? [] : [`${adopted.defaultDenyTest} does not import ${adopted.module}`]),
+    ...required.filter((reason) => !values.has(reason)),
+  ];
+}
+
 async function hasDefaultDenyTest(rootDir, envelope) {
+  const adopted = await readAdoptedDefaultDenyTest(rootDir, envelope.key);
+  if (adopted) {
+    return (await adoptedDefaultDenyProblems(rootDir, envelope, adopted)).length === 0;
+  }
   const relative = REVIEWED_ENVELOPE_ARTIFACTS.defaultDenyTest.expectedPath(envelope.key);
   const source = await readTextIfPresent(path.join(rootDir, relative));
   if (source === null) {
