@@ -360,6 +360,15 @@ export function XometryBetaDispatchConfirmationDialog({
     // Scope changes revoke fresh consent; only an explicit new flow clears an outcome.
   }, [scopeIdentity, uncertainAttempt]);
 
+  // The authority box names the recipients, so a change to the send list
+  // (for example a guard refetch) withdraws that affirmation.
+  const recipientsKey = fanout ? fanout.plan.send.join(",") : provider;
+  useEffect(() => {
+    if (uncertainAttempt || confirmationInFlight.current) return;
+    setAffirmations((current) => (current.authorityToShare ? { ...current, authorityToShare: false } : current));
+    setApprovalReference(null);
+  }, [recipientsKey, uncertainAttempt]);
+
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
     wasOpenRef.current = open;

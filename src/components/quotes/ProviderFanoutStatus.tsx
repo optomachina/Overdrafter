@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleSlash, Loader2, TriangleAlert } from "lucide-react";
 import type { VendorName } from "@/integrations/supabase/types";
 import {
-  PROVIDER_FANOUT_SKIP_REASON_COPY,
+  describeFanoutSkipReason,
   getProviderDisplayName,
   type ProviderFanoutOutcome,
   type ProviderFanoutPlan,
@@ -14,7 +14,10 @@ type ProviderFanoutStatusProps = Readonly<{
 
 type OutcomeTone = "idle" | "busy" | "ok" | "bad";
 
-function describeOutcome(outcome: ProviderFanoutOutcome | undefined): { text: string; tone: OutcomeTone } {
+function describeOutcome(
+  outcome: ProviderFanoutOutcome | undefined,
+  budget: ProviderFanoutPlan["budget"],
+): { text: string; tone: OutcomeTone } {
   switch (outcome?.status) {
     case undefined:
       return { text: "Will be sent when you confirm.", tone: "idle" };
@@ -24,7 +27,7 @@ function describeOutcome(outcome: ProviderFanoutOutcome | undefined): { text: st
       return { text: outcome.created ? "Quote request queued." : "Quote request already queued.", tone: "ok" };
     case "denied":
       return {
-        text: outcome.skipReason ? `Not sent. ${PROVIDER_FANOUT_SKIP_REASON_COPY[outcome.skipReason]}` : "Not queued by OverDrafter.",
+        text: outcome.skipReason ? `Not sent. ${describeFanoutSkipReason(outcome.skipReason, budget)}` : "Not queued by OverDrafter.",
         tone: "bad",
       };
     case "unknown":
@@ -48,7 +51,7 @@ export function ProviderFanoutStatus({ plan, outcomes }: ProviderFanoutStatusPro
       </h3>
       <ul className="mt-2 divide-y divide-paper-hairline border-y border-paper-hairline" aria-label="Providers sent">
         {plan.send.map((provider) => {
-          const { text, tone } = describeOutcome(outcomes[provider]);
+          const { text, tone } = describeOutcome(outcomes[provider], plan.budget);
           return (
             <li key={provider} className="flex items-start gap-3 py-3 text-sm" data-provider={provider} data-status={outcomes[provider]?.status ?? "planned"}>
               <OutcomeIcon tone={tone} />
@@ -67,7 +70,7 @@ export function ProviderFanoutStatus({ plan, outcomes }: ProviderFanoutStatusPro
               <CircleSlash className="mt-0.5 h-4 w-4 shrink-0 text-paper-muted" aria-hidden="true" />
               <span>
                 <strong className="block font-semibold text-paper-ink">{getProviderDisplayName(provider)}</strong>
-                <span className="block text-paper-muted">Skipped. {PROVIDER_FANOUT_SKIP_REASON_COPY[reason]}</span>
+                <span className="block text-paper-muted">Skipped. {describeFanoutSkipReason(reason, plan.budget)}</span>
               </span>
             </li>
           ))}

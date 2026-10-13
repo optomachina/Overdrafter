@@ -22,8 +22,18 @@ export function getConfiguredMultiProviderFanoutEnabled(): boolean {
   return resolveMultiProviderFanoutEnabled(import.meta.env.VITE_MULTI_PROVIDER_FANOUT as string | undefined);
 }
 
-/** About 20 quotes per provider per day (docs/business/business-model.md). */
+/**
+ * About 20 quotes per provider per day (docs/business/business-model.md). The
+ * guards RPC applies it server side and returns only an at cap flag.
+ */
 export const PROVIDER_DAILY_QUOTE_CAP = 20;
+
+/**
+ * Providers the client plan never sends to, whatever the guards say: Weerg is
+ * blocked and Geomiq moved to the 1.1 release. The server still refuses them
+ * on its own; this keeps them out of the customer's disclosure too.
+ */
+export const FANOUT_EXCLUDED_PROVIDERS: ReadonlySet<VendorName> = new Set<VendorName>(["weerg", "geomiq"]);
 
 export type FanoutProcessClass = "cnc" | "sheet_metal";
 
@@ -103,7 +113,25 @@ export function getProviderDisplayName(provider: VendorName): string {
 export type ProviderFanoutGuards = {
   killSwitchedProviders: readonly VendorName[];
   exportDeclaration: "clean" | "not_clean";
-  dailyQuoteCounts: Readonly<Partial<Record<VendorName, number>>>;
+  /** Providers at today's quote cap. The RPC exposes no counts. */
+  providersAtDailyCap: readonly VendorName[];
+  /** The caller's quote request guardrail, or null when the org has it off. */
+  quoteRequestBudget: QuoteRequestBudget | null;
+};
+
+/**
+ * Per user quote request guardrail (quote_request_guardrails): by default 5
+ * requests per user per 60 minutes, and a $500 pending ceiling per org at $75
+ * per requested lane. Every provider request creates one request and one lane,
+ * so extras past either limit would be refused by the server.
+ */
+export type QuoteRequestBudget = {
+  userWindowMinutes: number;
+  userMaxRequestsPerWindow: number;
+  userRequestsRemaining: number;
+  orgPendingCostCeilingUsd: number;
+  costPerLaneUsd: number;
+  orgPendingCostHeadroomUsd: number;
 };
 
 export type ProviderFanoutSkipReason =
@@ -112,11 +140,16 @@ export type ProviderFanoutSkipReason =
   | "export_control"
   | "daily_cap"
   | "guards_unavailable"
-  | "not_admitted";
+  | "not_admitted"
+  | "not_offered"
+  | "user_rate_limit"
+  | "cost_ceiling"
+  | "scope_changed";
 
 export type ProviderFanoutPlan = {
   send: VendorName[];
   skipped: { provider: VendorName; reason: ProviderFanoutSkipReason }[];
+  budget: QuoteRequestBudget | null;
 };
 
 export const PROVIDER_FANOUT_SKIP_REASON_COPY: Readonly<Record<ProviderFanoutSkipReason, string>> = {
@@ -126,7 +159,26 @@ export const PROVIDER_FANOUT_SKIP_REASON_COPY: Readonly<Record<ProviderFanoutSki
   daily_cap: "Daily quote limit reached for this provider.",
   guards_unavailable: "Safety checks could not be loaded, so only the primary provider is used.",
   not_admitted: "Not admitted for this part or organization.",
+  not_offered: "Not offered for automatic quotes yet.",
+  user_rate_limit: "Over your quote request limit for now.",
+  cost_ceiling: "Over your workspace's pending quote budget.",
+  scope_changed: "The package changed after you reviewed it, so it was not sent.",
 };
+
+function formatUsd(value: number): string {
+  return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
+/** Customer copy for a skip, with the guardrail numbers when they apply. */
+export function describeFanoutSkipReason(reason: ProviderFanoutSkipReason, budget: QuoteRequestBudget | null): string {
+  if (reason === "user_rate_limit" && budget) {
+    return `You can send ${budget.userMaxRequestsPerWindow} quote requests every ${budget.userWindowMinutes} minutes, and this one would go over that limit.`;
+  }
+  if (reason === "cost_ceiling" && budget) {
+    return `Each request holds about ${formatUsd(budget.costPerLaneUsd)} against your workspace's ${formatUsd(budget.orgPendingCostCeilingUsd)} pending quote ceiling, and this one would go over it.`;
+  }
+  return PROVIDER_FANOUT_SKIP_REASON_COPY[reason];
+}
 
 /**
  * Chooses which providers one confirmation reaches. `primary` is the provider
@@ -139,16 +191,17 @@ export function planProviderFanout(input: {
   candidates: readonly VendorName[];
   process: string | null | undefined;
   guards: ProviderFanoutGuards | null;
-  dailyCap?: number;
 }): ProviderFanoutPlan {
-  const dailyCap = input.dailyCap ?? PROVIDER_DAILY_QUOTE_CAP;
   const ordered = [input.primary, ...input.candidates.filter((provider) => provider !== input.primary)];
   const unique = [...new Set(ordered)];
   const processClass = classifyFanoutProcess(input.process);
-  const plan: ProviderFanoutPlan = { send: [], skipped: [] };
+  const budget = input.guards?.quoteRequestBudget ?? null;
+  const plan: ProviderFanoutPlan = { send: [], skipped: [], budget };
+  let requestsLeft = budget?.userRequestsRemaining ?? Number.POSITIVE_INFINITY;
+  let headroomUsd = budget?.orgPendingCostHeadroomUsd ?? Number.POSITIVE_INFINITY;
 
   for (const provider of unique) {
-    const reason = getSkipReason(provider);
+    const reason = getSkipReason(provider) ?? getBudgetSkipReason(provider);
     if (reason) {
       plan.skipped.push({ provider, reason });
     } else {
@@ -157,8 +210,24 @@ export function planProviderFanout(input: {
   }
   return plan;
 
+  /**
+   * Spends the guardrail in send order. The primary always keeps its place, as
+   * today, and the server stays the authority on its own request.
+   */
+  function getBudgetSkipReason(provider: VendorName): ProviderFanoutSkipReason | null {
+    const cost = budget?.costPerLaneUsd ?? 0;
+    if (provider !== input.primary) {
+      if (requestsLeft < 1) return "user_rate_limit";
+      if (headroomUsd < cost) return "cost_ceiling";
+    }
+    requestsLeft -= 1;
+    headroomUsd -= cost;
+    return null;
+  }
+
   function getSkipReason(provider: VendorName): ProviderFanoutSkipReason | null {
     const guards = input.guards;
+    if (provider !== input.primary && FANOUT_EXCLUDED_PROVIDERS.has(provider)) return "not_offered";
     if (!guards) {
       return provider === input.primary ? null : "guards_unavailable";
     }
@@ -170,7 +239,7 @@ export function planProviderFanout(input: {
       return "process_ineligible";
     }
     if (isForeignProvider(provider) && guards.exportDeclaration !== "clean") return "export_control";
-    if ((guards.dailyQuoteCounts[provider] ?? 0) >= dailyCap) return "daily_cap";
+    if (guards.providersAtDailyCap.includes(provider)) return "daily_cap";
     return null;
   }
 }
@@ -188,9 +257,25 @@ const GUARD_DENIAL_SKIP_REASONS: readonly [RegExp, ProviderFanoutSkipReason][] =
   [/\bprovider_dispatch_(?:admission_disabled|admission_evidence_missing|admission_expired|provider_not_enabled|provider_unknown|provider_applicability_required|process_not_admitted|provider_envelope_unknown)\b/, "not_admitted"],
 ];
 
-export function getFanoutDenialSkipReason(error: unknown): ProviderFanoutSkipReason | undefined {
+/**
+ * Refusals that mean the package changed after the customer reviewed it, from
+ * either admission path. After one of these on the primary, no extra is sent.
+ */
+const SCOPE_CHANGE_DENIAL =
+  /\b(?:xometry_beta_(?:scope_changed|exact_scope_required|notice_changed)|provider_dispatch_(?:scope_mismatch|exact_scope_required|notice_mismatch|envelope_mismatch))\b/;
+
+function getErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : (error as { message?: unknown } | null)?.message;
-  const message = typeof raw === "string" ? raw : "";
+  return typeof raw === "string" ? raw : "";
+}
+
+export function isDispatchScopeChangeDenial(error: unknown): boolean {
+  return SCOPE_CHANGE_DENIAL.test(getErrorMessage(error));
+}
+
+export function getFanoutDenialSkipReason(error: unknown): ProviderFanoutSkipReason | undefined {
+  const message = getErrorMessage(error);
+  if (SCOPE_CHANGE_DENIAL.test(message)) return "scope_changed";
   return GUARD_DENIAL_SKIP_REASONS.find(([pattern]) => pattern.test(message))?.[1];
 }
 

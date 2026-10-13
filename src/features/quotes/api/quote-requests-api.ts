@@ -12,7 +12,7 @@ import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-worksp
 import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { selectQuoteOption } from "./packages-api";
-import type { ProviderFanoutGuards } from "@/features/quotes/provider-fanout";
+import type { ProviderFanoutGuards, QuoteRequestBudget } from "@/features/quotes/provider-fanout";
 import {
   parseProviderDispatchResult,
   parseProviderDispatchScope,
@@ -171,32 +171,52 @@ function isVendorArray(value: unknown): value is VendorName[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.length > 0);
 }
 
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function parseQuoteRequestBudget(value: unknown): QuoteRequestBudget | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  const budget = value as Record<string, unknown>;
+  const keys = [
+    "userWindowMinutes",
+    "userMaxRequestsPerWindow",
+    "userRequestsRemaining",
+    "orgPendingCostCeilingUsd",
+    "costPerLaneUsd",
+    "orgPendingCostHeadroomUsd",
+  ] as const;
+  if (!keys.every((key) => isNonNegativeNumber(budget[key]))) return undefined;
+  return Object.fromEntries(keys.map((key) => [key, budget[key]])) as QuoteRequestBudget;
+}
+
 /**
- * Kill switch, export declaration, and today's per provider quote counts for a
- * job (drafted in docs/migration-drafts/provider-fanout-guards.sql). Any
- * malformed field throws, and the caller then sends to the primary provider only.
+ * Kill switch, export declaration, providers at today's cap, and the caller's
+ * quote request budget for a job (drafted in
+ * docs/migration-drafts/provider-fanout-guards.sql). Any malformed field
+ * throws, and the caller then sends to the primary provider only.
  */
 export async function getProviderFanoutGuards(jobId: string): Promise<ProviderFanoutGuards> {
   const { data, error } = await callUntypedRpc("api_get_provider_fanout_guards", {
     p_job_id: jobId,
   });
   const result = ensureData(data, error) as Record<string, unknown> | null;
-  const counts = result?.dailyQuoteCounts;
+  const quoteRequestBudget = parseQuoteRequestBudget(result?.quoteRequestBudget);
   if (
     !result ||
     !isVendorArray(result.killSwitchedProviders) ||
+    !isVendorArray(result.providersAtDailyCap) ||
     (result.exportDeclaration !== "clean" && result.exportDeclaration !== "not_clean") ||
-    typeof counts !== "object" ||
-    counts === null ||
-    Array.isArray(counts) ||
-    Object.values(counts).some((count) => typeof count !== "number" || !Number.isSafeInteger(count) || count < 0)
+    quoteRequestBudget === undefined
   ) {
     throw new TypeError("Provider fan out guards are unavailable.");
   }
   return {
     killSwitchedProviders: result.killSwitchedProviders,
     exportDeclaration: result.exportDeclaration,
-    dailyQuoteCounts: counts as ProviderFanoutGuards["dailyQuoteCounts"],
+    providersAtDailyCap: result.providersAtDailyCap,
+    quoteRequestBudget,
   };
 }
 

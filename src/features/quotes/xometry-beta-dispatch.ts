@@ -104,6 +104,7 @@ export type XometryBetaDispatchFailure = {
 export type XometryBetaDispatchDiagnosticCode =
   | "explicit_server_denial"
   | "invalid_server_response"
+  | "local_plan_refusal"
   | "network_failure"
   | "postgrest_failure"
   | "unknown_failure";

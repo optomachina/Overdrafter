@@ -5,7 +5,9 @@ import {
   PROVIDER_DAILY_QUOTE_CAP,
   PROVIDER_PROCESS_CAPABILITIES,
   classifyFanoutProcess,
+  describeFanoutSkipReason,
   getFanoutDenialSkipReason,
+  isDispatchScopeChangeDenial,
   planProviderFanout,
   resolveMultiProviderFanoutEnabled,
   runProviderFanout,
@@ -16,7 +18,17 @@ import {
 const CLEAN_GUARDS: ProviderFanoutGuards = {
   killSwitchedProviders: [],
   exportDeclaration: "clean",
-  dailyQuoteCounts: {},
+  providersAtDailyCap: [],
+  quoteRequestBudget: null,
+};
+
+const DEFAULT_BUDGET = {
+  userWindowMinutes: 60,
+  userMaxRequestsPerWindow: 5,
+  userRequestsRemaining: 5,
+  orgPendingCostCeilingUsd: 500,
+  costPerLaneUsd: 75,
+  orgPendingCostHeadroomUsd: 500,
 };
 
 const CANDIDATES: VendorName[] = ["xometry", "fictiv", "sendcutsend", "rmfg", "oshcut"];
@@ -109,7 +121,7 @@ describe("planProviderFanout guards", () => {
   });
 
   it("skips foreign providers without a clean export declaration", () => {
-    const candidates: VendorName[] = ["xometry", "geomiq", "weerg", "fictiv"];
+    const candidates: VendorName[] = ["xometry", "rapiddirect", "protolabsnetwork", "fictiv"];
     const blocked = planProviderFanout({
       primary: "xometry",
       candidates,
@@ -118,24 +130,90 @@ describe("planProviderFanout guards", () => {
     });
     expect(blocked.send).toEqual(["xometry", "fictiv"]);
     expect(blocked.skipped).toEqual([
-      { provider: "geomiq", reason: "export_control" },
-      { provider: "weerg", reason: "export_control" },
+      { provider: "rapiddirect", reason: "export_control" },
+      { provider: "protolabsnetwork", reason: "export_control" },
     ]);
 
     const clean = planProviderFanout({ primary: "xometry", candidates, process: "CNC mill", guards: CLEAN_GUARDS });
-    expect(clean.send).toEqual(["xometry", "geomiq", "weerg", "fictiv"]);
+    expect(clean.send).toEqual(["xometry", "rapiddirect", "protolabsnetwork", "fictiv"]);
   });
 
-  it("skips a provider at the daily cap of about 20 quotes", () => {
+  it("never sends to Weerg or Geomiq, even with a clean declaration", () => {
+    const plan = planProviderFanout({
+      primary: "xometry",
+      candidates: ["xometry", "geomiq", "weerg", "fictiv"],
+      process: "CNC mill",
+      guards: CLEAN_GUARDS,
+    });
+
+    expect(plan.send).toEqual(["xometry", "fictiv"]);
+    expect(plan.skipped).toEqual([
+      { provider: "geomiq", reason: "not_offered" },
+      { provider: "weerg", reason: "not_offered" },
+    ]);
+  });
+
+  it("skips a provider the guards report at the daily cap of about 20 quotes", () => {
     expect(PROVIDER_DAILY_QUOTE_CAP).toBe(20);
     const plan = planProviderFanout({
       primary: "xometry",
       candidates: CANDIDATES,
       process: "Sheet metal",
-      guards: { ...CLEAN_GUARDS, dailyQuoteCounts: { sendcutsend: 20, rmfg: 19 } },
+      guards: { ...CLEAN_GUARDS, providersAtDailyCap: ["sendcutsend"] },
     });
     expect(plan.send).toEqual(["xometry", "rmfg", "oshcut"]);
     expect(plan.skipped).toContainEqual({ provider: "sendcutsend", reason: "daily_cap" });
+  });
+
+  it("shows which extras the per user request limit would refuse", () => {
+    const candidates: VendorName[] = ["xometry", "sendcutsend", "rmfg", "oshcut", "fabworks"];
+    const plan = planProviderFanout({
+      primary: "xometry",
+      candidates,
+      process: "Sheet metal",
+      guards: { ...CLEAN_GUARDS, quoteRequestBudget: { ...DEFAULT_BUDGET, userRequestsRemaining: 3 } },
+    });
+
+    expect(plan.send).toEqual(["xometry", "sendcutsend", "rmfg"]);
+    expect(plan.skipped).toEqual([
+      { provider: "oshcut", reason: "user_rate_limit" },
+      { provider: "fabworks", reason: "user_rate_limit" },
+    ]);
+    expect(describeFanoutSkipReason("user_rate_limit", plan.budget)).toBe(
+      "You can send 5 quote requests every 60 minutes, and this one would go over that limit.",
+    );
+  });
+
+  it("shows which extras the $500 pending ceiling at $75 per lane would refuse", () => {
+    const plan = planProviderFanout({
+      primary: "xometry",
+      candidates: CANDIDATES,
+      process: "Sheet metal",
+      // $350 already pending: room for two more $75 lanes.
+      guards: { ...CLEAN_GUARDS, quoteRequestBudget: { ...DEFAULT_BUDGET, orgPendingCostHeadroomUsd: 150 } },
+    });
+
+    expect(plan.send).toEqual(["xometry", "sendcutsend"]);
+    expect(plan.skipped).toEqual([
+      { provider: "fictiv", reason: "process_ineligible" },
+      { provider: "rmfg", reason: "cost_ceiling" },
+      { provider: "oshcut", reason: "cost_ceiling" },
+    ]);
+    expect(describeFanoutSkipReason("cost_ceiling", plan.budget)).toBe(
+      "Each request holds about $75 against your workspace's $500 pending quote ceiling, and this one would go over it.",
+    );
+  });
+
+  it("keeps the primary when the request limit is already spent", () => {
+    const plan = planProviderFanout({
+      primary: "xometry",
+      candidates: ["xometry", "fictiv"],
+      process: "CNC mill",
+      guards: { ...CLEAN_GUARDS, quoteRequestBudget: { ...DEFAULT_BUDGET, userRequestsRemaining: 0 } },
+    });
+
+    expect(plan.send).toEqual(["xometry"]);
+    expect(plan.skipped).toEqual([{ provider: "fictiv", reason: "user_rate_limit" }]);
   });
 
   it("falls back to the primary alone when guards are unavailable", () => {
@@ -205,6 +283,10 @@ describe("runProviderFanout", () => {
     expect(getFanoutDenialSkipReason(new Error("provider_disabled"))).toBe("kill_switch");
     expect(getFanoutDenialSkipReason({ message: "export_control_blocked" })).toBe("export_control");
     expect(getFanoutDenialSkipReason({ message: "provider_daily_cap_reached" })).toBe("daily_cap");
+    expect(getFanoutDenialSkipReason({ message: "xometry_beta_scope_changed" })).toBe("scope_changed");
+    expect(getFanoutDenialSkipReason(new Error("provider_dispatch_scope_mismatch"))).toBe("scope_changed");
     expect(getFanoutDenialSkipReason(new Error("timeout"))).toBeUndefined();
+    expect(isDispatchScopeChangeDenial({ message: "xometry_beta_scope_changed", code: "P0001" })).toBe(true);
+    expect(isDispatchScopeChangeDenial({ message: "provider_dispatch_job_busy" })).toBe(false);
   });
 });

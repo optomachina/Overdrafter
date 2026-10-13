@@ -40,7 +40,11 @@ import type {
   XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
 import { getConfiguredLiveDispatchProvider } from "@/features/quotes/live-dispatch-provider";
-import { getConfiguredMultiProviderFanoutEnabled } from "@/features/quotes/provider-fanout";
+import {
+  getConfiguredMultiProviderFanoutEnabled,
+  getFanoutDenialSkipReason,
+  isDispatchScopeChangeDenial,
+} from "@/features/quotes/provider-fanout";
 import { useProviderFanout } from "@/features/quotes/use-provider-fanout";
 import {
   LIVE_DISPATCH_PROVIDER_LABELS,
@@ -1591,13 +1595,28 @@ export function useClientPartController(
     const confirmedScope = xometryDispatchScopeQuery.data ?? null;
     if (fanoutPlan && !fanoutPlan.send.includes(dispatchProvider)) {
       toast.error(`${dispatchProviderLabel} cannot take this request right now.`);
-      return { accepted: false, created: false, diagnosticCode: "explicit_server_denial", status: "denied" };
+      // Refused by the local plan (kill switch, process, or cap); nothing reached the server.
+      return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
     }
 
     isRequestQuoteLockedRef.current = true;
     const uncertainReplay = isExactUnknownReplay(input);
-    const startFanoutExtras = () => {
-      if (!providerFanout || !fanoutPlan || confirmedScope?.scopeFingerprint !== input.scopeFingerprint) return;
+    const startFanoutExtras = (primaryError?: unknown) => {
+      if (!providerFanout || !fanoutPlan) return;
+      // The extras carry only the package the customer reviewed. If the server
+      // says it changed, or the loaded scope is no longer the one the dialog
+      // showed, no extra is sent.
+      if (
+        confirmedScope?.scopeFingerprint !== input.scopeFingerprint ||
+        (primaryError !== undefined && isDispatchScopeChangeDenial(primaryError))
+      ) {
+        providerFanout.withholdExtras({
+          approvalReference: input.approvalReference,
+          plan: fanoutPlan,
+          reason: "scope_changed",
+        });
+        return;
+      }
       void providerFanout.runExtras({
         approvalReference: input.approvalReference,
         declaredModelUnits: input.declaredModelUnits,
@@ -1622,9 +1641,13 @@ export function useClientPartController(
       console.error(`${dispatchProviderLabel} beta dispatch was not accepted.`, {
         diagnosticCode: failure.diagnosticCode,
       });
-      providerFanout?.recordOutcome({ provider: dispatchProvider, status: failure.status });
-      // One provider failing never blocks the others.
-      startFanoutExtras();
+      providerFanout?.recordOutcome({
+        provider: dispatchProvider,
+        status: failure.status,
+        skipReason: getFanoutDenialSkipReason(error),
+      });
+      // Any other primary failure never blocks the others.
+      startFanoutExtras(error);
       return failure;
     } finally {
       isRequestQuoteLockedRef.current = false;

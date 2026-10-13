@@ -8,6 +8,7 @@ import {
   runProviderFanout,
   type ProviderFanoutOutcome,
   type ProviderFanoutPlan,
+  type ProviderFanoutSkipReason,
 } from "@/features/quotes/provider-fanout";
 import {
   classifyXometryBetaDispatchFailure,
@@ -37,6 +38,10 @@ export function useProviderFanout(input: {
     queryFn: () => getProviderFanoutGuards(jobId),
     enabled: enabled && Boolean(jobId),
     retry: false,
+    // A background refetch must never add a recipient after the customer has
+    // affirmed authority to share; the dialog also resets that box on change.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const [outcomes, setOutcomes] = useState<ProviderFanoutState["outcomes"]>({});
   const startedForRef = useRef<string | null>(null);
@@ -81,12 +86,28 @@ export function useProviderFanout(input: {
             provider,
             declaredModelUnits: args.declaredModelUnits,
             confirmedScope: args.confirmedScope,
+            confirmationReference: args.approvalReference,
           }),
         classifyFailure: (error) => classifyXometryBetaDispatchFailure(error).status,
         onOutcome: recordOutcome,
       });
     },
     [jobId, primary, recordOutcome],
+  );
+
+  /**
+   * Records every planned extra as not sent, once per approval reference. Used
+   * when the primary was refused because the package changed after review.
+   */
+  const withholdExtras = useCallback(
+    (args: { approvalReference: string; plan: ProviderFanoutPlan; reason: ProviderFanoutSkipReason }) => {
+      if (startedForRef.current === args.approvalReference) return;
+      startedForRef.current = args.approvalReference;
+      for (const provider of args.plan.send) {
+        if (provider !== primary) recordOutcome({ provider, status: "denied", skipReason: args.reason });
+      }
+    },
+    [primary, recordOutcome],
   );
 
   if (!enabled || !plan) return null;
@@ -96,5 +117,6 @@ export function useProviderFanout(input: {
     isGuardsLoading: guardsQuery.isLoading,
     recordOutcome,
     runExtras,
+    withholdExtras,
   };
 }
