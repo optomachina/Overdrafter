@@ -99,18 +99,114 @@ values (
   (select outsider_user_id from ovd365_test_context)
 );
 
+-- OVD-723 (window 1): once the export-control upload block exists, the
+-- 6- and 8-argument upload RPCs refuse every call, and uploads go through the
+-- overloads that take the job's clean declaration, with Storage writes needing
+-- a grant from prepare. These helpers keep every assertion below on the same
+-- checks: with the block, they call the declaring overloads with a clean
+-- declaration seeded for the job; without it, they call the original RPCs.
+create temporary table ovd723_upload_declarations (
+  job_id uuid primary key,
+  declaration_id uuid not null
+) on commit drop;
+grant select on ovd723_upload_declarations to authenticated;
+
+create function pg_temp.prepare_job_file_upload(
+  p_job_id uuid, p_original_name text, p_file_kind public.job_file_kind,
+  p_mime_type text, p_size_bytes bigint, p_content_sha256 text
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_declaration_id uuid;
+begin
+  select declaration_id into v_declaration_id from ovd723_upload_declarations where job_id = p_job_id;
+  if v_declaration_id is null then
+    return public.api_prepare_job_file_upload(
+      p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
+    );
+  end if;
+  return public.api_prepare_job_file_upload(
+    p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256, v_declaration_id
+  );
+end;
+$$;
+
+create function pg_temp.finalize_job_file_upload(
+  p_job_id uuid, p_storage_bucket text, p_storage_path text, p_original_name text,
+  p_file_kind public.job_file_kind, p_mime_type text, p_size_bytes bigint, p_content_sha256 text
+)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_declaration_id uuid;
+begin
+  select declaration_id into v_declaration_id from ovd723_upload_declarations where job_id = p_job_id;
+  if v_declaration_id is null then
+    return public.api_finalize_job_file_upload(
+      p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+      p_mime_type, p_size_bytes, p_content_sha256
+    );
+  end if;
+  return public.api_finalize_job_file_upload(
+    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+    p_mime_type, p_size_bytes, p_content_sha256, v_declaration_id
+  );
+end;
+$$;
+
+-- With the block, a Storage write needs a grant from prepare; without it,
+-- this does nothing.
+create function pg_temp.grant_job_file_upload(
+  p_job_id uuid, p_original_name text, p_size_bytes bigint, p_content_sha256 text
+)
+returns void
+language plpgsql
+as $$
+begin
+  if exists (select 1 from ovd723_upload_declarations where job_id = p_job_id) then
+    perform pg_temp.prepare_job_file_upload(p_job_id, p_original_name, 'cad', null, p_size_bytes, p_content_sha256);
+  end if;
+end;
+$$;
+
+-- OVD-723 (window 1): seed a clean declaration for each fixture job when the
+-- export-control upload block exists. Without it this block does nothing.
+-- The guard is the declaring prepare overload, not the declarations table:
+-- an expand rollback keeps the table (audit data) but drops the overloads.
+do $ovd723$
+begin
+  if pg_catalog.to_regprocedure(
+    'public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid)'
+  ) is null then
+    return;
+  end if;
+  with declared as (
+    insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+    select job.id, job.organization_id, job.created_by, 'not_controlled', 'ovd-beta-export-control.v1'
+    from public.jobs job
+    where job.id in ((select job_id from ovd365_test_context), (select reuse_job_id from ovd365_test_context), (select other_job_id from ovd365_test_context))
+    returning job_id, id
+  )
+  insert into ovd723_upload_declarations (job_id, declaration_id)
+  select job_id, id from declared;
+end;
+$ovd723$;
+
 set local role authenticated;
 select pg_temp.set_ovd365_request_identity((select member_user_id from ovd365_test_context));
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'P0001', 'founding_beta_not_enrolled', -- NOSONAR: stable denial-state assertion
   'prepare fails closed before enrollment'
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select canonical_path from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'P0001', 'founding_beta_not_enrolled',
   'finalize fails closed before enrollment'
@@ -165,7 +261,7 @@ set local role authenticated;
 select pg_temp.set_ovd365_request_identity((select member_user_id from ovd365_test_context));
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'P0001', 'founding_beta_notice_required',
   'prepare requires acceptance of the current notice'
@@ -178,21 +274,21 @@ select is(
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'invalid.step', 'cad', null, 10, 'not-a-sha256')$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'invalid.step', 'cad', null, 10, 'not-a-sha256')$$,
     (select job_id from ovd365_test_context)),
   'P0001', 'A valid SHA-256 content hash is required to prepare a file upload.',
   'prepare rejects a malformed content hash'
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', 'invalid/path', 'invalid.step', 'cad', null, 10, 'not-a-sha256')$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', 'invalid/path', 'invalid.step', 'cad', null, 10, 'not-a-sha256')$$,
     (select job_id from ovd365_test_context)),
   'P0001', 'A valid SHA-256 content hash is required to finalize a file upload.',
   'finalize rejects a malformed content hash'
 );
 
 select is(
-  public.api_prepare_job_file_upload(
+  pg_temp.prepare_job_file_upload(
     (select job_id from ovd365_test_context), 'validation.step', 'cad', null, 10, (select content_hash from ovd365_test_context)
   ) ->> 'status',
   'upload_required',
@@ -200,7 +296,7 @@ select is(
 );
 
 select is(
-  public.api_prepare_job_file_upload(
+  pg_temp.prepare_job_file_upload(
     (select job_id from ovd365_test_context), 'validation.step', 'cad', null, 10, (select content_hash from ovd365_test_context)
   ) ->> 'storagePath',
   (select canonical_path from ovd365_test_context),
@@ -212,6 +308,10 @@ select lives_ok(
     values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
     (select canonical_path from ovd365_test_context), (select member_user_id from ovd365_test_context)),
   'eligible members can write the canonical modern storage path'
+);
+
+select pg_temp.grant_job_file_upload(
+  (select job_id from ovd365_test_context), '.hidden.step', 10, (select second_hash from ovd365_test_context)
 );
 
 select lives_ok(
@@ -258,14 +358,14 @@ select is(
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'other-bucket', %L, 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'other-bucket', %L, 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select canonical_path from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'P0001', 'file_upload_path_mismatch',
   'finalize rejects a substituted bucket'
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', 'org-sha256/substituted', 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', 'org-sha256/substituted', 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'P0001', 'file_upload_path_mismatch',
   'finalize rejects a substituted path'
@@ -275,7 +375,7 @@ select is((select count(*)::integer from public.organization_file_blobs where or
   'path substitution creates no canonical blob metadata');
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'missing.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'missing.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd365_test_context), (select second_hash from ovd365_test_context), 'missing.step'),
     (select second_hash from ovd365_test_context)),
@@ -284,7 +384,7 @@ select throws_ok(
 );
 
 select lives_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'validation.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'validation.step', 'cad', null, 10, %L)$$,
     (select job_id from ovd365_test_context), (select canonical_path from ovd365_test_context), (select content_hash from ovd365_test_context)),
   'eligible finalize registers the uploaded object'
 );
@@ -293,7 +393,7 @@ select is((select count(*)::integer from public.job_files where job_id = (select
   'successful finalize creates one job-file record');
 
 select is(
-  public.api_prepare_job_file_upload(
+  pg_temp.prepare_job_file_upload(
     (select reuse_job_id from ovd365_test_context), 'validation-copy.step', 'cad', null, 10, (select content_hash from ovd365_test_context)
   ) ->> 'status',
   'reused',
@@ -308,7 +408,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'cross-org.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'cross-org.step', 'cad', null, 10, %L)$$,
     (select other_job_id from ovd365_test_context), (select third_hash from ovd365_test_context)),
   'P0001', format('You do not have permission to attach files to job %s', (select other_job_id from ovd365_test_context)),
   'prepare denies cross-organization jobs before revealing beta state'
@@ -329,7 +429,7 @@ set local role authenticated;
 select pg_temp.set_ovd365_request_identity((select member_user_id from ovd365_test_context));
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'revoked.step', 'cad', null, 10, %L)$$, -- NOSONAR: repeated revoke fixture
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'revoked.step', 'cad', null, 10, %L)$$, -- NOSONAR: repeated revoke fixture
     (select job_id from ovd365_test_context), (select third_hash from ovd365_test_context)),
   'P0001', 'founding_beta_revoked',
   'revoked prepare fails closed immediately'

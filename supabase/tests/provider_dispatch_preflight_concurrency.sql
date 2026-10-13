@@ -295,6 +295,34 @@ where id in (select work_queue_task_id from private.provider_dispatch_permits
 update public.vendor_quote_results set status = 'running'
 where id in (select vendor_quote_result_id from private.provider_dispatch_permits
   where id in (select permit_id from ovd459_permits));
+-- OVD-723 (window 1): once the export-control dispatch gate exists, an
+-- authorized dispatch also needs the job's clean declaration and, for every
+-- part file, a worker-verified hash and a clean scan of those bytes. Seed that
+-- state for this suite's fixtures. Without the gate this block does nothing.
+do $ovd723$
+begin
+  if pg_catalog.to_regclass('private.job_export_declarations') is null then
+    return;
+  end if;
+  insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+  select job.id, job.organization_id, job.created_by, 'not_controlled', 'ovd-beta-export-control.v1'
+  from public.jobs job
+  where job.id in (select task.job_id from public.work_queue task)
+    and job.created_by is not null;
+  update public.job_files file
+  set trusted_content_sha256 = pg_catalog.lower(file.content_sha256)
+  where file.job_id in (select task.job_id from public.work_queue task)
+    and file.trusted_content_sha256 is null
+    and file.content_sha256 ~ '^[0-9a-f]{64}$';
+  insert into private.job_file_export_scans (job_file_id, job_id, organization_id, source, content_sha256)
+  select file.id, file.job_id, file.organization_id, source.name, pg_catalog.lower(file.content_sha256)
+  from public.job_files file
+  cross join (values ('drawing_text'), ('step_header')) as source(name)
+  where file.job_id in (select task.job_id from public.work_queue task)
+    and file.content_sha256 ~ '^[0-9a-f]{64}$';
+end;
+$ovd723$;
+
 commit;
 
 select pg_catalog.set_config('request.jwt.claims', '', false);

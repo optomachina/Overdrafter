@@ -1,0 +1,571 @@
+-- OVD-722 per-provider and global provider kill switch.
+--
+-- Targets migration 20261013043100_ovd722_provider_kill_switch.sql, applied to
+-- production in migration window 1 (bytes identical to the reviewed draft
+-- docs/migration-drafts/ovd-722.sql).
+--
+-- Covers plan tests 1, 4, 5, 6 and the SQL side of 7:
+--   * seeded rows for every vendor_name value and the global singleton
+--   * pg_proc: SECURITY DEFINER, search_path = '', EXECUTE grants
+--   * anon / non-admin refusal; reason >= 10 characters
+--   * each flip writes an audit row; UPDATE/DELETE/TRUNCATE on the audit fail
+--   * the worker state read is fresh after every flip (no caching)
+--   * global switch denies every provider; off restores each provider's state
+--   * expand only: the worker preflights and request RPCs are untouched
+--   * enqueue (generic + Xometry) refuses provider_kill_switch_engaged: a
+--     BEFORE INSERT trigger on both permit tables; the request RPCs are
+--     not renamed or wrapped
+--   * the sweep cancels queued tasks as cancelled_provider_disabled only for
+--     the switched-off provider, and only together with their queued lane: a
+--     task whose payload has no vendorQuoteResultId is skipped and stays queued
+--   * release is compare and set: a stale or versionless release is refused
+--     and never clears a newer engagement; engage needs no version
+--   * RLS is enabled and forced on the three switch tables
+--   * the real api_request_xometry_beta_dispatch is refused while engaged and
+--     the quote request, run, lane and work_queue task created in the same call
+--     roll back; the same call is accepted once released
+--   * the sweep handles rows one at a time: a row whose trigger raises is
+--     skipped (stays queued) and the other rows are still cancelled
+-- The concurrent (two session, row lock wait) form of the stale release race
+-- is in docs/migration-drafts/ovd-722-race-check.sh; pgTAP runs in one session.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(66);
+
+create function pg_temp.ovd722_as(p_user_id uuid, p_role text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role)::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+grant execute on function pg_temp.ovd722_as(uuid, text) to anon, authenticated, service_role;
+
+insert into auth.users (id, aud, role, email) values
+  ('00000000-0000-4000-8000-000000722001', 'authenticated', 'authenticated', 'ovd722-admin@example.test'),
+  ('00000000-0000-4000-8000-000000722002', 'authenticated', 'authenticated', 'ovd722-member@example.test');
+insert into private.platform_admin_emails (email) values ('ovd722-admin@example.test')
+on conflict do nothing;
+
+-- ---------------------------------------------------------------------
+-- Seed and shape
+-- ---------------------------------------------------------------------
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switches),
+  (select pg_catalog.array_length(pg_catalog.enum_range(null::public.vendor_name), 1)),
+  'every vendor_name value has a kill-switch row'
+);
+select ok(
+  not exists (select 1 from private.provider_kill_switches where engaged),
+  'every provider switch is seeded disengaged'
+);
+select ok(
+  exists (select 1 from private.provider_global_kill_switch where singleton and not engaged),
+  'the global singleton is seeded disengaged'
+);
+select ok(
+  (select bool_and(provider_exists) from (
+    select exists (select 1 from private.provider_kill_switches s where s.provider = p::public.vendor_name) as provider_exists
+    from pg_catalog.unnest(array['xometry', 'fictiv', 'quickparts', 'weerg', 'geomiq', 'rmfg']) as p
+  ) seeded),
+  'each 1.0 provider (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG) has a row'
+);
+
+-- ---------------------------------------------------------------------
+-- pg_proc security posture and grants
+-- ---------------------------------------------------------------------
+select ok(
+  (select bool_and(p.prosecdef and p.proconfig @> array['search_path=""'])
+   from pg_catalog.pg_proc p
+   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('api_admin_set_provider_kill_switch', 'api_admin_set_global_kill_switch',
+       'api_admin_list_provider_kill_switches', 'api_worker_provider_kill_switch_state',
+       'api_worker_cancel_provider_disabled_tasks')),
+  'kill-switch RPCs are SECURITY DEFINER with search_path = '''''
+);
+select ok(not has_function_privilege('anon', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
+  'anon cannot execute api_admin_set_provider_kill_switch');
+select ok(not has_function_privilege('public', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
+  'public cannot execute api_admin_set_provider_kill_switch');
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)', 'EXECUTE'),
+  'authenticated can execute api_admin_set_provider_kill_switch');
+select ok(not has_function_privilege('anon', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
+  'anon cannot execute api_admin_set_global_kill_switch');
+select ok(not has_function_privilege('public', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
+  'public cannot execute api_admin_set_global_kill_switch');
+select ok(has_function_privilege('authenticated', 'public.api_admin_set_global_kill_switch(boolean, text, bigint)', 'EXECUTE'),
+  'authenticated can execute api_admin_set_global_kill_switch');
+select ok(not has_function_privilege('authenticated', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_worker_provider_kill_switch_state(public.vendor_name)', 'EXECUTE'),
+  'the worker state read is service_role only');
+select ok(not has_function_privilege('authenticated', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_worker_cancel_provider_disabled_tasks()', 'EXECUTE'),
+  'the sweep is service_role only');
+-- Only what OVD-722 owns: it adds no *_pre_ovd722 function and no dispatch
+-- function in any schema references the switch. (Another window 1 migration
+-- may wrap the preflights; their shape is that migration's to pin.)
+select ok(
+  not exists (
+    select 1 from pg_catalog.pg_proc p
+    where (p.proname like 'api\_authorize\_%worker\_dispatch%' or p.proname like 'api\_request\_%dispatch%'
+           or p.proname like '%\_pre\_ovd722')
+      and (p.prosrc like '%kill\_switch%' or p.proname like '%\_pre\_ovd722'))
+    and pg_catalog.to_regprocedure('private.api_authorize_provider_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null
+    and pg_catalog.to_regprocedure('private.api_authorize_xometry_beta_worker_dispatch_pre_ovd722(uuid, uuid, jsonb, text, timestamptz)') is null,
+  'expand only: OVD-722 renames, wraps or edits no dispatch function');
+select ok(
+  pg_catalog.to_regprocedure('private.api_request_provider_dispatch_pre_ovd722(uuid, public.vendor_name, text, text, text, text, uuid, boolean, boolean, boolean)') is null
+    and pg_catalog.to_regprocedure('private.api_request_xometry_beta_dispatch_pre_ovd722(uuid, text, text, text, uuid, boolean, boolean, boolean)') is null
+    and (select pg_catalog.count(*) from pg_catalog.pg_trigger t
+         where t.tgname = 'provider_kill_switch_permit_guard' and not t.tgisinternal and t.tgenabled = 'O'
+           and t.tgrelid in ('private.provider_dispatch_permits'::regclass, 'private.xometry_beta_dispatch_permits'::regclass)) = 2
+    and not exists (select 1 from (values ('public'), ('anon'), ('authenticated'), ('service_role')) as r(role)
+         where pg_catalog.has_function_privilege(r.role, 'private.provider_kill_switch_permit_guard()', 'EXECUTE')),
+  'the request RPCs are untouched; an enabled permit guard trigger sits on both permit tables');
+select ok(
+  (select bool_and(c.relrowsecurity and c.relforcerowsecurity) from pg_catalog.pg_class c
+   where c.oid in ('private.provider_kill_switches'::regclass, 'private.provider_global_kill_switch'::regclass,
+     'private.provider_kill_switch_audit'::regclass)),
+  'RLS is enabled and forced on every kill-switch table (no policies; RPC access only)'
+);
+select ok(
+  not has_table_privilege('authenticated', 'private.provider_kill_switch_audit', 'UPDATE')
+    and not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'DELETE')
+    and not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'TRUNCATE'),
+  'no API role holds UPDATE, DELETE or TRUNCATE on the audit table'
+);
+
+-- ---------------------------------------------------------------------
+-- Refusals
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd722_as(null, 'anon');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'anon should never flip this')$$,
+  '42501', null, 'anon is refused by the provider RPC');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722002', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'member should never flip this')$$,
+  '42501', 'platform_admin_required', 'a non-admin is refused by the provider RPC');
+select throws_ok(
+  $$select public.api_admin_set_global_kill_switch(true, 'member should never flip this')$$,
+  '42501', 'platform_admin_required', 'a non-admin is refused by the global RPC');
+select throws_ok(
+  $$select public.api_admin_list_provider_kill_switches()$$,
+  '42501', 'platform_admin_required', 'a non-admin cannot list switch state');
+
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, 'too short')$$,
+  '22023', 'reason_required_min_10_chars', 'a reason under 10 characters is refused');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', true, '   ')$$,
+  '22023', 'reason_required_min_10_chars', 'a blank reason is refused');
+reset role;
+
+select ok(
+  not exists (select 1 from private.provider_kill_switch_audit where actor = '00000000-0000-4000-8000-000000722002'),
+  'refused calls wrote no audit rows'
+);
+
+-- ---------------------------------------------------------------------
+-- Flip, audit, fresh read (no caching)
+-- ---------------------------------------------------------------------
+set local role service_role;
+select is(
+  public.api_worker_provider_kill_switch_state('fictiv') ->> 'engaged', 'false',
+  'before the flip the worker read reports fictiv disengaged');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_provider_kill_switch('fictiv', true, 'OVD-722 test: cease-and-desist drill') ->> 'engaged', 'true',
+  'a platform admin engages the fictiv switch');
+reset role;
+
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider = 'fictiv' and engaged and actor = '00000000-0000-4000-8000-000000722001'
+     and reason = 'OVD-722 test: cease-and-desist drill'),
+  1, 'the flip wrote exactly one audit row with actor and reason');
+select ok(
+  exists (select 1 from private.provider_kill_switches where provider = 'fictiv' and engaged
+    and engaged_by = '00000000-0000-4000-8000-000000722001' and engaged_at is not null),
+  'the switch row records actor and time');
+
+set local role service_role;
+select is(
+  public.api_worker_provider_kill_switch_state('fictiv'),
+  '{"schema":"provider-kill-switch-state.v1","provider":"fictiv","engaged":true,"globalEngaged":false}'::jsonb,
+  'the very next worker read after the flip reports engaged (no cache, no deploy)');
+select is(
+  public.api_worker_provider_kill_switch_state('xometry') ->> 'engaged', 'false',
+  'other providers are unaffected');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Compare and set: a stale release never clears a newer engagement
+-- ---------------------------------------------------------------------
+create temp table ovd722_seen (version bigint) on commit drop;
+grant all on ovd722_seen to authenticated;
+-- Admin A loads the page and sees fictiv engaged at this version.
+insert into ovd722_seen select version from private.provider_kill_switches where provider = 'fictiv';
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  $$select public.api_admin_set_provider_kill_switch('fictiv', false, 'release without any version')$$,
+  'P0001', 'kill_switch_version_conflict', 'a release without an expected version is refused');
+-- Admin B engages again (fresh C&D); engage needs no version and always wins.
+select is(
+  public.api_admin_set_provider_kill_switch('fictiv', true, 'OVD-722 test: second C&D, admin B', 0) ->> 'engaged', 'true',
+  'an engage succeeds even with a stale expected version');
+-- Admin A's delayed release, decided on the old version, arrives.
+select throws_ok(
+  pg_catalog.format($$select public.api_admin_set_provider_kill_switch('fictiv', false, 'admin A stale release', %s)$$,
+    (select version from ovd722_seen)),
+  'P0001', 'kill_switch_version_conflict', 'a stale release is refused');
+reset role;
+
+select ok(
+  exists (select 1 from private.provider_kill_switches where provider = 'fictiv' and engaged
+    and reason = 'OVD-722 test: second C&D, admin B'
+    and version = (select version + 1 from ovd722_seen)),
+  'the newer engagement survives the stale release');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit where reason = 'admin A stale release'),
+  0, 'the refused release wrote no audit row');
+
+-- ---------------------------------------------------------------------
+-- Audit is append-only
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$update private.provider_kill_switch_audit set reason = 'rewritten history here' where provider = 'fictiv'$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'UPDATE on the audit table fails');
+select throws_ok(
+  $$delete from private.provider_kill_switch_audit where provider = 'fictiv'$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'DELETE on the audit table fails');
+select throws_ok(
+  $$truncate private.provider_kill_switch_audit$$,
+  '42501', 'provider_kill_switch_audit is append-only', 'TRUNCATE on the audit table fails');
+
+-- ---------------------------------------------------------------------
+-- Enforcement: enqueue (the worker enforces at claim and every checkpoint)
+-- ---------------------------------------------------------------------
+-- Every new dispatch request inserts exactly one permit row inside the
+-- request transaction. The guard fires before the NOT NULL and FK checks, so a
+-- bare insert shows which providers it refuses.
+select throws_ok(
+  $$insert into private.provider_dispatch_permits (provider) values ('fictiv')$$,
+  'P0001', 'provider_kill_switch_engaged', 'a new fictiv permit (enqueue) is refused by the guard trigger');
+select throws_ok(
+  $$insert into private.provider_dispatch_permits (provider) values ('quickparts')$$,
+  '23502', null, 'a quickparts permit passes the guard and reaches the table''s own constraints');
+
+-- ---------------------------------------------------------------------
+-- Sweep: a task without a lane id is skipped; other providers stay
+-- ---------------------------------------------------------------------
+-- The fictiv task carries no vendorQuoteResultId. Cancelling it would leave
+-- its lane queued with no task to run it, so the sweep skips it and the
+-- worker's claim check settles it. A task with a lane is cancelled in the
+-- end to end section below.
+insert into public.organizations (id, name, slug)
+values ('00000000-0000-4000-8000-000000722201', 'OVD-722 org', 'ovd722-kill-switch-org');
+insert into public.work_queue (id, organization_id, task_type, status, payload) values
+  ('00000000-0000-4000-8000-000000722211', '00000000-0000-4000-8000-000000722201', 'run_vendor_quote', 'queued',
+   '{"vendor":"fictiv"}'),
+  ('00000000-0000-4000-8000-000000722212', '00000000-0000-4000-8000-000000722201', 'run_vendor_quote', 'queued',
+   '{"vendor":"quickparts"}');
+
+set local role service_role;
+select is(
+  (public.api_worker_cancel_provider_disabled_tasks() ->> 'skipped')::int >= 1, true,
+  'the sweep reports the fictiv task without a lane id as skipped');
+reset role;
+
+select ok(
+  exists (select 1 from public.work_queue where id = '00000000-0000-4000-8000-000000722211'
+    and status = 'queued' and not payload ? 'cancellationReason'),
+  'a task whose payload has no vendorQuoteResultId stays queued (never cancelled with its lane left queued)');
+select is(
+  (select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722212'),
+  'queued', 'the quickparts task is untouched');
+
+-- ---------------------------------------------------------------------
+-- End to end enqueue while engaged, and a sweep that survives a bad row
+-- ---------------------------------------------------------------------
+-- The fixture follows supabase/tests/free_confirmed_quote_access.sql: a
+-- confirmed free beta Xometry dispatch for one part. Rows are rolled back with
+-- the suite.
+create function pg_temp.ovd722_member_as(p_user_id uuid)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', p_user_id::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+end;
+$$;
+grant execute on function pg_temp.ovd722_member_as(uuid) to authenticated;
+
+create temp table ovd722_e2e (
+  user_id uuid not null,
+  organization_id uuid not null,
+  job_id uuid not null,
+  part_id uuid not null,
+  approval_reference uuid not null,
+  scope_fingerprint text,
+  xometry_version bigint
+) on commit drop;
+insert into ovd722_e2e values (
+  '00000000-0000-4000-8000-000000722301', '00000000-0000-4000-8000-000000722302',
+  '00000000-0000-4000-8000-000000722303', '00000000-0000-4000-8000-000000722304',
+  '00000000-0000-4000-8000-000000722305', null, null);
+grant select, update on ovd722_e2e to authenticated;
+
+insert into auth.users (id, aud, role, email, email_confirmed_at)
+select user_id, 'authenticated', 'authenticated', 'ovd722-dispatch-member@example.test', timezone('utc', now())
+from ovd722_e2e;
+insert into public.organizations (id, name, slug)
+select organization_id, 'OVD 722 Dispatch', 'ovd-722-dispatch' from ovd722_e2e;
+insert into public.organization_memberships (organization_id, user_id, role)
+select organization_id, user_id, 'client' from ovd722_e2e;
+update public.organizations set shipping_same_as_billing = false, shipping_street = '123 Fixture Ave',
+  shipping_city = 'Tucson', shipping_state = 'AZ', shipping_zip = '85701', shipping_country = 'US'
+where id = (select organization_id from ovd722_e2e);
+insert into private.sourcing_destination_history (organization_id, state, address)
+select organization_id, 'confirmed', private.effective_sourcing_address(organization_id) from ovd722_e2e;
+update private.commercial_rollout_controls
+set enabled = true, revision = revision + 1, change_reason = 'OVD-722 local pgTAP fixture'
+where capability = 'automatic_quote_collection';
+insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind)
+select job_id, organization_id, user_id, 'OVD-722 dispatch part', 'ready_to_quote',
+  array['manufacturing_quote'], 'manufacturing_quote'
+from ovd722_e2e;
+insert into public.organization_file_blobs (id, organization_id, content_sha256, trusted_content_sha256,
+  storage_bucket, storage_path, size_bytes, mime_type)
+select '00000000-0000-4000-8000-000000722306', organization_id, repeat('a', 64), repeat('a', 64), 'job-files',
+  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step', 100, 'application/step'
+from ovd722_e2e;
+insert into public.job_files (id, job_id, organization_id, uploaded_by, blob_id, content_sha256,
+  trusted_content_sha256, storage_bucket, storage_path, original_name, normalized_name, file_kind, mime_type, size_bytes)
+select '00000000-0000-4000-8000-000000722307', job_id, organization_id, user_id,
+  '00000000-0000-4000-8000-000000722306', repeat('a', 64), repeat('a', 64), 'job-files',
+  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step', 'part.step', 'part', 'cad',
+  'application/step', 100
+from ovd722_e2e;
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, quantity)
+select part_id, job_id, organization_id, 'Validation part', 'validation-part',
+  '00000000-0000-4000-8000-000000722307', 1
+from ovd722_e2e;
+insert into public.approved_part_requirements (part_id, organization_id, approved_by, material, finish,
+  tightest_tolerance_inch, quantity, quote_quantities, applicable_vendors, spec_snapshot)
+select part_id, organization_id, user_id, '6061-T6 Aluminum', 'As machined', 0.0050, 1, array[1],
+  array['xometry']::public.vendor_name[], '{"process":"CNC milling","tightestToleranceInch":0.0050}'::jsonb
+from ovd722_e2e;
+insert into private.founding_beta_enrollment_events (organization_id, actor_user_id, action, reason,
+  policy_revision, terms_path, privacy_path, idempotency_key)
+select organization_id, user_id, 'grant', 'ovd722 fixture', 'founding-beta-2026-08-15', '/legal/beta-terms',
+  '/legal/privacy', 'ovd722-grant' from ovd722_e2e;
+insert into private.founding_beta_notice_acceptances (organization_id, user_id, policy_revision, terms_path, privacy_path)
+select organization_id, user_id, 'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy' from ovd722_e2e;
+insert into public.org_vendor_configs (organization_id, vendor, enabled_for_client_quote_requests)
+select organization_id, 'xometry', true from ovd722_e2e;
+insert into private.free_quote_policies (revision, enabled, subject_kind, completed_limit, window_start, window_end)
+values ('ovd722-kill-switch', true, 'organization', 5,
+  clock_timestamp() - interval '1 minute', clock_timestamp() + interval '5 minutes');
+
+set local role authenticated;
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+update ovd722_e2e
+set scope_fingerprint = public.api_get_xometry_beta_dispatch_scope(job_id, 'inch') ->> 'scopeFingerprint';
+reset role;
+
+-- Engage Xometry as the admin. The version is captured first because the
+-- authenticated role cannot read the private switch table.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: end to end enqueue drill');
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+select throws_ok(
+  pg_catalog.format($$select public.api_request_xometry_beta_dispatch(%L::uuid, 'inch', %L,
+    'founding-beta-2026-08-15', %L::uuid, true, true, true)$$,
+    (select job_id from ovd722_e2e), (select scope_fingerprint from ovd722_e2e),
+    (select approval_reference from ovd722_e2e)),
+  'P0001', 'provider_kill_switch_engaged',
+  'the real Xometry dispatch RPC is refused while the provider is engaged');
+reset role;
+
+-- The refused call inserted its quote request, run, lane and queue task before
+-- the permit insert raised; the whole statement rolled back, so none remain.
+select is((select pg_catalog.count(*)::int from public.quote_requests where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no quote request');
+select is((select pg_catalog.count(*)::int from public.quote_runs where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no quote run');
+select is((select pg_catalog.count(*)::int from public.vendor_quote_results where part_id = (select part_id from ovd722_e2e)),
+  0, 'the refused dispatch left no lane (vendor_quote_results row)');
+select is((select pg_catalog.count(*)::int from public.work_queue where job_id = (select job_id from ovd722_e2e)),
+  0, 'the refused dispatch left no work_queue task');
+
+-- Release Xometry: the same call now succeeds, so the refusal above was the switch.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', false, 'OVD-722 test: end to end enqueue released',
+  (select xometry_version from ovd722_e2e));
+select pg_temp.ovd722_member_as((select user_id from ovd722_e2e));
+select is(
+  public.api_request_xometry_beta_dispatch(job_id, 'inch', scope_fingerprint, 'founding-beta-2026-08-15',
+    approval_reference, true, true, true) ->> 'accepted', 'true',
+  'with the switch released the same dispatch is accepted') from ovd722_e2e;
+reset role;
+select ok(
+  exists (select 1 from public.work_queue q where q.job_id = (select job_id from ovd722_e2e)
+      and q.status = 'queued' and q.payload ->> 'vendor' = 'xometry')
+  and exists (select 1 from public.vendor_quote_results r where r.part_id = (select part_id from ovd722_e2e)
+      and r.status = 'queued'),
+  'the accepted dispatch created its queued task and lane');
+
+-- Sweep: a row level trigger exception on one row (in production, for example,
+-- private.fence_free_quote_result raising free_quote_terminal_fenced for a
+-- canceled free beta request) must skip only that row. A test trigger raises
+-- the same way for the accepted dispatch's lane (quantity 1); a second queued
+-- task with its own queued lane (quantity 2) is cancelled normally. Results
+-- are asserted by task and lane id, not by global counts.
+create function pg_temp.ovd722_fence_stub()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'free_quote_terminal_fenced' using errcode = 'P0001';
+end;
+$$;
+create trigger ovd722_fence_stub before update of status on public.vendor_quote_results
+  for each row when (old.part_id = '00000000-0000-4000-8000-000000722304'::uuid and old.requested_quantity = 1)
+  execute function pg_temp.ovd722_fence_stub();
+insert into public.vendor_quote_results (id, quote_run_id, part_id, organization_id, vendor, status, requested_quantity)
+select '00000000-0000-4000-8000-000000722314', r.quote_run_id, r.part_id, r.organization_id, 'xometry', 'queued', 2
+from public.vendor_quote_results r
+where r.part_id = (select part_id from ovd722_e2e) and r.requested_quantity = 1;
+insert into public.work_queue (id, organization_id, task_type, status, payload)
+values ('00000000-0000-4000-8000-000000722213', '00000000-0000-4000-8000-000000722201',
+  'run_vendor_quote', 'queued',
+  '{"vendor":"xometry","vendorQuoteResultId":"00000000-0000-4000-8000-000000722314"}');
+
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('xometry', true, 'OVD-722 test: sweep bad row drill');
+reset role;
+
+set local role service_role;
+create temp table ovd722_sweep_result on commit drop as
+  select public.api_worker_cancel_provider_disabled_tasks() as result;
+reset role;
+select ok(
+  exists (select 1 from public.vendor_quote_results
+    where id = '00000000-0000-4000-8000-000000722314' and status = 'failed'
+      and raw_payload ->> 'failureCode' = 'cancelled_provider_disabled'),
+  'the cancelled task''s own lane ends failed as cancelled_provider_disabled');
+select ok(
+  (select (result ->> 'skipped')::int >= 1 from ovd722_sweep_result)
+    and exists (select 1 from public.work_queue where id = '00000000-0000-4000-8000-000000722211' and status = 'queued'),
+  'the sweep skips the row whose trigger raises instead of aborting, and the task without a lane id stays queued');
+select is((select status::text from public.work_queue where id = '00000000-0000-4000-8000-000000722213'),
+  'cancelled', 'the sweep cancelled the other row');
+select ok(
+  exists (select 1 from public.work_queue q where q.job_id = (select job_id from ovd722_e2e) and q.status = 'queued'),
+  'the skipped row stays queued (its changes rolled back with the subtransaction)');
+select is((select r.status::text from public.vendor_quote_results r
+    where r.part_id = (select part_id from ovd722_e2e) and r.requested_quantity = 1),
+  'queued', 'the skipped row''s lane is untouched');
+
+drop trigger ovd722_fence_stub on public.vendor_quote_results;
+
+-- Leave Xometry released so the later global switch assertions see only fictiv engaged.
+update ovd722_e2e set xometry_version = (select version from private.provider_kill_switches where provider = 'xometry');
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_provider_kill_switch('xometry', false, 'OVD-722 test: sweep drill released',
+    (select xometry_version from ovd722_e2e)) ->> 'engaged', 'false',
+  'Xometry is released again after the drills') from (select 1) as only_row;
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Global switch
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select is(
+  public.api_admin_set_global_kill_switch(true, 'OVD-722 test: global brake drill') ->> 'engaged', 'true',
+  'a platform admin engages the global switch');
+reset role;
+
+select ok(
+  (select bool_and(private.provider_kill_switch_engaged(v))
+   from pg_catalog.unnest(pg_catalog.enum_range(null::public.vendor_name)) as v),
+  'with the global switch engaged every provider is denied');
+
+set local role service_role;
+select is(
+  public.api_worker_provider_kill_switch_state('xometry') ->> 'globalEngaged', 'true',
+  'the worker read reports the global switch');
+reset role;
+
+select throws_ok(
+  $$insert into private.xometry_beta_dispatch_permits default values$$,
+  'P0001', 'provider_kill_switch_engaged', 'a new Xometry permit (enqueue) is refused under the global switch');
+
+create temp table ovd722_global_seen on commit drop as
+  select version from private.provider_global_kill_switch;
+grant all on ovd722_global_seen to authenticated;
+
+set local role authenticated;
+select pg_temp.ovd722_as('00000000-0000-4000-8000-000000722001', 'authenticated');
+select throws_ok(
+  pg_catalog.format($$select public.api_admin_set_global_kill_switch(false, 'stale global release here', %s)$$,
+    (select version - 1 from ovd722_global_seen)),
+  'P0001', 'kill_switch_version_conflict', 'a stale global release is refused');
+select is(
+  public.api_admin_set_global_kill_switch(false, 'OVD-722 test: global brake released',
+    (select version from ovd722_global_seen)) ->> 'engaged', 'false',
+  'a platform admin releases the global switch at the current version');
+reset role;
+
+select ok(
+  not private.provider_kill_switch_engaged('xometry') and private.provider_kill_switch_engaged('fictiv'),
+  'releasing the global switch restores each provider''s own state');
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit where provider is null),
+  2, 'both global flips are audited with a null provider');
+
+-- ---------------------------------------------------------------------
+-- Fail-closed on missing rows
+-- ---------------------------------------------------------------------
+delete from private.provider_kill_switches where provider = 'geomiq';
+select ok(private.provider_kill_switch_engaged('geomiq'),
+  'a provider with no kill-switch row is treated as engaged');
+select ok(private.provider_kill_switch_engaged_text('not-a-provider'),
+  'an unknown provider string is treated as engaged');
+
+select * from finish();
+
+rollback;
