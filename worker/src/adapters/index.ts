@@ -7,6 +7,7 @@ import {
 } from "../types.js";
 import { FictivAdapter } from "./fictiv.js";
 import { FabworksAdapter } from "./fabworks.js";
+import { RmfgAdapter } from "./rmfg.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
@@ -147,6 +148,9 @@ function buildRegistry(
       }),
     ),
     fabworks: evaluationAdapter(new FabworksAdapter(config)),
+    // Default off: quotes only in live mode with rmfg in WORKER_LIVE_ADAPTERS
+    // and a dispatch authorization for its unreviewed envelope (OVD-678).
+    rmfg: evaluationAdapter(new RmfgAdapter(config)),
   };
 
   if (config.workerMode !== "live") {
@@ -227,6 +231,13 @@ export {
 } from "./providerAdapterContract.js";
 export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
 export { runRmfgQuoteOnly, RMFG_QUOTE_TRANSPORT_REVISION } from "./rmfgQuoteTransport.js";
+export {
+  evaluateRmfgEligibility,
+  RMFG_ADAPTER_REVISION,
+  RMFG_API_KEY_ENV,
+  RMFG_DISPATCH_ENVELOPE,
+  RmfgAdapter,
+} from "./rmfg.js";
 export type {
   RmfgQuoteInput,
   RmfgQuoteOffer,

@@ -503,7 +503,7 @@ describe("readLiveAutomationVendors", () => {
   it("returns the real worker list unchanged", async () => {
     await expect(readLiveAutomationVendors(process.cwd())).resolves.toEqual([
       "xometry", "fictiv", "protolabs", "sendcutsend", "oshcut", "fabworks",
-      "ponoko", "quickparts", "rapiddirect", "geomiq", "weerg", "protolabsnetwork",
+      "ponoko", "quickparts", "rapiddirect", "geomiq", "weerg", "protolabsnetwork", "rmfg",
     ]);
   });
 });

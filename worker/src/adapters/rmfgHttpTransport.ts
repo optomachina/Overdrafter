@@ -1,8 +1,8 @@
 import type { RmfgQuoteRequest, RmfgQuoteTransport } from "./rmfgQuoteTransport.js";
 
 /**
- * Default-off HTTP transport for the RMFG REST quote path (OVD-678). It is not
- * registered in any adapter registry and nothing constructs it in production.
+ * Default-off HTTP transport for the RMFG REST quote path (OVD-678). Only the
+ * default-off RmfgAdapter (rmfg.ts) constructs it, after every dispatch gate.
  * It implements only the closed `RmfgQuoteRequest` union, so cart, checkout and
  * order endpoints are unreachable. The API key is held in a closure, sent only
  * as a bearer header to the pinned host, and never logged or returned.
