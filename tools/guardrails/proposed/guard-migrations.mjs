@@ -458,12 +458,14 @@ function expandDefault(value, colon, op, word, seen) {
 }
 
 // A reference: ${name<op>word}, ${name} or $name. The word may hold $name, ${name} and ${name<op>plain word} references.
+// A bare $name in the word matches its whole name ((?!\w)), so a name is never split between the two alternatives, which
+// would backtrack exponentially on a long word that does not match.
 const REF =
   String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])((?:[^}$` +
   "`" +
   String.raw`]|\$\{[A-Za-z_]\w*(?::?[-=+?][^}$` +
   "`" +
-  String.raw`]*)?\}|\$[A-Za-z_]\w*)*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
+  String.raw`]*)?\}|\$[A-Za-z_]\w*(?!\w))*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
 
 /**
  * An assignment group starting at i: name=value and name+=value words separated by blanks. Returns the end, the values
@@ -621,7 +623,10 @@ function expandVars(src, picks = [], counts = []) {
   const mark = (v) => (OPERATOR.test(v) ? OPERATOR_VALUE + v : v);
   // dq: the reference stands inside double quotes of this text, where an operator value is text.
   const resolve = (child, dq) => (seen, name, colon, op, word, braced, bare) => {
-    const shown = (v) => (typeof v === "string" && v.startsWith(OPERATOR_VALUE) ? (dq ? v.slice(1) : undefined) : v);
+    const shown = (v) => {
+      if (typeof v !== "string" || !v.startsWith(OPERATOR_VALUE)) return v;
+      return dq ? v.slice(1) : undefined;
+    };
     if (name === undefined) {
       const value = shown(lookup(braced ?? bare, child));
       return value === undefined ? seen : (value ?? "");
@@ -648,7 +653,9 @@ function expandVars(src, picks = [], counts = []) {
   const unset = /unset((?:[ \t]+-[a-z]+)*)((?:[ \t]+[A-Za-z_]\w*)+)[ \t]*(?=[;&|)\n#]|$)/y;
   const sourceWord = /(source|\.)(?=[ \t])/y;
   // for NAME in WORDS: plain words and quoted words without backslash or glob characters, which may hold $name and ${name}.
-  const forWord = String.raw`(?:[^\s;&|<>()'"\`\\$*?[\]{}]|\$\{?[A-Za-z_]\w*\}?)+|'[^'\n$]*'|"(?:[^"$\`\\\n]|\$\{?[A-Za-z_]\w*\}?)*"`;
+  // A reference matches its whole name, so a word is read only one way (no backtracking across splits of a name).
+  const forRef = String.raw`\$(?:\{[A-Za-z_]\w*\}|[A-Za-z_]\w*(?!\w))`;
+  const forWord = String.raw`(?:[^\s;&|<>()'"\`\\$*?[\]{}]|${forRef})+|'[^'\n$]*'|"(?:[^"$\`\\\n]|${forRef})*"`;
   const forList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+(?:${forWord}))*)[ \t]*(?=[;\n])`, "y");
   // Unquoted, a word's references split on blanks; quoted, the word is one item.
   const forItems = (list) =>
@@ -662,7 +669,11 @@ function expandVars(src, picks = [], counts = []) {
   // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
   // Inside a value an operator is text, so a reference is put in whatever it holds, and the value is marked when it holds one.
   const valueOf = (text) => (text === null ? undefined : mark(text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false, true))));
-  const appendTo = (old, text) => (text === undefined ? undefined : mark((old === undefined ? APPEND_AT_ASSIGN : (unmark(old) ?? "")) + unmark(text)));
+  const appendTo = (old, text) => {
+    if (text === undefined) return undefined;
+    const before = old === undefined ? APPEND_AT_ASSIGN : (unmark(old) ?? "");
+    return mark(before + unmark(text));
+  };
   // After source or . the variables are wiped and marked as possibly set by the file, once its command ends.
   let sourcedAt = null;
   let out = "";

@@ -1423,6 +1423,16 @@ test("round 24: readings that multiply across nested -c text stop at the work bu
   assert.equal(decide(inFixture("x || B=feature/y; git push origin HEAD:${B:-feature/x}", "gitlivefeat"), { prFiles: fakePrFiles }), null);
 });
 
+test("round 24: a long word of references in a loop list or a default is read in linear time", () => {
+  // A name that could be split between a reference and plain characters made these patterns backtrack exponentially.
+  for (const n of [26, 2000]) {
+    const command = `for d in "${"$a".repeat(n)}; do :; done; echo "\${X:-${"$ab".repeat(n)}\n`;
+    const started = Date.now();
+    decide({ tool_name: "Bash", tool_input: { command }, cwd: CWD }, { prFiles: fakePrFiles });
+    assert.ok(Date.now() - started < 2000, `a word of ${String(n)} references should be read quickly`);
+  }
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
