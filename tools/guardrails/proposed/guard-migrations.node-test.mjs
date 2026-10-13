@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { decide, sqlReason } from "./guard-migrations.mjs";
+import { blockMessage, decide, sqlReason } from "./guard-migrations.mjs";
 
 // Staged in tools/guardrails/proposed/ next to settings.json; applied in .claude/hooks/ below it.
 const HOOK = fileURLToPath(new URL("./guard-migrations.mjs", import.meta.url));
@@ -100,15 +100,24 @@ const GIT_CANDIDATES =
     ? ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]
     : ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"];
 const GIT = GIT_CANDIDATES.find((candidate) => existsSync(candidate));
+// Every spawned process gets a timeout, so nothing can hang the suite (apply.mjs runs it before it installs).
+const SPAWN_TIMEOUT_MS = 30000;
+// Fixture git calls ignore the user's global and system config, never sign and run no hooks, so a signing prompt or a
+// global hook cannot hang or block them.
+const FIXTURE_GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+const FIXTURE_GIT_FLAGS = ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
 const git = (sub, ...args) => {
   if (!GIT) throw new Error("git not found in a fixed install location");
-  const result = spawnSync(GIT, ["-C", join(FIXTURE, sub), ...args], { encoding: "utf8" });
+  const result = spawnSync(GIT, ["-C", join(FIXTURE, sub), ...FIXTURE_GIT_FLAGS, ...args], { encoding: "utf8", env: FIXTURE_GIT_ENV, timeout: SPAWN_TIMEOUT_MS });
+  if (result.error) throw new Error(`git ${args.join(" ")}: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
 };
 for (const [sub, branch] of [["gitmain", "main"], ["gitfeat", "feature/x"], ["gitincl", "feature/x"]]) {
   mkdirSync(join(FIXTURE, sub));
   git(sub, "init", "-q");
   git(sub, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
+  // The hook reads push.default; set it here so a global setting cannot change the verdicts.
+  git(sub, "config", "push.default", "simple");
 }
 git("gitfeat", "config", "alias.shipit", "!git push origin HEAD:main");
 git("gitfeat", "config", "alias.pm", "push origin main");
@@ -124,7 +133,11 @@ writeFileSync(join(FIXTURE, "gitfeat/notes.md"), "notes\n");
 const ID = ["-c", "user.name=guard", "-c", "user.email=guard@example.com"];
 mkdirSync(join(FIXTURE, "remote.git"));
 git("remote.git", "init", "-q", "--bare");
-for (const sub of ["gitlive", "gitlivefeat"]) {
+// Round 18 adds gitup (feature/u made from origin/main, push.default upstream), gitrpush (remote.origin.push maps
+// feature/r to main), gitmatch (push.default matching) and gitupmain (main, push.default upstream); gitlive also gets
+// a feature/x branch that already exists.
+const LIVE = ["gitlive", "gitlivefeat", "gitup", "gitrpush", "gitmatch", "gitupmain"];
+for (const sub of LIVE) {
   mkdirSync(join(FIXTURE, sub, "src"), { recursive: true });
   mkdirSync(join(FIXTURE, sub, "docs"));
   writeFileSync(join(FIXTURE, sub, "src/a.ts"), "a\n");
@@ -134,8 +147,18 @@ for (const sub of ["gitlive", "gitlivefeat"]) {
   git(sub, "add", ".");
   git(sub, ...ID, "commit", "-qm", "init");
   git(sub, "remote", "add", "origin", join(FIXTURE, "remote.git"));
+  git(sub, "config", "push.default", "simple");
 }
 git("gitlive", "push", "-q", "origin", "main");
+for (const sub of LIVE) git(sub, "fetch", "-q", "origin");
+git("gitlive", "branch", "feature/x");
+git("gitup", "checkout", "-q", "-b", "feature/u", "--track", "origin/main");
+git("gitup", "config", "push.default", "upstream");
+git("gitrpush", "checkout", "-q", "-b", "feature/r");
+git("gitrpush", "config", "remote.origin.push", "refs/heads/feature/r:refs/heads/main");
+git("gitmatch", "checkout", "-q", "-b", "feature/m");
+git("gitmatch", "config", "push.default", "matching");
+git("gitupmain", "config", "push.default", "upstream");
 git("gitlive", "worktree", "add", "-q", "-b", "feature/w", ".claude/worktrees/w1");
 git("gitlivefeat", "checkout", "-q", "-b", "feature/x");
 git("gitlivefeat", "checkout", "-q", "main");
@@ -493,7 +516,7 @@ residual (inline interpreter code that builds a path by concatenation is not res
 residual (inline interpreter code that builds a path by concatenation is not resolved) | python3 -c "import os; open(os.path.join('supabase','migrations','x.sql'),'w')"
 residual (inline interpreter code that calls fetch or urllib is not inspected) | node -e "fetch('https://abc.supabase.co/rest/v1/jobs',{method:'POST',body:'{}'})"
 residual (inline interpreter code that calls fetch or urllib is not inspected) | python3 -c "import urllib.request as u; u.urlopen(u.Request('https://abc.supabase.co/rest/v1/jobs', data=b'{}'))"
-residual fixture:gitfeat (a push refspec set in git config is not read) | git config remote.origin.push HEAD:main && git push
+residual fixture:gitfeat (a push refspec set with git config in the same command is not read; one set before the command is) | git config remote.origin.push HEAD:main && git push
 block sql | select realtime.send('{}'::jsonb, 'e', 't', false)
 block sql | select pgsodium.create_key()
 residual (env -C and env --chdir change directory without a cd the hook can follow) | env --chdir=supabase/migrations touch x.sql
@@ -817,7 +840,8 @@ block fixture:gitlive | git checkout -b fix/y & git push
 block fixture:gitlive | git checkout -b fix/y | cat && git push
 block fixture:gitlive | (git checkout -b fix/y) && git push
 block fixture:gitlive | (git checkout -b fix/y && git push)
-block fixture:gitlive | cd . && git checkout -b fix/y && git push
+# Rewritten in round 18: only a cd after the branch change counts, so a cd before it passes.
+pass fixture:gitlive | cd . && git checkout -b fix/y && git push
 block fixture:gitlive | git checkout -b fix/y && cd . && git push
 block fixture:gitlive | git checkout -b "$NAME" && git push
 block fixture:gitlive | git checkout -t origin/fix && git push
@@ -825,7 +849,8 @@ block fixture:gitlive | git checkout --detach && git push
 block fixture:gitlive | git branch -m main && git push
 block fixture:gitlive | bash -c 'git checkout -b fix/y' && git push
 pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
-pass fixture:gitlive | git switch -c feature/y; git push -u origin HEAD
+# Rewritten in round 18: the creation must be joined to the push by && all the way, so ; fails closed.
+block fixture:gitlive | git switch -c feature/y; git push -u origin HEAD
 pass fixture:gitlive | git checkout -B feature/y origin/main && git push -u origin HEAD
 pass fixture:gitlive | git switch --create=feature/y && git commit -am wip && git push -u origin HEAD
 pass fixture:gitlive | git checkout -b feature/y && npm test && git push -u origin HEAD
@@ -875,10 +900,121 @@ pass | npm run test:portable-node
 pass | gh pr diff 676
 pass | gh api repos/o/r/pulls/1
 # Residuals that stay.
-residual fixture:gitlive (a git checkout -b that fails because the branch exists, followed by ;, leaves the old branch checked out) | git checkout -b feature/w; git push
+# Closed in round 18: a creation joined to the push by ; fails closed.
+block fixture:gitlive | git checkout -b feature/w; git push
 residual fixture:gitlivefeat (a refspec generated to spell main is read as the current branch; a deliberate evasion) | git push origin "$(echo main)"
 residual fixture:gitlivefeat (a branch change made outside git checkout, switch or branch -m, such as gh pr checkout, is not seen) | gh pr checkout 1 && git push
 `;
+
+// Round 18: the fifth polish round. Every fix has a block row and every false positive fix an allow row.
+const ROUND_18 = String.raw`
+# 1. Rule B: the creation is joined to the push by && all the way, so a creation that fails (the branch exists) stops
+# the push; a creation inside a compound command (if, else, elif, for, while, until, case, { }) is not a creation.
+block fixture:gitlive | git checkout -b feature/x; git push
+block fixture:gitlive | git checkout -b feature/x⏎git push
+block fixture:gitlive | git checkout -b feature/x; git push -u origin HEAD
+block fixture:gitlive | git switch -c feature/x; git push origin HEAD
+block fixture:gitlive | if true; then git checkout -b fix/q; fi; git push
+block fixture:gitlive | if true; then git checkout -b fix/q && git push -u origin HEAD; fi
+block fixture:gitlive | if false; then :; else git checkout -b fix/q && git push -u origin HEAD; fi
+block fixture:gitlive | if false; then :; elif true; then git checkout -b fix/q && git push -u origin HEAD; fi
+block fixture:gitlive | for b in q; do git checkout -b fix/q && git push -u origin HEAD; done
+block fixture:gitlive | while true; do git checkout -b fix/q && git push -u origin HEAD; break; done
+block fixture:gitlive | until false; do git checkout -b fix/q && git push -u origin HEAD; break; done
+block fixture:gitlive | case x in x) git checkout -b fix/q && git push -u origin HEAD;; esac
+block fixture:gitlive | { git checkout -b fix/q && git push -u origin HEAD; }
+block fixture:gitlive | true || git checkout -b fix/q && git push -u origin HEAD
+pass fixture:gitlive | git checkout -b fix/q && git push -u origin HEAD
+pass fixture:gitlive | git status; git checkout -b fix/q && git push -u origin HEAD
+pass fixture:gitlive | if true; then echo ok; fi; git checkout -b fix/q && git push -u origin HEAD
+# 2. A push with no refspec goes where push.default and remote.<name>.push send it, read with git rev-parse @{push};
+# with no upstream it is the branch name. After a new branch, a push with no refspec needs push.default simple or current.
+block fixture:gitup | git push
+block fixture:gitup | git push origin
+block fixture:gitup | git push -u origin
+block fixture:gitup | git -C $FIXTURE/gitup push
+block fixture:gitrpush | git push
+block fixture:gitmatch | git push
+block fixture:gitlivefeat | git -c push.default=upstream -c branch.feature/x.remote=origin -c branch.feature/x.merge=refs/heads/main push
+block fixture:gitlivefeat | git -c push.default=matching push
+block fixture:gitlivefeat | git -c push.default=$MODE push
+block fixture:gitupmain | git checkout -b feature/n origin/main && git push
+block fixture:gitupmain | git checkout -b feature/n && git push
+block fixture:gitlive | git checkout -b feature/n origin/main && git -c push.default=upstream push
+block fixture:gitlive | git checkout -b feature/n && git -c remote.origin.push=refs/heads/feature/n:refs/heads/main push
+pass fixture:gitup | git push origin HEAD:feature/u
+pass fixture:gitup | git push -u origin feature/u
+pass fixture:gitup | git push -u origin HEAD
+pass fixture:gitrpush | git push origin HEAD
+pass fixture:gitmatch | git push origin HEAD
+pass fixture:gitupmain | git checkout -b feature/n origin/main && git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/n origin/main && git push
+pass fixture:gitlive | git checkout -b feature/n origin/main && git -c push.default=current push
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push origin
+pass fixture:gitlivefeat | git -c push.default=current push
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push
+# 4. Only a cd after the branch change counts; the creation and the push already share the directory.
+pass fixture:gitlive | cd . && git checkout -b fix/q && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git checkout -b fix/q && git push -u origin HEAD
+pass fixture:gitlivefeat | cd ../gitlive && git checkout -b fix/q && git push -u origin HEAD
+block fixture:gitlive | git checkout -b fix/q && cd . && git push -u origin HEAD
+block fixture:gitlive | cd .claude/worktrees/w1 && git checkout -b fix/q && cd ../../.. && git push -u origin HEAD
+# 5. popd, and a cd in a pipeline, leave the directory unresolved, so a later push of the current branch fails closed.
+block fixture:gitlive | pushd ../gitlivefeat && popd && git push
+block fixture:gitlivefeat | pushd ../gitlive && popd && git push -u origin HEAD
+block fixture:gitlive | cd ../gitlivefeat | cat && git push
+block fixture:gitlive | cat /dev/null | cd ../gitlivefeat && git push
+pass fixture:gitlive | pushd ../gitlivefeat && popd && git push origin HEAD:feature/x
+pass fixture:gitlivefeat | pushd ../gitlive && git log --oneline -1; popd
+# 6. The last of --dry-run (or -n) and --no-dry-run wins, as in git.
+block fixture:gitlive | git push --dry-run --no-dry-run origin HEAD:main
+block fixture:gitlive | git push -n --no-dry-run origin main
+pass fixture:gitlive | git push --no-dry-run --dry-run origin HEAD:main
+pass fixture:gitlivefeat | git push --dry-run --no-dry-run origin HEAD:feature/x
+# 9. The subshell check: a creation inside a subshell is not taken, even when the && and ; checks alone would pass it.
+# This row fails if the depth check in newBranchBeforePush is removed.
+block fixture:gitlive | (true; git checkout -b fix/q) && git push -u origin HEAD
+# The round 4 required passes.
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+pass fixture:gitlive | git push --dry-run origin HEAD:main
+pass fixture:gitlive | git push --tags
+`;
+
+test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
+  const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
+  for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
+    const message = blockMessage(run(command, sub));
+    assert.match(message, /intended fix is to name a destination branch that is not main, for example git push -u origin <branch>/, command);
+    assert.doesNotMatch(message, /Stop and report; do not route around it/, command);
+  }
+  for (const [command, sub] of [["git push origin HEAD:main", "gitlivefeat"], ["echo x > supabase/migrations/x.sql", ""], ["git push --all origin", "gitlivefeat"]]) {
+    const message = blockMessage(run(command, sub));
+    assert.match(message, /Stop and report; do not route around it/, command);
+    assert.doesNotMatch(message, /intended fix/, command);
+  }
+  // The hook process prints the same text.
+  const hook = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(inFixture("git push", "gitup")), encoding: "utf8", timeout: SPAWN_TIMEOUT_MS });
+  assert.equal(hook.status, 2, hook.stderr);
+  assert.match(hook.stderr, /intended fix is to name a destination branch that is not main/);
+});
+
+test("round 18: popd and a piped cd leave the directory unresolved even when HOME is a feature branch checkout", () => {
+  // A bare cd goes to HOME; popd and a cd in a pipeline must not be read that way.
+  const home = process.env.HOME;
+  process.env.HOME = join(FIXTURE, "gitlivefeat");
+  try {
+    const run = (command) => decide(inFixture(command, "gitlive"), { prFiles: fakePrFiles });
+    assert.ok(run("pushd ../gitlivefeat && popd && git push -u origin HEAD"), "popd returns to gitlive (main), so the push fails closed");
+    assert.ok(run("popd && git push"), "popd with an unknown stack fails closed");
+    assert.ok(run("cd | cat && git push"), "a cd in a pipeline does not change the directory");
+    assert.equal(run("cd && git push -u origin HEAD"), null, "a bare cd goes to HOME, a feature branch");
+  } finally {
+    process.env.HOME = home;
+  }
+});
 
 test("round 17: cd $HOME and cd ${HOME} are expanded from HOME before the branch is read", () => {
   const home = process.env.HOME;
@@ -1369,6 +1505,7 @@ const PROBES = [
   ...tableRows(15, ROUND_15),
   ...tableRows(16, ROUND_16),
   ...tableRows(17, ROUND_17),
+  ...tableRows(18, ROUND_18),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -1529,7 +1666,7 @@ test("after apply, .claude/hooks and settings.json match the proposed copy", { s
 });
 
 test("the hook process exits 2 on block, 0 on pass, and fails closed without tool_input", () => {
-  const run = (stdin) => spawnSync(process.execPath, [HOOK], { input: stdin, encoding: "utf8" });
+  const run = (stdin) => spawnSync(process.execPath, [HOOK], { input: stdin, encoding: "utf8", timeout: SPAWN_TIMEOUT_MS });
   assert.equal(run(JSON.stringify(payloadOf("ls"))).status, 0);
   const blocked = run(JSON.stringify(payloadOf("echo x > supabase/migrations/x.sql")));
   assert.equal(blocked.status, 2);
@@ -1540,7 +1677,7 @@ test("the hook process exits 2 on block, 0 on pass, and fails closed without too
   // Through a real pipe the hook has already read its stdin to the end, so a @/dev/stdin value reads as empty text there
   // and only the device check blocks it. (node's own spawn hands the hook a socket, which cannot be reopened, so a shell pipe is used.)
   const payload = JSON.stringify(payloadOf("printf x | gh api graphql -F query=@/dev/stdin"));
-  const piped = spawnSync("/bin/sh", ["-c", 'printf "%s" "$1" | "$2" "$3"', "sh", payload, process.execPath, HOOK], { encoding: "utf8" });
+  const piped = spawnSync("/bin/sh", ["-c", 'printf "%s" "$1" | "$2" "$3"', "sh", payload, process.execPath, HOOK], { encoding: "utf8", timeout: SPAWN_TIMEOUT_MS });
   assert.equal(piped.status, 2, piped.stderr);
 });
 
@@ -1555,7 +1692,7 @@ test("the staged hook command clears NODE_OPTIONS and exits 2 when the hook is m
     }
   }
   const command = (hook) => settings.hooks.PreToolUse[0].hooks[0].command.replace("{{NODE}}", process.execPath).replace("{{HOOK}}", hook);
-  const sh = (cmd, input, env = {}) => spawnSync("/bin/sh", ["-c", cmd], { input, encoding: "utf8", env: { ...process.env, ...env } });
+  const sh = (cmd, input, env = {}) => spawnSync("/bin/sh", ["-c", cmd], { input, encoding: "utf8", env: { ...process.env, ...env }, timeout: SPAWN_TIMEOUT_MS });
   assert.equal(sh(command(HOOK), JSON.stringify(payloadOf("ls"))).status, 0);
   assert.equal(sh(command(HOOK), JSON.stringify(payloadOf("echo x > supabase/migrations/x.sql"))).status, 2);
   assert.equal(sh(command("/nonexistent/guard-migrations.mjs"), JSON.stringify(payloadOf("ls"))).status, 2);

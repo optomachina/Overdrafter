@@ -44,9 +44,12 @@
  *   main) is judged in two ways:
  *   with no git checkout, switch or branch -m before it in the command, git
  *   reads the branch in the push's own directory (failing closed when it
- *   cannot) and main or master blocks; after one, only a new branch made
- *   right before the push (checkout -b, switch -c, a literal name that is not
- *   main or master, same directory, no cd, no subshell, joined by && or ;)
+ *   cannot) and main or master blocks, and for a push with no refspec git
+ *   rev-parse @{push} reads where push.default and remote.<name>.push send
+ *   it; after one, only a new branch made right before the push (checkout -b,
+ *   -B or --orphan, switch -c or -C, a literal name that is not main or
+ *   master, same directory, no cd after it, no subshell or compound command,
+ *   joined by && only; with no refspec also push.default simple or current)
  *   passes and everything else fails closed. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
  *   and the GIT_CONFIG environment are expanded. Also the merges API and
@@ -103,11 +106,17 @@ const GIT_CANDIDATES =
 // git config keys that pull another config file in, so an alias can come from it.
 const GIT_INCLUDE_KEY = /^(include\.path|includeif\..+\.path)$/i;
 const GIT_ALIAS_DEPTH = 5;
+// git config keys that decide where a push with no refspec goes.
+const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
 // Environment variables that change which git config is read, so an alias can come from them.
 const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
 const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
+// Words that open and close a compound command, and the keywords inside one.
+const COMPOUND_OPEN = new Set(["if", "while", "until", "for", "select", "case", "{"]);
+const COMPOUND_CLOSE = new Set(["fi", "done", "esac", "}"]);
+const COMPOUND_INNER = new Set(["then", "do", "else", "elif", "!"]);
 const NO_WRITE_WORDS = new Set(["for", "select", "case", "in", "done", "fi", "esac", "}", "[[", "]]", "readonly", "local", "declare", "typeset", "export", "return", "exit", "shift", "set", "unset", "trap"]);
 const VALUE_FLAGS = new Set(["-I", "-n", "-P", "-L", "-d", "-s", "-u", "-g"]);
 const GH_TEXT_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "--message", "-m"]);
@@ -561,6 +570,8 @@ function gitCall(argv, dir, ctx, state = {}, env = {}) {
   let config = null;
   const aliases = { ...state.gitAliases };
   const includes = [...(state.gitIncludes ?? [])];
+  const pushConfig = [];
+  let pushConfigUnknown = false;
   const configEnv = {};
   for (const [key, value] of Object.entries(env)) {
     if (!GIT_CONFIG_ENV.test(key)) continue;
@@ -582,9 +593,14 @@ function gitCall(argv, dir, ctx, state = {}, env = {}) {
     if (alias) aliases[alias[1].toLowerCase()] = alias[2];
     else if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
     if (flag === "-c" && GIT_INCLUDE_KEY.test(value.split("=")[0])) includes.push(value);
+    // Settings that decide where a push with no refspec goes are passed on when the push destination is read.
+    if ((flag === "-c" || flag === "--config-env") && PUSH_CONFIG_KEY.test(value.split("=")[0])) {
+      if (flag === "-c" && !value.includes(SUB) && !value.includes("$")) pushConfig.push(value);
+      else pushConfigUnknown = true;
+    }
   }
   let rest = argv.slice(i);
-  const call = { dir: cwd, gitDir, config, includes, configEnv };
+  const call = { dir: cwd, gitDir, config, includes, configEnv, pushConfig, pushConfigUnknown };
   // An alias is expanded, a few levels deep: a ! alias is returned as shell text to check, any other becomes git
   // arguments. Aliases come from -c, from git config set earlier in the same command, or from the repository config
   // and the files it includes (also an include.path given with -c or set earlier in the command), with the GIT_CONFIG
@@ -615,7 +631,7 @@ function runGit(args, call) {
   if (where === null) throw new Error("the directory cannot be resolved");
   const configEnv = call.configEnv ?? {};
   if (Object.values(configEnv).some((v) => v.includes(SUB) || v.includes("$"))) throw new Error("the GIT_CONFIG environment cannot be resolved");
-  const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...(call.includes ?? []).flatMap((c) => ["-c", c]), ...args];
+  const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...[...(call.includes ?? []), ...(call.pushConfig ?? [])].flatMap((c) => ["-c", c]), ...args];
   const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv } });
   if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
   return result;
@@ -1268,43 +1284,118 @@ function recordBranch(argv, dir, state, ctx, env) {
   const git = gitCall(argv, dir, ctx, state, env);
   if (git.error || git.shell !== undefined) return;
   const change = branchChange(git.argv.slice(1), git.dir);
-  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, dir: git.dir, gitDir: git.gitDir });
+  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, dir: git.dir, gitDir: git.gitDir });
 }
 
 const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin <branch>";
 
 /**
- * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b
- * or git switch -c with a literal name that is not main or master, in the same command text, the same directory (no
- * cd before the push, no differing -C) and outside any subshell, joined to the push only by && or ;.
+ * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b,
+ * -B or --orphan, or git switch -c or -C, with a literal name that is not main or master, in the same command text, the
+ * same directory (no cd after the change, no differing -C), outside any subshell and any compound command (if, while,
+ * until, for, select, case or a { } group), and joined to the push by && all the way, so a creation that fails (the
+ * branch already exists) stops the push.
  */
 function newBranchBeforePush(change, call, state) {
-  if (!change.created || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv || state.cdSeen) return false;
+  if (!change.created || change.compound || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv) return false;
+  if (state.lastCd > change.index) return false;
   if (change.gitDir !== call.gitDir || change.dir.join("/") !== call.dir.join("/")) return false;
   const chain = state.segments.slice(change.index, state.index + 1);
   if (chain.some((s) => s.depth !== 0)) return false;
-  const joins = chain.slice(1).map((s) => s.op);
-  if (!joins.every((op) => op === "&&" || op === ";" || op === "\n")) return false;
-  // A change that runs only after an earlier && can be skipped; then a later ; still runs the push on the old branch.
+  if (!chain.slice(1).every((s) => s.op === "&&")) return false;
+  // The change itself must run whenever the push would: after ;, a newline, && or at the start, not after || or |.
   const own = chain[0].op;
-  return own === null || own === ";" || own === "\n" || (own === "&&" && joins.every((op) => op === "&&"));
+  return own === null || own === ";" || own === "\n" || own === "&&";
+}
+
+/** git config of the call as [key, value] pairs (section and variable names lowercased by git). Throws when it cannot be read. */
+function gitConfigList(call) {
+  if (call.pushConfigUnknown) throw new Error("a push setting given with -c or --config-env cannot be resolved");
+  const result = runGit(["config", "-z", "--list"], call);
+  if (result.status !== 0) throw new Error(`git config --list exited ${String(result.status)}`);
+  return result.stdout
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => {
+      const nl = entry.indexOf("\n");
+      return nl < 0 ? [entry, ""] : [entry.slice(0, nl), entry.slice(nl + 1)];
+    });
+}
+
+const configValue = (config, key) => config.findLast(([k]) => k === key)?.[1];
+const pushMode = (config) => (configValue(config, "push.default") ?? "simple").toLowerCase();
+// git rev-parse @{push} errors that mean there is no upstream, so push.default simple or current push the branch to its own name.
+const NO_PUSH_UPSTREAM = /no upstream configured for branch|no such branch|has no remote for pushing/;
+
+/**
+ * Where a push with no refspec sends the current branch: { matching: true } for push.default matching, else the branch
+ * name on the remote. push.default and remote.<name>.push decide it, so it is read with git rev-parse @{push}; with no
+ * upstream it is the branch name, as push.default simple and current do. Throws when it cannot be resolved.
+ */
+function pushDestination(branch, remoteArg, call) {
+  const config = gitConfigList(call);
+  if (pushMode(config) === "matching") return { matching: true };
+  if (remoteArg !== undefined && (remoteArg.includes(SUB) || remoteArg.includes("$"))) throw new Error("the remote cannot be resolved");
+  const pushRemote = configValue(config, `branch.${branch}.pushremote`) ?? configValue(config, "remote.pushdefault") ?? configValue(config, `branch.${branch}.remote`) ?? "origin";
+  if (remoteArg !== undefined && remoteArg !== pushRemote) {
+    // @{push} describes the branch's own push remote; another remote gets the branch name unless it has a push refspec.
+    if (config.some(([k]) => k === `remote.${remoteArg}.push`)) throw new Error(`remote.${remoteArg}.push is set`);
+    return branch;
+  }
+  const at = runGit(["rev-parse", "--symbolic-full-name", "@{push}"], call);
+  let full = at.stdout.trim();
+  if (at.status !== 0) {
+    const error = at.stderr.trim();
+    if (NO_PUSH_UPSTREAM.test(error)) return branch;
+    if (!/ambiguous argument '@\{push\}'|unknown revision/.test(error)) throw new Error(`git rev-parse @{push} failed: ${error.split("\n")[0] || `exit ${String(at.status)}`}`);
+    // The destination has no remote tracking ref yet (a branch never pushed); for-each-ref names it anyway.
+    full = runGit(["for-each-ref", "--format=%(push)", `refs/heads/${branch}`], call).stdout.trim();
+  }
+  const remotes = [...new Set(config.map(([k]) => /^remote\.(.+)\.url$/.exec(k)?.[1]).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const remote = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
+  const fetch = config.filter(([k]) => k === `remote.${remote}.fetch`).map(([, v]) => v.replace(/^\+/, ""));
+  if (!remote || fetch.length !== 1 || fetch[0] !== `refs/heads/*:refs/remotes/${remote}/*`) throw new Error(`the push destination ${full || "(none)"} cannot be mapped to a remote branch`);
+  return full.slice(`refs/remotes/${remote}/`.length);
 }
 
 /**
  * Block reason for a push whose destination is the current branch. With no branch change earlier in the command the
- * branch is read with git symbolic-ref in the push's directory; after one, only a new branch made right before the push
- * passes, and anything else fails closed.
+ * branch is read with git symbolic-ref in the push's directory, and for a push with no refspec the destination is read
+ * with git rev-parse @{push}; after a change, only a new branch made right before the push passes, a push with no
+ * refspec only when push.default is simple or current and no remote.<name>.push is set, and anything else fails closed.
  */
-function currentPushReason(call, ctx, state) {
+function currentPushReason(call, ctx, state, push) {
   const last = ctx.branchChanges.at(-1);
-  if (last !== undefined) return newBranchBeforePush(last, call, state) ? null : `git push of the current branch after a branch change in the same command; failing closed, ${NAME_THE_BRANCH}`;
+  if (last !== undefined) {
+    if (!newBranchBeforePush(last, call, state)) return `git push of the current branch after a branch change in the same command; failing closed, ${NAME_THE_BRANCH}`;
+    if (!push.implicit) return null;
+    let config;
+    try {
+      config = gitConfigList(call);
+    } catch (error) {
+      return `git push with no refspec after a new branch, and git config cannot be read (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+    }
+    const mode = pushMode(config);
+    if (mode !== "simple" && mode !== "current") return `git push with no refspec after a new branch, with push.default ${mode} (it may push to the start point's branch); failing closed, ${NAME_THE_BRANCH}`;
+    if (config.some(([k]) => /^remote\..+\.push$/.test(k))) return `git push with no refspec after a new branch, with a remote.<name>.push refspec set; failing closed, ${NAME_THE_BRANCH}`;
+    return null;
+  }
   let branch;
   try {
     branch = currentBranch(call);
   } catch (error) {
     return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
   }
-  return MAIN_REF.test(branch) ? `git push from ${branch} would update ${branch}; agents never push to main` : null;
+  if (MAIN_REF.test(branch)) return `git push from ${branch} would update ${branch}; agents never push to main`;
+  if (!push.implicit) return null;
+  let dest;
+  try {
+    dest = pushDestination(branch, push.remote, call);
+  } catch (error) {
+    return `git push with no refspec, whose destination cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+  }
+  if (dest.matching) return `git push with no refspec and push.default matching also pushes main; failing closed, ${NAME_THE_BRANCH}`;
+  return MAIN_REF.test(dest) ? `git push from ${branch} goes to ${dest} on the remote (push.default or remote.<name>.push), and agents never push to main; ${NAME_THE_BRANCH}` : null;
 }
 
 /** Whether a literal push destination is main or master, or a wildcard that matches refs/heads/main or refs/heads/master. */
@@ -1318,14 +1409,20 @@ function pushReason(args, call, ctx, state) {
   const positional = [];
   let tags = false;
   let every = null;
+  let dryRun = false;
+  let repo;
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
-    if (/^(--repo|-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
-    else if (w === "--dry-run" || w === "-n") return null; // a dry run writes nothing
+    if (w === "--repo") repo = args[++i];
+    else if (w.startsWith("--repo=")) repo = w.slice(7);
+    else if (/^(-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
+    // As in git, the last of --dry-run (or -n) and --no-dry-run wins.
+    else if (w === "--dry-run" || w === "-n" || w === "--no-dry-run") dryRun = w !== "--no-dry-run";
     else if (/^--(all|mirror|branches)$/.test(w)) every = w;
     else if (w === "--tags") tags = true;
     else if (!w.startsWith("-")) positional.push(w);
   }
+  if (dryRun) return null; // a dry run writes nothing
   if (every) return `git push ${every} would push main; agents never push to main`;
   // As in git, the first positional argument is the repository (it overrides --repo) and the rest are refspecs.
   const specs = positional.slice(1);
@@ -1355,7 +1452,7 @@ function pushReason(args, call, ctx, state) {
     } else if (/^(HEAD|@)$/.test(dest)) current = true;
     else if (destinationIsMain(dest)) return `git push ${spec} would update main; agents never push to main`;
   }
-  return current ? currentPushReason(call, ctx, state) : null;
+  return current ? currentPushReason(call, ctx, state, { implicit: specs.length === 0 && !tags, remote: positional[0] ?? repo }) : null;
 }
 
 function gitReason(argv, segment, call, ctx, state) {
@@ -1863,13 +1960,19 @@ function checkCommand(src, dir, ctx, depth = 0) {
   }
   const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitAliases: {}, gitIncludes: [], gitFileAliases: [], oldDir: undefined };
   // Each command text checked gets its own number, so a branch change and a push are known to be in the same text.
-  Object.assign(state, { inv: ctx.invocations++, segments, index: 0, cdSeen: false });
+  // lastCd is the index of the last segment that changed directory, compound the depth of if, while, for, case and { }.
+  Object.assign(state, { inv: ctx.invocations++, segments, index: 0, lastCd: -1, compound: 0 });
   // A subshell gets a copy of the directory; a cd inside it does not change the directory after it.
   const outer = [];
   for (const [index, segment] of segments.entries()) {
-    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, cdSeen: state.cdSeen });
-    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, cdSeen: state.cdSeen } = outer.pop());
+    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd });
+    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd } = outer.pop());
     state.index = index;
+    for (const w of segment.words) {
+      if (COMPOUND_OPEN.has(w)) state.compound++;
+      else if (COMPOUND_CLOSE.has(w)) state.compound = Math.max(0, state.compound - 1);
+      else if (!COMPOUND_INNER.has(w)) break;
+    }
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
     if (argv.length === 0 || cmd === "export") {
@@ -1881,9 +1984,13 @@ function checkCommand(src, dir, ctx, depth = 0) {
       continue;
     }
     if (cmd === "[[" && !segment.words.includes("]]")) state.inTest = true;
-    if (cmd === "cd" || cmd === "pushd") {
-      [dir, state.oldDir] = [cdTarget(dir, argv.slice(1).find((w) => w === "-" || !w.startsWith("-")), state.oldDir), dir];
-      state.cdSeen = true;
+    if (cmd === "cd" || cmd === "pushd" || cmd === "popd") {
+      // popd returns to a directory on the stack, and a cd in a pipeline runs in its own subshell; neither is followed,
+      // so the directory after them is unresolved.
+      const piped = /^\|&?$/.test(segment.op ?? "") || /^\|&?$/.test(segments[index + 1]?.op ?? "");
+      const target = argv.slice(1).find((w) => w === "-" || !w.startsWith("-"));
+      [dir, state.oldDir] = [cmd === "popd" || piped ? [...dir, "$DIRSTACK"] : cdTarget(dir, target, state.oldDir), dir];
+      state.lastCd = index;
       continue;
     }
     const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
@@ -2032,11 +2139,25 @@ async function main() {
     reason = `could not check this call (${error.message}); failing closed`;
   }
   if (!reason) return 0;
-  process.stderr.write(
-    `guard-migrations blocked this call: ${reason}.\n` +
-      "This hook is best effort. The real gates are the deny rules in .claude/settings.json, workers never merging, and Blaine's explicit yes for anything under supabase/migrations/. Stop and report; do not route around it.\n",
-  );
+  process.stderr.write(blockMessage(reason));
   return 2;
+}
+
+/**
+ * The text shown when a call is blocked. A push whose destination is the current branch has an intended fix, naming a
+ * destination that is not main, so its message says so; every other block says to stop and report.
+ */
+export function blockMessage(reason) {
+  if (reason.includes(NAME_THE_BRANCH)) {
+    return (
+      `guard-migrations blocked this call: ${reason}.\n` +
+      "This push of the current branch goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, for example git push -u origin <branch>; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
+    );
+  }
+  return (
+    `guard-migrations blocked this call: ${reason}.\n` +
+    "This hook is best effort. The real gates are the deny rules in .claude/settings.json, workers never merging, and Blaine's explicit yes for anything under supabase/migrations/. Stop and report; do not route around it.\n"
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
