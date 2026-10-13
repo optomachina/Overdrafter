@@ -353,20 +353,44 @@ function substitutionEnd(src, i) {
   return src.length;
 }
 
+/** The index of the " that closes a double quoted span opened at i, or -1 when nothing closes it. */
+function closingQuote(src, i) {
+  for (i++; i < src.length; i++) {
+    if (src[i] === "\\") i++;
+    else if (src[i] === '"') return i;
+  }
+  return -1;
+}
+
 /** Reads the assignment value that starts at i. Returns where it ends and its text, or text null when it cannot be recorded. */
 function readValue(src, i) {
-  if (src[i] === "(") return { end: i, text: null };
+  // An array value is skipped whole and drops the old value.
+  if (src[i] === "(") return { end: Math.min(matchClose(src, i, "(", ")") + 1, src.length), text: null };
   let text = "";
   let recordable = true;
   let quoted = false;
   while (i < src.length) {
     const c = src[i];
     if (!quoted && /[\s;&|<>)]/.test(c)) break;
-    if (c === '"') {
+    if (c === "\\") {
+      // The escaped character is taken as it is, so an escaped quote neither opens nor closes a quoted part.
+      recordable = false;
+      text += src.slice(i, i + 2);
+      i += 2;
+    } else if (c === '"') {
+      // A quote that nothing closes is left to the caller, so the rest of the command is not read as the value.
+      if (!quoted && closingQuote(src, i) < 0) {
+        recordable = false;
+        break;
+      }
       quoted = !quoted;
       i++;
     } else if (c === "'" && !quoted) {
-      const close = indexOrEnd(src, "'", i + 1);
+      const close = src.indexOf("'", i + 1);
+      if (close < 0) {
+        recordable = false;
+        break;
+      }
       // A single quoted $ is literal; recording it would let a later expansion read it as a reference.
       if (src.slice(i + 1, close).includes("$")) recordable = false;
       text += src.slice(i + 1, close);
@@ -378,7 +402,7 @@ function readValue(src, i) {
       text += SUBST_AT_ASSIGN;
       i = substitutionEnd(src, i + 2);
     } else {
-      if (c === "\\" || (c === "$" && src[i + 1] === "'")) recordable = false;
+      if (c === "$" && src[i + 1] === "'") recordable = false;
       text += c;
       i++;
     }
@@ -425,30 +449,143 @@ function readAssignments(src, i) {
   return { end: i, values, prefix };
 }
 
+/** The end of the simple command that continues at i: the first ; & | newline or ) outside quotes and substitutions. */
+function commandEnd(src, i) {
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (/[;&|\n)]/.test(c)) return i;
+    if (c === "\\") i++;
+    else if (c === "'") i = indexOrEnd(src, "'", i + 1);
+    else if (c === '"') i = Math.max(i, closingQuote(src, i) < 0 ? src.length : closingQuote(src, i));
+    else if (c === "`") i = indexOrEnd(src, "`", i + 1);
+    else if (c === "$" && src[i + 1] === "(") i = substitutionEnd(src, i + 2) - 1;
+  }
+  return src.length;
+}
+
+/**
+ * Scans the command once, tracking quotes, substitutions and heredoc bodies. An assignment is recognized only at a word
+ * start outside quotes, so NAME= inside a quoted string is text. A reference is expanded wherever it stands, since quoted
+ * text may run again as -c or eval text. A prefix assignment (X=v cmd, env X=v cmd) does not change the shell variable;
+ * its value is used only for the references that the child expands: single quoted and escaped ones in the rest of that
+ * simple command.
+ */
 function expandVars(src) {
   const vars = Object.create(null);
+  let prefix = null;
+  const lookup = (name, child) => (child && prefix && name in prefix.values ? (prefix.values[name] ?? undefined) : vars[name]);
+  const resolve = (child) => (seen, name, colon, op, word, braced, bare) => {
+    if (name === undefined) return lookup(braced ?? bare, child) ?? seen;
+    const value = lookup(name, child);
+    const result = expandDefault(value, colon, op, word, seen);
+    // ${X:=word} also assigns X.
+    if (op === "=" && value !== undefined && !child) vars[name] = result;
+    return result;
+  };
   const ref = new RegExp(REF, "g");
-  const resolve = (seen, name, colon, op, word, braced, bare) => (name !== undefined ? expandDefault(vars[name], colon, op, word, seen) : vars[braced ?? bare] ?? seen);
-  const assignOrRef = new RegExp(String.raw`(^|[\s;&|(])(?=[A-Za-z_]\w*=)|` + REF, "g");
+  const refAt = new RegExp(REF, "y");
+  const head = /[A-Za-z_]\w*=/y;
+  // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
+  // It becomes a placeholder that still holds $, like a command substitution.
+  const valueOf = (text) => (text === null ? null : text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false)));
   let out = "";
-  let last = 0;
-  for (let m = assignOrRef.exec(src); m !== null; m = assignOrRef.exec(src)) {
-    const [all, lead] = m;
-    if (lead !== undefined) {
-      const { end, values, prefix } = readAssignments(src, m.index + all.length);
-      for (const [name, text] of prefix ? [] : values) {
-        // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the
-        // text. It becomes a placeholder that still holds $, like a command substitution.
-        if (text === null) delete vars[name];
-        else vars[name] = text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve);
-      }
-      assignOrRef.lastIndex = Math.max(end, m.index + all.length + 1);
+  let quote = null;
+  let wordStart = true;
+  const frames = [];
+  const docs = [];
+  for (let i = 0; i < src.length; ) {
+    if (prefix && i >= prefix.end) prefix = null;
+    const c = src[i];
+    const next = src[i + 1];
+    if (quote === null && wordStart && c === "#") {
+      const eol = indexOrEnd(src, "\n", i);
+      out += src.slice(i, eol);
+      i = eol;
       continue;
     }
-    out += src.slice(last, m.index) + resolve(all, ...m.slice(2));
-    last = m.index + all.length;
+    head.lastIndex = i;
+    if (quote === null && wordStart && head.test(src)) {
+      const { end, values, prefix: isPrefix } = readAssignments(src, i);
+      if (isPrefix) {
+        const at = commandEnd(src, end);
+        prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
+        for (const [name, text] of values) prefix.values[name] = valueOf(text);
+      } else {
+        for (const [name, text] of values) {
+          const value = valueOf(text);
+          if (value === null) delete vars[name];
+          else vars[name] = value;
+        }
+      }
+      out += src.slice(i, end);
+      wordStart = /[ \t]/.test(src[end - 1]);
+      i = Math.max(end, i + 1);
+      continue;
+    }
+    wordStart = false;
+    if (c === "$" && quote !== "$'") {
+      refAt.lastIndex = i;
+      const m = refAt.exec(src);
+      if (m) {
+        out += resolve(quote === "'" || src[i - 1] === "\\")(...m);
+        i = refAt.lastIndex;
+        continue;
+      }
+    }
+    let take = 1;
+    if (quote === "'" || quote === "$'") {
+      if (c === "\\" && quote === "$'") take = 2;
+      else if (c === "'") quote = null;
+    } else if (c === "\\") {
+      // An escaped $ is still read as a reference above, as text a child shell expands.
+      take = next === "$" ? 1 : 2;
+    } else if (c === '"') {
+      quote = quote === '"' ? null : '"';
+    } else if (c === "`") {
+      if (frames.at(-1)?.tick) quote = frames.pop().quote;
+      else {
+        frames.push({ quote, tick: true });
+        quote = null;
+      }
+    } else if (c === "$" && next === "(") {
+      frames.push({ quote });
+      quote = null;
+      take = 2;
+    } else if (quote === null) {
+      if (c === "'") quote = "'";
+      else if (c === "$" && next === "'") {
+        quote = "$'";
+        take = 2;
+      } else if (c === "(") frames.push({ quote: null });
+      else if (c === ")" && frames.length > 0 && !frames.at(-1).tick) quote = frames.pop().quote;
+      else if (c === "<" && next === "<" && src[i + 2] !== "<" && src[i - 1] !== "<") {
+        const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
+        if (m) {
+          docs.push(m[2]);
+          take = m[0].length;
+        } else take = 2;
+      }
+      if (/[\s;&|()]/.test(c)) wordStart = true;
+      if (c === "\n" && docs.length > 0) {
+        // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
+        out += c;
+        i++;
+        for (const delim of docs.splice(0)) {
+          while (i < src.length) {
+            const eol = indexOrEnd(src, "\n", i);
+            const line = src.slice(i, eol);
+            out += line.replace(ref, resolve(false)) + (eol < src.length ? "\n" : "");
+            i = eol + 1;
+            if (line.replace(/^\t+/, "") === delim) break;
+          }
+        }
+        continue;
+      }
+    }
+    out += src.slice(i, i + take);
+    i += take;
   }
-  return out + src.slice(last);
+  return out;
 }
 
 const base = (word = "") => word.split("/").pop();

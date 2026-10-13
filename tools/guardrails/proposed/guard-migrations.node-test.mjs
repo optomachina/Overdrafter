@@ -1292,6 +1292,59 @@ pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
 pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
 `;
 
+// Round 23 is PR round 10.
+const ROUND_23 = String.raw`
+# 1. An assignment is recognized only at a word start outside quotes, so a NAME= inside a quoted string (SQL text, a
+# commit message) is not read as one and does not swallow the rest of the command.
+block | F=supabase/migrations/20261013000000_x.sql; echo "alter role x set search_path=public" > "$F"
+block | F="supabase/migrations/20261013000000_x.sql"; printf '%s\n' "alter role x set search_path=public" > "$F"
+block | F=supabase/migrations/20261013000000_x.sql; echo "-- run with PGOPTIONS=-c" > "$F"
+block | D=supabase/migrations; git commit -m "use PORT=3000" ; cp x.sql $D/
+block fixture:gitlivefeat | B=main; git commit -m "set NODE_ENV=test" && git push origin HEAD:$B
+block fixture:gitlivefeat | git commit -m "set NODE_ENV=test" && B=main && git push origin HEAD:$B
+block | F=supabase/migrations/x.sql; echo 'it''s X=1' > "$F"
+block | D=supabase/migrations; cat <<'SQL' > /tmp/a.sql⏎it's X=1⏎SQL⏎echo x > $D/x.sql
+block | D=supabase/migrations; echo x # don't X=1⏎echo x > $D/x.sql
+block fixture:gitlivefeat | B=main; echo x # B=feature/x⏎git push origin HEAD:$B
+block fixture:gitlivefeat | B=main; cat <<'EOF'⏎B=feature/x⏎EOF⏎git push origin HEAD:$B
+block fixture:gitlivefeat | B=main; echo $'it\'s B=feature/x' && git push origin HEAD:$B
+pass | F=docs/notes.md; echo "alter role x set search_path=public" > "$F"
+pass fixture:gitlivefeat | git commit -m "it's done" && git push
+pass fixture:gitlivefeat | B=feature/x; git commit -m "set NODE_ENV=test" && git push origin HEAD:$B
+# 2. A backslash escapes the next character inside double quotes and in unquoted text.
+block | D=supabase/migrations; X="a\"b"; echo x > $D/x.sql
+block | D=supabase/migrations; X=a\"b; echo x > $D/x.sql
+block | D=supabase/migrations; X="a\\"; echo x > $D/x.sql
+pass | D=docs; X="a\"b"; echo x > $D/x.md
+# 3. A prefix assignment applies to the text of that one command that its child shell expands (single quoted -c and
+# eval text), while the shell variable keeps its value.
+block | X=supabase/migrations bash -c 'echo x > $X/x.sql'
+block | env X=supabase/migrations bash -c 'echo x > $X/x.sql'
+block | X=supabase/migrations/x.sql sh -c 'cat > "$X"' < /tmp/a
+block | X=docs; X=supabase/migrations eval 'echo x > $X/x.sql'
+block | X=supabase/migrations bash -c "echo x > \$X/x.sql"
+block | X=supabase/migrations A=1 bash -c 'echo x > $X/x.sql' && echo done
+block | A=1 env X=supabase/migrations sh -c 'echo x > $X/x.sql'
+block | X=supabase/migrations; X=docs true; echo x > $X/x.sql
+block fixture:gitlivefeat | B=main; env B=feature/x git push origin HEAD:$B
+block fixture:gitlivefeat | B=main bash -c 'git push origin HEAD:$B'
+pass fixture:gitlivefeat | B=feature/x; B=main true; git push origin HEAD:$B
+pass | X=docs bash -c 'echo x > $X/x.md'
+pass | X=supabase/migrations true; echo x > $X/x.md
+# 4. An array assignment drops the old value; the := default form records the variable.
+pass | X=supabase/migrations; X=(docs); echo x > "$X/x.sql"
+residual (an array value is not recorded, so $X, its first element, stays unresolved) | X=docs; X=(supabase/migrations); echo x > "$X/x.sql"
+block | X=; echo "$\{X:=supabase/migrations}"; echo x > "$X/x.sql"
+pass | X=; echo "$\{X:=docs}"; echo x > "$X/x.md"
+# The required passes, also with the round 23 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+`;
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
@@ -1819,6 +1872,7 @@ const PROBES = [
   ...tableRows(20, ROUND_20),
   ...tableRows(21, ROUND_21),
   ...tableRows(22, ROUND_22),
+  ...tableRows(23, ROUND_23),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
