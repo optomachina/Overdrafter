@@ -51,7 +51,11 @@
  *   --orphan, switch -c or -C, a literal name that is not main or master,
  *   same directory, no cd after it, no subshell, compound command or !,
  *   joined by && only; with no refspec also push.default simple or current)
- *   passes and everything else fails closed. A dry run and tags only pass.
+ *   passes and everything else fails closed. A refspec with no colon that
+ *   names a local branch is mapped as git maps it (remote.<name>.push, then
+ *   push.default upstream through branch.<name>.merge), and a push with no
+ *   refspec to a remote with remote.<name>.mirror true blocks. A variable
+ *   assigned from $PWD stays unresolved. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
  *   and the GIT_CONFIG environment are expanded. Also the merges API and
  *   writes to the main ref;
@@ -108,7 +112,7 @@ const GIT_CANDIDATES =
 const GIT_INCLUDE_KEY = /^(include\.path|includeif\..+\.path)$/i;
 const GIT_ALIAS_DEPTH = 5;
 // git config keys that decide where a push with no refspec goes.
-const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
+const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url|mirror)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
 // Environment variables that change which git config is read, so an alias can come from them.
 const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
 const WRAPPERS = new Set(["env", "sudo", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
@@ -331,7 +335,9 @@ function expandVars(src) {
   return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
     if (name !== undefined) {
       const raw = value.replace(/(^["'])|(["']$)/g, "");
-      if (/(^\()|\$\(|[`"'\\]/.test(raw)) delete vars[name];
+      // A value that names $PWD or $OLDPWD is the directory at the time of the assignment, which a later cd cannot know
+      // from the text, so it stays unresolved.
+      if (/(^\()|\$\(|[`"'\\]|\$(\{(OLD)?PWD\}|(OLD)?PWD(?!\w))/.test(raw)) delete vars[name];
       else vars[name] = raw.replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
       return all;
     }
@@ -1288,7 +1294,7 @@ function recordBranch(argv, dir, state, ctx, env) {
   if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, negated: state.negated, dir: git.dir, gitDir: git.gitDir });
 }
 
-const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin <branch>";
+const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin HEAD:<branch>";
 
 /**
  * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b,
@@ -1319,7 +1325,8 @@ function gitConfigList(call) {
     .filter(Boolean)
     .map((entry) => {
       const nl = entry.indexOf("\n");
-      return nl < 0 ? [entry, ""] : [entry.slice(0, nl), entry.slice(nl + 1)];
+      // A key written with no value (a bare "mirror" line) is a true boolean to git.
+      return nl < 0 ? [entry, "true"] : [entry.slice(0, nl), entry.slice(nl + 1)];
     });
 }
 
@@ -1343,6 +1350,7 @@ function pushDestination(branch, remoteArg, call) {
   const fetchRemote = configValue(config, `branch.${branch}.remote`) ?? "origin";
   const pushRemote = configValue(config, `branch.${branch}.pushremote`) ?? configValue(config, "remote.pushdefault") ?? fetchRemote;
   const remote = remoteArg ?? pushRemote;
+  if (gitTrue(configValue(config, `remote.${remote}.mirror`) ?? "false")) return { mirror: remote };
   const refspecs = config.filter(([k]) => k === `remote.${remote}.push`).map(([, v]) => v);
   if (refspecs.length > 0) return { refspecs };
   const mode = pushMode(config);
@@ -1389,6 +1397,61 @@ function refspecIsMain(spec, branch) {
   return dst === "" || destinationIsMain(dst);
 }
 
+/** Whether a git boolean config value is true; a value git does not read as false counts as true (failing closed). */
+const gitTrue = (value) => !/^(false|no|off|0*|)$/i.test(value.trim());
+
+/**
+ * Where git sends a refspec with no colon that names a local ref (builtin/push.c refspec_append_mapped): the
+ * destination of a matching remote.<remote>.push value, else with push.default upstream or tracking the branch's one
+ * branch.<name>.merge value, else the same name. Every matching remote.<remote>.push value counts (git takes the first),
+ * and its source may be written short or full. Returns the destinations; throws when they cannot be known.
+ */
+function mappedDestinations(spec, remote, call, ctx) {
+  if (remote === undefined || remote.includes(SUB) || remote.includes("$")) throw new Error("the remote cannot be resolved");
+  const plain = spec.replace(/^\+/, "");
+  // In a directory that does not exist git push cannot run, so the name is taken as written.
+  if (!call.dir.some((part) => part.includes(SUB) || part.includes("$")) && !call.gitDir && !isDirectory(pathOf(call.dir, "."))) return [plain];
+  const config = gitConfigList(call);
+  const full = /^refs\//.test(plain) ? plain : `refs/heads/${plain.replace(/^heads\//, "")}`;
+  const names = new Set([plain, full, full.replace(/^refs\//, ""), full.replace(/^refs\/heads\//, "")]);
+  const dests = [];
+  for (const [, value] of config.filter(([k]) => k === `remote.${remote}.push`)) {
+    const text = value.replace(/^\+/, "");
+    if (text.startsWith("^") || text === ":") continue;
+    const colon = text.indexOf(":");
+    const src = colon < 0 ? text : text.slice(0, colon);
+    const dst = colon < 0 || text.slice(colon + 1) === "" ? src : text.slice(colon + 1);
+    const star = src.indexOf("*");
+    for (const name of names) {
+      if (star < 0 ? name === src : name.length >= src.length - 1 && name.startsWith(src.slice(0, star)) && name.endsWith(src.slice(star + 1))) {
+        dests.push(star < 0 ? dst : dst.replace("*", name.slice(star, name.length - (src.length - star - 1))));
+      }
+    }
+  }
+  if (dests.length > 0) return dests;
+  const mode = pushMode(config);
+  if ((mode === "upstream" || mode === "tracking") && full.startsWith("refs/heads/")) {
+    const branch = full.slice(11);
+    // A branch made earlier in the same command may get an upstream (git checkout -b x origin/main) that config does not show yet.
+    if (ctx.branchChanges.some((c) => c.name === branch)) throw new Error(`push.default ${mode} with ${branch} made in the same command`);
+    const merges = config.filter(([k]) => k === `branch.${branch}.merge`);
+    if (merges.length === 1) return [merges[0][1]];
+  }
+  return [plain];
+}
+
+/** Block reason for a refspec with no colon that git maps to main through remote.<name>.push or push.default upstream. */
+function mappedReason(spec, remote, call, ctx) {
+  let dests;
+  try {
+    dests = mappedDestinations(spec, remote, call, ctx);
+  } catch (error) {
+    return `git push ${spec}, whose destination cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+  }
+  const main = dests.find((d) => destinationIsMain(d));
+  return main === undefined ? null : `git push ${spec} goes to ${main} on the remote (remote.<name>.push or push.default upstream), and agents never push to main; ${NAME_THE_BRANCH}`;
+}
+
 /**
  * Block reason for a push whose destination is the current branch. With no branch change earlier in the command the
  * branch is read with git symbolic-ref in the push's directory, and for a push with no refspec the destination is read
@@ -1399,6 +1462,7 @@ function currentPushReason(call, ctx, state, push) {
   const last = ctx.branchChanges.at(-1);
   if (last !== undefined) {
     if (!newBranchBeforePush(last, call, state)) return `git push of the current branch after a branch change in the same command; failing closed, ${NAME_THE_BRANCH}`;
+    if (push.mapped) return mappedReason(last.name, push.remote, call, ctx);
     if (!push.implicit) return null;
     let config;
     try {
@@ -1409,6 +1473,7 @@ function currentPushReason(call, ctx, state, push) {
     const mode = pushMode(config);
     if (mode !== "simple" && mode !== "current") return `git push with no refspec after a new branch, with push.default ${mode} (it may push to the start point's branch); failing closed, ${NAME_THE_BRANCH}`;
     if (config.some(([k]) => /^remote\..+\.push$/.test(k))) return `git push with no refspec after a new branch, with a remote.<name>.push refspec set; failing closed, ${NAME_THE_BRANCH}`;
+    if (config.some(([k, v]) => /^remote\..+\.mirror$/.test(k) && gitTrue(v))) return `git push with no refspec after a new branch, with a remote.<name>.mirror set (it pushes every ref, main included); failing closed, ${NAME_THE_BRANCH}`;
     return null;
   }
   let branch;
@@ -1418,6 +1483,7 @@ function currentPushReason(call, ctx, state, push) {
     return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
   }
   if (MAIN_REF.test(branch)) return `git push from ${branch} would update ${branch}; agents never push to main`;
+  if (push.mapped) return mappedReason(branch, push.remote, call, ctx);
   if (!push.implicit) return null;
   let dest;
   try {
@@ -1429,6 +1495,7 @@ function currentPushReason(call, ctx, state, push) {
     const main = dest.refspecs.find((spec) => refspecIsMain(spec, branch));
     return main === undefined ? null : `git push with no refspec pushes every remote.<name>.push refspec, and ${main} updates main; agents never push to main; ${NAME_THE_BRANCH}`;
   }
+  if (dest.mirror) return `git push with no refspec to ${dest.mirror}, whose remote.${dest.mirror}.mirror is set, pushes every ref, main included; agents never push to main; ${NAME_THE_BRANCH}`;
   if (dest.nothing) return null;
   if (dest.matching) return `git push with no refspec and push.default matching also pushes main; failing closed, ${NAME_THE_BRANCH}`;
   return MAIN_REF.test(dest) ? `git push from ${branch} goes to ${dest} on the remote (push.default or remote.<name>.push), and agents never push to main; ${NAME_THE_BRANCH}` : null;
@@ -1464,6 +1531,7 @@ function pushReason(args, call, ctx, state) {
   const specs = positional.slice(1);
   // With no refspec, a push updates the current branch; --tags alone pushes only tags.
   let current = specs.length === 0 && !tags;
+  let mapped = false;
   for (let k = 0; k < specs.length; k++) {
     const spec = specs[k];
     // tag <name> pushes refs/tags/<name>.
@@ -1484,11 +1552,20 @@ function pushReason(args, call, ctx, state) {
       const filled = dest.replace(/\$\{[A-Za-z_]\w*:?[-=+?]([^}]*)\}/g, "$1").replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "").replaceAll(SUB, "");
       if (destinationIsMain(filled)) return `git push ${spec} can expand to main; agents never push to main`;
       const pattern = dest.replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "*").replaceAll(SUB, "*");
-      if (destinationIsMain(pattern)) current = true;
+      if (destinationIsMain(pattern)) {
+        current = true;
+        // git maps a refspec with no colon that names the current branch through remote.<name>.push or push.default upstream.
+        if (colon < 0) mapped = true;
+      }
     } else if (/^(HEAD|@)$/.test(dest)) current = true;
     else if (destinationIsMain(dest)) return `git push ${spec} would update main; agents never push to main`;
+    else if (colon < 0) {
+      // A local branch named with no colon goes where git maps it, which can be main (push.default upstream).
+      const reason = mappedReason(plain, positional[0], call, ctx);
+      if (reason) return reason;
+    }
   }
-  return current ? currentPushReason(call, ctx, state, { implicit: specs.length === 0 && !tags, remote: positional[0] ?? repo }) : null;
+  return current ? currentPushReason(call, ctx, state, { implicit: specs.length === 0 && !tags, remote: positional[0] ?? repo, mapped }) : null;
 }
 
 function gitReason(argv, segment, call, ctx, state) {
@@ -2201,7 +2278,7 @@ export function blockMessage(reason) {
   if (reason.includes(NAME_THE_BRANCH)) {
     return (
       `guard-migrations blocked this call: ${reason}.\n` +
-      "This push of the current branch goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, for example git push -u origin <branch>; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
+      "This push of the current branch goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, for example git push -u origin HEAD:<branch>; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
     );
   }
   return (

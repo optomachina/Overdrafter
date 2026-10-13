@@ -49,12 +49,15 @@ const LABEL_RETIRED = retired("the blaine-window label is retired and grants not
 
 // apply.mjs runs this suite before it installs, so the machine running it must not change a verdict. Every decide() call
 // and every spawned hook gets an empty HOME, empty global and system git config, no GIT_CONFIG_COUNT or
-// GIT_CONFIG_PARAMETERS and the C locale; the fixtures set remote.pushDefault themselves.
+// GIT_CONFIG_PARAMETERS, no GIT_TRACE settings, no PGHOST, PGHOSTADDR, PGSERVICE or PGSERVICEFILE and the C locale; the
+// fixtures set remote.pushDefault themselves.
 const ISOLATED_HOME = mkdtempSync(join(tmpdir(), "guard-migrations-home-"));
 const EMPTY_GIT_CONFIG = join(ISOLATED_HOME, "empty.gitconfig");
 writeFileSync(EMPTY_GIT_CONFIG, "");
 for (const key of Object.keys(process.env)) {
   if (/^(GIT_CONFIG_(COUNT|PARAMETERS|NOSYSTEM|KEY_\d+|VALUE_\d+)|GIT_CONFIG|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_INDEX_FILE|XDG_CONFIG_HOME|LANGUAGE)$/.test(key)) delete process.env[key];
+  // git trace output and libpq connection settings from the outer environment would change verdicts too.
+  if (/^(GIT_TRACE\w*|PGHOST|PGHOSTADDR|PGSERVICE|PGSERVICEFILE)$/.test(key)) delete process.env[key];
 }
 Object.assign(process.env, { HOME: ISOLATED_HOME, GIT_CONFIG_GLOBAL: EMPTY_GIT_CONFIG, GIT_CONFIG_SYSTEM: EMPTY_GIT_CONFIG, LC_ALL: "C" });
 after(() => rmSync(ISOLATED_HOME, { recursive: true, force: true }));
@@ -155,7 +158,8 @@ git("remote.git", "init", "-q", "--bare");
 // feature/x and main, short and full), gitmultiok (feature/x and tags), gitnofetch (upstream to origin/main with no
 // fetch refspec, so @{push} fails) and gitoddfetch (a fetch refspec that maps main to refs/remotes/origin/feature/z).
 const ROUND_19_LIVE = ["gitpd", "gitpdbr", "gitpdsimple", "gitmulti", "gitmultifull", "gitmultiok", "gitnofetch", "gitoddfetch"];
-const LIVE = ["gitlive", "gitlivefeat", "gitup", "gitrpush", "gitmatch", "gitupmain", ...ROUND_19_LIVE];
+// Round 20 adds gitmirror (feature/x, remote.origin.mirror true).
+const LIVE = ["gitlive", "gitlivefeat", "gitup", "gitrpush", "gitmatch", "gitupmain", ...ROUND_19_LIVE, "gitmirror"];
 for (const sub of LIVE) {
   mkdirSync(join(FIXTURE, sub, "src"), { recursive: true });
   mkdirSync(join(FIXTURE, sub, "docs"));
@@ -204,6 +208,8 @@ for (const sub of ["gitnofetch", "gitoddfetch"]) {
   git(sub, "config", "push.default", "upstream");
 }
 git("gitnofetch", "config", "--unset-all", "remote.origin.fetch");
+git("gitmirror", "checkout", "-q", "-b", "feature/x");
+git("gitmirror", "config", "remote.origin.mirror", "true");
 git("gitoddfetch", "config", "--replace-all", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/feature/z");
 // pushd and popd rows: tool.sh writes a migration, safe/tool.sh does not.
 writeFileSync(join(FIXTURE, "tool.sh"), "#!/bin/sh\necho x > supabase/migrations/x.sql\n");
@@ -988,7 +994,8 @@ block fixture:gitupmain | git checkout -b feature/n && git push
 block fixture:gitlive | git checkout -b feature/n origin/main && git -c push.default=upstream push
 block fixture:gitlive | git checkout -b feature/n && git -c remote.origin.push=refs/heads/feature/n:refs/heads/main push
 pass fixture:gitup | git push origin HEAD:feature/u
-pass fixture:gitup | git push -u origin feature/u
+# Round 20 (PR round 7): git maps a refspec with no colon through push.default upstream, so this goes to main.
+block fixture:gitup | git push -u origin feature/u
 pass fixture:gitup | git push -u origin HEAD
 pass fixture:gitrpush | git push origin HEAD
 pass fixture:gitmatch | git push origin HEAD
@@ -1099,11 +1106,74 @@ pass fixture:gitlive | git push --dry-run origin HEAD:main
 pass fixture:gitlive | git push --tags
 `;
 
+// Round 20 is PR round 7.
+const ROUND_20 = String.raw`
+# B1. A refspec with no colon that names a local branch goes where git maps it (builtin/push.c refspec_append_mapped):
+# remote.<remote>.push first, then with push.default upstream or tracking the branch's branch.<name>.merge.
+# gitup: feature/u made from origin/main, push.default upstream, so git pushes refs/heads/feature/u:refs/heads/main.
+block fixture:gitup | git push origin feature/u
+block fixture:gitup | git push -u origin heads/feature/u
+block fixture:gitup | git push -u origin refs/heads/feature/u
+block fixture:gitup | git push origin +feature/u
+block fixture:gitup | git push -u origin "$(git branch --show-current)"
+block fixture:gitup | git -c push.default=tracking push origin feature/u
+pass fixture:gitup | git push -u origin HEAD:feature/u
+pass fixture:gitup | git -c push.default=simple push -u origin feature/u
+# gitpdsimple: feature/u made from origin/main with push.default simple; upstream given with -c maps it to main.
+block fixture:gitpdsimple | git -c push.default=upstream push -u origin feature/u
+pass fixture:gitpdsimple | git push -u origin feature/u
+# gitpd: push.default upstream maps the branch to branch.feature/u.merge for any named remote, fork included.
+block fixture:gitpd | git push fork feature/u
+pass fixture:gitpd | git push fork HEAD:feature/u
+# remote.origin.push maps the named branch to main.
+block fixture:gitrpush | git push origin feature/r
+block fixture:gitrpush | git push -u origin refs/heads/feature/r
+block fixture:gitlivefeat | git -c remote.origin.push=refs/heads/feature/x:refs/heads/main push origin feature/x
+block fixture:gitlivefeat | git -c remote.origin.push=feature/x:main push origin feature/x
+pass fixture:gitlivefeat | git -c remote.origin.push=refs/heads/*:refs/heads/* push origin feature/x
+pass fixture:gitrpush | git push origin HEAD:feature/r
+# A branch made in the same command may track origin/main before git config shows it, so upstream fails closed there.
+block fixture:gitupmain | git checkout -b feature/n origin/main && git push -u origin feature/n
+pass fixture:gitlive | git checkout -b feature/n origin/main && git push -u origin feature/n
+# What workers type, under the default config (push.default simple, upstream unset or the same name).
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlive | git push origin feature/x
+pass fixture:gitlive | git checkout -b feature/n && git push -u origin feature/n
+pass fixture:gitlivefeat | git push origin feature/x:feature/x
+# B2. A variable holding $PWD is the directory at the time of the assignment, so a cd to it is unresolved and a push of
+# the current branch after it fails closed.
+block fixture:gitlive | ROOT=$PWD && cd .claude/worktrees/w1 && cd "$ROOT" && git push origin HEAD
+block fixture:gitlive | ROOT="$PWD"; cd .claude/worktrees/w1; cd "$ROOT"; git push -u origin HEAD
+block fixture:gitlive | ROOT=$\{PWD}; cd .claude/worktrees/w1 && cd $\{ROOT} && git push -u origin HEAD
+residual fixture:gitlive (a relative .. past an unresolved directory part cancels it, pre-existing) | ROOT=$PWD/.claude && cd .claude/worktrees/w1 && cd "$ROOT/.." && git push origin HEAD
+pass fixture:gitlive | ROOT=$PWD && cd .claude/worktrees/w1 && git push origin HEAD
+pass fixture:gitlivefeat | cd "$PWD" && git push origin HEAD
+pass fixture:gitlivefeat | ROOT=$PWD && git push origin HEAD
+# C1. remote.<name>.mirror makes a push with no refspec push every ref, main included.
+block fixture:gitmirror | git push origin
+block fixture:gitmirror | git push
+pass fixture:gitmirror | git push origin HEAD
+block fixture:gitlivefeat | git -c remote.origin.mirror=true push origin
+block fixture:gitlivefeat | git -c remote.origin.mirror=yes push origin
+block fixture:gitlivefeat | git -c remote.origin.mirror=1 push origin
+block fixture:gitlivefeat | git -c remote.origin.mirror=on push
+block fixture:gitlivefeat | git -c remote.origin.mirror=TRUE push
+pass fixture:gitlivefeat | git -c remote.origin.mirror=false push origin
+pass fixture:gitlivefeat | git -c remote.origin.mirror=false push
+block fixture:gitlive | git checkout -b feature/n && git -c remote.origin.mirror=true push
+# The required passes, also with the round 20 fixtures in place.
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+pass fixture:gitlive | git push --dry-run origin HEAD:main
+pass fixture:gitlive | git push --tags
+`;
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
     const message = blockMessage(run(command, sub));
-    assert.match(message, /intended fix is to name a destination branch that is not main, for example git push -u origin <branch>/, command);
+    assert.match(message, /intended fix is to name a destination branch that is not main, for example git push -u origin HEAD:<branch>/, command);
     assert.doesNotMatch(message, /Stop and report; do not route around it/, command);
   }
   for (const [command, sub] of [["git push origin HEAD:main", "gitlivefeat"], ["echo x > supabase/migrations/x.sql", ""], ["git push --all origin", "gitlivefeat"]]) {
@@ -1623,6 +1693,7 @@ const PROBES = [
   ...tableRows(17, ROUND_17),
   ...tableRows(18, ROUND_18),
   ...tableRows(19, ROUND_19),
+  ...tableRows(20, ROUND_20),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
