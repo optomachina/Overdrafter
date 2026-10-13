@@ -95,6 +95,9 @@ jobs:
       - name: Test portable Node contracts
         run: npm run test:portable-node
 
+      - name: Check provider integrations
+        run: npm run provider:check
+
       - name: Verify free-quote SQL source fixtures
         run: |
           node --test scripts/generate-free-quote-fixtures.node-test.mjs scripts/run-supabase-policy-tests.node-test.mjs

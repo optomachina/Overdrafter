@@ -438,7 +438,7 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
   assertAllowedKeys(
     value,
     ["key", "liveAdapter", "sessionSecrets", "egress"],
-    ["sessionlessJustification"],
+    ["sessionlessJustification", "adapterKind", "adoptedAdapter"],
     label,
   );
   const key = requireString(value.key, `${label}.key`, KEY_PATTERN);
@@ -455,9 +455,18 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
   if (value.egress === "stable_nat" && !liveAdapter) {
     throw new Error(`${label} cannot require stable NAT while liveAdapter is false`);
   }
-  if (!liveAdapter && sessionSecrets.length > 0) {
+  const adapterKind = Object.hasOwn(value, "adapterKind") ? value.adapterKind : undefined;
+  if (adapterKind !== undefined && adapterKind !== "api") {
+    throw new Error(`${label}.adapterKind is invalid`);
+  }
+  // An API provider may declare its key secret (name only) before the adapter is live;
+  // the generated helpers still render secrets only for liveAdapter:true entries.
+  if (!liveAdapter && sessionSecrets.length > 0 && adapterKind !== "api") {
     throw new Error(`${label} must keep sessionSecrets empty while liveAdapter is false`);
   }
+  const adoptedAdapter = Object.hasOwn(value, "adoptedAdapter")
+    ? validateAdoptedAdapter(value.adoptedAdapter, `${label}.adoptedAdapter`, liveAdapter)
+    : undefined;
   const hasJustification = Object.hasOwn(value, "sessionlessJustification");
   let sessionlessJustification;
   if (hasJustification) {
@@ -483,8 +492,35 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
     liveAdapter,
     sessionSecrets,
     egress: value.egress,
+    ...(adapterKind ? { adapterKind } : {}),
+    ...(adoptedAdapter ? { adoptedAdapter } : {}),
     ...(hasJustification ? { sessionlessJustification } : {}),
   };
+}
+
+const ADOPTED_MODULE_PATTERN = /^worker\/src\/adapters\/[A-Za-z][A-Za-z0-9]*\.ts$/;
+const ADOPTED_TEST_PATTERN = /^worker\/src\/adapters\/[A-Za-z][A-Za-z0-9]*\.test\.ts$/;
+
+/**
+ * An adopted adapter is a hand-built, already reviewed module the kit must use
+ * instead of generating a placeholder stub next to it. Paths are repo-relative
+ * and confined to worker/src/adapters so a registry edit cannot point the
+ * default-deny check at an unrelated file.
+ */
+function validateAdoptedAdapter(adopted, label, liveAdapter) {
+  const value = requireObject(adopted, label);
+  assertAllowedKeys(value, ["module"], ["defaultDenyTest"], label);
+  if (!liveAdapter) {
+    throw new Error(`${label} is only valid when liveAdapter is true`);
+  }
+  const module = requireString(value.module, `${label}.module`, ADOPTED_MODULE_PATTERN);
+  if (module.endsWith(".test.ts")) {
+    throw new Error(`${label}.module must not be a test file`);
+  }
+  const defaultDenyTest = Object.hasOwn(value, "defaultDenyTest")
+    ? requireString(value.defaultDenyTest, `${label}.defaultDenyTest`, ADOPTED_TEST_PATTERN)
+    : undefined;
+  return { module, ...(defaultDenyTest ? { defaultDenyTest } : {}) };
 }
 
 /** Reviewed 1.0 scope list. The permissions lint derives its required providers from this. */
