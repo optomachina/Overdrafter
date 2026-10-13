@@ -1469,6 +1469,10 @@ test("round 18: a push of the current branch says naming a destination is the fi
     assert.match(message, /Stop and report; do not route around it/, command);
     assert.doesNotMatch(message, /intended fix/, command);
   }
+  // A command past the variant cap says splitting the loop is the fix.
+  const long = blockMessage(run(`for f in ${Array.from({ length: 40 }, (_, i) => `src/file-${String(i + 1)}.ts`).join(" ")}; do npx eslint $f; done`, ""));
+  assert.match(long, /expands to more than 32 variants.*\n.*intended fix is to split the loop into smaller loops or list the files explicitly/);
+  assert.doesNotMatch(long, /Stop and report; do not route around it/);
   // The hook process prints the same text.
   const hook = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(inFixture("git push", "gitup")), encoding: "utf8", timeout: SPAWN_TIMEOUT_MS });
   assert.equal(hook.status, 2, hook.stderr);
@@ -1620,15 +1624,16 @@ const ROUND_25 = (String.raw`
 # 1. A default word or a loop item gives a second reading only when it could change a check: protected path text, main,
 # master, HEAD or refspec syntax, a reference, an operator, a blank or a . step (and any word in a command that merges).
 # Other words are read once, as written, so ordinary loops and defaults stay under the variant cap.
-pass | for f in src/a.test.ts src/b.test.ts src/c.test.ts src/d.test.ts src/e.test.ts src/f.test.ts; do npx vitest run $f || echo "FAIL $f"; done; for p in web worker shared api cli docs; do echo "== $p"; ls $p; done
-pass | for f in a.ts b.ts c.ts d.ts e.ts; do npx eslint src/$f || ERR=1; done; for g in x.ts y.ts z.ts; do npx prettier --check src/$g || ERR=1; done; exit $\{ERR:-0}
-pass | for a in 1 2 3; do for b in 4 5 6; do for c in 7 8 9 10; do echo "$a $b $c"; done; done; done
-pass | for i in L40; do echo "attempt $i"; npm test && break; done
-pass | docker run --rm -e NODE_ENV=$\{NODE_ENV:-test} -e PORT=$\{PORT:-3000} -e HOST=$\{HOST:-0.0.0.0} -e LOG_LEVEL=$\{LOG_LEVEL:-info} -e REGION=$\{REGION:-us} -e TZ=$\{TZ:-UTC} app:latest
-pass | psql "postgresql://$\{PGUSER:-postgres}:$\{PGPASSWORD:-postgres}@$\{PGHOST:-127.0.0.1}:$\{PGPORT:-54322}/$\{PGDATABASE:-postgres}" -c "select 1"; echo $\{LOG:-/tmp/x}
-pass | for f in a b c d e f g h i; do echo $f; done; echo $\{OUT:-x} $\{MODE:-y}
-pass fixture:gitlivefeat | for f in a b c d e f; do npx eslint $f; done; for g in a b c d e f; do npx prettier --check $g; done; git push -u origin HEAD
-pass fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin HEAD:$b; done
+# Since round 28 (PR round 15) nothing is folded: rows past the cap block, marked as accepted false positives.
+block (accepted false positive: more than 32 variants, split the loop) | for f in src/a.test.ts src/b.test.ts src/c.test.ts src/d.test.ts src/e.test.ts src/f.test.ts; do npx vitest run $f || echo "FAIL $f"; done; for p in web worker shared api cli docs; do echo "== $p"; ls $p; done
+block (accepted false positive: more than 32 variants, split the loop) | for f in a.ts b.ts c.ts d.ts e.ts; do npx eslint src/$f || ERR=1; done; for g in x.ts y.ts z.ts; do npx prettier --check src/$g || ERR=1; done; exit $\{ERR:-0}
+block (accepted false positive: more than 32 variants, split the loop) | for a in 1 2 3; do for b in 4 5 6; do for c in 7 8 9 10; do echo "$a $b $c"; done; done; done
+block (accepted false positive: more than 32 variants, split the loop) | for i in L40; do echo "attempt $i"; npm test && break; done
+block (accepted false positive: more than 32 variants, split the loop) | docker run --rm -e NODE_ENV=$\{NODE_ENV:-test} -e PORT=$\{PORT:-3000} -e HOST=$\{HOST:-0.0.0.0} -e LOG_LEVEL=$\{LOG_LEVEL:-info} -e REGION=$\{REGION:-us} -e TZ=$\{TZ:-UTC} app:latest
+block (accepted false positive: more than 32 variants, split the loop) | psql "postgresql://$\{PGUSER:-postgres}:$\{PGPASSWORD:-postgres}@$\{PGHOST:-127.0.0.1}:$\{PGPORT:-54322}/$\{PGDATABASE:-postgres}" -c "select 1"; echo $\{LOG:-/tmp/x}
+block (accepted false positive: more than 32 variants, split the loop) | for f in a b c d e f g h i; do echo $f; done; echo $\{OUT:-x} $\{MODE:-y}
+block fixture:gitlivefeat (accepted false positive: more than 32 variants, split the loop) | for f in a b c d e f; do npx eslint $f; done; for g in a b c d e f; do npx prettier --check $g; done; git push -u origin HEAD
+block fixture:gitlivefeat (accepted false positive: more than 32 variants, split the loop) | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin HEAD:$b; done
 block | for i in L40; do echo x > supabase/migrations/$i.sql; done
 block | for f in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G supabase/migrations; do echo x > $f/x.sql; done
 block fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G main; do git push origin HEAD:$b; done
@@ -1708,9 +1713,10 @@ block | for s in s; do X=$s; echo x > supabase/migration$X/x.sql; done
 block | for s in s; do echo x > supabase/migration"$s"/x.sql; done
 block | for p in ma; do git push origin HEAD:$\{p}in; done
 # Ordinary words used whole (or after = : / ,) are still read once, so these stay under the variant cap.
-pass | for s in a b c d e f g h; do echo $s; done; for t in i j k l m n; do echo "$t"; done
-pass | docker run -e A=$\{A:-x} -e B=$\{B:-y} -e C=$\{C:-z} -e D=$\{D:-w} -e E=$\{E:-v} -e F=$\{F:-u} app
-pass fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin "HEAD:$b"; done
+# Since round 28 (PR round 15) nothing is folded: rows past the cap block, marked as accepted false positives.
+block (accepted false positive: more than 32 variants, split the loop) | for s in a b c d e f g h; do echo $s; done; for t in i j k l m n; do echo "$t"; done
+block (accepted false positive: more than 32 variants, split the loop) | docker run -e A=$\{A:-x} -e B=$\{B:-y} -e C=$\{C:-z} -e D=$\{D:-w} -e E=$\{E:-v} -e F=$\{F:-u} app
+block fixture:gitlivefeat (accepted false positive: more than 32 variants, split the loop) | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin "HEAD:$b"; done
 pass | for f in src/a.ts src/b.ts src/c.ts src/d.ts src/e.ts src/f.ts; do npx eslint "$f"; done; cat $\{LOG:-/tmp/a.log}
 pass fixture:gitlivefeat | git push
 pass fixture:gitlivefeat | git push -u origin feature/x
@@ -1739,11 +1745,11 @@ block fixture:gitlivefeat | $\{E:-env} git push origin HEAD:main
 block | $\{S:-sh} -c "supabase db push"
 block fixture | npm $\{X:-rum} db:push
 block fixture:gitlivefeat | for t in ma; do r=HEAD:$t; git push origin $\{r}in; done
-# 2. Only past the cap do safe words fold into one unknown reading. A hyphen inside a word is safe, so long loops over
-# file names stay checkable; : and + are not, nor command words or any script name of a tracked package.json.
-pass | for f in F40; do npx eslint $f; done
-pass | for a in x-1 x-2 x-3 x-4 x-5 x-6; do npx eslint $a; done; for b in y-1 y-2 y-3 y-4 y-5 y-6; do npx prettier --check $b; done
-pass fixture:gitlivefeat | for f in F40; do npx eslint $f; done; git push -u origin HEAD:feature/x
+# 2. Round 14 folded safe words past the cap. Since round 28 (PR round 15) nothing is folded: every row past the cap
+# blocks with the split loop message, and the long harmless loops are accepted false positives.
+block (accepted false positive: more than 32 variants, split the loop) | for f in F40; do npx eslint $f; done
+block (accepted false positive: more than 32 variants, split the loop) | for a in x-1 x-2 x-3 x-4 x-5 x-6; do npx eslint $a; done; for b in y-1 y-2 y-3 y-4 y-5 y-6; do npx prettier --check $b; done
+block fixture:gitlivefeat (accepted false positive: more than 32 variants, split the loop) | for f in F40; do npx eslint $f; done; git push -u origin HEAD:feature/x
 block p14:repo/worker | cd .. && for s in L33 db:push; do npm run $s; done
 block p14:repo/worker | cd .. && for s in L33 ship-it; do npm run $s; done
 block fixture:gitlivefeat | for r in L33 :; do git push origin $r; done
@@ -1760,6 +1766,30 @@ pass fixture:gitlivefeat | git push -u origin feature/x
 pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
 `.replaceAll("F40", Array.from({ length: 40 }, (_, i) => `src/file-${String(i + 1)}.ts`).join(" ")).replaceAll("L33", "a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G");
 
+// Round 28 is PR round 15.
+const ROUND_28 = String.raw`
+# 1. Past the variant cap nothing is folded or skipped: the command fails closed with a message to split the loop.
+block (past the cap: more than 32 variants, split the loop) | for g in L33 postgres-config; do supabase $g update --config statement_timeout=10s; done
+block (past the cap: more than 32 variants, split the loop) | for g in L33 network-bans; do supabase $g remove --db-unban-ip 1.2.3.4; done
+block (past the cap: more than 32 variants, split the loop) | for g in L33 network-restrictions; do supabase $g update --db-allow-cidr 0.0.0.0/0; done
+block (past the cap: more than 32 variants, split the loop) | for g in L33 ssl-enforcement; do supabase $g update --disable-db-ssl-enforcement; done
+block (past the cap: more than 32 variants, split the loop) | for a in a b c d e f; do for b in a b c d e f; do echo $a $b; done; done; supabase $\{G:-network-restrictions} update --db-allow-cidr 0.0.0.0/0
+block fixture (past the cap: more than 32 variants, split the loop) | for c in L33 run-script; do npm $c db:push; done
+block fixture (past the cap: more than 32 variants, split the loop) | for a in a b c d e f; do for b in a b c d e f; do echo $a $b; done; done; npm $\{R:-run-script} db:push
+block fixture (past the cap: more than 32 variants, split the loop) | for c in L33 run-s; do $c db:push; done
+block fixture (past the cap: more than 32 variants, split the loop) | for c in L33 npm-run-all; do $c db:push; done
+block fixture:gitlivefeat (past the cap: more than 32 variants, split the loop) | for c in L33 nohup; do $c git push origin HEAD:main; done
+block p14 (past the cap: more than 32 variants, split the loop) | for d in L33 repo; do npm --prefix $d run db:push; done
+# 2. Every variant up to the cap is still read, so short loops over these words block and plain pushes pass.
+block | for g in a postgres-config; do supabase $g update --config statement_timeout=10s; done
+block fixture | for c in a run-s; do $c db:push; done
+block p14 | for d in a repo; do npm --prefix $d run db:push; done
+pass | for f in a.ts b.ts c.ts d.ts e.ts f.ts; do npx eslint $f; done; for g in x y z; do echo $g; done
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+`.replaceAll("L33", "a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G");
+
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
     const at = line.indexOf(" | ");
@@ -1772,7 +1802,9 @@ function tableRows(round, table) {
     else if (kind.startsWith("p14")) probe = { ...inFixture(text), cwd: join(P14, kind.split(":")[1] ?? "") };
     else if (kind === "sql") probe = sql(text);
     else if (EDIT_TOOL_NAMES.has(kind)) probe = { tool_name: kind, tool_input: { file_path: text } };
-    const expected = { pass: PASSES, block: HOOK_BLOCKS, deny: deny(note), residual: residual(note) }[verdict];
+    // A block row noted as past the cap, or as an accepted false positive of it, must block with the split loop message.
+    const split = verdict === "block" && /^(past the cap|accepted false positive)/.test(note ?? "");
+    const expected = split ? { splitLoop: note } : { pass: PASSES, block: HOOK_BLOCKS, deny: deny(note), residual: residual(note) }[verdict];
     return [round, probe, expected];
   });
 }
@@ -2230,6 +2262,7 @@ const PROBES = [
   ...tableRows(25, ROUND_25),
   ...tableRows(26, ROUND_26),
   ...tableRows(27, ROUND_27),
+  ...tableRows(28, ROUND_28),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
@@ -2242,6 +2275,7 @@ for (const [round, probe, expected] of PROBES) {
   if (expected.deny) kind = "deny rule exists";
   else if (expected.residual) kind = "residual";
   else if (expected.retired) kind = "pass, label retired";
+  else if (expected.splitLoop) kind = "hook, split loop";
   test(`round ${String(round)} [${String(kind)}] ${label}`, () => {
     if (expected.deny) {
       assert.ok(DENY.includes(expected.deny), `settings.json should deny ${expected.deny}`);
@@ -2250,6 +2284,7 @@ for (const [round, probe, expected] of PROBES) {
     }
     const reason = check(probe);
     if (expected === HOOK_BLOCKS) assert.ok(reason, "hook should block");
+    else if (expected.splitLoop) assert.match(reason ?? "", /expands to more than 32 variants.*split the loop into smaller loops or list the files explicitly/, expected.splitLoop);
     else if (expected === PASSES) assert.equal(reason, null);
     else if (expected.retired) assert.equal(reason, null, expected.retired);
     else assert.equal(reason, null, `documented residual (${expected.residual}) should stay visible here`);
