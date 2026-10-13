@@ -341,8 +341,8 @@ Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript cont
   (`worker/src/providerSessionLease.ts`; see `docs/provider-session-lease.md`):
   one owner per provider/account/environment session binding, generation
   fencing, bounded renewal, idempotent release and blocking manual-follow-up
-  outcomes, all over opaque references. Its Postgres storage is a proposed
-  migration (`docs/migration-drafts/ovd-462.sql`) awaiting migration window 1,
+  outcomes, all over opaque references. Its Postgres storage is the
+  migration `supabase/migrations/20261012212325_ovd462_provider_session_lease.sql` applied in migration window 1,
   and worker wiring is OVD-464, so no dispatch path evaluates leases yet
 - admission requires the authoritative stored binding, the current service-only
   admission resolver row, rollout control, and permit state to agree; envelope

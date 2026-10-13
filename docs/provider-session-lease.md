@@ -1,10 +1,11 @@
 # Provider session lease (OVD-462)
 
-Status: worker module as-built; database storage **proposed, not applied**.
-The migration needs Blaine's migration window 1 (`blaine-window`). It is
-intentionally outside `supabase/migrations/` and lives at
-[`docs/migration-drafts/ovd-462.sql`](migration-drafts/ovd-462.sql) with its
-[rollback](migration-drafts/ovd-462.rollback.sql).
+Status: worker module as-built; database storage applied in migration window 1
+as version `20261012212325`
+([`supabase/migrations/20261012212325_ovd462_provider_session_lease.sql`](../supabase/migrations/20261012212325_ovd462_provider_session_lease.sql), recorded by #717).
+The expand-phase rollback is kept as the pgTAP fixture
+[`supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc`](../supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc).
+Leases stay off until OVD-464 wires the RPC store into the worker.
 
 ## Purpose
 
@@ -150,9 +151,9 @@ message, because PostgREST details can echo arguments.
 | Implementation | File | Use |
 | --- | --- | --- |
 | In-memory | `worker/src/providerSessionLeaseMemoryStore.ts` | tests and local fakes. It mirrors SQL semantics but is not a cross-process lock |
-| Postgres RPC | `worker/src/providerSessionLeaseRpcStore.ts` | production after migration window 1 |
+| Postgres RPC | `worker/src/providerSessionLeaseRpcStore.ts` | production (RPCs exist since migration window 1; wired by OVD-464) |
 
-The proposed schema has one lease row per generation plus the
+The schema has one lease row per generation plus the
 `provider_session_bindings` registry, which maps each `sessionBindingRef` to
 its key and holds the per-key `next_generation` counter, so generations stay
 strictly increasing after lease history is deleted. On both tables RLS is
@@ -226,13 +227,15 @@ relies on the migration runner's transaction wrapper; by hand, use
     run against the migrated schema. When promoting, keep the fixture as a byte
     copy of the migration (as OVD-684 does), or drop the include and the guard.
 
-## Promotion checklist (migration window 1)
+## Promotion record (migration window 1)
 
-1. `npm run migration:next` and copy `docs/migration-drafts/ovd-462.sql`
-   byte-for-byte to `supabase/migrations/<ts>_ovd462_provider_session_leases.sql`.
-2. Repoint the node-test byte-copy assertion at the migration file.
-3. Apply in the window, run the pgTAP suite, and run the rollback rehearsal
-   (`ovd-462.rollback.sql` then re-apply) on a disposable database first.
-4. OVD-464 wires `createProviderSessionLeaseRpcStore(supabase)` into the worker.
+1. Done: the draft was promoted byte-for-byte to
+   `supabase/migrations/20261012212325_ovd462_provider_session_lease.sql` (#717),
+   and the draft copies were removed.
+2. Done: the node-test byte-copy assertion and `scripts/ovd462-lease-race.mjs`
+   read the migration file; the race test reads the rollback from its pgTAP fixture.
+3. Done: applied in the window. The CI race test rehearses the rollback and
+   re-apply on a scratch database.
+4. Next: OVD-464 wires `createProviderSessionLeaseRpcStore(supabase)` into the worker.
    Operator tooling alone uses `createProviderSessionLeaseOperatorRpcStore`.
    The contract phase (retention and sidecar-lock retirement) is a separate issue.

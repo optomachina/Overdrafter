@@ -7,7 +7,7 @@ import test from 'node:test';
 import { stagePolicyTests, admitCi, admitPgProve, LEGACY } from './run-supabase-policy-tests.mjs';
 import { acceptSameKeyRace, acceptLockTimeout, acceptBindingRace, acceptExpiryRace, acceptRollbackRace, acceptRollbackGuards,
   acceptRevokeThenRollback, acceptRollbackBehindRevoke,
-  callResult, compareCodeUnits, readDraft, readRollback, resolveBinary, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
+  callResult, compareCodeUnits, readMigration, readRollback, resolveBinary, splitRollback, ITERATIONS, MIN_ITERATIONS } from './ovd462-lease-race.mjs';
 const source = fileURLToPath(new URL('../supabase/tests', import.meta.url));
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'ovd-policy-selector-'));
@@ -73,17 +73,16 @@ test('successful pg_prove summary must cover every selected file with real asser
   }
 });
 
-test('OVD-462 pgTAP fixture is a byte copy of the proposed migration draft', () => {
-  // The draft stays outside supabase/migrations until migration window 1; the pgTAP
-  // suite installs this copy in its rolled-back transaction only while the table is absent.
+test('OVD-462 pgTAP fixture is a byte copy of the promoted migration', () => {
+  // Migration window 1 promoted the draft; the pgTAP suite installs this copy in its
+  // rolled-back transaction only while the table is absent.
+  const name = '20261012212325_ovd462_provider_session_lease.sql';
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd462_provider_session_leases.inc')),
-    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.sql', import.meta.url))));
-  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd462_provider_session_leases_rollback.inc')),
-    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.rollback.sql', import.meta.url))));
+    readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url))));
 });
 
 test('OVD-462 rollback refuses to drop occupants before any drop runs', () => {
-  const rollback = readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.rollback.sql', import.meta.url)), 'utf8');
+  const rollback = readFileSync(join(source, 'fixtures/ovd462_provider_session_leases_rollback.inc'), 'utf8');
   const guard = rollback.indexOf("raise exception 'OVD-462 rollback refused");
   assert(guard > 0, 'occupant guard missing');
   assert(rollback.indexOf('\ndrop ') > guard, 'every drop must follow the occupant guard');
@@ -111,12 +110,12 @@ test('OVD-462 race tools resolve to absolute executables or fail clearly', () =>
 const ok = result => ({ result, sqlstate: null, elapsed_ms: 1 });
 const err = (sqlstate, elapsed_ms = 1) => ({ result: null, sqlstate, elapsed_ms });
 const acquired = (generation = 1) => ok({ status: 'acquired', generation, idempotent: false, expires_in_ms: 60000, renewals_remaining: 5 });
-test('OVD-462 race test runs every scenario at least 20 times against the byte-identical draft', () => {
+test('OVD-462 race test runs every scenario at least 20 times against the byte-identical migration', () => {
   for (const count of Object.values(ITERATIONS)) assert(count >= MIN_ITERATIONS);
   assert.deepEqual(Object.keys(ITERATIONS).sort(compareCodeUnits),
     ['binding', 'expiry', 'lockTimeout', 'revokeThenRollback', 'rollback', 'rollbackBehindRevoke', 'sameKey']);
   const root = fileURLToPath(new URL('..', import.meta.url));
-  assert.match(readDraft(root), /create function public\.acquire_provider_session_lease/);
+  assert.match(readMigration(root), /create function public\.acquire_provider_session_lease/);
   const { guard, drops } = splitRollback(readRollback(root));
   assert.match(guard, /raise exception 'OVD-462 rollback refused: provider_session_leases has active or blocked occupants'/);
   assert.match(drops, /^drop function if exists public\.clear_provider_session_binding_block/);

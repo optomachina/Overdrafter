@@ -22,8 +22,8 @@ import {
 } from "./providerSessionLease.js";
 
 /**
- * In-memory ProviderSessionLeaseStore with the same semantics as the proposed
- * SQL RPCs in docs/migration-drafts/ovd-462.sql. Every method reads and writes
+ * In-memory ProviderSessionLeaseStore with the same semantics as the SQL RPCs in
+ * supabase/migrations/20261012212325_ovd462_provider_session_lease.sql. Every method reads and writes
  * without an intervening await, so each call is atomic on the event loop, which
  * mirrors the per-binding advisory lock in Postgres. Intended for tests and
  * local fakes only; it is not a cross-process lock.

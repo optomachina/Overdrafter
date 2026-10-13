@@ -1,9 +1,10 @@
 /**
- * OVD-462 two-connection race test for docs/migration-drafts/ovd-462.sql.
+ * OVD-462 two-connection race test for
+ * supabase/migrations/20261012212325_ovd462_provider_session_lease.sql.
  *
  * pgTAP runs in one session, so it cannot prove that the advisory locks serialize
  * independent connections. This drives two real psql sessions (plus a postgres
- * coordinator) against a scratch database that holds only the draft, releases
+ * coordinator) against a scratch database that holds only the migration, releases
  * both racers from one advisory-lock gate, and checks the outcome and the stored
  * rows after every iteration. The scratch database is dropped afterwards.
  *
@@ -22,10 +23,10 @@ import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PsqlSession, oneJson } from './ovd591-psql-concurrency.mjs';
 
-export const DRAFT_PATH = 'docs/migration-drafts/ovd-462.sql';
+export const MIGRATION_PATH = 'supabase/migrations/20261012212325_ovd462_provider_session_lease.sql';
 export const FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases.inc';
-export const ROLLBACK_PATH = 'docs/migration-drafts/ovd-462.rollback.sql';
-export const ROLLBACK_FIXTURE_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc';
+// The migration window 1 rollback has no copy outside the pgTAP fixture once the draft was promoted.
+export const ROLLBACK_PATH = 'supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc';
 export const DOCKER_IMAGE = 'postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94';
 export const ITERATIONS = Object.freeze({
   sameKey: 30, lockTimeout: 20, binding: 30, expiry: 30, rollback: 20, revokeThenRollback: 20, rollbackBehindRevoke: 20,
@@ -500,10 +501,10 @@ export async function runAgainstSupabase(root, { log = console.log } = {}) {
   const projectId = readFileSync(join(root, 'supabase/config.toml'), 'utf8').match(/^project_id = "([a-z0-9_-]+)"$/m)?.[1];
   assert(projectId, 'project_id missing from supabase/config.toml');
   const container = `supabase_db_${projectId}`;
-  const draft = readDraft(root), rollback = readRollback(root);
+  const migration = readMigration(root), rollback = readRollback(root);
   return withScratchDatabase(container, decodeURIComponent(url.password), (factory, database) => {
     log(`ovd462 race: local Supabase container ${container}, scratch database ${database}`);
-    return runLeaseRaces(factory, draft, rollback, { log });
+    return runLeaseRaces(factory, migration, rollback, { log });
   });
 }
 
@@ -527,10 +528,10 @@ export async function runAgainstDocker(root, { log = console.log } = {}) {
     const setup = psqlFactory(id, 'postgres', password)('setup');
     await setup.request('create role anon nologin; create role authenticated nologin; create role service_role nologin;');
     await setup.close();
-    const draft = readDraft(root), rollback = readRollback(root);
+    const migration = readMigration(root), rollback = readRollback(root);
     return await withScratchDatabase(id, password, (factory, database) => {
       log(`ovd462 race: fixture container ${id} (${DOCKER_IMAGE}), scratch database ${database}`);
-      return runLeaseRaces(factory, draft, rollback, { log });
+      return runLeaseRaces(factory, migration, rollback, { log });
     });
   } finally {
     if (created.container) spawnSync(resolveBinary('docker'), ['rm', '-f', created.container], { encoding: 'utf8' });
@@ -538,15 +539,13 @@ export async function runAgainstDocker(root, { log = console.log } = {}) {
   }
 }
 
-export function readDraft(root) {
-  const draft = readFileSync(join(root, DRAFT_PATH), 'utf8');
-  assert.equal(readFileSync(join(root, FIXTURE_PATH), 'utf8'), draft, 'pgTAP fixture must be a byte copy of the draft');
-  return draft;
+export function readMigration(root) {
+  const migration = readFileSync(join(root, MIGRATION_PATH), 'utf8');
+  assert.equal(readFileSync(join(root, FIXTURE_PATH), 'utf8'), migration, 'pgTAP fixture must be a byte copy of the migration');
+  return migration;
 }
 export function readRollback(root) {
-  const rollback = readFileSync(join(root, ROLLBACK_PATH), 'utf8');
-  assert.equal(readFileSync(join(root, ROLLBACK_FIXTURE_PATH), 'utf8'), rollback, 'pgTAP fixture must be a byte copy of the rollback');
-  return rollback;
+  return readFileSync(join(root, ROLLBACK_PATH), 'utf8');
 }
 
 async function main() {

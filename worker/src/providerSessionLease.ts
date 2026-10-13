@@ -11,7 +11,8 @@ import { VendorAutomationError, type VendorAutomationErrorCode } from "./types.j
  * account, credentials, cookies, storage state and profile paths never reach a
  * permit, task payload, diagnostic or log line. Storage is pluggable: the
  * in-memory store backs tests, and the RPC store targets the service-role-only
- * functions proposed in docs/migration-drafts/ovd-462.sql.
+ * functions in
+ * supabase/migrations/20261012212325_ovd462_provider_session_lease.sql.
  *
  * Lease loss is terminal for the task. Nothing here selects a different
  * session, account or credential source after contention, loss or a blocked

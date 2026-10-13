@@ -19,10 +19,10 @@ import {
 } from "./providerSessionLease.js";
 
 /**
- * ProviderSessionLeaseStore backed by the service-role-only RPCs proposed in
- * docs/migration-drafts/ovd-462.sql. Usable only after that migration is
- * applied (migration window 1); until then every call fails closed through the
- * manager's `unavailable` / unconfirmed paths.
+ * ProviderSessionLeaseStore backed by the service-role-only RPCs in
+ * supabase/migrations/20261012212325_ovd462_provider_session_lease.sql (applied in
+ * migration window 1). Where the RPCs are missing every call fails closed through
+ * the manager's `unavailable` / unconfirmed paths.
  *
  * Worker code gets only `createProviderSessionLeaseRpcStore` (acquire, renew,
  * release, report). Operator revoke/clear live in a separate factory,

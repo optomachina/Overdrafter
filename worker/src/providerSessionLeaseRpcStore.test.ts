@@ -41,10 +41,13 @@ function fixedClient(data: unknown, error: unknown = null) {
   return { client, calls };
 }
 
-const draft = readFileSync(new URL("../../docs/migration-drafts/ovd-462.sql", import.meta.url), "utf8");
+const migration = readFileSync(
+  new URL("../../supabase/migrations/20261012212325_ovd462_provider_session_lease.sql", import.meta.url),
+  "utf8",
+);
 
 describe("provider session lease RPC store", () => {
-  it("calls only RPCs (and parameters) defined by the proposed migration", async () => {
+  it("calls only RPCs (and parameters) defined by the migration", async () => {
     const { client, calls } = fixedClient({ status: "rejected", reason: "not_owner" });
     const store = createProviderSessionLeaseRpcStore(client);
     await store.renew(owned);
@@ -61,7 +64,7 @@ describe("provider session lease RPC store", () => {
     expect(new Set(all.map((c) => c.fn))).toEqual(
       new Set([...Object.values(PROVIDER_SESSION_LEASE_RPCS), ...Object.values(PROVIDER_SESSION_LEASE_OPERATOR_RPCS)]));
     for (const call of all) {
-      const signature = new RegExp(`create function public\\.${call.fn}\\(([^)]*)\\)`).exec(draft);
+      const signature = new RegExp(`create function public\\.${call.fn}\\(([^)]*)\\)`).exec(migration);
       expect(signature, call.fn).not.toBeNull();
       const params = [...signature![1].matchAll(/(p_[a-z_]+)\s/g)].map((m) => m[1]).sort();
       expect(Object.keys(call.args).sort(), call.fn).toEqual(params);
