@@ -1608,6 +1608,25 @@ export function useClientPartController(
     });
   };
 
+  /**
+   * The Xometry fan out marker for one confirmation. An exact replay resends the
+   * marker it first carried, even if fan out has since turned off; otherwise the
+   * marker names exactly the providers this confirmation reaches. `refused` is
+   * set when the scope names other enabled providers but the plan left only
+   * Xometry, which the server refuses beside them.
+   */
+  const resolveXometryFanoutMarker = (
+    uncertainReplay: boolean,
+    send: readonly VendorName[] | undefined,
+  ): { vendors: VendorName[] | null; refused: boolean } => {
+    if (uncertainReplay) {
+      return { vendors: attemptedQuoteRef.current?.input.xometryFanoutVendors ?? null, refused: false };
+    }
+    if (dispatchProvider !== "xometry") return { vendors: null, refused: false };
+    const vendors = getXometryFanoutVendors(send);
+    return { vendors, refused: Boolean(xometryScopeFanoutVendors) && !vendors };
+  };
+
   const handleRequestQuote = async (input: {
     approvalReference: string;
     declaredModelUnits: XometryBetaModelUnits;
@@ -1628,15 +1647,11 @@ export function useClientPartController(
       return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
     }
     const uncertainReplay = isExactUnknownReplay(input);
-    // An exact replay resends the marker it first carried, even if fan out has
-    // since turned off; otherwise the marker names exactly the providers this
-    // confirmation reaches.
-    const xometryFanoutVendors = uncertainReplay
-      ? attemptedQuoteRef.current?.input.xometryFanoutVendors ?? null
-      : dispatchProvider === "xometry" ? getXometryFanoutVendors(fanoutPlan?.send) : null;
-    if (!uncertainReplay && xometryScopeFanoutVendors && !xometryFanoutVendors) {
-      // The scope names other enabled providers, but the plan left only
-      // Xometry; the server refuses Xometry alone beside them.
+    const { vendors: xometryFanoutVendors, refused: isXometryAloneRefused } = resolveXometryFanoutMarker(
+      uncertainReplay,
+      fanoutPlan?.send,
+    );
+    if (isXometryAloneRefused) {
       toast.error(`${dispatchProviderLabel} can take this request only together with another provider right now.`);
       return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
     }
