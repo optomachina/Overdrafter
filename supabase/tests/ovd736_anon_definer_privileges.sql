@@ -9,7 +9,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(105);
+select plan(106);
 
 \set user_a 73600000-0000-4000-8000-000000000001
 \set user_b 73600000-0000-4000-8000-000000000002
@@ -116,6 +116,17 @@ language sql stable set search_path = pg_catalog as $$
         where p.oid = p_sig::regprocedure) e
 $$;
 
+-- Sorted (grantee, privilege, grantable, grantor) entries of a function ACL. The
+-- rollback comparison uses this form so a regrant by a different grantor fails.
+create function pg_temp.ovd736_acl_full(p_sig text) returns text[]
+language sql stable set search_path = pg_catalog as $$
+  select array_agg(e.entry order by e.entry collate "C")
+  from (select case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end
+          || ':' || a.privilege_type || ':' || a.is_grantable || ':' || a.grantor::regrole::text as entry
+        from pg_proc p, aclexplode(p.proacl) a
+        where p.oid = p_sig::regprocedure) e
+$$;
+
 -- Runs p_sql as anon (PostgREST claims, no sub) and returns the row count or the
 -- SQLSTATE it raised. Used to compare anon table reads before and after.
 create function pg_temp.ovd736_anon_outcome(p_sql text) returns text language plpgsql as $$
@@ -191,28 +202,27 @@ from ovd736_target t where has_function_privilege('anon', t.sig, 'EXECUTE') \gse
 -- assumed literal. Once the draft is promoted the prior state no longer exists in
 -- the schema; the only way back to it is the rollback, so in that mode the capture
 -- is taken after the rollback inside a savepoint and (f) degrades to an
--- idempotence check, while the shape assertion below still pins the literal.
+-- idempotence check, while the shape assertion below still pins the literal. The
+-- rollback to the savepoint also drops any temp table created inside it, so the
+-- promoted capture travels out through a psql variable holding JSON.
 create temp table ovd736_prior (sig text primary key, acl text not null, acl_entries text[] not null, config text[]);
+create temp view ovd736_prior_source as
+select t.sig, p.proacl::text as acl, pg_temp.ovd736_acl_full(t.sig) as acl_entries, p.proconfig as config
+from ovd736_target t join pg_proc p on p.oid = t.sig::regprocedure;
 \if :ovd736_install_draft
+insert into ovd736_prior select * from ovd736_prior_source;
 \else
 savepoint ovd736_prior_capture;
 \ir fixtures/ovd736_anon_definer_privileges_rollback.inc
-\endif
-insert into ovd736_prior
-select t.sig, p.proacl::text, pg_temp.ovd736_acl(t.sig), p.proconfig
-from ovd736_target t join pg_proc p on p.oid = t.sig::regprocedure;
-\if :ovd736_install_draft
-\else
-create temp table ovd736_prior_keep as select * from ovd736_prior;
+select json_agg(s)::text as ovd736_prior_json from ovd736_prior_source s \gset
 rollback to savepoint ovd736_prior_capture;
-insert into ovd736_prior select * from ovd736_prior_keep;
+insert into ovd736_prior select * from json_populate_recordset(null::ovd736_prior, :'ovd736_prior_json');
 \endif
 select is((select count(*)::integer from ovd736_prior), 56, 'prior ACL and proconfig captured for all 56 functions');
 select is_empty($$ select sig, acl_entries from ovd736_prior
-  where not (acl_entries @> array['PUBLIC:EXECUTE:false', 'anon:EXECUTE:false',
-      'authenticated:EXECUTE:false', 'postgres:EXECUTE:false', 'service_role:EXECUTE:false']
-    and cardinality(acl_entries) = 5) $$,
-  'every captured prior ACL is exactly PUBLIC, anon, authenticated, postgres and service_role with EXECUTE');
+  where acl_entries is distinct from array['PUBLIC:EXECUTE:false:postgres', 'anon:EXECUTE:false:postgres',
+      'authenticated:EXECUTE:false:postgres', 'postgres:EXECUTE:false:postgres', 'service_role:EXECUTE:false:postgres'] $$,
+  'every captured prior ACL is exactly PUBLIC, anon, authenticated, postgres and service_role with EXECUTE granted by postgres');
 select is((select config from ovd736_prior where sig = 'public.api_invite_project_member(uuid,text,public.project_role)'),
   array['search_path=public, auth'], 'the captured prior api_invite_project_member search_path is public, auth');
 
@@ -528,12 +538,15 @@ select is((select status::text from public.project_invites where token = :'ovd75
 -- fixtures/ovd736_anon_definer_privileges_rollback.inc is a byte copy of
 -- docs/migration-drafts/ovd-736.rollback.sql.
 \ir fixtures/ovd736_anon_definer_privileges_rollback.inc
-select is_empty($$ select r.sig, r.acl_entries, pg_temp.ovd736_acl(r.sig) from ovd736_prior r
-  where pg_temp.ovd736_acl(r.sig) is distinct from r.acl_entries $$,
-  'rollback restores the captured prior ACL entries on all 56 functions');
+select is_empty($$ select r.sig, r.acl_entries, pg_temp.ovd736_acl_full(r.sig) from ovd736_prior r
+  where pg_temp.ovd736_acl_full(r.sig) is distinct from r.acl_entries $$,
+  'rollback restores the captured prior ACL entries, grantor included, on all 56 functions');
 select is_empty($$ select r.sig, r.config, p.proconfig from ovd736_prior r join pg_proc p on p.oid = r.sig::regprocedure
   where p.proconfig is distinct from r.config $$,
   'rollback restores the captured prior proconfig on all 56 functions');
+-- Raw proacl text after this first rollback, for the second round trip below.
+create temp table ovd736_after_rollback as
+select t.sig, p.proacl::text as acl from ovd736_target t join pg_proc p on p.oid = t.sig::regprocedure;
 select ok((select bool_and(has_function_privilege('anon', sig, 'EXECUTE')) from ovd736_target),
   'after rollback anon can execute all 56 again (the pre OVD-736 state)');
 select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),
@@ -546,6 +559,16 @@ select set_eq($$ select sig from pg_temp.ovd736_definers() where authn $$,
   'reapplying the draft after rollback restores the authenticated allowlist');
 select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),
   array['search_path=public, auth, extensions'], 'reapplying the draft restores the OVD-759 search_path');
+-- Raw proacl text is compared only where element order is stable. GRANT appends
+-- entries, so the first round trip reorders the original default ACL; the entry
+-- check above covers it. A second round trip from the same draft state must give
+-- byte identical text.
+savepoint ovd736_second_round_trip;
+\ir fixtures/ovd736_anon_definer_privileges_rollback.inc
+select is_empty($$ select r.sig, r.acl, p.proacl::text from ovd736_after_rollback r join pg_proc p on p.oid = r.sig::regprocedure
+  where p.proacl::text is distinct from r.acl $$,
+  'a second rollback from the reapplied draft gives byte identical proacl text on all 56 functions');
+rollback to savepoint ovd736_second_round_trip;
 
 select * from finish();
 
