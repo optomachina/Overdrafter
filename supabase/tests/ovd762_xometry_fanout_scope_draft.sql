@@ -313,8 +313,8 @@ select throws_ok(
 
 -- ---------------------------------------------------------------- worker preflight
 create temporary table ovd762_worker on commit drop as
-select permit.work_queue_task_id task_id, permit.vendor_quote_result_id result_id, lane.scope_snapshot snapshot,
-  clock_timestamp() claimed_at
+select permit.work_queue_task_id as task_id, permit.vendor_quote_result_id as result_id, lane.scope_snapshot as snapshot,
+  clock_timestamp() as claimed_at
 from private.xometry_beta_dispatch_permits permit
 join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id;
 grant select on ovd762_worker to service_role;
@@ -361,7 +361,9 @@ reset role;
 -- A permit from the single provider path keeps the exact rule at dispatch.
 -- Fixture-only: remove the marker so the same permit reads as single provider.
 alter table private.xometry_beta_fanout_markers disable trigger xometry_beta_fanout_markers_append_only;
-delete from private.xometry_beta_fanout_markers;
+delete from private.xometry_beta_fanout_markers
+where permit_id = (select permit.id from private.xometry_beta_dispatch_permits permit
+  where permit.work_queue_task_id = (select task_id from ovd762_worker));
 alter table private.xometry_beta_fanout_markers enable trigger xometry_beta_fanout_markers_append_only;
 set local role service_role;
 select is(

@@ -63,7 +63,8 @@ test('OVD-762 pgTAP fixtures are byte copies of the Xometry fan out draft and it
   for (const [fixtureName, draftName] of drafts) {
     const draft = readFileSync(fileURLToPath(new URL(`../docs/migration-drafts/${draftName}`, import.meta.url)));
     assert.deepEqual(readFileSync(join(source, 'fixtures', fixtureName)), draft);
-    assert.doesNotMatch(draft.toString('utf8'), /^\s*drop\s/im, `${draftName} must not drop anything`);
+    const drops = draft.toString('utf8').split('\n').filter(line => line.trimStart().toLowerCase().startsWith('drop '));
+    assert.deepEqual(drops, [], `${draftName} must not drop anything`);
   }
   const suite = readFileSync(join(source, 'ovd762_xometry_fanout_scope_draft.sql'), 'utf8');
   assert.match(suite, /\\ir fixtures\/ovd762_xometry_fanout_scope\.inc\n/);
