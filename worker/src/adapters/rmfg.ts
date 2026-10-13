@@ -86,7 +86,11 @@ export function resetRmfgAdapterStateForTests(): void {
 }
 
 const CNC_PATTERN = /\b(?:cnc|mill(?:ing|ed)?|turn(?:ing|ed)?|lathe|machin(?:e|ed|ing)|swiss)\b/i;
-const RMFG_PROCESS_PATTERN = /\b(?:sheet|laser|tube|bend(?:ing)?|brake|form(?:ing|ed)?|weld(?:ing|ed|ment)?|fabricat(?:ion|ed))\b/i;
+const RMFG_PROCESS_PATTERNS = [
+  /\b(?:sheet|laser|tube|brake)\b/i,
+  /\b(?:bend(?:ing)?|form(?:ing|ed)?)\b/i,
+  /\b(?:weld(?:ing|ed|ment)?|fabricat(?:ion|ed))\b/i,
+];
 const NOT_CNC_NOTE = "RMFG builds sheet metal, tube laser, bending and welding parts, not CNC machined parts.";
 
 function normalizedProcess(value: string): string {
@@ -114,7 +118,7 @@ export function evaluateRmfgEligibility(input: {
       note: "RMFG was not asked: the part has no stated process. " + NOT_CNC_NOTE };
   }
   const process = normalizedProcess(input.process);
-  const rmfgProcess = RMFG_PROCESS_PATTERN.test(process);
+  const rmfgProcess = RMFG_PROCESS_PATTERNS.some((pattern) => pattern.test(process));
   if (CNC_PATTERN.test(process) && !rmfgProcess) {
     return { eligible: false, reason: "cnc_only_not_supported", note: `RMFG was not asked: ${NOT_CNC_NOTE}` };
   }
@@ -151,8 +155,10 @@ function checkpointFor(request: RmfgQuoteRequest): "before_navigation" | "before
   return "before_navigation";
 }
 
+type StopOutcome = StopClassification | "daily_cap" | null;
+
 function classifyStop(status: number, body: unknown, blockedBefore: RmfgBlockReason | null,
-  blockedAfter: RmfgBlockReason | null): StopClassification | "daily_cap" | null {
+  blockedAfter: RmfgBlockReason | null): StopOutcome {
   // A latched client answers without a request; report the original block, not a challenge.
   if (blockedBefore === "authorization_required") return { code: "login_required", reason: "rmfg_authorization_required" };
   if (blockedBefore === "rate_limited") return { code: "anti_detection_block", reason: "rmfg_rate_limited" };
@@ -237,7 +243,7 @@ export class RmfgAdapter extends VendorAdapter {
     const transport = this.createTransport(apiKey);
 
     let seamError: { error: unknown } | null = null;
-    let stop: StopClassification | "daily_cap" | null = null;
+    let stop: StopOutcome = null;
     const guarded: RmfgQuoteTransport = async (request) => {
       if (seamError || stop) return { status: 0, body: null };
       try {
@@ -267,7 +273,7 @@ export class RmfgAdapter extends VendorAdapter {
     // Narrowing is lost across the closure, so read the captured values through a cast.
     const capturedSeam = seamError as { error: unknown } | null;
     if (capturedSeam) throw capturedSeam.error;
-    const capturedStop = stop as StopClassification | "daily_cap" | null;
+    const capturedStop = stop as StopOutcome;
     if (capturedStop === "daily_cap") {
       throw refusal("provider_daily_cap_reached",
         `RMFG reached its daily cap of ${RMFG_DAILY_QUOTE_CAP} quotes; nothing was sent.`);
