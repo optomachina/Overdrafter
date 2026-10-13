@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { renderPrBody } from "./render-pr-body.mjs";
-import { validatePrBody } from "./validate-pr-body.mjs";
+import { PROVIDER_GO_LIVE_REQUIRED_ITEMS, validatePrBody } from "./validate-pr-body.mjs";
 
 function buildInput() {
   return {
@@ -129,5 +129,49 @@ describe("renderPrBody", () => {
         summary: [],
       }),
     ).toThrow("summary must be a non-empty string or array");
+  });
+
+  describe("providerGoLive", () => {
+    const evidence = "https://github.com/optomachina/Overdrafter/pull/690";
+    const full = () =>
+      Object.fromEntries(
+        PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [
+          item.id,
+          item.na && item.id === "egress"
+            ? { na: "this stage does not change egress" }
+            : { evidence },
+        ]),
+      );
+
+    it("omits the section unless requested", () => {
+      expect(renderPrBody(buildInput())).not.toContain("Provider go-live");
+    });
+
+    it("emits the Provider go-live section with evidence and N/A items", () => {
+      const rendered = renderPrBody({ ...buildInput(), providerGoLive: full() });
+      expect(rendered).toContain("## Provider go-live");
+      expect(rendered).toContain("### Legal stance");
+      expect(rendered).toContain(`- [x] provider:check green. Evidence: ${evidence}`);
+      expect(rendered).toContain("N/A: this stage does not change egress");
+    });
+
+    it("rejects an unknown item, a missing item, and N/A on a legal stance item", () => {
+      expect(() => renderPrBody({ ...buildInput(), providerGoLive: { bogus: { evidence } } })).toThrow(
+        "providerGoLive.bogus is not a checklist item",
+      );
+      const { "kill-switch": _omitted, ...partial } = full();
+      expect(() => renderPrBody({ ...buildInput(), providerGoLive: partial })).toThrow(
+        "providerGoLive.kill-switch must be an object",
+      );
+      expect(() =>
+        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "kill-switch": { na: "does not apply here" } } }),
+      ).toThrow("N/A is not allowed");
+    });
+
+    it("rejects a non evidence URL", () => {
+      expect(() =>
+        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "provider-check": { evidence: "https://example.test/x" } } }),
+      ).toThrow("add an evidence link");
+    });
   });
 });

@@ -180,7 +180,16 @@ describe("provider registry contract", () => {
         `${key.toUpperCase()}_STORAGE_STATE_SECRET_NAME`,
       ]);
     }
-    expect(byKey.rmfg).toEqual(defaultRegistryEntry("rmfg"));
+    // RMFG declares its API key secret by name only; the adapter stays off until a reviewed edit.
+    expect(byKey.rmfg).toEqual({
+      ...defaultRegistryEntry("rmfg"),
+      adapterKind: "api",
+      sessionSecrets: [{
+        secretNameEnv: "RMFG_API_KEY_SECRET_NAME",
+        mountEnv: "RMFG_API_KEY",
+        requiredWhenListed: true,
+      }],
+    });
   });
 
   it("rejects a manifest without a registry entry and a registry entry without a manifest", async () => {
@@ -267,6 +276,15 @@ const SECRET_VALUE_SHAPES = Object.freeze({
   openai: "sk-abcdefghijklmnopqrstuv",
   entropy: "n7Q2vL9xR4mP8wK3tY6bC1hF5jD0sA2u",
   hex32: "0123456789abcdef0123456789abcdef",
+  hex40: "0123456789abcdef0123456789abcdef01234567",
+  hex64: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  base32: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+  lowerAlnum32: "abcd1234efgh5678ijkl9012mnop3456",
+  lowerAlnum50: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5",
+  awsSecret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  dotted: "Zm9vYmFyQmF6UXV4.Q29ycmVjdEhvcnNl.U3RhcGxlQmF0dGVyeQ",
+  slackBot: "xoxb-123456789012-abcdefghijkl",
+  slackUser: "xoxp-123456789012-abcdefghijkl",
 });
 
 function xometryManualEntry(overrides = {}) {
@@ -582,6 +600,12 @@ describe("provider registry hardening (OVD-727)", () => {
     expect(looksLikeSecretValue("https://www.fictiv.com/help/getting-a-quote/how-do-i-add-finishing-to-my-parts")).toBe(false);
     expect(looksLikeSecretValue("https://help.ponoko.com/en/articles/2688477-what-design-software-file-type-should-i-use")).toBe(false);
     expect(looksLikeSecretValue("FICTIV_STORAGE_STATE_SECRET_NAME")).toBe(false);
+    expect(looksLikeSecretValue("support.quote-portal.example.co.uk")).toBe(false);
+    expect(looksLikeSecretValue("storage-state.json")).toBe(false);
+    expect(looksLikeSecretValue("https://www.xometry.com/capabilities/3d-printing-service/")).toBe(false);
+    expect(looksLikeSecretValue("fictivstoragestatesecretname")).toBe(false);
+    expect(looksLikeSecretValue("aluminum_6061_cnc_milling_maximum_559x356x95.3_mm")).toBe(false);
+    expect(looksLikeSecretValue("a8f3k2_m9x7q1_z4c6v8_b2n5w0_p1o3i7")).toBe(true);
 
     expect(() => validateProviderRegistryEntry({
       key: "geomiq",
@@ -629,5 +653,50 @@ describe("provider registry hardening (OVD-727)", () => {
         xometryManualEntry(),
       ],
     })).toThrow(`collides with another provider mountPath: ${sharedPath}`);
+  });
+});
+
+describe("API providers and adopted adapters", () => {
+  const apiEntry = (overrides = {}) => ({
+    key: "apishop",
+    liveAdapter: false,
+    adapterKind: "api",
+    sessionSecrets: [{
+      secretNameEnv: "APISHOP_API_KEY_SECRET_NAME",
+      mountEnv: "APISHOP_API_KEY",
+      requiredWhenListed: true,
+    }],
+    egress: "none",
+    ...overrides,
+  });
+
+  it("lets an api provider declare its key secret by name before the adapter is live", () => {
+    expect(validateProviderRegistryEntry(apiEntry())).toMatchObject({
+      adapterKind: "api",
+      sessionSecrets: [{ mountEnv: "APISHOP_API_KEY" }],
+    });
+    expect(() => validateProviderRegistryEntry(apiEntry({ adapterKind: undefined }))).toThrow(
+      "must keep sessionSecrets empty while liveAdapter is false",
+    );
+    expect(() => validateProviderRegistryEntry(apiEntry({ adapterKind: "browser" }))).toThrow(
+      "adapterKind is invalid",
+    );
+  });
+
+  it("accepts an adopted adapter only for a live adapter and only under worker/src/adapters", () => {
+    const adopted = { module: "worker/src/adapters/fictiv.ts", defaultDenyTest: "worker/src/adapters/fictiv.test.ts" };
+    expect(validateProviderRegistryEntry(liveRegistry({ adoptedAdapter: adopted })).adoptedAdapter).toEqual(adopted);
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      liveAdapter: false,
+      sessionSecrets: [],
+      egress: "none",
+      adoptedAdapter: adopted,
+    }))).toThrow("only valid when liveAdapter is true");
+    for (const module of ["scripts/evil.ts", "worker/src/adapters/../x.ts", "worker/src/adapters/fictiv.test.ts"]) {
+      expect(() => validateProviderRegistryEntry(liveRegistry({ adoptedAdapter: { module } }))).toThrow();
+    }
+    expect(() => validateProviderRegistryEntry(liveRegistry({
+      adoptedAdapter: { module: adopted.module, defaultDenyTest: "worker/src/adapters/fictiv.ts" },
+    }))).toThrow("defaultDenyTest is invalid");
   });
 });

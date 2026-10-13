@@ -4283,6 +4283,55 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("sends a Xometry fan out request with its marker to the fan out RPC (OVD-762)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestXometryBetaDispatch({
+      jobId: "job-1",
+      declaredModelUnits: "inch",
+      expectedScopeFingerprint: "a".repeat(64),
+      policyRevision: "founding-beta-2026-08-15",
+      approvalReference: "approval-1",
+      fanout: { confirmationReference: "confirmation-1", vendors: ["fictiv", "xometry"] },
+    })).resolves.toMatchObject({ accepted: true, status: "queued" });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_xometry_beta_fanout_dispatch", {
+      p_job_id: "job-1",
+      p_declared_model_units: "inch",
+      p_expected_scope_fingerprint: "a".repeat(64),
+      p_policy_revision: "founding-beta-2026-08-15",
+      p_approval_reference: "approval-1",
+      p_fanout_confirmation_reference: "confirmation-1",
+      p_fanout_vendors: ["fictiv", "xometry"],
+      p_authority_to_share: true,
+      p_non_export_controlled: true,
+      p_quote_only: true,
+    });
+  });
+
+  it("reads a Xometry fan out scope with its marker from the fan out RPC (OVD-762)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: null, error: { message: "xometry_beta_exact_provider_set_required" } });
+
+    await expect(getXometryBetaDispatchScope("job-1", "inch", ["fictiv", "xometry"])).rejects.toBeTruthy();
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_xometry_beta_fanout_dispatch_scope", {
+      p_job_id: "job-1",
+      p_declared_model_units: "inch",
+      p_fanout_vendors: ["fictiv", "xometry"],
+    });
+  });
+
   it("loads and confirms a Fictiv scope only through the generic provider RPCs (OVD-673)", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {

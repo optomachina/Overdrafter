@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 148,
+  "migrationCount": 151,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -151,7 +151,10 @@
     "supabase/migrations/20261011170000_fix_no_drawing_lifecycle.sql",
     "supabase/migrations/20261011180000_ovd673_fictiv_reviewed_dispatch_envelope.sql",
     "supabase/migrations/20261011190000_ovd674_quickparts_reviewed_dispatch_envelope.sql",
-    "supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql"
+    "supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql",
+    "supabase/migrations/20261012212325_ovd462_provider_session_lease.sql",
+    "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql",
+    "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -229,6 +232,21 @@
       "path": "supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql",
       "issue": "OVD-675",
       "sha256": "9b61bd0d78ab9f868c3f316a423dd1ef892b947f9e5f15bf3acd093adf71c2b0"
+    },
+    {
+      "path": "supabase/migrations/20261012212325_ovd462_provider_session_lease.sql",
+      "issue": "OVD-462",
+      "sha256": "9a95f7e38063dd56d50101b1d87efd3e6d70e445c70576eaf0fc7e0b026bf360"
+    },
+    {
+      "path": "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql",
+      "issue": "OVD-723",
+      "sha256": "ed1a2f17e7471a3b32c3e0927421b74191f5aff5fa72477ae959a8b4e7120118"
+    },
+    {
+      "path": "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql",
+      "issue": "OVD-722",
+      "sha256": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13"
     }
   ],
   "baselineSuites": [
@@ -639,6 +657,9 @@
     "supabase/migrations/20261011170000_fix_no_drawing_lifecycle.sql": "d69a7aef3a175f18ca16e789799feb18ce6328ecb110439a8fa59e8a37cfbce9",
     "supabase/migrations/20261011180000_ovd673_fictiv_reviewed_dispatch_envelope.sql": "57c3eed9cdb23c9b071ab5eab7bf9436333d2fc04933beb1c813fe92276bf44e",
     "supabase/migrations/20261011190000_ovd674_quickparts_reviewed_dispatch_envelope.sql": "3ed95f8466d75fe41054f202b625bd23476b07c29d38c06f78c35c37bc8abd08",
-    "supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql": "9b61bd0d78ab9f868c3f316a423dd1ef892b947f9e5f15bf3acd093adf71c2b0"
+    "supabase/migrations/20261011200000_ovd675_weerg_reviewed_dispatch_envelope.sql": "9b61bd0d78ab9f868c3f316a423dd1ef892b947f9e5f15bf3acd093adf71c2b0",
+    "supabase/migrations/20261012212325_ovd462_provider_session_lease.sql": "9a95f7e38063dd56d50101b1d87efd3e6d70e445c70576eaf0fc7e0b026bf360",
+    "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql": "ed1a2f17e7471a3b32c3e0927421b74191f5aff5fa72477ae959a8b4e7120118",
+    "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13"
   }
 }

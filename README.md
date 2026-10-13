@@ -354,6 +354,12 @@ also depends on the `job-archive-fallback` Edge Function being deployed with `SU
 `SUPABASE_SERVICE_ROLE_KEY` so storage cleanup can run through the Storage API when direct
 `storage.objects` deletes are blocked. The primary RPC already clears published-package options
 before deleting jobs, so quoted or published archived parts do not fail on those foreign keys.
+
+Vercel skips preview deploys for agent branches (`claude/**`, `codex/**`, `cursor/**`) through
+`git.deploymentEnabled` in `vercel.json`, because the free plan allows 100 deployments per day and agent pushes
+exhausted it. Main still deploys to production and other branches still get previews. To get a preview of an
+agent branch, push the same commit to a branch with a different name (for example `preview/<topic>`).
+
 Vercel preview or production app deploys do not deploy Supabase Edge Functions automatically, so
 confirm the active Supabase project for `VITE_SUPABASE_URL` also has `job-archive-fallback`
 deployed and configured before treating preview archive-delete failures as app regressions.

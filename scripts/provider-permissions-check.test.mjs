@@ -43,7 +43,8 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
-const EXPECTED_1_0_KEYS = ["xometry", "fictiv", "quickparts", "weerg", "geomiq", "rmfg", "oshcut", "sendcutsend"];
+// Weerg is blocked and RMFG substitutes, so Weerg stays in the matrix as not in 1.0.
+const EXPECTED_1_0_KEYS = ["xometry", "fictiv", "quickparts", "geomiq", "rmfg", "oshcut", "sendcutsend"];
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
@@ -122,7 +123,12 @@ describe("OVD-724 provider permissions matrix lint", () => {
     const { document, schema } = await readRepoMatrix();
     const validated = validatePermissionsMatrixDocument(document, schema);
     const keys = validated.providers.map((row) => row.key);
-    expect(keys).toEqual([...EXPECTED_1_0_KEYS, ...REQUIRED_NOT_1_0_KEYS]);
+    expect([...keys].sort()).toEqual([...EXPECTED_1_0_KEYS, "weerg", ...REQUIRED_NOT_1_0_KEYS].sort());
+    expect(validated.providers.find((row) => row.key === "weerg")).toMatchObject({
+      in_1_0: false,
+      permission_status: "not_in_1_0",
+      enabled_for_paid_automation: false,
+    });
     const protolabs = validated.providers.find((row) => row.key === "protolabs");
     expect(protolabs).toMatchObject({
       in_1_0: false,
@@ -228,17 +234,17 @@ describe("OVD-724 provider permissions matrix lint", () => {
   it("rejects a 1.0 manifest key that is absent from the matrix", async () => {
     const { document, markdown } = await readRepoMatrix();
     const matrix = clone(document);
-    matrix.providers = matrix.providers.filter((row) => row.key !== "weerg");
+    matrix.providers = matrix.providers.filter((row) => row.key !== "oshcut");
     const trimmedMarkdown = markdown
       .split("\n")
-      .filter((line) => !line.startsWith("| weerg "))
+      .filter((line) => !line.startsWith("| oshcut "))
       .join("\n");
     await expect(checkProviderPermissions({
       rootDir: repoRoot,
       today: "2026-10-11",
       matrixDocument: matrix,
       markdown: trimmedMarkdown,
-    })).rejects.toThrow("1.0 provider weerg is missing from the permissions matrix");
+    })).rejects.toThrow("1.0 provider oshcut is missing from the permissions matrix");
   });
 
   it("rejects an enabled_for_paid_automation value that does not match the derivation", async () => {
@@ -586,7 +592,7 @@ describe("OVD-728 derived 1.0 keys", () => {
     expect(() => assertRequiredProviderCoverage(providers, ["protolabs"])).toThrow("protolabs must have in_1_0=true");
   });
 
-  it("fails the lint when weerg is dropped from oneDotZero", async () => {
+  it("fails the lint when a reviewed 1.0 provider is dropped from oneDotZero", async () => {
     const registry = JSON.parse(
       await fs.readFile(path.join(repoRoot, "provider-integrations/provider-registry.v1.json"), "utf8"),
     );
@@ -594,7 +600,8 @@ describe("OVD-728 derived 1.0 keys", () => {
       .filter((row) => row.in_1_0)
       .map((row) => row.key);
     expect(() => assertOneDotZeroMatchesReviewedSet(registry.oneDotZero, reviewed)).not.toThrow();
-    registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "weerg");
+    expect(registry.oneDotZero).not.toContain("weerg");
+    registry.oneDotZero = registry.oneDotZero.filter((key) => key !== "oshcut");
     expect(() => assertOneDotZeroMatchesReviewedSet(registry.oneDotZero, reviewed)).toThrow("reviewed 1.0 set");
     await expect(checkProviderPermissions({
       rootDir: repoRoot,

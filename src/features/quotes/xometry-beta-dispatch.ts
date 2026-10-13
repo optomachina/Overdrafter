@@ -1,4 +1,5 @@
-import type { Json } from "@/integrations/supabase/types";
+import type { Json, VendorName } from "@/integrations/supabase/types";
+import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 
 export type XometryBetaModelUnits = "inch" | "millimeter";
 
@@ -14,6 +15,13 @@ export const LIVE_DISPATCH_PROVIDER_LABELS: Readonly<Record<LiveDispatchProvider
   xometry: "Xometry",
   fictiv: "Fictiv",
 };
+
+/** Label for any dispatch provider, including fan out targets beyond the live pair. */
+export function getDispatchProviderLabel(provider: VendorName): string {
+  return isLiveDispatchProvider(provider)
+    ? LIVE_DISPATCH_PROVIDER_LABELS[provider]
+    : PROVIDER_CATALOG[provider]?.displayName ?? provider;
+}
 
 export function isLiveDispatchProvider(value: unknown): value is LiveDispatchProvider {
   return value === "xometry" || value === "fictiv";
@@ -31,7 +39,7 @@ export type XometryBetaDispatchScope = {
   organizationId: string;
   jobId: string;
   partId: string;
-  provider: LiveDispatchProvider;
+  provider: VendorName;
   requestedQuantity: number;
   scopeVersion: number;
   scopeFingerprint: string;
@@ -41,7 +49,7 @@ export type XometryBetaDispatchScope = {
   envelopeRevision: string;
   scope: {
     schema: "quote-lane-scope.v1";
-    vendor: LiveDispatchProvider;
+    vendor: VendorName;
     quantity: number;
     destination: {
       confirmationRevision: string;
@@ -96,6 +104,7 @@ export type XometryBetaDispatchFailure = {
 export type XometryBetaDispatchDiagnosticCode =
   | "explicit_server_denial"
   | "invalid_server_response"
+  | "local_plan_refusal"
   | "network_failure"
   | "postgrest_failure"
   | "unknown_failure";
@@ -114,11 +123,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function scopeUnavailable(provider: LiveDispatchProvider): TypeError {
-  return new TypeError(`The ${LIVE_DISPATCH_PROVIDER_LABELS[provider]} confirmation scope is unavailable.`);
+function scopeUnavailable(provider: VendorName): TypeError {
+  return new TypeError(`The ${getDispatchProviderLabel(provider)} confirmation scope is unavailable.`);
 }
 
-function requireString(record: Record<string, unknown>, key: string, provider: LiveDispatchProvider): string {
+function requireString(record: Record<string, unknown>, key: string, provider: VendorName): string {
   const value = record[key];
   if (typeof value !== "string" || value.length === 0) {
     throw scopeUnavailable(provider);
@@ -126,7 +135,7 @@ function requireString(record: Record<string, unknown>, key: string, provider: L
   return value;
 }
 
-function requireNumber(record: Record<string, unknown>, key: string, provider: LiveDispatchProvider): number {
+function requireNumber(record: Record<string, unknown>, key: string, provider: VendorName): number {
   const value = record[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw scopeUnavailable(provider);
@@ -134,7 +143,7 @@ function requireNumber(record: Record<string, unknown>, key: string, provider: L
   return value;
 }
 
-function optionalString(record: Record<string, unknown>, key: string, provider: LiveDispatchProvider): string | null {
+function optionalString(record: Record<string, unknown>, key: string, provider: VendorName): string | null {
   const value = record[key];
   if (value === null) return null;
   if (typeof value !== "string") {
@@ -143,7 +152,7 @@ function optionalString(record: Record<string, unknown>, key: string, provider: 
   return value;
 }
 
-function parseFile(value: unknown, provider: LiveDispatchProvider): XometryBetaDispatchFile {
+function parseFile(value: unknown, provider: VendorName): XometryBetaDispatchFile {
   if (!isRecord(value)) {
     throw scopeUnavailable(provider);
   }
@@ -183,7 +192,7 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
  */
 export function parseProviderDispatchScope(
   value: unknown,
-  provider: LiveDispatchProvider,
+  provider: VendorName,
 ): ProviderDispatchScope {
   const p = provider;
   if (!isRecord(value) || !isRecord(value.scope)) {
@@ -307,9 +316,9 @@ export function parseXometryBetaDispatchResult(value: unknown): XometryBetaDispa
 /** Parses either admission path's response; a generic response must name `provider`. */
 export function parseProviderDispatchResult(
   value: unknown,
-  provider: LiveDispatchProvider,
+  provider: VendorName,
 ): XometryBetaDispatchResult {
-  const notQueued = () => new Error(`The ${LIVE_DISPATCH_PROVIDER_LABELS[provider]} quote request was not queued.`);
+  const notQueued = () => new Error(`The ${getDispatchProviderLabel(provider)} quote request was not queued.`);
   if (!isRecord(value) || value.accepted !== true || value.status !== "queued") {
     throw notQueued();
   }

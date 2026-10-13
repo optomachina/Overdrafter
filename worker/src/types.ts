@@ -61,6 +61,9 @@ export const LIVE_AUTOMATION_VENDORS = [
   "geomiq",
   "weerg",
   "protolabsnetwork",
+  // OVD-678: RMFG API adapter, default off (not in the WORKER_LIVE_ADAPTERS
+  // default, envelope unreviewed, admission policy disabled).
+  "rmfg",
 ] as const;
 
 export type LiveAutomationVendorName = (typeof LIVE_AUTOMATION_VENDORS)[number];

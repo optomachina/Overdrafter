@@ -2,18 +2,14 @@
 -- with export-control markings are held for admin review, and every provider
 -- preflight denies without a clean latest declaration.
 --
--- Targets the EXPAND draft docs/migration-drafts/ovd-723.sql (window 1)
+-- Targets the EXPAND migration 20261013043000_ovd723_export_control_upload_block.sql
+-- (window 1, bytes identical to the reviewed draft docs/migration-drafts/ovd-723.sql)
 -- alone. Window 1 changes no existing object: the legacy upload RPCs, the
 -- old Storage INSERT policy, and both preflights keep their behavior, so
 -- this suite checks the grant policy expression and the new worker dispatch
 -- check directly. The server side enforcement added by the contract draft is
 -- covered by ovd723_export_control_contract.sql.pending.
--- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
--- carries a .pending suffix so the policy-test runner stages it but never
--- executes it. In the approved window, the draft is promoted and this file is
--- renamed to supabase/tests/ovd723_export_control_upload_block.sql in the same
--- change. Pre-apply observation: every assertion that references the new
--- functions or tables fails with "does not exist".
+-- The contract draft stays pending until migration window 2.
 --
 -- Acceptance coverage:
 --   1. upload without a declaration is rejected and stores nothing
@@ -1038,7 +1034,7 @@ reset role;
 
 alter table ovd723_ctx add column legacy_job_id uuid, add column first_cleared_block_id uuid,
   add column second_block_id uuid, add column third_block_id uuid;
-update ovd723_ctx set legacy_job_id = '00000000-0000-4000-8000-0000000072d0';
+update ovd723_ctx set legacy_job_id = '00000000-0000-4000-8000-0000000072d0' where true;
 
 insert into public.jobs (id, organization_id, created_by, title)
 select legacy_job_id, organization_id, member_user_id, 'OVD 723 extracted before deploy'
@@ -1280,7 +1276,8 @@ where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'exp
 -- hold the job's scan state, matching the dispatch denial.
 alter table ovd723_ctx add column fresh_job_id uuid, add column replaced_job_id uuid;
 update ovd723_ctx set fresh_job_id = '00000000-0000-4000-8000-0000000072f0',
-  replaced_job_id = '00000000-0000-4000-8000-0000000072f5';
+  replaced_job_id = '00000000-0000-4000-8000-0000000072f5'
+where true;
 
 insert into public.jobs (id, organization_id, created_by, title)
 select job.id, context.organization_id, context.member_user_id, job.title
@@ -1824,7 +1821,8 @@ update ovd723_ctx
 set third_block_id = (
   select block.id from private.job_export_marking_blocks block
   where block.job_file_id = '00000000-0000-4000-8000-0000000072e1' and block.state = 'blocked_pending_review'
-);
+)
+where true;
 
 set local role authenticated;
 select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');

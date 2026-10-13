@@ -31,10 +31,16 @@ capability record in `docs/rmfg-public-capability-recon.md` is unchanged.
 | Daily cap | At most 20 quote attempts (analyze calls) per UTC day, then the client answers as rate limited without a request. The cap must be a finite integer from 1 to 20, or construction throws. The cap and the block latch live in a module level store keyed by provider, so they hold for the whole process across transport instances; a test reset hook clears them. A durable cross process cap belongs to the dispatch layer. |
 | Kill switch hook | An optional `isBlocked` callback, sync or async, is awaited before every request so a later database backed switch can read fresh. It is the seam for the per provider kill switch (OVD-722) and the ITAR/EAR block (OVD-723). Nothing wires it yet. |
 | Tests | `rmfgHttpTransport.test.ts` runs the real client against a local stub HTTP server with synthetic responses. No live call is made. |
+| Adapter | `worker/src/adapters/rmfg.ts` (`RmfgAdapter`, the Weerg substitute for 1.0) wraps the client as a `VendorAdapter`. It reads the key from the `RMFG_API_KEY` environment variable at quote time, only after every gate below passes, and returns a quote only offer. It refuses a part whose stated process is CNC only (`cnc_only_not_supported`), a missing process, or a non STEP file before any request. |
+| Kill switch and export control | Before each request the adapter awaits `providerKillSwitchCheckpoint` (OVD-722: `before_upload` for analyze, `before_configure` for the quote, `before_navigation` otherwise) and, before the upload, `beforeProviderDisclosure` (OVD-723). Both are the input fields those PRs add, so they plug in when they merge. A refusal is rethrown unchanged and no further request is sent. The adapter also refuses an authorization whose envelope lacks the non export controlled affirmation. |
+| Block handling | A 401 is `login_required`; a 403 or a real 429 is `anti_detection_block`; a non JSON answer (a challenge or interstitial page) is `captcha` and latches for the process. All are terminal manual follow up and are never retried. The client's own cap answers as `provider_daily_cap_reached` with no request. |
+| Adapter tests | `rmfg.test.ts` runs the adapter and the real client against a fake fetch: quote success, provider error, challenge, block, rate limit and login (each stops and a fresh adapter sends nothing), kill switch engaged before and during a quote, export control denial, CNC refusal, default off gates, and the daily cap. |
 
-The client is not in `LIVE_AUTOMATION_VENDORS`, the adapter registry, the
-worker config, or any deploy script. Two existing tests pin this
-(`rmfgQuoteTransport.test.ts` and `rmfgSourceEnvelope.test.ts`).
+`rmfg` is in `LIVE_AUTOMATION_VENDORS` and the adapter registry. It stays off
+because it is not in the `WORKER_LIVE_ADAPTERS` default, the RMFG envelope
+(`rmfg-quote-envelope.v1`) is not in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
+and the admission policy is disabled. The transport and envelope tests pin the
+unreviewed envelope; `rmfg.test.ts` pins the default config and registry.
 
 ## Default off switches
 
@@ -47,7 +53,12 @@ A new RMFG quote needs all of these. None is on.
 3. **Rollout and organization enablement.** As for the other providers.
 4. **Registry.** `provider-integrations/provider-registry.v1.json` keeps
    `liveAdapter: false`, `sessionSecrets: []`, `egress: "none"`.
-5. **Worker.** No dispatch path constructs the HTTP client.
+5. **Worker.** `rmfg` must be added to `WORKER_LIVE_ADAPTERS` and
+   `RMFG_API_KEY` mounted. The default is `xometry` only and no deploy script
+   sets either.
+6. **Reviewed dispatch envelope.** `rmfg-quote-envelope.v1` must be added to
+   `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` with its review row. Until then every
+   generic dispatch for RMFG is refused with `provider_envelope_unknown`.
 
 ## Fixture gaps for API providers
 
@@ -96,9 +107,15 @@ Then run `npm run provider:sync`. Never edit the generated files by hand.
 - **Lead time.** The contract reports `leadTimeBusinessDays: null`.
 - **Egress.** RMFG is an HTTP API with a key, not a stable address allow list
   case. Whether RMFG needs a stable address is unknown.
-- **Per provider cap.** The 20 per day cap lives in the client only.
-- **Wiring.** The kill switch and export control callbacks are not connected
-  to the database rows.
+- **Per provider cap.** The 20 per day cap lives in the worker process only.
+  A durable shared cap needs a migration; the draft is
+  `docs/migration-drafts/ovd-678-provider-daily-quote-cap.sql` (not applied).
+- **Wiring.** The kill switch and export control seams are read from the
+  adapter input; they take effect once OVD-722 and OVD-723 set them.
+- **Stock selection.** RMFG needs a catalog stock ID per analyzed part. The
+  adapter reads optional `rmfgSelections` from the requirement spec snapshot;
+  without them a quote ends as manual follow up (`requires_input`) after one
+  capped attempt.
 
 ## Inputs only Blaine can provide
 

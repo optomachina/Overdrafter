@@ -119,7 +119,13 @@ export const PROVIDER_REGISTRY = {
   "rmfg": {
     "key": "rmfg",
     "liveAdapter": false,
-    "sessionSecrets": [],
+    "sessionSecrets": [
+      {
+        "secretNameEnv": "RMFG_API_KEY_SECRET_NAME",
+        "mountEnv": "RMFG_API_KEY",
+        "requiredWhenListed": true
+      }
+    ],
     "egress": "none"
   },
   "sendcutsend": {
