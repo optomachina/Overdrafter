@@ -23,7 +23,9 @@ export type QueueTaskType =
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
-  | "repair_adapter_candidate";
+  | "repair_adapter_candidate"
+  // OVD-723 scan only export marking rescan (expand draft adds the enum value).
+  | "export_marking_rescan";
 
 export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type VendorName =
@@ -312,6 +314,12 @@ export type VendorQuoteAdapterInput = {
   xometryDispatchAuthorization?: XometryDispatchAuthorization;
   /** Required for production generic-provider launches (OVD-381/673); never set by live evaluation. */
   providerDispatchAuthorization?: ProviderDispatchAuthorization;
+  /**
+   * OVD-723: set by withExportControlDispatchRecheck. Adapters await it right
+   * before the first file upload (after navigation and page classification);
+   * it throws when the export-control gate no longer allows the dispatch.
+   */
+  beforeProviderDisclosure?: () => Promise<void>;
 };
 
 export type StagedFile = {

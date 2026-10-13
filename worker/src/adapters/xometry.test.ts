@@ -82,6 +82,8 @@ import {
   runInProviderMutationPhase,
 } from "../providerMutationPhase";
 import { isRetryableVendorTaskError } from "../vendorTaskRetry";
+import { XometryDispatchAuthorizationError } from "../xometryDispatchPreflight";
+import { ExportControlLookupError } from "../exportControl";
 import { OperationalJevSession, OperationalJevObservations } from "../jev/operationalSession";
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
@@ -1523,6 +1525,37 @@ describe("XometryAdapter", () => {
     expect(errors[1]).toEqual(errors[0]); expect(errors[0].code).toBe("navigation_failure");
     expect(decide).not.toHaveBeenCalled(); await observations.drain();
     expect(decide).toHaveBeenCalledOnce(); expect(JSON.stringify(decide.mock.calls)).not.toContain("secret-provider-error");
+  });
+
+  // OVD-723 review round 6: a dispatch decision raised right before the
+  // upload is a hold, not an operational failure, so it never reaches Jev and
+  // is rethrown unchanged, with no file sent.
+  it.each([
+    ["an export gate denial", () => new XometryDispatchAuthorizationError("export_review_pending")],
+    ["a failed export lookup", () => new ExportControlLookupError("dispatch")],
+  ])("does not report %s to Jev as an operational failure", async (_label, makeDecision) => {
+    const workerTempDir = await makeTempDir(); const input = makeInput();
+    const config = makeConfig({ workerTempDir, workerLiveAdapters: ["xometry"],
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"), xometryBrowserEngine: "playwright" });
+    const scope = { organizationId: input.organizationId, quoteRunId: input.quoteRunId, taskId: "task", provider: "xometry" as const, sourceRevision: "a".repeat(40) };
+    const decide = vi.fn(async (q) => ({ model: JEV_MODEL, choice: "expired_session", confidence: 1, inputTokens: 5, outputTokens: 5,
+      probabilities: Object.fromEntries(Object.keys(q.criteria).map((key) => [key, key === "expired_session" ? 1 : 0])) }));
+    const session = new OperationalJevSession({ mode: "shadow", admission: { scope, expiresAt: Date.now() + 60000,
+      uses: ["exception_routing"], evidenceProfiles: ["failure_words.v1"] }, capabilities: { authorize: async () => true,
+      reserve: async () => ({ reservationId: "one", estimatedUsd: 0.1 }), settle: async () => undefined, audit: async () => true, decide } });
+    const observations = new OperationalJevObservations();
+    const setInputFiles = vi.fn();
+    const page = createFakePage({ bodyText: "Quantity: 2", uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-HOLD-0001",
+      selectorBehaviors: { [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles } } });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const decision = makeDecision();
+    const error = await buildAdapterRegistry(config, { session, scope, observations }).xometry!
+      .quote({ ...input, beforeProviderDisclosure: async () => { throw decision; } })
+      .catch((caught: unknown) => caught);
+    expect(error).toBe(decision);
+    expect(setInputFiles).not.toHaveBeenCalled();
+    await observations.drain();
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it("fails closed when a trusted summary has no purchasable option containers", async () => {

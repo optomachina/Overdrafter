@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAdminOperationsHandler, type AdminOperationsRuntime } from "./handler";
-import { projectOperations, type SourceName, type SourceObservation } from "./projection";
+import { EXPORT_CONTROL_FAILURE_CODES, projectOperations, type SourceName, type SourceObservation } from "./projection";
+import { OPERATIONS_TASK_TYPES } from "../../src/features/operations/contract";
 import { createAdminOperationsRuntime, databaseTimestamp } from "./runtime";
 import { withinBudget, readBoundedJson } from "./budget";
 const now = Date.parse("2026-10-02T12:00:00.000Z");
@@ -48,6 +49,22 @@ describe("operations implementation", () => {
     const result = projectOperations({failures:source([queue({status:"failed",provider:"xometry",failureCode:"captcha",failureMessage:"secret"})])},now);
     expect(result.items.find((i) => i.category === "task_failure")).toMatchObject({key:"task_failure:xometry",severity:"attention",occurrenceCount:1});
     expect(JSON.stringify(result)).not.toContain("secret");
+  });
+  // OVD-723 review round 4: one export-control row must not turn the panel malformed.
+  it("projects the export-control rescan task and export-control failure codes", () => {
+    const queued = projectOperations({queue:source([queue({task_type:"export_marking_rescan"})])},now).items.find((i)=>i.category==="queue");
+    expect(queued).toMatchObject({reasonCode:"queued_work",occurrenceCount:1});
+    const codes = ["export_review_pending","export_scan_unread","export_declaration_missing","export_declaration_not_clean",
+      "export_foreign_provider_requires_clean_declaration","export_control_lookup_failed","export_scan_missing"];
+    expect([...EXPORT_CONTROL_FAILURE_CODES].sort()).toEqual([...codes].sort());
+    for (const failureCode of codes) {
+      for (const task_type of ["export_marking_rescan","run_vendor_quote","extract_part"]) {
+        const item = projectOperations({failures:source([queue({status:"failed",task_type,provider:null,failureCode})])},now).items.find((i)=>i.category==="task_failure");
+        expect(item).toMatchObject({reasonCode:"repeated_failures",severity:"attention"});
+      }
+    }
+    expect(OPERATIONS_TASK_TYPES).toContain("export_marking_rescan");
+    expect(projectOperations({failures:source([queue({status:"failed",failureCode:"export_unknown",provider:null})])},now).items.find((i)=>i.category==="task_failure")?.reasonCode).toBe("source_malformed");
   });
   it("keeps uncoded failed evidence unknown and a proven empty failure window healthy", () => {
     expect(projectOperations({failures:source([queue({status:"failed",failureCode:null,provider:null})])},now).items.find((i)=>i.category==="task_failure")?.severity).toBe("unknown");

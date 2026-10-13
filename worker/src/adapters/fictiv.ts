@@ -24,6 +24,7 @@ import { VendorAdapter } from "./base.js";
 import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   buildFinishSearchTerms,
@@ -582,9 +583,10 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
   );
 }
 
-async function setFilesOnUpload(
+export async function setFilesOnUpload(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
+  beforeProviderDisclosure?: () => Promise<void>,
 ) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 30_000;
@@ -600,6 +602,10 @@ async function setFilesOnUpload(
 
       if (count < 1) continue;
 
+      // OVD-723: the export-control gate is asked right before each upload
+      // attempt, outside the per selector try, so a declaration or marking
+      // block that lands while the locator loop waits stops the upload.
+      await beforeProviderDisclosure?.();
       try {
         markProviderMutationStarted();
         await locator.setInputFiles(files);
@@ -1447,7 +1453,7 @@ export class FictivAdapter extends VendorAdapter {
 
     let uploadSelector: string | null = null;
     if (selectedProcessBeforeUpload) {
-      const uploadResult = await setFilesOnUpload(page, uploadFiles);
+      const uploadResult = await setFilesOnUpload(page, uploadFiles, input.beforeProviderDisclosure);
       uploadSelector = uploadResult.selector;
       await appendArtifacts(artifacts, page, runDir, "uploaded");
       await detectBlockingState(page, runDir);
@@ -1843,6 +1849,10 @@ export class FictivAdapter extends VendorAdapter {
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
         traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
+      }
+
+      if (isDispatchDecisionError(error)) {
+        throw error;
       }
 
       if (error instanceof VendorAutomationError) {
