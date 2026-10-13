@@ -25,6 +25,8 @@ export const BUILDER_IMAGE = "gcr.io/cloud-builders/docker";
 export const PLATFORM = "linux/amd64";
 export const RUNTIME_USER = "pwuser";
 
+// Absolute path, matching the other repository scripts, so PATH cannot pick the binary.
+const GIT_BIN = "/usr/bin/git";
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const CAMOUFOX_VERSION_PATH = "/home/pwuser/.cache/camoufox/version.json";
@@ -374,7 +376,7 @@ node scripts/run-ovd419-final-digest-release.mjs --plan-stdin < ${shellDouble(bu
 
 function defaultGit(cwd) {
   return (args, options = {}) =>
-    execFileSync("git", args, {
+    execFileSync(GIT_BIN, args, {
       cwd,
       maxBuffer: 512 * 1024 * 1024,
       encoding: options.encoding ?? "utf8",
