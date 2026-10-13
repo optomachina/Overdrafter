@@ -1114,7 +1114,7 @@ const ROUND_20 = String.raw`
 block fixture:gitup | git push origin feature/u
 block fixture:gitup | git push -u origin heads/feature/u
 block fixture:gitup | git push -u origin refs/heads/feature/u
-block fixture:gitup | git push origin +feature/u
+block fixture:gitup (conservative: git does not map a + prefixed refspec, so this goes to feature/u; the guard blocks anyway) | git push origin +feature/u
 block fixture:gitup | git push -u origin "$(git branch --show-current)"
 block fixture:gitup | git -c push.default=tracking push origin feature/u
 pass fixture:gitup | git push -u origin HEAD:feature/u
@@ -1145,7 +1145,7 @@ pass fixture:gitlivefeat | git push origin feature/x:feature/x
 block fixture:gitlive | ROOT=$PWD && cd .claude/worktrees/w1 && cd "$ROOT" && git push origin HEAD
 block fixture:gitlive | ROOT="$PWD"; cd .claude/worktrees/w1; cd "$ROOT"; git push -u origin HEAD
 block fixture:gitlive | ROOT=$\{PWD}; cd .claude/worktrees/w1 && cd $\{ROOT} && git push -u origin HEAD
-residual fixture:gitlive (a relative .. past an unresolved directory part cancels it, pre-existing) | ROOT=$PWD/.claude && cd .claude/worktrees/w1 && cd "$ROOT/.." && git push origin HEAD
+block fixture:gitlive | ROOT=$PWD/.claude && cd .claude/worktrees/w1 && cd "$ROOT/.." && git push origin HEAD
 pass fixture:gitlive | ROOT=$PWD && cd .claude/worktrees/w1 && git push origin HEAD
 pass fixture:gitlivefeat | cd "$PWD" && git push origin HEAD
 pass fixture:gitlivefeat | ROOT=$PWD && git push origin HEAD
@@ -1163,6 +1163,59 @@ pass fixture:gitlivefeat | git -c remote.origin.mirror=false push
 block fixture:gitlive | git checkout -b feature/n && git -c remote.origin.mirror=true push
 # The required passes, also with the round 20 fixtures in place.
 pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+pass fixture:gitlive | git push --dry-run origin HEAD:main
+pass fixture:gitlive | git push --tags
+`;
+
+// Round 21 is PR round 8.
+const ROUND_21 = String.raw`
+# 1. A variable assigned from $PWD or $OLDPWD keeps its literal suffix: the directory part becomes an unresolved
+# placeholder, so a cd to it stays unresolved while supabase/migrations, .claude/hooks and tools/guardrails still match.
+block | MIG="$PWD/supabase/migrations"; cat > "$MIG/20261013000000_x.sql" <<EOF⏎create table t();⏎EOF
+block | MIG="$\{PWD}/supabase/migrations"; tee "$MIG/x.sql" < /tmp/a
+block | MIG="$PWD/supabase/migrations"; sed -i s/a/b/ "$MIG/x.sql"
+block | D=$PWD/supabase/migrations; cp /tmp/x.sql "$D/"
+block | ROOT=$PWD/supabase; cd "$ROOT" && echo x > migrations/x.sql
+block | G=$PWD/.claude/hooks; echo x > "$G/guard-migrations.mjs"
+block | T=$PWD/tools/guardrails; node "$T/apply.mjs"
+block | MIG=$OLDPWD/supabase/migrations; echo x > "$MIG/x.sql"
+pass | D=$PWD/docs; echo x > "$D/notes.md"
+# 2. The contents API writes a branch: a PUT or DELETE blocks when the branch is main or master or is omitted (the default
+# branch); an explicit feature branch passes. The git refs API keeps blocking a write of refs/heads/main.
+block | gh api -X PUT repos/o/r/contents/docs/new.md -f branch=main -f message=update -f content=eA==
+block | gh api -X PUT repos/o/r/contents/docs/new.md -f message=update -f content=eA==
+block | gh api -X PUT repos/o/r/contents/docs/new.md -F branch=refs/heads/main -f message=update -f content=eA==
+block | gh api --method=PUT repos/o/r/contents/docs/new.md -f branch=master -f message=update -f content=eA==
+block | gh api -X DELETE repos/o/r/contents/docs/old.md -f sha=abc -f message=remove
+block | gh api -X DELETE repos/o/r/contents/docs/old.md -f sha=abc -f message=remove -f branch=main
+block | gh api -X PUT repos/o/r/contents/docs/new.md -f branch=$B -f message=update -f content=eA==
+block | gh api -X PUT repos/o/r/contents/docs/new.md --input /tmp/guard-missing-body.json
+block | gh api -X PUT repos/o/r/contents/supabase/migrations/x.sql -f branch=feature/x -f message=x -f content=eA==
+block | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":"main"}'
+block | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA=="}'
+block | gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc
+block | gh api -X POST repos/o/r/git/refs -f ref=refs/heads/main -f sha=abc
+pass | gh api -X PUT repos/o/r/contents/docs/new.md -f branch=feature/x -f message=update -f content=eA==
+pass | gh api -X DELETE repos/o/r/contents/docs/old.md -f sha=abc -f message=remove -f branch=feature/x
+pass | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":"feature/x"}'
+pass | gh api repos/o/r/contents/docs/new.md
+pass | gh api "repos/o/r/contents/docs/new.md?ref=main"
+pass | gh api -X PATCH repos/o/r/git/refs/heads/feature/x -f sha=abc
+# 3. A .. after an unresolved directory part keeps the directory unresolved, so a push of the current branch fails closed.
+block fixture:gitlive | ROOT=$PWD/sub && cd ../gitlivefeat && cd "$ROOT/.." && git push origin HEAD
+block fixture:gitlivefeat | cd "$NOPE/.." && git push origin HEAD
+block fixture:gitlivefeat | cd "$(pwd)/.." && cd gitlive && git push origin HEAD
+block fixture:gitlivefeat | pushd && cd .. && git push origin HEAD
+block | echo x > "$X/../supabase/migrations/x.sql"
+pass fixture:gitlivefeat | cd "$PWD/.." && cd gitlivefeat && git push origin HEAD
+pass fixture:gitlive | cd ../gitlivefeat/sub/.. && git push origin HEAD
+# The required passes, also with the round 21 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
 pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
 pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
 pass fixture:gitlive | git push --dry-run origin HEAD:main
@@ -1694,6 +1747,7 @@ const PROBES = [
   ...tableRows(18, ROUND_18),
   ...tableRows(19, ROUND_19),
   ...tableRows(20, ROUND_20),
+  ...tableRows(21, ROUND_21),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

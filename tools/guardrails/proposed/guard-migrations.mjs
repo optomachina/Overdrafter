@@ -54,11 +54,14 @@
  *   passes and everything else fails closed. A refspec with no colon that
  *   names a local branch is mapped as git maps it (remote.<name>.push, then
  *   push.default upstream through branch.<name>.merge), and a push with no
- *   refspec to a remote with remote.<name>.mirror true blocks. A variable
- *   assigned from $PWD stays unresolved. A dry run and tags only pass.
+ *   refspec to a remote with remote.<name>.mirror true blocks. In a variable
+ *   assigned from $PWD or $OLDPWD that directory becomes an unresolved
+ *   placeholder and the rest of the path is kept, and a .. after an
+ *   unresolved part keeps it unresolved. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
- *   and the GIT_CONFIG environment are expanded. Also the merges API and
- *   writes to the main ref;
+ *   and the GIT_CONFIG environment are expanded. Also the merges API,
+ *   writes to the main ref, and contents API writes to main, master or an
+ *   unnamed (default) branch;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -328,6 +331,8 @@ function parse(src) {
  * reference. Arrays, substitutions and quoted or escaped values are not
  * recorded, so references to them stay unresolved.
  */
+const PWD_REF = /\$(?:\{((?:OLD)?PWD)\}|((?:OLD)?PWD)(?!\w))/g;
+
 function expandVars(src) {
   const vars = Object.create(null);
   const ref = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
@@ -335,10 +340,11 @@ function expandVars(src) {
   return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
     if (name !== undefined) {
       const raw = value.replace(/(^["'])|(["']$)/g, "");
-      // A value that names $PWD or $OLDPWD is the directory at the time of the assignment, which a later cd cannot know
-      // from the text, so it stays unresolved.
-      if (/(^\()|\$\(|[`"'\\]|\$(\{(OLD)?PWD\}|(OLD)?PWD(?!\w))/.test(raw)) delete vars[name];
-      else vars[name] = raw.replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
+      // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the
+      // text. It becomes a placeholder that still holds $, so a cd to the value stays unresolved while the literal
+      // segments after it (supabase/migrations, .claude/hooks) are still checked.
+      if (/(^\()|\$\(|[`"'\\]/.test(raw)) delete vars[name];
+      else vars[name] = raw.replace(PWD_REF, (seen, braced, bare) => `$__${braced ?? bare}_AT_ASSIGN`).replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
       return all;
     }
     return vars[braced ?? bare] ?? all;
@@ -412,12 +418,16 @@ const inMigrations = (segs) => pairAt(segs, "supabase", ["migrations"]);
 const inGuardFiles = (segs) => pairAt(segs, ".claude", ["hooks", "settings.json", "settings.local.json"]);
 const inGuardrails = (segs) => pairAt(segs, "tools", ["guardrails"]);
 
+const unresolvedPart = (part = "") => part.includes("$") || part.includes(SUB);
+
 function changeDir(dir, target) {
   if (!target || target === "-" || target.startsWith("~")) return dir;
   const next = target.startsWith("/") ? [] : [...dir];
   for (const part of target.split("/")) {
-    if (part === "..") next.pop();
-    else if (part && part !== ".") next.push(part);
+    // A .. after an unresolved part could go anywhere, so the unresolved part stays and the directory stays unresolved.
+    if (part === "..") {
+      if (!unresolvedPart(next.at(-1))) next.pop();
+    } else if (part && part !== ".") next.push(part);
   }
   return next;
 }
@@ -1139,11 +1149,25 @@ function mergeTarget(argv, env, dir) {
   return null;
 }
 
-/** Block reason for a REST call that merges branches or writes the main ref. Agents never push to main. */
+/**
+ * Block reason for a contents API write by the branch it commits to: main or master, a branch the body does not name
+ * (the default branch), or one that cannot be read. An explicit other branch passes.
+ */
+function contentsBranchReason(body) {
+  if (body === null) return "a contents API write whose body cannot be read; failing closed";
+  const branches = [...body.matchAll(/(?:^|\n)branch=([^\n]*)|"branch"\s*:\s*"([^"]*)"/g)].map((m) => m[1] ?? m[2]);
+  if (branches.length === 0) return "a contents API write that names no branch commits to the default branch; agents never push to main";
+  if (branches.some((b) => b.includes("$") || b.includes(SUB))) return "a contents API write to a branch that cannot be read; failing closed";
+  if (branches.some((b) => /^(refs\/)?(heads\/)?(main|master)$/.test(b))) return "a contents API write to the main branch; agents never push to main";
+  return null;
+}
+
+/** Block reason for a REST call that merges branches, writes the main ref, or commits to main through the contents API. Agents never push to main. */
 function branchWriteReason(route, method, body) {
   if (method === "GET" || method === "HEAD") return null;
   const path = route.replace(/^\w+:\/\/[^/]+/, "").replace(/^\/+/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
   if (/^repos\/[^/]+\/[^/]+\/merges$/.test(path)) return "the merges API merges one branch into another; agents never merge";
+  if (/^repos\/[^/]+\/[^/]+\/contents\/./.test(path) && (method === "PUT" || method === "DELETE")) return contentsBranchReason(body);
   const ref = /^repos\/[^/]+\/[^/]+\/git\/refs(?:\/(.*))?$/.exec(path);
   if (!ref) return null;
   if (/^(refs\/)?heads\/(main|master)$/.test(ref[1] ?? "")) return "writes the main branch ref; agents never push to main";
