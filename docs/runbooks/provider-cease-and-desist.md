@@ -10,7 +10,7 @@ Target: 1 hour, no deploy, **pending OVD-722** (until the kill switch ships, fol
 
 Turn the named provider off **within 1 hour** of receiving a cease-and-desist,
 by flipping the OVD-722 config switch. The flip needs **no deploy**. Latency is
-the next preflight or worker check, typically a few seconds. There is no cache.
+the next worker check, typically a few seconds. There is no cache.
 
 Until OVD-722 lands, the command and RPC below are the planned interface from
 that issue's design. Do not invent a second switch.
@@ -43,13 +43,21 @@ Confirm immediately:
 
 1. The admin page shows that provider engaged, with actor, timestamp, and reason.
 2. `private.provider_kill_switch_audit` gained a row in the same transaction.
-3. The next `api_authorize_provider_worker_dispatch` (and the Xometry preflight)
-   returns `provider_kill_switch_engaged`. That deny is terminal and not retryable.
+3. A new dispatch request for that provider is refused with
+   `provider_kill_switch_engaged` (the permit insert is blocked). That deny is
+   terminal and not retryable. The server preflights themselves are unchanged
+   in window 1; the worker check below is what stops running work.
 4. The worker re-check `api_worker_provider_kill_switch_state` refuses before
    browser launch, navigation, upload, or API call. Queued tasks end
    `cancelled_provider_disabled`.
 5. Other providers continue unless the global switch was used.
 6. Customers see "provider temporarily unavailable".
+
+Operator live tools do not read the switch. `npm --prefix worker run
+eval:live-provider`, `smoke:vendor-workflow`, `sweep:xometry-quantity` and
+`sweep:fictiv-quantity` open the provider directly and have no database client,
+so engaging the switch does not stop them. While a provider is engaged or under
+a C&D, do not run any of them for that provider, and stop any that are running.
 
 No deploy, no admission-policy edit, and no envelope withdrawal is required for
 the emergency stop. Envelope withdrawal remains the durable follow-up.

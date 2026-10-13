@@ -1,5 +1,6 @@
 import { VendorAutomationError } from "./types.js";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight.js";
+import { ProviderKillSwitchError } from "./providerKillSwitch.js";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight.js";
 import {
   ExportControlDrawingUnreadError,
@@ -41,6 +42,10 @@ export function failureCodeForError(error: unknown) {
 
   if (error instanceof ProviderDispatchAuthorizationError) {
     return error.denial;
+  }
+
+  if (error instanceof ProviderKillSwitchError) {
+    return error.reasonCode;
   }
 
   if (error instanceof VendorAutomationError) {
@@ -94,6 +99,10 @@ export function isRetryableVendorTaskError(
   // preflight; retried like an unavailable preflight, on the finite schedule.
   if (error instanceof ExportControlLookupError) {
     return true;
+  }
+
+  if (error instanceof ProviderKillSwitchError) {
+    return error.retryable;
   }
 
   if (error instanceof VendorAutomationError) {

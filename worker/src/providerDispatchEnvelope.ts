@@ -86,6 +86,8 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "preflight_unavailable",
   // OVD-723: terminal export-control denials from the preflight wrappers.
   ...EXPORT_CONTROL_DENIAL_CODES,
+  // OVD-722: the provider or global kill switch is engaged. Terminal.
+  "provider_kill_switch_engaged",
 ] as const;
 
 export type ProviderDispatchDenialCode = (typeof PROVIDER_DISPATCH_DENIAL_CODES)[number];

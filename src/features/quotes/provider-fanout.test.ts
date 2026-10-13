@@ -281,6 +281,7 @@ describe("runProviderFanout", () => {
 
   it("maps worker guard denials to skip reasons", () => {
     expect(getFanoutDenialSkipReason(new Error("provider_disabled"))).toBe("kill_switch");
+    expect(getFanoutDenialSkipReason({ message: "provider_kill_switch_engaged", code: "P0001" })).toBe("kill_switch");
     expect(getFanoutDenialSkipReason({ message: "export_control_blocked" })).toBe("export_control");
     expect(getFanoutDenialSkipReason({ message: "provider_daily_cap_reached" })).toBe("daily_cap");
     expect(getFanoutDenialSkipReason({ message: "xometry_beta_scope_changed" })).toBe("scope_changed");

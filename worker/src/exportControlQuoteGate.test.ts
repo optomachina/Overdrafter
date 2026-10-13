@@ -85,6 +85,10 @@ function database(options: {
       data = options.spendAllowed === false
         ? { allowed: false, reason: "Daily cap reached.", reasonCode: "daily_cap" }
         : { allowed: true, reservationId: "reservation-1" };
+    } else if (name === "api_worker_provider_kill_switch_state") {
+      // OVD-722: the kill switch is disengaged here; this file tests the export gate.
+      data = { schema: "provider-kill-switch-state.v1", provider: (args as { p_provider: string }).p_provider,
+        engaged: false, globalEngaged: false };
     } else if (name === "api_record_export_control_clean_scan") {
       data = "scan-1";
     } else if (name === "api_get_worker_sourcing_intent") {

@@ -8,6 +8,15 @@ import { buildProviderDispatchFixtureEnvelope, providerDispatchFixtureAuthorizat
 import { loadConfig } from "../config";
 import { sha256File } from "../liveEvaluationFiles";
 import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
+import {
+  createProviderKillSwitchGuard,
+  guardProviderQuote,
+  PROVIDER_KILL_SWITCH_ENGAGED,
+  PROVIDER_KILL_SWITCH_STATE_SCHEMA,
+  PROVIDER_KILL_SWITCH_UNAVAILABLE,
+  ProviderKillSwitchError,
+  type ProviderKillSwitchReader,
+} from "../providerKillSwitch";
 import { LIVE_AUTOMATION_VENDORS, VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
 import { buildAdapterRegistry } from "./index";
 import {
@@ -258,5 +267,68 @@ describe("RMFG live adapter", () => {
       WORKER_MODE: "live" } as NodeJS.ProcessEnv);
     expect(defaults.workerLiveAdapters).not.toContain("rmfg");
     expect(Object.keys(buildAdapterRegistry(defaults))).not.toContain("rmfg");
+  });
+});
+
+// OVD-722 through the real guard: the same guardProviderQuote wrapping the
+// generic dispatch route puts around a live adapter, with a synthetic reader.
+function killSwitchState(engaged: boolean, globalEngaged = false) {
+  return { schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider: "rmfg", engaged, globalEngaged };
+}
+
+function guardedRmfgQuote(fetchImpl: typeof fetch, reader: ProviderKillSwitchReader) {
+  const adapter = adapterWith(fetchImpl);
+  const launched = vi.fn();
+  const quote = guardProviderQuote(createProviderKillSwitchGuard(reader, "rmfg"), (input) => adapter.quote(input), launched);
+  return { quote, launched };
+}
+
+describe("RMFG live adapter behind the provider kill switch guard (OVD-722)", () => {
+  it("refuses before launch with no request when the RMFG switch is engaged", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const reader = vi.fn(async () => killSwitchState(true));
+    const { quote, launched } = guardedRmfgQuote(fetchImpl, reader);
+    const error = await quote(await authorizedInput()).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderKillSwitchError);
+    expect(error).toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_ENGAGED, provider: "rmfg", checkpoint: "before_launch" });
+    expect(launched).not.toHaveBeenCalled();
+    expect(reader).toHaveBeenCalledWith("rmfg");
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses before launch with no request when the global switch is engaged", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const { quote } = guardedRmfgQuote(fetchImpl, async () => killSwitchState(false, true));
+    const error = await quote(await authorizedInput()).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_ENGAGED, checkpoint: "before_launch" });
+    expect(calls).toEqual([]);
+  });
+
+  it("fails closed with no request when the switch state cannot be read", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const { quote } = guardedRmfgQuote(fetchImpl, async () => { throw new Error("synthetic rpc outage"); });
+    const error = await quote(await authorizedInput()).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_UNAVAILABLE, retryable: true, checkpoint: "before_launch" });
+    expect(calls).toEqual([]);
+  });
+
+  it("stops before the next RMFG request when the switch engages mid quote", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    let reads = 0;
+    // Launch, before_navigation, before_upload (analyze), before_navigation (materials) pass; the next read is engaged.
+    const { quote, launched } = guardedRmfgQuote(fetchImpl, async () => killSwitchState(++reads > 4));
+    const error = await quote(await authorizedInput()).catch((caught: unknown) => caught);
+    expect(launched).toHaveBeenCalledTimes(1);
+    expect(error).toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_ENGAGED, checkpoint: "before_configure" });
+    expect(calls).toEqual(["/v1/analyze", "/v1/materials"]);
+  });
+
+  it("runs to a quote when every read is disengaged", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const reader = vi.fn(async () => killSwitchState(false));
+    const { quote } = guardedRmfgQuote(fetchImpl, reader);
+    await expect(quote(await authorizedInput())).resolves.toMatchObject({ vendor: "rmfg", status: "instant_quote_received" });
+    expect(reader).toHaveBeenCalledTimes(5);
+    expect(calls).toEqual(["/v1/analyze", "/v1/materials", "/v1/quotes"]);
   });
 });

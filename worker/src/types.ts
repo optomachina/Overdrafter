@@ -323,6 +323,14 @@ export type VendorQuoteAdapterInput = {
    * it throws when the export-control gate no longer allows the dispatch.
    */
   beforeProviderDisclosure?: () => Promise<void>;
+  /**
+   * OVD-722 kill-switch checkpoint bound by the production dispatch path.
+   * Adapters call it before each provider-facing navigation or mutation; it
+   * rejects (fail-closed) when the switch is engaged or unreadable.
+   */
+  providerKillSwitchCheckpoint?: (
+    checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
+  ) => Promise<void>;
 };
 
 export type StagedFile = {

@@ -843,16 +843,23 @@ describe("export-control extraction check (no CAD or drawing to a model without 
 });
 
 describe("OVD-723 migration draft", () => {
-  it("is a draft, not an applied migration", () => {
+  // Window 1 (#728) applied the expand byte identical to this draft; the
+  // contract stays a draft until its own window.
+  it("applies only the expand, byte identical to the reviewed draft", () => {
     expect(draft.startsWith("-- =")).toBe(true);
     expect(draft).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
     expect(draft).toMatch(/-- WINDOW 1: EXPAND [\s\S]*-- ROLLBACK/);
     expect(contract).toContain("NEEDS BLAINE MIGRATION WINDOW - not applied");
     expect(draft).not.toMatch(/PHASE [12]/);
     const migrationsDir = new URL("../../supabase/migrations/", import.meta.url);
+    const declaring: string[] = [];
     for (const name of readdirSync(migrationsDir)) {
-      expect(readFileSync(new URL(name, migrationsDir), "utf8")).not.toContain("job_export_declarations");
+      const sql = readFileSync(new URL(name, migrationsDir), "utf8");
+      if (sql.includes("job_export_declarations")) declaring.push(name);
+      expect(sql).not.toContain("OVD-723 contract refused: apply the OVD-723 expand migration first");
     }
+    expect(declaring).toEqual(["20261013043000_ovd723_export_control_upload_block.sql"]);
+    expect(readFileSync(new URL(declaring[0], migrationsDir), "utf8")).toBe(draft);
   });
 
   it("returns every worker export code and nothing else from the gate", () => {
@@ -1528,8 +1535,11 @@ describe("OVD-723 review round 3: point in time checks", () => {
     expect(xometry).toContain("if (dispatchDecisionError) throw dispatchDecisionError;");
     const fictiv = readFileSync(new URL("./adapters/fictiv.ts", import.meta.url), "utf8");
     const upload = fictiv.slice(fictiv.indexOf("async function setFilesOnUpload("));
-    expect(upload.indexOf("await beforeProviderDisclosure?.();")).toBeLessThan(upload.indexOf("markProviderMutationStarted();"));
-    expect(fictiv).toContain("await setFilesOnUpload(page, uploadFiles, input.beforeProviderDisclosure);");
+    // OVD-722 merge: setFilesOnUpload takes one beforeMutation callback that
+    // reads the kill switch and then asks the export-control gate.
+    expect(upload.indexOf("await beforeMutation();")).toBeGreaterThan(-1);
+    expect(upload.indexOf("await beforeMutation();")).toBeLessThan(upload.indexOf("markProviderMutationStarted();"));
+    expect(fictiv).toContain("uploadFiles,\n        async () => {\n          await input.providerKillSwitchCheckpoint?.(\"before_upload\");\n          await input.beforeProviderDisclosure?.();\n        },\n      );");
     expect(fictiv).toContain("if (isDispatchDecisionError(error)) {\n        throw error;");
   });
 
