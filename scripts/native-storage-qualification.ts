@@ -28,7 +28,7 @@ export const PROBE_CHECKS = ['privateBucket', 'emptyOwnedTarget', 'createOnlyRac
   'crossObjectVersionDenied', 'changedByteReplayPreservesOriginal'] as const;
 const NOT_COVERED = ['staleVersionDenied', 'generationChangesDuringRead', 'responseLossReplay',
   'redirectCompressionPartialTimeout', 'productDriverExactRead', 'productDriverCreateConflict', 'artifactRouteHttps'];
-const keys = ['owner', 'probeId', 'storageOrigin', 'bucket', 'sourceSha', 'syntheticOnly', 'existingPrivateBucket'];
+const keys = new Set(['owner', 'probeId', 'storageOrigin', 'bucket', 'sourceSha', 'syntheticOnly', 'existingPrivateBucket']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function assert(value: unknown): asserts value { if (!value) throw new Error('Storage probe admission rejected.'); }
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -37,7 +37,7 @@ const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
 export function validateStorageProbeAdmission(a: StorageProbeAdmission) {
   assert(a !== null && typeof a === 'object' && !Array.isArray(a));
   // Unknown fields are refused so nothing secret is copied into a printed plan.
-  assert(Object.keys(a).length === keys.length && Object.keys(a).every(key => keys.includes(key)));
+  assert(Object.keys(a).length === keys.size && Object.keys(a).every(key => keys.has(key)));
   assert(typeof a.storageOrigin === 'string');
   const origin = new URL(a.storageOrigin);
   assert(origin.protocol === 'https:' && !origin.username && !origin.password && origin.pathname === '/'
@@ -124,9 +124,8 @@ export function renderStorageProbePlan(plan: StorageProbePlan): string {
   return lines.join('\n');
 }
 
+// The admission JSON arrives on stdin, so the script opens no file path of its own.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const file = process.argv[2];
-  if (!file) { console.error('usage: node --experimental-strip-types scripts/native-storage-qualification.ts <admission.json> [--json]'); process.exit(2); }
-  const plan = buildStorageProbePlan(JSON.parse(readFileSync(file, 'utf8')) as StorageProbeAdmission);
+  const plan = buildStorageProbePlan(JSON.parse(readFileSync(0, 'utf8')) as StorageProbeAdmission);
   console.log(process.argv.includes('--json') ? JSON.stringify(plan, null, 2) : renderStorageProbePlan(plan));
 }

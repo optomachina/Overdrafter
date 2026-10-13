@@ -26,12 +26,13 @@ The operator writes an admission JSON with exactly these fields:
 | `syntheticOnly`, `existingPrivateBucket` | both `true` |
 
 Any other field is refused, so a bearer or key pasted into the JSON never reaches
-the printout. The bearer appears only as a placeholder; the operator types it at
+the printout. The script reads the admission from stdin and opens no file path
+itself. The bearer appears only as a placeholder; the operator types it at
 run time and records no copy in the plan or results.
 
 ```sh
-node --experimental-strip-types scripts/native-storage-qualification.ts /absolute/path/to/admission.json
-node --experimental-strip-types scripts/native-storage-qualification.ts /absolute/path/to/admission.json --json
+node --experimental-strip-types scripts/native-storage-qualification.ts < admission.json
+node --experimental-strip-types scripts/native-storage-qualification.ts --json < admission.json
 ```
 
 ## Steps in the plan
