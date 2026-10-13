@@ -107,6 +107,10 @@ writeFileSync(join(FIXTURE, "merge-pr1.graphql"), "mutation { mergePullRequest(i
 writeFileSync(join(FIXTURE, "viewer.graphql"), "query { viewer { login } }");
 writeFileSync(join(FIXTURE, "run-args.sh"), '#!/bin/sh\n"$@"\n');
 writeFileSync(join(FIXTURE, "curl.cfg"), 'url = "https://abc.supabase.co/rest/v1/jobs"\ndata = "{}"\n');
+// Patches whose paths are only protected once a --directory value is put in front of them.
+writeFileSync(join(FIXTURE, "new.patch"), "diff --git a/x.sql b/x.sql\nnew file mode 100644\n--- /dev/null\n+++ b/x.sql\n@@ -0,0 +1 @@\n+create table t();\n");
+writeFileSync(join(FIXTURE, "sub.patch"), "diff --git a/migrations/x.sql b/migrations/x.sql\nnew file mode 100644\n--- /dev/null\n+++ b/migrations/x.sql\n@@ -0,0 +1 @@\n+x\n");
+writeFileSync(join(FIXTURE, "fn.patch"), "diff --git a/functions/f/index.ts b/functions/f/index.ts\n--- a/functions/f/index.ts\n+++ b/functions/f/index.ts\n@@ -1 +1 @@\n-a\n+b\n");
 writeFileSync(join(FIXTURE, "tree.json"), JSON.stringify({ tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: "abc" }] }));
 // Two git repositories for the push and alias rows: gitmain has main checked out, gitfeat a feature branch and some aliases.
 // git is run from a fixed install location, as the hook does, rather than looked up on PATH.
@@ -1253,6 +1257,32 @@ block | gh api -X DELETE repos/o/r/contents/docs/old.md -f sha=abc -f message=re
 block | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":""}'
 pass | gh api -X PUT repos/o/r/contents/docs/new.md -f branch=feature/x -f message=update -f content=eA==
 residual (the branch field of a JSON body is matched as text, so an escaped spelling of main such as m\u0061in is not decoded) | curl -X PUT https://api.github.com/repos/o/r/contents/docs/new.md -d '{"message":"m","content":"eA==","branch":"m\u0061in"}'
+# 4. Lead forwarded findings from the Codex cross check of a511730.
+block | D="$(pwd)/supabase"; cp f "$D/migrations/x.sql"
+block | git apply --directory=supabase/migrations $FIXTURE/new.patch
+block | git apply -p0 --directory=supabase/migrations/ $FIXTURE/new.patch
+block | git apply --directory=supabase $FIXTURE/sub.patch
+block | git apply --directory=.claude/hooks $FIXTURE/new.patch
+block | git am --directory=supabase/migrations $FIXTURE/new.patch
+pass | git apply --directory=docs $FIXTURE/new.patch
+pass | git apply --directory=supabase $FIXTURE/fn.patch
+pass | git apply $FIXTURE/new.patch
+block | MIG=supabase/migrations; MIG=docs true; echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; MIG=docs B=1 true; echo x > "$MIG/x.sql"
+pass | MIG=docs; MIG=supabase/migrations true; echo x > "$MIG/x.sql"
+block | MIG=supabase/migrations; echo x > "$\{MIG:-docs}/x.sql"
+block | MIG=supabase/migrations; echo x > "$\{MIG-docs}/x.sql"
+block | MIG=; echo x > "$\{MIG:-supabase/migrations}/x.sql"
+block fixture:gitlivefeat | DEST=main; git push origin "HEAD:$\{DEST:-feature/u}"
+block fixture:gitlivefeat | DEST=main; git push origin "HEAD:$\{DEST-feature/u}"
+pass | MIG=docs; echo x > "$\{MIG:-supabase/migrations}/x.sql"
+pass fixture:gitlivefeat | DEST=feature/u; git push origin "HEAD:$\{DEST:-main}"
+pass fixture:gitlivefeat | git push origin "HEAD:$\{DEST:-feature/u}"
+block fixture:gitlive | git push origin "HEAD:$\{DEST:-feature/u}"
+residual (brace expansion is not expanded, so a write to one of its words is not seen) | tee {supabase/migrations,docs}/x.sql < /tmp/a
+residual (env --split-string text is not parsed as a command) | env --split-string="touch supabase/migrations/x.sql"
+residual (git restore and git checkout with --pathspec-from-file read their paths from a file that is not inspected) | git restore --pathspec-from-file=/tmp/list
+residual (git restore and git checkout with --pathspec-from-file read their paths from a file that is not inspected) | git checkout HEAD --pathspec-from-file=/tmp/list
 # The required passes, also with the round 22 rows in place.
 pass fixture:gitlivefeat | git push
 pass fixture:gitlivefeat | git push -u origin HEAD

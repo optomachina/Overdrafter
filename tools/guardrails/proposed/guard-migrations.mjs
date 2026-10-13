@@ -17,7 +17,8 @@
  *   install whose target is protected or cannot be resolved, a copy whose
  *   source would land on a protected path, git checkout/restore with a
  *   pathspec that could cover them (git global options such as -C are
- *   normalized first), git apply of a patch that names them, any pipe into a
+ *   normalized first), git apply or git am of a patch that names them or
+ *   that lands in them under --directory (after -p), any pipe into a
  *   shell, decoded or generated text run by an interpreter, and shell scripts
  *   (run by a shell or by path, with -c text attached or not) whose text does
  *   any of that. A generated file name inside a protected directory is still
@@ -57,7 +58,9 @@
  *   refspec to a remote with remote.<name>.mirror true blocks. In a variable
  *   assigned from $PWD, $OLDPWD or a command substitution that part becomes
  *   an unresolved placeholder and the rest of the path is kept (quoted and
- *   unquoted parts of the value are joined), and a .. after an
+ *   unquoted parts of the value are joined; assignments before a command
+ *   word apply to that command only; ${VAR:-x} and ${VAR-x} give the value
+ *   of a known VAR and stay as written otherwise), and a .. after an
  *   unresolved part keeps it unresolved. A dry run and tags only pass.
  *   Aliases from -c, git config, the repository config (include files too)
  *   and the GIT_CONFIG environment are expanded. Also the merges API,
@@ -384,24 +387,65 @@ function readValue(src, i) {
   return { end: Math.min(i, src.length), text: recordable ? text : null };
 }
 
+/**
+ * The value of ${name<op>word} when name is known: the - and = forms give the value when it is set (with a colon, set and
+ * not empty) and else the word, + gives the word or nothing the other way round, and ? gives the value or stays as
+ * written. An unknown name stays as written, so a default is never taken for a value that may be set outside the command.
+ */
+function expandDefault(value, colon, op, word, seen) {
+  if (value === undefined) return seen;
+  const set = colon ? value !== "" : true;
+  if (op === "+") return set ? word : "";
+  if (op === "?") return set ? value : seen;
+  return set ? value : word;
+}
+
+// A reference: ${name<op>word} with a plain word, ${name} or $name.
+const REF = String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])([^}$` + "`" + String.raw`]*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
+
+/** An assignment group starting at i: name=value words separated by blanks. Returns the end, the values read, and whether a command follows. */
+function readAssignments(src, i) {
+  const values = [];
+  const head = /([A-Za-z_]\w*)=/y;
+  for (;;) {
+    head.lastIndex = i;
+    const m = head.exec(src);
+    if (!m) break;
+    const { end, text } = readValue(src, i + m[0].length);
+    values.push([m[1], text]);
+    i = end;
+    const blank = /[ \t]*/y;
+    blank.lastIndex = i;
+    blank.exec(src);
+    if (blank.lastIndex === i) break;
+    i = blank.lastIndex;
+  }
+  // Assignments before a command word apply to that command only and leave the shell variables as they were.
+  const prefix = i < src.length && !/[\s;&|)#]/.test(src[i]) && values.length > 0 && !/^[A-Za-z_]\w*=/.test(src.slice(i));
+  return { end: i, values, prefix };
+}
+
 function expandVars(src) {
   const vars = Object.create(null);
-  const ref = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
-  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+  const ref = new RegExp(REF, "g");
+  const resolve = (seen, name, colon, op, word, braced, bare) => (name !== undefined ? expandDefault(vars[name], colon, op, word, seen) : vars[braced ?? bare] ?? seen);
+  const assignOrRef = new RegExp(String.raw`(^|[\s;&|(])(?=[A-Za-z_]\w*=)|` + REF, "g");
   let out = "";
   let last = 0;
   for (let m = assignOrRef.exec(src); m !== null; m = assignOrRef.exec(src)) {
-    const [all, , name, braced, bare] = m;
-    if (name !== undefined) {
-      const { end, text } = readValue(src, m.index + all.length);
-      // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the
-      // text. It becomes a placeholder that still holds $, like a command substitution.
-      if (text === null) delete vars[name];
-      else vars[name] = text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
-      assignOrRef.lastIndex = end;
+    const [all, lead] = m;
+    if (lead !== undefined) {
+      const { end, values, prefix } = readAssignments(src, m.index + all.length);
+      for (const [name, text] of prefix ? [] : values) {
+        // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the
+        // text. It becomes a placeholder that still holds $, like a command substitution.
+        if (text === null) delete vars[name];
+        else vars[name] = text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve);
+      }
+      assignOrRef.lastIndex = Math.max(end, m.index + all.length + 1);
       continue;
     }
-    out += src.slice(last, m.index) + (vars[braced ?? bare] ?? all);
+    out += src.slice(last, m.index) + resolve(all, ...m.slice(2));
     last = m.index + all.length;
   }
   return out + src.slice(last);
@@ -1318,14 +1362,49 @@ function broadPathspec(spec, dir) {
   return segs.length <= dir.length && segs.every((s, i) => s === dir[i]);
 }
 
-function patchReason(files, dir, what) {
+/** The paths a patch names, with strip leading parts removed from the a/ and b/ forms as git apply -p does. */
+function patchPaths(text, strip) {
+  const cut = (path) => path.split("/").slice(strip).join("/");
+  const paths = [];
+  for (const m of text.matchAll(/^diff --git (\S+) (\S+)/gm)) paths.push(cut(m[1]), cut(m[2]));
+  for (const m of text.matchAll(/^(?:---|\+\+\+) (\S+)/gm)) if (m[1] !== "/dev/null") paths.push(cut(m[1]));
+  for (const m of text.matchAll(/^(?:rename|copy) (?:from|to) (.+)$/gm)) paths.push(m[1]);
+  return paths;
+}
+
+/**
+ * Block reason for a patch. With a directory (git apply or git am --directory) every path the patch names lands under
+ * it, so the joined paths are checked too.
+ */
+function patchReason(files, dir, what, { directory, strip = 1 } = {}) {
+  if (directory !== undefined && protectedName(directory, dir)) return `${what} --directory=${directory} places files in a protected path`;
   if (files.length === 0) return `${what} reads a patch from stdin, which cannot be checked; failing closed`;
   for (const file of files) {
     const text = readNamed(file, dir);
     if (text === null) return `${what} patch ${file} cannot be read to check it; failing closed`;
     if (PROTECTED_TEXT.test(text)) return `${what} patch ${file} changes a protected path`;
+    if (directory !== undefined && patchPaths(text, strip).some((path) => protectedName(`${directory}/${path}`, dir))) {
+      return `${what} patch ${file} lands in a protected path under --directory=${directory}`;
+    }
   }
   return null;
+}
+
+/** The patch files, --directory value and -p strip count of a git apply or git am command. */
+function patchArgs(args) {
+  const files = [];
+  const opts = {};
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    const long = /^--(directory|include|exclude|whitespace)(?:=(.*))?$/.exec(w);
+    if (long) {
+      const value = long[2] ?? args[++i] ?? "";
+      if (long[1] === "directory") opts.directory = value.replace(/\/+$/, "");
+    } else if (/^-p\d*$/.test(w)) opts.strip = Number(w.slice(2) || args[++i]);
+    else if (!w.startsWith("-")) files.push(w);
+  }
+  if (!Number.isInteger(opts.strip)) delete opts.strip;
+  return { files, opts };
 }
 
 /**
@@ -1663,7 +1742,8 @@ function gitReason(argv, segment, call, ctx, state) {
   if (sub === "apply" || sub === "am") {
     if (args.some((w) => /^--(abort|skip|quit|continue|show-current-patch)$/.test(w))) return null;
     if (sub === "apply" && args.some((w) => /^--(check|stat|numstat|summary)$/.test(w)) && !args.includes("--apply")) return null;
-    return patchReason([...args.filter((w) => !w.startsWith("-")), ...segment.ins], dir, `git ${sub}`);
+    const { files, opts } = patchArgs(args);
+    return patchReason([...files, ...segment.ins], dir, `git ${sub}`, opts);
   }
   if (sub === "checkout" || sub === "restore") {
     const dash = args.indexOf("--");
