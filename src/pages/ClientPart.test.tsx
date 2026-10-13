@@ -1,11 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { deriveFanoutApprovalReference } from "@/features/quotes/provider-fanout-dispatch";
 import ClientPart from "./ClientPart";
 
 const {
@@ -50,6 +51,7 @@ const {
     getQuoteLaneEligibility: vi.fn(),
     getXometryBetaDispatchScope: vi.fn(),
     getProviderDispatchScope: vi.fn(),
+    getProviderFanoutGuards: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
     requestXometryBetaDispatch: vi.fn(),
@@ -127,6 +129,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   getQuoteLaneEligibility: api.getQuoteLaneEligibility,
   getXometryBetaDispatchScope: api.getXometryBetaDispatchScope,
   getProviderDispatchScope: api.getProviderDispatchScope,
+  getProviderFanoutGuards: api.getProviderFanoutGuards,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   requestXometryBetaDispatch: api.requestXometryBetaDispatch,
@@ -1839,6 +1842,186 @@ describe("ClientPart", () => {
       expect(api.getProviderDispatchScope).toHaveBeenCalledWith("job-1", "fictiv", "inch");
       expect(api.getXometryBetaDispatchScope).not.toHaveBeenCalled();
       expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  function mockFanoutVendors(vendors: string[]) {
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      availableVendors: vendors,
+      projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
+      jobVendorPreferences: { includedVendors: vendors, excludedVendors: [] },
+    });
+  }
+
+  async function confirmXometryDialog() {
+    fireEvent.click(await findRequestQuoteButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    fireEvent.click(confirm);
+  }
+
+  it("keeps the single provider flow when the fan out flag is off", async () => {
+    mockFanoutVendors(["xometry", "fictiv", "sendcutsend"]);
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv", "sendcutsend"]));
+
+    renderWithClient("/parts/job-1");
+    await confirmXometryDialog();
+
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Providers for this request")).not.toBeInTheDocument();
+    expect(api.getProviderFanoutGuards).not.toHaveBeenCalled();
+    expect(api.getProviderDispatchScope).not.toHaveBeenCalled();
+    expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+  });
+
+  it("fans one confirmation out to every applicable provider when the flag is on", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv", "protolabs", "sendcutsend", "rapiddirect", "geomiq"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: ["protolabs"],
+        exportDeclaration: "not_clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestXometryBetaDispatch.mockRejectedValue({ message: "xometry_beta_rollout_disabled", code: "P0001" });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-2",
+        quoteRequestId: "request-2",
+        quoteRunId: "run-2",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(
+        createDispatchReadyPartDetail(["xometry", "fictiv", "protolabs", "sendcutsend", "rapiddirect", "geomiq"]),
+      );
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      expect(within(sent).getByText("Xometry")).toBeInTheDocument();
+      expect(within(sent).getByText("Fictiv")).toBeInTheDocument();
+      const skipped = screen.getByRole("list", { name: "Providers skipped" });
+      expect(within(skipped).getByText("Protolabs").parentElement).toHaveTextContent("Switched off");
+      expect(within(skipped).getByText("SendCutSend").parentElement).toHaveTextContent("process");
+      expect(within(skipped).getByText("RapidDirect").parentElement).toHaveTextContent("export declaration");
+      expect(within(skipped).getByText("Geomiq").parentElement).toHaveTextContent("Not offered");
+      expect(
+        screen.getByRole("checkbox", {
+          name: "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.",
+        }),
+      ).toBeInTheDocument();
+
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      // Xometry is denied for a reason other than a changed package, so Fictiv
+      // is still sent with its own scope and a reference derived from the
+      // customer's confirmation.
+      await waitFor(() => {
+        expect(api.requestProviderDispatch).toHaveBeenCalledWith({
+          jobId: "job-1",
+          provider: "fictiv",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          noticeRevision: "founding-beta-2026-08-15",
+          expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+          approvalReference: expect.any(String),
+        });
+      });
+      const confirmationReference = api.requestXometryBetaDispatch.mock.calls[0][0].approvalReference;
+      expect(api.requestProviderDispatch.mock.calls[0][0].approvalReference).toBe(
+        await deriveFanoutApprovalReference(confirmationReference, "fictiv"),
+      );
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.getProviderDispatchScope).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "queued");
+      });
+      expect(sent.querySelector('[data-provider="xometry"]')).toHaveAttribute("data-status", "denied");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("sends no extra provider when the primary is refused because the package changed", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      // A second tab edited the requirement after this dialog loaded it.
+      api.requestXometryBetaDispatch.mockRejectedValue({ message: "xometry_beta_scope_changed", code: "P0001" });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "denied");
+      });
+      expect(sent.querySelector('[data-provider="fictiv"]')).toHaveTextContent("changed after you reviewed it");
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.getProviderDispatchScope).not.toHaveBeenCalled();
+      expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("shows which extras the per user quote request limit would refuse", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv", "protolabs"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: {
+          userWindowMinutes: 60,
+          userMaxRequestsPerWindow: 5,
+          userRequestsRemaining: 2,
+          orgPendingCostCeilingUsd: 500,
+          costPerLaneUsd: 75,
+          orgPendingCostHeadroomUsd: 500,
+        },
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv", "protolabs"]));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      expect(within(sent).getByText("Xometry")).toBeInTheDocument();
+      expect(within(sent).getByText("Fictiv")).toBeInTheDocument();
+      const skipped = screen.getByRole("list", { name: "Providers skipped" });
+      expect(within(skipped).getByText("Protolabs").parentElement).toHaveTextContent(
+        "You can send 5 quote requests every 60 minutes",
+      );
     } finally {
       vi.unstubAllEnvs();
     }

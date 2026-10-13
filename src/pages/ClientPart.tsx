@@ -247,6 +247,7 @@ const ClientPart = () => {
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
     dispatchProvider,
+    providerFanout,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchScopeDenialCode,
@@ -645,6 +646,7 @@ const ClientPart = () => {
         declaredModelUnits={xometryDispatchUnits}
         onDeclaredModelUnitsChange={setXometryDispatchUnits}
         provider={dispatchProvider}
+        fanout={providerFanout}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
         isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}

@@ -11,6 +11,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ProviderFanoutStatus } from "@/components/quotes/ProviderFanoutStatus";
+import { getProviderDisplayName } from "@/features/quotes/provider-fanout";
+import type { ProviderFanoutState } from "@/features/quotes/use-provider-fanout";
 import {
   LIVE_DISPATCH_PROVIDER_LABELS,
   type LiveDispatchProvider,
@@ -45,6 +48,8 @@ export type XometryBetaDispatchConfirmationResult = {
 
 type XometryBetaDispatchConfirmationDialogProps = {
   declaredModelUnits: XometryBetaDeclaredModelUnits | null;
+  /** Multi provider fan out (flag on only): every provider this confirmation reaches. */
+  fanout?: ProviderFanoutState | null;
   isScopeLoading?: boolean;
   isSubmitting?: boolean;
   onConfirm: (
@@ -126,6 +131,15 @@ function getScopeIdentity(
     scope.policyRevision,
     scope.envelopeRevision,
   ].join(":");
+}
+
+function formatProviderList(labels: readonly string[]) {
+  return labels.length <= 2 ? labels.join(" and ") : `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+}
+
+function getShareLabel(fanout: ProviderFanoutState | null, providerLabel: string) {
+  if (!fanout || fanout.plan.send.length <= 1) return providerLabel;
+  return formatProviderList(fanout.plan.send.map(getProviderDisplayName));
 }
 
 function createApprovalReference() {
@@ -286,6 +300,7 @@ function SubmissionState({
 
 export function XometryBetaDispatchConfirmationDialog({
   declaredModelUnits,
+  fanout = null,
   isScopeLoading = false,
   isSubmitting = false,
   onConfirm,
@@ -300,6 +315,8 @@ export function XometryBetaDispatchConfirmationDialog({
   scopeError = null,
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
   const providerLabel = LIVE_DISPATCH_PROVIDER_LABELS[provider];
+  // With fan out on, the disclosure names every provider the confirmation reaches.
+  const shareLabel = getShareLabel(fanout, providerLabel);
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
   const confirmationInFlight = useRef(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -342,6 +359,15 @@ export function XometryBetaDispatchConfirmationDialog({
     setApprovalReference(null);
     // Scope changes revoke fresh consent; only an explicit new flow clears an outcome.
   }, [scopeIdentity, uncertainAttempt]);
+
+  // The authority box names the recipients, so a change to the send list
+  // (for example a guard refetch) withdraws that affirmation.
+  const recipientsKey = fanout ? fanout.plan.send.join(",") : provider;
+  useEffect(() => {
+    if (uncertainAttempt || confirmationInFlight.current) return;
+    setAffirmations((current) => (current.authorityToShare ? { ...current, authorityToShare: false } : current));
+    setApprovalReference(null);
+  }, [recipientsKey, uncertainAttempt]);
 
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
@@ -456,7 +482,7 @@ export function XometryBetaDispatchConfirmationDialog({
             Confirm {providerLabel} beta quote request
           </DialogTitle>
           <DialogDescription className="max-w-xl text-sm leading-6 text-paper-muted">
-            Review the exact package OverDrafter will queue for {providerLabel}. This creates a quote request only—no card charge, order, purchase order, or supplier commitment.
+            Review the exact package OverDrafter will queue for {shareLabel}. This creates a quote request only—no card charge, order, purchase order, or supplier commitment.
           </DialogDescription>
         </DialogHeader>
 
@@ -562,10 +588,10 @@ export function XometryBetaDispatchConfirmationDialog({
                     <Checkbox
                       checked={Boolean(uncertainAttempt) || affirmations.authorityToShare}
                       disabled={confirmationControlsLocked}
-                      aria-label={`I am authorized to share these files and requirements with ${providerLabel} to request a quote.`}
+                      aria-label={`I am authorized to share these files and requirements with ${shareLabel} to request a quote.`}
                       onCheckedChange={(checked) => updateAffirmation("authorityToShare", checked === true)}
                     />
-                    <span>I am authorized to share these files and requirements with {providerLabel} to request a quote.</span>
+                    <span>I am authorized to share these files and requirements with {shareLabel} to request a quote.</span>
                   </label>
                   <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
                     <Checkbox
@@ -589,6 +615,8 @@ export function XometryBetaDispatchConfirmationDialog({
               </section>
             </>
           ) : null}
+
+          {fanout && activeScope ? <ProviderFanoutStatus plan={fanout.plan} outcomes={fanout.outcomes} /> : null}
 
           <SubmissionState
             isQueued={isQueued}
