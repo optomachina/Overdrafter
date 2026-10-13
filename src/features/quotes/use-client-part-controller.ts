@@ -46,6 +46,7 @@ import {
   isDispatchScopeChangeDenial,
 } from "@/features/quotes/provider-fanout";
 import { useProviderFanout } from "@/features/quotes/use-provider-fanout";
+import { getXometryFanoutVendors } from "@/features/quotes/provider-fanout-dispatch";
 import {
   LIVE_DISPATCH_PROVIDER_LABELS,
   classifyXometryBetaDispatchFailure,
@@ -291,7 +292,14 @@ export function useClientPartController(
   const isRequestQuoteLockedRef = useRef(false);
   const attemptedQuoteRef = useRef<{
     identity: string;
-    input: { approvalReference: string; declaredModelUnits: XometryBetaModelUnits; envelopeRevision?: string; policyRevision: string; scopeFingerprint: string };
+    input: {
+      approvalReference: string;
+      declaredModelUnits: XometryBetaModelUnits;
+      envelopeRevision?: string;
+      policyRevision: string;
+      scopeFingerprint: string;
+      xometryFanoutVendors?: VendorName[] | null;
+    };
     status: "pending" | "unknown";
   } | null>(null);
   const [uncertainQuoteIdentity, setUncertainQuoteIdentity] = useState<string | null>(null);
@@ -428,11 +436,26 @@ export function useClientPartController(
       !vendorPreferenceQuery.isLoading,
     retry: false,
   });
+  // With fan out on, a Xometry primary reads its scope with the fan out marker,
+  // since the server refuses Xometry beside another enabled provider without it.
+  const isXometryFanoutScope = isFanoutEnabled && dispatchProvider === "xometry";
+  const xometryScopeFanoutVendors = useMemo(
+    () => (isXometryFanoutScope ? getXometryFanoutVendors(selectedQuoteVendors) : null),
+    [isXometryFanoutScope, selectedQuoteVendors],
+  );
   const xometryDispatchScopeQuery = useQuery({
-    queryKey: ["xometry-beta-dispatch-scope", canonicalJobId, user?.id, partDetail?.job.organization_id, xometryDispatchUnits, dispatchProvider],
+    queryKey: [
+      "xometry-beta-dispatch-scope",
+      canonicalJobId,
+      user?.id,
+      partDetail?.job.organization_id,
+      xometryDispatchUnits,
+      dispatchProvider,
+      xometryScopeFanoutVendors,
+    ],
     queryFn: async () => {
       const scope = dispatchProvider === "xometry"
-        ? await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!)
+        ? await getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!, xometryScopeFanoutVendors)
         : await getProviderDispatchScope(canonicalJobId, dispatchProvider, xometryDispatchUnits!);
       if (scope.jobId !== canonicalJobId || scope.organizationId !== partDetail?.job.organization_id) {
         throw new TypeError("The confirmation scope identity could not be verified.");
@@ -443,7 +466,8 @@ export function useClientPartController(
       Boolean(user) &&
       Boolean(canonicalJobId) &&
       quoteCollectionMode.automaticEnabled &&
-      xometryDispatchUnits !== null,
+      xometryDispatchUnits !== null &&
+      (!isXometryFanoutScope || Boolean(vendorPreferenceQuery.data)),
     retry: false,
   });
   const providerFanout = useProviderFanout({
@@ -700,6 +724,8 @@ export function useClientPartController(
       envelopeRevision?: string;
       policyRevision: string;
       scopeFingerprint: string;
+      /** Set only for a Xometry primary in a fan out confirmation. */
+      xometryFanoutVendors?: VendorName[] | null;
     }) => {
       const exactUnknownReplay = isExactUnknownReplay(input);
       if (isVerifiedAuth !== true || (!quoteCollectionMode.automaticEnabled && !exactUnknownReplay)) {
@@ -730,6 +756,9 @@ export function useClientPartController(
         expectedScopeFingerprint: input.scopeFingerprint,
         policyRevision: input.policyRevision,
         approvalReference: input.approvalReference,
+        fanout: input.xometryFanoutVendors
+          ? { confirmationReference: input.approvalReference, vendors: input.xometryFanoutVendors }
+          : null,
       });
     },
     onSuccess: async (result) => {
@@ -1579,6 +1608,25 @@ export function useClientPartController(
     });
   };
 
+  /**
+   * The Xometry fan out marker for one confirmation. An exact replay resends the
+   * marker it first carried, even if fan out has since turned off; otherwise the
+   * marker names exactly the providers this confirmation reaches. `refused` is
+   * set when the scope names other enabled providers but the plan left only
+   * Xometry, which the server refuses beside them.
+   */
+  const resolveXometryFanoutMarker = (
+    uncertainReplay: boolean,
+    send: readonly VendorName[] | undefined,
+  ): { vendors: VendorName[] | null; refused: boolean } => {
+    if (uncertainReplay) {
+      return { vendors: attemptedQuoteRef.current?.input.xometryFanoutVendors ?? null, refused: false };
+    }
+    if (dispatchProvider !== "xometry") return { vendors: null, refused: false };
+    const vendors = getXometryFanoutVendors(send);
+    return { vendors, refused: Boolean(xometryScopeFanoutVendors) && !vendors };
+  };
+
   const handleRequestQuote = async (input: {
     approvalReference: string;
     declaredModelUnits: XometryBetaModelUnits;
@@ -1598,9 +1646,17 @@ export function useClientPartController(
       // Refused by the local plan (kill switch, process, or cap); nothing reached the server.
       return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
     }
+    const uncertainReplay = isExactUnknownReplay(input);
+    const { vendors: xometryFanoutVendors, refused: isXometryAloneRefused } = resolveXometryFanoutMarker(
+      uncertainReplay,
+      fanoutPlan?.send,
+    );
+    if (isXometryAloneRefused) {
+      toast.error(`${dispatchProviderLabel} can take this request only together with another provider right now.`);
+      return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
+    }
 
     isRequestQuoteLockedRef.current = true;
-    const uncertainReplay = isExactUnknownReplay(input);
     const startFanoutExtras = (primaryError?: unknown) => {
       if (!providerFanout || !fanoutPlan) return;
       // The extras carry only the package the customer reviewed. If the server
@@ -1627,7 +1683,7 @@ export function useClientPartController(
     providerFanout?.recordOutcome({ provider: dispatchProvider, status: "pending" });
 
     try {
-      const result = await requestQuoteMutation.mutateAsync(input);
+      const result = await requestQuoteMutation.mutateAsync({ ...input, xometryFanoutVendors });
       providerFanout?.recordOutcome({ provider: dispatchProvider, status: "queued", created: result.created });
       startFanoutExtras();
       return result;

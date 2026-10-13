@@ -78,9 +78,21 @@ export async function deriveFanoutApprovalReference(confirmationReference: strin
 }
 
 /**
- * Issues one generic dispatch request for an extra fan out provider, through
- * the same scope and permit RPCs the primary uses (OVD-458/459). A package that
- * drifted from the confirmed one is refused before any request is sent.
+ * The fan out marker for Xometry: every provider one confirmation reaches,
+ * sorted and without duplicates, or null when that set is not Xometry plus at
+ * least one other provider. Only with a marker does the server accept Xometry
+ * while another provider is enabled (OVD-762).
+ */
+export function getXometryFanoutVendors(providers: readonly VendorName[] | null | undefined): VendorName[] | null {
+  const unique = [...new Set(providers ?? [])].sort((left, right) => left.localeCompare(right));
+  return unique.includes("xometry") && unique.length >= 2 ? unique : null;
+}
+
+/**
+ * Issues one dispatch request for an extra fan out provider, through the same
+ * scope and permit RPCs the primary uses (OVD-458/459). Xometry carries the
+ * fan out marker bound to the customer's confirmation. A package that drifted
+ * from the confirmed one is refused before any request is sent.
  */
 export async function dispatchFanoutProvider(input: {
   jobId: string;
@@ -89,11 +101,14 @@ export async function dispatchFanoutProvider(input: {
   confirmedScope: ProviderDispatchScope;
   /** The customer's confirmation reference; each extra's reference derives from it. */
   confirmationReference: string;
+  /** Every provider this confirmation reaches, the primary included. */
+  confirmedProviders: readonly VendorName[];
 }): Promise<XometryBetaDispatchResult> {
   const { jobId, provider, declaredModelUnits } = input;
+  const xometryFanoutVendors = provider === "xometry" ? getXometryFanoutVendors(input.confirmedProviders) : null;
   const scope =
     provider === "xometry"
-      ? await getXometryBetaDispatchScope(jobId, declaredModelUnits)
+      ? await getXometryBetaDispatchScope(jobId, declaredModelUnits, xometryFanoutVendors)
       : await getProviderDispatchScope(jobId, provider, declaredModelUnits);
   if (!isSameConfirmedPackage(input.confirmedScope, scope)) {
     // Matches the explicit generic denial list, so it reports as denied.
@@ -107,6 +122,9 @@ export async function dispatchFanoutProvider(input: {
       expectedScopeFingerprint: scope.scopeFingerprint,
       policyRevision: scope.policyRevision,
       approvalReference,
+      fanout: xometryFanoutVendors
+        ? { confirmationReference: input.confirmationReference, vendors: xometryFanoutVendors }
+        : null,
     });
   }
   return requestProviderDispatch({

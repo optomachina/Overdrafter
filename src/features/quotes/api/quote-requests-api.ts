@@ -87,17 +87,37 @@ export async function requestQuote(
   };
 }
 
+/**
+ * The Xometry confirmation scope. With `fanoutVendors` (the providers one
+ * confirmation reaches, Xometry among them) it reads the fan out variant
+ * drafted in docs/migration-drafts/ovd-762-xometry-fanout-scope.sql, which
+ * accepts Xometry alongside other enabled providers; without it the server
+ * still requires Xometry to be the only enabled provider.
+ */
 export async function getXometryBetaDispatchScope(
   jobId: string,
   declaredModelUnits: XometryBetaModelUnits,
+  fanoutVendors: readonly VendorName[] | null = null,
 ): Promise<XometryBetaDispatchScope> {
-  const { data, error } = await callRpc("api_get_xometry_beta_dispatch_scope", {
-    p_job_id: jobId,
-    p_declared_model_units: declaredModelUnits,
-  });
+  const { data, error } = fanoutVendors
+    ? await callUntypedRpc("api_get_xometry_beta_fanout_dispatch_scope", {
+        p_job_id: jobId,
+        p_declared_model_units: declaredModelUnits,
+        p_fanout_vendors: fanoutVendors,
+      })
+    : await callRpc("api_get_xometry_beta_dispatch_scope", {
+        p_job_id: jobId,
+        p_declared_model_units: declaredModelUnits,
+      });
 
   return parseXometryBetaDispatchScope(ensureData(data, error));
 }
+
+/** Binds a Xometry permit to one fan out confirmation and its provider set. */
+export type XometryFanoutMarker = {
+  confirmationReference: string;
+  vendors: readonly VendorName[];
+};
 
 /** Any provider on the generic admission path; Xometry keeps its legacy RPCs. */
 export type GenericDispatchProvider = Exclude<VendorName, "xometry">;
@@ -108,17 +128,31 @@ export async function requestXometryBetaDispatch(input: {
   expectedScopeFingerprint: string;
   policyRevision: string;
   approvalReference: string;
+  fanout?: XometryFanoutMarker | null;
 }): Promise<XometryBetaDispatchResult> {
-  const { data, error } = await callRpc("api_request_xometry_beta_dispatch", {
-    p_job_id: input.jobId,
-    p_declared_model_units: input.declaredModelUnits,
-    p_expected_scope_fingerprint: input.expectedScopeFingerprint,
-    p_policy_revision: input.policyRevision,
-    p_approval_reference: input.approvalReference,
-    p_authority_to_share: true,
-    p_non_export_controlled: true,
-    p_quote_only: true,
-  });
+  const { data, error } = input.fanout
+    ? await callUntypedRpc("api_request_xometry_beta_fanout_dispatch", {
+        p_job_id: input.jobId,
+        p_declared_model_units: input.declaredModelUnits,
+        p_expected_scope_fingerprint: input.expectedScopeFingerprint,
+        p_policy_revision: input.policyRevision,
+        p_approval_reference: input.approvalReference,
+        p_fanout_confirmation_reference: input.fanout.confirmationReference,
+        p_fanout_vendors: input.fanout.vendors,
+        p_authority_to_share: true,
+        p_non_export_controlled: true,
+        p_quote_only: true,
+      })
+    : await callRpc("api_request_xometry_beta_dispatch", {
+        p_job_id: input.jobId,
+        p_declared_model_units: input.declaredModelUnits,
+        p_expected_scope_fingerprint: input.expectedScopeFingerprint,
+        p_policy_revision: input.policyRevision,
+        p_approval_reference: input.approvalReference,
+        p_authority_to_share: true,
+        p_non_export_controlled: true,
+        p_quote_only: true,
+      });
 
   return parseXometryBetaDispatchResult(ensureData(data, error));
 }
