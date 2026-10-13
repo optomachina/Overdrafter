@@ -1666,6 +1666,48 @@ pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
 pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
 `).replaceAll("L40", Array.from({ length: 40 }, (_, i) => String(i + 1)).join(" "));
 
+// Round 26 is PR round 13.
+const ROUND_26 = String.raw`
+# 1. A default word or a loop item is read once, as an unknown value, only when it is safe: plain characters, no leading -,
+# no glob, no . step, no protected name or part of one, no command, subcommand or package.json script word. And every use
+# must be a whole argument or a whole part of one. Every other word gives the variable a reading per word.
+block | for t in lint push; do npx supabase db $t || exit 1; done
+block | supabase db $\{A:-push}
+block | supabase $\{X:-db} push
+block | supabase functions $\{A:-deploy} x
+block | supabase $\{G:-secrets} set A=b
+block fixture:gitlivefeat | for f in --all --tags; do git push -u origin $f; done
+block fixture:gitlivefeat | git push origin $\{F:---all}
+block fixture:gitlivefeat | for f in all mirror; do git push --$f origin; done
+block fixture:gitlivefeat | for p in ain; do git push origin HEAD:m$p; done
+block | rm -rf $\{D:-*}
+block | git restore $\{P:-*}
+block | git checkout -- $\{P:-*}
+block | git clean -fdx $\{P:-*}
+block | for flag in -i; do sed $flag s/a/b/ supabase/migrations/x.sql; done
+block | sed $\{OPT:--i} s/a/b/ supabase/migrations/x.sql
+block | echo x > supabase/migration$\{X:-s}/x.sql
+block | for s in base; do echo x > supa$s/migrations/x.sql; done
+block fixture | for s in mig; do npm run $s; done
+block fixture | npm run $\{S:-mig}
+block fixture | for s in nested; do npm run $s; done
+block fixture | npm run $\{S:-nested}
+block fixture | for s in db:push; do npm run $s; done
+# A short part of a protected name is safe only where it is used whole; a value held in a variable may be glued later.
+block | X=$\{D:-s}; echo x > supabase/migration$X/x.sql
+block | for s in s; do X=$s; echo x > supabase/migration$X/x.sql; done
+block | for s in s; do echo x > supabase/migration"$s"/x.sql; done
+block | for p in ma; do git push origin HEAD:$\{p}in; done
+# Ordinary words used whole (or after = : / ,) are still read once, so these stay under the variant cap.
+pass | for s in a b c d e f g h; do echo $s; done; for t in i j k l m n; do echo "$t"; done
+pass | docker run -e A=$\{A:-x} -e B=$\{B:-y} -e C=$\{C:-z} -e D=$\{D:-w} -e E=$\{E:-v} -e F=$\{F:-u} app
+pass fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin "HEAD:$b"; done
+pass | for f in src/a.ts src/b.ts src/c.ts src/d.ts src/e.ts src/f.ts; do npx eslint "$f"; done; cat $\{LOG:-/tmp/a.log}
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+`;
+
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
     const at = line.indexOf(" | ");
@@ -2133,6 +2175,7 @@ const PROBES = [
   ...tableRows(23, ROUND_23),
   ...tableRows(24, ROUND_24),
   ...tableRows(25, ROUND_25),
+  ...tableRows(26, ROUND_26),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

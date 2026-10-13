@@ -517,10 +517,36 @@ const BODY_CLOSE = /^(fi|esac|done|\})$/;
 const MAX_VARIANTS = 32;
 // The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
 const MAX_WORK = 400;
-// Text in a default word or a loop item that could change a check: a protected path part, main, master, HEAD or refspec
-// syntax, a reference, an operator, a blank (a command that eval or -c may run) or a . or .. step. Any other word is read
-// once, as an unknown value, which is how a variable set outside the command is read.
-const CHANGES_CHECK = /supabase|migration|claude|hook|setting|tool|guardrail|main|master|head|[$;&|<>()`\s:+@]|(?:^|\/)\.\.?(?:\/|$)/i;
+// A default word or a loop item that may be read once, as an unknown value (which is how a variable set outside the command
+// is read), instead of once per word: plain characters only, no leading -, no glob, not a . or .. step, no protected path
+// text or part of one, and not a command or subcommand word the checks look for or a package.json script name. Any other
+// word gives the variable a reading per word. The word must also stand as a whole argument where it is used (see
+// wholeRef), since glued to other text (supa$s, m$p, --$f) even a plain word can complete a protected name.
+const SAFE_CHARS = /^[A-Za-z0-9_.,@%+=:/]+$/;
+const PROTECTED_NAMES = ["supabase", "migrations", "github", "workflows", "claude", "hooks", "settings", "tools", "guardrails", "main", "master", "head"];
+const PROTECTED_PART = new RegExp(PROTECTED_NAMES.join("|"), "i");
+const CHECK_WORDS = new Set([
+  "push", "deploy", "secrets", "query", "repair", "projects", "orgs", "branches", "storage", "functions", "db", "all", "mirror",
+  "matching", "link", "reset", "merge", "migration", "new", "squash", "fetch", "pull", "delete", "sso", "domains", "config",
+  "backups", "snippets", "tags", "force", "run", "exec", "apply",
+]);
+function safeWord(w, scripts, strict = false) {
+  if (!SAFE_CHARS.test(w) || w.startsWith("@") || /(?:^|\/)\.\.?(?:\/|$)/.test(w) || PROTECTED_PART.test(w)) return false;
+  const lower = w.toLowerCase();
+  if (CHECK_WORDS.has(lower) || scripts.has(w)) return false;
+  // A part of a protected name (supa, ain, igration) completes it when glued to text the check cannot see. A short part
+  // is safe only where the word is used whole; a value held in a variable (strict) may be glued wherever it is used.
+  return (!strict && lower.length < 3) || !PROTECTED_NAMES.some((n) => n.includes(lower));
+}
+// Text before and after a reference that makes it a whole argument or a whole part of one: a blank, an operator or the
+// command's edge, a double quote that itself stands at such an edge, or a separator (= : / ,) that starts or ends a value,
+// a refspec side or a path step. Glued to any other text (supa$s, m$p, --$f, $p"ain") it is not whole.
+const ARG_EDGE_BEFORE = /(?:^|[\s;&|(])"?$|[=:/,]$/;
+const ARG_EDGE_AFTER = /^"?(?:$|[\s;&|)])|^[:/,]/;
+/** Whether the reference src[start, end) stands as a whole argument or a whole part of one. */
+const wholeRef = (src, start, end) => ARG_EDGE_BEFORE.test(src.slice(Math.max(0, start - 2), start)) && ARG_EDGE_AFTER.test(src.slice(end, end + 2));
+/** Whether the reference src[start, end) follows an = , so its value may be stored and glued later. */
+const afterEquals = (src, start) => src[start - 1] === "=";
 // A merge of an unknown PR fails closed, so in a command that merges any word may be the PR and every word is read.
 const MERGE_TEXT = /merge/i;
 // The placeholders that stand for a value the command made itself; a sourced file cannot set them.
@@ -540,12 +566,12 @@ function union(values) {
  * Every text the command can expand to, or null when there are more than MAX_VARIANTS. A variable that an assignment may
  * or may not have changed holds both values, and each combination of the values used is one text.
  */
-function expandVariants(src) {
+function expandVariants(src, scripts) {
   const texts = [];
   let picks = [];
   for (let n = 0; n < MAX_VARIANTS; n++) {
     const counts = [];
-    const text = expandVars(src, picks, counts);
+    const text = expandVars(src, picks, counts, scripts);
     if (!texts.includes(text)) texts.push(text);
     const next = counts.map((_, j) => picks[j] ?? 0);
     let k = counts.length - 1;
@@ -573,16 +599,16 @@ function expandVariants(src) {
  * the word. A for loop over literal words records the loop variable with each word, local in a function body ends with
  * the body, and source or . marks every variable as possibly set by the file.
  */
-function expandVars(src, picks = [], counts = []) {
+function expandVars(src, picks = [], counts = [], scripts = new Set()) {
   let vars = Object.create(null);
   let prefix = null;
   // Each scope records, for the variables assigned in it, the value before it and the values given in it.
   let scopes = [];
   let lastOp = null;
   let cmdStart = true;
-  // Only a word that could change a check gives a variable more than one reading (see CHANGES_CHECK).
+  // Only a word that is not safe gives a variable more than one reading (see safeWord).
   const anyWord = MERGE_TEXT.test(src);
-  const matters = (w) => anyWord || CHANGES_CHECK.test(w);
+  const forks = (w, strict) => anyWord || !safeWord(w, scripts, strict);
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -634,8 +660,10 @@ function expandVars(src, picks = [], counts = []) {
   };
   const unmark = (v) => (typeof v === "string" && v.startsWith(OPERATOR_VALUE) ? v.slice(1) : v);
   const mark = (v) => (OPERATOR.test(v) ? OPERATOR_VALUE + v : v);
-  // dq: the reference stands inside double quotes of this text, where an operator value is text.
-  const resolve = (child, dq) => (seen, name, colon, op, word, braced, bare) => {
+  // dq: the reference stands inside double quotes of this text, where an operator value is text. nested: the reference is
+  // part of a default word or a loop item, so it is never a whole argument. held: the text is an assigned value, which a
+  // later reference may glue to other text, so a safe word must pass the strict check.
+  const resolve = (child, dq, nested = false, held = false) => (seen, name, colon, op, word, braced, bare, at, text) => {
     const shown = (v) => {
       if (typeof v !== "string" || !v.startsWith(OPERATOR_VALUE)) return v;
       return dq ? v.slice(1) : undefined;
@@ -644,13 +672,13 @@ function expandVars(src, picks = [], counts = []) {
       const value = shown(lookup(braced ?? bare, child));
       return value === undefined ? seen : (value ?? "");
     }
-    const plain = !matters(word);
+    const plain = !nested && typeof text === "string" && wholeRef(text, at, at + seen.length) && !forks(word, held || afterEquals(text, at));
     // ${X:-$Y} takes the value of Y as its word.
-    word = word.replace(new RegExp(REF, "g"), resolve(child, dq));
+    word = word.replace(new RegExp(REF, "g"), resolve(child, dq, true));
     const value = shown(lookup(name, child));
     if (value === undefined && (op === "-" || op === "=")) {
       // A variable that is not known may be set or not, so the reference is both as written and the word; ${X:=word}
-      // also records X with the word in the second case. A word that cannot change a check is read as written only.
+      // also records X with the word in the second case. A safe word standing as a whole argument is read as written only.
       if (plain || pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
       if (op === "=" && !child) assign(name, word);
       return word;
@@ -675,13 +703,26 @@ function expandVars(src, picks = [], counts = []) {
   const forItems = (list) =>
     (list.match(new RegExp(forWord, "g")) ?? []).flatMap((w) => {
       if (w.startsWith("'")) return [w.slice(1, -1)];
-      const text = w.replace(/^"(.*)"$/s, "$1").replace(new RegExp(REF, "g"), resolve(false, true));
+      const text = w.replace(/^"(.*)"$/s, "$1").replace(new RegExp(REF, "g"), resolve(false, true, true));
       return w.startsWith('"') ? [text] : text.split(/[ \t]+/).filter(Boolean);
     });
   const forName = /[ \t]+([A-Za-z_]\w*)/y;
+  // Whether every reference to name after from is a plain $name or ${name} that stands as a whole argument: false when
+  // one does not, "value" when one follows an = (so the value may be stored and glued later), and true otherwise.
+  const usesWhole = (name, from) => {
+    const uses = new RegExp(String.raw`\$(?:\{[#!]?)?${name}(?!\w)\}?`, "g");
+    uses.lastIndex = from;
+    let whole = true;
+    for (let m; (m = uses.exec(src)); ) {
+      if (m[0] !== `$${name}` && m[0] !== `\${${name}}`) return false;
+      if (!wholeRef(src, m.index, m.index + m[0].length)) return false;
+      if (afterEquals(src, m.index)) whole = "value";
+    }
+    return whole;
+  };
   // for NAME in WORDS where a word is a glob or a brace list: a word that names a protected path is kept as written.
   const globList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+[^\s;&|<>()'"\`\\]+)+)[ \t]*(?=[;\n])`, "y");
-  // The loop variable is each word that could change a check, and one unknown value for all the others.
+  // The loop variable is each word that keep picks, and one unknown value for all the others.
   const loopValue = (words, keep) => {
     const kept = words.filter(keep);
     return union(kept.length < words.length ? [undefined, ...kept] : kept);
@@ -689,7 +730,7 @@ function expandVars(src, picks = [], counts = []) {
   // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
   // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
   // Inside a value an operator is text, so a reference is put in whatever it holds, and the value is marked when it holds one.
-  const valueOf = (text) => (text === null ? undefined : mark(text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false, true))));
+  const valueOf = (text) => (text === null ? undefined : mark(text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false, true, false, true))));
   const appendTo = (old, text) => {
     if (text === undefined) return undefined;
     const before = old === undefined ? APPEND_AT_ASSIGN : (unmark(old) ?? "");
@@ -747,9 +788,12 @@ function expandVars(src, picks = [], counts = []) {
           const name = list?.[1] ?? globs?.[1] ?? forName.exec(src)?.[1];
           let words = [];
           let value;
-          if (list) value = loopValue((words = forItems(list[2]).map(mark)), matters);
-          else if (globs) {
-            words = globs[2].trim().split(/[ \t]+/).map((w) => w.replace(new RegExp(REF, "g"), resolve(false, true)));
+          if (list) {
+            // A safe word is read once only when every use of the loop variable is a whole argument.
+            const uses = name === undefined ? false : usesWhole(name, i);
+            value = loopValue((words = forItems(list[2]).map(mark)), (w) => !uses || forks(w, uses === "value"));
+          } else if (globs) {
+            words = globs[2].trim().split(/[ \t]+/).map((w) => w.replace(new RegExp(REF, "g"), resolve(false, true, true)));
             value = loopValue(words, (w) => PROTECTED_TEXT.test(w));
           }
           if (name !== undefined && (words.length > 0 || !(list || globs))) assign(name, value);
@@ -810,7 +854,7 @@ function expandVars(src, picks = [], counts = []) {
       const m = refAt.exec(src);
       if (m) {
         const child = quote === "'" || src[i - 1] === "\\";
-        out += resolve(child, !child && quote === '"')(...m);
+        out += resolve(child, !child && quote === '"')(...m, i, src);
         i = refAt.lastIndex;
         continue;
       }
@@ -1523,6 +1567,20 @@ function scriptsReason(calls, ctx, depth) {
 function namedScripts(argv, dir) {
   const scripts = nearestPackage(dir)?.scripts ?? {};
   return argv.slice(1).filter((w) => !w.startsWith("-") && Object.hasOwn(scripts, w)).map((name) => ({ name, dir, extra: [] }));
+}
+
+// Script names by directory for the current call, so a name the hook may run is never read as a plain word.
+const scriptCache = new Map();
+
+/** Every package.json script name of the nearest package above dir and of its workspaces. */
+function scriptNames(dir) {
+  const key = dir.join("/");
+  if (!scriptCache.has(key)) {
+    const names = new Set(Object.keys(nearestPackage(dir)?.scripts ?? {}));
+    for (const d of workspaceDirs(dir)) for (const name of Object.keys(readPackage(d)?.scripts ?? {})) names.add(name);
+    scriptCache.set(key, names);
+  }
+  return scriptCache.get(key);
 }
 
 const MERGE_ROUTE = /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/pulls\/(\d+)\/(?:ccr\/)?(merge|auto[_-]?merge)\/?(?:[?#].*)?$/;
@@ -2697,7 +2755,7 @@ function checkCommand(src, dir, ctx, depth = 0) {
     ctx.collect.push(reason);
     return null;
   };
-  const texts = expandVariants(src);
+  const texts = expandVariants(src, scriptNames(dir));
   if (texts === null) return report("the command has too many possible variable values to check; failing closed");
   for (const text of texts) {
     // Readings multiply across nested -c, eval and $( ) text; past the budget the command fails closed, also in collect mode.
@@ -2895,6 +2953,7 @@ export function decide(payload, options = {}) {
   const cwd = changeDir([], cwdPath);
   gitCache.clear();
   prCache.clear();
+  scriptCache.clear();
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
   if (tool !== "Bash") return null;
