@@ -180,6 +180,14 @@ describe("default-deny execution of adopted and API suites", () => {
     expect(problems[0]).toMatch(new RegExp(`^${key} default-deny test did not pass`));
   });
 
+  it("rejects a failed test file even when every test in it passed", () => {
+    const assertions = [{ title: "a", status: "passed" }, { title: "(test file)", status: "failed" }];
+    expect(fullSuiteExecutionProblems({ key: "acme", file: "x.test.ts", assertions }))
+      .toEqual(['acme default-deny test did not pass: "(test file)" is failed (x.test.ts)']);
+    expect(defaultDenyExecutionProblems({ key: "acme", file: "x.test.ts", expected: ["a"], assertions }))
+      .toEqual(["acme default-deny test file is failed although its tests passed (x.test.ts)"]);
+  });
+
   it("fails a suite that ran no tests and a suite with a skipped test", () => {
     expect(fullSuiteExecutionProblems({ key: "acme", file: "x.test.ts", assertions: [] }))
       .toEqual(["acme default-deny suite ran no tests (x.test.ts)"]);

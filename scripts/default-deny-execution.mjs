@@ -26,6 +26,8 @@ export const DEFAULT_DENY_REGISTRAR_FUNCTION = "registerProductionPortalAuthoriz
 export const DEFAULT_DENY_VITEST_CONFIG = "scripts/default-deny-execution.vitest.config.mjs";
 export const DEFAULT_DENY_FILES_ENV = "OVD_DEFAULT_DENY_FILES";
 
+export const DEFAULT_DENY_FILE_STATUS_TITLE = "(test file)";
+
 const RUN_TIMEOUT_MS = 180_000;
 
 /**
@@ -105,6 +107,10 @@ export async function runDefaultDenySuites({ rootDir, files }) {
           title: assertion.title,
           status: assertion.status,
         })));
+        // A failed hook or suite level error can fail the file while every assertion passed.
+        if (result.status !== "passed") {
+          byFile.get(relative).push({ title: DEFAULT_DENY_FILE_STATUS_TITLE, status: String(result.status) });
+        }
       }
     }
     return byFile;
@@ -123,6 +129,10 @@ export function defaultDenyExecutionProblems({ key, file, expected, assertions }
     } else if (!statuses.every((status) => status === "passed")) {
       problems.push(`${key} default-deny test did not pass: "${name}" is ${statuses.join(", ")} (${file})`);
     }
+  }
+  const failedFile = assertions.find((assertion) => assertion.title === DEFAULT_DENY_FILE_STATUS_TITLE);
+  if (problems.length === 0 && failedFile) {
+    problems.push(`${key} default-deny test file is ${failedFile.status} although its tests passed (${file})`);
   }
   return problems;
 }
