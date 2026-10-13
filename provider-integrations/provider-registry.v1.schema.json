@@ -48,6 +48,20 @@
           "items": { "$ref": "#/$defs/sessionSecret" }
         },
         "egress": { "enum": ["stable_nat", "none"] },
+        "adapterKind": {
+          "enum": ["api"],
+          "description": "Set to api for a provider reached over an HTTP API rather than a browser portal. An api provider may declare its key secret (name only) while liveAdapter is false; the generated helpers render secrets only for live adapters."
+        },
+        "adoptedAdapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module"],
+          "description": "Points the fixture kit at an existing hand-built adapter so fixture:onboard --stage=live does not generate a placeholder stub next to it. Only valid when liveAdapter is true.",
+          "properties": {
+            "module": { "type": "string", "pattern": "^worker/src/adapters/[A-Za-z][A-Za-z0-9]*\\.ts$" },
+            "defaultDenyTest": { "type": "string", "pattern": "^worker/src/adapters/[A-Za-z][A-Za-z0-9]*\\.test\\.ts$" }
+          }
+        },
         "sessionlessJustification": {
           "type": "string",
           "minLength": 20,

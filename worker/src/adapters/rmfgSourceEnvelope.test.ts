@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { LIVE_AUTOMATION_VENDORS } from "../types.js";
+import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope.js";
 import { createEvidenceBackedEnvelopeEvaluator } from "./evidenceBackedEnvelope.js";
+import { evaluateRmfgEligibility } from "./rmfg.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -47,6 +49,11 @@ describe("RMFG source envelope", () => {
 
     expect(decision.state).not.toBe("eligible_for_evaluation");
     expect(decision.reasonCodes).toContain("process_unknown");
-    expect(LIVE_AUTOMATION_VENDORS).not.toContain("rmfg");
+    // OVD-678: rmfg is listed for live automation, but the envelope is still
+    // unreviewed and the RMFG adapter refuses CNC only parts before any request.
+    expect(LIVE_AUTOMATION_VENDORS).toContain("rmfg");
+    expect(evaluateRmfgEligibility({ process: "cnc_milling", fileName: "bracket.step" }))
+      .toMatchObject({ eligible: false, reason: "cnc_only_not_supported" });
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 });
