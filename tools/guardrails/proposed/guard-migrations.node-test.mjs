@@ -224,6 +224,9 @@ writeFileSync(join(FIXTURE, "safe/tool.sh"), "#!/bin/sh\necho hello\n");
 // Round 24 source rows: vars.sh sets MIG to the migrations directory, .env sets FOO.
 writeFileSync(join(FIXTURE, "vars.sh"), "MIG=supabase/migrations\n");
 writeFileSync(join(FIXTURE, ".env"), "FOO=bar\n");
+// Round 25 rows source a virtual environment activate script.
+mkdirSync(join(FIXTURE, ".venv/bin"), { recursive: true });
+writeFileSync(join(FIXTURE, ".venv/bin/activate"), "VIRTUAL_ENV=/repo/.venv\n");
 writeFileSync(join(FIXTURE, "global-alias.gitconfig"), "[alias]\n\tx = push origin HEAD:main\n");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
@@ -1433,6 +1436,18 @@ test("round 24: a long word of references in a loop list or a default is read in
   }
 });
 
+test("round 25: a PR named in many readings of a merge loop is looked up once", () => {
+  // Each real lookup runs gh twice with a 6 second timeout, so a lookup per reading could pass the 30 second hook timeout.
+  const seen = [];
+  const prFiles = (target) => {
+    seen.push(target.selector);
+    return ["src/a.ts"];
+  };
+  const command = "for pr in 11 12 13 14 15 16 17 18; do gh pr merge $pr --squash; done; x || A=1; echo $A ${B:-$C}";
+  assert.equal(decide({ tool_name: "Bash", tool_input: { command }, cwd: CWD }, { prFiles }), null);
+  assert.deepEqual([...seen].sort(), ["11", "12", "13", "14", "15", "16", "17", "18"]);
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
@@ -1590,6 +1605,66 @@ pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
 pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
 pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
 `;
+
+// Round 25 is PR round 12.
+const ROUND_25 = (String.raw`
+# 1. A default word or a loop item gives a second reading only when it could change a check: protected path text, main,
+# master, HEAD or refspec syntax, a reference, an operator, a blank or a . step (and any word in a command that merges).
+# Other words are read once, as written, so ordinary loops and defaults stay under the variant cap.
+pass | for f in src/a.test.ts src/b.test.ts src/c.test.ts src/d.test.ts src/e.test.ts src/f.test.ts; do npx vitest run $f || echo "FAIL $f"; done; for p in web worker shared api cli docs; do echo "== $p"; ls $p; done
+pass | for f in a.ts b.ts c.ts d.ts e.ts; do npx eslint src/$f || ERR=1; done; for g in x.ts y.ts z.ts; do npx prettier --check src/$g || ERR=1; done; exit $\{ERR:-0}
+pass | for a in 1 2 3; do for b in 4 5 6; do for c in 7 8 9 10; do echo "$a $b $c"; done; done; done
+pass | for i in L40; do echo "attempt $i"; npm test && break; done
+pass | docker run --rm -e NODE_ENV=$\{NODE_ENV:-test} -e PORT=$\{PORT:-3000} -e HOST=$\{HOST:-0.0.0.0} -e LOG_LEVEL=$\{LOG_LEVEL:-info} -e REGION=$\{REGION:-us} -e TZ=$\{TZ:-UTC} app:latest
+pass | psql "postgresql://$\{PGUSER:-postgres}:$\{PGPASSWORD:-postgres}@$\{PGHOST:-127.0.0.1}:$\{PGPORT:-54322}/$\{PGDATABASE:-postgres}" -c "select 1"; echo $\{LOG:-/tmp/x}
+pass | for f in a b c d e f g h i; do echo $f; done; echo $\{OUT:-x} $\{MODE:-y}
+pass fixture:gitlivefeat | for f in a b c d e f; do npx eslint $f; done; for g in a b c d e f; do npx prettier --check $g; done; git push -u origin HEAD
+pass fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G; do git push origin HEAD:$b; done
+block | for i in L40; do echo x > supabase/migrations/$i.sql; done
+block | for f in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G supabase/migrations; do echo x > $f/x.sql; done
+block fixture:gitlivefeat | for b in a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G main; do git push origin HEAD:$b; done
+block fixture:gitlivefeat | npx eslint $\{F:-a.ts}; git push origin "HEAD:$\{T:-main}"
+block | echo $\{OUT:-x}; echo x > "$\{D:-supabase/migrations}/x.sql"
+block | echo $\{OUT:-x}; echo x > "$\{D:-supabase}/migrations/x.sql"
+block | for d in a b c d e f; do :; done; cd supabase/functions; cd $\{D:-..}; echo x > migrations/x.sql
+# 2. After source or ., a value the command itself assigns from $( ), backticks or $PWD is not taken as set by the file.
+pass fixture:gitlivefeat | set -a; source $FIXTURE/.env; set +a; BRANCH=$(git branch --show-current); git push -u origin "HEAD:$BRANCH"
+pass fixture | source .venv/bin/activate && OUT=$(mktemp) && python -m pytest > "$OUT"
+pass fixture | source .env && TS=$(date +%s) && npm test > "/tmp/test-$TS.log"
+pass fixture | source .env && TS=` + "`date +%s`" + String.raw` && npm test > "/tmp/test-$TS.log"
+pass fixture | source .env; ROOT=$PWD; echo x > "$ROOT/docs/a.md"
+pass fixture | source .env; LOG=/tmp/a; LOG+=$(date +%s); echo x > "$LOG"
+block fixture | source .env; ROOT=$PWD; echo x > "$ROOT/supabase/migrations/a.sql"
+block fixture | source .env; OUT=$(mktemp); echo x > "$MIG/x.sql"
+block fixture | source .env; X=$MIG; echo x > "$X/x.sql"
+block fixture:gitlivefeat | source $FIXTURE/.env; BRANCH=$(git branch --show-current); git push origin "HEAD:$BR"
+# 3. local, declare and typeset scope a variable only in a function body; in an if body or a { } group they set it.
+block | if [ -d supabase ]; then declare D=supabase/migrations; fi; echo x > "$D/x.sql"
+block | if true; then typeset D=supabase/migrations; fi; echo x > "$D/x.sql"
+block | { declare D=supabase/migrations; }; echo x > "$D/x.sql"
+block | while true; do declare D=supabase/migrations; break; done; echo x > "$D/x.sql"
+pass | MIG=docs; f() { if true; then local MIG=supabase/migrations; fi; }; f; echo x > "$MIG/x.md"
+pass | MIG=docs; if true; then f() { local MIG=supabase/migrations; }; fi; f; echo x > "$MIG/x.md"
+# 3. A glob loop whose pattern names a protected path holds the pattern, so writing to the loop variable blocks.
+block | for f in supabase/migrations/*.sql; do sed -i 's/a/b/' "$f"; done
+block | for f in supabase/migrations/*.sql; do echo x >> $f; done
+block | for f in src/*.ts supabase/migrations/*.sql; do cp /tmp/x "$f"; done
+block | X=supabase; for f in $X/migrations/*.sql; do rm "$f"; done
+pass | for f in supabase/migrations/*.sql; do wc -l "$f"; done
+pass | for f in supabase/migrations/*.sql; do grep -l "create table" "$f"; done
+pass | for f in src/*.ts; do cp /tmp/x "$f"; done
+residual (a loop over a glob that does not name a protected path is not expanded, so the loop variable is not known) | for d in supabase/*; do echo x > $d/x.sql; done
+# 3. A merge loop is looked up once per PR, however many readings name it.
+pass | for pr in 2 5 2 5 2 5 2 5; do gh pr merge $pr --squash; done
+block | for pr in 2 5 1; do gh pr merge $pr --squash; done
+# Every round 11 block row above still blocks; the required passes, also with the round 25 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+`).replaceAll("L40", Array.from({ length: 40 }, (_, i) => String(i + 1)).join(" "));
 
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
@@ -2057,6 +2132,7 @@ const PROBES = [
   ...tableRows(22, ROUND_22),
   ...tableRows(23, ROUND_23),
   ...tableRows(24, ROUND_24),
+  ...tableRows(25, ROUND_25),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

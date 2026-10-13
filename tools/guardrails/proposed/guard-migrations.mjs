@@ -517,6 +517,16 @@ const BODY_CLOSE = /^(fi|esac|done|\})$/;
 const MAX_VARIANTS = 32;
 // The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
 const MAX_WORK = 400;
+// Text in a default word or a loop item that could change a check: a protected path part, main, master, HEAD or refspec
+// syntax, a reference, an operator, a blank (a command that eval or -c may run) or a . or .. step. Any other word is read
+// once, as an unknown value, which is how a variable set outside the command is read.
+const CHANGES_CHECK = /supabase|migration|claude|hook|setting|tool|guardrail|main|master|head|[$;&|<>()`\s\u0002:+@]|(?:^|\/)\.\.?(?:\/|$)/i;
+// A merge of an unknown PR fails closed, so in a command that merges any word may be the PR and every word is read.
+const MERGE_TEXT = /merge/i;
+// The placeholders that stand for a value the command made itself; a sourced file cannot set them.
+const INTERNAL_NAME = /^__(?:(?:OLD)?PWD_AT_ASSIGN|SUBST_AT_ASSIGN|APPEND_AT_ASSIGN|SOURCED_\w*)$/;
+// The head of a function definition just before its { body: name() or function name.
+const FUNCTION_HEAD = /(?:(?:^|[\s;&|(){}])function[ \t]+[^\s;&|<>()]+(?:[ \t]*\(\))?|(?:^|[\s;&|{}])[A-Za-z_][\w.:-]*[ \t]*\([ \t]*\))[ \t\n]*$/;
 
 /** The possible values held in a variable slot: undefined (not known), null (unset) or a string. */
 const altsOf = (v) => (v !== null && typeof v === "object" ? v.alts : [v]);
@@ -570,6 +580,9 @@ function expandVars(src, picks = [], counts = []) {
   let scopes = [];
   let lastOp = null;
   let cmdStart = true;
+  // Only a word that could change a check gives a variable more than one reading (see CHANGES_CHECK).
+  const anyWord = MERGE_TEXT.test(src);
+  const matters = (w) => anyWord || CHANGES_CHECK.test(w);
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -584,7 +597,7 @@ function expandVars(src, picks = [], counts = []) {
   };
   const lookup = (name, child) => {
     const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
-    if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name)) return SOURCED_AT + name;
+    if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name) && !INTERNAL_NAME.test(name)) return SOURCED_AT + name;
     return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
   };
   const store = (name, value) => {
@@ -631,13 +644,14 @@ function expandVars(src, picks = [], counts = []) {
       const value = shown(lookup(braced ?? bare, child));
       return value === undefined ? seen : (value ?? "");
     }
+    const plain = !matters(word);
     // ${X:-$Y} takes the value of Y as its word.
     word = word.replace(new RegExp(REF, "g"), resolve(child, dq));
     const value = shown(lookup(name, child));
     if (value === undefined && (op === "-" || op === "=")) {
       // A variable that is not known may be set or not, so the reference is both as written and the word; ${X:=word}
-      // also records X with the word in the second case.
-      if (pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
+      // also records X with the word in the second case. A word that cannot change a check is read as written only.
+      if (plain || pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
       if (op === "=" && !child) assign(name, word);
       return word;
     }
@@ -665,6 +679,13 @@ function expandVars(src, picks = [], counts = []) {
       return w.startsWith('"') ? [text] : text.split(/[ \t]+/).filter(Boolean);
     });
   const forName = /[ \t]+([A-Za-z_]\w*)/y;
+  // for NAME in WORDS where a word is a glob or a brace list: a word that names a protected path is kept as written.
+  const globList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+[^\s;&|<>()'"\`\\]+)+)[ \t]*(?=[;\n])`, "y");
+  // The loop variable is each word that could change a check, and one unknown value for all the others.
+  const loopValue = (words, keep) => {
+    const kept = words.filter(keep);
+    return union(kept.length < words.length ? [undefined, ...kept] : kept);
+  };
   // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
   // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
   // Inside a value an operator is text, so a reference is put in whatever it holds, and the value is marked when it holds one.
@@ -710,16 +731,28 @@ function expandVars(src, picks = [], counts = []) {
     if (quote === null && wordStart) {
       keyword.lastIndex = i;
       const k = keyword.exec(src)?.[1];
-      if (k !== undefined && cmdStart) {
-        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {}, brace: k === "{" });
+      // The { of function name { comes after the name, so it is not at a command start.
+      const fn = k === "{" && FUNCTION_HEAD.test(src.slice(Math.max(0, i - 200), i));
+      if (k !== undefined && (cmdStart || fn)) {
+        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {}, fn });
         if (k === "for") {
-          // The loop variable holds each word of a literal list in turn; over a glob or a reference it is not known.
+          // The loop variable holds each word of a literal list in turn that could change a check, and one unknown value
+          // for the other words. Over a glob that names a protected path it holds the glob as written, so a write to it
+          // fails closed; over any other glob or a reference it is not known.
           forList.lastIndex = i + k.length;
-          const list = forList.exec(src);
+          globList.lastIndex = i + k.length;
           forName.lastIndex = i + k.length;
-          const name = list?.[1] ?? forName.exec(src)?.[1];
-          const items = list ? forItems(list[2]).map(mark) : null;
-          if (name !== undefined && items?.length !== 0) assign(name, items ? union(items) : undefined);
+          const list = forList.exec(src);
+          const globs = list ? null : globList.exec(src);
+          const name = list?.[1] ?? globs?.[1] ?? forName.exec(src)?.[1];
+          let words = [];
+          let value;
+          if (list) value = loopValue((words = forItems(list[2]).map(mark)), matters);
+          else if (globs) {
+            words = globs[2].trim().split(/[ \t]+/).map((w) => w.replace(new RegExp(REF, "g"), resolve(false, true)));
+            value = loopValue(words, (w) => PROTECTED_TEXT.test(w));
+          }
+          if (name !== undefined && (words.length > 0 || !(list || globs))) assign(name, value);
         }
         const body = scopes.findLast((sc) => sc.kind === "body");
         if (BODY_SPLIT.test(k) && body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
@@ -753,9 +786,10 @@ function expandVars(src, picks = [], counts = []) {
         prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
         for (const [name, text, append] of values) prefix.values[name] = append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text);
       } else {
-        // local (or declare and typeset without -g) in a function body makes a variable that ends with the body.
+        // local (or declare and typeset without -g) in a function body makes a variable that ends with the body. Outside
+        // a function body (in an if body or a { } group) it sets the variable as a plain assignment does.
         const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
-        const body = local ? (scopes.findLast((sc) => sc.kind === "body" && sc.brace) ?? scopes.findLast((sc) => sc.kind === "body")) : undefined;
+        const body = local ? scopes.findLast((sc) => sc.fn) : undefined;
         for (const [name, text, append] of values) {
           if (body) {
             body.locals ??= {};
@@ -1751,14 +1785,21 @@ export function ghPrFiles(target, cwd) {
   return { files: out.split("\n").filter(Boolean), headSha };
 }
 
+// PR file lookups for the current call, by target and directory, so a PR named in many readings is looked up once.
+const prCache = new Map();
+
 function mergeReason(target, ctx) {
   if (target.graphql) return `${target.graphql}, so its changed files cannot be checked; failing closed (use gh pr merge)`;
-  let result;
-  try {
-    result = ctx.prFiles(target, ctx.cwd);
-  } catch (error) {
-    return `could not list the PR's changed files to check for supabase/migrations/ (${error.message}); failing closed`;
+  const key = JSON.stringify([target, ctx.cwd]);
+  if (!prCache.has(key)) {
+    try {
+      prCache.set(key, { result: ctx.prFiles(target, ctx.cwd) });
+    } catch (error) {
+      prCache.set(key, { error });
+    }
   }
+  const { result, error } = prCache.get(key);
+  if (error) return `could not list the PR's changed files to check for supabase/migrations/ (${error.message}); failing closed`;
   const files = Array.isArray(result) ? result : result?.files;
   if (!Array.isArray(files)) return "PR file lookup returned no list; failing closed";
   if (target.sha && result?.headSha && !result.headSha.startsWith(target.sha)) return `the PR head is ${result.headSha}, not the ${target.sha} this merge names; failing closed`;
@@ -2853,6 +2894,7 @@ export function decide(payload, options = {}) {
   const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branchChanges: [], invocations: 0, work: 0, collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
   gitCache.clear();
+  prCache.clear();
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
   if (tool !== "Bash") return null;
