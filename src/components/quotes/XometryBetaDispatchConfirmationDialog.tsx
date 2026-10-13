@@ -137,6 +137,11 @@ function formatProviderList(labels: readonly string[]) {
   return labels.length <= 2 ? labels.join(" and ") : `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
 }
 
+function getShareLabel(fanout: ProviderFanoutState | null, providerLabel: string) {
+  if (!fanout || fanout.plan.send.length <= 1) return providerLabel;
+  return formatProviderList(fanout.plan.send.map(getProviderDisplayName));
+}
+
 function createApprovalReference() {
   return globalThis.crypto.randomUUID();
 }
@@ -311,9 +316,7 @@ export function XometryBetaDispatchConfirmationDialog({
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
   const providerLabel = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   // With fan out on, the disclosure names every provider the confirmation reaches.
-  const shareLabel = fanout && fanout.plan.send.length > 1
-    ? formatProviderList(fanout.plan.send.map(getProviderDisplayName))
-    : providerLabel;
+  const shareLabel = getShareLabel(fanout, providerLabel);
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
   const confirmationInFlight = useRef(false);
   const [isConfirming, setIsConfirming] = useState(false);

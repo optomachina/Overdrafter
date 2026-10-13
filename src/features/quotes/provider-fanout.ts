@@ -189,12 +189,8 @@ const GUARD_DENIAL_SKIP_REASONS: readonly [RegExp, ProviderFanoutSkipReason][] =
 ];
 
 export function getFanoutDenialSkipReason(error: unknown): ProviderFanoutSkipReason | undefined {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof (error as { message?: unknown } | null)?.message === "string"
-        ? (error as { message: string }).message
-        : "";
+  const raw = error instanceof Error ? error.message : (error as { message?: unknown } | null)?.message;
+  const message = typeof raw === "string" ? raw : "";
   return GUARD_DENIAL_SKIP_REASONS.find(([pattern]) => pattern.test(message))?.[1];
 }
 
