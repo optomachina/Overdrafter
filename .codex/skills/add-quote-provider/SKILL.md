@@ -40,6 +40,7 @@ Provider config (live-adapter listing, session-secret names, stable egress) goes
 - Keep unknown capabilities unknown. A marketing page is not production certification.
 - Do not create accounts, contact providers, bypass access controls or CAPTCHA, handle secrets, purchase, or reach checkout.
 - Keep public research automatic and first-party only. Require a separate exact approval immediately before any authenticated upload or other provider interaction.
+- Kill switch row: a vendor added later with `alter type public.vendor_name add value` has no `private.provider_kill_switches` row until a seed row is added in the same reviewed migration. Without a row the provider reads as engaged, so it stays switched off. Add the seed row (`engaged = false` only when the provider is cleared to go live) and run `npm run provider:check`.
 - Do not disturb an active protected release, credential, cloud, recovery, or provider-session effort. Provider-kit work is offline unless live continuation has its own exact authorization.
 
 Use the repository's Linear workflow for tracker changes and keep its single rolling progress comment current. Use `docs/provider-integration.md` as the lifecycle source of truth.

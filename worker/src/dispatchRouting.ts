@@ -5,6 +5,14 @@ import {
   quoteWithProviderDispatchPreflight,
   type ProviderDispatchClaim,
 } from "./providerDispatchPreflight.js";
+import {
+  createProviderKillSwitchGuard,
+  guardProviderQuote,
+  PROVIDER_KILL_SWITCH_ENGAGED,
+  ProviderKillSwitchError,
+  supabaseProviderKillSwitchReader,
+  type ProviderKillSwitchReader,
+} from "./providerKillSwitch.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -28,7 +36,8 @@ import {
  *   provider-neutral `quoteWithProviderDispatchPreflight`. The worker's
  *   `handleVendorQuoteTask` sends those tasks to the OVD-464 ordered pipeline
  *   (`providerTaskPipeline.ts`) instead and reaches this function only for
- *   Xometry and simulate mode
+ *   Xometry and simulate mode. That route wraps its adapter with the same
+ *   `guardProviderQuote` kill-switch guard used here
  * - any other live non-Xometry task stays on the specialized path, which
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *
@@ -39,6 +48,12 @@ import {
  * (`weerg-quote-envelope.v1`, OVD-675) are listed here. A
  * database-approved decision for any other envelope is refused with
  * `provider_envelope_unknown` and no adapter launches.
+ *
+ * OVD-722: in live mode the provider kill switch is re-read immediately
+ * before the adapter launches, after any authorization was obtained, so a
+ * stale permit cannot bypass a switch flipped in between. The same guard is
+ * handed to the adapter as `providerKillSwitchCheckpoint` for its own
+ * navigation, upload, and configuration checkpoints.
  */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };
@@ -69,7 +84,26 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   adapter: Pick<VendorAdapter, "quote">;
   quoteInput: VendorQuoteAdapterInput;
   onAuthorized?: () => void;
+  /** Test seam; production reads `api_worker_provider_kill_switch_state` on every checkpoint. */
+  killSwitchReader?: ProviderKillSwitchReader;
 }): Promise<VendorQuoteAdapterOutput> {
+  const guard =
+    input.config.workerMode === "live"
+      ? createProviderKillSwitchGuard(
+          input.killSwitchReader ?? supabaseProviderKillSwitchReader(input.supabase),
+          input.vendor,
+        )
+      : null;
+  // Wraps the adapter so the final kill-switch read sits between the admitted
+  // authorization and the launch; onAuthorized fires only once it passes.
+  const adapter: Pick<VendorAdapter, "quote"> = {
+    quote: guard
+      ? guardProviderQuote(guard, (quoteInput) => input.adapter.quote(quoteInput), input.onAuthorized)
+      : async (quoteInput) => {
+          input.onAuthorized?.();
+          return input.adapter.quote(quoteInput);
+        },
+  };
   const claim =
     input.config.workerMode === "live"
       ? providerDispatchClaimFromTask({
@@ -79,6 +113,30 @@ export async function quoteWithRoutedDispatchPreflight(input: {
         })
       : null;
 
+  try {
+    return await routeDispatchPreflight(input, claim, adapter);
+  } catch (error) {
+    // A server preflight that denied for the kill switch ends the same way as a
+    // worker checkpoint refusal: cancelled_provider_disabled, never retried.
+    if (serverKillSwitchDenial(error)) {
+      throw new ProviderKillSwitchError(PROVIDER_KILL_SWITCH_ENGAGED, input.vendor, "server_preflight");
+    }
+    throw error;
+  }
+}
+
+function serverKillSwitchDenial(error: unknown): boolean {
+  return (
+    (error instanceof XometryDispatchAuthorizationError && error.reasonCode === PROVIDER_KILL_SWITCH_ENGAGED) ||
+    (error instanceof ProviderDispatchAuthorizationError && error.denial === PROVIDER_KILL_SWITCH_ENGAGED)
+  );
+}
+
+function routeDispatchPreflight(
+  input: Parameters<typeof quoteWithRoutedDispatchPreflight>[0],
+  claim: ProviderDispatchClaim | null,
+  adapter: Pick<VendorAdapter, "quote">,
+): Promise<VendorQuoteAdapterOutput> {
   if (claim) {
     return quoteWithProviderDispatchPreflight({
       supabase: input.supabase,
@@ -86,9 +144,8 @@ export async function quoteWithRoutedDispatchPreflight(input: {
       claimedAt: input.claimedAt,
       claim,
       scopeSnapshot: input.scopeSnapshot,
-      adapter: input.adapter,
+      adapter,
       quoteInput: input.quoteInput,
-      onAuthorized: input.onAuthorized,
     });
   }
 
@@ -100,14 +157,13 @@ export async function quoteWithRoutedDispatchPreflight(input: {
     claimedAt: input.claimedAt,
     vendor: input.vendor,
     scopeSnapshot: input.scopeSnapshot,
-    adapter: input.adapter,
+    adapter,
     quoteInput: input.quoteInput,
-    onAuthorized: input.onAuthorized,
   });
 }
 
 export type DispatchAuthorizationFailure = {
-  boundary: "xometry" | "provider";
+  boundary: "xometry" | "provider" | "kill_switch";
   reasonCode: string;
   retryable: boolean;
 };
@@ -123,6 +179,9 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
   }
   if (error instanceof ProviderDispatchAuthorizationError) {
     return { boundary: "provider", reasonCode: error.denial, retryable: error.retryable };
+  }
+  if (error instanceof ProviderKillSwitchError) {
+    return { boundary: "kill_switch", reasonCode: error.reasonCode, retryable: error.retryable };
   }
   return null;
 }

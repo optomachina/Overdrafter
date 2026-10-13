@@ -315,6 +315,14 @@ export type VendorQuoteAdapterInput = {
   xometryDispatchAuthorization?: XometryDispatchAuthorization;
   /** Required for production generic-provider launches (OVD-381/673); never set by live evaluation. */
   providerDispatchAuthorization?: ProviderDispatchAuthorization;
+  /**
+   * OVD-722 kill-switch checkpoint bound by the production dispatch path.
+   * Adapters call it before each provider-facing navigation or mutation; it
+   * rejects (fail-closed) when the switch is engaged or unreadable.
+   */
+  providerKillSwitchCheckpoint?: (
+    checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
+  ) => Promise<void>;
 };
 
 export type StagedFile = {

@@ -358,6 +358,9 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "weerg" },
       adapter: { quote },
       quoteInput: input,
+      killSwitchReader: async (provider) => ({
+        schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
+      }),
     })).resolves.toEqual({ artifacts: [] });
     expect(quote).toHaveBeenCalledTimes(1);
   });

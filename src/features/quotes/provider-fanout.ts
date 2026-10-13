@@ -249,9 +249,13 @@ export type ProviderFanoutOutcome =
   | { provider: VendorName; status: "queued"; created: boolean }
   | { provider: VendorName; status: "denied" | "unknown"; skipReason?: ProviderFanoutSkipReason };
 
-/** Worker guard codes (providerExecutionSeam) that map to a plan skip reason. */
+/**
+ * Worker guard codes (providerExecutionSeam) that map to a plan skip reason.
+ * OVD-722: the permit insert trigger refuses a switched off provider with
+ * provider_kill_switch_engaged, so that code reads as the kill switch too.
+ */
 const GUARD_DENIAL_SKIP_REASONS: readonly [RegExp, ProviderFanoutSkipReason][] = [
-  [/\bprovider_disabled\b/, "kill_switch"],
+  [/\b(?:provider_disabled|provider_kill_switch_engaged)\b/, "kill_switch"],
   [/\bexport_control_blocked\b/, "export_control"],
   [/\bprovider_daily_cap_reached\b/, "daily_cap"],
   [/\bprovider_dispatch_(?:admission_disabled|admission_evidence_missing|admission_expired|provider_not_enabled|provider_unknown|provider_applicability_required|process_not_admitted|provider_envelope_unknown)\b/, "not_admitted"],
