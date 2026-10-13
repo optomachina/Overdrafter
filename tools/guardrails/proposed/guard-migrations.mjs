@@ -570,7 +570,8 @@ function union(values) {
  * loop item is read on its own first; only when that passes MAX_VARIANTS are the safe ones folded (see safeWord).
  */
 function expandVariants(src, scripts) {
-  return variantsOf(src, scripts, false) ?? variantsOf(src, scripts, true);
+  // The script names are read only when folding needs them, since reading them runs git.
+  return variantsOf(src, new Set(), false) ?? variantsOf(src, scripts(), true);
 }
 
 function variantsOf(src, scripts, fold) {
@@ -2781,7 +2782,7 @@ function checkCommand(src, dir, ctx, depth = 0) {
     ctx.collect.push(reason);
     return null;
   };
-  const texts = expandVariants(src, scriptNames(dir));
+  const texts = expandVariants(src, () => scriptNames(dir));
   if (texts === null) return report("the command has too many possible variable values to check; failing closed");
   for (const text of texts) {
     // Readings multiply across nested -c, eval and $( ) text; past the budget the command fails closed, also in collect mode.
