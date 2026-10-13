@@ -17,12 +17,13 @@ Runner: `node scripts/window-1/rehearse.mjs` (manifest `docs/release/window-1/ma
 
 ## Results
 
-Heads: main `5773decb` (149 migrations: the 148 that production had on Oct 12 plus OVD-462, which was applied as migration 1 on Oct 12 and recorded by #717), #677 `161329de` (723 EXPAND, a placeholder: #677's later rounds change `ovd-723.sql`, and the packet will be repinned once more), #676 `a53e794b` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
+Heads: main `5773decb` (149 migrations: the 148 that production had on Oct 12 plus OVD-462, which was applied as migration 1 on Oct 12 and recorded by #717), #677 `efdb41ac` (723 EXPAND, final: round 9, independent review APPROVE), #676 `a53e794b` (722 expand only; its SQL is final and byte identical to `a8e0bfd7`). Earlier heads were rehearsed too. Their results drove the fixes recorded in `review-722-723.md` and are superseded.
 
 | Run | Base | Order | Result | Time |
 | --- | --- | --- | --- | --- |
 | `ovd-462-only/` (record of migration 1 before it was applied) | `e254d032` | 462 | **PASS, every gate** | 152 s |
-| `recommended/` | `5773decb` | 723, 722 | **PASS, every gate** | 242 s |
+| `recommended/` | `5773decb` | 723, 722 | **PASS, every gate** | 221 s |
+| 723 alone (not kept; its expected diff is) | `5773decb` | 723 | **PASS, every gate** | 147 s |
 | 722 alone (not kept; its expected diff is) | `5773decb` | 722 | **PASS, every gate** | 146 s |
 
 Per migration (recommended run; first apply / reapply):
@@ -30,8 +31,8 @@ Per migration (recommended run; first apply / reapply):
 | | Apply (bytes = draft file, sha256 recorded) | Own pgTAP | Composed pgTAP | Rollback | Reapply |
 | --- | --- | --- | --- | --- | --- |
 | OVD-462 | applied on production Oct 12 (`ovd-462-only/`: ok 31/34 ms, 128/128, rollback 21 ms; with a concurrent writer it waited 3.0 s, then refused) | | | | |
-| OVD-723 EXPAND | ok, 39/48 ms | 128/128 | 128/128 | ok 23 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 128/128 |
-| OVD-722 (expand only) | ok, 22/30 ms | 66/66 | 66/66 | ok 31 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
+| OVD-723 EXPAND | ok, 55/35 ms | 167/167 | 167/167 | ok 19 ms with the draft's guarded rollback; only the 4 audit tables and their 4 read policies remain, as intended | ok; 167/167 |
+| OVD-722 (expand only) | ok, 24/23 ms | 66/66 | 66/66 | ok 31 ms with the packet rollback, which byte matches the draft's guarded rollback section (it now fails closed when a switch row is missing) | ok; 66/66 |
 
 Main suites: none regresses, gated both per step (against the suites' results just before that migration) and cumulatively. A main suite that a PR edits lands with its migration, so after each migration the runner uses that PR's version: #675 adds `provider_session_leases.sql`, #677 edits 6 suites (`job_service_detail_privileges` joined at `161329de`) (`free_confirmed_quote_access` is now the window 2 contract's seed patch), #676 edits none.
 
@@ -45,8 +46,8 @@ Run sheet readbacks: the runner extracts every `sql` readback block from each mi
 
 Expected diffs (`ovd602-expected/`, relative to the post 462 pin unless noted):
 
-* **723:** 11 new functions, 5 tables, 5 policies, 6 flags (`ovd-723.json`).
-* **723, 722:** 19 new SECURITY DEFINER functions, all with `search_path` pinned. 9 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 6 export control RPCs whose bodies check the caller). No existing function changes. There are 8 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 9 flags, every one listed in `ovd-723+ovd-722.json`.
+* **723:** 12 new functions, 5 tables, 5 policies, 7 flags (`ovd-723.json`), including `api_request_export_marking_rescan(uuid)` for `authenticated`.
+* **723, 722:** 20 new SECURITY DEFINER functions, all with `search_path` pinned. 10 are granted to `authenticated` on purpose (3 kill switch admin RPCs and 7 export control RPCs whose bodies check the caller). No existing function changes. There are 8 new tables, all with RLS enabled, and 5 new policies, including `job_files_storage_insert_export_cleared` on `storage.objects`. 10 flags, every one listed in `ovd-723+ovd-722.json`.
 * **722 alone** (if 723 is skipped): 8 functions, 3 tables, 3 flags (`ovd-722.json`; byte identical to its pre 462 version, so 722's diff does not depend on 462).
 * **462** (`ovd-462.json`, relative to the previous pin): the diff migration 1 was checked against on production; kept as a record.
 * **Not covered by the inventory:** column grants, default ACLs, schema CREATE, sequences, owners and triggers.

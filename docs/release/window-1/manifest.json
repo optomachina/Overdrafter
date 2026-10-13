@@ -42,13 +42,13 @@
       "id": "ovd-723",
       "title": "ITAR/EAR export control, EXPAND (window 1); contract is a later window",
       "pr": 677,
-      "sha": "161329de0b7dfaa9343d7ecc3981748860cdaff5",
+      "sha": "efdb41ac17bd3012a5664dc9be998e9d53c61704",
       "slug": "ovd723_export_control_upload_block",
       "draft": {
         "path": "docs/migration-drafts/ovd-723.sql"
       },
       "rollback": {
-        "sha": "161329de0b7dfaa9343d7ecc3981748860cdaff5",
+        "sha": "efdb41ac17bd3012a5664dc9be998e9d53c61704",
         "path": "docs/migration-drafts/ovd-723.rollback.sql",
         "singleTransaction": true
       },
@@ -76,7 +76,7 @@
         "rollback": "docs/migration-drafts/ovd-723-contract.rollback.sql",
         "suite": "supabase/tests/pending/ovd723_export_control_contract.sql.pending",
         "seedPatch": "docs/migration-drafts/ovd-723-contract-free-confirmed-seed.patch",
-        "sha": "161329de0b7dfaa9343d7ecc3981748860cdaff5"
+        "sha": "efdb41ac17bd3012a5664dc9be998e9d53c61704"
       }
     }
   ],

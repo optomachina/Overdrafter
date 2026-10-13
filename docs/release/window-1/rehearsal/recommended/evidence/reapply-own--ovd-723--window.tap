@@ -1,6 +1,6 @@
   plan  
 --------
- 1..128
+ 1..167
 (1 row)
 
  set_ovd723_request_identity 
@@ -440,7 +440,7 @@
 
  api_record_export_control_clean_scan 
 --------------------------------------
- 5c7a6e1c-a15d-4d22-9d1a-02bf3cc52527
+ 90e46538-b5c5-47c1-a6f3-5360763e5471
 (1 row)
 
                              is                              
@@ -608,9 +608,264 @@
  ok 109 - a file whose bytes changed is queued again
 (1 row)
 
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                 is                                  
+---------------------------------------------------------------------
+ ok 110 - scan state is pending while a rescan of the file is queued
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                                is                                                
+--------------------------------------------------------------------------------------------------
+ ok 111 - a rescan that failed for good leaves the file missing (an old worker in the deploy gap)
+(1 row)
+
+                      is                       
+-----------------------------------------------
+ ok 112 - the owner requeues the failed rescan
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 113 - requeuing again queues no duplicate while the rescan is queued
+(1 row)
+
+                                 is                                  
+---------------------------------------------------------------------
+ ok 114 - after the requeue the part page shows the check as pending
+(1 row)
+
+                               throws_ok                                
+------------------------------------------------------------------------
+ ok 115 - a job whose latest answer is not clean cannot requeue rescans
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                            throws_ok                            
+-----------------------------------------------------------------
+ ok 116 - a user outside the organization cannot requeue rescans
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 117 - an incomplete STEP header is shown as such, not as a recheck
+(1 row)
+
+                                                      is                                                       
+---------------------------------------------------------------------------------------------------------------
+ ok 118 - the same bytes are not queued again after a final outcome (drawing_unread or step_header_incomplete)
+(1 row)
+
+                                                                      ok                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ ok 119 - only an authenticated user can call the owner requeue; it is SECURITY DEFINER with an empty search_path, and its helpers are private
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                     is                                      
+-----------------------------------------------------------------------------
+ ok 120 - B1: the declaration comes before the files, so it queues no rescan
+(1 row)
+
+                                       is                                       
+--------------------------------------------------------------------------------
+ ok 121 - B2: the replaced drawing job is declared clean before its files exist
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                        is                                         
+-----------------------------------------------------------------------------------
+ ok 122 - B1: while extraction is queued the fresh part shows the check as pending
+(1 row)
+
+                                     lives_ok                                      
+-----------------------------------------------------------------------------------
+ ok 123 - B1: extraction records a clean drawing scan and a clean STEP header scan
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                                         is                                                          
+---------------------------------------------------------------------------------------------------------------------
+ ok 124 - B1: after extraction completes the fresh STEP part is complete and clear (no hold notice) before any quote
+(1 row)
+
+                                 is                                 
+--------------------------------------------------------------------
+ ok 125 - B1: the fresh part is dispatchable after extraction alone
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                                  is                                                  
+------------------------------------------------------------------------------------------------------
+ ok 126 - B2: an extraction that fails on an unread drawing shows drawing_unread at once, not missing
+(1 row)
+
+                                             is                                             
+--------------------------------------------------------------------------------------------
+ ok 127 - B2: the unread bytes are not queued for a rescan that would read the same nothing
+(1 row)
+
+                                    is                                     
+---------------------------------------------------------------------------
+ ok 128 - round 8: drawing_ocr_failed is not a final outcome for the bytes
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                             is                                              
+---------------------------------------------------------------------------------------------
+ ok 129 - round 8: an OCR failure shows the drawing as missing (recheck), not drawing_unread
+(1 row)
+
+                                        is                                        
+----------------------------------------------------------------------------------
+ ok 130 - round 8: Recheck files queues the same bytes again after an OCR failure
+(1 row)
+
+                            is                            
+----------------------------------------------------------
+ ok 131 - B2: the part with the unread drawing stays held
+(1 row)
+
+                                  is                                   
+-----------------------------------------------------------------------
+ ok 132 - round 9: a page past the OCR page cap is final for the bytes
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                  is                                  
+----------------------------------------------------------------------
+ ok 133 - round 9: the part shows that the drawing has too many pages
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 134 - round 9: Recheck files does not queue a drawing over the page cap
+(1 row)
+
+                                   is                                    
+-------------------------------------------------------------------------
+ ok 135 - round 9: a sheet over the OCR pixel cap is final for the bytes
+(1 row)
+
+                                 is                                  
+---------------------------------------------------------------------
+ ok 136 - round 9: two OCR failures on the same bytes stay retryable
+(1 row)
+
+                                          is                                           
+---------------------------------------------------------------------------------------
+ ok 137 - round 9: an OCR failure on other bytes does not count toward the recheck cap
+(1 row)
+
+                                             is                                             
+--------------------------------------------------------------------------------------------
+ ok 138 - round 9: the third OCR failure on the same bytes is final (drawing_recheck_limit)
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                               is                                
+-----------------------------------------------------------------
+ ok 139 - round 9: the part shows the recheck limit, not missing
+(1 row)
+
+                                         is                                         
+------------------------------------------------------------------------------------
+ ok 140 - round 9: Recheck files does not queue the same bytes past the recheck cap
+(1 row)
+
+                                           is                                           
+----------------------------------------------------------------------------------------
+ ok 141 - round 9: a later final outcome is still the answer after earlier OCR failures
+(1 row)
+
+                              is                               
+---------------------------------------------------------------
+ ok 142 - round 9: the part with the unread drawing stays held
+(1 row)
+
+                                 lives_ok                                 
+--------------------------------------------------------------------------
+ ok 143 - B2: the replacement drawing and the STEP file are scanned clean
+(1 row)
+
+                                     is                                     
+----------------------------------------------------------------------------
+ ok 144 - B2: the old drawing no part references is not queued for a rescan
+(1 row)
+
+ set_ovd723_request_identity 
+-----------------------------
+ 
+(1 row)
+
+                                                is                                                 
+---------------------------------------------------------------------------------------------------
+ ok 145 - B2: the replaced drawing no longer holds the scan state once the user follows the notice
+(1 row)
+
+                            is                             
+-----------------------------------------------------------
+ ok 146 - B2: dispatch is allowed, matching the scan state
+(1 row)
+
+                                                        ok                                                        
+------------------------------------------------------------------------------------------------------------------
+ ok 147 - the final outcome lookup is scoped to the job and compares the task type as the enum (work_queue index)
+(1 row)
+
+                                        ok                                         
+-----------------------------------------------------------------------------------
+ ok 148 - work_queue has an index leading with job_id for the final outcome lookup
+(1 row)
+
                   is                   
 ---------------------------------------
- ok 110 - a marking hit holds the part
+ ok 149 - a marking hit holds the part
 (1 row)
 
  set_ovd723_request_identity 
@@ -620,37 +875,37 @@
 
                                            is                                           
 ----------------------------------------------------------------------------------------
- ok 111 - clearing a false positive records an admin cleared scan of the reviewed bytes
+ ok 150 - clearing a false positive records an admin cleared scan of the reviewed bytes
 (1 row)
 
                                                is                                                
 -------------------------------------------------------------------------------------------------
- ok 112 - after clearance the part is dispatchable: the scan rule accepts the admin cleared scan
+ ok 151 - after clearance the part is dispatchable: the scan rule accepts the admin cleared scan
 (1 row)
 
                                                           ok                                                          
 ----------------------------------------------------------------------------------------------------------------------
- ok 113 - the admin cleared scan is bound to the file, its hash, its source, and the cleared patterns, and is audited
+ ok 152 - the admin cleared scan is bound to the file, its hash, its source, and the cleared patterns, and is audited
 (1 row)
 
                                              is                                              
 ---------------------------------------------------------------------------------------------
- ok 114 - a rescan of the same bytes with already cleared patterns resolves to the clearance
+ ok 153 - a rescan of the same bytes with already cleared patterns resolves to the clearance
 (1 row)
 
                         is                        
 --------------------------------------------------
- ok 115 - the resolved rescan opened no new block
+ ok 154 - the resolved rescan opened no new block
 (1 row)
 
                                is                               
 ----------------------------------------------------------------
- ok 116 - the part stays dispatchable after the resolved rescan
+ ok 155 - the part stays dispatchable after the resolved rescan
 (1 row)
 
                                       ok                                       
 -------------------------------------------------------------------------------
- ok 117 - a new pattern on the same bytes opens a new block and holds the part
+ ok 156 - a new pattern on the same bytes opens a new block and holds the part
 (1 row)
 
  set_ovd723_request_identity 
@@ -660,17 +915,17 @@
 
                       is                       
 -----------------------------------------------
- ok 118 - the admin clears the new pattern too
+ ok 157 - the admin clears the new pattern too
 (1 row)
 
                                       is                                      
 ------------------------------------------------------------------------------
- ok 119 - a clearance does not vouch for different bytes in the same file row
+ ok 158 - a clearance does not vouch for different bytes in the same file row
 (1 row)
 
                                is                                
 -----------------------------------------------------------------
- ok 120 - the same patterns on a different hash open a new block
+ ok 159 - the same patterns on a different hash open a new block
 (1 row)
 
  set_ovd723_request_identity 
@@ -680,12 +935,12 @@
 
                                           is                                           
 ---------------------------------------------------------------------------------------
- ok 121 - a clearance records no scan when the file no longer holds the reviewed bytes
+ ok 160 - a clearance records no scan when the file no longer holds the reviewed bytes
 (1 row)
 
                                 is                                
 ------------------------------------------------------------------
- ok 122 - the changed bytes stay held until the worker scans them
+ ok 161 - the changed bytes stay held until the worker scans them
 (1 row)
 
  set_ovd723_request_identity 
@@ -695,32 +950,32 @@
 
                             throws_ok                             
 ------------------------------------------------------------------
- ok 123 - another organization cannot read the declaration status
+ ok 162 - another organization cannot read the declaration status
 (1 row)
 
                 throws_ok                
 -----------------------------------------
- ok 124 - audit events cannot be updated
+ ok 163 - audit events cannot be updated
 (1 row)
 
                 throws_ok                
 -----------------------------------------
- ok 125 - declarations cannot be deleted
+ ok 164 - declarations cannot be deleted
 (1 row)
 
                                   ok                                  
 ----------------------------------------------------------------------
- ok 126 - anon cannot execute the declaration, status, or review RPCs
+ ok 165 - anon cannot execute the declaration, status, or review RPCs
 (1 row)
 
                            ok                           
 --------------------------------------------------------
- ok 127 - only the service role can record marking hits
+ ok 166 - only the service role can record marking hits
 (1 row)
 
                                      ok                                     
 ----------------------------------------------------------------------------
- ok 128 - the declaration RPC is SECURITY DEFINER with an empty search_path
+ ok 167 - the declaration RPC is SECURITY DEFINER with an empty search_path
 (1 row)
 
  finish 

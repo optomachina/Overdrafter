@@ -255,7 +255,7 @@
 
                                                                                         api_admin_set_provider_kill_switch                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"reason": "OVD-722 test: end to end enqueue drill", "engaged": true, "version": 1, "provider": "xometry", "changedAt": "2026-10-12T23:45:04.762211+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+ {"reason": "OVD-722 test: end to end enqueue drill", "engaged": true, "version": 1, "provider": "xometry", "changedAt": "2026-10-13T01:18:05.395681+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
 (1 row)
 
  ovd722_member_as 
@@ -295,7 +295,7 @@
 
                                                                                           api_admin_set_provider_kill_switch                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"reason": "OVD-722 test: end to end enqueue released", "engaged": false, "version": 2, "provider": "xometry", "changedAt": "2026-10-12T23:45:04.804181+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+ {"reason": "OVD-722 test: end to end enqueue released", "engaged": false, "version": 2, "provider": "xometry", "changedAt": "2026-10-13T01:18:05.436932+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
 (1 row)
 
  ovd722_member_as 
@@ -320,7 +320,7 @@
 
                                                                                      api_admin_set_provider_kill_switch                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"reason": "OVD-722 test: sweep bad row drill", "engaged": true, "version": 3, "provider": "xometry", "changedAt": "2026-10-12T23:45:04.838495+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
+ {"reason": "OVD-722 test: sweep bad row drill", "engaged": true, "version": 3, "provider": "xometry", "changedAt": "2026-10-13T01:18:05.474506+00:00", "changedBy": "00000000-0000-4000-8000-000000722001"}
 (1 row)
 
                                         ok                                        
@@ -422,4 +422,4 @@
 --------
 (0 rows)
 
-psql:/tmp/ovd635-window1-tAx7VS/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:35: NOTICE:  extension "pgtap" already exists, skipping
+psql:/tmp/ovd635-window1-5X7oyT/src-ovd-722/supabase/tests/pending/ovd722_provider_kill_switch.sql.pending:35: NOTICE:  extension "pgtap" already exists, skipping
