@@ -84,7 +84,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SUB = "\u0001";
@@ -517,21 +517,23 @@ const BODY_CLOSE = /^(fi|esac|done|\})$/;
 const MAX_VARIANTS = 32;
 // The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
 const MAX_WORK = 400;
-// A default word or a loop item that may be read once, as an unknown value (which is how a variable set outside the command
-// is read), instead of once per word: plain characters only, no leading -, no glob, not a . or .. step, no protected path
-// text or part of one, and not a command or subcommand word the checks look for or a package.json script name. Any other
-// word gives the variable a reading per word. The word must also stand as a whole argument where it is used (see
+// While the readings stay at or under MAX_VARIANTS, every default word and every loop item gets its own reading. Only past
+// it may a word be folded into one unknown value (which is how a variable set outside the command is read), and only when
+// it is safe: plain characters only (a - inside the word, not leading; no : or +), no glob, not a . or .. step, no
+// protected path text or part of one, and not a command or subcommand word the checks look for or a package.json script
+// name. Any other word keeps its own reading. The word must also stand as a whole argument where it is used (see
 // wholeRef), since glued to other text (supa$s, m$p, --$f) even a plain word can complete a protected name.
-const SAFE_CHARS = /^[A-Za-z0-9_.,@%+=:/]+$/;
+const SAFE_CHARS = /^[A-Za-z0-9_.,@%=/-]+$/;
 const PROTECTED_NAMES = ["supabase", "migrations", "github", "workflows", "claude", "hooks", "settings", "tools", "guardrails", "main", "master", "head"];
 const PROTECTED_PART = new RegExp(PROTECTED_NAMES.join("|"), "i");
 const CHECK_WORDS = new Set([
   "push", "deploy", "secrets", "query", "repair", "projects", "orgs", "branches", "storage", "functions", "db", "all", "mirror",
   "matching", "link", "reset", "merge", "migration", "new", "squash", "fetch", "pull", "delete", "sso", "domains", "config",
-  "backups", "snippets", "tags", "force", "run", "exec", "apply",
+  "backups", "snippets", "tags", "force", "run", "exec", "apply", "diff", "schema", "sync", "rum", "urn", "npm", "npx", "pnpm",
+  "yarn", "node", "env", "sh", "bash", "zsh", "psql", "git", "gh", "supabase", "docker",
 ]);
 function safeWord(w, scripts, strict = false) {
-  if (!SAFE_CHARS.test(w) || w.startsWith("@") || /(?:^|\/)\.\.?(?:\/|$)/.test(w) || PROTECTED_PART.test(w)) return false;
+  if (!SAFE_CHARS.test(w) || /^[@-]/.test(w) || /(?:^|\/)\.\.?(?:\/|$)/.test(w) || PROTECTED_PART.test(w)) return false;
   const lower = w.toLowerCase();
   if (CHECK_WORDS.has(lower) || scripts.has(w)) return false;
   // A part of a protected name (supa, ain, igration) completes it when glued to text the check cannot see. A short part
@@ -564,14 +566,19 @@ function union(values) {
 
 /**
  * Every text the command can expand to, or null when there are more than MAX_VARIANTS. A variable that an assignment may
- * or may not have changed holds both values, and each combination of the values used is one text.
+ * or may not have changed holds both values, and each combination of the values used is one text. Every default word and
+ * loop item is read on its own first; only when that passes MAX_VARIANTS are the safe ones folded (see safeWord).
  */
 function expandVariants(src, scripts) {
+  return variantsOf(src, scripts, false) ?? variantsOf(src, scripts, true);
+}
+
+function variantsOf(src, scripts, fold) {
   const texts = [];
   let picks = [];
   for (let n = 0; n < MAX_VARIANTS; n++) {
     const counts = [];
-    const text = expandVars(src, picks, counts, scripts);
+    const text = expandVars(src, picks, counts, scripts, fold);
     if (!texts.includes(text)) texts.push(text);
     const next = counts.map((_, j) => picks[j] ?? 0);
     let k = counts.length - 1;
@@ -599,15 +606,15 @@ function expandVariants(src, scripts) {
  * the word. A for loop over literal words records the loop variable with each word, local in a function body ends with
  * the body, and source or . marks every variable as possibly set by the file.
  */
-function expandVars(src, picks = [], counts = [], scripts = new Set()) {
+function expandVars(src, picks = [], counts = [], scripts = new Set(), fold = false) {
   let vars = Object.create(null);
   let prefix = null;
   // Each scope records, for the variables assigned in it, the value before it and the values given in it.
   let scopes = [];
   let lastOp = null;
   let cmdStart = true;
-  // Only a word that is not safe gives a variable more than one reading (see safeWord).
-  const anyWord = MERGE_TEXT.test(src);
+  // Without fold every word gives a variable its own reading; with fold only a word that is not safe does (see safeWord).
+  const anyWord = !fold || MERGE_TEXT.test(src);
   const forks = (w, strict) => anyWord || !safeWord(w, scripts, strict);
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
@@ -678,7 +685,8 @@ function expandVars(src, picks = [], counts = [], scripts = new Set()) {
     const value = shown(lookup(name, child));
     if (value === undefined && (op === "-" || op === "=")) {
       // A variable that is not known may be set or not, so the reference is both as written and the word; ${X:=word}
-      // also records X with the word in the second case. A safe word standing as a whole argument is read as written only.
+      // also records X with the word in the second case. Past the cap, a safe word standing as a whole argument is read
+      // as written only.
       if (plain || pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
       if (op === "=" && !child) assign(name, word);
       return word;
@@ -789,7 +797,7 @@ function expandVars(src, picks = [], counts = [], scripts = new Set()) {
           let words = [];
           let value;
           if (list) {
-            // A safe word is read once only when every use of the loop variable is a whole argument.
+            // Past the cap, a safe word is folded only when every use of the loop variable is a whole argument.
             const uses = usesWhole(list[1], i);
             value = loopValue((words = forItems(list[2]).map(mark)), (w) => uses === "glued" || forks(w, uses === "value"));
           } else if (globs) {
@@ -1572,15 +1580,33 @@ function namedScripts(argv, dir) {
 // Script names by directory for the current call, so a name the hook may run is never read as a plain word.
 const scriptCache = new Map();
 
-/** Every package.json script name of the nearest package above dir and of its workspaces. */
+/**
+ * Every package.json script name of the nearest package above dir, of its workspaces, and of every package.json tracked in
+ * the git repository that holds dir, so a cd or --prefix in the command cannot reach a script the set leaves out.
+ */
 function scriptNames(dir) {
   const key = dir.join("/");
   if (!scriptCache.has(key)) {
     const names = new Set(Object.keys(nearestPackage(dir)?.scripts ?? {}));
     for (const d of workspaceDirs(dir)) for (const name of Object.keys(readPackage(d)?.scripts ?? {})) names.add(name);
+    for (const d of trackedPackageDirs(dir)) for (const name of Object.keys(readPackage(d)?.scripts ?? {})) names.add(name);
     scriptCache.set(key, names);
   }
   return scriptCache.get(key);
+}
+
+/** Directories of the package.json files tracked in the git repository that holds dir; none when git cannot list them. */
+function trackedPackageDirs(dir) {
+  try {
+    const top = runGit(["rev-parse", "--show-toplevel"], { dir });
+    const root = top.stdout.trim();
+    if (top.status !== 0 || !root.startsWith("/")) return [];
+    const listed = runGit(["ls-files", "-z", "--", "*package.json"], { dir: root.split("/").filter(Boolean) });
+    if (listed.status !== 0) return [];
+    return listed.stdout.split("\0").filter((f) => base(f) === "package.json").map((f) => changeDir(root.split("/").filter(Boolean), dirname(f)));
+  } catch {
+    return [];
+  }
 }
 
 const MERGE_ROUTE = /(?:^|\/)repos\/([^/\s]+)\/([^/\s]+)\/pulls\/(\d+)\/(?:ccr\/)?(merge|auto[_-]?merge)\/?(?:[?#].*)?$/;

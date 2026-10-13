@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { blockMessage, decide, sqlReason } from "./guard-migrations.mjs";
@@ -228,6 +228,15 @@ writeFileSync(join(FIXTURE, ".env"), "FOO=bar\n");
 mkdirSync(join(FIXTURE, ".venv/bin"), { recursive: true });
 writeFileSync(join(FIXTURE, ".venv/bin/activate"), "VIRTUAL_ENV=/repo/.venv\n");
 writeFileSync(join(FIXTURE, "global-alias.gitconfig"), "[alias]\n\tx = push origin HEAD:main\n");
+// Round 27 (PR round 14): P14 holds repo, a git repository with a tracked root package.json that pushes and a worker
+// package whose scripts do not, for rows run from repo/worker or from P14, the parent of the repository. P14 is its own
+// temporary directory, so no package.json above it adds script names.
+const P14 = mkdtempSync(join(tmpdir(), "guard-migrations-p14-"));
+after(() => rmSync(P14, { recursive: true, force: true }));
+mkdirSync(join(P14, "repo/worker"), { recursive: true });
+writeFileSync(join(P14, "repo/package.json"), JSON.stringify({ scripts: { lint: "eslint .", "db:push": "supabase db push", "qualify:ovd417": "supabase db push --db-url \"$DATABASE_URL\"", "ship-it": "supabase db push" } }));
+writeFileSync(join(P14, "repo/worker/package.json"), JSON.stringify({ scripts: { lint: "eslint .", build: "tsc" } }));
+for (const args of [["init", "-q"], ["add", "."], [...ID, "commit", "-qm", "init"]]) git(relative(FIXTURE, join(P14, "repo")), ...args);
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
 const mcp = (tool_name, tool_input) => ({ tool_name, tool_input });
@@ -1708,15 +1717,59 @@ pass fixture:gitlivefeat | git push -u origin feature/x
 pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
 `;
 
+// Round 27 is PR round 14.
+const ROUND_27 = String.raw`
+# 1. While the variant count stays at or under the cap, every loop word and every unknown default gets its own reading.
+block p14:repo/worker | cd .. && for s in lint db:push; do npm run $s || exit 1; done
+block p14:repo/worker | npm --prefix .. run $\{S:-db:push}
+block p14:repo/worker | npm --prefix .. run $\{S:-qualify:ovd417}
+block p14 | cd repo && npm run $\{S:-db:push}
+block fixture:gitlivefeat | git push origin $\{REFSPEC:-:}
+block fixture:gitlivefeat | for r in :; do git push origin $r; done
+block fixture:gitlivefeat | git push origin $\{R:-+:}
+block fixture:gitlivefeat | for r in +:; do git push origin $r; done
+block fixture:gitlivefeat | git -c $\{X:-remote.origin.push=:} push
+block | supabase db $\{A:-diff} -f add_users
+block | for t in lint diff; do npx supabase db $t -f x; done
+block | supabase db $\{A:-schema} declarative sync
+block | supabase db schema declarative $\{A:-sync}
+block fixture | $\{N:-npm} run db:push
+block | $\{N:-npx} supabase db push
+block fixture:gitlivefeat | $\{E:-env} git push origin HEAD:main
+block | $\{S:-sh} -c "supabase db push"
+block fixture | npm $\{X:-rum} db:push
+block fixture:gitlivefeat | for t in ma; do r=HEAD:$t; git push origin $\{r}in; done
+# 2. Only past the cap do safe words fold into one unknown reading. A hyphen inside a word is safe, so long loops over
+# file names stay checkable; : and + are not, nor command words or any script name of a tracked package.json.
+pass | for f in F40; do npx eslint $f; done
+pass | for a in x-1 x-2 x-3 x-4 x-5 x-6; do npx eslint $a; done; for b in y-1 y-2 y-3 y-4 y-5 y-6; do npx prettier --check $b; done
+pass fixture:gitlivefeat | for f in F40; do npx eslint $f; done; git push -u origin HEAD:feature/x
+block p14:repo/worker | cd .. && for s in L33 db:push; do npm run $s; done
+block p14:repo/worker | cd .. && for s in L33 ship-it; do npm run $s; done
+block fixture:gitlivefeat | for r in L33 :; do git push origin $r; done
+block fixture:gitlivefeat | for r in L33 +:; do git push origin $r; done
+block | for t in L33 diff; do npx supabase db $t -f x; done
+block | for t in L33 sync; do supabase db schema declarative $t; done
+block fixture | for c in L33 npm; do $c run db:push; done
+block fixture:gitlivefeat | for c in L33 env; do $c git push origin HEAD:main; done
+block | for f in F40; do npx eslint $f; done; echo x > "$\{D:-supabase/migrations}/x.sql"
+block fixture:gitlivefeat | for f in F40; do npx eslint $f; done; git push origin "HEAD:$\{T:-main}"
+# Every round 11, 12 and 13 block row above still blocks; the required passes, also with the round 27 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+`.replaceAll("F40", Array.from({ length: 40 }, (_, i) => `src/file-${String(i + 1)}.ts`).join(" ")).replaceAll("L33", "a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G");
+
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
     const at = line.indexOf(" | ");
-    const head = /^(pass|block|deny|residual)(?: ([\w:]+))?(?: \((.*)\))?$/.exec(line.slice(0, at));
+    const head = /^(pass|block|deny|residual)(?: ([\w:/]+))?(?: \((.*)\))?$/.exec(line.slice(0, at));
     if (at < 0 || !head) throw new Error(`malformed round ${String(round)} row: ${line}`);
     const [, verdict, kind = "", note] = head;
     const text = line.slice(at + 3).replaceAll("⏎", "\n").replaceAll("$FIXTURE", FIXTURE).replaceAll("$\\{", "${");
     let probe = text;
     if (kind.startsWith("fixture")) probe = inFixture(text, kind.split(":")[1] ?? "");
+    else if (kind.startsWith("p14")) probe = { ...inFixture(text), cwd: join(P14, kind.split(":")[1] ?? "") };
     else if (kind === "sql") probe = sql(text);
     else if (EDIT_TOOL_NAMES.has(kind)) probe = { tool_name: kind, tool_input: { file_path: text } };
     const expected = { pass: PASSES, block: HOOK_BLOCKS, deny: deny(note), residual: residual(note) }[verdict];
@@ -2176,6 +2229,7 @@ const PROBES = [
   ...tableRows(24, ROUND_24),
   ...tableRows(25, ROUND_25),
   ...tableRows(26, ROUND_26),
+  ...tableRows(27, ROUND_27),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });
