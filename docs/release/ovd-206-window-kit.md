@@ -6,9 +6,10 @@ runs**. An agent may prepare evidence files and read results Blaine pastes in,
 and does nothing else in production.
 
 The kit serves one outcome: five consecutive hosted runs of the same approved
-quote scope, across at least two separately established provider sessions, each
-returning a real Xometry offer with every purchasable variant preserved, plus
-one forced failure and a rollback drill. Sources: `docs/1-0-beta-runbook.md`,
+quote scope, each returning a real Xometry offer with every variant preserved,
+plus one forced failure and a rollback drill. Per Blaine decision 5 (Oct 13,
+recorded on Linear OVD-206), all five runs may use one Xometry provider session.
+The second, separately established session proof is deferred to OVD-319. Sources: `docs/1-0-beta-runbook.md`,
 `ACCEPTANCE_CRITERIA.md` (Production certification), `worker/README.md`,
 `docs/workflows/ovd410-stable-egress.md`, `docs/release/ovd-419-contained-live-handoff.json`,
 and the Linear text of OVD-206 and OVD-723.
@@ -25,11 +26,12 @@ rolling comment. Linear shows OVD-206 as Blocked on this ladder.
       says a fresh explicit authorization is needed for any new live controller
       attempt. Treat that file as history, not as a pass.
 - [ ] OVD-416 release reconciliation is complete, and the OVD-408 hosted path
-      proves each run preserves every purchasable Xometry variant.
+      proves each run preserves every Xometry variant.
 - [ ] OVD-410 stays satisfied: two fresh instance, one task, zero retry, no upload
       probes authenticated after the last credential rotation or network change.
 - [ ] OVD-722 (provider kill switch) and OVD-723 (export block) are merged and
-      deployed. Section 1 check 6 and section 2 depend on them. If either is not
+      deployed. 723 window 1 is expand only, so confirm the backfill and the
+      declaration path described in section 2 are live, not just the schema. Section 1 check 6 and section 2 depend on them. If either is not
       deployed, stop; do not substitute the manual fallback for this window.
 - [ ] Blaine approved, in the access controlled approval artifact, the exact
       validation package STEP hash for disclosure to Xometry, its export control
@@ -74,7 +76,8 @@ where organization_id = '<ENROLLED_ORG_ID>'
   and enabled_for_client_quote_requests
 order by vendor;
 
--- 4. Session owner and age. Expect no live lease before the window, and a
+-- 4. Session owner and age. Expect no live lease before the window: any lease
+-- in an active state whose expires_at is in the future fails this check. Expect a
 -- binding whose account_ref matches the session owner Blaine recorded.
 select provider, account_ref, environment, session_binding_ref, next_generation, updated_at
 from public.provider_session_bindings
@@ -93,10 +96,15 @@ where organization_id = '<ENROLLED_ORG_ID>'
 order by id desc
 limit 1;
 
--- 6. Kill switch rows (OVD-722). Expect a row for every 1.0 provider and
--- xometry enabled. The exact columns ship with OVD-722, so list them all
--- rather than naming columns. The row count must equal the 722 expected count.
-select * from public.provider_kill_switches order by 1;
+-- 6. Kill switches (OVD-722). Both tables are private. Expect xometry
+-- engaged = false and the global row engaged = false. Fail closed: a missing
+-- xometry row or a missing global row means ENGAGED, so the check fails.
+select provider, engaged, reason, engaged_by, engaged_at, version
+from private.provider_kill_switches
+where provider = 'xometry';
+
+select engaged, reason, engaged_by, engaged_at, version
+from private.provider_global_kill_switch;
 
 rollback;
 ```
@@ -148,10 +156,14 @@ run, confirm each of these in the product, not by database edit:
       not count.
 - [ ] The acting member has MFA enabled (AAL2) and has accepted the current
       Founding Beta notice revision.
-- [ ] The part carries a recorded, required export declaration answered "not
+- [ ] The job carries a recorded, required export declaration answered "not
       ITAR, not EAR controlled other than EAR99, and not uncertain" (OVD-723).
-      A controlled or uncertain answer blocks upload and nothing is stored. The
-      declaration must be on the part itself, not defaulted.
+      The declaration is on the job (the part request), with an optional part
+      id. A controlled or uncertain answer blocks upload and nothing is stored.
+      It must be declared, not defaulted.
+- [ ] 723 backfill: every pre existing job with files starts as missing and is
+      denied until declared. A clean declaration queues scan only rescans, and
+      those rescans must finish before run 1.
 - [ ] The private package job has clean scans: no ITAR or EAR marking flags on the
       STEP or the drawing, and no pending review flag. A flagged file is blocked
       pending review and cannot be used.
@@ -319,25 +331,26 @@ requests; one run finishes (offer, failure, or timeout) before the next begins.
 
 1. Run section 1 in full. Record results.
 2. Run section 3.1 if not already done, then 3.2 to enable.
-3. Session A: record the session owner, snapshot generation, engine, and start time.
-4. Blaine runs requests 1 to 3 through the normal customer path as the enrolled
+3. Record the one provider session used for all five runs: session owner,
+   snapshot generation, engine, and start time.
+4. Blaine runs requests 1 to 5 through the normal customer path as the enrolled
    participant. No database repair, no staff operation of the customer UI. If a
    run needs either, the series stops and restarts later.
 5. Section 6 evidence after each run, before the next starts.
-6. Between sessions: stop the worker lease cleanly, wait for the lease to end
-   (check 4), establish the session again by the documented two execution no upload
-   authentication probe from fresh zero scale jobs, and record Session B as a
-   separate session with its own owner, generation, and start time. Sessions
-   must be separately established, not a restart of the same lease.
-7. Session B: runs 4 and 5.
-8. Forced failure and rollback drill (section 7).
-9. Disable (section 3.3), then rerun preflight checks 2 and 3.
-10. Post the sanitized evidence in the single rolling OVD-206 Linear comment.
+6. Re-establishing the session is optional and happens only on Blaine's explicit
+   call. Default is one session for all five runs. If Blaine calls for it, stop
+   the worker lease cleanly, wait for the lease to end (check 4), run the
+   documented two execution no upload authentication probe, and record the new
+   owner, generation, and start time. Never authenticate again on the same day
+   (section 8). The second, separately established session proof is deferred to
+   OVD-319.
+7. Forced failure and rollback drill (section 7).
+8. Disable (section 3.3), then rerun preflight checks 2 and 3.
+9. Post the sanitized evidence in the single rolling OVD-206 Linear comment.
 
 A run counts only if it ends with a real Xometry offer, passes the live offer
-gate, preserves every purchasable variant, uses the approved fingerprint, and
-needed no repair. Five counted runs in a row across two sessions complete the
-series. One uncounted run restarts the count of consecutive runs.
+gate, preserves every variant, uses the approved fingerprint, and
+needed no repair. Five counted runs in a row complete the series. One uncounted run restarts the count of consecutive runs.
 
 ## 6. Per run evidence template (sanitized)
 
@@ -347,7 +360,7 @@ credentials, cookies, session material, raw screenshots with account details,
 customer files, full addresses, or provider page dumps.
 
 ```text
-Run:                      <1 to 5>      Session: <A or B>   Date: <YYYY-MM-DD>
+Run:                      <1 to 5>      Date: <YYYY-MM-DD>
 Operator:                 Blaine
 Session owner / account:  <account_ref prefix>   Snapshot generation: <n>
 Engine:                   <name and version>     Image digest: <first 12 of sha256>
@@ -357,7 +370,7 @@ Lifecycle transitions:    queued <ts> > requesting <ts> > received <ts>   (or fa
 Timing:                   enqueue to worker pickup <s>; pickup to offer <s>; total <s>
 Approximate run cost:     <USD>  (Cloud Run seconds, egress, any provider cost; method noted)
 Xometry variants preserved (one line per variant, none omitted):
-  offer_key | lane_label | tier | unit_price_usd | total_price_usd | lead_time_business_days | quote_ref | purchasable
+  offer_key | lane_label | tier | unit_price_usd | total_price_usd | lead_time_business_days | quote_ref
   <row> ...
   Variant count seen on Xometry page: <n>   Stored vendor_quote_offers rows: <n>   Equal: <yes/no>
 Provider reference:       <quote_ref / vendor source reference>
@@ -389,7 +402,8 @@ existing results available.
 
 1. Choose one failure to force. Prefer a safe simulation that cannot reach the
    provider with bad state: engage the Xometry kill switch with
-   `npm run provider:kill -- xometry --on --reason "OVD-206 drill"` (OVD-722)
+   `npm run provider:kill -- xometry --on --reason "OVD-206 drill"` (OVD-722;
+   the reason needs at least 10 characters)
    so the next request must refuse before any browser launch. If Blaine instead
    chooses a provider or session failure, he states the exact method first and
    it must not touch a credential or the profile snapshot.
@@ -400,7 +414,9 @@ existing results available.
 3. Run preflight checks 2 and 3. Expect zero queued or running rows and zero
    active quote requests. A stranded row is a failed drill.
 4. Record the failure reason, the time to terminal state, and the audit event.
-5. Switch the kill switch off for xometry (`--off`), confirm state by readback.
+5. Switch the kill switch off for xometry
+   (`npm run provider:kill -- xometry --off --reason "OVD-206 drill over"`),
+   confirm state by rerunning preflight check 6.
 6. Rollback: run section 3.3. Verify with the read API, verify uploads and
    existing result pages still open for the participant, and verify a new
    automatic request now returns the neutral unavailable response and creates
@@ -418,10 +434,14 @@ Any of these ends the window for the day. Blaine runs the disable in section
 
 - CAPTCHA, a Cloudflare challenge, an access block, a rate limit message, an
   account warning, or a ban notice from Xometry: stop, no retry, no workaround.
-  Xometry stays off for the day (kill switch on, rollout off). Never rotate IPs,
+  Xometry stays off for the day. Order: flip the provider kill switch first
+  (`npm run provider:kill -- xometry --on --reason "OVD-206 provider block <YYYY-MM-DD>"`),
+  then run the rollout disable (section 3.3). Never rotate IPs,
   solve a CAPTCHA, mimic human pacing, or retry around a block.
 - `login_required`, an anonymous session, or a 401 on the material API: stop, no
   retry, provider off for the day. Do not authenticate again on the same day.
+- Daily cap: about 20 quotes per provider per day. Count the 5 runs, the drill
+  request, and any probes. Stop at the cap.
 - Any non Xometry lane or task created, or `WORKER_LIVE_ADAPTERS` not exactly
   `xometry`.
 - Any scope fingerprint mismatch, wrong file disclosed, wrong organization
@@ -446,9 +466,10 @@ partial series remains valid.
 
 ## Open items this kit could not settle from the repository
 
-- The OVD-722 table and RPC are not on this branch's base, so the kill switch
-  check selects every column. Confirm the final names and expected row count
-  once OVD-722 merges.
+- The OVD-722 tables (`private.provider_kill_switches` and the singleton
+  `private.provider_global_kill_switch`) are not on this branch's base. The names
+  come from `docs/migration-drafts/ovd-722.sql` at PR #676 head a53e794b and
+  `docs/providers/permissions-matrix.md`. Confirm them once OVD-722 merges.
 - The OVD-723 export declaration column or table is not on this branch's base.
   Section 2 states the behavior from the Linear acceptance text; confirm the
   readback query once it merges.
