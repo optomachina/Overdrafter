@@ -2,9 +2,9 @@
 
 Draft only. Nothing here is applied. Files:
 
-- `docs/migration-drafts/ovd-736.sql`: the revoke (56 REVOKE statements, no DROP, no data change, no body or search_path change).
-- `docs/migration-drafts/ovd-736.rollback.sql`: restores the exact prior grants (56 GRANT statements).
-- `supabase/tests/ovd736_anon_definer_privileges.sql`: pgTAP suite (87 assertions). It installs byte copies of both drafts from `supabase/tests/fixtures/ovd736_anon_definer_privileges*.inc`; `scripts/run-supabase-policy-tests.node-test.mjs` enforces the byte equality.
+- `docs/migration-drafts/ovd-736.sql`: the revoke (56 REVOKE statements) plus one `ALTER FUNCTION ... SET search_path` for OVD-759. No DROP, no data change, no body change.
+- `docs/migration-drafts/ovd-736.rollback.sql`: restores the exact prior grants (56 GRANT statements) and the prior `api_invite_project_member` search_path.
+- `supabase/tests/ovd736_anon_definer_privileges.sql`: pgTAP suite (95 assertions). It installs byte copies of both drafts from `supabase/tests/fixtures/ovd736_anon_definer_privileges*.inc`; `scripts/run-supabase-policy-tests.node-test.mjs` enforces the byte equality.
 
 ## Verdict
 
@@ -77,7 +77,7 @@ Method: each function was called as `set local role anon; set local request.jwt.
 | `public.user_can_edit_project(uuid)` | 20260304010000 | returns false | `f` |
 | `public.user_is_project_owner(uuid)` | 20260304010000 | returns false | `f` |
 
-Note 1: `api_invite_project_member` declares `v_token text := encode(gen_random_bytes(24), 'hex')`, and its pinned `search_path` is `public, auth`, while `pgcrypto` lives in `extensions`. On the local stack the function therefore fails for every caller, signed in or not, before its body runs. With a temporary `public.gen_random_bytes` shim the anon call raises `You must be signed in to perform this action.` from `require_verified_auth()`, its first statement. Whether production has the same failure depends on where `gen_random_bytes` resolves there; it is a separate bug (residual R3).
+Note 1: `api_invite_project_member` declares `v_token text := encode(gen_random_bytes(24), 'hex')`, and its pinned `search_path` is `public, auth`, while `pgcrypto` lives in `extensions`. On the local stack the function therefore fails for every caller, signed in or not, before its body runs. With a temporary `public.gen_random_bytes` shim the anon call raises `You must be signed in to perform this action.` from `require_verified_auth()`, its first statement. The lead confirmed read only that production has the same failure (pgcrypto in `extensions`, `public.project_invites` empty). Filed as OVD-759 and fixed in this draft (section below).
 
 ## Logged out app calls
 
@@ -102,6 +102,17 @@ So the logged out app needs none of the 56 functions, and the draft revokes PUBL
 - Helpers kept for authenticated because a policy calls them directly: `is_internal_user`, `is_internal_user_any_org`, `is_org_admin`, `is_platform_admin`, `user_can_access_job`, `user_can_access_org`, `user_can_access_package`, `user_can_access_project`, `user_can_edit_job`, `user_can_edit_project`, `user_is_project_owner`.
 - Internal only, revoked from authenticated too (no policy, view, invoker function or client calls them directly): `current_user_has_verified_auth`, `current_user_home_organization_id`, `load_editable_project_part_context`, `require_verified_auth`, `user_can_access_job_via_project`, `user_can_destructively_edit_job`, and the two trigger functions.
 - Trigger functions: PostgreSQL checks EXECUTE on a trigger function only at CREATE TRIGGER time. The suite proves it twice: a synthetic trigger fires for an anon writer that lacks EXECUTE, and with EXECUTE also revoked from service_role, a service_role update of `vendor_quote_results` still fires `sync_quote_request_status_from_vendor_result` (the linked request moves to `received`) and a `quote_requests` update still succeeds.
+
+## OVD-759: invite search_path
+
+`api_invite_project_member` calls `gen_random_bytes(24)`, which pgcrypto installs in `extensions`, while its pinned `search_path` is `public, auth`. Every invite fails before the body runs, for every caller. The draft adds one line with no body change:
+
+```sql
+alter function public.api_invite_project_member(uuid, text, public.project_role)
+  set search_path = public, auth, extensions;
+```
+
+The suite proves: the function's `proconfig` is `search_path=public, auth, extensions`; with the old path restored inside a savepoint, the owner invite raises 42883; with the draft, a signed in project owner invites a verified user, a pending `project_invites` row is written, the invited user accepts through `api_accept_project_invite`, becomes a project editor, and the invite is marked accepted. The rollback restores `public, auth` and the reapply restores the fix.
 
 ## Allowlist after the draft
 
@@ -219,8 +230,9 @@ PUBLIC and anon: no SECURITY DEFINER function in any application schema (every s
 
 ## Verification
 
-- `supabase test db --local` on the suite: 87 of 87 pass with the draft installed from the fixture.
-- Mutation 1 (scratch copy, deleted after): removing `revoke execute on function public.api_archive_job(uuid) from public, anon;` from the fixture fails tests 1 (no PUBLIC or anon definer), 12 (anon denied on `api_archive_job`) and 86 (reapply after rollback).
+- `supabase test db --local` on the suite: 95 of 95 pass with the draft installed from the fixture.
+- Mutation 3 (scratch copy, deleted after): removing the OVD-759 `ALTER FUNCTION` line from the fixture fails test 84 and then aborts the suite at the owner invite with `function gen_random_bytes(integer) does not exist`.
+- Mutation 1 (scratch copy, deleted after): removing `revoke execute on function public.api_archive_job(uuid) from public, anon;` from the fixture fails tests 1 (no PUBLIC or anon definer), 12 (anon denied on `api_archive_job`) and 93 (reapply after rollback).
 - Mutation 2 (scratch copy, deleted after): appending `create function public.ovd736_mutant_definer() ... security definer` with default grants fails tests 1 and 2 (allowlist).
 - Whole repository suite with the draft applied for real to a fresh local stack (`supabase db reset --local`, then the draft with `psql --single-transaction`, then all 72 staged pgTAP files): 71 pass; the only failure is `client_rpc_least_privilege.sql`, which stops at its anon characterization step with `permission denied for function api_list_client_part_metadata` (residual R4). The same 72 files pass on the same fresh stack without the draft.
 - Byte equality: changing one byte of a fixture fails `scripts/run-supabase-policy-tests.node-test.mjs`.
@@ -228,13 +240,13 @@ PUBLIC and anon: no SECURITY DEFINER function in any application schema (every s
 
 ## Residuals
 
-- R1 search_path: left unchanged on all 56 functions. Each already pins a path (`public`; `public, auth`; or `public, auth, private`). anon and authenticated have no CREATE on `public`, and no caller can create a temp object through PostgREST, so appending `pg_temp` would buy little for this urgent change. Candidates for a later one line `ALTER FUNCTION ... SET search_path` hardening: all 56.
+- R1 search_path: left unchanged on 55 functions (the OVD-759 line changes only `api_invite_project_member`). Each already pins a path (`public`; `public, auth`; or `public, auth, private`). anon and authenticated have no CREATE on `public`, and no caller can create a temp object through PostgREST, so appending `pg_temp` would buy little for this urgent change. Candidates for a later one line `ALTER FUNCTION ... SET search_path` hardening: the other 55.
 - R2 `api_get_is_platform_admin` race: in the rare `session_error` path, `fetchAppSessionData` can call it with a stored session whose refresh fails, so it may reach PostgREST as anon. Before the draft anon got `false`; after it gets 42501, which `isNonRetriablePlatformAdminRpcError` treats as "unavailable" for the rest of the browser session, so a platform admin in that race sees non admin mode until a reload. Data exposure is nil either way. A small client fix (do not cache 42501 as unavailable) is a follow up.
-- R3 `api_invite_project_member` cannot resolve `gen_random_bytes` with its pinned `search_path` on a fresh local stack (note 1). Separate bug; check production before relying on invites.
+- R3 resolved here as OVD-759 (see below). Invites have been broken in production since the function was created; nothing is lost because `project_invites` is empty.
 - R4 Existing characterization test `supabase/tests/client_rpc_least_privilege.sql` pins anon outcomes from function bodies and calls `load_editable_project_part_context` directly as authenticated. It runs against the real schema, so it is unaffected while this is a draft, but its expectations must change from the body errors to 42501 in the same PR that promotes the draft into `supabase/migrations/`.
 - R5 Four signed in RPCs keep pre existing authenticated grants with no direct caller in `src`, `worker` or edge functions: `api_admin_get_organization_entitlement_state`, `api_attach_job_file`, `api_confirm_part_deadline`, `api_request_quote`. Out of scope here; listed in the allowlist so any change is deliberate.
 - R6 The allowlist pins 107 functions. Every future migration that adds or regrants a SECURITY DEFINER function to authenticated must add a row here. That is the intended guard, at the cost of one line per new function.
 
 ## Rollback
 
-Apply `docs/migration-drafts/ovd-736.rollback.sql` as a forward migration in a window (`psql --single-transaction -v ON_ERROR_STOP=1 -f ...` if by hand). It grants EXECUTE back to PUBLIC and anon on all 56 and back to authenticated on the 8 internal helpers, restoring the exact prior ACL. It reopens the exposure, so use it only if a signed in flow breaks and cannot be fixed forward.
+Apply `docs/migration-drafts/ovd-736.rollback.sql` as a forward migration in a window (`psql --single-transaction -v ON_ERROR_STOP=1 -f ...` if by hand). It grants EXECUTE back to PUBLIC and anon on all 56 and back to authenticated on the 8 internal helpers, restoring the exact prior ACL, and resets the `api_invite_project_member` search_path to `public, auth` (which breaks invites again). It reopens the exposure, so use it only if a signed in flow breaks and cannot be fixed forward.

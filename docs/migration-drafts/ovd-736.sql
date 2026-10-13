@@ -14,8 +14,8 @@
 -- by hand, use `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-736.sql`.
 -- Every statement is a REVOKE, so any failure leaves the prior grants in place.
 --
--- Scope: expand only. No data change, no function body change, no DROP, no
--- search_path change. Before this file, each of the 56 functions below has the
+-- Scope: expand only. No data change, no function body change, no DROP. One
+-- search_path change (section 4, OVD-759). Before this file, each of the 56 functions below has the
 -- ACL {=X/postgres, postgres=X, anon=X, authenticated=X, service_role=X}
 -- (local stack and the 2026-10-12 production inventory agree).
 --
@@ -99,3 +99,10 @@ revoke execute on function public.sync_quote_request_status_from_vendor_result()
 revoke execute on function public.sync_service_request_line_item_status_from_quote_request() from public, anon, authenticated;
 revoke execute on function public.user_can_access_job_via_project(uuid) from public, anon, authenticated;
 revoke execute on function public.user_can_destructively_edit_job(uuid) from public, anon, authenticated;
+
+-- 4. OVD-759: api_invite_project_member declares gen_random_bytes(24), which
+-- pgcrypto installs in the extensions schema, but its pinned search_path is
+-- public, auth, so every invite fails before the body runs (confirmed read only
+-- in production by the lead). One line, no body change.
+alter function public.api_invite_project_member(uuid, text, public.project_role)
+  set search_path = public, auth, extensions;

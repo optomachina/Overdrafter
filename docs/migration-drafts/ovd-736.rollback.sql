@@ -2,13 +2,14 @@
 --
 -- NOT APPLIED. Run only inside a migration window, as a forward migration, if
 -- the revoke must be withdrawn. It restores the exact prior ACL of all 56
--- functions: {=X/postgres, postgres=X, anon=X, authenticated=X, service_role=X}.
+-- functions: {=X/postgres, postgres=X, anon=X, authenticated=X, service_role=X},
+-- and the prior search_path of api_invite_project_member (OVD-759).
 -- supabase/tests/fixtures/ovd736_anon_definer_privileges_rollback.inc is a byte
 -- copy of this file, enforced by scripts/run-supabase-policy-tests.node-test.mjs.
 --
 -- Transaction: no begin/commit of its own; the migration runner wraps it. If run
 -- by hand, use `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-736.rollback.sql`.
--- Only GRANT statements; no DROP, no data change. Rolling back reopens the
+-- GRANT statements and one ALTER FUNCTION; no DROP, no data change. Rolling back reopens the
 -- OVD-736 exposure (anon can call every function below again).
 
 grant execute on function public.api_accept_project_invite(text) to public, anon;
@@ -69,3 +70,7 @@ grant execute on function public.sync_quote_request_status_from_vendor_result() 
 grant execute on function public.sync_service_request_line_item_status_from_quote_request() to public, anon, authenticated;
 grant execute on function public.user_can_access_job_via_project(uuid) to public, anon, authenticated;
 grant execute on function public.user_can_destructively_edit_job(uuid) to public, anon, authenticated;
+
+-- OVD-759: restore the prior search_path (reintroduces the invite failure).
+alter function public.api_invite_project_member(uuid, text, public.project_role)
+  set search_path = public, auth;

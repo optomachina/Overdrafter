@@ -9,10 +9,12 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(87);
+select plan(95);
 
 \set user_a 73600000-0000-4000-8000-000000000001
 \set user_b 73600000-0000-4000-8000-000000000002
+\set user_c 73600000-0000-4000-8000-000000000003
+\set invitee_email ovd736-c@example.test
 \set org_a 73600000-0000-4000-8000-00000000000a
 \set org_b 73600000-0000-4000-8000-00000000000b
 \set project_a 73600000-0000-4000-8000-000000000020
@@ -144,7 +146,8 @@ grant execute on function pg_temp.act_as(uuid) to authenticated;
 -- Synthetic tenants: verified client A owns project A with job A; client B is in org B.
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values (:'user_a', 'authenticated', 'authenticated', 'ovd736-a@example.test', timezone('utc', now()), '{"provider":"email"}'),
-  (:'user_b', 'authenticated', 'authenticated', 'ovd736-b@example.test', timezone('utc', now()), '{"provider":"email"}');
+  (:'user_b', 'authenticated', 'authenticated', 'ovd736-b@example.test', timezone('utc', now()), '{"provider":"email"}'),
+  (:'user_c', 'authenticated', 'authenticated', :'invitee_email', timezone('utc', now()), '{"provider":"email"}');
 insert into public.organizations (id, name, slug)
 values (:'org_a', 'OVD-736 org A', 'ovd736-org-a'), (:'org_b', 'OVD-736 org B', 'ovd736-org-b');
 insert into public.organization_memberships (organization_id, user_id, role)
@@ -400,6 +403,38 @@ select lives_ok(format($$ update public.quote_requests set status = 'canceled' w
 reset role;
 rollback to savepoint ovd736_triggers;
 
+-- ---------------------------------------------------------------- (g) OVD-759 invite flow
+-- api_invite_project_member calls gen_random_bytes, which lives in the
+-- extensions schema; the draft adds extensions to its pinned search_path.
+select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),
+  array['search_path=public, auth, extensions'], 'api_invite_project_member resolves pgcrypto from extensions (OVD-759)');
+
+savepoint ovd759_without_line;
+alter function public.api_invite_project_member(uuid, text, public.project_role) set search_path = public, auth;
+select pg_temp.act_as(:'user_a');
+set local role authenticated;
+select throws_ok(format($$ select public.api_invite_project_member(%L, %L, 'editor') $$, :'project_a', :'invitee_email'),
+  '42883', null, 'without the OVD-759 line the owner invite fails: gen_random_bytes does not resolve');
+reset role;
+rollback to savepoint ovd759_without_line;
+
+select pg_temp.act_as(:'user_a');
+set local role authenticated;
+select public.api_invite_project_member(:'project_a', :'invitee_email', 'editor') ->> 'token' as ovd759_token \gset
+reset role;
+select is((select count(*)::integer from public.project_invites
+           where project_id = :'project_a' and email = :'invitee_email' and status = 'pending' and token = :'ovd759_token'),
+  1, 'a signed in project owner invites a member and a pending project_invites row is written');
+select pg_temp.act_as(:'user_c');
+set local role authenticated;
+select is(public.api_accept_project_invite(:'ovd759_token'), :'project_a'::uuid,
+  'the invited user accepts the invite through api_accept_project_invite');
+reset role;
+select is((select role::text from public.project_memberships where project_id = :'project_a' and user_id = :'user_c'),
+  'editor', 'accepting the invite makes the invited user a project editor');
+select is((select status::text from public.project_invites where token = :'ovd759_token'), 'accepted',
+  'the invite is marked accepted');
+
 -- ---------------------------------------------------------------- (f) rollback round trip
 -- fixtures/ovd736_anon_definer_privileges_rollback.inc is a byte copy of
 -- docs/migration-drafts/ovd-736.rollback.sql.
@@ -411,12 +446,16 @@ select is_empty($$ select sig from ovd736_target
   'rollback restores the exact prior ACL on all 56 functions');
 select ok((select bool_and(has_function_privilege('anon', sig, 'EXECUTE')) from ovd736_target),
   'after rollback anon can execute all 56 again (the pre OVD-736 state)');
+select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),
+  array['search_path=public, auth'], 'rollback restores the prior api_invite_project_member search_path');
 \ir fixtures/ovd736_anon_definer_privileges.inc
 select is_empty($$ select sig from pg_temp.ovd736_definers() where pub or anon $$,
   'reapplying the draft after rollback removes PUBLIC and anon again');
 select set_eq($$ select sig from pg_temp.ovd736_definers() where authn $$,
   $$ select sig from ovd736_authenticated_allowlist $$,
   'reapplying the draft after rollback restores the authenticated allowlist');
+select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),
+  array['search_path=public, auth, extensions'], 'reapplying the draft restores the OVD-759 search_path');
 
 select * from finish();
 
