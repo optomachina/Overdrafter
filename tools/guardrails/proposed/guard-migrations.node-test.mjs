@@ -221,6 +221,9 @@ git("gitoddfetch", "config", "--replace-all", "remote.origin.fetch", "+refs/head
 // pushd and popd rows: tool.sh writes a migration, safe/tool.sh does not.
 writeFileSync(join(FIXTURE, "tool.sh"), "#!/bin/sh\necho x > supabase/migrations/x.sql\n");
 writeFileSync(join(FIXTURE, "safe/tool.sh"), "#!/bin/sh\necho hello\n");
+// Round 24 source rows: vars.sh sets MIG to the migrations directory, .env sets FOO.
+writeFileSync(join(FIXTURE, "vars.sh"), "MIG=supabase/migrations\n");
+writeFileSync(join(FIXTURE, ".env"), "FOO=bar\n");
 writeFileSync(join(FIXTURE, "global-alias.gitconfig"), "[alias]\n\tx = push origin HEAD:main\n");
 after(() => rmSync(FIXTURE, { recursive: true, force: true }));
 const inFixture = (command, sub = "") => ({ tool_name: "Bash", tool_input: { command }, cwd: join(FIXTURE, sub) });
@@ -1408,6 +1411,18 @@ pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
 pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
 `;
 
+test("round 24: readings that multiply across nested -c text stop at the work budget and fail closed quickly", () => {
+  // Five possible values outside and four in each nested level: 32 readings of the outer text, each with its own nested
+  // readings. Before the budget and the git result cache this took over ten seconds.
+  const nested = String.raw`a || A=1; b || B=1; c || C=1; d || D=1; bash -c "echo $A$B$C$D; e || E=1; f || F=1; g || G=1; bash -c 'echo $A \$E\$F\$G; h || H=1; i || I=1; bash -c \"echo \\\$H\\\$I; git push\"'"`;
+  const started = Date.now();
+  const reason = decide(inFixture(nested, "gitlivefeat"), { prFiles: fakePrFiles });
+  assert.match(reason ?? "", /too many readings to check in time; failing closed/);
+  assert.ok(Date.now() - started < 10000, "the budget should stop the check well inside the 30 second hook timeout");
+  // A command with few readings is still checked in full.
+  assert.equal(decide(inFixture("x || B=feature/y; git push origin HEAD:${B:-feature/x}", "gitlivefeat"), { prFiles: fakePrFiles }), null);
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
@@ -1470,6 +1485,101 @@ test("cd ~ is expanded from HOME, so a push is resolved in the right repository"
     process.env.HOME = home;
   }
 });
+
+// Round 24 is PR round 11.
+const ROUND_24 = String.raw`
+# 1. A variable that is not known may be set or not, so $\{X:-w}, $\{X-w} and $\{X:=w} are checked both as written and as
+# the word, and $\{X:=w} also records X. The word may itself hold a reference.
+block | OUT="$\{MIGRATIONS_DIR:-supabase/migrations}"; cat > "$OUT/20261013000000_x.sql" <<SQL⏎create table t();⏎SQL
+block | echo x > "$\{D:-supabase/migrations}/x.sql"
+block | echo x | tee "$\{D:-supabase/migrations}/x.sql"
+block | sed -i s/a/b/ "$\{D:-supabase/migrations}/x.sql"
+block | echo x > "$\{D-supabase/migrations}/x.sql"
+block | : $\{D:=supabase/migrations}; echo x > $D/x.sql
+block | : "$\{D:=supabase/migrations}"; echo x > "$D/x.sql"
+block | Y=supabase/migrations; unset X; echo x > "$\{X:-$Y}/x.sql"
+block | Y=supabase; echo x > "$\{X:-$Y/migrations}/x.sql"
+block | echo x > "$\{A:-$\{B:-supabase/migrations}}/x.sql"
+block fixture:gitlivefeat | git push origin "HEAD:$\{T:-main}"
+pass | echo x > "$\{D:-docs}/x.md"
+pass | : $\{D:=docs}; echo x > $D/x.md
+pass | Y=docs; echo x > "$\{X:-$Y}/x.md"
+# 2. Every reference to the same variable state takes the same pick, so a variable used many times is one choice.
+pass fixture:gitlivefeat | PR=714; SHA=$(gh pr view $PR --json headRefOid -q .headRefOid) || SHA=""; echo "PR $PR head $SHA"; git fetch origin $SHA; git diff $SHA~1 $SHA --stat; git log -1 $SHA; echo done $SHA
+pass fixture:gitlivefeat | if [ -f .nvmrc ]; then NODE=$(cat .nvmrc); else NODE=20; fi; echo "node $NODE"; nvm use $NODE; node -v; echo $NODE; echo $NODE; echo $NODE; echo $NODE
+pass fixture:gitlivefeat | npm test || EXIT=1; echo $EXIT; echo $EXIT; echo $EXIT; echo $EXIT; echo $EXIT; echo $EXIT; git push
+pass | case $x in a) M=1;; b) M=2;; c) M=3;; esac; echo $M; echo $M; echo $M; echo $M; echo $M; echo $M
+pass fixture:gitlivefeat | SHA=$(git rev-parse HEAD) || SHA=none; cat > /tmp/body.md <<EOF⏎$SHA $SHA $SHA⏎$SHA $SHA $SHA⏎EOF⏎gh pr create --body-file /tmp/body.md
+block | npm test || D=supabase/migrations; echo $D; echo $D; echo $D; echo $D; echo $D; echo x > $D/x.sql
+block fixture:gitlivefeat | B=feature/x; x || B=main; echo $B; echo $B; echo $B; echo $B; echo $B; echo $B; git push origin HEAD:$B
+# 4. A for loop over a literal word list records the loop variable with each word; over a glob it is not known.
+block | for d in supabase/migrations; do echo x > $d/x.sql; done
+block | for d in docs supabase/migrations; do cp x.sql "$d/"; done
+block | X=supabase; for d in $X/migrations; do echo x > $d/x.sql; done
+block | D=docs; for D in supabase/migrations; do :; done; echo x > $D/x.sql
+block fixture:gitlivefeat | for b in feature/y main; do git push origin HEAD:$b; done
+pass | for d in docs src; do echo x > $d/x.md; done
+pass fixture:gitlivefeat | for b in feature/y feature/z; do git push origin HEAD:$b; done
+residual (a loop over a glob is not expanded, so the loop variable is not known) | for d in supabase/*; do echo x > $d/x.sql; done
+# 4. After source or . runs a file, a variable it may have set is not known: a write target or push destination that uses
+# it fails closed, and anything else passes.
+block fixture | source vars.sh; echo x > "$MIG/x.sql"
+block fixture | . ./vars.sh; echo x > "$MIG/x.sql"
+block fixture | MIG=docs; source .env; echo x > "$MIG/x.md"
+block fixture | source .env; echo x | tee "$OUT/x"
+block fixture:gitlivefeat | source $FIXTURE/.env; git push origin HEAD:$BR
+pass fixture | source .env && npm test
+pass fixture | source .env && echo $FOO && npm run build
+pass fixture | source .env; MIG=docs; echo x > "$MIG/x.md"
+pass fixture | source .env; echo x > "$HOME/x.log"
+pass fixture | (source .env; echo hi); echo x > "$OUT/x.md"
+pass fixture:gitlivefeat | source $FIXTURE/.env; git push origin HEAD:feature/x
+# 4. ionice, nohup, chrt, taskset and stdbuf run the command after their options and values.
+block fixture:gitlivefeat | ionice -c 2 git push origin HEAD:main
+block fixture:gitlivefeat | ionice -c2 -n7 git push origin HEAD:main
+block fixture:gitlivefeat | nohup git push origin HEAD:main
+block fixture:gitlivefeat | chrt -f 10 git push origin HEAD:main
+block fixture:gitlivefeat | taskset -c 0 git push origin HEAD:main
+block fixture:gitlivefeat | taskset 0x3 git push origin HEAD:main
+block fixture:gitlivefeat | stdbuf -o L git push origin HEAD:main
+block | nice -n 5 ionice -c 3 sh -c 'echo x > supabase/migrations/x.sql'
+pass fixture:gitlivefeat | ionice -c 2 git push -u origin HEAD:feature/x
+pass fixture:gitlivefeat | stdbuf -o L git push -u origin HEAD:feature/x
+# 5. A known value with an operator is put back inside double quotes, where it is text, so eval "$C" is checked.
+pass | C="echo x > docs/a.md"; eval "$C"
+pass | C="npm test && echo ok"; eval "$C"
+pass | MSG="fix: a; b"; git commit -m "$MSG"
+block | C="echo x > supabase/migrations/x.sql"; eval "$C"
+block | C="echo x; echo y > supabase/migrations/x.sql"; eval "$C"
+block | C="echo x > supabase/migrations/x.sql"; eval $C
+block | C="echo x > supabase/migrations/x.sql"; bash -c "$C"
+block | X=supabase/migrations; C="cp a $X/x.sql"; eval "$C"
+# 5. A local variable of a function body does not change the variable outside it.
+pass | MIG=docs; f() { local MIG=supabase/migrations; }; f; echo x > "$MIG/x.md"
+block | f() { local D=supabase/migrations; echo x > $D/x.sql; }; f
+block | MIG=docs; f() { MIG=supabase/migrations; }; f; echo x > "$MIG/x.md"
+block | MIG=docs; f() { declare -g MIG=supabase/migrations; }; f; echo x > "$MIG/x.md"
+# 5. eval of a loop variable over a literal list is checked with each word; over a glob or "$@" it fails closed.
+pass | for c in "echo a" "npm test"; do eval "$c"; done
+block | for c in "echo a" "echo b > supabase/migrations/x.sql"; do eval "$c"; done
+block | for c in "$@"; do eval "$c"; done
+# Residuals listed for the final review, each with a row.
+residual (mapfile and readarray fill an array, which is not recorded) | mapfile -t D <<< "supabase/migrations"; echo x > "$D/x.sql"
+residual (read, printf -v and set -- assign without an assignment word, so the variable is not recorded) | read D <<< supabase/migrations; echo x > "$D/x.sql"
+residual (read, printf -v and set -- assign without an assignment word, so the variable is not recorded) | printf -v D supabase/migrations; echo x > "$D/x.sql"
+residual (read, printf -v and set -- assign without an assignment word, so the variable is not recorded) | set -- supabase/migrations; echo x > "$1/x.sql"
+residual (an ANSI C quoted value or a value with an escaped character is not recorded) | D=$'supabase/migrations'; echo x > "$D/x.sql"
+residual (an ANSI C quoted value or a value with an escaped character is not recorded) | D=supabase\/migrations; echo x > "$D/x.sql"
+residual (a prefix assignment is not put into a quoted heredoc that a child shell reads) | D=supabase/migrations bash <<'EOF'⏎echo x > "$D/x.sql"⏎EOF
+residual fixture:gitlivefeat (GIT_DIR in the environment is not read, so the branch is read from the current directory) | GIT_DIR=$FIXTURE/gitlive/.git git push origin HEAD
+# The required passes, also with the round 24 rows in place.
+pass fixture:gitlivefeat | git push
+pass fixture:gitlivefeat | git push -u origin HEAD
+pass fixture:gitlivefeat | git push -u origin feature/x
+pass fixture:gitlivefeat | git push -u origin HEAD:feature/x
+pass fixture:gitlive | git checkout -b feature/y && git push -u origin HEAD
+pass fixture:gitlive | cd .claude/worktrees/w1 && git push -u origin HEAD
+`;
 
 function tableRows(round, table) {
   return table.split("\n").filter((line) => line.trim() !== "" && !line.startsWith("#")).map((line) => {
@@ -1936,6 +2046,7 @@ const PROBES = [
   ...tableRows(21, ROUND_21),
   ...tableRows(22, ROUND_22),
   ...tableRows(23, ROUND_23),
+  ...tableRows(24, ROUND_24),
 ];
 
 const payloadOf = (probe) => (typeof probe === "string" ? { tool_name: "Bash", tool_input: { command: probe }, cwd: CWD } : { cwd: CWD, ...probe });

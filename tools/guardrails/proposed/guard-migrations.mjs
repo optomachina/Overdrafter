@@ -128,7 +128,7 @@ const GIT_ALIAS_DEPTH = 5;
 const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url|mirror)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
 // Environment variables that change which git config is read, so an alias can come from them.
 const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
-const WRAPPERS = new Set(["env", "sudo", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
+const WRAPPERS = new Set(["env", "sudo", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf", "ionice", "chrt", "taskset"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
 // Words that open and close a compound command, and the keywords inside one.
@@ -143,7 +143,12 @@ const WRAPPER_VALUE_FLAGS = {
   time: new Set(["-f", "--format", "-o", "--output"]),
   env: new Set(["--unset", "-C", "--chdir"]),
   nice: new Set(["--adjustment"]),
+  ionice: new Set(["-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"]),
+  stdbuf: new Set(["-i", "-o", "-e", "--input", "--output", "--error"]),
+  chrt: new Set(["-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"]),
 };
+// chrt takes a priority and taskset a CPU mask or list before the command; a word with a digit there is that value.
+const WRAPPER_NUMBER = /^(timeout|chrt|taskset)$/;
 const GH_TEXT_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "--message", "-m"]);
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 // Hosted Supabase write tools. The first set has no namesake on the GitHub or Vercel servers.
@@ -420,11 +425,23 @@ function readValue(src, i) {
       i++;
     }
   }
-  // Blanks are kept: an unquoted reference splits into words as the shell splits it. A newline, quote or operator would be
-  // read as syntax when the value is put back into the text, so such a value is not recorded.
-  if (quoted || /[\n"'\\`;&|<>()]/.test(text)) recordable = false;
+  // Blanks are kept: an unquoted reference splits into words as the shell splits it. A newline or quote would be read as
+  // syntax when the value is put back into the text, so such a value is not recorded. A value with an operator is marked
+  // (see valueOf) and put back only inside double quotes, where the operator is text.
+  if (quoted || /[\n"'\\`]/.test(text)) recordable = false;
   return { end: Math.min(i, src.length), text: recordable ? text : null };
 }
+
+// Marks a value that holds an operator (; & | < > ( )). It is put back only inside double quotes, where the shell reads
+// the operator as text ("$C" for eval "$C"); anywhere else it stays unresolved, as an unknown value does.
+const OPERATOR_VALUE = "\u0002";
+const OPERATOR = /[;&|<>()]/;
+// After source or . runs a file, a variable it may have set is this placeholder, which still holds $. A write target or
+// push destination that holds it fails closed; anywhere else it is an unresolved value. These are rarely set by a file.
+const SOURCED_AT = "$__SOURCED_";
+const SOURCE_KEPT = new Set(["HOME", "PWD", "OLDPWD", "TMPDIR", "USER", "PATH"]);
+// The key in the variable table that records that a file was sourced; it cannot be a variable name.
+const SOURCED_KEY = "@sourced";
 
 /**
  * The value of ${name<op>word} when name is known (null when it is known to be unset): the - and = forms give the value when it is set (with a colon, set and
@@ -440,8 +457,13 @@ function expandDefault(value, colon, op, word, seen) {
   return set ? value : word;
 }
 
-// A reference: ${name<op>word} with a plain word, ${name} or $name.
-const REF = String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])([^}$` + "`" + String.raw`]*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
+// A reference: ${name<op>word}, ${name} or $name. The word may hold $name, ${name} and ${name<op>plain word} references.
+const REF =
+  String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])((?:[^}$` +
+  "`" +
+  String.raw`]|\$\{[A-Za-z_]\w*(?::?[-=+?][^}$` +
+  "`" +
+  String.raw`]*)?\}|\$[A-Za-z_]\w*)*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
 
 /**
  * An assignment group starting at i: name=value and name+=value words separated by blanks. Returns the end, the values
@@ -491,6 +513,8 @@ const BODY_SPLIT = /^(else|elif|;;)$/;
 const BODY_CLOSE = /^(fi|esac|done|\})$/;
 // The most variable value combinations checked for one command text; past it the command fails closed.
 const MAX_VARIANTS = 32;
+// The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
+const MAX_WORK = 400;
 
 /** The possible values held in a variable slot: undefined (not known), null (unset) or a string. */
 const altsOf = (v) => (v !== null && typeof v === "object" ? v.alts : [v]);
@@ -532,7 +556,10 @@ function expandVariants(src) {
  * too: after || or in a pipeline at once; after && or in the body of if, case or a loop it holds for the commands that run
  * only after it, and both values are possible once the && list ends, at else, elif and ;;, and after the body (a { }
  * group counts as a body, since it may be a function that runs later or never). picks and
- * counts choose among the possible values in the order they are read (see expandVariants).
+ * counts choose among the possible values in the order they are read (see expandVariants); every reference to the same
+ * value shares one pick. A variable that is not known gives ${X:-w}, ${X-w} and ${X:=w} two readings, as written and as
+ * the word. A for loop over literal words records the loop variable with each word, local in a function body ends with
+ * the body, and source or . marks every variable as possibly set by the file.
  */
 function expandVars(src, picks = [], counts = []) {
   let vars = Object.create(null);
@@ -541,16 +568,25 @@ function expandVars(src, picks = [], counts = []) {
   let scopes = [];
   let lastOp = null;
   let cmdStart = true;
-  const choose = (alts) => {
-    const at = counts.length;
-    counts.push(alts.length);
-    return alts[picks[at] ?? 0];
+  // One pick per variable state: every reference to the same value, or to the same unknown variable between two
+  // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
+  const memo = new Map();
+  const versions = Object.create(null);
+  const pick = (key, n) => {
+    if (!memo.has(key)) {
+      const at = counts.length;
+      counts.push(n);
+      memo.set(key, picks[at] ?? 0);
+    }
+    return memo.get(key);
   };
   const lookup = (name, child) => {
     const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
-    return raw !== null && typeof raw === "object" ? choose(raw.alts) : raw;
+    if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name)) return SOURCED_AT + name;
+    return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
   };
   const store = (name, value) => {
+    versions[name] = (versions[name] ?? 0) + 1;
     if (value === undefined) delete vars[name];
     else vars[name] = value;
   };
@@ -559,12 +595,16 @@ function expandVars(src, picks = [], counts = []) {
     scope.pending[name].seen.push(...values);
   };
   const merge = (scope) => {
+    const parent = scopes[scopes.indexOf(scope) - 1];
     for (const [name, { old, seen }] of Object.entries(scope.pending)) {
-      const parent = scopes[scopes.indexOf(scope) - 1];
+      // A local variable of a function body ends with it and never reaches the variable outside.
+      if (scope.locals && name in scope.locals) continue;
       if (parent) note(parent, name, seen);
       store(name, union([old, ...seen, vars[name]]));
     }
+    for (const [name, old] of Object.entries(scope.locals ?? {})) store(name, old);
     scope.pending = {};
+    scope.locals = undefined;
   };
   const assign = (name, value) => {
     // After || the next command may run whether or not the assignment did.
@@ -577,12 +617,25 @@ function expandVars(src, picks = [], counts = []) {
     while (scopes.at(-1)?.kind === "chain") merge(scopes.pop());
     lastOp = null;
   };
-  const resolve = (child) => (seen, name, colon, op, word, braced, bare) => {
+  const unmark = (v) => (typeof v === "string" && v.startsWith(OPERATOR_VALUE) ? v.slice(1) : v);
+  const mark = (v) => (OPERATOR.test(v) ? OPERATOR_VALUE + v : v);
+  // dq: the reference stands inside double quotes of this text, where an operator value is text.
+  const resolve = (child, dq) => (seen, name, colon, op, word, braced, bare) => {
+    const shown = (v) => (typeof v === "string" && v.startsWith(OPERATOR_VALUE) ? (dq ? v.slice(1) : undefined) : v);
     if (name === undefined) {
-      const value = lookup(braced ?? bare, child);
+      const value = shown(lookup(braced ?? bare, child));
       return value === undefined ? seen : (value ?? "");
     }
-    const value = lookup(name, child);
+    // ${X:-$Y} takes the value of Y as its word.
+    word = word.replace(new RegExp(REF, "g"), resolve(child, dq));
+    const value = shown(lookup(name, child));
+    if (value === undefined && (op === "-" || op === "=")) {
+      // A variable that is not known may be set or not, so the reference is both as written and the word; ${X:=word}
+      // also records X with the word in the second case.
+      if (pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
+      if (op === "=" && !child) assign(name, word);
+      return word;
+    }
     const result = expandDefault(value, colon, op, word, seen);
     // ${X:=word} also assigns X.
     if (op === "=" && value !== undefined && !child) assign(name, result);
@@ -593,10 +646,25 @@ function expandVars(src, picks = [], counts = []) {
   const head = /[A-Za-z_]\w*\+?=/y;
   const keyword = /(if|case|while|until|for|select|else|elif|fi|esac|done|then|do|\{|\}|!)(?=[\s;&|()]|$)/y;
   const unset = /unset((?:[ \t]+-[a-z]+)*)((?:[ \t]+[A-Za-z_]\w*)+)[ \t]*(?=[;&|)\n#]|$)/y;
+  const sourceWord = /(source|\.)(?=[ \t])/y;
+  // for NAME in WORDS: plain words and quoted words without backslash or glob characters, which may hold $name and ${name}.
+  const forWord = String.raw`(?:[^\s;&|<>()'"\`\\$*?[\]{}]|\$\{?[A-Za-z_]\w*\}?)+|'[^'\n$]*'|"(?:[^"$\`\\\n]|\$\{?[A-Za-z_]\w*\}?)*"`;
+  const forList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+(?:${forWord}))*)[ \t]*(?=[;\n])`, "y");
+  // Unquoted, a word's references split on blanks; quoted, the word is one item.
+  const forItems = (list) =>
+    (list.match(new RegExp(forWord, "g")) ?? []).flatMap((w) => {
+      if (w.startsWith("'")) return [w.slice(1, -1)];
+      const text = w.replace(/^"(.*)"$/s, "$1").replace(new RegExp(REF, "g"), resolve(false, true));
+      return w.startsWith('"') ? [text] : text.split(/[ \t]+/).filter(Boolean);
+    });
+  const forName = /[ \t]+([A-Za-z_]\w*)/y;
   // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
   // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
-  const valueOf = (text) => (text === null ? undefined : text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false)));
-  const appendTo = (old, text) => (old === undefined || text === undefined ? (text === undefined ? undefined : APPEND_AT_ASSIGN + text) : (old ?? "") + text);
+  // Inside a value an operator is text, so a reference is put in whatever it holds, and the value is marked when it holds one.
+  const valueOf = (text) => (text === null ? undefined : mark(text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false, true))));
+  const appendTo = (old, text) => (text === undefined ? undefined : mark((old === undefined ? APPEND_AT_ASSIGN : (unmark(old) ?? "")) + unmark(text)));
+  // After source or . the variables are wiped and marked as possibly set by the file, once its command ends.
+  let sourcedAt = null;
   let out = "";
   let quote = null;
   let wordStart = true;
@@ -615,6 +683,11 @@ function expandVars(src, picks = [], counts = []) {
   };
   for (let i = 0; i < src.length; ) {
     if (prefix && i >= prefix.end) prefix = null;
+    if (sourcedAt !== null && i >= sourcedAt) {
+      vars = Object.create(null);
+      vars[SOURCED_KEY] = true;
+      sourcedAt = null;
+    }
     const c = src[i];
     const next = src[i + 1];
     if (quote === null && wordStart && c === "#") {
@@ -627,7 +700,16 @@ function expandVars(src, picks = [], counts = []) {
       keyword.lastIndex = i;
       const k = keyword.exec(src)?.[1];
       if (k !== undefined && cmdStart) {
-        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {} });
+        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {}, brace: k === "{" });
+        if (k === "for") {
+          // The loop variable holds each word of a literal list in turn; over a glob or a reference it is not known.
+          forList.lastIndex = i + k.length;
+          const list = forList.exec(src);
+          forName.lastIndex = i + k.length;
+          const name = list?.[1] ?? forName.exec(src)?.[1];
+          const items = list ? forItems(list[2]).map(mark) : null;
+          if (name !== undefined && items?.length !== 0) assign(name, items ? union(items) : undefined);
+        }
         const body = scopes.findLast((sc) => sc.kind === "body");
         if (BODY_SPLIT.test(k) && body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
         if (BODY_CLOSE.test(k) && body) {
@@ -639,6 +721,8 @@ function expandVars(src, picks = [], counts = []) {
         wordStart = false;
         continue;
       }
+      sourceWord.lastIndex = i;
+      if (cmdStart && sourceWord.test(src)) sourcedAt = commandEnd(src, i);
       unset.lastIndex = i;
       const u = cmdStart ? unset.exec(src) : null;
       if (u && !/f/.test(u[1])) {
@@ -658,7 +742,16 @@ function expandVars(src, picks = [], counts = []) {
         prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
         for (const [name, text, append] of values) prefix.values[name] = append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text);
       } else {
-        for (const [name, text, append] of values) assign(name, append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text));
+        // local (or declare and typeset without -g) in a function body makes a variable that ends with the body.
+        const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
+        const body = local ? (scopes.findLast((sc) => sc.kind === "body" && sc.brace) ?? scopes.findLast((sc) => sc.kind === "body")) : undefined;
+        for (const [name, text, append] of values) {
+          if (body) {
+            body.locals ??= {};
+            if (!(name in body.locals)) body.locals[name] = vars[name];
+          }
+          assign(name, append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text));
+        }
       }
       out += src.slice(i, end);
       wordStart = /[ \t]/.test(src[end - 1]);
@@ -671,7 +764,8 @@ function expandVars(src, picks = [], counts = []) {
       refAt.lastIndex = i;
       const m = refAt.exec(src);
       if (m) {
-        out += resolve(quote === "'" || src[i - 1] === "\\")(...m);
+        const child = quote === "'" || src[i - 1] === "\\";
+        out += resolve(child, !child && quote === '"')(...m);
         i = refAt.lastIndex;
         continue;
       }
@@ -770,7 +864,7 @@ function unwrap(words) {
   while (WRAPPERS.has(base(argv[0]))) {
     const wrapper = base(argv[0]);
     wrappers.add(wrapper);
-    const isOption = (w) => w.startsWith("-") || isAssignment(w) || (wrapper === "timeout" && /^\d/.test(w));
+    const isOption = (w) => w.startsWith("-") || isAssignment(w) || (WRAPPER_NUMBER.test(wrapper) && /^(\d[\w.,-]*|0x[\da-f]+)$/i.test(w));
     let i = 1;
     const takesValue = (w) => VALUE_FLAGS.has(w) || (WRAPPER_VALUE_FLAGS[wrapper]?.has(w) ?? false);
     for (; i < argv.length && isOption(argv[i]); i += takesValue(argv[i]) ? 2 : 1) {
@@ -1049,10 +1143,16 @@ function runGit(args, call) {
   const configEnv = call.configEnv ?? {};
   if (Object.values(configEnv).some((v) => v.includes(SUB) || v.includes("$"))) throw new Error("the GIT_CONFIG environment cannot be resolved");
   const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...[...(call.includes ?? []), ...(call.pushConfig ?? [])].flatMap((c) => ["-c", c]), ...args];
+  // Nothing runs while a call is checked, so one git read gives the same answer for every reading of the command.
+  const key = JSON.stringify([git, full, configEnv]);
+  if (gitCache.has(key)) return gitCache.get(key);
   const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv, LC_ALL: "C" } });
   if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
+  gitCache.set(key, result);
   return result;
 }
+// git results for the call being checked; decide clears it.
+const gitCache = new Map();
 
 /**
  * The value of alias.<name> in the git config seen from the call's directory, include files followed, or undefined.
@@ -2013,6 +2113,7 @@ function pushReason(args, call, ctx, state) {
     const colon = plain.replace(/\$\{[^}]*\}/g, (m) => "_".repeat(m.length)).lastIndexOf(":");
     // An empty destination (HEAD:, main:) names the same ref as the source.
     const dest = (colon < 0 ? plain : plain.slice(colon + 1)) || plain.slice(0, colon);
+    if (dest.includes(SOURCED_AT)) return `git push ${spec} has a destination from a variable that a sourced file may set; failing closed`;
     if (dest.includes(SUB) || dest.includes("$")) {
       // A default or alternate value written in the destination (HEAD:${TARGET:-main}) is judged as written. Otherwise a
       // destination built by substitution or a variable is read as the current branch, unless it cannot spell main
@@ -2137,6 +2238,7 @@ function supabaseHttpReason(argv, dir) {
 function writeTargetReason(target, dir, segment, substs) {
   const name = protectedName(target, dir, true);
   if (name) return `into ${name}`;
+  if (target?.includes(SOURCED_AT)) return "to a path from a variable that a sourced file may set; failing closed";
   if (target.includes(SUB) && substs.some((s) => PROTECTED_TEXT.test(s))) return "to a generated path that names a protected path";
   if (target.includes("$") && [...segment.words, ...segment.heredocs].some((w) => PROTECTED_TEXT.test(w))) return "to an unresolved variable path in a command that names a protected path; failing closed";
   return null;
@@ -2266,6 +2368,7 @@ function argsReason(cmd, args, segment, dir, substs) {
     return reason ? `sort would write ${reason}` : null;
   }
   const writesArgs = FILE_WRITERS.has(cmd) || isReader(cmd);
+  if (writesArgs && args.some((w) => w.includes(SOURCED_AT))) return `${cmd} would write to a path from a variable that a sourced file may set; failing closed`;
   const generated = writesArgs && args.some((w) => w.includes(SUB)) && substs.some((s) => PROTECTED_TEXT.test(s));
   const name = inMigrations(dir) ? "supabase/migrations" : args.map((w) => protectedName(w, dir, FILE_WRITERS.has(cmd))).find(Boolean);
   if (!name && !generated) return null;
@@ -2545,6 +2648,12 @@ function checkCommand(src, dir, ctx, depth = 0) {
   const texts = expandVariants(src);
   if (texts === null) return report("the command has too many possible variable values to check; failing closed");
   for (const text of texts) {
+    // Readings multiply across nested -c, eval and $( ) text; past the budget the command fails closed, also in collect mode.
+    if (++ctx.work > MAX_WORK) {
+      const reason = "the command has too many readings to check in time; failing closed";
+      ctx.collect?.push(reason);
+      return reason;
+    }
     const reason = checkExpanded(text, dir, ctx, depth, report);
     if (reason) return reason;
   }
@@ -2730,8 +2839,9 @@ export function decide(payload, options = {}) {
   if (input == null || typeof input !== "object") return "tool_input is missing; failing closed";
   const tool = String(payload.tool_name ?? "");
   const cwdPath = resolve(payload.cwd || process.cwd());
-  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branchChanges: [], invocations: 0, collect: options.collect ? [] : null };
+  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branchChanges: [], invocations: 0, work: 0, collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
+  gitCache.clear();
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
   if (tool !== "Bash") return null;
