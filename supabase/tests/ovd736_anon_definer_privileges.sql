@@ -9,7 +9,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(95);
+select plan(105);
 
 \set user_a 73600000-0000-4000-8000-000000000001
 \set user_b 73600000-0000-4000-8000-000000000002
@@ -184,6 +184,65 @@ update ovd736_anon_reads set before = pg_temp.ovd736_anon_outcome('select 1 from
 -- assertion runs against the real schema. No assertion is skipped in either case.
 select count(*) = 56 as ovd736_install_draft
 from ovd736_target t where has_function_privilege('anon', t.sig, 'EXECUTE') \gset
+
+-- ---------------------------------------------------------------- (p) prior state
+-- Capture the real ACL and proconfig of all 56 before anything changes them, so
+-- the rollback round trip in (f) compares against what the catalog held, not an
+-- assumed literal. Once the draft is promoted the prior state no longer exists in
+-- the schema; the only way back to it is the rollback, so in that mode the capture
+-- is taken after the rollback inside a savepoint and (f) degrades to an
+-- idempotence check, while the shape assertion below still pins the literal.
+create temp table ovd736_prior (sig text primary key, acl text not null, acl_entries text[] not null, config text[]);
+\if :ovd736_install_draft
+\else
+savepoint ovd736_prior_capture;
+\ir fixtures/ovd736_anon_definer_privileges_rollback.inc
+\endif
+insert into ovd736_prior
+select t.sig, p.proacl::text, pg_temp.ovd736_acl(t.sig), p.proconfig
+from ovd736_target t join pg_proc p on p.oid = t.sig::regprocedure;
+\if :ovd736_install_draft
+\else
+create temp table ovd736_prior_keep as select * from ovd736_prior;
+rollback to savepoint ovd736_prior_capture;
+insert into ovd736_prior select * from ovd736_prior_keep;
+\endif
+select is((select count(*)::integer from ovd736_prior), 56, 'prior ACL and proconfig captured for all 56 functions');
+select is_empty($$ select sig, acl_entries from ovd736_prior
+  where not (acl_entries @> array['PUBLIC:EXECUTE:false', 'anon:EXECUTE:false',
+      'authenticated:EXECUTE:false', 'postgres:EXECUTE:false', 'service_role:EXECUTE:false']
+    and cardinality(acl_entries) = 5) $$,
+  'every captured prior ACL is exactly PUBLIC, anon, authenticated, postgres and service_role with EXECUTE');
+select is((select config from ovd736_prior where sig = 'public.api_invite_project_member(uuid,text,public.project_role)'),
+  array['search_path=public, auth'], 'the captured prior api_invite_project_member search_path is public, auth');
+
+-- ---------------------------------------------------------------- (r) retained grants
+-- The draft must not depend on the platform default ACL. Simulate a database where
+-- authenticated and service_role reach the 56 only through PUBLIC: without the
+-- draft's explicit section 5 grants they would lose EXECUTE with the PUBLIC revoke.
+savepoint ovd736_public_only;
+do $$
+declare v_sig text;
+begin
+  for v_sig in select sig from ovd736_target loop
+    execute format('grant execute on function %s to public', v_sig);
+    execute format('revoke execute on function %s from authenticated, service_role', v_sig);
+  end loop;
+end;
+$$;
+select ok((select bool_and(has_function_privilege('authenticated', sig, 'EXECUTE')
+                       and has_function_privilege('service_role', sig, 'EXECUTE')
+                       and not pg_temp.ovd736_acl(sig) && array['authenticated:EXECUTE:false', 'service_role:EXECUTE:false'])
+           from ovd736_target),
+  'simulated default ACL: authenticated and service_role reach the 56 only through PUBLIC');
+\ir fixtures/ovd736_anon_definer_privileges.inc
+select ok((select bool_and(has_function_privilege('service_role', sig, 'EXECUTE')
+                       and has_function_privilege('authenticated', sig, 'EXECUTE') = keeps_authenticated
+                       and not has_function_privilege('anon', sig, 'EXECUTE'))
+           from ovd736_target),
+  'with only PUBLIC to start from, the draft still leaves service_role on all 56 and authenticated on exactly the 48');
+rollback to savepoint ovd736_public_only;
+
 \if :ovd736_install_draft
 \ir fixtures/ovd736_anon_definer_privileges.inc
 \endif
@@ -316,6 +375,36 @@ select ok((select bool_and(has_function_privilege('service_role', sig, 'EXECUTE'
                        and has_function_privilege('authenticated', sig, 'EXECUTE') = keeps_authenticated)
            from ovd736_target),
   'service_role keeps EXECUTE on all 56; authenticated keeps it on exactly the 48 still needed');
+select is_empty($$ select sig from ovd736_target
+  where not pg_temp.ovd736_acl(sig) @> case when keeps_authenticated
+    then array['authenticated:EXECUTE:false', 'service_role:EXECUTE:false']
+    else array['service_role:EXECUTE:false'] end $$,
+  'every kept role holds an explicit EXECUTE entry in the ACL, not one inherited through PUBLIC');
+
+-- Every RLS policy that depends on a function anon cannot execute must apply only
+-- to authenticated or service_role; otherwise an anon (or PUBLIC) read of that
+-- table would raise 42501. Read from pg_depend, so it covers every policy in the
+-- catalog, not only the seeded tables.
+create function pg_temp.ovd736_policies_needing_anon()
+returns table (policy text, roles text)
+language sql stable set search_path = pg_catalog as $$
+  select distinct pol.polrelid::regclass::text || ' / ' || pol.polname, pol.polroles::regrole[]::text
+  from pg_policy pol
+  join pg_depend d on d.classid = 'pg_policy'::regclass and d.objid = pol.oid and d.refclassid = 'pg_proc'::regclass
+  where not has_function_privilege('anon', d.refobjid, 'EXECUTE')
+    and not pol.polroles <@ array['authenticated'::regrole, 'service_role'::regrole]::oid[]
+$$;
+select is_empty($$ select * from pg_temp.ovd736_policies_needing_anon() $$,
+  'no RLS policy that calls a function anon cannot execute applies to anon or PUBLIC');
+select ok((select count(distinct d.objid) from pg_depend d
+           where d.classid = 'pg_policy'::regclass and d.refclassid = 'pg_proc'::regclass
+             and d.refobjid in (select sig::regprocedure from ovd736_target)) >= 100,
+  'the policy check sees the helper backed policies (at least 100 depend on the 56)');
+savepoint ovd736_policy_probe;
+create policy ovd736_probe on public.jobs for select to anon using (public.user_can_access_job(id));
+select is((select count(*)::integer from pg_temp.ovd736_policies_needing_anon() where policy = 'public.jobs / ovd736_probe'), 1,
+  'the policy check flags a policy for anon that calls a revoked helper');
+rollback to savepoint ovd736_policy_probe;
 
 -- ---------------------------------------------------------------- (b) denials
 -- The privilege check runs before the body, so absent ids are enough.
@@ -439,11 +528,12 @@ select is((select status::text from public.project_invites where token = :'ovd75
 -- fixtures/ovd736_anon_definer_privileges_rollback.inc is a byte copy of
 -- docs/migration-drafts/ovd-736.rollback.sql.
 \ir fixtures/ovd736_anon_definer_privileges_rollback.inc
-select is_empty($$ select sig from ovd736_target
-  where cardinality(pg_temp.ovd736_acl(sig)) <> 5
-     or not pg_temp.ovd736_acl(sig) @> array['PUBLIC:EXECUTE:false', 'anon:EXECUTE:false',
-       'authenticated:EXECUTE:false', 'postgres:EXECUTE:false', 'service_role:EXECUTE:false'] $$,
-  'rollback restores the exact prior ACL on all 56 functions');
+select is_empty($$ select r.sig, r.acl_entries, pg_temp.ovd736_acl(r.sig) from ovd736_prior r
+  where pg_temp.ovd736_acl(r.sig) is distinct from r.acl_entries $$,
+  'rollback restores the captured prior ACL entries on all 56 functions');
+select is_empty($$ select r.sig, r.config, p.proconfig from ovd736_prior r join pg_proc p on p.oid = r.sig::regprocedure
+  where p.proconfig is distinct from r.config $$,
+  'rollback restores the captured prior proconfig on all 56 functions');
 select ok((select bool_and(has_function_privilege('anon', sig, 'EXECUTE')) from ovd736_target),
   'after rollback anon can execute all 56 again (the pre OVD-736 state)');
 select is((select proconfig from pg_proc where oid = 'public.api_invite_project_member(uuid,text,public.project_role)'::regprocedure),

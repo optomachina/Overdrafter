@@ -11,6 +11,9 @@
 -- by hand, use `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-736.rollback.sql`.
 -- GRANT statements and one ALTER FUNCTION; no DROP, no data change. Rolling back reopens the
 -- OVD-736 exposure (anon can call every function below again).
+-- Section 5 of the draft (explicit authenticated and service_role grants) is not
+-- undone: those entries were already in the prior ACL, so keeping them is exactly
+-- the prior state.
 
 grant execute on function public.api_accept_project_invite(text) to public, anon;
 grant execute on function public.api_admin_list_all_jobs() to public, anon;

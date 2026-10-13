@@ -2,9 +2,9 @@
 
 Draft only. Nothing here is applied. Files:
 
-- `docs/migration-drafts/ovd-736.sql`: the revoke (56 REVOKE statements) plus one `ALTER FUNCTION ... SET search_path` for OVD-759. No DROP, no data change, no body change.
+- `docs/migration-drafts/ovd-736.sql`: the revoke (56 REVOKE statements), one `ALTER FUNCTION ... SET search_path` for OVD-759, and 56 explicit GRANT statements (section 5) that re-grant EXECUTE to every role the draft keeps (authenticated and service_role on 48, service_role only on the 8 internal helpers). No DROP, no data change, no body change.
 - `docs/migration-drafts/ovd-736.rollback.sql`: restores the exact prior grants (56 GRANT statements) and the prior `api_invite_project_member` search_path.
-- `supabase/tests/ovd736_anon_definer_privileges.sql`: pgTAP suite (95 assertions). It installs byte copies of both drafts from `supabase/tests/fixtures/ovd736_anon_definer_privileges*.inc`; `scripts/run-supabase-policy-tests.node-test.mjs` enforces the byte equality.
+- `supabase/tests/ovd736_anon_definer_privileges.sql`: pgTAP suite (105 assertions). It installs byte copies of both drafts from `supabase/tests/fixtures/ovd736_anon_definer_privileges*.inc`; `scripts/run-supabase-policy-tests.node-test.mjs` enforces the byte equality.
 
 ## Verdict
 
@@ -113,6 +113,21 @@ alter function public.api_invite_project_member(uuid, text, public.project_role)
 ```
 
 The suite proves: the function's `proconfig` is `search_path=public, auth, extensions`; with the old path restored inside a savepoint, the owner invite raises 42883; with the draft, a signed in project owner invites a verified user, a pending `project_invites` row is written, the invited user accepts through `api_accept_project_invite`, becomes a project editor, and the invite is marked accepted. The rollback restores `public, auth` and the reapply restores the fix.
+
+## Explicit retained grants (section 5)
+
+Production and the local stack both hold explicit `authenticated` and `service_role` entries on all 56 functions, so section 5 is a no op there. It exists so the end state does not depend on the platform default ACL: if any environment had a kept role reaching a function only through PUBLIC, the PUBLIC revoke would otherwise remove that role's EXECUTE too. GRANT is idempotent. The rollback does not undo section 5, because those entries were already in the prior ACL.
+
+The suite proves it: inside a savepoint it rewrites all 56 ACLs so that authenticated and service_role reach them only through PUBLIC, applies the draft, and asserts service_role keeps EXECUTE on all 56 and authenticated on exactly the 48. Without section 5 that assertion fails.
+
+## Server callers
+
+Two `server/` paths call the 56 functions through PostgREST with the end user's bearer token, so they run as `authenticated` and are unaffected:
+
+- `server/admin-operations/runtime.ts` (`isPlatformAdmin`): `POST /rest/v1/rpc/api_get_is_platform_admin` with `userHeaders(token)`.
+- `server/chatgpt/supabase-reader.ts` (`readAuthorizedJob`): `client.rpc("api_list_client_quote_workspace", ...)` on a client built with the user's access token.
+
+Neither runs without a user token; both keep working after the draft.
 
 ## Allowlist after the draft
 
@@ -230,6 +245,17 @@ PUBLIC and anon: no SECURITY DEFINER function in any application schema (every s
 
 ## Verification
 
+Round 2 (this revision), on a fresh local Postgres (`public.ecr.aws/supabase/postgres:17.6.1.095`, GoTrue v2.187.0 migrations, all 149 repository migrations, a minimal `storage` schema stub because the storage image could not be pulled in the sandbox; hosted CI runs the real stack):
+
+- The suite: 105 of 105 pass.
+- (p) captures `proacl::text`, the sorted ACL entries and `proconfig` of all 56 into `ovd736_prior` before anything changes, and asserts the prior shape (exactly PUBLIC, anon, authenticated, postgres and service_role, all EXECUTE; invite `search_path=public, auth`). After the rollback, (f) asserts the ACL entries and `proconfig` equal the captured values. The raw `proacl::text` differs after a round trip only in element order (GRANT appends; the original order comes from the function default ACL and cannot be reproduced with GRANT); the entry set, which is what privilege checks read, is identical. Once the draft is promoted, the prior state no longer exists in the schema, so the capture is taken after applying the rollback inside a savepoint and (f) becomes an idempotence check, while the shape assertion still pins the literal.
+- (a) catalog policy check from `pg_depend`: no `pg_policy` row that depends on a function anon cannot execute has roles other than authenticated or service_role. It sees at least 100 policies depending on the 56, and a probe policy `TO anon` on `public.jobs` calling `user_can_access_job` is flagged.
+- Mutation R2a: deleting every section 5 GRANT from the fixture fails "with only PUBLIC to start from, the draft still leaves service_role on all 56 and authenticated on exactly the 48".
+- Mutation R2b: deleting the `api_archive_job` line from the rollback fixture fails "rollback restores the captured prior ACL entries" and "after rollback anon can execute all 56 again".
+- Mutation R2c: adding an extra grantee to one rollback line fails "rollback restores the captured prior ACL entries".
+
+Round 1:
+
 - `supabase test db --local` on the suite: 95 of 95 pass with the draft installed from the fixture.
 - Mutation 3 (scratch copy, deleted after): removing the OVD-759 `ALTER FUNCTION` line from the fixture fails test 84 and then aborts the suite at the owner invite with `function gen_random_bytes(integer) does not exist`.
 - Mutation 1 (scratch copy, deleted after): removing `revoke execute on function public.api_archive_job(uuid) from public, anon;` from the fixture fails tests 1 (no PUBLIC or anon definer), 12 (anon denied on `api_archive_job`) and 93 (reapply after rollback).
@@ -241,11 +267,21 @@ PUBLIC and anon: no SECURITY DEFINER function in any application schema (every s
 ## Residuals
 
 - R1 search_path: left unchanged on 55 functions (the OVD-759 line changes only `api_invite_project_member`). Each already pins a path (`public`; `public, auth`; or `public, auth, private`). anon and authenticated have no CREATE on `public`, and no caller can create a temp object through PostgREST, so appending `pg_temp` would buy little for this urgent change. Candidates for a later one line `ALTER FUNCTION ... SET search_path` hardening: the other 55.
-- R2 `api_get_is_platform_admin` race: in the rare `session_error` path, `fetchAppSessionData` can call it with a stored session whose refresh fails, so it may reach PostgREST as anon. Before the draft anon got `false`; after it gets 42501, which `isNonRetriablePlatformAdminRpcError` treats as "unavailable" for the rest of the browser session, so a platform admin in that race sees non admin mode until a reload. Data exposure is nil either way. A small client fix (do not cache 42501 as unavailable) is a follow up.
+- R2 `api_get_is_platform_admin` race: in the rare `session_error` path, `fetchAppSessionData` can call it with a stored session whose refresh fails, so it may reach PostgREST as anon. Before the draft anon got `false`; after it gets 42501. Fixed in this PR in `src/features/quotes/api/session-api.ts`: a 42501 (or HTTP 401 or 403) is treated as "not admin for this call" and leaves the module level availability as it was, so the next fetch asks the server again. Only 404 and PGRST202 (the RPC is missing) still mark it unavailable for the tab. Unit tests in `src/features/quotes/api.test.ts`: "asks again after a platform admin lookup that ran without a signed in session was denied (OVD-736 R2)" and "asks again after a platform admin lookup denied with 403 for a signed in role"; both fail without the fix. `EngineeringAdminRoute` is unchanged.
 - R3 resolved here as OVD-759 (see below). Invites have been broken in production since the function was created; nothing is lost because `project_invites` is empty.
-- R4 Existing characterization test `supabase/tests/client_rpc_least_privilege.sql` pins anon outcomes from function bodies and calls `load_editable_project_part_context` directly as authenticated. It runs against the real schema, so it is unaffected while this is a draft, but its expectations must change from the body errors to 42501 in the same PR that promotes the draft into `supabase/migrations/`.
+- R4 Existing characterization test `supabase/tests/client_rpc_least_privilege.sql` pins anon outcomes from function bodies and calls `load_editable_project_part_context` directly as authenticated. It runs against the real schema, so it is unaffected while this is a draft. The promotion PR must rewrite it, not only flip expectations: its anon sections expect 42501, and its signed in sections must run with the draft applied (today they call `load_editable_project_part_context` as authenticated, which the draft revokes, so those calls move behind a SECURITY DEFINER caller or to service_role).
+- R4b The OVD-510 replay fixture `scripts/ovd510-replay-body.mjs` runs `select public.current_user_has_verified_auth();` as anon (`anon_auth`) and as authenticated (`signed_in_auth`). After the draft both raise 42501, because the draft revokes this internal helper from anon and authenticated. The promotion PR must change those two expected outcomes.
 - R5 Four signed in RPCs keep pre existing authenticated grants with no direct caller in `src`, `worker` or edge functions: `api_admin_get_organization_entitlement_state`, `api_attach_job_file`, `api_confirm_part_deadline`, `api_request_quote`. Out of scope here; listed in the allowlist so any change is deliberate.
 - R6 The allowlist pins 107 functions. Every future migration that adds or regrants a SECURITY DEFINER function to authenticated must add a row here. That is the intended guard, at the cost of one line per new function.
+
+## Merge order
+
+The suite pins the authenticated SECURITY DEFINER set at 107 functions. Any migration that adds a definer function granted to authenticated or service_role changes that set:
+
+- Window 1 promotes OVD-723 and OVD-722, which add authenticated or service_role definers.
+- Window 2 (#716) does the same.
+
+Whichever of this draft and those changes lands second must either add allowlist rows (with reasons) or revoke the new grants, or the suite fails. This draft must be refreshed after window 1 lands: re run the inventory, update the allowlist and the notes, and recheck the 56. That refresh is not done in this revision.
 
 ## Rollback
 

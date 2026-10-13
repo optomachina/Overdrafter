@@ -12,7 +12,7 @@
 -- Transaction: this file has no begin/commit of its own. It relies on the
 -- migration runner wrapping it in one transaction (the Supabase CLI does). If run
 -- by hand, use `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-736.sql`.
--- Every statement is a REVOKE, so any failure leaves the prior grants in place.
+-- Any failure aborts the whole transaction and leaves the prior grants in place.
 --
 -- Scope: expand only. No data change, no function body change, no DROP. One
 -- search_path change (section 4, OVD-759). Before this file, each of the 56 functions below has the
@@ -30,6 +30,9 @@
 --     or client calls directly (they are reached only from other SECURITY
 --     DEFINER functions, which run as the owner, or as triggers).
 --   * service_role and postgres: unchanged.
+--   * Section 5 re-grants EXECUTE explicitly to every role kept above, so this
+--     end state holds even where a kept role had reached a function only
+--     through PUBLIC.
 --
 -- Trigger functions: PostgreSQL checks EXECUTE on a trigger function only at
 -- CREATE TRIGGER time, never when the trigger fires, so revoking it does not
@@ -106,3 +109,68 @@ revoke execute on function public.user_can_destructively_edit_job(uuid) from pub
 -- in production by the lead). One line, no body change.
 alter function public.api_invite_project_member(uuid, text, public.project_role)
   set search_path = public, auth, extensions;
+
+-- 5. Explicit retained grants. Each function above already has explicit
+-- authenticated and service_role entries (production and local agree), so these
+-- are no-ops on the expected prior ACL. They make the end state independent of
+-- the platform default ACL: if a role was only reaching a function through PUBLIC,
+-- it still has EXECUTE after the revokes above. Idempotent.
+-- 5a. Client RPCs (section 1) and RLS helpers (section 2): authenticated and service_role.
+grant execute on function public.api_accept_project_invite(text) to authenticated, service_role;
+grant execute on function public.api_admin_list_all_jobs() to authenticated, service_role;
+grant execute on function public.api_admin_list_all_projects() to authenticated, service_role;
+grant execute on function public.api_admin_list_all_users() to authenticated, service_role;
+grant execute on function public.api_admin_list_organizations() to authenticated, service_role;
+grant execute on function public.api_approve_job_requirements(uuid,jsonb) to authenticated, service_role;
+grant execute on function public.api_archive_job(uuid) to authenticated, service_role;
+grant execute on function public.api_archive_project(uuid) to authenticated, service_role;
+grant execute on function public.api_assign_job_to_project(uuid,uuid) to authenticated, service_role;
+grant execute on function public.api_cancel_quote_request(uuid) to authenticated, service_role;
+grant execute on function public.api_create_project(text,text) to authenticated, service_role;
+grant execute on function public.api_create_self_service_organization(text) to authenticated, service_role;
+grant execute on function public.api_delete_project(uuid) to authenticated, service_role;
+grant execute on function public.api_dissolve_project(uuid) to authenticated, service_role;
+grant execute on function public.api_get_client_intake_compatibility() to authenticated, service_role;
+grant execute on function public.api_get_is_platform_admin() to authenticated, service_role;
+grant execute on function public.api_get_quote_run_readiness(uuid) to authenticated, service_role;
+grant execute on function public.api_invite_project_member(uuid,text,public.project_role) to authenticated, service_role;
+grant execute on function public.api_list_client_activity_events(uuid[],integer) to authenticated, service_role;
+grant execute on function public.api_list_client_part_metadata(uuid[]) to authenticated, service_role;
+grant execute on function public.api_list_client_quote_workspace(uuid[]) to authenticated, service_role;
+grant execute on function public.api_list_organization_memberships(uuid) to authenticated, service_role;
+grant execute on function public.api_list_project_assignee_profiles(uuid) to authenticated, service_role;
+grant execute on function public.api_publish_quote_package(uuid,uuid,text,boolean) to authenticated, service_role;
+grant execute on function public.api_reconcile_job_parts(uuid) to authenticated, service_role;
+grant execute on function public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb) to authenticated, service_role;
+grant execute on function public.api_remove_job_from_project(uuid,uuid) to authenticated, service_role;
+grant execute on function public.api_remove_project_member(uuid) to authenticated, service_role;
+grant execute on function public.api_request_debug_extraction(uuid,text) to authenticated, service_role;
+grant execute on function public.api_request_extraction(uuid) to authenticated, service_role;
+grant execute on function public.api_reset_client_part_property_overrides(uuid,text[]) to authenticated, service_role;
+grant execute on function public.api_start_quote_run(uuid,boolean) to authenticated, service_role;
+grant execute on function public.api_unarchive_job(uuid) to authenticated, service_role;
+grant execute on function public.api_unarchive_project(uuid) to authenticated, service_role;
+grant execute on function public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb) to authenticated, service_role;
+grant execute on function public.api_update_organization_membership_role(uuid,public.app_role) to authenticated, service_role;
+grant execute on function public.api_update_project(uuid,text,text) to authenticated, service_role;
+grant execute on function public.is_internal_user(uuid) to authenticated, service_role;
+grant execute on function public.is_internal_user_any_org() to authenticated, service_role;
+grant execute on function public.is_org_admin(uuid) to authenticated, service_role;
+grant execute on function public.is_platform_admin() to authenticated, service_role;
+grant execute on function public.user_can_access_job(uuid) to authenticated, service_role;
+grant execute on function public.user_can_access_org(uuid) to authenticated, service_role;
+grant execute on function public.user_can_access_package(uuid) to authenticated, service_role;
+grant execute on function public.user_can_access_project(uuid) to authenticated, service_role;
+grant execute on function public.user_can_edit_job(uuid) to authenticated, service_role;
+grant execute on function public.user_can_edit_project(uuid) to authenticated, service_role;
+grant execute on function public.user_is_project_owner(uuid) to authenticated, service_role;
+
+-- 5b. Internal only helpers and trigger functions (section 3): service_role only.
+grant execute on function public.current_user_has_verified_auth() to service_role;
+grant execute on function public.current_user_home_organization_id() to service_role;
+grant execute on function public.load_editable_project_part_context(uuid) to service_role;
+grant execute on function public.require_verified_auth() to service_role;
+grant execute on function public.sync_quote_request_status_from_vendor_result() to service_role;
+grant execute on function public.sync_service_request_line_item_status_from_quote_request() to service_role;
+grant execute on function public.user_can_access_job_via_project(uuid) to service_role;
+grant execute on function public.user_can_destructively_edit_job(uuid) to service_role;
