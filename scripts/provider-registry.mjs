@@ -38,6 +38,24 @@ export const RESERVED_DEPLOY_ENV_PREFIXES = Object.freeze([
   "GOOGLE_",
   "SUPABASE_",
 ]);
+const AWS_SECRET_KEY_LENGTH = 40;
+
+// AWS style secret keys are 40 base64 characters and often contain "/", so
+// scan every 40 character window inside each base64 run, including runs that
+// follow a URL path separator.
+const AWS_SECRET_KEY_DETECTOR = Object.freeze({
+  test(text) {
+    for (const run of String(text).match(/[A-Za-z0-9/+]{40,}/g) ?? []) {
+      for (let start = 0; start + AWS_SECRET_KEY_LENGTH <= run.length; start += 1) {
+        const window = run.slice(start, start + AWS_SECRET_KEY_LENGTH);
+        if (/\d/.test(window) && /[a-z]/.test(window) && /[A-Z]/.test(window) && window.includes("/")) {
+          return true;
+        }
+      }
+    }
+    return false;
+  },
+});
 export const SECRET_VALUE_PATTERNS = Object.freeze([
   /xometry-storage-state/i,
   /-----BEGIN/,
@@ -47,6 +65,12 @@ export const SECRET_VALUE_PATTERNS = Object.freeze([
   /\bgh[pousr]_[A-Za-z0-9]{20,}/,
   /\bsk-[A-Za-z0-9]{16,}/,
   /\b[0-9a-fA-F]{32}\b/,
+  /\b[0-9a-fA-F]{40}\b/,
+  /\b[0-9a-fA-F]{64}\b/,
+  /\b[A-Z2-7]{32,}\b/,
+  /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{32,50}\b/,
+  AWS_SECRET_KEY_DETECTOR,
+  /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/,
 ]);
 export const MANUAL_DEPLOY_ALLOWLIST = Object.freeze(["xometry"]);
 
@@ -121,6 +145,7 @@ export function shannonEntropy(value) {
 }
 
 const TOKEN_SPLIT_PATTERN = /[\s/:?#&=]+/;
+const LOWERCASE_IDENTIFIER_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/;
 const KEBAB_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)+$/;
 
 function isKnownSafeLiteral(value) {
@@ -136,10 +161,12 @@ function tokenLooksLikeSecret(token) {
   if (
     token.length < HIGH_ENTROPY_MIN_LENGTH
     || isKnownSafeLiteral(token)
-    || token.includes(".")
     || KEBAB_SLUG_PATTERN.test(token)
   ) {
     return false;
+  }
+  if (token.includes(".") && LOWERCASE_IDENTIFIER_PATTERN.test(token)) {
+    return token.split(/[._-]/).some((label) => label.length >= HIGH_ENTROPY_MIN_LENGTH && shannonEntropy(label) >= HIGH_ENTROPY_THRESHOLD);
   }
   return shannonEntropy(token) >= HIGH_ENTROPY_THRESHOLD;
 }
@@ -741,34 +768,13 @@ function renderSecretApply(entry, secret) {
   ].join("\n");
 }
 
-function renderStableEgressRestrictionMessageFn() {
+function renderStableEgressRestrictionMessageFn(registry, optionalEgress) {
+  // The message is composed at generation time so the emitted helper stays
+  // portable to bash 3.2 (no case-modifying expansions, no local -a).
+  const message = formatStableEgressRestrictionMessage(registry.stableEgressRequiredKey, optionalEgress);
   return [
     "provider_registry_stable_egress_restriction_message() {",
-    "  local required=\"${PROVIDER_REGISTRY_STABLE_EGRESS_REQUIRED^}\"",
-    "  local -a optional_names=()",
-    "  local adapter",
-    "  for adapter in \"${PROVIDER_REGISTRY_STABLE_EGRESS_OPTIONAL_ADAPTERS[@]}\"; do",
-    "    optional_names+=(\"${adapter^}\")",
-    "  done",
-    "  local count=\"${#optional_names[@]}\"",
-    "  if (( count == 0 )); then",
-    "    printf '%s\\n' \"Stable egress deployment is restricted to the live ${required} worker.\"",
-    "    return 0",
-    "  fi",
-    "  local phrase",
-    "  if (( count == 1 )); then",
-    "    phrase=\"${optional_names[0]}\"",
-    "  elif (( count == 2 )); then",
-    "    phrase=\"${optional_names[0]} and/or ${optional_names[1]}\"",
-    "  else",
-    "    local i",
-    "    phrase=\"\"",
-    "    for (( i=0; i<count-1; i++ )); do",
-    "      phrase+=\"${optional_names[i]}, \"",
-    "    done",
-    "    phrase+=\"and/or ${optional_names[count-1]}\"",
-    "  fi",
-    "  printf '%s\\n' \"Stable egress deployment is restricted to the live ${required} worker, optionally with ${phrase} in that order.\"",
+    String.raw`  printf '%s\n' ${bashQuote(message)}`,
     "}",
   ].join("\n");
 }
@@ -854,7 +860,7 @@ function renderSecretsScript(registry) {
     "  printf '%s' \"$canonical\"",
     "}",
     "",
-    renderStableEgressRestrictionMessageFn(),
+    renderStableEgressRestrictionMessageFn(registry, optionalEgress),
     "",
   ].join("\n");
 }

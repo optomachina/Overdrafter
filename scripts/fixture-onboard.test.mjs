@@ -370,6 +370,7 @@ describe("fixture:onboard --stage=admit", () => {
     expect(admissionSql).toContain("accepted_file_extensions = array['step', 'stp']");
     expect(admissionSql).toMatch(/<reviewer user uuid>/);
     const runbook = await read(result.created[2]);
+    expect(runbook).toContain("(../../../docs/checklists/provider-go-live-checklist.md)");
     for (const step of ["automatic_quote_collection", "Organization enablement", "WORKER_LIVE_ADAPTERS", "SHOPNAME_STORAGE_STATE_SECRET_NAME", "Certification run"]) {
       expect(runbook).toContain(step);
     }
