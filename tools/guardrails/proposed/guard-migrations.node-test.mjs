@@ -1445,7 +1445,7 @@ test("round 25: a PR named in many readings of a merge loop is looked up once", 
   };
   const command = "for pr in 11 12 13 14 15 16 17 18; do gh pr merge $pr --squash; done; x || A=1; echo $A ${B:-$C}";
   assert.equal(decide({ tool_name: "Bash", tool_input: { command }, cwd: CWD }, { prFiles }), null);
-  assert.deepEqual([...seen].sort(), ["11", "12", "13", "14", "15", "16", "17", "18"]);
+  assert.deepEqual([...seen].sort((a, b) => a.localeCompare(b)), ["11", "12", "13", "14", "15", "16", "17", "18"]);
 });
 
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {

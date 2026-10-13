@@ -520,7 +520,7 @@ const MAX_WORK = 400;
 // Text in a default word or a loop item that could change a check: a protected path part, main, master, HEAD or refspec
 // syntax, a reference, an operator, a blank (a command that eval or -c may run) or a . or .. step. Any other word is read
 // once, as an unknown value, which is how a variable set outside the command is read.
-const CHANGES_CHECK = /supabase|migration|claude|hook|setting|tool|guardrail|main|master|head|[$;&|<>()`\s\u0002:+@]|(?:^|\/)\.\.?(?:\/|$)/i;
+const CHANGES_CHECK = /supabase|migration|claude|hook|setting|tool|guardrail|main|master|head|[$;&|<>()`\s:+@]|(?:^|\/)\.\.?(?:\/|$)/i;
 // A merge of an unknown PR fails closed, so in a command that merges any word may be the PR and every word is read.
 const MERGE_TEXT = /merge/i;
 // The placeholders that stand for a value the command made itself; a sourced file cannot set them.
