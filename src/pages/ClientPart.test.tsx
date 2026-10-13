@@ -2096,6 +2096,81 @@ describe("ClientPart", () => {
     }
   });
 
+  it("refuses locally when the plan leaves Xometry alone beside another enabled provider", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      mockXometryRequestServerRule(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: ["fictiv"],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      renderWithClient("/parts/job-1");
+      await confirmXometryDialog();
+
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith(
+          "Xometry can take this request only together with another provider right now.",
+        );
+      });
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+      expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("replays an uncertain Xometry fan out request with its original marker after fan out turns off", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("Request failed"));
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      const { queryClient } = renderWithClient("/parts/job-1");
+      await confirmXometryDialog();
+
+      expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+      const attemptedInput = { ...api.requestXometryBetaDispatch.mock.calls[0][0] };
+      expect(attemptedInput.fanout).toEqual({
+        confirmationReference: attemptedInput.approvalReference,
+        vendors: ["fictiv", "xometry"],
+      });
+
+      // Automatic collection turns off, which also turns fan out off.
+      mockQuoteCollectionMode.automaticEnabled = false;
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
+      mockXometryRequestServerRule(["xometry", "fictiv"]);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
+      expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
+      expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("sends no extra provider when the primary is refused because the package changed", async () => {
     vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
     try {

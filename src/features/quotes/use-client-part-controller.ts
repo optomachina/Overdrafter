@@ -292,7 +292,14 @@ export function useClientPartController(
   const isRequestQuoteLockedRef = useRef(false);
   const attemptedQuoteRef = useRef<{
     identity: string;
-    input: { approvalReference: string; declaredModelUnits: XometryBetaModelUnits; envelopeRevision?: string; policyRevision: string; scopeFingerprint: string };
+    input: {
+      approvalReference: string;
+      declaredModelUnits: XometryBetaModelUnits;
+      envelopeRevision?: string;
+      policyRevision: string;
+      scopeFingerprint: string;
+      xometryFanoutVendors?: VendorName[] | null;
+    };
     status: "pending" | "unknown";
   } | null>(null);
   const [uncertainQuoteIdentity, setUncertainQuoteIdentity] = useState<string | null>(null);
@@ -1620,9 +1627,21 @@ export function useClientPartController(
       // Refused by the local plan (kill switch, process, or cap); nothing reached the server.
       return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
     }
+    const uncertainReplay = isExactUnknownReplay(input);
+    // An exact replay resends the marker it first carried, even if fan out has
+    // since turned off; otherwise the marker names exactly the providers this
+    // confirmation reaches.
+    const xometryFanoutVendors = uncertainReplay
+      ? attemptedQuoteRef.current?.input.xometryFanoutVendors ?? null
+      : dispatchProvider === "xometry" ? getXometryFanoutVendors(fanoutPlan?.send) : null;
+    if (!uncertainReplay && xometryScopeFanoutVendors && !xometryFanoutVendors) {
+      // The scope names other enabled providers, but the plan left only
+      // Xometry; the server refuses Xometry alone beside them.
+      toast.error(`${dispatchProviderLabel} can take this request only together with another provider right now.`);
+      return { accepted: false, created: false, diagnosticCode: "local_plan_refusal", status: "denied" };
+    }
 
     isRequestQuoteLockedRef.current = true;
-    const uncertainReplay = isExactUnknownReplay(input);
     const startFanoutExtras = (primaryError?: unknown) => {
       if (!providerFanout || !fanoutPlan) return;
       // The extras carry only the package the customer reviewed. If the server
@@ -1649,11 +1668,7 @@ export function useClientPartController(
     providerFanout?.recordOutcome({ provider: dispatchProvider, status: "pending" });
 
     try {
-      const result = await requestQuoteMutation.mutateAsync({
-        ...input,
-        // The marker names exactly the providers this confirmation reaches.
-        xometryFanoutVendors: dispatchProvider === "xometry" ? getXometryFanoutVendors(fanoutPlan?.send) : null,
-      });
+      const result = await requestQuoteMutation.mutateAsync({ ...input, xometryFanoutVendors });
       providerFanout?.recordOutcome({ provider: dispatchProvider, status: "queued", created: result.created });
       startFanoutExtras();
       return result;
