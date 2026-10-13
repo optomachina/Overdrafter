@@ -1034,7 +1034,7 @@ reset role;
 
 alter table ovd723_ctx add column legacy_job_id uuid, add column first_cleared_block_id uuid,
   add column second_block_id uuid, add column third_block_id uuid;
-update ovd723_ctx set legacy_job_id = '00000000-0000-4000-8000-0000000072d0';
+update ovd723_ctx set legacy_job_id = '00000000-0000-4000-8000-0000000072d0' where true;
 
 insert into public.jobs (id, organization_id, created_by, title)
 select legacy_job_id, organization_id, member_user_id, 'OVD 723 extracted before deploy'
@@ -1276,7 +1276,8 @@ where job_id = (select legacy_job_id from ovd723_ctx) and task_type::text = 'exp
 -- hold the job's scan state, matching the dispatch denial.
 alter table ovd723_ctx add column fresh_job_id uuid, add column replaced_job_id uuid;
 update ovd723_ctx set fresh_job_id = '00000000-0000-4000-8000-0000000072f0',
-  replaced_job_id = '00000000-0000-4000-8000-0000000072f5';
+  replaced_job_id = '00000000-0000-4000-8000-0000000072f5'
+where true;
 
 insert into public.jobs (id, organization_id, created_by, title)
 select job.id, context.organization_id, context.member_user_id, job.title
@@ -1820,7 +1821,8 @@ update ovd723_ctx
 set third_block_id = (
   select block.id from private.job_export_marking_blocks block
   where block.job_file_id = '00000000-0000-4000-8000-0000000072e1' and block.state = 'blocked_pending_review'
-);
+)
+where true;
 
 set local role authenticated;
 select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
