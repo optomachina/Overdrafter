@@ -12,6 +12,7 @@ import {
   assertDefaultDenyExecuted,
   defaultDenyExecutionProblems,
   expectedDefaultDenyTestNames,
+  fullSuiteExecutionProblems,
   runDefaultDenySuites,
 } from "./default-deny-execution.mjs";
 
@@ -132,5 +133,60 @@ describe("default-deny execution proof", () => {
 
   it("does nothing when no reviewed provider has a default-deny file", async () => {
     await expect(assertDefaultDenyExecuted({ rootDir: repoRoot, suites: [] })).resolves.toEqual({ executed: [] });
+  });
+});
+
+const RMFG_FILE = "worker/src/adapters/rmfgApiDispatch.test.ts";
+const FICTIV_FILE = "worker/src/adapters/fictiv.test.ts";
+
+/** Each adopted or API suite breaks one deny expectation in a scratch copy. */
+const OWN_SUITE_MUTATIONS = [
+  ["rmfg", RMFG_FILE, '"dispatch_authorization_expired"', '"dispatch_authorization_missing"'],
+  ["fictiv", FICTIV_FILE, '"dispatch_authorization_expired"],', '"dispatch_authorization_missing"],'],
+];
+
+describe("default-deny execution of adopted and API suites", () => {
+  const scratch = new Map();
+  let results;
+
+  beforeAll(async () => {
+    const runId = randomUUID().slice(0, 8);
+    await Promise.all(OWN_SUITE_MUTATIONS.map(async ([key, file, from, to]) => {
+      const original = await fs.readFile(path.join(repoRoot, file), "utf8");
+      const mutated = replaceOnce(original, from, to);
+      const copy = file.replace(/\.test\.ts$/, `.mutation-${runId}.ts`);
+      await fs.writeFile(path.join(repoRoot, copy), mutated);
+      scratch.set(key, copy);
+    }));
+    results = await runDefaultDenySuites({
+      rootDir: repoRoot,
+      files: [RMFG_FILE, FICTIV_FILE, ...scratch.values()],
+    });
+  }, 180_000);
+
+  afterAll(async () => {
+    await Promise.all([...scratch.values()].map((file) => fs.rm(path.join(repoRoot, file), { force: true })));
+  });
+
+  it.each([["rmfg", RMFG_FILE], ["fictiv", FICTIV_FILE]])("passes every test in the checked-in %s suite", (key, file) => {
+    expect(results.get(file).length).toBeGreaterThan(0);
+    expect(fullSuiteExecutionProblems({ key, file, assertions: results.get(file) })).toEqual([]);
+  });
+
+  it.each(OWN_SUITE_MUTATIONS.map(([key]) => [key]))("fails when one %s deny expectation is broken", (key) => {
+    const file = scratch.get(key);
+    const problems = fullSuiteExecutionProblems({ key, file, assertions: results.get(file) });
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems[0]).toMatch(new RegExp(`^${key} default-deny test did not pass`));
+  });
+
+  it("fails a suite that ran no tests and a suite with a skipped test", () => {
+    expect(fullSuiteExecutionProblems({ key: "acme", file: "x.test.ts", assertions: [] }))
+      .toEqual(["acme default-deny suite ran no tests (x.test.ts)"]);
+    expect(fullSuiteExecutionProblems({
+      key: "acme",
+      file: "x.test.ts",
+      assertions: [{ title: "a", status: "passed" }, { title: "b", status: "skipped" }],
+    })).toEqual(['acme default-deny test did not pass: "b" is skipped (x.test.ts)']);
   });
 });

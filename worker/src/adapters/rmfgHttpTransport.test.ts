@@ -151,8 +151,8 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: "https://example.com" })).toThrow("origin");
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: "http://api.rmfg.com" })).toThrow("origin");
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: RMFG_API_ORIGIN })).not.toThrow();
-    // OVD-678 lists rmfg for live automation; its dispatch envelope stays unreviewed.
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
+    // OVD-687 reviews the rmfg dispatch envelope in code; a review row and admission still gate dispatch.
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(true);
   });
 
   it.each([NaN, -1, 0, 1.5, Infinity, 21, 1000])("rejects daily cap %s at construction", (dailyQuoteCap) => {

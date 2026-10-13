@@ -14,7 +14,7 @@ action under `AGENTS.md`. Promotion follows the three stages in
 | Layer | File | State |
 | --- | --- | --- |
 | Envelope fixture | `test-fixtures/provider-dispatch-envelope/rmfg-v1.json` | Synthetic `rmfg-quote-envelope.v1`; one CAD file, no drawing. |
-| Authorization binding | `worker/src/adapters/rmfgDispatchAuthorization.ts` | `RMFG_DISPATCH_ENVELOPE` bound to the shared `providerDispatchAuthorizationDenial`. Not in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. |
+| Authorization binding | `worker/src/adapters/rmfgDispatchAuthorization.ts` | `RMFG_DISPATCH_ENVELOPE` (defined in `worker/src/providerDispatchEnvelope.ts`) bound to the shared `providerDispatchAuthorizationDenial`. Listed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`; admits nothing without a review row, an approved admission, and the worker adapter and secret. |
 | Fixture helper | `worker/test-support/rmfgDispatchFixture.ts` | Uses `providerDispatchFixture`. |
 | Default-deny scaffold | `worker/src/adapters/rmfgApiDispatch.test.ts` | Pins the shared authorization check the API adapter must call before any request. |
 | API key secret | `worker/.env.example`, registry entry | `RMFG_API_KEY_SECRET_NAME` names the Secret Manager secret and `RMFG_API_KEY` receives it. Names only; no value is stored in the repository. |

@@ -130,6 +130,14 @@ export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quot
  */
 export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
 
+/**
+ * OVD-687: the reviewed RMFG quote-only envelope (`rmfg-quote-envelope.v1`):
+ * one STEP file, no drawing, quoted through the RMFG API. Listing it here
+ * admits nothing: a matching active review row, an approved admission, and the
+ * worker adapter and API key still gate every dispatch.
+ */
+export const RMFG_DISPATCH_ENVELOPE = Object.freeze({ id: "rmfg-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",
@@ -153,6 +161,12 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     provider: "weerg",
     id: WEERG_DISPATCH_ENVELOPE.id,
     version: WEERG_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
+  },
+  {
+    provider: "rmfg",
+    id: RMFG_DISPATCH_ENVELOPE.id,
+    version: RMFG_DISPATCH_ENVELOPE.version,
     requiredAdmission: "generic_dispatch",
   },
 ];
