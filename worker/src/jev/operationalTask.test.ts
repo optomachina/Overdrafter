@@ -76,6 +76,8 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
         if (patch?.status) laneStatus = patch.status;
         return { data: [{ id: "result" }], error: null };
       }
+      // The claimed task row is still running under its lock, so a guarded queue update matches it.
+      if (mutation && table === "work_queue") return { data: [{ id: "task" }], error: null };
       if (mutation) return { data: null, error: null };
       if (table === "vendor_quote_results" && columns === "status" && one) return { data: { status: laneStatus }, error: null };
       if (failStatusReadAfterPersist && table === "quote_runs" && persisted()) return { data: null, error: { message: "status read failed" } };
@@ -114,7 +116,9 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
     const data = name === "api_reserve_spend" ? { allowed: true, reservationId: "vendor-reservation" }
       : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed", confirmationRevision: "1",
         street: "secret-street", city: "secret-city", region: "WA", postalCode: "secret-zip", country: "US" } }
-        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" } : null;
+        : name === "api_authorize_xometry_beta_worker_dispatch" ? { authorized: !denyDispatch, reasonCode: "dispatch_request_inactive" }
+          : name === "api_worker_provider_kill_switch_state" ? { schema: "provider-kill-switch-state.v1",
+            provider: (args as { p_provider: string }).p_provider, engaged: false, globalEngaged: false } : null;
     const result = Promise.resolve({ data, error: null });
     return Object.assign(result, { abortSignal: () => result });
   };

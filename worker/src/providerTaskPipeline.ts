@@ -46,6 +46,13 @@ import {
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
 } from "./types.js";
+import {
+  CANCELLED_PROVIDER_DISABLED,
+  isProviderKillSwitchEngaged,
+  PROVIDER_KILL_SWITCH_ENGAGED,
+  PROVIDER_KILL_SWITCH_UNAVAILABLE,
+  ProviderKillSwitchError,
+} from "./providerKillSwitch.js";
 import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
 
 /**
@@ -74,6 +81,11 @@ import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
  * permit consumption, nothing requeues after an adapter start: a pre mutation
  * transient adapter failure settles as manual follow up (`adapter_failed`),
  * and a refused result after a completed adapter run never requeues.
+ *
+ * OVD-722: an engaged provider kill switch, whether the server preflight
+ * denied for it or an adapter checkpoint refused (before launch, navigation,
+ * upload, configuration or save), ends as `cancelled_provider_disabled`: never
+ * a provider failure, never manual follow up, never a requeue.
  */
 
 export const PROVIDER_SESSION_LEASE_SETTINGS = ["off", "on"] as const;
@@ -223,6 +235,13 @@ export function classifyProviderAdapterFailure(
   error: unknown,
   phase: ProviderMutationPhase,
 ): { failureClass: ProviderTaskFailureClass; code: string } {
+  // OVD-722: an unreadable switch may be an engaged one, so it is not routed
+  // to manual quoting unless the provider may already hold an upload.
+  if (error instanceof ProviderKillSwitchError && error.reasonCode === PROVIDER_KILL_SWITCH_UNAVAILABLE) {
+    return phase.started
+      ? { failureClass: "manual_follow_up", code: PROVIDER_KILL_SWITCH_UNAVAILABLE }
+      : { failureClass: "failed", code: PROVIDER_KILL_SWITCH_UNAVAILABLE };
+  }
   const vendorError = error instanceof VendorAutomationError ? error : null;
   if (phase.started || vendorError?.payload.providerMutationPossible === true) {
     return { failureClass: "manual_follow_up", code: "adapter_failed_after_mutation" };
@@ -242,7 +261,7 @@ export type ProviderTaskStage = "authorize" | "verify_bytes" | "lease" | "adapte
 
 export type ProviderTaskOutcome = {
   /** Finite visible state for the lane. */
-  disposition: "persisted" | "requeue" | "manual_follow_up" | "failed";
+  disposition: "persisted" | "requeue" | "manual_follow_up" | "failed" | "cancelled_provider_disabled";
   /** Stable code; never adapter supplied text. */
   code: string;
   stage: ProviderTaskStage;
@@ -252,6 +271,11 @@ export type ProviderTaskOutcome = {
   providerDisabledForDay: boolean;
   /** Admin visible validator rejection, when the result was refused. */
   rejection: ReturnType<typeof toAdminRejectionDiagnostic> | null;
+  /**
+   * OVD-722: set only for `cancelled_provider_disabled`. Mutation is possible
+   * only when the adapter's mutation phase had started before the refusal.
+   */
+  killSwitch: { error: ProviderKillSwitchError; providerMutationPossible: boolean } | null;
   /** Set only when persisted. */
   persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number } | null;
   /**
@@ -445,6 +469,7 @@ type Stop = {
   code: string;
   stage: ProviderTaskStage;
   rejection?: ProviderTaskOutcome["rejection"];
+  killSwitch?: ProviderTaskOutcome["killSwitch"];
 };
 
 function stop(failureClass: ProviderTaskFailureClass, code: string, stage: ProviderTaskStage, extra: Partial<Stop> = {}): Stop {
@@ -518,11 +543,22 @@ async function resolveLane(input: ProviderTaskPipelineInput, deps: ProviderTaskP
   return lane;
 }
 
-async function resolveAuthorization(deps: ProviderTaskPipelineDeps): Promise<ProviderDispatchAuthorization | Stop> {
+/** OVD-722: the switch refused; terminal, never retried, never manual follow up. */
+function killSwitchStop(error: ProviderKillSwitchError, stage: ProviderTaskStage, providerMutationPossible: boolean): Stop {
+  return stop("failed", CANCELLED_PROVIDER_DISABLED, stage, { killSwitch: { error, providerMutationPossible } });
+}
+
+async function resolveAuthorization(
+  deps: ProviderTaskPipelineDeps,
+  provider: VendorName,
+): Promise<ProviderDispatchAuthorization | Stop> {
   let authorization: ProviderDispatchAuthorization;
   try {
     authorization = await deps.authorize();
   } catch (error) {
+    if (error instanceof ProviderDispatchAuthorizationError && error.denial === PROVIDER_KILL_SWITCH_ENGAGED) {
+      return killSwitchStop(new ProviderKillSwitchError(PROVIDER_KILL_SWITCH_ENGAGED, provider, "server_preflight"), "authorize", false);
+    }
     if (error instanceof ProviderDispatchAuthorizationError) {
       return stop(error.retryable ? "pre_dispatch_transient" : "manual_follow_up", error.denial, "authorize");
     }
@@ -641,6 +677,8 @@ function seamStop(result: ProviderExecutionResult<unknown>, state: RunState, onB
       onBlock(result.outcome);
       return stop("manual_follow_up", TERMINAL_CODES[result.outcome] ?? "terminal", "adapter");
     case "adapter_failed": {
+      const thrown = state.adapterError?.error;
+      if (isProviderKillSwitchEngaged(thrown)) return killSwitchStop(thrown, "adapter", state.mutationPhase.started);
       // No captured error means the failure came from inside the seam; class it as a mutation, never a retry.
       const classed = state.adapterError
         ? classifyProviderAdapterFailure(state.adapterError.error, state.mutationPhase)
@@ -720,7 +758,21 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
       stage: "persist",
       retryAt: null,
       rejection: null,
+      killSwitch: null,
       persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount },
+    };
+  }
+  if (result.killSwitch) {
+    return {
+      ...base,
+      disposition: "cancelled_provider_disabled",
+      code: result.code,
+      stage: result.stage,
+      retryAt: null,
+      rejection: null,
+      killSwitch: result.killSwitch,
+      persisted: null,
+      evidence: failureEvidence(state),
     };
   }
   const failureClass = effectiveFailureClass(result, state);
@@ -735,6 +787,7 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
     stage: result.stage,
     retryAt: decision.action === "requeue" ? decision.retryAt : null,
     rejection: result.rejection ?? null,
+    killSwitch: null,
     persisted: null,
     evidence: failureEvidence(state),
   };
@@ -812,6 +865,11 @@ async function executeValidateAndPersist(
           collectedAt = new Date(now()).toISOString();
           return output;
         } catch (error) {
+          // OVD-722: a before_launch refusal comes from the guard wrapping the
+          // adapter, before anything launched; the adapter never started.
+          if (error instanceof ProviderKillSwitchError && error.checkpoint === "before_launch") {
+            state.adapterStarted = false;
+          }
           state.adapterError = { error };
           throw error;
         }
@@ -901,7 +959,7 @@ async function runSteps(
   const lane = await resolveLane(input, deps);
   if (isStop(lane)) return lane;
   // 2. Current capability and service authorization.
-  const authorization = await resolveAuthorization(deps);
+  const authorization = await resolveAuthorization(deps, provider);
   if (isStop(authorization)) return authorization;
   // 3. Captured bytes.
   const files = await resolveFiles(deps, authorization.envelope);

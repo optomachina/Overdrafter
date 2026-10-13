@@ -1,5 +1,6 @@
 import { VendorAutomationError } from "./types.js";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight.js";
+import { ProviderKillSwitchError } from "./providerKillSwitch.js";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight.js";
 import {
   currentProviderMutationPhase,
@@ -37,6 +38,10 @@ export function failureCodeForError(error: unknown) {
     return error.denial;
   }
 
+  if (error instanceof ProviderKillSwitchError) {
+    return error.reasonCode;
+  }
+
   if (error instanceof VendorAutomationError) {
     return error.code;
   }
@@ -65,6 +70,10 @@ export function isRetryableVendorTaskError(
   }
 
   if (error instanceof ProviderDispatchAuthorizationError) {
+    return error.retryable;
+  }
+
+  if (error instanceof ProviderKillSwitchError) {
     return error.retryable;
   }
 

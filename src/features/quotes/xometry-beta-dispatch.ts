@@ -395,11 +395,18 @@ const GENERIC_PROVIDER_DISPATCH_DENIAL = new RegExp(
   `\\bprovider_dispatch_(?:${GENERIC_PROVIDER_DISPATCH_DENIALS.join("|")})\\b`,
 );
 
+/**
+ * OVD-722: the permit insert trigger refuses a switched-off provider and rolls
+ * back the lane and task created in the same call, so this is a definite denial.
+ */
+const PROVIDER_KILL_SWITCH_DENIAL = /\bprovider_kill_switch_engaged\b/;
+
 /** Identifies server-declared denials, including Supabase's plain PostgrestError objects. */
 export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   const message = getFailureMessage(error);
   return (
     GENERIC_PROVIDER_DISPATCH_DENIAL.test(message) ||
+    PROVIDER_KILL_SWITCH_DENIAL.test(message) ||
     /xometry_beta_|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_disabled|automatic_quote_unavailable|free_allowance_unavailable|free_policy_unavailable/.test(
       message,
     )
@@ -430,6 +437,9 @@ export function isDispatchJobBusy(error: unknown): boolean {
  * that nothing was queued: it can answer a replay of an uncertain attempt.
  */
 export function getXometryBetaDispatchDenialMessage(error: unknown): string {
+  if (PROVIDER_KILL_SWITCH_DENIAL.test(getFailureMessage(error))) {
+    return "This provider is temporarily unavailable.";
+  }
   return isDispatchJobBusy(error)
     ? "This part is being updated in another session. Try again in a moment."
     : "The current package was not queued. Review the refreshed scope and try again.";
