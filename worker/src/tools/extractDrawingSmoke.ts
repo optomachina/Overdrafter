@@ -2,25 +2,33 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadConfig } from "../config.js";
 import { parseEnvBooleanLike, parseEnvList } from "../env.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import { hasDirectExtractionCredential } from "../extraction/modelRegistry.js";
+import { createServiceClient } from "../queue.js";
+import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg, type OperatorExportGate } from "./operatorExportGate.js";
 import {
   extractPdfText,
+  type PdfTextExtraction,
   renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
 } from "../extraction/pdfDrawing.js";
 import type { JobFileRecord, PartRecord, WorkerConfig } from "../types.js";
 
 function parseArgs() {
-  const [, , pdfPathArg] = process.argv;
+  const argv = process.argv.slice(2);
+  const pdfPathArg = argv.find((arg, index) => !arg.startsWith("--") && argv[index - 1] !== "--job-id");
 
   if (!pdfPathArg) {
-    throw new Error("Usage: npm --prefix worker run extract:smoke -- /absolute/path/to/drawing.pdf");
+    throw new Error(
+      "Usage: npm --prefix worker run extract:smoke -- /absolute/path/to/drawing.pdf [--job-id <job id>]",
+    );
   }
 
   return {
     pdfPath: path.resolve(pdfPathArg),
+    jobId: readJobIdArg(argv),
   };
 }
 
@@ -89,17 +97,35 @@ function buildSmokeConfig(): WorkerConfig {
 }
 
 async function main() {
-  const { pdfPath } = parseArgs();
+  const { pdfPath, jobId } = parseArgs();
   await fs.access(pdfPath);
 
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-drawing-smoke-"));
-  const pdfText = await extractPdfText(pdfPath);
+  const config = buildSmokeConfig();
+  const exportGate = await admitOperatorDrawing({
+    filePath: pdfPath,
+    jobId,
+    readPdfText: extractPdfText,
+    supabase: () => createServiceClient(loadConfig()),
+  });
+  try {
+    await runSmoke(exportGate, { pdfPath, runDir, config });
+  } finally {
+    await exportGate.cleanup();
+  }
+}
+
+async function runSmoke(
+  exportGate: OperatorExportGate<PdfTextExtraction>,
+  { pdfPath, runDir, config }: { pdfPath: string; runDir: string; config: ReturnType<typeof buildSmokeConfig> },
+) {
+  const { pdfText, drawingPath } = exportGate;
   let previewAssets =
-    pdfText && pdfText.pageCount > 0 ? await renderPdfPreviewAssets(pdfPath, runDir, pdfText.pageCount) : [];
+    pdfText && pdfText.pageCount > 0 ? await renderPdfPreviewAssets(drawingPath, runDir, pdfText.pageCount) : [];
   let firstPagePreview = previewAssets.find((asset) => asset.kind === "page" && asset.pageNumber === 1) ?? null;
 
   if (!firstPagePreview) {
-    firstPagePreview = await renderPdfFirstPagePreview(pdfPath, path.join(runDir, "drawing-page-1.png"));
+    firstPagePreview = await renderPdfFirstPagePreview(drawingPath, path.join(runDir, "drawing-page-1.png"));
 
     if (firstPagePreview) {
       previewAssets = [
@@ -136,10 +162,11 @@ async function main() {
     cadFile: null,
     drawingFile,
     pdfText,
-    drawingPath: pdfPath,
+    drawingPath,
     previewPagePath: firstPagePreview?.localPath ?? null,
     runDir,
-    config: buildSmokeConfig(),
+    config,
+    beforeModelAttempt: exportGate.beforeModelAttempt,
   });
 
   console.log(
@@ -161,6 +188,6 @@ async function main() {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
+    process.exitCode = error instanceof OperatorExportGateError ? 2 : 1;
   });
 }
