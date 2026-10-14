@@ -290,7 +290,8 @@ function operationHarness(overrides = {}) {
     overrides.assertOwnership ?? vi.fn(async () => undefined);
   const fetchImpl = overrides.fetchImpl ?? vi.fn();
   const operations = createOvd419LiveOperations({
-    env: ENV,
+    env: overrides.env ?? ENV,
+    diagnosticWriter: overrides.diagnosticWriter,
     expectations: PRODUCTION,
     runCommand,
     replaceManifest: vi.fn(async (_bin, args, manifest) => {
@@ -317,7 +318,7 @@ function operationHarness(overrides = {}) {
     assertOwnership,
     terminationState: overrides.terminationState,
     now: overrides.now,
-    waitFor: overrides.waitFor,
+    waitFor: overrides.waitFor ?? (async () => undefined),
   });
   return {
     assertOwnership,
@@ -2627,5 +2628,70 @@ describe("containment read diagnostics", () => {
     expect(JSON.stringify(caught)).not.toContain("attacker");
     expect(caught.cause).toBeUndefined();
     expect(harness.replacements).toHaveLength(0);
+  });
+});
+
+
+describe("OVD-419 observation readback settle and diagnostics", () => {
+  it("re-reads when the two readbacks briefly disagree right after a replace", async () => {
+    let reads = 0;
+    const waitFor = vi.fn(async () => undefined);
+    const harness = operationHarness({
+      waitFor,
+      projectStableEgress: (stable) => {
+        reads += 1;
+        if (reads === 1) {
+          return { ...stable, job: { ...stable.job, metadata: { ...stable.job.metadata, resourceVersion: "job-v1-status" } } };
+        }
+        return stable;
+      },
+    });
+    const observed = await harness.operations.promotion.observe({ phase: "before-job" });
+    expect(observed.phase).toBe("before-job");
+    expect(reads).toBe(2);
+    expect(waitFor).toHaveBeenCalledTimes(1);
+  });
+
+  it("still fails closed when the readbacks never agree", async () => {
+    const harness = operationHarness({
+      projectStableEgress: (stable) => ({
+        ...stable,
+        job: { ...stable.job, metadata: { ...stable.job.metadata, resourceVersion: "other" } },
+      }),
+    });
+    await expect(
+      harness.operations.promotion.observe({ phase: "before-job" }),
+    ).rejects.toThrow("live_resource_readback_mismatch");
+    expect(harness.collectStableEgress).toHaveBeenCalledTimes(4);
+  });
+
+  it("names the failing component only when diagnostics are enabled, without values", async () => {
+    const lines = [];
+    const harness = operationHarness({
+      env: { ...ENV, OVD419_OBSERVATION_DIAGNOSTIC: "1" },
+      diagnosticWriter: { write: (line) => lines.push(line) },
+      snapshotMetadata: () => {
+        throw Object.assign(new Error(`gs://${ENV.XOMETRY_PROFILE_SNAPSHOT_BUCKET}/secret-path`), { code: 1 });
+      },
+    });
+    await expect(
+      harness.operations.promotion.observe({ phase: "after-job" }),
+    ).rejects.toThrow();
+    expect(lines).toEqual(["ovd419 observe after-job: snapshot failed (Error exit=1)\n"]);
+    expect(lines.join("")).not.toContain(ENV.XOMETRY_PROFILE_SNAPSHOT_BUCKET);
+  });
+
+  it("writes nothing when diagnostics are off", async () => {
+    const lines = [];
+    const harness = operationHarness({
+      diagnosticWriter: { write: (line) => lines.push(line) },
+      snapshotMetadata: () => {
+        throw new Error("boom");
+      },
+    });
+    await expect(
+      harness.operations.promotion.observe({ phase: "after-job" }),
+    ).rejects.toThrow();
+    expect(lines).toEqual([]);
   });
 });
