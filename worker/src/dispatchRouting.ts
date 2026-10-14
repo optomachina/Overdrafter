@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VendorAdapter } from "./adapters/base.js";
 import {
+  createXometryUploadCapabilityCheckpoint,
+  supabaseXometryAdmissionReader,
+} from "./xometryUploadAdmission.js";
+import {
   ProviderDispatchAuthorizationError,
   quoteWithProviderDispatchPreflight,
   type ProviderDispatchClaim,
@@ -93,6 +97,20 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   /** Test seam; production reads `api_worker_provider_kill_switch_state` on every checkpoint. */
   killSwitchReader?: ProviderKillSwitchReader;
 }): Promise<VendorQuoteAdapterOutput> {
+  // OVD-414: production Xometry dispatch always supplies the upload capability
+  // checkpoint, which reads its admission decision from the database. Set on
+  // the same object, never a copy, like beforeProviderDisclosure below.
+  const innerAdapter: Pick<VendorAdapter, "quote"> =
+    input.vendor === "xometry"
+      ? {
+          quote: (quoteInput) => {
+            quoteInput.uploadCapabilityCheckpoint ??= createXometryUploadCapabilityCheckpoint(
+              supabaseXometryAdmissionReader(input.supabase),
+            );
+            return input.adapter.quote(quoteInput);
+          },
+        }
+      : input.adapter;
   const guard =
     input.config.workerMode === "live"
       ? createProviderKillSwitchGuard(
@@ -104,10 +122,10 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   // authorization and the launch; onAuthorized fires only once it passes.
   const adapter: Pick<VendorAdapter, "quote"> = {
     quote: guard
-      ? guardProviderQuote(guard, (quoteInput) => input.adapter.quote(quoteInput), input.onAuthorized)
+      ? guardProviderQuote(guard, (quoteInput) => innerAdapter.quote(quoteInput), input.onAuthorized)
       : async (quoteInput) => {
           input.onAuthorized?.();
-          return input.adapter.quote(quoteInput);
+          return innerAdapter.quote(quoteInput);
         },
   };
   const claim =
