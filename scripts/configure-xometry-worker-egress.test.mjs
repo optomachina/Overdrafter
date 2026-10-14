@@ -106,7 +106,7 @@ describe("configuration-only worker egress manifest", () => {
       "xometry,fictiv",
     );
 
-    for (const value of ["fictiv", "fictiv,xometry", "xometry,oshcut", ""]) {
+    for (const value of ["fictiv", "fictiv,xometry", "xometry,geomiq", ""]) {
       const unsafe = currentService();
       unsafe.spec.template.spec.containers[0].env.find(
         (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
@@ -147,6 +147,26 @@ describe("configuration-only worker egress manifest", () => {
     }
 
     for (const value of ["weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,weerg", "quickparts,weerg"]) {
+      const unsafe = currentService();
+      unsafe.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
+        "current service safety contract is invalid",
+      );
+    }
+  });
+
+  it("accepts OSH Cut only alongside Xometry, in canonical order, on the governed egress (OVD-677)", () => {
+    for (const value of ["xometry,oshcut", "xometry,fictiv,oshcut", "xometry,oshcut,quickparts,weerg"]) {
+      const service = currentService();
+      service.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      expect(envValue(buildWorkerEgressManifest(service, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(value);
+    }
+
+    for (const value of ["oshcut", "oshcut,xometry", "xometry,quickparts,oshcut", "xometry,oshcut,oshcut"]) {
       const unsafe = currentService();
       unsafe.spec.template.spec.containers[0].env.find(
         (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
