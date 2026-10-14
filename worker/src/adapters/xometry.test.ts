@@ -209,6 +209,8 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       envelopeRevision: "xometry-controlled-beta-envelope.v1",
       nonExportControlled: true,
     },
+    // Adapter-level stub of the injected dependency. Production supplies the
+    // real one in quoteWithRoutedDispatchPreflight (see dispatchRouting tests).
     uploadCapabilityCheckpoint: passingUploadCapabilityCheckpoint,
     ...overrides,
   };
