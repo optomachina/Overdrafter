@@ -69,7 +69,7 @@ export function deriveRequired10Keys(registry, manifests = []) {
   return Object.freeze([...keys].sort(compareKeys));
 }
 
-/** oneDotZero must equal the reviewed 1.0 set (matrix rows with in_1_0=true). Dropping weerg fails here. */
+/** oneDotZero must equal the reviewed 1.0 set (matrix rows with in_1_0=true). Weerg and Protolabs stay in the matrix with in_1_0=false, so listing them here fails. */
 export function assertOneDotZeroMatchesReviewedSet(oneDotZero, reviewedKeys) {
   if (!Array.isArray(oneDotZero)) {
     throw new Error("registry.oneDotZero must list the reviewed 1.0 set");
