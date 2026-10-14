@@ -1333,6 +1333,34 @@ describe("runEvaluationBatch", () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it("does not read the kill switch per quote for an evaluateLocally that never reaches the provider", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "fictiv", "--cad", "./part.step", "--quantities", "1,2",
+      "--confirm-non-export-controlled",
+    ]);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async () => {
+      throw new Error("offline preflight attempted");
+    });
+
+    await runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles: async () => ({
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({ fictiv: { quote, evaluateLocally, evaluateLocallyReachesProvider: false } }),
+    }).catch(() => undefined);
+
+    expect(evaluateLocally).toHaveBeenCalledTimes(2);
+    expect(quote).not.toHaveBeenCalled();
+    expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
+  });
+
   it("does not consult the kill switch for the offline SendCutSend batch", async () => {
     const fixture = await sendCutSendFixture({ quantities: [1] });
     const args = parseSmokeArgs([

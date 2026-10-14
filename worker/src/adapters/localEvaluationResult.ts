@@ -67,6 +67,8 @@ export type LocalNativeCurrencyEvaluationResult = {
 export type LocalEvaluationResult = VendorQuoteAdapterOutput | LocalNativeCurrencyEvaluationResult;
 export type LocalEvaluationAdapter = VendorAdapter & {
   evaluateLocally?(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult>;
+  /** False only when evaluateLocally never delegates to a live provider quote. Unset is treated as live. */
+  readonly evaluateLocallyReachesProvider?: boolean;
 };
 
 /** Dispatch by tag only; callers must validate the entire result before using its fields. */

@@ -1460,7 +1460,9 @@ export async function runQuote(
     const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
       ? adapter.evaluateLocally(input)
       : adapter.quote(input);
-    const result = isLiveProviderVendor(vendor)
+    const reachesProvider = isLiveProviderVendor(vendor)
+      && (!adapter.evaluateLocally || adapter.evaluateLocallyReachesProvider !== false);
+    const result = reachesProvider
       ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
       : await evaluate(adapterInput);
     if (isLocalNativeCurrencyResult(result)) {

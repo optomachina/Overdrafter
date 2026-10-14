@@ -48,6 +48,11 @@ class LiveEvaluationAdapter extends VendorAdapter {
     return this.delegate.quote(await this.authorize(input));
   }
 
+  /** Portal delegates run the local preflight kernel; every other delegate evaluates through its live quote(). */
+  get evaluateLocallyReachesProvider(): boolean {
+    return !(this.delegate instanceof PortalQuoteWorkflowAdapter);
+  }
+
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
   async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
     if (input.executionContext !== "live_evaluation") {
