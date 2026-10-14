@@ -1457,9 +1457,12 @@ export async function runQuote(
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
-    const result = adapter.evaluateLocally
-      ? await adapter.evaluateLocally(adapterInput)
-      : await guardOperatorQuote(vendor, (input) => adapter.quote(input), killSwitchReader)(adapterInput);
+    const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
+      ? adapter.evaluateLocally(input)
+      : adapter.quote(input);
+    const result = isLiveProviderVendor(vendor)
+      ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
+      : await evaluate(adapterInput);
     if (isLocalNativeCurrencyResult(result)) {
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
