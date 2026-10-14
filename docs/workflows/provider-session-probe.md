@@ -48,7 +48,7 @@ A page is called blocked only on a real signal: HTTP 403, 429 or 503; a Cloudfla
 
 A redirect to a login or identity host outside the provider's own domains (for example a single sign on host) is not a block. The request is still refused, with zero hits on that host, and the run reads `logged_out` with reason `login_redirect_off_host` and the host name only in the `offHost` field. A host counts as an identity host when its name has a label such as `login`, `auth`, `sso`, `id` or `accounts`, belongs to a known identity service (Auth0, Okta, OneLogin, Microsoft), or the redirect path looks like a login page. Any other off host redirect stays `blocked` with `off_host_redirect`.
 
-For RMFG it makes one authenticated GET with the key. See the open item below.
+For RMFG it makes one authenticated GET with the key. See the RMFG endpoint section below.
 
 ## Commands Blaine runs
 
@@ -102,9 +102,9 @@ These are design limits, not bugs, and they bias the result toward caution.
 - **The logged in marker is generic.** It looks for a log out or sign out link or button in the page markup, visible or not. A logged in page without one reads as `logged_out` with reason `no_authenticated_marker`, which is inconclusive.
 - **Identity host detection is a name heuristic.** An off domain login host that does not look like one by name or path reads `blocked` with `off_host_redirect`, which is the cautious answer.
 
-## Open item: RMFG endpoint
+## RMFG endpoint
 
-The repository has no RMFG HTTP client and no documented account or health endpoint. `rmfgQuoteTransport.ts` is an offline contract, and the materials catalog may be public, so a 200 from it would not prove the key works. `RMFG_PROBE_ENDPOINT` in `worker/src/providerSessionProbe.ts` is therefore a marked TODO set to null, and the RMFG command currently returns `error` with reason `rmfg_endpoint_not_configured` without any network call. Once Blaine or the RMFG docs name the endpoint, set it and add a real transport. The probe already enforces https, the rmfg.com domain, key shape, one call, a ten second cap, and treats 401, 403 and 429 as blocked.
+The RMFG command makes one `GET https://api.rmfg.com/v1/account` with the key as a bearer header (`RMFG_PROBE_ENDPOINT` in `worker/src/providerSessionProbe.ts`). The host matches `RMFG_API_ORIGIN` in `worker/src/adapters/rmfgHttpTransport.ts`. The path comes from RMFG's OpenAPI and has not yet been checked against a live account response, so confirm it on the first real run. The transport (`createRmfgFetchTransport`) follows no redirect, never reads the body, caps the call at ten seconds and returns only the status. The probe enforces https, the rmfg.com domain and key shape. A 2xx is `authenticated`, 401, 403 and 429 are `blocked`, other statuses are `error`, and a timeout or network failure is `rmfg_transport_error`. The key is never logged or placed in the record.
 
 ## Safety properties
 

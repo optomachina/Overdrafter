@@ -5,6 +5,7 @@ import {
   gcloudSecretLoader,
   parseProbeCliArgs,
   PROBE_USAGE,
+  createRmfgFetchTransport,
   runSessionProbe,
   type SessionProbeEvidence,
 } from "../providerSessionProbe.js";
@@ -47,7 +48,7 @@ try {
       },
       loopbackFixtureUrl: process.env.PROBE_TEST_LOOPBACK_URL,
       executablePath: process.env.PROBE_TEST_CHROMIUM_EXECUTABLE || undefined,
-      // TODO: no RMFG HTTP transport exists yet; see RMFG_PROBE_ENDPOINT.
+      rmfgTransport: createRmfgFetchTransport(),
     },
   );
   const line = JSON.stringify(evidence);

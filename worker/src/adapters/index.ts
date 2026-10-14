@@ -238,9 +238,9 @@ export {
   evaluateRmfgEligibility,
   RMFG_ADAPTER_REVISION,
   RMFG_API_KEY_ENV,
-  RMFG_DISPATCH_ENVELOPE,
   RmfgAdapter,
 } from "./rmfg.js";
+export { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
 export type {
   RmfgQuoteInput,
   RmfgQuoteOffer,
