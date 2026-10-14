@@ -1223,7 +1223,9 @@ describe("XometryAdapter", () => {
     async function quoteOnStandaloneUploader(
       uploadCapabilityCheckpoint: VendorQuoteAdapterInput["uploadCapabilityCheckpoint"],
       events: string[] = [],
+      acceptAfterDisclosure?: string,
     ) {
+      let currentAccept = ".step,.stp";
       const workerTempDir = await makeTempDir();
       const standaloneUpload = vi.fn(() => {
         events.push("setInputFiles");
@@ -1244,7 +1246,7 @@ describe("XometryAdapter", () => {
           [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 0 },
           [XOMETRY_LOCATORS.standaloneUploadInputs[0]]: {
             count: 1,
-            getAttribute: (name) => name === "accept" ? ".step,.stp" : null,
+            getAttribute: (name) => name === "accept" ? currentAccept : null,
             setInputFiles: standaloneUpload,
           },
           [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
@@ -1265,6 +1267,7 @@ describe("XometryAdapter", () => {
           uploadCapabilityCheckpoint,
           beforeProviderDisclosure: async () => {
             events.push("beforeProviderDisclosure");
+            if (acceptAfterDisclosure !== undefined) currentAccept = acceptAfterDisclosure;
           },
         }))
         .then(() => null, (caught: unknown) => caught);
@@ -1290,6 +1293,16 @@ describe("XometryAdapter", () => {
       expect(error).toBeNull();
       expect(standaloneUpload).toHaveBeenCalledTimes(1);
       expect(events).toEqual(["beforeProviderDisclosure", "checkpoint", "setInputFiles"]);
+    });
+
+    it("reads the accept list again after the disclosure recheck and refuses a changed value", async () => {
+      const checkpoint = vi.fn(async () => decisionOf("matches_policy"));
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(checkpoint, [], ".pdf");
+      expect(error).toMatchObject({
+        payload: { reason: "upload_capability_denied", classification: "accept_changed" },
+      });
+      expect(checkpoint).not.toHaveBeenCalled();
+      expect(standaloneUpload).not.toHaveBeenCalled();
     });
 
     it("lets the exact reviewed missing accept classification through", async () => {
@@ -1858,7 +1871,7 @@ describe("XometryAdapter", () => {
         .catch((caught: unknown) => caught);
 
       expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
-      expect(acceptReads).toBe(3);
+      expect(acceptReads).toBe(4);
       expect(dashboardCadUpload).not.toHaveBeenCalled();
     });
 
@@ -3364,7 +3377,7 @@ describe("XometryAdapter", () => {
         url: "https://www.xometry.com/quoting/quote/Q00-READY-0001",
       },
     });
-    expect(acceptReads).toBe(3);
+    expect(acceptReads).toBe(4);
     expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
   });
 
@@ -3409,7 +3422,7 @@ describe("XometryAdapter", () => {
         url: "https://www.xometry.com/quoting/quote/Q00-MOUNTED-0001",
       },
     });
-    expect(acceptReads).toBe(3);
+    expect(acceptReads).toBe(4);
     expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
     expect(dashboardUploadClick).not.toHaveBeenCalled();
   });

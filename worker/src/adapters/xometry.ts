@@ -1707,10 +1707,26 @@ async function setFilesOnApprovedUploadTarget(
     );
   }
   if (uploadCapabilityGate) {
+    const currentAccept = await target.locator
+      .getAttribute("accept", { timeout: XOMETRY_UPLOAD_READINESS_POLL_MS })
+      .catch(() => null);
+    if ((currentAccept ?? "").trim() !== (observedAccept ?? "").trim()) {
+      throw new VendorAutomationError(
+        "Xometry's upload accept list changed before file selection.",
+        "upload_failure",
+        {
+          vendor: "xometry",
+          reason: "upload_capability_denied",
+          classification: "accept_changed",
+          route: classifyXometryRoute(page.url()),
+          stateId: target.stateId,
+        },
+      );
+    }
     await assertUploadCapabilityAllowsSelection(
       page,
       target,
-      observedAccept,
+      currentAccept,
       filePaths,
       uploadCapabilityGate.checkpoint,
     );
