@@ -12,7 +12,7 @@ import {
   type LocalNativeCurrencyOffer,
   type LocalNativeCurrencyEvaluationResult,
 } from "../adapters/localEvaluationResult.js";
-import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
+import { buildLiveEvaluationAdapterRegistry, OFFLINE_EVALUATION_PORTAL_VENDORS } from "../adapters/index.js";
 import {
   assertProviderAdapterContract,
   evaluateProviderAdapterFailureContract,
@@ -1546,7 +1546,7 @@ export async function runEvaluationBatch(
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   await assertOperatorProvidersEnabled(
-    args.vendors.filter(isLiveProviderVendor),
+    args.vendors.filter((vendor) => isLiveProviderVendor(vendor) && !OFFLINE_EVALUATION_PORTAL_VENDORS.has(vendor)),
     dependencies.killSwitchReader,
   );
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);

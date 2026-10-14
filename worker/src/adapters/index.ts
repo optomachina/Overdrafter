@@ -30,6 +30,16 @@ import {
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
 
+/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
+  "quickparts",
+  "weerg",
+  "geomiq",
+  "ponoko",
+  "protolabsnetwork",
+  "rapiddirect",
+]);
+
 class XometryLiveEvaluationAdapter extends XometryAdapter {
   override quote(input: Parameters<XometryAdapter["quote"]>[0]) {
     return this.quoteForLiveEvaluation(input);

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FabworksAdapter } from "../adapters/fabworks";
+import { buildLiveEvaluationAdapterRegistry, OFFLINE_EVALUATION_PORTAL_VENDORS } from "../adapters/index";
 import type { VendorAdapter } from "../adapters/base";
 import type { SendCutSendEvaluationManifest } from "../adapters/sendcutsend";
 import {
@@ -1359,6 +1360,35 @@ describe("runEvaluationBatch", () => {
     expect(evaluateLocally).toHaveBeenCalledTimes(2);
     expect(quote).not.toHaveBeenCalled();
     expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
+  });
+
+  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+    const args = parseSmokeArgs([
+      "--vendor", vendor, "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
+
+    await expect(runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({}),
+    })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(killSwitchReader).not.toHaveBeenCalled();
+  });
+
+  it("keeps the offline portal vendor set in step with the registry", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    const offline = Object.entries(registry)
+      .filter(([, adapter]) => adapter && (adapter as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider === false)
+      .map(([vendor]) => vendor).sort();
+    expect(offline).toEqual([...OFFLINE_EVALUATION_PORTAL_VENDORS].sort());
   });
 
   it("does not consult the kill switch for the offline SendCutSend batch", async () => {
