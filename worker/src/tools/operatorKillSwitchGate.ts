@@ -53,3 +53,15 @@ export function guardOperatorQuote<T>(
 ): (input: VendorQuoteAdapterInput) => Promise<T> {
   return guardProviderQuote(createProviderKillSwitchGuard(reader, provider), quote);
 }
+
+/**
+ * Binds the switch to the adapter's own provider checkpoints without reading it
+ * up front, for a local evaluation that may finish before any provider call.
+ */
+export function withKillSwitchCheckpoint(
+  provider: VendorName,
+  input: VendorQuoteAdapterInput,
+  reader: ProviderKillSwitchReader = envProviderKillSwitchReader(),
+): VendorQuoteAdapterInput {
+  return { ...input, providerKillSwitchCheckpoint: createProviderKillSwitchGuard(reader, provider) };
+}

@@ -1263,11 +1263,13 @@ describe("runEvaluationBatch", () => {
     const killSwitchReader = vi.fn(async (provider: string) => ({
       schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA,
       provider,
-      engaged: reads++ >= 1,
+      engaged: reads++ >= (method === "quote" ? 1 : 0),
       globalEngaged: false,
     }));
-    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
-    vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote as never);
+    if (method === "quote") {
+      const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+      vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote as never);
+    }
     const mutation = vi.fn();
     const quote = vi.fn<VendorAdapter["quote"]>(async (input) => {
       await input.providerKillSwitchCheckpoint?.("before_upload");
@@ -1286,7 +1288,7 @@ describe("runEvaluationBatch", () => {
         drawingPath: null,
         cleanup: vi.fn(),
       },
-      () => ({ xometry: { quote, [method]: quote } }),
+      () => ({ xometry: method === "quote" ? { quote } : { quote, evaluateLocally: quote } }),
       null,
       null,
       killSwitchReader,
@@ -1294,7 +1296,7 @@ describe("runEvaluationBatch", () => {
     expect(mutation).not.toHaveBeenCalled();
   });
 
-  it("refuses subsequent live evaluateLocally quantities when the switch engages after batch startup", async () => {
+  it("refuses the next live evaluateLocally provider step when the switch engages mid sweep", async () => {
     const args = parseSmokeArgs([
       "--vendor", "fictiv", "--cad", "./part.step", "--quantities", "1,2",
       "--confirm-non-export-controlled",
@@ -1306,11 +1308,9 @@ describe("runEvaluationBatch", () => {
       engaged,
       globalEngaged: false,
     }));
-    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
-    vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote)
-      .mockImplementationOnce(actual.guardOperatorQuote);
     const quote = vi.fn<VendorAdapter["quote"]>();
-    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async () => {
+    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async (input) => {
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
       engaged = true;
       throw new Error("first quantity attempted");
     });
@@ -1326,8 +1326,8 @@ describe("runEvaluationBatch", () => {
       }),
       makeVendorConfig: () => ({} as WorkerConfig),
       buildRegistry: () => ({ fictiv: { quote, evaluateLocally } }),
-    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_engaged", checkpoint: "before_launch" });
-    expect(evaluateLocally).toHaveBeenCalledTimes(1);
+    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_engaged", checkpoint: "before_navigation" });
+    expect(evaluateLocally).toHaveBeenCalledTimes(2);
     expect(quote).not.toHaveBeenCalled();
     expect(killSwitchReader).toHaveBeenCalledTimes(2);
     expect(cleanup).toHaveBeenCalledTimes(1);

@@ -31,7 +31,7 @@ import {
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
-import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
+import { assertOperatorProvidersEnabled, guardOperatorQuote, withKillSwitchCheckpoint, envProviderKillSwitchReader } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
   sha256File,
@@ -1457,12 +1457,16 @@ export async function runQuote(
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
-    const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
-      ? adapter.evaluateLocally(input)
-      : adapter.quote(input);
-    const result = isLiveProviderVendor(vendor)
-      ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
-      : await evaluate(adapterInput);
+    // evaluateLocally can finish offline (preflight, non live worker mode), so it only
+    // carries the checkpoint guard into the adapter's own provider steps. A plain
+    // quote is a live provider call and reads the switch before launch.
+    const result = adapter.evaluateLocally
+      ? await adapter.evaluateLocally(
+        killSwitchReader && isLiveProviderVendor(vendor) ? withKillSwitchCheckpoint(vendor, adapterInput, killSwitchReader) : adapterInput,
+      )
+      : isLiveProviderVendor(vendor)
+        ? await guardOperatorQuote(vendor, (input) => adapter.quote(input), killSwitchReader)(adapterInput)
+        : await adapter.quote(adapterInput);
     if (isLocalNativeCurrencyResult(result)) {
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
@@ -1605,7 +1609,7 @@ export async function runEvaluationBatch(
           buildRegistry,
           sendCutSendManifest,
           providerPortalApproval,
-          dependencies.killSwitchReader,
+          dependencies.killSwitchReader ?? envProviderKillSwitchReader(),
         );
         rows.push(row);
       }
