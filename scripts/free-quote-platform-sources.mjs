@@ -69,7 +69,7 @@ export async function extractPlatformSources({ root, out, state, inputs, call, s
     state.platformSources.push(child); persist();
     try {
       await pullFixtureImage({ call, image: spec.image, label: `${kind}-image-pull`, signal, deadline,
-        save: receipt => evidence.save(`${kind}-image-pull-attempts.json`, receipt) });
+        save: receipt => evidence.save(`${kind}-image-pull-attempts.json`, receipt), skipLoaded: true });
       const image = JSON.parse((await call('docker', ['image', 'inspect', spec.image], { private: true })).stdout)[0];
       const imageReceipt = admitPlatformImage(image);
       const names = (await call('docker', ['container', 'ls', '-a', '--format', '{{.Names}}'])).stdout.trim().split(/\r?\n/);

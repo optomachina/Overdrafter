@@ -23,8 +23,22 @@ jobs:
           node-version: 20
       - name: Test fixture and retention transport contracts
         run: node --test scripts/ovd591-image-pull.node-test.mjs scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs
+      - name: Restore cached Supabase images
+        id: image-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ecr-images
+          key: ecr-images-${{ hashFiles('.github/workflows/ovd591-retention-qualification.yml', 'scripts/ovd591-sql-qualification.mjs') }}
+      - name: Load cached Supabase images
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: for f in "$HOME"/ecr-images/*.tar; do docker load -i "$f"; done
       - name: Provision and run separate actual retention qualification
         run: node scripts/ovd591-ci-fixture.mjs run-retention "$OVD591_EVIDENCE"
+      - name: Save pulled Supabase images for the cache
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/ecr-images"
+          docker save -o "$HOME/ecr-images/images.tar" "$(node -e "import('./scripts/ovd591-sql-qualification.mjs').then(m => console.log(m.IMAGE))")"
       - name: Confirm exclusively owned cleanup
         if: always()
         shell: bash
