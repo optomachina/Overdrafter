@@ -25,8 +25,25 @@ jobs:
         run: |
           node scripts/generate-free-quote-fixtures.mjs --check
           node --test scripts/ovd591-image-pull.node-test.mjs scripts/generate-free-quote-fixtures.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-ci-provisioner.node-test.mjs scripts/free-quote-platform-sources.node-test.mjs scripts/free-quote-psql-races.node-test.mjs
+      - name: Restore cached Supabase images
+        id: image-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ecr-images
+          key: ecr-images-${{ hashFiles('.github/workflows/free-quote-sql-qualification.yml', 'scripts/ovd591-sql-qualification.mjs', 'scripts/free-quote-platform-sources.mjs') }}
+      - name: Load cached Supabase images
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: for f in "$HOME"/ecr-images/*.tar; do docker load -i "$f"; done
       - name: Qualify full139 schema, baseline126, atomicity132, free suites and eighteen races
         run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
+      - name: Save pulled Supabase images for the cache
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/ecr-images"
+          docker save -o "$HOME/ecr-images/images.tar" $(node --input-type=module -e "
+            const { IMAGE } = await import('./scripts/ovd591-sql-qualification.mjs');
+            const { PLATFORMS } = await import('./scripts/free-quote-platform-sources.mjs');
+            console.log([IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image].join(' '))")
       - name: Confirm exclusively owned cleanup
         if: always()
         shell: bash
