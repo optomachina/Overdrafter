@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { markTaskCancelled } from "./queue.js";
+import { abortAwareCheckpoint } from "./providerAbort.js";
 import type { QueueTaskRecord, VendorName, VendorQuoteAdapterInput } from "./types.js";
 
 /**
@@ -155,7 +156,7 @@ export function guardProviderQuote<T>(
   return async (input) => {
     await guard("before_launch");
     onLaunch?.();
-    return quote({ ...input, providerKillSwitchCheckpoint: guard });
+    return quote({ ...input, providerKillSwitchCheckpoint: abortAwareCheckpoint(guard, input.signal) });
   };
 }
 

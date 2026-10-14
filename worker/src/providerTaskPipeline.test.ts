@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { genericFictivEnvelope } from "../test-support/genericDispatchResponse";
 import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
+import { ProviderAbortedError } from "./providerAbort";
 import { ProviderKillSwitchError } from "./providerKillSwitch";
 import type { ProviderDispatchAuthorization, ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
@@ -212,7 +213,11 @@ const LEASE_OUTCOMES: Record<ProviderExecutionTerminalOutcome, string> = {
 
 function fakeLease(
   calls: Calls,
-  options: { acquire?: Exclude<ProviderTaskLeaseRunResult<never>, { kind: "completed" | "lease_lost" }>; loseBeforePersist?: boolean } = {},
+  options: {
+    acquire?: Exclude<ProviderTaskLeaseRunResult<never>, { kind: "completed" | "lease_lost" }>;
+    loseBeforePersist?: boolean;
+    onContext?: (controller: AbortController) => void;
+  } = {},
 ) {
   let blocked: string | null = null;
   const released = vi.fn();
@@ -240,6 +245,7 @@ function fakeLease(
           if (!held) throw new Error("lease lost");
         },
       };
+      options.onContext?.(controller);
       try {
         const value = await operation(context);
         calls.push("lease_release");
@@ -835,6 +841,68 @@ describe("persistence and cleanup", () => {
     const h = harness({ calls, lease: lease.port });
     const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
     expect(outcome).toMatchObject({ disposition: "failed", code: "lease_error" });
+  });
+});
+
+describe("abort signal into the adapter (OVD-748)", () => {
+  const leaseOn = (v: ProviderTaskPipelineInput) => {
+    v.leaseSetting = "on";
+  };
+
+  it("passes the adapter a live signal and leaves a run with no abort unchanged", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const h = harness({ quote: async (quoteInput) => { seen.push(quoteInput.signal); return quoteOutput(); } });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "persisted", code: "persisted" });
+    expect(seen[0]?.aborted).toBe(false);
+    expect(h.quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lease aborted before the adapter starts never launches it and is not a provider failure", async () => {
+    const calls: Calls = [];
+    const lease = fakeLease(calls, { onContext: (controller) => controller.abort() });
+    const h = harness({ calls, lease: lease.port });
+    const day = h.deps.daySwitch;
+    const outcome = await runProviderTaskPipeline(input(leaseOn), h.deps);
+    expect(h.quote).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", adapterStarted: false, retryAt: null, providerDisabledForDay: false });
+    expect(day.isDisabled("fictiv", NOW)).toBe(false);
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("an abort mid run stops at the next checkpoint, persists nothing, and is not retried or counted as a block", async () => {
+    const calls: Calls = [];
+    let abort: () => void = () => {};
+    const lease = fakeLease(calls, { onContext: (controller) => { abort = () => controller.abort(); } });
+    const reached: string[] = [];
+    const h = harness({
+      calls,
+      lease: lease.port,
+      quote: async (quoteInput) => {
+        await quoteInput.providerKillSwitchCheckpoint?.("before_navigation");
+        reached.push("navigation");
+        abort();
+        await quoteInput.providerKillSwitchCheckpoint?.("before_upload");
+        reached.push("upload");
+        return quoteOutput();
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(leaseOn), h.deps);
+    expect(reached).toEqual(["navigation"]);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", adapterStarted: true, retryAt: null, providerDisabledForDay: false });
+    expect(h.persist).not.toHaveBeenCalled();
+    expect(lease.isBlocked()).toBeNull();
+  });
+
+  it("an abort after a provider mutation began goes to an operator, never a retry", async () => {
+    const h = harness({
+      quote: async () => {
+        markProviderMutationStarted();
+        throw new ProviderAbortedError("before_save");
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null });
   });
 });
 

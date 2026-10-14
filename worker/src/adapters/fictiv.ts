@@ -25,6 +25,7 @@ import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { isDispatchDecisionError } from "../dispatchDecisionError.js";
+import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
@@ -907,9 +908,9 @@ async function dismissOverlayModals(page: Page) {
  */
 const autoConfigContinueCheckpoints = new WeakMap<Page, () => Promise<void>>();
 
-/** Ignores a failed modal dismissal, but never a kill switch refusal. */
+/** Ignores a failed modal dismissal, but never a kill switch refusal or an abort. */
 function ignoreUnlessKillSwitch(error: unknown) {
-  if (error instanceof ProviderKillSwitchError) throw error;
+  if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
   return undefined;
 }
 
