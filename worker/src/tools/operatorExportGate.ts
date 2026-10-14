@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -58,12 +59,15 @@ async function sha256OfFile(filePath: string): Promise<string> {
  * True when the file resolves, symlinks followed, to a path under a fixture
  * root, and its repo relative path and current SHA-256 match an approved
  * manifest entry. A missing, untracked, or modified file is not a fixture.
+ * `contentSha256` is the hash of bytes already staged by the caller; it is used
+ * instead of rereading the path, so the check covers the bytes that get sent.
  */
 export async function isInRepoFixture(
   filePath: string,
   roots: readonly string[] = OPERATOR_FIXTURE_ROOTS,
   manifest: Readonly<Record<string, string>> = OPERATOR_FIXTURE_MANIFEST,
   repoRoot: string = REPO_ROOT,
+  contentSha256?: string,
 ): Promise<boolean> {
   let resolved: string;
   try {
@@ -87,28 +91,23 @@ export async function isInRepoFixture(
   const approved = Object.hasOwn(manifest, key) ? manifest[key] : undefined;
   if (typeof approved !== "string" || !SHA256_HEX.test(approved)) return false;
   try {
-    return (await sha256OfFile(resolved)) === approved;
+    return (contentSha256 ?? (await sha256OfFile(resolved))) === approved;
   } catch {
     return false;
   }
 }
 
 /**
- * Throws unless the local bytes hash to a drawing record of this job. This
+ * Throws unless the staged bytes hash to a drawing record of this job. This
  * binds the job's export declaration to the file the operator is about to send.
  */
 async function assertFileBelongsToJob(
   client: Pick<SupabaseClient, "from">,
-  input: { filePath: string; jobId: string },
+  input: { filePath: string; jobId: string; localHash: string },
 ): Promise<void> {
   const fail = (reason: string) =>
     new OperatorExportGateError(`Refusing ${input.filePath}: ${reason}`);
-  let localHash: string;
-  try {
-    localHash = await sha256OfFile(input.filePath);
-  } catch {
-    throw fail("the file could not be read to verify it against the job.");
-  }
+  const { localHash } = input;
   let rows: unknown;
   try {
     const { data, error } = await client
@@ -130,58 +129,94 @@ async function assertFileBelongsToJob(
   }
 }
 
-export type OperatorExportGate = {
+export type OperatorExportGate<T extends DrawingTextForExportScan = DrawingTextForExportScan> = {
   /** Runs before each model attempt; a no-op for a fixture. */
   beforeModelAttempt: () => Promise<void>;
   basis: "fixture" | "job_declaration";
+  /** Private copy of the admitted bytes. Render and send this, never the original path. */
+  drawingPath: string;
+  /** Text read from the snapshot, as scanned by the gate. */
+  pdfText: T | null;
+  /** Removes the snapshot. Call once the run is finished. */
+  cleanup: () => Promise<void>;
 };
 
 /**
  * Admits one drawing for model extraction or throws `OperatorExportGateError`.
+ * The file is copied into a private directory first; the text read, the hash,
+ * the job match, and every later render or model attempt use that snapshot, so
+ * replacing the original after admission changes nothing that is sent.
  * An approved fixture (path and hash in the manifest) passes. Anything else
  * needs `jobId`, a fully read drawing with no marking whose bytes match one of
  * that job's drawing records, and a clean declaration from `api_check_export_control_extraction`.
  */
-export async function admitOperatorDrawing(input: {
+export async function admitOperatorDrawing<T extends DrawingTextForExportScan>(input: {
   filePath: string;
   jobId: string | null;
-  pdfText: DrawingTextForExportScan | null;
+  readPdfText: (snapshotPath: string) => Promise<T | null>;
   supabase: () => Pick<SupabaseClient, "rpc" | "from">;
-  isFixture?: (filePath: string) => Promise<boolean>;
-}): Promise<OperatorExportGate> {
-  if (await (input.isFixture ?? isInRepoFixture)(input.filePath)) {
-    return { basis: "fixture", beforeModelAttempt: async () => undefined };
-  }
-
-  if (!input.jobId) {
-    throw new OperatorExportGateError(
-      `Refusing ${input.filePath}: it is not an in-repo fixture. Pass --job-id for a job whose export declaration is clean.`,
-    );
-  }
-
-  const hit = scanDrawingTextForExportMarkings(input.pdfText);
-  if (hit) {
-    throw new OperatorExportGateError(
-      `Refusing ${input.filePath}: export control markings found (${hit.patterns.join(", ")}).`,
-    );
-  }
-  if (!isDrawingTextFullyRead(input.pdfText)) {
-    throw new OperatorExportGateError(
-      `Refusing ${input.filePath}: not every drawing page could be read, so the marking scan is incomplete.`,
-    );
-  }
-
-  const client = input.supabase();
-  await assertFileBelongsToJob(client, { filePath: input.filePath, jobId: input.jobId });
+  isFixture?: (filePath: string, contentSha256: string) => Promise<boolean>;
+}): Promise<OperatorExportGate<T>> {
+  const snapshotDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-operator-drawing-"));
+  const cleanup = () => fs.rm(snapshotDir, { recursive: true, force: true });
   try {
-    await assertExportControlExtractionAllowed(client, { jobId: input.jobId });
-  } catch (error) {
-    throw new OperatorExportGateError(
-      `Refusing ${input.filePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+    const snapshotPath = path.join(snapshotDir, path.basename(input.filePath));
+    let localHash: string;
+    try {
+      await fs.copyFile(input.filePath, snapshotPath);
+      await fs.chmod(snapshotPath, 0o600);
+      localHash = await sha256OfFile(snapshotPath);
+    } catch {
+      throw new OperatorExportGateError(`Refusing ${input.filePath}: the file could not be read to stage it.`);
+    }
+    const base = { drawingPath: snapshotPath, cleanup };
 
-  return { basis: "job_declaration", beforeModelAttempt: exportControlModelAttemptGuard(client, { jobId: input.jobId }) };
+    const isFixture =
+      input.isFixture ??
+      ((file: string, hash: string) => isInRepoFixture(file, OPERATOR_FIXTURE_ROOTS, OPERATOR_FIXTURE_MANIFEST, REPO_ROOT, hash));
+    const pdfText = await input.readPdfText(snapshotPath);
+    if (await isFixture(input.filePath, localHash)) {
+      return { ...base, pdfText, basis: "fixture", beforeModelAttempt: async () => undefined };
+    }
+
+    if (!input.jobId) {
+      throw new OperatorExportGateError(
+        `Refusing ${input.filePath}: it is not an in-repo fixture. Pass --job-id for a job whose export declaration is clean.`,
+      );
+    }
+
+    const hit = scanDrawingTextForExportMarkings(pdfText);
+    if (hit) {
+      throw new OperatorExportGateError(
+        `Refusing ${input.filePath}: export control markings found (${hit.patterns.join(", ")}).`,
+      );
+    }
+    if (!isDrawingTextFullyRead(pdfText)) {
+      throw new OperatorExportGateError(
+        `Refusing ${input.filePath}: not every drawing page could be read, so the marking scan is incomplete.`,
+      );
+    }
+
+    const client = input.supabase();
+    await assertFileBelongsToJob(client, { filePath: input.filePath, jobId: input.jobId, localHash });
+    try {
+      await assertExportControlExtractionAllowed(client, { jobId: input.jobId });
+    } catch (error) {
+      throw new OperatorExportGateError(
+        `Refusing ${input.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return {
+      ...base,
+      pdfText,
+      basis: "job_declaration",
+      beforeModelAttempt: exportControlModelAttemptGuard(client, { jobId: input.jobId }),
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
 }
 
 /** Reads `--job-id <id>` from argv. */

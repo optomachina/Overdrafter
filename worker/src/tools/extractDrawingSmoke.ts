@@ -7,9 +7,10 @@ import { parseEnvBooleanLike, parseEnvList } from "../env.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import { hasDirectExtractionCredential } from "../extraction/modelRegistry.js";
 import { createServiceClient } from "../queue.js";
-import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg } from "./operatorExportGate.js";
+import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg, type OperatorExportGate } from "./operatorExportGate.js";
 import {
   extractPdfText,
+  type PdfTextExtraction,
   renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
 } from "../extraction/pdfDrawing.js";
@@ -100,20 +101,31 @@ async function main() {
   await fs.access(pdfPath);
 
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-drawing-smoke-"));
-  const pdfText = await extractPdfText(pdfPath);
   const config = buildSmokeConfig();
   const exportGate = await admitOperatorDrawing({
     filePath: pdfPath,
     jobId,
-    pdfText,
+    readPdfText: extractPdfText,
     supabase: () => createServiceClient(loadConfig()),
   });
+  try {
+    await runSmoke(exportGate, { pdfPath, runDir, config });
+  } finally {
+    await exportGate.cleanup();
+  }
+}
+
+async function runSmoke(
+  exportGate: OperatorExportGate<PdfTextExtraction>,
+  { pdfPath, runDir, config }: { pdfPath: string; runDir: string; config: ReturnType<typeof buildSmokeConfig> },
+) {
+  const { pdfText, drawingPath } = exportGate;
   let previewAssets =
-    pdfText && pdfText.pageCount > 0 ? await renderPdfPreviewAssets(pdfPath, runDir, pdfText.pageCount) : [];
+    pdfText && pdfText.pageCount > 0 ? await renderPdfPreviewAssets(drawingPath, runDir, pdfText.pageCount) : [];
   let firstPagePreview = previewAssets.find((asset) => asset.kind === "page" && asset.pageNumber === 1) ?? null;
 
   if (!firstPagePreview) {
-    firstPagePreview = await renderPdfFirstPagePreview(pdfPath, path.join(runDir, "drawing-page-1.png"));
+    firstPagePreview = await renderPdfFirstPagePreview(drawingPath, path.join(runDir, "drawing-page-1.png"));
 
     if (firstPagePreview) {
       previewAssets = [
@@ -150,7 +162,7 @@ async function main() {
     cadFile: null,
     drawingFile,
     pdfText,
-    drawingPath: pdfPath,
+    drawingPath,
     previewPagePath: firstPagePreview?.localPath ?? null,
     runDir,
     config,

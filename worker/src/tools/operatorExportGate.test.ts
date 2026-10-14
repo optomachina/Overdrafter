@@ -50,27 +50,28 @@ describe("admitOperatorDrawing", () => {
   it("admits a fixture without a job, a read, or a database call", async () => {
     const supabase = vi.fn();
     const gate = await admitOperatorDrawing({
-      filePath: "/repo/worker/eval-corpus/a.pdf",
+      filePath: drawing,
       jobId: null,
-      pdfText: null,
+      readPdfText: async () => null,
       supabase,
       isFixture: async () => true,
     });
     expect(gate.basis).toBe("fixture");
+    await gate.cleanup();
     await expect(gate.beforeModelAttempt()).resolves.toBeUndefined();
     expect(supabase).not.toHaveBeenCalled();
   });
 
   it("refuses a non fixture without a job id", async () => {
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: null, pdfText: readPdf("PART"), supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: null, readPdfText: async () => readPdf("PART"), supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toThrow(/Pass --job-id/);
   });
 
   it("refuses a marking hit before any database call", async () => {
     const supabase = vi.fn();
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("ITAR controlled"), supabase, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => readPdf("ITAR controlled"), supabase, isFixture: notFixture }),
     ).rejects.toThrow(/markings found \(itar/);
     expect(supabase).not.toHaveBeenCalled();
   });
@@ -78,17 +79,17 @@ describe("admitOperatorDrawing", () => {
   it("refuses a drawing that was not fully read", async () => {
     const unread = { ...readPdf("PART"), drawingFullyRead: false };
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: unread, supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => unread, supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toBeInstanceOf(OperatorExportGateError);
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: null, supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => null, supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toThrow(/not every drawing page/);
   });
 
   it("refuses a file that is not a drawing of the declared job before the declaration check", async () => {
     const { client, rpc, eqs } = rpcReturning({ allowed: true }, null, { data: [{ content_sha256: sha256("other bytes") }] });
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toThrow(/does not match any drawing recorded for job job-1/);
     expect(eqs).toEqual([["job_id", "job-1"], ["file_kind", "drawing"]]);
     expect(rpc).not.toHaveBeenCalled();
@@ -97,7 +98,7 @@ describe("admitOperatorDrawing", () => {
   it("refuses an unrelated job with no drawing records", async () => {
     const { client, rpc } = rpcReturning({ allowed: true }, null, { data: [] });
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "clean-job", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "clean-job", readPdfText: async () => readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toBeInstanceOf(OperatorExportGateError);
     expect(rpc).not.toHaveBeenCalled();
   });
@@ -105,11 +106,11 @@ describe("admitOperatorDrawing", () => {
   it("fails closed when the drawing lookup errors or the file is unreadable", async () => {
     const failing = rpcReturning({ allowed: true }, null, { data: null, error: { message: "down" } });
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => failing.client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => readPdf("PART"), supabase: () => failing.client, isFixture: notFixture }),
     ).rejects.toThrow(/lookup failed/);
     const ok = rpcReturning({ allowed: true });
     await expect(
-      admitOperatorDrawing({ filePath: path.join(tmpDir, "missing.pdf"), jobId: "job-1", pdfText: readPdf("PART"), supabase: () => ok.client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: path.join(tmpDir, "missing.pdf"), jobId: "job-1", readPdfText: async () => readPdf("PART"), supabase: () => ok.client, isFixture: notFixture }),
     ).rejects.toThrow(/could not be read/);
     expect(failing.rpc).not.toHaveBeenCalled();
     expect(ok.rpc).not.toHaveBeenCalled();
@@ -118,7 +119,7 @@ describe("admitOperatorDrawing", () => {
   it("refuses when the job declaration is missing", async () => {
     const { client, rpc } = rpcReturning({ allowed: false, reasonCode: "export_declaration_missing" });
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toThrow(OperatorExportGateError);
     expect(rpc).toHaveBeenCalledWith("api_check_export_control_extraction", { p_job_id: "job-1" });
   });
@@ -126,7 +127,7 @@ describe("admitOperatorDrawing", () => {
   it("fails closed when the lookup errors", async () => {
     const { client } = rpcReturning(null, { message: "down" });
     await expect(
-      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", readPdfText: async () => readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toBeInstanceOf(OperatorExportGateError);
   });
 
@@ -135,16 +136,60 @@ describe("admitOperatorDrawing", () => {
     const gate = await admitOperatorDrawing({
       filePath: drawing,
       jobId: "job-1",
-      pdfText: readPdf("PART 123"),
+      readPdfText: async () => readPdf("PART 123"),
       supabase: () => client,
       isFixture: notFixture,
     });
     expect(gate.basis).toBe("job_declaration");
+    expect(gate.drawingPath).not.toBe(drawing);
     expect(rpc).toHaveBeenCalledTimes(1);
     await gate.beforeModelAttempt();
     expect(rpc).toHaveBeenCalledTimes(2);
     rpc.mockResolvedValueOnce({ data: { allowed: false, reasonCode: "export_review_pending" }, error: null });
     await expect(gate.beforeModelAttempt()).rejects.toThrow();
+  });
+});
+
+describe("admitOperatorDrawing snapshot", () => {
+  it("keeps the admitted bytes when the original is replaced afterwards", async () => {
+    const original = path.join(tmpDir, "swap.pdf");
+    await fs.writeFile(original, "drawing bytes");
+    const { client } = rpcReturning({ allowed: true });
+    const gate = await admitOperatorDrawing({
+      filePath: original,
+      jobId: "job-1",
+      readPdfText: async (snapshot) => readPdf(await fs.readFile(snapshot, "utf8")),
+      supabase: () => client,
+      isFixture: notFixture,
+    });
+    try {
+      await fs.writeFile(original, "ITAR replacement bytes");
+      await gate.beforeModelAttempt();
+      expect(gate.drawingPath).not.toBe(original);
+      expect(await fs.readFile(gate.drawingPath, "utf8")).toBe("drawing bytes");
+    } finally {
+      await gate.cleanup();
+    }
+    await expect(fs.access(gate.drawingPath)).rejects.toThrow();
+  });
+
+  it("scans and hashes the snapshot, so a swap during the text read is ignored", async () => {
+    const original = path.join(tmpDir, "swap2.pdf");
+    await fs.writeFile(original, "drawing bytes");
+    const { client, rpc } = rpcReturning({ allowed: true });
+    await expect(
+      admitOperatorDrawing({
+        filePath: original,
+        jobId: "job-1",
+        readPdfText: async (snapshot) => {
+          await fs.writeFile(original, "other bytes");
+          return readPdf(await fs.readFile(snapshot, "utf8"));
+        },
+        supabase: () => client,
+        isFixture: notFixture,
+      }),
+    ).resolves.toMatchObject({ basis: "job_declaration" });
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 });
 

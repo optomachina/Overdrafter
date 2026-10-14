@@ -28,11 +28,11 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { loadConfig } from "../config.js";
-import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfFirstPagePreview } from "../extraction/pdfDrawing.js";
+import { extractPdfText, type PdfTextExtraction, inferDrawingSignalsFromPdf, renderPdfFirstPagePreview } from "../extraction/pdfDrawing.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import { normalizeComparableFieldValue } from "../extraction/modelFallback.js";
 import { createServiceClient } from "../queue.js";
-import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg } from "./operatorExportGate.js";
+import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg, type OperatorExportGate } from "./operatorExportGate.js";
 import { CRITICAL_MODEL_FIELDS, type CriticalModelFieldName } from "../extraction/policy.js";
 import type { PartRecord, WorkerConfig } from "../types.js";
 
@@ -196,15 +196,30 @@ async function runCase(
   jobId: string | null,
 ) {
   const pdfPath = path.resolve(corpusDir, corpusCase.pdfPath);
-  const pdfText = await extractPdfText(pdfPath);
   const previewPath = path.join(runDir, `${corpusCase.id}-page-1.png`);
   const exportGate = await admitOperatorDrawing({
     filePath: pdfPath,
     jobId,
-    pdfText,
+    readPdfText: extractPdfText,
     supabase: () => createServiceClient(config),
   });
-  const preview = await renderPdfFirstPagePreview(pdfPath, previewPath).catch(() => null);
+  try {
+    return await runAdmittedCase(config, corpusCase, runDir, pdfPath, previewPath, exportGate);
+  } finally {
+    await exportGate.cleanup();
+  }
+}
+
+async function runAdmittedCase(
+  config: WorkerConfig,
+  corpusCase: CorpusCase,
+  runDir: string,
+  pdfPath: string,
+  previewPath: string,
+  exportGate: OperatorExportGate<PdfTextExtraction>,
+) {
+  const { pdfText, drawingPath } = exportGate;
+  const preview = await renderPdfFirstPagePreview(drawingPath, previewPath).catch(() => null);
 
   const drawingFile = {
     id: `eval-file-${corpusCase.id}`,
@@ -218,7 +233,7 @@ async function runCase(
     cadFile: null,
     drawingFile,
     pdfText,
-    drawingPath: pdfPath,
+    drawingPath,
     previewPagePath: preview?.localPath ?? null,
     runDir,
     config,
