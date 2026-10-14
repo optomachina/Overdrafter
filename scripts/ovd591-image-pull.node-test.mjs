@@ -75,11 +75,19 @@ for (const image of [IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image]) {
   });
 }
 test('skipLoaded skips the pull and receipts "cached" when docker image inspect succeeds', async () => {
-  const s = simulation([ok], { settings: { skipLoaded: true } });
-  assert.equal(await s.run(), ok);
-  assert.deepEqual(s.calls.map(call => [call.command, ...call.args]), [['docker', 'image', 'inspect', IMAGE]]);
+  const digested = { ...ok, stdout: `["${IMAGE.split(':')[0]}@sha256:${'a'.repeat(64)}"]` };
+  const s = simulation([digested], { settings: { skipLoaded: true } });
+  assert.equal(await s.run(), digested);
+  assert.deepEqual(s.calls.map(call => [call.command, ...call.args]), [['docker', 'image', 'inspect', '--format', '{{json .RepoDigests}}', IMAGE]]);
   assert.deepEqual(s.waits, []); assert.equal(s.receipts.at(-1).status, 'cached');
   assert.deepEqual(s.receipts.at(-1).attempts, [{ attempt: 0, status: 'cached' }]);
+});
+test('skipLoaded still pulls an image loaded from a tarball without RepoDigests', async () => {
+  const undigested = { ...ok, stdout: '[]' };
+  const s = simulation([undigested, ok], { settings: { skipLoaded: true } });
+  assert.equal(await s.run(), ok);
+  assert.deepEqual(s.calls.map(call => call.args[0] + ' ' + call.args.at(-1)), ['image ' + IMAGE, 'pull ' + IMAGE]);
+  assert.equal(s.receipts.at(-1).status, 'passed');
 });
 test('skipLoaded falls through to the retried pull when the image is not loaded', async () => {
   const missing = { status: 1, stdout: '', stderr: 'Error: No such image', failure: null };
@@ -93,7 +101,7 @@ test('the inspect probe is off by default and enabled by the CLI and both fixtur
 });
 test('CLI pullImages skips images that are already loaded', async () => {
   const out = [], seen = [];
-  assert.equal(await pullImages([IMAGE], { call: async (_c, args) => { seen.push(args[0]); return ok; }, out: line => out.push(JSON.parse(line)) }), 0);
+  assert.equal(await pullImages([IMAGE], { call: async (_c, args) => { seen.push(args[0]); return { ...ok, stdout: `["x@sha256:${'b'.repeat(64)}"]` }; }, out: line => out.push(JSON.parse(line)) }), 0);
   assert.deepEqual(seen, ['image']); assert.equal(out[0].status, 'cached');
 });
 test('first success makes one attempt and no wait', async () => {
