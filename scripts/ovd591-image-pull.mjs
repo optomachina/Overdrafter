@@ -43,7 +43,7 @@ export function isPublicEcrThrottle(result) {
 }
 
 /** call retains each raw result; save retains classification and bounded retry decisions.
- * skipLoaded: an image already present locally (`docker image inspect` succeeds) is receipted as "cached", not pulled. */
+ * skipLoaded: an image already present locally with registry RepoDigests (`docker image inspect` succeeds) is receipted as "cached", not pulled. */
 export async function pullFixtureImage({ call, image, label, signal, deadline = Infinity, save, skipLoaded = false },
   { now = Date.now, wait = delay, random = Math.random, env = process.env } = {}) {
   assert.match(image, /^public\.ecr\.aws\/supabase\/[a-z-]+:[a-zA-Z0-9.-]+$/);
@@ -57,10 +57,11 @@ export async function pullFixtureImage({ call, image, label, signal, deadline = 
   };
   try {
     if (skipLoaded) {
-      const loaded = await call('docker', ['image', 'inspect', image], { timeout: expires - now(), allowFailure: true,
+      const loaded = await call('docker', ['image', 'inspect', '--format', '{{json .RepoDigests}}', image], { timeout: expires - now(), allowFailure: true,
         label: `${label}-inspect` });
       check();
-      if (!loaded.failure && loaded.status === 0) {
+      // docker load drops RepoDigests; only a registry-digested image may skip the pull.
+      if (!loaded.failure && loaded.status === 0 && /@sha256:[a-f0-9]{64}/.test(String(loaded.stdout ?? ''))) {
         receipt.status = 'cached'; receipt.attempts.push({ attempt: 0, status: 'cached' });
         return loaded;
       }
