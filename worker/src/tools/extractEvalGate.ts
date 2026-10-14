@@ -15,9 +15,13 @@
  * Usage:
  *   npm --prefix worker run eval:gate -- --corpus worker/eval-corpus
  *   npm --prefix worker run eval:gate -- --corpus <dir> --floor 0.9 --json
+ *   npm --prefix worker run eval:gate -- --corpus <dir> --job-id <job id>
+ *
+ * OVD-757: a drawing outside the in-repo fixture roots is refused unless
+ * `--job-id` names a job that passes the export control gate.
  *
  * Exits 0 when every field meets its floor, 1 when any field is below it, and
- * 2 when the corpus is missing or unusable.
+ * 2 when the corpus is missing or unusable, or a drawing fails the export gate.
  */
 
 import fs from "node:fs/promises";
@@ -27,6 +31,8 @@ import { loadConfig } from "../config.js";
 import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfFirstPagePreview } from "../extraction/pdfDrawing.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import { normalizeComparableFieldValue } from "../extraction/modelFallback.js";
+import { createServiceClient } from "../queue.js";
+import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg } from "./operatorExportGate.js";
 import { CRITICAL_MODEL_FIELDS, type CriticalModelFieldName } from "../extraction/policy.js";
 import type { PartRecord, WorkerConfig } from "../types.js";
 
@@ -187,10 +193,17 @@ async function runCase(
   corpusDir: string,
   corpusCase: CorpusCase,
   runDir: string,
+  jobId: string | null,
 ) {
   const pdfPath = path.resolve(corpusDir, corpusCase.pdfPath);
   const pdfText = await extractPdfText(pdfPath);
   const previewPath = path.join(runDir, `${corpusCase.id}-page-1.png`);
+  const exportGate = await admitOperatorDrawing({
+    filePath: pdfPath,
+    jobId,
+    pdfText,
+    supabase: () => createServiceClient(config),
+  });
   const preview = await renderPdfFirstPagePreview(pdfPath, previewPath).catch(() => null);
 
   const drawingFile = {
@@ -209,6 +222,7 @@ async function runCase(
     previewPagePath: preview?.localPath ?? null,
     runDir,
     config,
+    beforeModelAttempt: exportGate.beforeModelAttempt,
   });
 
   return {
@@ -257,7 +271,7 @@ function parseArgs(argv: string[]) {
     }
   }
 
-  return { corpusDir, json, floors };
+  return { corpusDir, json, floors, jobId: readJobIdArg(argv) };
 }
 
 function renderReport(report: GateReport) {
@@ -296,7 +310,7 @@ function renderReport(report: GateReport) {
 }
 
 async function main() {
-  const { corpusDir, json, floors } = parseArgs(process.argv.slice(2));
+  const { corpusDir, json, floors, jobId } = parseArgs(process.argv.slice(2));
 
   let cases: CorpusCase[];
   try {
@@ -320,7 +334,7 @@ async function main() {
   try {
     const results = [];
     for (const corpusCase of cases) {
-      results.push(await runCase(config, corpusDir, corpusCase, runDir));
+      results.push(await runCase(config, corpusDir, corpusCase, runDir, jobId));
     }
 
     const report: GateReport = { corpusDir, ...scoreCorpus(results, floors) };
@@ -335,7 +349,9 @@ async function main() {
 // Only run when invoked directly, so the scoring helpers stay unit-testable.
 if (process.argv[1] && process.argv[1].includes("extractEvalGate")) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.stack : String(error));
+    console.error(
+      error instanceof OperatorExportGateError ? error.message : error instanceof Error ? error.stack : String(error),
+    );
     process.exit(2);
   });
 }
