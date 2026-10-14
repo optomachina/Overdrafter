@@ -1530,7 +1530,7 @@ describe("OVD-723 review round 3: point in time checks", () => {
     const target = xometry.slice(xometry.indexOf("async function setFilesOnApprovedUploadTarget("));
     expect(target.indexOf("await beforeProviderDisclosure?.();")).toBeGreaterThan(-1);
     expect(target.indexOf("await beforeProviderDisclosure?.();")).toBeLessThan(target.indexOf("markProviderMutationStarted();"));
-    expect(xometry).toContain("input.beforeProviderDisclosure,\n      );\n      uploadSelector = uploadResult.selector;");
+    expect(xometry).toContain("input.beforeProviderDisclosure,\n        isLiveEvaluation ? null : { checkpoint: input.uploadCapabilityCheckpoint },\n      );\n      uploadSelector = uploadResult.selector;");
     expect(xometry).toContain("await input.beforeProviderDisclosure?.();\n        const drawingFallbackResult = await attachDrawingFallback(");
     expect(xometry).toContain("if (dispatchDecisionError) throw dispatchDecisionError;");
     const fictiv = readFileSync(new URL("./adapters/fictiv.ts", import.meta.url), "utf8");

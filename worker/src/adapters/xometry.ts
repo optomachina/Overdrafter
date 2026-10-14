@@ -50,6 +50,10 @@ import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { isDispatchDecisionError } from "../dispatchDecisionError.js";
+import type {
+  ProviderUploadCapabilityDecision,
+  ProviderUploadCapabilityObserved,
+} from "../providerUploadCapabilityTypes.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
@@ -1561,6 +1565,96 @@ async function submitApprovedQuoteModal(
   });
 }
 
+/** null means not enforced: only the explicit operator live evaluation path. */
+type UploadCapabilityGate = {
+  checkpoint:
+    | ((observation: ProviderUploadCapabilityObserved) => Promise<ProviderUploadCapabilityDecision>)
+    | undefined;
+};
+
+const PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS: ReadonlySet<string> = new Set([
+  "matches_policy",
+  "reviewed_missing_accept_xometry",
+]);
+
+function buildUploadCapabilityObservation(
+  target: ApprovedUploadTarget,
+  observedAccept: string | null,
+): ProviderUploadCapabilityObserved {
+  const entries = (observedAccept ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLocaleLowerCase())
+    .filter(Boolean);
+  const acceptAttributePresent = entries.length > 0;
+  return {
+    state: "fresh",
+    provider: "xometry",
+    route: target.route,
+    surface: target.allowMissingAccept
+      ? "account_quote_modal"
+      : target.route === "quote_home"
+        ? "dashboard_upload"
+        : "standalone_upload",
+    revision: target.allowMissingAccept
+      ? "xometry-account-quote-modal.v1"
+      : "xometry-upload-surface.v1",
+    acceptAttributePresent,
+    ...(acceptAttributePresent
+      ? {
+          extensions: entries
+            .filter((entry) => entry.startsWith("."))
+            .map((entry) => entry.slice(1)),
+          mimeTypes: entries.filter((entry) => entry.includes("/")),
+        }
+      : {}),
+  };
+}
+
+/**
+ * OVD-414: re-resolves the shared capability decision right before file
+ * selection. Anything but a passing classification that covers every staged
+ * extension, including a missing or throwing checkpoint, selects no files.
+ * Only the classification is carried in the denial, never provider evidence.
+ */
+async function assertUploadCapabilityAllowsSelection(
+  page: Page,
+  target: ApprovedUploadTarget,
+  observedAccept: string | null,
+  filePaths: string[],
+  checkpoint:
+    | ((observation: ProviderUploadCapabilityObserved) => Promise<ProviderUploadCapabilityDecision>)
+    | undefined,
+) {
+  const deny = (classification: string): never => {
+    throw new VendorAutomationError(
+      "Xometry's upload capability decision does not permit file selection.",
+      "upload_failure",
+      {
+        vendor: "xometry",
+        reason: "upload_capability_denied",
+        classification,
+        route: classifyXometryRoute(page.url()),
+        stateId: target.stateId,
+      },
+    );
+  };
+  if (!checkpoint) return deny("decision_missing");
+  let decision: ProviderUploadCapabilityDecision;
+  try {
+    decision = await checkpoint(buildUploadCapabilityObservation(target, observedAccept));
+  } catch {
+    return deny("decision_unavailable");
+  }
+  if (!PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS.has(decision?.classification)) {
+    return deny(String(decision?.classification ?? "decision_malformed").slice(0, 64));
+  }
+  const allowed = new Set(decision.allowedExtensions ?? []);
+  const permitsEveryFile = filePaths.every((filePath) =>
+    allowed.has(path.extname(filePath).toLocaleLowerCase().replace(/^\./, "")),
+  );
+  if (!permitsEveryFile) deny("extension_not_allowed");
+}
+
 async function setFilesOnApprovedUploadTarget(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
@@ -1569,6 +1663,7 @@ async function setFilesOnApprovedUploadTarget(
   runDir: string,
   beforeMutation: () => Promise<void> = async () => undefined,
   beforeProviderDisclosure?: () => Promise<void>,
+  uploadCapabilityGate: UploadCapabilityGate | null = null,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
   const targetStillApproved = async () => {
@@ -1591,7 +1686,7 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
-  await waitForDashboardUploadReadiness(
+  const observedAccept = await waitForDashboardUploadReadiness(
     page,
     target.locator,
     filePaths,
@@ -1609,6 +1704,15 @@ async function setFilesOnApprovedUploadTarget(
         route: classifyXometryRoute(page.url()),
         stateId: target.stateId,
       },
+    );
+  }
+  if (uploadCapabilityGate) {
+    await assertUploadCapabilityAllowsSelection(
+      page,
+      target,
+      observedAccept,
+      filePaths,
+      uploadCapabilityGate.checkpoint,
     );
   }
   // OVD-722: readiness polling can take many seconds; re-read the switch
@@ -2897,6 +3001,7 @@ export class XometryAdapter extends VendorAdapter {
         runDir,
         async () => input.providerKillSwitchCheckpoint?.("before_upload"),
         input.beforeProviderDisclosure,
+        isLiveEvaluation ? null : { checkpoint: input.uploadCapabilityCheckpoint },
       );
       uploadSelector = uploadResult.selector;
       if (input.stagedDrawingFile) {

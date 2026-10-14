@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { decideProviderUploadCapability } from "../providerUploadCapability.js";
+import type { ProviderUploadCapabilityDecision, ProviderUploadCapabilityObserved } from "../providerUploadCapabilityTypes.js";
 
 const {
   camoufoxMock,
@@ -143,6 +145,18 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   };
 }
 
+async function passingUploadCapabilityCheckpoint(): Promise<ProviderUploadCapabilityDecision> {
+  return {
+    contractVersion: "provider-upload-capability.v1",
+    classification: "matches_policy",
+    allowedExtensions: ["step", "stp", "sldprt", "igs", "iges"],
+    reportedAddedExtensions: [],
+    reportedRemovedExtensions: [],
+    evidenceRefs: [],
+    normalizedObservedMimeTypes: [],
+  };
+}
+
 function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
   return {
     organizationId: "org-1",
@@ -195,6 +209,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       envelopeRevision: "xometry-controlled-beta-envelope.v1",
       nonExportControlled: true,
     },
+    uploadCapabilityCheckpoint: passingUploadCapabilityCheckpoint,
     ...overrides,
   };
 }
@@ -1190,6 +1205,194 @@ describe("XometryAdapter", () => {
     expect(playwrightLaunchPersistentContextMock).not.toHaveBeenCalled();
     },
   );
+
+  describe("upload capability gate before file selection (OVD-414)", () => {
+    const decisionOf = (
+      classification: ProviderUploadCapabilityDecision["classification"],
+      allowedExtensions: string[] = ["step", "stp"],
+    ): ProviderUploadCapabilityDecision => ({
+      contractVersion: "provider-upload-capability.v1",
+      classification,
+      allowedExtensions,
+      reportedAddedExtensions: [],
+      reportedRemovedExtensions: [],
+      evidenceRefs: [],
+      normalizedObservedMimeTypes: [],
+    });
+
+    async function quoteOnStandaloneUploader(
+      uploadCapabilityCheckpoint: VendorQuoteAdapterInput["uploadCapabilityCheckpoint"],
+      events: string[] = [],
+    ) {
+      const workerTempDir = await makeTempDir();
+      const standaloneUpload = vi.fn(() => {
+        events.push("setInputFiles");
+      });
+      const summaryText = [
+        "Quantity: 2",
+        "Material: Aluminum 6061-T6x (Best Available)",
+        "Finish: Black Anodize",
+        "Precision Tolerance: ±.005",
+        "Least Expensive 5 business days USD $120.00",
+      ].join(" ");
+      const page = createFakePage({
+        bodyText: summaryText,
+        dashboardRedirectUrl: "https://www.xometry.com/quoting/new",
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-GATE-0414",
+        selectorBehaviors: {
+          [XOMETRY_LOCATORS.startNewQuoteButtons[0]]: { count: 1 },
+          [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 0 },
+          [XOMETRY_LOCATORS.standaloneUploadInputs[0]]: {
+            count: 1,
+            getAttribute: (name) => name === "accept" ? ".step,.stp" : null,
+            setInputFiles: standaloneUpload,
+          },
+          [XOMETRY_LOCATORS.quantityInputs[0]]: { count: 1, inputValue: () => "2" },
+          [XOMETRY_LOCATORS.priceText[0]]: { count: 1, text: summaryText },
+        },
+      });
+      playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({
+          workerTempDir,
+          xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+          xometryBrowserEngine: "playwright",
+        }),
+      );
+      const error = await adapter
+        .quote(makeInput({
+          uploadCapabilityCheckpoint,
+          beforeProviderDisclosure: async () => {
+            events.push("beforeProviderDisclosure");
+          },
+        }))
+        .then(() => null, (caught: unknown) => caught);
+      return { error, standaloneUpload };
+    }
+
+    it("re-resolves the decision after the disclosure recheck and right before setInputFiles", async () => {
+      const events: string[] = [];
+      const checkpoint = vi.fn(async (observation: ProviderUploadCapabilityObserved) => {
+        events.push("checkpoint");
+        expect(observation).toMatchObject({
+          state: "fresh",
+          provider: "xometry",
+          route: "quote_creation",
+          acceptAttributePresent: true,
+          extensions: ["step", "stp"],
+        });
+        return decisionOf("matches_policy");
+      });
+
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(checkpoint, events);
+
+      expect(error).toBeNull();
+      expect(standaloneUpload).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(["beforeProviderDisclosure", "checkpoint", "setInputFiles"]);
+    });
+
+    it("lets the exact reviewed missing accept classification through", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+        async () => decisionOf("reviewed_missing_accept_xometry"),
+      );
+      expect(error).toBeNull();
+      expect(standaloneUpload).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      "accept_missing",
+      "unsupported",
+      "denied",
+      "observation_missing",
+      "observation_stale",
+      "formats_loading",
+      "ambiguous_input",
+      "route_or_selector_drift",
+      "authentication_required",
+      "anti_bot_or_challenge",
+      "provider_error",
+      "unclassified_response",
+      "format_added",
+      "format_removed",
+    ] as const)("%s: no file is selected and only the classification is recorded", async (classification) => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+        async () => decisionOf(classification),
+      );
+      expect(error).toMatchObject({
+        name: "VendorAutomationError",
+        code: "upload_failure",
+        payload: { reason: "upload_capability_denied", classification },
+      });
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+
+    it("a passing decision that does not cover the staged extension selects nothing", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+        async () => decisionOf("matches_policy", ["stl"]),
+      );
+      expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "extension_not_allowed" } });
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+
+    it("a malformed decision selects nothing", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+        async () => undefined as unknown as ProviderUploadCapabilityDecision,
+      );
+      expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "decision_malformed" } });
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+
+    it("a throwing checkpoint selects nothing", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(async () => {
+        throw new Error("ledger unreachable: secret-detail");
+      });
+      expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "decision_unavailable" } });
+      expect(JSON.stringify((error as { payload: unknown }).payload)).not.toContain("secret-detail");
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+
+    it("no checkpoint at all selects nothing", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(undefined);
+      expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "decision_missing" } });
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+
+    it("the real shared contract denies a generic observation without a current admission", async () => {
+      const { error, standaloneUpload } = await quoteOnStandaloneUploader(async (observed) =>
+        decideProviderUploadCapability({
+          releaseEnvelope: {
+            provider: observed.provider,
+            route: observed.route,
+            surface: observed.surface,
+            revision: observed.revision,
+            extensions: ["step", "stp"],
+            policyRevision: "xometry-controlled-beta-2026-08-17.v1",
+            evidenceReference: "OVD-373",
+          },
+          admissionResolver: {
+            policy_present: false,
+            provider_admitted: false,
+            generically_dispatchable: false,
+            provider: null,
+            admission_state: "none",
+            policy_revision: null,
+            evidence_reference: null,
+            permission_basis: null,
+            supported_processes: [],
+            accepted_file_extensions: [],
+            session_owner: null,
+            reviewed_at: null,
+            expires_at: null,
+            reason_code: "provider_unknown",
+          },
+          observed,
+        }),
+      );
+      expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "observation_missing" } });
+      expect(standaloneUpload).not.toHaveBeenCalled();
+    });
+  });
 
   it("keeps evaluation context out of normal production adapter payloads", async () => {
     const adapter = new XometryAdapter(
