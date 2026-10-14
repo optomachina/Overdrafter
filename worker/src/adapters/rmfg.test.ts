@@ -23,10 +23,10 @@ import {
   evaluateRmfgEligibility,
   resetRmfgAdapterStateForTests,
   RMFG_API_KEY_ENV,
-  RMFG_DISPATCH_ENVELOPE,
   RmfgAdapter,
   type RmfgDispatchSeams,
 } from "./rmfg";
+import { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization";
 import { createRmfgHttpTransport, resetRmfgProcessStateForTests } from "./rmfgHttpTransport";
 
 /**

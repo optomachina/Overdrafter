@@ -14,6 +14,8 @@ import {
   probeUrlFailure,
   resolveSessionProbeTarget,
   runBoundedBrowserSessionProbe,
+  createRmfgFetchTransport,
+  RMFG_PROBE_ENDPOINT,
   runBoundedRmfgSessionProbe,
   runSessionProbe,
   findGcloud,
@@ -783,15 +785,70 @@ describe("rmfg api key probe", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it("makes no call and reads no secret while the documented endpoint is still a TODO", async () => {
+  it("runs the configured account endpoint through the injected transport", async () => {
     const transport = vi.fn(async () => ({ status: 200 }));
     const loadSecret = vi.fn(async () => apiKey);
     const evidence = await runSessionProbe(
       { provider: "rmfg", secretName: "rmfg-api-key" },
       { loadSecret, sandbox, rmfgTransport: transport, now: fixedNow },
     );
+    expect(RMFG_PROBE_ENDPOINT).toBe("https://api.rmfg.com/v1/account");
+    expect(evidence).toMatchObject({ outcome: "authenticated", httpStatus: 200, finalHost: "api.rmfg.com" });
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls[0]?.[0]).toMatchObject({ url: RMFG_PROBE_ENDPOINT, timeoutMs: 10_000 });
+  });
+
+  it("makes no call and reads no secret without a transport", async () => {
+    const loadSecret = vi.fn(async () => apiKey);
+    const evidence = await runSessionProbe({ provider: "rmfg", secretName: "rmfg-api-key" }, { loadSecret, sandbox, now: fixedNow });
     expect(evidence).toMatchObject({ outcome: "error", reason: "rmfg_endpoint_not_configured" });
-    expect(transport).not.toHaveBeenCalled();
     expect(loadSecret).not.toHaveBeenCalled();
+  });
+
+  describe("fetch transport", () => {
+    const run = (fetchImpl: typeof fetch, timeoutMs?: number) =>
+      runBoundedRmfgSessionProbe({
+        apiKey,
+        transport: createRmfgFetchTransport(fetchImpl),
+        timeoutMs,
+        now: fixedNow,
+      });
+
+    it("sends one GET with a bearer header and no redirects", async () => {
+      const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+      const evidence = await run(fetchImpl as unknown as typeof fetch);
+      expect(evidence).toMatchObject({ outcome: "authenticated", httpStatus: 200 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("https://api.rmfg.com/v1/account");
+      expect(init).toMatchObject({ method: "GET", redirect: "error", headers: { authorization: `Bearer ${apiKey}` } });
+      expect(JSON.stringify(evidence)).not.toContain(apiKey);
+    });
+
+    it("maps 401, 403 and 429 to blocked", async () => {
+      for (const [status, reason] of [[401, "http_unauthorized"], [403, "http_forbidden"], [429, "http_rate_limited"]] as const) {
+        const fetchImpl = vi.fn(async () => new Response("{}", { status }));
+        const evidence = await run(fetchImpl as unknown as typeof fetch);
+        expect(evidence).toMatchObject({ outcome: "blocked", reason, httpStatus: status });
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it("ignores a non json body on 200", async () => {
+      const fetchImpl = vi.fn(async () => new Response("<html>not json</html>", { status: 200 }));
+      expect(await run(fetchImpl as unknown as typeof fetch)).toMatchObject({ outcome: "authenticated", httpStatus: 200 });
+    });
+
+    it("reports a timeout as a transport error without the key", async () => {
+      const fetchImpl = vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => reject(new Error(`aborted ${apiKey}`)));
+          }),
+      );
+      const evidence = await run(fetchImpl as unknown as typeof fetch, 20);
+      expect(evidence).toMatchObject({ outcome: "error", reason: "rmfg_transport_error" });
+      expect(JSON.stringify(evidence)).not.toContain(apiKey);
+    });
   });
 });

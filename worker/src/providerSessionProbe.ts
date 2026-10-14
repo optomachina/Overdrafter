@@ -712,14 +712,30 @@ export type RmfgProbeRequest = {
 export type RmfgProbeTransport = (request: RmfgProbeRequest) => Promise<RmfgProbeResponse>;
 
 /**
- * TODO(OVD-rmfg-probe): the repository has no RMFG HTTP client and no
- * documented account or health endpoint. rmfgQuoteTransport.ts is an offline
- * contract that covers materials, designs, analyze and quotes only, and the
- * materials catalog may be public, so a 200 there would not prove the key.
- * Blaine or the RMFG docs must name the endpoint before this is set. Until
- * then the probe makes no network call.
+ * One read only call to the account resource of the RMFG REST API. Host and
+ * origin match RMFG_API_ORIGIN in adapters/rmfgHttpTransport.ts. The path
+ * comes from RMFG's OpenAPI (GET /v1/account) and has not been checked against
+ * a live account response from this repository.
  */
-export const RMFG_PROBE_ENDPOINT: string | null = null;
+export const RMFG_PROBE_ENDPOINT: string | null = "https://api.rmfg.com/v1/account";
+
+/**
+ * Minimal fetch transport for the probe. It sends one GET with a bearer key,
+ * follows no redirect, never reads the body and returns only the status. The
+ * key is never placed in an error, so a failure carries no secret.
+ */
+export function createRmfgFetchTransport(fetchImpl: typeof fetch = fetch): RmfgProbeTransport {
+  return async ({ method, url, apiKey, timeoutMs }) => {
+    const response = await fetchImpl(url, {
+      method,
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    return { status: response.status };
+  };
+}
 
 export function validateRmfgApiKey(value: string): string | null {
   const key = value.trim();
@@ -847,7 +863,7 @@ export async function runSessionProbe(
   }
   try {
     if (target.adapterKind === "api") {
-      // Decide before reading the secret: with no endpoint there is nothing to call.
+      // Decide before reading the secret: with no endpoint or transport there is nothing to call.
       if (RMFG_PROBE_ENDPOINT === null || !deps.rmfgTransport) {
         return { ...baseEvidence(args.provider, now), reason: "rmfg_endpoint_not_configured" };
       }
