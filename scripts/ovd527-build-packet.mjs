@@ -279,8 +279,8 @@ function shellDouble(text) {
  * does this, so `docker run --network=none` lists them next to lo). They carry
  * no route or address. They count as "no network" only while administratively
  * down (IFF_UP, bit 0x1, clear); any other interface, or any of these up,
- * means the runtime had a network. The sysfs file bonding_masters is not a
- * device and is skipped.
+ * means the runtime had a network. Flags are 32-bit kernel values, so only 1-8
+ * hex digits are accepted; anything longer fails closed.
  */
 export const KERNEL_FALLBACK_TUNNEL_DEVICES = Object.freeze(new Set([
   "tunl0", "ip6tnl0", "sit0", "gre0", "gretap0", "erspan0",
@@ -293,11 +293,9 @@ export function runtimeNetworkDisabled(interfaces) {
   for (const entry of interfaces) {
     const [name, flags, ...rest] = String(entry).split(":");
     if (rest.length > 0) return false;
-    // sysfs control file, not a device (older inspections listed it).
-    if (name === "bonding_masters" && flags === "x") continue;
     if (name === "lo") { loopbacks += 1; continue; }
     if (!KERNEL_FALLBACK_TUNNEL_DEVICES.has(name)) return false;
-    if (!/^0x[0-9a-f]+$/i.test(flags ?? "")) return false;
+    if (!/^0x[0-9a-f]{1,8}$/i.test(flags ?? "")) return false;
     if ((Number.parseInt(flags, 16) & 0x1) !== 0) return false;
   }
   return loopbacks === 1;
