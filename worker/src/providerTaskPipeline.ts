@@ -46,6 +46,7 @@ import {
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
 } from "./types.js";
+import { PROVIDER_ABORTED, ProviderAbortedError, throwIfProviderAborted, withProviderAbortSignal } from "./providerAbort.js";
 import {
   CANCELLED_PROVIDER_DISABLED,
   isProviderKillSwitchEngaged,
@@ -241,6 +242,10 @@ export function classifyProviderAdapterFailure(
     return phase.started
       ? { failureClass: "manual_follow_up", code: PROVIDER_KILL_SWITCH_UNAVAILABLE }
       : { failureClass: "failed", code: PROVIDER_KILL_SWITCH_UNAVAILABLE };
+  }
+  // OVD-748: an abort is a stop decision, never a provider failure and never retried.
+  if (error instanceof ProviderAbortedError) {
+    return { failureClass: phase.started ? "manual_follow_up" : "failed", code: PROVIDER_ABORTED };
   }
   const vendorError = error instanceof VendorAutomationError ? error : null;
   if (phase.started || vendorError?.payload.providerMutationPossible === true) {
@@ -717,8 +722,16 @@ function leaseStop(run: ProviderTaskLeaseRunResult<unknown>, state: RunState, on
       );
     case "rejected":
       return stop("manual_follow_up", "lease_rejected", "lease");
-    case "lease_lost":
+    case "lease_lost": {
+      // OVD-748: the lease manager reports every aborted run as lease_lost, which would
+      // erase the operator hand off an abort after a provider mutation requires.
+      const aborted = state.adapterError?.error;
+      if (aborted instanceof ProviderAbortedError) {
+        const classed = classifyProviderAdapterFailure(aborted, state.mutationPhase);
+        return stop(classed.failureClass, classed.code, "adapter");
+      }
       return stop("failed", "lease_lost", state.adapterStarted ? "adapter" : "lease");
+    }
     default:
       return stop("failed", "lease_result_malformed", "lease");
   }
@@ -857,17 +870,24 @@ async function executeValidateAndPersist(
       execute: async (context: ProviderExecutionContext) => {
         try {
           leaseContext?.assertHeld();
+          // OVD-748: permit expiry or a lost lease stops the adapter at its next checkpoint.
+          const signal = leaseContext ? AbortSignal.any([context.signal, leaseContext.signal]) : context.signal;
+          throwIfProviderAborted(signal, "before_launch");
           packageId = providerPackageId(context.files);
           state.adapterStarted = true;
           deps.onAdapterStart?.();
+          const abortableInput = withProviderAbortSignal(quoteInput, signal);
           // Adapters mark this phase right before their first upload or quote configuration.
-          const output = await runInProviderMutationPhase(state.mutationPhase, () => route.adapter.quote(quoteInput));
+          const output = await runInProviderMutationPhase(state.mutationPhase, () => route.adapter.quote(abortableInput));
           collectedAt = new Date(now()).toISOString();
           return output;
         } catch (error) {
           // OVD-722: a before_launch refusal comes from the guard wrapping the
           // adapter, before anything launched; the adapter never started.
           if (error instanceof ProviderKillSwitchError && error.checkpoint === "before_launch") {
+            state.adapterStarted = false;
+          }
+          if (error instanceof ProviderAbortedError && error.checkpoint === "before_launch") {
             state.adapterStarted = false;
           }
           state.adapterError = { error };

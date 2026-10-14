@@ -331,6 +331,11 @@ export type VendorQuoteAdapterInput = {
   providerKillSwitchCheckpoint?: (
     checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
   ) => Promise<void>;
+  /**
+   * OVD-748: aborted when the dispatch permit expires or the session lease is
+   * lost. Adapters stop at their next checkpoint by throwing ProviderAbortedError.
+   */
+  signal?: AbortSignal;
 };
 
 export type StagedFile = {
