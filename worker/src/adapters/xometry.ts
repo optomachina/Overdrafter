@@ -54,6 +54,7 @@ import type {
   ProviderUploadCapabilityDecision,
   ProviderUploadCapabilityObserved,
 } from "../providerUploadCapabilityTypes.js";
+import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
@@ -2422,7 +2423,7 @@ async function attachDrawingFallback(
       if (attempt.outcome === "verified") return attempt.result;
       if (attempt.outcome === "terminal_failure") return null;
     } catch (error) {
-      if (error instanceof ProviderKillSwitchError) throw error;
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
       // Try the next drawing-specific input.
     }
   }

@@ -20,6 +20,7 @@ import {
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
@@ -1220,8 +1221,8 @@ export async function runIntentionalPortalRetry<T>(input: {
     try {
       return await input.operation();
     } catch (error) {
-      // OVD-722: a kill-switch refusal is final; never retry past it.
-      if (error instanceof ProviderKillSwitchError) throw error;
+      // OVD-722: a kill-switch refusal is final; never retry past it. OVD-748: nor an abort.
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
       lastError = error;
     }
   }

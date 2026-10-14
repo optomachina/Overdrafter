@@ -7,6 +7,7 @@ import fixture from "../../../test-fixtures/provider-dispatch-envelope/geomiq-v1
 import { buildProviderDispatchFixtureEnvelope, providerDispatchFixtureAuthorization } from "../../test-support/providerDispatchFixture";
 import { loadConfig } from "../config";
 import { sha256File } from "../liveEvaluationFiles";
+import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort";
 import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
 import {
   createProviderKillSwitchGuard,
@@ -190,6 +191,30 @@ describe("RMFG live adapter", () => {
       providerKillSwitchCheckpoint: async (checkpoint) => { if (checkpoint === "before_configure") throw engaged; },
     })).catch((caught: unknown) => caught);
     expect(error).toBe(engaged);
+    expect(calls).toEqual(["/v1/analyze", "/v1/materials"]);
+  });
+
+  it("OVD-748: sends no request when the run is aborted before start", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const controller = new AbortController();
+    controller.abort();
+    const error = await adapterWith(fetchImpl).quote(withProviderAbortSignal(
+      await authorizedInput(), controller.signal,
+    )).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderAbortedError);
+    expect(calls).toEqual([]);
+  });
+
+  it("OVD-748: stops before the next request when aborted mid quote, as an abort and not a provider failure", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const controller = new AbortController();
+    const adapterInput = await authorizedInput({
+      providerKillSwitchCheckpoint: async (checkpoint) => { if (checkpoint === "before_configure") controller.abort(); },
+    });
+    const error = await adapterWith(fetchImpl).quote(withProviderAbortSignal(adapterInput, controller.signal))
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderAbortedError);
+    expect(error).not.toBeInstanceOf(VendorAutomationError);
     expect(calls).toEqual(["/v1/analyze", "/v1/materials"]);
   });
 
