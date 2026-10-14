@@ -287,7 +287,8 @@ describe("RMFG live adapter", () => {
 
   it("is listed for live automation but stays out of the default live registry", () => {
     expect(LIVE_AUTOMATION_VENDORS).toContain("rmfg");
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((envelope) => envelope.provider === "rmfg")).toBe(false);
+    // The envelope is reviewed in code (OVD-687), which admits nothing without a review row and the live registry.
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((envelope) => envelope.provider === "rmfg")).toBe(true);
     const defaults = loadConfig({ SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "synthetic",
       WORKER_MODE: "live" } as NodeJS.ProcessEnv);
     expect(defaults.workerLiveAdapters).not.toContain("rmfg");

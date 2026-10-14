@@ -54,6 +54,6 @@ describe("RMFG source envelope", () => {
     expect(LIVE_AUTOMATION_VENDORS).toContain("rmfg");
     expect(evaluateRmfgEligibility({ process: "cnc_milling", fileName: "bracket.step" }))
       .toMatchObject({ eligible: false, reason: "cnc_only_not_supported" });
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(true);
   });
 });

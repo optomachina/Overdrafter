@@ -65,8 +65,8 @@ describe("RMFG offline quote transport", () => {
       offer: { quantity: 10, currency: "USD", unitPriceUsd: 12.5,
         totalPriceUsd: 125, leadTimeBusinessDays: null,
         provenance: { leadTimeBusinessDays: "unknown" } } });
-    // OVD-678 lists rmfg for live automation; its dispatch envelope stays unreviewed.
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
+    // OVD-687 reviews the rmfg dispatch envelope in code; a review row and admission still gate dispatch.
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(true);
   });
 
   it("stops before quoting for an unverified stock ID or missing part selection", async () => {
