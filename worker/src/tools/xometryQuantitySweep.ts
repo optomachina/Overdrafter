@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import type { VendorAdapter } from "../adapters/base.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import {
@@ -15,7 +16,8 @@ import type {
   WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
-import { assertOperatorProvidersEnabled } from "./operatorKillSwitchGate.js";
+import { ProviderKillSwitchError, type ProviderKillSwitchReader } from "../providerKillSwitch.js";
+import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -260,7 +262,7 @@ function buildErrorRow(quantity: number, startedAt: string, startMs: number, err
   };
 }
 
-async function runQuote(
+export async function runQuote(
   adapter: VendorAdapter,
   quantity: number,
   cadPath: string,
@@ -268,13 +270,14 @@ async function runQuote(
   stagedCadPath: string,
   stagedDrawingPath: string | null,
   authorization: LiveEvaluationAuthorization,
+  killSwitchReader?: ProviderKillSwitchReader,
 ): Promise<SweepRow> {
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
 
   try {
-    const result = await adapter.quote(
+    const result = await guardOperatorQuote("xometry", (input) => adapter.quote(input), killSwitchReader)(
       makeInput(
         quantity,
         cadPath,
@@ -301,6 +304,7 @@ async function runQuote(
     };
   } catch (error) {
     console.log("FAILED");
+    if (error instanceof ProviderKillSwitchError) throw error;
     return buildErrorRow(quantity, startedAt, startMs, error);
   }
 }
@@ -405,9 +409,11 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(error);
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  }
 }

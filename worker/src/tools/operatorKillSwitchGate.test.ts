@@ -5,7 +5,7 @@ import {
   PROVIDER_KILL_SWITCH_STATE_SCHEMA,
   ProviderKillSwitchError,
 } from "../providerKillSwitch";
-import { assertOperatorProvidersEnabled, envProviderKillSwitchReader } from "./operatorKillSwitchGate";
+import { assertOperatorProvidersEnabled, envProviderKillSwitchReader, guardOperatorQuote } from "./operatorKillSwitchGate";
 
 function state(provider: string, engaged: boolean, globalEngaged: boolean) {
   return { schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA, provider, engaged, globalEngaged };
@@ -65,5 +65,39 @@ describe("envProviderKillSwitchReader", () => {
     });
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("assertOperatorProvidersEnabled with no live providers", () => {
+  it("needs no credentials and makes no read when the run is strictly offline", async () => {
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    await expect(assertOperatorProvidersEnabled([])).resolves.toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("guardOperatorQuote", () => {
+  it("rechecks before every launch so engaging between quotes blocks the next one", async () => {
+    let engaged = false;
+    const reader = async (provider: string) => state(provider, engaged, false);
+    const quote = vi.fn(async () => "quoted");
+    const guarded = guardOperatorQuote("xometry", quote, reader);
+
+    await expect(guarded({} as never)).resolves.toBe("quoted");
+    engaged = true;
+    await expect(guarded({} as never)).rejects.toMatchObject({ reasonCode: "provider_kill_switch_engaged" });
+    expect(quote).toHaveBeenCalledOnce();
+  });
+
+  it("passes the guard to the adapter as its checkpoint", async () => {
+    let engaged = false;
+    const reader = async (provider: string) => state(provider, engaged, false);
+    const guarded = guardOperatorQuote("xometry", async (input) => {
+      engaged = true;
+      await input.providerKillSwitchCheckpoint?.("before_save");
+    }, reader);
+
+    await expect(guarded({} as never)).rejects.toMatchObject({ checkpoint: "before_save" });
   });
 });

@@ -31,13 +31,13 @@ import {
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
-import { assertOperatorProvidersEnabled } from "./operatorKillSwitchGate.js";
+import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
   sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
-import type { ProviderKillSwitchReader } from "../providerKillSwitch.js";
+import { ProviderKillSwitchError, type ProviderKillSwitchReader } from "../providerKillSwitch.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
@@ -1379,6 +1379,11 @@ function nativeCurrencyRow(input: {
  * Runs one quantity from captured bytes after provider-specific admission is
  * revalidated before registry construction or any adapter/provider call.
  */
+/** SendCutSend evaluates a reviewed manifest offline, so it never reaches the provider or the switch. */
+function isLiveProviderVendor(vendor: VendorName): boolean {
+  return vendor !== "sendcutsend";
+}
+
 export async function runQuote(
   config: WorkerConfig,
   args: SmokeArgs,
@@ -1388,6 +1393,7 @@ export async function runQuote(
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
   sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
   providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
+  killSwitchReader?: ProviderKillSwitchReader,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
@@ -1453,7 +1459,7 @@ export async function runQuote(
       });
     const result = adapter.evaluateLocally
       ? await adapter.evaluateLocally(adapterInput)
-      : await adapter.quote(adapterInput);
+      : await guardOperatorQuote(vendor, (input) => adapter.quote(input), killSwitchReader)(adapterInput);
     if (isLocalNativeCurrencyResult(result)) {
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
@@ -1506,6 +1512,7 @@ export async function runQuote(
     };
   } catch (error) {
     console.log("FAILED");
+    if (error instanceof ProviderKillSwitchError) throw error;
     row = buildErrorRow(
       vendor,
       quantity,
@@ -1533,7 +1540,10 @@ export async function runEvaluationBatch(
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
-  await assertOperatorProvidersEnabled(args.vendors, dependencies.killSwitchReader);
+  await assertOperatorProvidersEnabled(
+    args.vendors.filter(isLiveProviderVendor),
+    dependencies.killSwitchReader,
+  );
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
   const providerPortalApproval = await loadProviderPortalApproval(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
@@ -1583,7 +1593,6 @@ export async function runEvaluationBatch(
       console.log(`  Session state: ${config.vendorStorageStateDir ? "configured" : "not configured"}`);
 
       for (const quantity of args.quantities) {
-        await assertOperatorProvidersEnabled([vendor], dependencies.killSwitchReader);
         const row = await runQuote(
           config,
           args,
@@ -1593,6 +1602,7 @@ export async function runEvaluationBatch(
           buildRegistry,
           sendCutSendManifest,
           providerPortalApproval,
+          dependencies.killSwitchReader,
         );
         rows.push(row);
       }

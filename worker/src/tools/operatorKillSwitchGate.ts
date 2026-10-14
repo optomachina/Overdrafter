@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   assertProviderKillSwitchDisengaged,
+  createProviderKillSwitchGuard,
+  guardProviderQuote,
   supabaseProviderKillSwitchReader,
   type ProviderKillSwitchReader,
 } from "../providerKillSwitch.js";
-import type { VendorName } from "../types.js";
+import type { VendorName, VendorQuoteAdapterInput } from "../types.js";
 
 /**
  * OVD-751: operator CLI tools that reach live providers consult the same
@@ -37,4 +39,17 @@ export async function assertOperatorProvidersEnabled(
   for (const provider of new Set(providers)) {
     await assertProviderKillSwitchDisengaged({ reader, provider, checkpoint: "before_launch" });
   }
+}
+
+/**
+ * Wraps a live quote so the switch is read immediately before each launch and
+ * the same guard reaches the adapter's own upload, configure, and save
+ * checkpoints. Engaging the switch mid run stops the next provider mutation.
+ */
+export function guardOperatorQuote<T>(
+  provider: VendorName,
+  quote: (input: VendorQuoteAdapterInput) => Promise<T>,
+  reader: ProviderKillSwitchReader = envProviderKillSwitchReader(),
+): (input: VendorQuoteAdapterInput) => Promise<T> {
+  return guardProviderQuote(createProviderKillSwitchGuard(reader, provider), quote);
 }
