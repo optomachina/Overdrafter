@@ -154,9 +154,10 @@ export function guardProviderQuote<T>(
   onLaunch?: () => void,
 ): (input: VendorQuoteAdapterInput) => Promise<T> {
   return async (input) => {
-    await guard("before_launch");
+    const checkpoint = abortAwareCheckpoint(guard, input.signal) ?? guard;
+    await checkpoint("before_launch");
     onLaunch?.();
-    return quote({ ...input, providerKillSwitchCheckpoint: abortAwareCheckpoint(guard, input.signal) });
+    return quote({ ...input, providerKillSwitchCheckpoint: checkpoint });
   };
 }
 

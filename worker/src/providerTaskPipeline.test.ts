@@ -1,12 +1,14 @@
 // @vitest-environment node
 
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { genericFictivEnvelope } from "../test-support/genericDispatchResponse";
 import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
 import { ProviderAbortedError } from "./providerAbort";
 import { ProviderKillSwitchError } from "./providerKillSwitch";
+import { createProviderSessionLeaseMemoryStore } from "./providerSessionLeaseMemoryStore";
+import { createProviderSessionLeaseManager } from "./providerSessionLease";
 import type { ProviderDispatchAuthorization, ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
   createProviderAuthorizationConsumer,
@@ -903,6 +905,57 @@ describe("abort signal into the adapter (OVD-748)", () => {
     });
     const outcome = await runProviderTaskPipeline(input(), h.deps);
     expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null });
+  });
+
+  describe("with the real lease manager", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // The real manager answers lease_lost whenever its signal aborted, whatever the operation returned.
+    async function runLostLease(mutate: boolean) {
+      vi.useFakeTimers({ now: 0 });
+      const memory = createProviderSessionLeaseMemoryStore({ now: () => Date.now() });
+      const manager = createProviderSessionLeaseManager({
+        store: memory,
+        policy: { ttlSeconds: 30, maxRenewals: 5, maxDurationSeconds: 600, safetyMarginMs: 5_000, heartbeatIntervalMs: 10_000 },
+        now: () => Date.now(),
+        log: () => undefined,
+        holderToken: () => "46200000-0000-4000-8000-000000000001",
+      });
+      const fake = fakeLease([]);
+      const port: ProviderTaskLeasePort = {
+        identity: fake.port.identity,
+        toLeaseError: fake.port.toLeaseError,
+        runWithLease: (request, operation) =>
+          manager.runWithLease(request as Parameters<typeof manager.runWithLease>[0], operation as Parameters<typeof manager.runWithLease>[1]) as never,
+      };
+      const h = harness({
+        lease: port,
+        quote: async (quoteInput) => {
+          if (mutate) markProviderMutationStarted();
+          await new Promise<void>((resolve) => quoteInput.signal?.addEventListener("abort", () => resolve(), { once: true }));
+          await quoteInput.providerKillSwitchCheckpoint?.("before_save");
+          return quoteOutput();
+        },
+      });
+      const run = runProviderTaskPipeline(input(leaseOn), h.deps);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await memory.revokeBinding(port.identity("fictiv", "test") as never, { actorRef: "ops-oncall-1", reasonRef: "OVD-748" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      return { outcome: await run, h };
+    }
+
+    it("lost lease after a provider mutation stays manual follow up", async () => {
+      const { outcome, h } = await runLostLease(true);
+      expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", adapterStarted: true, retryAt: null });
+      expect(h.persist).not.toHaveBeenCalled();
+    });
+
+    it("lost lease before any provider mutation is still a plain lease_lost failure", async () => {
+      const { outcome } = await runLostLease(false);
+      expect(outcome).toMatchObject({ disposition: "failed", code: "lease_lost", adapterStarted: true });
+    });
   });
 });
 

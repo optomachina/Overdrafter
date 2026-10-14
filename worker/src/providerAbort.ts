@@ -21,10 +21,11 @@ export function throwIfProviderAborted(signal: AbortSignal | undefined, checkpoi
   if (signal?.aborted) throw new ProviderAbortedError(checkpoint);
 }
 
-type Checkpoint = NonNullable<VendorQuoteAdapterInput["providerKillSwitchCheckpoint"]>;
-
 /** Checks the signal before and after the wrapped checkpoint, which may take a network round trip. */
-export function abortAwareCheckpoint(checkpoint: Checkpoint | undefined, signal: AbortSignal | undefined): Checkpoint | undefined {
+export function abortAwareCheckpoint<N extends string>(
+  checkpoint: ((name: N) => Promise<void>) | undefined,
+  signal: AbortSignal | undefined,
+): ((name: N) => Promise<void>) | undefined {
   if (!signal) return checkpoint;
   return async (name) => {
     throwIfProviderAborted(signal, name);

@@ -723,6 +723,10 @@ function leaseStop(run: ProviderTaskLeaseRunResult<unknown>, state: RunState, on
     case "rejected":
       return stop("manual_follow_up", "lease_rejected", "lease");
     case "lease_lost":
+      // OVD-748: the abort that follows a lost lease still leaves a provider mutation for an operator.
+      if (state.adapterError?.error instanceof ProviderAbortedError && state.mutationPhase.started) {
+        return stop("manual_follow_up", PROVIDER_ABORTED, "adapter");
+      }
       return stop("failed", "lease_lost", state.adapterStarted ? "adapter" : "lease");
     default:
       return stop("failed", "lease_result_malformed", "lease");

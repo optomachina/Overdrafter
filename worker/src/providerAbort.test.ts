@@ -69,6 +69,42 @@ describe("provider abort signal (OVD-748)", () => {
     expect(guard.mock.calls.map(([name]) => name)).toEqual(["before_launch", "before_navigation"]);
   });
 
+  it("a pre-aborted signal stops before the launch guard, onLaunch and the adapter", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const guard = vi.fn(async () => {});
+    const onLaunch = vi.fn();
+    const adapter = vi.fn(async () => {});
+    const quote = guardProviderQuote(guard, adapter, onLaunch);
+    await expect(quote({ ...bareInput, signal: controller.signal })).rejects.toMatchObject({ checkpoint: "before_launch" });
+    expect(guard).not.toHaveBeenCalled();
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
+  it("an abort during the launch guard stops before onLaunch and the adapter", async () => {
+    const controller = new AbortController();
+    const guard = vi.fn(async () => controller.abort());
+    const onLaunch = vi.fn();
+    const adapter = vi.fn(async () => {});
+    const quote = guardProviderQuote(guard, adapter, onLaunch);
+    await expect(quote({ ...bareInput, signal: controller.signal })).rejects.toMatchObject({ checkpoint: "before_launch" });
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
+  it("without a signal the launch guard still runs, then onLaunch, then the adapter", async () => {
+    const order: string[] = [];
+    const quote = guardProviderQuote(
+      async (name) => void order.push(`guard:${name}`),
+      async () => void order.push("adapter"),
+      () => order.push("launch"),
+    );
+    await quote(bareInput);
+    expect(order).toEqual(["guard:before_launch", "launch", "adapter"]);
+  });
+
   it("is rethrown unchanged by adapters, like other dispatch decisions", () => {
     expect(isDispatchDecisionError(new ProviderAbortedError("before_save"))).toBe(true);
     expect(isDispatchDecisionError(new Error("navigation timeout"))).toBe(false);
