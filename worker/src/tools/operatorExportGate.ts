@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,12 +21,22 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-/** Directories whose files are checked in and carry no customer data. */
+/** Directories whose approved files carry no customer data. */
 export const OPERATOR_FIXTURE_ROOTS: readonly string[] = Object.freeze([
   path.join(REPO_ROOT, "worker", "eval-corpus"),
   path.join(REPO_ROOT, "worker", "test-support"),
   path.join(REPO_ROOT, "e2e", "fixtures"),
 ]);
+
+/**
+ * Approved fixture drawings: repo relative POSIX path to the SHA-256 of the
+ * reviewed bytes. A file in a fixture root is admitted only when its path and
+ * hash both appear here, so an untracked or replaced drawing is not a fixture.
+ * Add an entry in the same change that adds a rights approved drawing.
+ */
+export const OPERATOR_FIXTURE_MANIFEST: Readonly<Record<string, string>> = Object.freeze({});
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 export class OperatorExportGateError extends Error {
   constructor(message: string) {
@@ -39,13 +50,20 @@ function isInside(root: string, target: string): boolean {
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
+async function sha256OfFile(filePath: string): Promise<string> {
+  return createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
+}
+
 /**
- * True when the file resolves, symlinks followed, to a path under an in-repo
- * fixture root. A missing file is not a fixture.
+ * True when the file resolves, symlinks followed, to a path under a fixture
+ * root, and its repo relative path and current SHA-256 match an approved
+ * manifest entry. A missing, untracked, or modified file is not a fixture.
  */
 export async function isInRepoFixture(
   filePath: string,
   roots: readonly string[] = OPERATOR_FIXTURE_ROOTS,
+  manifest: Readonly<Record<string, string>> = OPERATOR_FIXTURE_MANIFEST,
+  repoRoot: string = REPO_ROOT,
 ): Promise<boolean> {
   let resolved: string;
   try {
@@ -53,11 +71,63 @@ export async function isInRepoFixture(
   } catch {
     return false;
   }
+  let inRoot = false;
   for (const root of roots) {
     const realRoot = await fs.realpath(root).catch(() => null);
-    if (realRoot && isInside(realRoot, resolved)) return true;
+    if (realRoot && isInside(realRoot, resolved)) {
+      inRoot = true;
+      break;
+    }
   }
-  return false;
+  if (!inRoot) return false;
+
+  const realRepo = await fs.realpath(repoRoot).catch(() => null);
+  if (!realRepo || !isInside(realRepo, resolved)) return false;
+  const key = path.relative(realRepo, resolved).split(path.sep).join("/");
+  const approved = Object.hasOwn(manifest, key) ? manifest[key] : undefined;
+  if (typeof approved !== "string" || !SHA256_HEX.test(approved)) return false;
+  try {
+    return (await sha256OfFile(resolved)) === approved;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Throws unless the local bytes hash to a drawing record of this job. This
+ * binds the job's export declaration to the file the operator is about to send.
+ */
+async function assertFileBelongsToJob(
+  client: Pick<SupabaseClient, "from">,
+  input: { filePath: string; jobId: string },
+): Promise<void> {
+  const fail = (reason: string) =>
+    new OperatorExportGateError(`Refusing ${input.filePath}: ${reason}`);
+  let localHash: string;
+  try {
+    localHash = await sha256OfFile(input.filePath);
+  } catch {
+    throw fail("the file could not be read to verify it against the job.");
+  }
+  let rows: unknown;
+  try {
+    const { data, error } = await client
+      .from("job_files")
+      .select("content_sha256")
+      .eq("job_id", input.jobId)
+      .eq("file_kind", "drawing");
+    if (error) throw fail("the job drawing lookup failed.");
+    rows = data;
+  } catch (error) {
+    if (error instanceof OperatorExportGateError) throw error;
+    throw fail("the job drawing lookup failed.");
+  }
+  const hashes = Array.isArray(rows)
+    ? rows.map((row) => (row as { content_sha256?: unknown })?.content_sha256)
+    : [];
+  if (!hashes.some((hash) => typeof hash === "string" && hash.toLowerCase() === localHash)) {
+    throw fail(`the file does not match any drawing recorded for job ${input.jobId}.`);
+  }
 }
 
 export type OperatorExportGate = {
@@ -68,14 +138,15 @@ export type OperatorExportGate = {
 
 /**
  * Admits one drawing for model extraction or throws `OperatorExportGateError`.
- * A fixture passes. Anything else needs `jobId`, a fully read drawing with no
- * marking, and a clean declaration from `api_check_export_control_extraction`.
+ * An approved fixture (path and hash in the manifest) passes. Anything else
+ * needs `jobId`, a fully read drawing with no marking whose bytes match one of
+ * that job's drawing records, and a clean declaration from `api_check_export_control_extraction`.
  */
 export async function admitOperatorDrawing(input: {
   filePath: string;
   jobId: string | null;
   pdfText: DrawingTextForExportScan | null;
-  supabase: () => Pick<SupabaseClient, "rpc">;
+  supabase: () => Pick<SupabaseClient, "rpc" | "from">;
   isFixture?: (filePath: string) => Promise<boolean>;
 }): Promise<OperatorExportGate> {
   if (await (input.isFixture ?? isInRepoFixture)(input.filePath)) {
@@ -101,6 +172,7 @@ export async function admitOperatorDrawing(input: {
   }
 
   const client = input.supabase();
+  await assertFileBelongsToJob(client, { filePath: input.filePath, jobId: input.jobId });
   try {
     await assertExportControlExtractionAllowed(client, { jobId: input.jobId });
   } catch (error) {

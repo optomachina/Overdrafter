@@ -3,7 +3,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { admitOperatorDrawing, isInRepoFixture, OperatorExportGateError, readJobIdArg } from "./operatorExportGate.js";
 
 const readPdf = (text: string) => ({
@@ -13,9 +14,34 @@ const readPdf = (text: string) => ({
   pages: [{ text, ocrText: text || "title block", ocrStatus: "ok" }],
 });
 
-function rpcReturning(data: unknown, error: unknown = null) {
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+let tmpDir: string;
+let drawing: string;
+beforeAll(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ovd757-gate-"));
+  drawing = path.join(tmpDir, "x.pdf");
+  await fs.writeFile(drawing, "drawing bytes");
+});
+afterAll(async () => {
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+function rpcReturning(
+  data: unknown,
+  error: unknown = null,
+  jobFiles: { data: unknown; error?: unknown } = { data: [{ content_sha256: sha256("drawing bytes") }] },
+) {
   const rpc = vi.fn(async () => ({ data, error }));
-  return { client: { rpc } as never, rpc };
+  const eqs: Array<[string, unknown]> = [];
+  const query = {
+    eq: (column: string, value: unknown) => {
+      eqs.push([column, value]);
+      return eqs.length >= 2 ? Promise.resolve({ data: jobFiles.data, error: jobFiles.error ?? null }) : query;
+    },
+  };
+  const from = vi.fn(() => ({ select: () => query }));
+  return { client: { rpc, from } as never, rpc, from, eqs };
 }
 
 const notFixture = async () => false;
@@ -37,14 +63,14 @@ describe("admitOperatorDrawing", () => {
 
   it("refuses a non fixture without a job id", async () => {
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: null, pdfText: readPdf("PART"), supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: null, pdfText: readPdf("PART"), supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toThrow(/Pass --job-id/);
   });
 
   it("refuses a marking hit before any database call", async () => {
     const supabase = vi.fn();
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: "job-1", pdfText: readPdf("ITAR controlled"), supabase, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("ITAR controlled"), supabase, isFixture: notFixture }),
     ).rejects.toThrow(/markings found \(itar/);
     expect(supabase).not.toHaveBeenCalled();
   });
@@ -52,17 +78,47 @@ describe("admitOperatorDrawing", () => {
   it("refuses a drawing that was not fully read", async () => {
     const unread = { ...readPdf("PART"), drawingFullyRead: false };
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: "job-1", pdfText: unread, supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: unread, supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toBeInstanceOf(OperatorExportGateError);
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: "job-1", pdfText: null, supabase: vi.fn(), isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: null, supabase: vi.fn(), isFixture: notFixture }),
     ).rejects.toThrow(/not every drawing page/);
+  });
+
+  it("refuses a file that is not a drawing of the declared job before the declaration check", async () => {
+    const { client, rpc, eqs } = rpcReturning({ allowed: true }, null, { data: [{ content_sha256: sha256("other bytes") }] });
+    await expect(
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+    ).rejects.toThrow(/does not match any drawing recorded for job job-1/);
+    expect(eqs).toEqual([["job_id", "job-1"], ["file_kind", "drawing"]]);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unrelated job with no drawing records", async () => {
+    const { client, rpc } = rpcReturning({ allowed: true }, null, { data: [] });
+    await expect(
+      admitOperatorDrawing({ filePath: drawing, jobId: "clean-job", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+    ).rejects.toBeInstanceOf(OperatorExportGateError);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the drawing lookup errors or the file is unreadable", async () => {
+    const failing = rpcReturning({ allowed: true }, null, { data: null, error: { message: "down" } });
+    await expect(
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => failing.client, isFixture: notFixture }),
+    ).rejects.toThrow(/lookup failed/);
+    const ok = rpcReturning({ allowed: true });
+    await expect(
+      admitOperatorDrawing({ filePath: path.join(tmpDir, "missing.pdf"), jobId: "job-1", pdfText: readPdf("PART"), supabase: () => ok.client, isFixture: notFixture }),
+    ).rejects.toThrow(/could not be read/);
+    expect(failing.rpc).not.toHaveBeenCalled();
+    expect(ok.rpc).not.toHaveBeenCalled();
   });
 
   it("refuses when the job declaration is missing", async () => {
     const { client, rpc } = rpcReturning({ allowed: false, reasonCode: "export_declaration_missing" });
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toThrow(OperatorExportGateError);
     expect(rpc).toHaveBeenCalledWith("api_check_export_control_extraction", { p_job_id: "job-1" });
   });
@@ -70,14 +126,14 @@ describe("admitOperatorDrawing", () => {
   it("fails closed when the lookup errors", async () => {
     const { client } = rpcReturning(null, { message: "down" });
     await expect(
-      admitOperatorDrawing({ filePath: "/tmp/x.pdf", jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
+      admitOperatorDrawing({ filePath: drawing, jobId: "job-1", pdfText: readPdf("PART"), supabase: () => client, isFixture: notFixture }),
     ).rejects.toBeInstanceOf(OperatorExportGateError);
   });
 
   it("admits a clean declared job and re-checks before each model attempt", async () => {
     const { client, rpc } = rpcReturning({ allowed: true });
     const gate = await admitOperatorDrawing({
-      filePath: "/tmp/x.pdf",
+      filePath: drawing,
       jobId: "job-1",
       pdfText: readPdf("PART 123"),
       supabase: () => client,
@@ -93,25 +149,39 @@ describe("admitOperatorDrawing", () => {
 });
 
 describe("isInRepoFixture", () => {
-  it("accepts files under a root and rejects outside files, missing files and symlink escapes", async () => {
+  it("admits only approved, unmodified files under a root", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ovd757-"));
     try {
       const root = path.join(dir, "root");
       await fs.mkdir(root);
-      const inside = path.join(root, "a.pdf");
+      const approved = path.join(root, "a.pdf");
+      const untracked = path.join(root, "new.pdf");
+      const modified = path.join(root, "m.pdf");
       const outside = path.join(dir, "b.pdf");
       const link = path.join(root, "link.pdf");
-      await fs.writeFile(inside, "x");
+      await fs.writeFile(approved, "x");
+      await fs.writeFile(untracked, "x");
+      await fs.writeFile(modified, "changed");
       await fs.writeFile(outside, "x");
       await fs.symlink(outside, link);
-      expect(await isInRepoFixture(inside, [root])).toBe(true);
-      expect(await isInRepoFixture(outside, [root])).toBe(false);
-      expect(await isInRepoFixture(link, [root])).toBe(false);
-      expect(await isInRepoFixture(path.join(root, "missing.pdf"), [root])).toBe(false);
-      expect(await isInRepoFixture(root, [root])).toBe(false);
+      const manifest = { "root/a.pdf": sha256("x"), "root/m.pdf": sha256("original"), "b.pdf": sha256("x"), "root/link.pdf": sha256("x") };
+      const check = (file: string, m: Record<string, string> = manifest) => isInRepoFixture(file, [root], m, dir);
+      expect(await check(approved)).toBe(true);
+      expect(await check(untracked)).toBe(false);
+      expect(await check(modified)).toBe(false);
+      expect(await check(outside)).toBe(false);
+      expect(await check(link)).toBe(false);
+      expect(await check(path.join(root, "missing.pdf"))).toBe(false);
+      expect(await check(root)).toBe(false);
+      expect(await check(approved, {})).toBe(false);
+      expect(await check(approved, { "root/a.pdf": "not-a-hash" })).toBe(false);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("admits nothing from the checked in roots while the manifest is empty", async () => {
+    expect(await isInRepoFixture(path.join(process.cwd(), "package.json"))).toBe(false);
   });
 });
 
