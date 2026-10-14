@@ -279,7 +279,8 @@ function shellDouble(text) {
  * does this, so `docker run --network=none` lists them next to lo). They carry
  * no route or address. They count as "no network" only while administratively
  * down (IFF_UP, bit 0x1, clear); any other interface, or any of these up,
- * means the runtime had a network.
+ * means the runtime had a network. The sysfs file bonding_masters is not a
+ * device and is skipped.
  */
 export const KERNEL_FALLBACK_TUNNEL_DEVICES = Object.freeze(new Set([
   "tunl0", "ip6tnl0", "sit0", "gre0", "gretap0", "erspan0",
@@ -292,6 +293,8 @@ export function runtimeNetworkDisabled(interfaces) {
   for (const entry of interfaces) {
     const [name, flags, ...rest] = String(entry).split(":");
     if (rest.length > 0) return false;
+    // sysfs control file, not a device (older inspections listed it).
+    if (name === "bonding_masters" && flags === "x") continue;
     if (name === "lo") { loopbacks += 1; continue; }
     if (!KERNEL_FALLBACK_TUNNEL_DEVICES.has(name)) return false;
     if (!/^0x[0-9a-f]+$/i.test(flags ?? "")) return false;
@@ -317,7 +320,7 @@ export function containerInspectionScript(source) {
     't() { if [ "$1" "$2" ]; then echo true; else echo false; fi; }',
     'n=0; for f in /proc/[0-9]*/cmdline; do a=$(tr "\\000" "\\n" < "$f" 2>/dev/null | head -n 1); case "$a" in node|*/node) n=$((n+1));; esac; done',
     `m=$(find ${MMDB_SEARCH_ROOTS.join(" ")} -iname "*.mmdb" 2>/dev/null | wc -l | tr -d " ")`,
-    'i=$(for d in /sys/class/net/*; do printf "%s:%s " "${d##*/}" "$(cat "$d/flags" 2>/dev/null || echo x)"; done)',
+    'i=$(for d in /sys/class/net/*; do [ -d "$d" ] || continue; printf "%s:%s " "${d##*/}" "$(cat "$d/flags" 2>/dev/null || echo x)"; done)',
     `printf "%s\\n" "{\\"schema\\":\\"ovd527-container-v1\\",\\"buildVersion\\":\\"$WORKER_BUILD_VERSION\\",\\"machine\\":\\"$(uname -m)\\",\\"user\\":\\"$(id -un)\\",\\"netInterfaces\\":\\"$i\\",\\"nodeProcessCount\\":$n,\\"mmdbCount\\":$m,\\"criticalFiles\\":{${fileFields.join(",")}},\\"assets\\":{${assetFields.join(",")}}}"`,
   ];
   const script = lines.join("; ");
