@@ -69,6 +69,32 @@ describe("provider abort signal (OVD-748)", () => {
     expect(guard.mock.calls.map(([name]) => name)).toEqual(["before_launch", "before_navigation"]);
   });
 
+  it("never fires onLaunch or the adapter when the signal is already aborted", async () => {
+    const guard = vi.fn(async () => {});
+    const onLaunch = vi.fn();
+    const adapter = vi.fn(async () => "quoted");
+    const controller = new AbortController();
+    controller.abort();
+    const quote = guardProviderQuote(guard, adapter, onLaunch);
+    await expect(quote({ ...bareInput, signal: controller.signal })).rejects.toBeInstanceOf(ProviderAbortedError);
+    expect(guard).not.toHaveBeenCalled();
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
+  it("never fires onLaunch or the adapter when the abort lands during the launch guard", async () => {
+    const controller = new AbortController();
+    const guard = vi.fn(async () => {
+      controller.abort();
+    });
+    const onLaunch = vi.fn();
+    const adapter = vi.fn(async () => "quoted");
+    const quote = guardProviderQuote(guard, adapter, onLaunch);
+    await expect(quote({ ...bareInput, signal: controller.signal })).rejects.toMatchObject({ checkpoint: "before_launch" });
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
   it("is rethrown unchanged by adapters, like other dispatch decisions", () => {
     expect(isDispatchDecisionError(new ProviderAbortedError("before_save"))).toBe(true);
     expect(isDispatchDecisionError(new Error("navigation timeout"))).toBe(false);

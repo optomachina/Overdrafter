@@ -7,6 +7,8 @@ import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope"
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
 import { ProviderAbortedError } from "./providerAbort";
 import { ProviderKillSwitchError } from "./providerKillSwitch";
+import { createProviderSessionLeaseManager } from "./providerSessionLease";
+import { createProviderSessionLeaseMemoryStore } from "./providerSessionLeaseMemoryStore";
 import type { ProviderDispatchAuthorization, ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
   createProviderAuthorizationConsumer,
@@ -903,6 +905,50 @@ describe("abort signal into the adapter (OVD-748)", () => {
     });
     const outcome = await runProviderTaskPipeline(input(), h.deps);
     expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null });
+  });
+});
+
+describe("abort under the real lease manager (OVD-748)", () => {
+  function realLeasePort(calls: Calls): ProviderTaskLeasePort {
+    const memory = createProviderSessionLeaseMemoryStore();
+    const manager = createProviderSessionLeaseManager({
+      store: { ...memory, renew: async () => ({ status: "lost", reason: "expired", outcome: null }) },
+      policy: { ttlSeconds: 30, maxRenewals: 5, maxDurationSeconds: 600, safetyMarginMs: 5_000, heartbeatIntervalMs: 5 },
+      log: () => undefined,
+    });
+    const base = fakeLease(calls).port;
+    return { ...base, runWithLease: (request, operation) => manager.runWithLease(request, operation) };
+  }
+
+  async function runUntilLeaseLost(mutate: boolean) {
+    const calls: Calls = [];
+    const h = harness({
+      calls,
+      lease: realLeasePort(calls),
+      quote: async (quoteInput) => {
+        if (mutate) markProviderMutationStarted();
+        await new Promise<void>((resolve) => {
+          const poll = () => (quoteInput.signal?.aborted ? resolve() : void setTimeout(poll, 2));
+          poll();
+        });
+        await quoteInput.providerKillSwitchCheckpoint?.("before_save");
+        return quoteOutput();
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
+    return { outcome, h };
+  }
+
+  it("keeps manual follow up when the lease is lost after a provider mutation began", async () => {
+    const { outcome, h } = await runUntilLeaseLost(true);
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null, adapterStarted: true });
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("fails a lease lost before any provider mutation without a retry", async () => {
+    const { outcome, h } = await runUntilLeaseLost(false);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", retryAt: null });
+    expect(h.persist).not.toHaveBeenCalled();
   });
 });
 
