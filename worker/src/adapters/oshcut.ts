@@ -345,8 +345,29 @@ export class OshcutAdapter extends VendorAdapter {
       : this.quoteForProduction(input);
   }
 
-  /** Nothing reaches the production delegate without a matching authorization. */
+  /**
+   * A worker that is not live answers with a finite result before authorization
+   * is considered; only live mode refuses. Nothing reaches the production
+   * delegate without a matching authorization.
+   */
   private async quoteForProduction(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (this.config.workerMode !== "live") {
+      const finite = finiteOutput(
+        input,
+        "manual_followup",
+        "simulate_hidden_vendor",
+        "OSH Cut production quoting is off for this worker; no request was sent.",
+      );
+      return {
+        ...finite,
+        rawPayload: {
+          ...finite.rawPayload,
+          reason: "simulate_hidden_vendor",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+        },
+      };
+    }
     const denial = oshcutDispatchAuthorizationDenial(input);
     if (denial) {
       throw new VendorAutomationError(

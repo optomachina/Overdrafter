@@ -388,25 +388,46 @@ describe("OshcutAdapter", () => {
     expect(delegateQuote).not.toHaveBeenCalled();
   });
 
-  it.each(["simulate", "live"] as const)(
-    "refuses an eligible %s production package without a dispatch authorization, with zero provider interaction",
-    async (workerMode) => {
-      const delegateQuote = vi.fn();
-      const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode }));
+  it("returns a finite manual follow-up on a simulate worker without considering authorization", async () => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "simulate" }));
 
-      await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-        code: "unexpected_ui_state",
-        payload: {
-          vendor: "oshcut",
-          reason: "dispatch_authorization_missing",
-          terminalState: "unsupported",
-          providerInteractionAttempted: false,
-          providerMutationPossible: false,
-        },
-      });
-      expect(delegateQuote).not.toHaveBeenCalled();
-    },
-  );
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      vendor: "oshcut",
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      quoteUrl: null,
+      rawPayload: {
+        operationalState: "manual_followup",
+        reasonCode: "simulate_hidden_vendor",
+        reason: "simulate_hidden_vendor",
+        providerInteractionAttempted: false,
+        providerMutationPossible: false,
+        customerLiveOfferEligible: false,
+        orderAuthority: false,
+        checkoutAllowed: false,
+      },
+    });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
+
+  it("refuses an eligible live production package without a dispatch authorization, with zero provider interaction", async () => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        vendor: "oshcut",
+        reason: "dispatch_authorization_missing",
+        terminalState: "unsupported",
+        providerInteractionAttempted: false,
+        providerMutationPossible: false,
+      },
+    });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["another provider", () => quickpartsDispatchAuthorization(quickpartsDispatchEnvelope({ cadSha256: CAD_SHA, requestedQuantity: 25 })), "dispatch_authorization_provider_mismatch"],
