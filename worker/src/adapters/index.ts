@@ -30,6 +30,16 @@ import {
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
 
+/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
+  "quickparts",
+  "weerg",
+  "geomiq",
+  "ponoko",
+  "protolabsnetwork",
+  "rapiddirect",
+]);
+
 class XometryLiveEvaluationAdapter extends XometryAdapter {
   override quote(input: Parameters<XometryAdapter["quote"]>[0]) {
     return this.quoteForLiveEvaluation(input);
@@ -46,6 +56,11 @@ class LiveEvaluationAdapter extends VendorAdapter {
 
   override async quote(input: VendorQuoteAdapterInput) {
     return this.delegate.quote(await this.authorize(input));
+  }
+
+  /** Portal delegates run the local preflight kernel; every other delegate evaluates through its live quote(). */
+  get evaluateLocallyReachesProvider(): boolean {
+    return !(this.delegate instanceof PortalQuoteWorkflowAdapter);
   }
 
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
