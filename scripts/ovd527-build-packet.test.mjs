@@ -458,3 +458,25 @@ describe("ovd527 bundle", () => {
     expect(err).toContain("usage:");
   });
 });
+
+describe("runtimeNetworkDisabled (Docker Desktop fallback tunnels)", () => {
+  it("accepts lo alone, legacy and flagged", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["lo"])).toBe(true);
+    expect(runtimeNetworkDisabled(["lo:0x9"])).toBe(true);
+  });
+  it("accepts down kernel fallback tunnels next to lo", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["ip6tnl0:0x80", "lo:0x9", "sit0:0x80", "tunl0:0x80"])).toBe(true);
+  });
+  it("rejects real or up interfaces and malformed entries", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["eth0:0x1003", "lo:0x9"])).toBe(false);
+    expect(runtimeNetworkDisabled(["eth0", "lo"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0:0x81", "lo:0x9"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0", "lo"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0:0x80"])).toBe(false);
+    expect(runtimeNetworkDisabled(["lo:0x9:x"])).toBe(false);
+    expect(runtimeNetworkDisabled([])).toBe(false);
+  });
+});
