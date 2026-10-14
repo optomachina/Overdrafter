@@ -31,11 +31,13 @@ import {
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
+import { assertOperatorProvidersEnabled } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
   sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
+import type { ProviderKillSwitchReader } from "../providerKillSwitch.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
@@ -146,6 +148,7 @@ type EvaluationBatchDependencies = {
   makeVendorConfig?: typeof makeConfig;
   prepareConfig?: typeof prepareRuntimeSecrets;
   stageFiles?: typeof stageLiveEvaluationFiles;
+  killSwitchReader?: ProviderKillSwitchReader;
 };
 
 function usage() {
@@ -1530,6 +1533,7 @@ export async function runEvaluationBatch(
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
+  await assertOperatorProvidersEnabled(args.vendors, dependencies.killSwitchReader);
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
   const providerPortalApproval = await loadProviderPortalApproval(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
@@ -1579,6 +1583,7 @@ export async function runEvaluationBatch(
       console.log(`  Session state: ${config.vendorStorageStateDir ? "configured" : "not configured"}`);
 
       for (const quantity of args.quantities) {
+        await assertOperatorProvidersEnabled([vendor], dependencies.killSwitchReader);
         const row = await runQuote(
           config,
           args,

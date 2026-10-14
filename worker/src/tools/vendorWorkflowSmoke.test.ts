@@ -14,6 +14,8 @@ import {
 } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterOffer, WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
+import { assertOperatorProvidersEnabled } from "./operatorKillSwitchGate";
 import {
   buildErrorRow,
   loadProviderPortalApproval,
@@ -25,6 +27,10 @@ import {
   safeTopLevelEvaluationError,
   writeEvaluationStartupSummary,
 } from "./vendorWorkflowSmoke";
+
+vi.mock("./operatorKillSwitchGate", () => ({
+  assertOperatorProvidersEnabled: vi.fn(async () => undefined),
+}));
 
 const tempDirs: string[] = [];
 
@@ -1224,6 +1230,27 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("refuses on the kill switch before staging, config, or registry construction", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "fictiv", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const makeVendorConfig = vi.fn();
+    const buildRegistry = vi.fn();
+    vi.mocked(assertOperatorProvidersEnabled).mockRejectedValueOnce(
+      new ProviderKillSwitchError("provider_kill_switch_engaged", "fictiv", "before_launch"),
+    );
+
+    await expect(runEvaluationBatch(args, { stageFiles, makeVendorConfig, buildRegistry })).rejects.toThrow(
+      /fictiv kill switch is engaged/,
+    );
+    expect(assertOperatorProvidersEnabled).toHaveBeenCalledWith(["fictiv"], undefined);
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
   it("rejects missing portal approval before staging or registry construction", async () => {
     const args = parseSmokeArgs([
       "--vendor", "quickparts", "--cad", "./part.step",

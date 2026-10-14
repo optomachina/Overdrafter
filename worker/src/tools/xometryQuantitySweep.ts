@@ -15,6 +15,7 @@ import type {
   WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
+import { assertOperatorProvidersEnabled } from "./operatorKillSwitchGate.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -336,6 +337,7 @@ function printOptionsBreakdown(rows: SweepRow[]) {
 }
 
 async function main() {
+  await assertOperatorProvidersEnabled(["xometry"]);
   const cadPath = requiredEnv("XOMETRY_LIVE_TEST_CAD_PATH");
   const drawingPath = process.env.XOMETRY_LIVE_TEST_DRAWING_PATH ?? null;
   const quantities = parseQuantitiesArg();
