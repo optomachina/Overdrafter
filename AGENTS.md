@@ -41,7 +41,21 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 - Blaine talks only to Grok Bot. Team bots (Architect/Release, Pirate/Engineer, Designer, QA) never ask Blaine directly; they hand decisions to Grok Bot, and approvals Grok Bot relays from Blaine count as Blaine's own.
 - Standing approval covers all reversible work in this file: branches, commits, pushes, PRs and PR comments, Linear issues/sub-issues/labels, reviews, QA verdicts, and handoffs between bots. Do not stop to ask for these.
-- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
+- Protected actions (above) still need Blaine's exact OK. Grok Bot gets it, as soon as the item is ready, with one approval card that names the commit SHA and the passing checks, with merge and production migration listed as separate actions.
+
+### Approval timing and low-risk auto-merge (Blaine, 2026-10-14)
+
+- Approvals are requested as items become ready, one card per item. There are no batch windows.
+- A PR auto-merges (squash) without a Blaine approval card when **all** hold at the current head: hosted CI green, Jev screen not risky, sized review passed with no open actionable findings, a QA pass verdict, and **no file** matching the [sensitive paths](#sensitive-paths-single-shared-list) table. Every changed file must also fall in one of these categories:
+  1. Docs: Markdown at repo root and `docs/**`, excluding `docs/migration-drafts/**`, `docs/release/*.sql` and the governance sections of `AGENTS.md`/`CLAUDE.md`.
+  2. Tests only: `**/*.test.{ts,tsx,mjs}`, `**/*.node-test.mjs`, `e2e/**` (excluding `e2e/fixtures/*.sql`).
+  3. Frontend UI: `src/components/**`, `src/pages/**`, `src/features/**`, excluding any path matching auth, session, permission, billing, pricing, checkout, stripe or dispatch.
+  4. Styles and static assets: `*.css`, `public/**`, `src/assets/**`.
+  5. Repo scripts: `scripts/**`, excluding `scripts/deploy*`, `scripts/release*` and anything matching secret, credential or token.
+  6. Agent skills and prompts: `.codex/skills/**`, `.claude/agents/**`.
+  7. New code in the categories above behind a feature flag that defaults off.
+- Anything else, and anything on the sensitive list (migrations, RLS, SECURITY DEFINER, `.github/workflows`/CI, secrets, auth, deploy, billing, provider dispatch, dependencies), still needs Blaine's explicit OK before merge. Auto-merge never bypasses the OVD-419 terminal-ownership check.
+- Rollback for an auto-merged PR is `git revert` of its squash commit.
 
 ## Sensitive paths (single shared list)
 
