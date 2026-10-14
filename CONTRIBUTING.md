@@ -182,6 +182,13 @@ Every meaningful PR should include:
 
 Use the repo PR template.
 
+### PR size
+
+- Aim for about 200 changed lines or fewer per PR (generated files, fixtures and lockfiles excluded).
+- Split bigger changes into a sequence of small PRs that each pass CI and can be reverted alone.
+- Put risky or user-visible behavior behind a feature flag that defaults off; turn it on in a separate, small change.
+- If a PR has to exceed the guideline, say why in the scope section.
+
 ## What not to do
 
 - do not mix unrelated work into one PR
