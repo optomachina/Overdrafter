@@ -279,6 +279,16 @@ describe("ovd527 commands", () => {
 });
 
 describe("ovd527 bundle", () => {
+  it("accepts the real Docker Desktop 29.6.2 interface list end to end, including attestBuildOnly", () => {
+    const { source } = makePacket();
+    const inspectOutput = goodInspectOutput(source);
+    inspectOutput.container.netInterfaces =
+      "bonding_masters:x erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
+    const bundle = assembleBundle({ source, buildOutput: goodBuildOutput(source), inspectOutput });
+    expect(bundle.buildEvidence.runtime.network).toBe("none");
+    expect(attestBuildOnly(JSON.stringify(bundle.record), bundle.buildEvidence).verdict).toBe("build-attested");
+  });
+
   it("emits a bundle that attestBuildOnly and the release plan accept", async () => {
     const { source } = makePacket();
     const bundle = assembleBundle({
@@ -456,5 +466,48 @@ describe("ovd527 bundle", () => {
     let err = "";
     expect(runCli({ args: ["deploy"], stdout: { write: () => {} }, stderr: { write: (c) => (err += c) } })).toBe(2);
     expect(err).toContain("usage:");
+  });
+});
+
+describe("runtimeNetworkDisabled (Docker Desktop fallback tunnels)", () => {
+  it("accepts lo alone, legacy and flagged", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["lo"])).toBe(true);
+    expect(runtimeNetworkDisabled(["lo:0x9"])).toBe(true);
+  });
+  it("accepts down kernel fallback tunnels next to lo", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["ip6tnl0:0x80", "lo:0x9", "sit0:0x80", "tunl0:0x80"])).toBe(true);
+  });
+  it("rejects real or up interfaces and malformed entries", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(["eth0:0x1003", "lo:0x9"])).toBe(false);
+    expect(runtimeNetworkDisabled(["eth0", "lo"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0:0x81", "lo:0x9"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0", "lo"])).toBe(false);
+    expect(runtimeNetworkDisabled(["tunl0:0x80"])).toBe(false);
+    expect(runtimeNetworkDisabled(["lo:0x9:x"])).toBe(false);
+    expect(runtimeNetworkDisabled([])).toBe(false);
+  });
+});
+
+describe("runtimeNetworkDisabled with Docker Desktop 29.6.2 real inspection", () => {
+  const REAL =
+    "bonding_masters:x erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
+  const split = (s) => s.trim().split(/\s+/).filter(Boolean);
+  it("accepts the exact real netInterfaces string", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(split(REAL))).toBe(true);
+  });
+  it("still rejects it with any tunnel up, a real device added, or a non-x bonding_masters", async () => {
+    const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
+    expect(runtimeNetworkDisabled(split(REAL.replace("gretap0:0x1002", "gretap0:0x1003")))).toBe(false);
+    expect(runtimeNetworkDisabled(split(REAL + "eth0:0x1003 "))).toBe(false);
+    expect(runtimeNetworkDisabled(split(REAL.replace("bonding_masters:x", "bonding_masters:0x1")))).toBe(false);
+  });
+  it("inspection script lists only directories under /sys/class/net", async () => {
+    const { containerInspectionScript } = await import("./ovd527-build-packet.mjs");
+    const script = containerInspectionScript({ criticalFiles: [] });
+    expect(script).toContain('[ -d "$d" ] || continue');
   });
 });
