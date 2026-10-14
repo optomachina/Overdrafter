@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { askJev, gatedChoice, isValidAnswer, JEV_MODEL, smoke } from "./jev-client.mjs";
 
+const FAKE_KEY = "synthetic-fake-key-0123456789";
 const criteria = { implementer: "Writes code.", verifier: "Runs checks." };
 const choiceQ = { role: { type: "choice", instructions: "Which role?", criteria } };
 const noulQ = { keep: { type: "noul", instructions: "Keep it?" } };
@@ -27,13 +28,44 @@ describe("askJev", () => {
     expect(result.answers.role.choice).toBe("verifier");
   });
 
-  it("sends no Authorization header even when a key-like variable is set", async () => {
-    vi.stubEnv("TYPESAFE_API_KEY", "synthetic-placeholder");
+  it("sends no Authorization header when TYPESAFE_API_KEY is unset or empty", async () => {
+    const fetchMock = stubFetch(200, body({ role: { type: "choice", choice: "verifier", confidence: 0.9 } }));
+    vi.stubEnv("TYPESAFE_API_KEY", "");
+    await askJev({}, choiceQ);
+    vi.stubEnv("TYPESAFE_API_KEY", "   ");
+    await askJev({}, choiceQ);
+    delete process.env.TYPESAFE_API_KEY;
+    await askJev({}, choiceQ);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(Object.keys(init.headers).map((h) => h.toLowerCase())).not.toContain("authorization");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("sends a Bearer Authorization header when TYPESAFE_API_KEY is set", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", FAKE_KEY);
     const fetchMock = stubFetch(200, body({ role: { type: "choice", choice: "verifier", confidence: 0.9 } }));
     await askJev({}, choiceQ);
     const [, init] = fetchMock.mock.calls[0];
-    expect(Object.keys(init.headers).map((h) => h.toLowerCase())).not.toContain("authorization");
-    expect(JSON.stringify(init)).not.toContain("synthetic-placeholder");
+    expect(init.headers).toEqual({ "Content-Type": "application/json", Authorization: `Bearer ${FAKE_KEY}` });
+    expect(init.body).not.toContain(FAKE_KEY);
+  });
+
+  it("never puts the key in a result, including failures", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", FAKE_KEY);
+    const cases = [
+      () => stubFetch(403, `denied for Bearer ${FAKE_KEY}`),
+      () => stubFetch(200, `not json ${FAKE_KEY}`),
+      () => stubFetch(200, body({}, `model-${FAKE_KEY}`)),
+      () => vi.stubGlobal("fetch", vi.fn(async () => {
+        throw new TypeError(`fetch failed Bearer ${FAKE_KEY}`, { cause: { code: `E${FAKE_KEY}` } });
+      })),
+    ];
+    for (const arrange of cases) {
+      arrange();
+      const result = await askJev({}, choiceQ);
+      expect(JSON.stringify(result)).not.toContain(FAKE_KEY);
+    }
   });
 
   it("returns invalid_request without calling fetch when the state cannot be serialized", async () => {
@@ -174,6 +206,17 @@ describe("smoke", () => {
     const summary = await smoke();
     expect(summary).toEqual({ ok: true, reason: null, model: JEV_MODEL, latencyMs: expect.any(Number), usage: { input_tokens: 9, output_tokens: 3 }, gate: { status: "accepted", choice: "verifier", confidence: 1 } });
     expect(log.mock.calls[0][0]).not.toContain("injected");
+    log.mockRestore();
+  });
+
+  it("never prints the key to stdout or in the summary", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", FAKE_KEY);
+    stubFetch(403, `Bearer ${FAKE_KEY}`);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const summary = await smoke();
+    expect(summary).toMatchObject({ ok: false, reason: "http_403" });
+    expect(JSON.stringify(summary)).not.toContain(FAKE_KEY);
+    expect(log.mock.calls.flat().join("\n")).not.toContain(FAKE_KEY);
     log.mockRestore();
   });
 
