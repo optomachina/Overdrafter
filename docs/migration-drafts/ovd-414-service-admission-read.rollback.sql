@@ -1,6 +1,6 @@
--- OVD-414: ROLLBACK for docs/migration-drafts/ovd-414-service-admission-read.sql.
+-- OVD-414: ROLLBACK for supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql
 --
--- DRAFT ONLY. Removes the read-only wrapper. The worker then fails closed on
+-- Applied to production 2026-10-14; run only with explicit approval. Removes the read-only wrapper. The worker then fails closed on
 -- every Xometry upload (upload_capability_denied, decision_unavailable), the
 -- same state as before the draft. Nothing else depends on the function.
 

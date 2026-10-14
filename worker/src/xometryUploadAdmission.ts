@@ -17,7 +17,7 @@ import type { VendorQuoteAdapterInput } from "./types.js";
  *
  * The admission result is read from the database on every checkpoint through
  * the service-role RPC `api_worker_resolve_xometry_admission` (draft:
- * docs/migration-drafts/ovd-414-service-admission-read.sql) and fed to the
+ * supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql) and fed to the
  * shared `decideProviderUploadCapability`. Nothing is cached.
  *
  * Fail closed: an RPC error, a missing function, an empty or malformed
