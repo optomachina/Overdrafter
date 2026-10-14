@@ -339,7 +339,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     state.before = await inventory(call); persist();
     result.stage = 'image';
     await pullFixtureImage({ call, image: IMAGE, label: 'image-pull', signal, deadline,
-      save: receipt => evidence.save('image-pull-attempts.json', receipt) });
+      save: receipt => evidence.save('image-pull-attempts.json', receipt), skipLoaded: true });
     const imageInfo = JSON.parse((await call('docker', ['image', 'inspect', IMAGE], { private: true })).stdout)[0];
     result.image = admitImage(imageInfo); persist();
     // Check names are absent before recording an attempted creation. Never adopt an existing resource.
