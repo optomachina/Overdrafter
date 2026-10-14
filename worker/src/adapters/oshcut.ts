@@ -1,11 +1,14 @@
 import { resolveRequirementProcess } from "../partContext.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { throwIfProviderAborted } from "../providerAbort.js";
 import {
+  VendorAutomationError,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
   type WorkerConfig,
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
+import { oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization.js";
 import {
   PortalQuoteWorkflowAdapter,
   type PortalQuoteWorkflow,
@@ -51,7 +54,7 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     productionAdmissionRequired: true,
     actionTimeDisclosurePermitRequired: true,
     immediatePreflightRequired: true,
-    currentProductionState: "unavailable_pending_provider_neutral_preflight",
+    currentProductionState: "default_off_pending_reviewed_dispatch_envelope_and_admission",
   },
   geometryBoundary:
     "Flat-sheet classification only; stock thickness, size, features, and final manufacturability remain provider-determined.",
@@ -262,7 +265,7 @@ export function assessOshcutEligibility(
   return assessment(
     "eligible",
     "static_envelope_match",
-    "The package matches the static OSH Cut envelope; production dispatch remains unavailable until separate admission and exact preflight exist.",
+    "The package matches the static OSH Cut envelope; production dispatch still requires admission and a provider-dispatch authorization for these exact files.",
   );
 }
 
@@ -307,19 +310,23 @@ function finiteOutput(
 
 /**
  * Provider-local OSH Cut adapter behind the common `VendorAdapter.quote`
- * interface. Production remains zero-disclosure until OVD-380 supplies the
- * provider-neutral permit and immediate preflight contract.
+ * interface. Live evaluation stays local evidence that is never a customer
+ * offer. Production dispatch (OVD-677) is default-off: it reaches the
+ * production portal only behind a current generic provider-dispatch
+ * authorization for the OSH Cut envelope, and that envelope is not reviewed,
+ * so no permit can name it yet.
  */
 export class OshcutAdapter extends VendorAdapter {
-  private readonly delegate: Pick<VendorAdapter, "quote">;
+  private readonly evaluation: Pick<VendorAdapter, "quote">;
 
   constructor(
     config: WorkerConfig,
     workflow: PortalQuoteWorkflow,
-    delegate?: Pick<VendorAdapter, "quote">,
+    private readonly production: Pick<VendorAdapter, "quote">,
+    evaluation?: Pick<VendorAdapter, "quote">,
   ) {
     super("oshcut", config);
-    this.delegate = delegate ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow);
+    this.evaluation = evaluation ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow);
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
@@ -333,15 +340,36 @@ export class OshcutAdapter extends VendorAdapter {
       );
     }
 
-    if (input.executionContext !== "live_evaluation") {
-      return finiteOutput(
-        input,
-        "unavailable",
-        "provider_neutral_preflight_unavailable",
-        "OSH Cut production quoting is unavailable until provider admission, exact action-time disclosure authorization, and immediate preflight are implemented.",
+    return input.executionContext === "live_evaluation"
+      ? this.quoteForEvaluation(input)
+      : this.quoteForProduction(input);
+  }
+
+  /** Nothing reaches the production delegate without a matching authorization. */
+  private async quoteForProduction(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    const denial = oshcutDispatchAuthorizationDenial(input);
+    if (denial) {
+      throw new VendorAutomationError(
+        "OSH Cut dispatch is not authorized for these exact files and quantity.",
+        "unexpected_ui_state",
+        {
+          vendor: "oshcut",
+          reason: denial,
+          terminalState: "unsupported",
+          envelopeRevision: OSHCUT_ENVELOPE_REVISION,
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+          quoteOnly: true,
+          orderProhibited: true,
+        },
       );
     }
+    // OVD-748: a withdrawn run stops here, before the portal reads a session.
+    throwIfProviderAborted(input.signal, "before_navigation");
+    return this.production.quote(input);
+  }
 
+  private async quoteForEvaluation(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     if (!getAuthorizedLiveEvaluationFiles(input)) {
       return finiteOutput(
         input,
@@ -351,7 +379,7 @@ export class OshcutAdapter extends VendorAdapter {
       );
     }
 
-    const result = await this.delegate.quote(input);
+    const result = await this.evaluation.quote(input);
     const manualFollowup =
       result.status === "manual_vendor_followup" || result.status === "manual_review_pending";
     const operationalState = manualFollowup ? "manual_followup" : "unavailable";

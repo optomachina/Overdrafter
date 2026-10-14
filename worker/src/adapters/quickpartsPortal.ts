@@ -8,36 +8,14 @@ import {
   type ProviderPortalReadCapability,
 } from "./providerPortalKernel.js";
 import { QUICKPARTS_ENVELOPE_REVISION } from "./quickpartsEnvelope.js";
+import { extractUsdOfferCards, type UsdOfferCardLocators } from "./usdOfferCards.js";
 
 export const QUICKPARTS_ADAPTER_REVISION = "quickparts-offline-adapter.v2";
 export const QUICKPARTS_PRODUCTION_ADAPTER_REVISION = "quickparts-production-adapter.v1";
 export const QUICKPARTS_ALLOWED_HOSTS = ["quickparts.com", "quickquote.quickparts.com"] as const;
 const HOSTS = QUICKPARTS_ALLOWED_HOSTS;
 
-/** Where one Quickparts option card and its fields are read from. */
-export type QuickpartsOfferLocators = {
-  revision: string;
-  card: string;
-  optionIdAttribute: string;
-  /** Each selector is resolved inside the indexed card. */
-  fields: {
-    label: string;
-    quantity: string;
-    unitPrice: string;
-    totalPrice: string;
-    currency: string;
-    leadBusinessDays: string;
-  };
-  /** `display` additionally accepts a leading `$` and thousands separators. */
-  priceFormat: "plain" | "display";
-  /**
-   * Joins the indexed card and a field selector. A real browser needs `>>`
-   * after `nth=`; the synthetic form is kept only for its pinned reader tests.
-   */
-  fieldJoin: " " | " >> ";
-};
-
-const SYNTHETIC_LOCATORS: QuickpartsOfferLocators = {
+const SYNTHETIC_LOCATORS: UsdOfferCardLocators = {
   revision: "quickparts-synthetic-locators.v1",
   card: "[data-ovd-synthetic-quickparts-option]",
   optionIdAttribute: "data-option-id",
@@ -60,7 +38,7 @@ const SYNTHETIC_LOCATORS: QuickpartsOfferLocators = {
  * (that is a protected action), so any drift ends in `selector_drift` and
  * never in an inferred price. A changed table needs a new revision.
  */
-export const QUICKPARTS_PRODUCTION_LOCATORS: Readonly<QuickpartsOfferLocators> = Object.freeze({
+export const QUICKPARTS_PRODUCTION_LOCATORS: Readonly<UsdOfferCardLocators> = Object.freeze({
   revision: "quickparts-production-locators.v1",
   card: "[data-quote-option-id]",
   optionIdAttribute: "data-quote-option-id",
@@ -81,84 +59,12 @@ export const QUICKPARTS_PRODUCTION_SELECTORS = Object.freeze({
   quantity: "input[name='quantity' i], input[aria-label='Quantity' i]",
 });
 
-function positiveNumber(text: string | null): number | null {
-  if (!text || !/^\d+(?:\.\d{1,2})?$/.test(text.trim())) return null;
-  const value = Number(text);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
-
-function positivePrice(text: string | null, format: QuickpartsOfferLocators["priceFormat"]): number | null {
-  if (format === "plain" || !text) return positiveNumber(text);
-  const match = /^\$?\s?(\d{1,3}(?:,\d{3})*|\d+)(\.\d{1,2})?$/.exec(text.trim());
-  return match ? positiveNumber(`${match[1].replaceAll(",", "")}${match[2] ?? ""}`) : null;
-}
-
-/**
- * Reads anchored option cards. Rejects options whose unit/total cents or
- * quantity product are not safe integers; accepted prices must agree within
- * one cent and match the requested quantity. Any malformed option withholds
- * the entire batch to avoid incomplete comparisons.
- */
-async function extractQuickpartsOffers(
-  reader: ProviderPortalReadCapability,
-  expectedQuantity: number,
-  locators: QuickpartsOfferLocators,
-  rawPayload: Record<string, unknown>,
-): Promise<ProviderPortalOfferCandidate[]> {
-  const count = await reader.count(locators.card);
-  if (!Number.isSafeInteger(count) || count < 1 || count > 20) return [];
-  const offers: ProviderPortalOfferCandidate[] = [];
-  const ids = new Set<string>();
-  for (let index = 0; index < count; index += 1) {
-    const container = `${locators.card} >> nth=${index}`;
-    const field = (name: keyof QuickpartsOfferLocators["fields"]) =>
-      `${container}${locators.fieldJoin}${locators.fields[name]}`;
-    const read = (name: keyof QuickpartsOfferLocators["fields"]) => reader.readText(field(name));
-    const id = await reader.readAttribute(container, locators.optionIdAttribute);
-    const label = (await read("label"))?.trim();
-    const quantity = positiveNumber(await read("quantity"));
-    const unit = positivePrice(await read("unitPrice"), locators.priceFormat);
-    const total = positivePrice(await read("totalPrice"), locators.priceFormat);
-    const currency = (await read("currency"))?.trim();
-    if (!id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id) || ids.has(id)) return [];
-    ids.add(id);
-    if (!label || quantity !== expectedQuantity || !Number.isSafeInteger(quantity)
-      || unit === null || total === null || currency !== "USD") return [];
-    const unitCents = Math.round(unit * 100);
-    const totalCents = Math.round(total * 100);
-    const expectedTotalCents = unitCents * quantity;
-    if (!Number.isSafeInteger(unitCents) || !Number.isSafeInteger(totalCents)
-      || !Number.isSafeInteger(expectedTotalCents)) return [];
-    if (Math.abs(expectedTotalCents - totalCents) > 1) return [];
-    const leadText = (await read("leadBusinessDays"))?.trim() ?? "";
-    // Check integer syntax before conversion can round a fractional large value.
-    const lead = /^\d+(?:\.0{1,2})?$/.test(leadText) ? positiveNumber(leadText) : null;
-    const leadTimeBusinessDays = lead !== null && Number.isSafeInteger(lead) ? lead : null;
-    offers.push({
-      providerOptionId: id, providerLabel: label, quoteRef: null, quoteUrl: null, quantity,
-      unitPriceUsd: { value: unit, source: "selector", selector: field("unitPrice") },
-      totalPriceUsd: { value: total, source: "selector", selector: field("totalPrice") },
-      leadTimeBusinessDays: {
-        value: leadTimeBusinessDays,
-        source: leadTimeBusinessDays === null ? "none" : "selector",
-        selector: leadTimeBusinessDays === null ? null : field("leadBusinessDays"),
-      },
-      containerSelector: container, providerOptionIdSource: "attribute",
-      shipReceiveBy: null, tier: null, sourcing: null,
-      geographicOrigin: null, geographicOriginSource: "none",
-      validUntil: null, validityDurationDays: null, validitySource: null, validityTerms: null,
-      rawPayload: { ...rawPayload, locatorRevision: locators.revision },
-    });
-  }
-  return offers;
-}
-
 /** Exercises proposed option anchors against synthetic readers, never a live portal. */
 export async function extractQuickpartsSyntheticOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
 ): Promise<ProviderPortalOfferCandidate[]> {
-  return extractQuickpartsOffers(reader, expectedQuantity, SYNTHETIC_LOCATORS, {
+  return extractUsdOfferCards(reader, expectedQuantity, SYNTHETIC_LOCATORS, {
     fixtureKind: "synthetic", adapterRevision: QUICKPARTS_ADAPTER_REVISION,
   });
 }
@@ -168,7 +74,7 @@ export async function extractQuickpartsProductionOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
 ): Promise<ProviderPortalOfferCandidate[]> {
-  return extractQuickpartsOffers(reader, expectedQuantity, QUICKPARTS_PRODUCTION_LOCATORS, {
+  return extractUsdOfferCards(reader, expectedQuantity, QUICKPARTS_PRODUCTION_LOCATORS, {
     adapterRevision: QUICKPARTS_PRODUCTION_ADAPTER_REVISION,
   });
 }

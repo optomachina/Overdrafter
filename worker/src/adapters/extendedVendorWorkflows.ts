@@ -1,6 +1,7 @@
 import { PortalQuoteWorkflowAdapter, type PortalQuoteWorkflow } from "./portalWorkflow.js";
 import type { LiveAutomationVendorName, VendorName, WorkerConfig } from "../types.js";
 import { OSHCUT_PROVIDER_ENVELOPE, OshcutAdapter } from "./oshcut.js";
+import { buildOshcutProductionPortalDefinition } from "./oshcutProductionPortal.js";
 import type { VendorAdapter } from "./base.js";
 
 export const EXTENDED_VENDOR_WORKFLOWS = [
@@ -144,7 +145,9 @@ export function buildExtendedVendorAdapters(
     EXTENDED_VENDOR_WORKFLOWS.map((workflow) => [
       workflow.vendor,
       workflow.vendor === "oshcut"
-        ? new OshcutAdapter(config, workflow)
+        ? new OshcutAdapter(config, workflow, new PortalQuoteWorkflowAdapter(
+          "oshcut", config, workflow, buildOshcutProductionPortalDefinition(),
+        ))
         : new PortalQuoteWorkflowAdapter(workflow.vendor, config, workflow),
     ]),
   );

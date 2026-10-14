@@ -15,7 +15,11 @@ import type {
   VendorQuoteAdapterOutput,
   WorkerConfig,
 } from "../types";
+import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort";
+import { oshcutDispatchAuthorization, oshcutDispatchEnvelope } from "../../test-support/oshcutDispatchFixture";
+import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
+import { OSHCUT_DISPATCH_ENVELOPE } from "./oshcutDispatchAuthorization";
 import {
   assessOshcutEligibility,
   OSHCUT_ENVELOPE_REVISION,
@@ -95,7 +99,19 @@ function makeAdapter(
     throw new Error("Expected the registered OSH Cut workflow.");
   }
 
-  return new OshcutAdapter(config, workflow, { quote: delegateQuote });
+  // One spy stands in for both delegates, so "not called" covers either path.
+  return new OshcutAdapter(config, workflow, { quote: delegateQuote }, { quote: delegateQuote });
+}
+
+const CAD_SHA = "a".repeat(64);
+
+/** A package bound to a synthetic OSH Cut dispatch authorization for its staged digest and quantity. */
+function authorizedProductionInput(): VendorQuoteAdapterInput {
+  const envelope = oshcutDispatchEnvelope({ cadSha256: CAD_SHA, requestedQuantity: 25 });
+  return makeInput({
+    executionContext: "production_dispatch",
+    providerDispatchAuthorization: oshcutDispatchAuthorization(envelope),
+  });
 }
 
 async function withAuthorizedEvaluation<T>(
@@ -175,7 +191,7 @@ describe("OSH Cut provider envelope", () => {
         productionAdmissionRequired: true,
         actionTimeDisclosurePermitRequired: true,
         immediatePreflightRequired: true,
-        currentProductionState: "unavailable_pending_provider_neutral_preflight",
+        currentProductionState: "default_off_pending_reviewed_dispatch_envelope_and_admission",
       },
       guarantees: {
         quoteOnly: true,
@@ -198,7 +214,7 @@ describe("OSH Cut provider envelope", () => {
     expect(assessOshcutEligibility(makeInput())).toEqual({
       state: "eligible",
       reasonCode: "static_envelope_match",
-      guidance: expect.stringContaining("production dispatch remains unavailable"),
+      guidance: expect.stringContaining("production dispatch still requires admission"),
       envelopeRevision: OSHCUT_ENVELOPE_REVISION,
     });
   });
@@ -373,24 +389,83 @@ describe("OshcutAdapter", () => {
   });
 
   it.each(["simulate", "live"] as const)(
-    "keeps an eligible %s production-path package unavailable with zero disclosure",
+    "refuses an eligible %s production package without a dispatch authorization, with zero provider interaction",
     async (workerMode) => {
       const delegateQuote = vi.fn();
       const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode }));
 
-      await expect(adapter.quote(makeInput())).resolves.toMatchObject({
-        status: "failed",
-        unitPriceUsd: null,
-        totalPriceUsd: null,
-        rawPayload: {
-          operationalState: "unavailable",
-          reasonCode: "provider_neutral_preflight_unavailable",
-          customerLiveOfferEligible: false,
+      await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          vendor: "oshcut",
+          reason: "dispatch_authorization_missing",
+          terminalState: "unsupported",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
         },
       });
       expect(delegateQuote).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ["another provider", () => quickpartsDispatchAuthorization(quickpartsDispatchEnvelope({ cadSha256: CAD_SHA, requestedQuantity: 25 })), "dispatch_authorization_provider_mismatch"],
+    ["another quantity", () => oshcutDispatchAuthorization(oshcutDispatchEnvelope({ cadSha256: CAD_SHA, requestedQuantity: 24 })), "dispatch_authorization_quantity_mismatch"],
+    ["other bytes", () => oshcutDispatchAuthorization(oshcutDispatchEnvelope({ cadSha256: "b".repeat(64), requestedQuantity: 25 })), "dispatch_authorization_file_mismatch"],
+  ] as const)("refuses an authorization bound to %s before the production delegate", async (_name, authorization, reason) => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+
+    await expect(adapter.quote(makeInput({ providerDispatchAuthorization: authorization() })))
+      .rejects.toMatchObject({ payload: { reason, providerInteractionAttempted: false } });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
+
+  it("refuses an envelope revision that is not the OSH Cut envelope", async () => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    const authorization = structuredClone(authorizedProductionInput().providerDispatchAuthorization!);
+    authorization.envelope.envelope = { id: OSHCUT_DISPATCH_ENVELOPE.id, version: 2 };
+
+    await expect(adapter.quote(makeInput({ providerDispatchAuthorization: authorization })))
+      .rejects.toMatchObject({ payload: { reason: "dispatch_authorization_envelope_unreviewed" } });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
+
+  it("passes an authorized production package to the production delegate and returns its USD offers", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut",
+      status: "instant_quote_received",
+      unitPriceUsd: 4.1,
+      totalPriceUsd: 102.5,
+      leadTimeBusinessDays: 3,
+      quoteUrl: "https://app.oshcut.com/",
+      dfmIssues: [],
+      notes: [],
+      artifacts: [],
+      rawPayload: { terminalState: "offers_extracted" },
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    const input = authorizedProductionInput();
+
+    await expect(adapter.quote(input)).resolves.toMatchObject({
+      status: "instant_quote_received",
+      unitPriceUsd: 4.1,
+      totalPriceUsd: 102.5,
+    });
+    expect(delegateQuote).toHaveBeenCalledExactlyOnceWith(input);
+  });
+
+  it("stops an aborted authorized run before the production delegate (OVD-748)", async () => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(adapter.quote(withProviderAbortSignal(authorizedProductionInput(), controller.signal)))
+      .rejects.toBeInstanceOf(ProviderAbortedError);
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
 
   it("keeps authorized evaluation manual-follow-up local and quote-only", async () => {
     const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
@@ -458,6 +533,7 @@ describe("OshcutAdapter", () => {
         vendorStorageStateDir: null,
       }),
       workflow,
+      { quote: vi.fn() },
     );
 
     await expect(

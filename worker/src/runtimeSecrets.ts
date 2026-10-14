@@ -6,6 +6,7 @@ import {
   resolveIsolatedProviderStorageState,
   type ProviderPortalDefinition,
 } from "./adapters/providerPortalKernel.js";
+import { buildOshcutProductionPortalDefinition } from "./adapters/oshcutProductionPortal.js";
 import { buildQuickpartsProductionPortalDefinition } from "./adapters/quickpartsPortal.js";
 import { buildWeergProductionPortalDefinition } from "./adapters/weergPortal.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
@@ -292,6 +293,11 @@ export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> 
   return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
 }
 
+/** OVD-677: OSH Cut session readiness. */
+export function validateOshcutReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildOshcutProductionPortalDefinition());
+}
+
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   if (config.workerMode !== "live") {
@@ -314,6 +320,7 @@ export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
 export const LIVE_ADAPTER_READINESS_CHECKS = {
   xometry: validateXometryReadiness,
   fictiv: validateFictivReadiness,
+  oshcut: validateOshcutReadiness,
   quickparts: validateQuickpartsReadiness,
   weerg: validateWeergReadiness,
 } as const satisfies Record<
