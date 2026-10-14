@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FabworksAdapter } from "../adapters/fabworks";
+import { buildLiveEvaluationAdapterRegistry, OFFLINE_EVALUATION_PORTAL_VENDORS } from "../adapters/index";
 import type { VendorAdapter } from "../adapters/base";
 import type { SendCutSendEvaluationManifest } from "../adapters/sendcutsend";
 import {
@@ -14,6 +15,9 @@ import {
 } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterOffer, WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
+import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerKillSwitch";
+import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate";
 import {
   buildErrorRow,
   loadProviderPortalApproval,
@@ -25,6 +29,12 @@ import {
   safeTopLevelEvaluationError,
   writeEvaluationStartupSummary,
 } from "./vendorWorkflowSmoke";
+
+vi.mock("./operatorKillSwitchGate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./operatorKillSwitchGate")>()),
+  assertOperatorProvidersEnabled: vi.fn(async () => undefined),
+  guardOperatorQuote: vi.fn((_provider: string, quote: unknown) => quote),
+}));
 
 const tempDirs: string[] = [];
 
@@ -1224,6 +1234,189 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("refuses on the kill switch before staging, config, or registry construction", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "fictiv", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const makeVendorConfig = vi.fn();
+    const buildRegistry = vi.fn();
+    vi.mocked(assertOperatorProvidersEnabled).mockRejectedValueOnce(
+      new ProviderKillSwitchError("provider_kill_switch_engaged", "fictiv", "before_launch"),
+    );
+
+    await expect(runEvaluationBatch(args, { stageFiles, makeVendorConfig, buildRegistry })).rejects.toThrow(
+      /fictiv kill switch is engaged/,
+    );
+    expect(assertOperatorProvidersEnabled).toHaveBeenCalledWith(["fictiv"], undefined);
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
+  it.each(["quote", "evaluateLocally"] as const)("hands the kill switch checkpoint to %s so a mid run engagement stops the next mutation", async (method) => {
+    const args = parseSmokeArgs([
+      "--vendor", "xometry", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    let reads = 0;
+    const killSwitchReader = vi.fn(async (provider: string) => ({
+      schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA,
+      provider,
+      engaged: reads++ >= 1,
+      globalEngaged: false,
+    }));
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote as never);
+    const mutation = vi.fn();
+    const quote = vi.fn<VendorAdapter["quote"]>(async (input) => {
+      await input.providerKillSwitchCheckpoint?.("before_upload");
+      mutation();
+      throw new Error("unreachable");
+    });
+
+    await expect(runQuote(
+      {} as WorkerConfig,
+      args,
+      "xometry",
+      1,
+      {
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      () => ({ xometry: { quote, [method]: quote } }),
+      null,
+      null,
+      killSwitchReader,
+    )).rejects.toMatchObject({ reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
+  it("refuses subsequent live evaluateLocally quantities when the switch engages after batch startup", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "fictiv", "--cad", "./part.step", "--quantities", "1,2",
+      "--confirm-non-export-controlled",
+    ]);
+    let engaged = false;
+    const killSwitchReader = vi.fn(async (provider: string) => ({
+      schema: PROVIDER_KILL_SWITCH_STATE_SCHEMA,
+      provider,
+      engaged,
+      globalEngaged: false,
+    }));
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(guardOperatorQuote).mockImplementationOnce(actual.guardOperatorQuote)
+      .mockImplementationOnce(actual.guardOperatorQuote);
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async () => {
+      engaged = true;
+      throw new Error("first quantity attempted");
+    });
+    const cleanup = vi.fn();
+
+    await expect(runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles: async () => ({
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup,
+      }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({ fictiv: { quote, evaluateLocally } }),
+    })).rejects.toMatchObject({ reasonCode: "provider_kill_switch_engaged", checkpoint: "before_launch" });
+    expect(evaluateLocally).toHaveBeenCalledTimes(1);
+    expect(quote).not.toHaveBeenCalled();
+    expect(killSwitchReader).toHaveBeenCalledTimes(2);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read the kill switch per quote for an evaluateLocally that never reaches the provider", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "fictiv", "--cad", "./part.step", "--quantities", "1,2",
+      "--confirm-non-export-controlled",
+    ]);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async () => {
+      throw new Error("offline preflight attempted");
+    });
+
+    await runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles: async () => ({
+        authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({ fictiv: { quote, evaluateLocally, evaluateLocallyReachesProvider: false } }),
+    }).catch(() => undefined);
+
+    expect(evaluateLocally).toHaveBeenCalledTimes(2);
+    expect(quote).not.toHaveBeenCalled();
+    expect(vi.mocked(guardOperatorQuote)).not.toHaveBeenCalled();
+  });
+
+  it.each(["weerg", "quickparts", "geomiq", "ponoko", "protolabsnetwork", "rapiddirect"] as const)("does not gate the offline %s batch on the kill switch with the real startup gate", async (vendor) => {
+    const args = parseSmokeArgs([
+      "--vendor", vendor, "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const actual = await vi.importActual<typeof import("./operatorKillSwitchGate")>("./operatorKillSwitchGate");
+    vi.mocked(assertOperatorProvidersEnabled).mockImplementationOnce(actual.assertOperatorProvidersEnabled);
+    const killSwitchReader = vi.fn(async () => { throw new Error("switch unreadable"); });
+    const stageFiles = vi.fn(async () => { throw new Error("staging reached"); });
+
+    await expect(runEvaluationBatch(args, {
+      killSwitchReader,
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      buildRegistry: () => ({}),
+    })).rejects.not.toMatchObject({ reasonCode: "provider_kill_switch_unavailable" });
+    expect(killSwitchReader).not.toHaveBeenCalled();
+  });
+
+  it("keeps the offline portal vendor set in step with the registry", () => {
+    const registry = buildLiveEvaluationAdapterRegistry({
+      workerMode: "dev", workerLiveAdapters: [], workerTempDir: os.tmpdir(),
+    } as unknown as WorkerConfig);
+    const offline = Object.entries(registry)
+      .filter(([, adapter]) => adapter && (adapter as { evaluateLocallyReachesProvider?: boolean }).evaluateLocallyReachesProvider === false)
+      .map(([vendor]) => vendor).sort();
+    expect(offline).toEqual([...OFFLINE_EVALUATION_PORTAL_VENDORS].sort());
+  });
+
+  it("does not consult the kill switch for the offline SendCutSend batch", async () => {
+    const fixture = await sendCutSendFixture({ quantities: [1] });
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const killSwitchReader = vi.fn();
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const evaluateLocally = vi.fn<VendorAdapter["quote"]>(async () => {
+      throw new Error("offline evaluation attempted");
+    });
+
+    await runEvaluationBatch(args, {
+      killSwitchReader,
+      buildRegistry: () => ({ sendcutsend: { quote, evaluateLocally } }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+    }).catch(() => undefined);
+
+    expect(assertOperatorProvidersEnabled).toHaveBeenLastCalledWith([], killSwitchReader);
+    expect(killSwitchReader).not.toHaveBeenCalled();
+    expect(evaluateLocally).toHaveBeenCalledTimes(1);
+    expect(quote).not.toHaveBeenCalled();
+    expect(evaluateLocally.mock.calls[0][0].providerKillSwitchCheckpoint).toBeUndefined();
+  });
+
   it("rejects missing portal approval before staging or registry construction", async () => {
     const args = parseSmokeArgs([
       "--vendor", "quickparts", "--cad", "./part.step",
