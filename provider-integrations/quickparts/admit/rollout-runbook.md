@@ -10,10 +10,12 @@ the PR that enables Quickparts carries its **Provider go-live** section.
 A new Quickparts quote needs switches 1–5 on; turning any off stops queued
 tasks before the browser launches.
 
-1. **Reviewed envelope.** Add `quickparts-quote-envelope` v1 to
-   `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, then move
-   `20261012232325_quickparts_reviewed_dispatch_envelope.sql.review` into a
-   reviewed migration (re-check the timestamp). Withdraw with `withdrawn_at`.
+1. **Reviewed envelope.** Already recorded: `quickparts-quote-envelope` v1 is
+   in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` and in migration
+   `20261011190000_ovd674_quickparts_reviewed_dispatch_envelope.sql`. Nothing
+   to add; confirm the row is not withdrawn. Do not promote
+   `20261012232325_quickparts_reviewed_dispatch_envelope.sql.review`. Withdraw
+   with `withdrawn_at`.
 2. **Admission policy.** Apply the reviewed values from
    `quickparts_admission_revision.sql.review` (`approved`,
    `generic_dispatch_enabled = true`) through the audited registry revision.
