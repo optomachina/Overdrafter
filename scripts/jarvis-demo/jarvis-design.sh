@@ -35,15 +35,10 @@ if [ -z "$id" ]; then
   exit 1
 fi
 
-out="$(node "$demo" work)"
+out="$(node "$demo" work --id "$id")"
 work_status=$?
 printf '%s\n' "$out"
 state="$(printf '%s' "$out" | json_field state)"
-ran_id="$(printf '%s' "$out" | json_field id)"
-if [ -n "$ran_id" ] && [ "$ran_id" != "$id" ]; then
-  echo "jarvis-design: worker ran older queued request $ran_id, not $id; run jarvis-design again" >&2
-  exit 1
-fi
 run_dir="$root/runs/$id"
 echo "result: $run_dir/result.json"
 echo "assembly.png: $run_dir/assembly.png"

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { claimOldest, createRequest, parseDesignRequest } from "./jarvis-demo.mjs";
+import { claimById, claimOldest, createRequest, parseDesignRequest } from "./jarvis-demo.mjs";
 
 const cli = join(process.cwd(), "scripts", "jarvis-demo", "jarvis-demo.mjs");
 
@@ -28,6 +28,9 @@ test("a request missing a part or with an out of range pin is refused", () => {
   assert.match(parseDesignRequest("design a bracket and a pin").reason, /missing: plate/);
   assert.match(parseDesignRequest("bracket plate 40 mm pin").reason, /4 to 20 mm/);
   assert.equal(parseDesignRequest(undefined).ok, false);
+  assert.match(parseDesignRequest("bracket plate with a 0.5 inch pin").reason, /in mm/);
+  assert.match(parseDesignRequest("bracket plate with a -8 mm pin").reason, /4 to 20 mm/);
+  assert.match(parseDesignRequest("bracket plate with an 8 pin").reason, /in mm/);
   assert.match(parseDesignRequest("a bracket on a template with a pinterest pin").reason, /missing: plate/);
 });
 
@@ -39,6 +42,15 @@ test("pending requests are claimed oldest first and each only once", () =>
     assert.equal(claimOldest(root).request.id, second.id);
     assert.equal(claimOldest(root), null);
     assert.deepEqual(readdirSync(join(root, "queue", "pending")), []);
+  }));
+
+test("claiming by id takes that request even behind a backlog", () =>
+  withRoot((root) => {
+    const older = createRequest(root, "bracket plate 8 mm pin", "test", new Date("2026-10-15T07:00:00Z")).request;
+    const mine = createRequest(root, "bracket plate 9 mm pin", "test", new Date("2026-10-15T07:01:00Z")).request;
+    assert.equal(claimById(root, mine.id).request.id, mine.id);
+    assert.equal(claimById(root, mine.id), null);
+    assert.equal(claimOldest(root).request.id, older.id);
   }));
 
 test("a request still being written is never claimed", () =>

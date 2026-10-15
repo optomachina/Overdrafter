@@ -5,7 +5,7 @@
 // files only, no hosted database, no SolidWorks, no provider calls.
 //
 //   node scripts/jarvis-demo/jarvis-demo.mjs request "<text>"   -> prints the request id
-//   node scripts/jarvis-demo/jarvis-demo.mjs work               -> runs the oldest pending request
+//   node scripts/jarvis-demo/jarvis-demo.mjs work [--id <id>]   -> runs that request, or the oldest pending one
 //   node scripts/jarvis-demo/jarvis-demo.mjs status <id>
 //
 // JARVIS_DEMO_ROOT (default ~/overnight/jarvis) holds queue/ and runs/.
@@ -29,8 +29,13 @@ export function parseDesignRequest(text) {
   if (missing.length > 0) {
     return { ok: false, reason: `this demo builds only a bracket + plate + pin assembly; missing: ${missing.join(", ")}` };
   }
-  const match = lower.match(/(\d+(?:\.\d+)?)\s*mm\s+(?:diameter\s+)?pin|pin\s+(?:of\s+|diameter\s+|ø\s*)?(\d+(?:\.\d+)?)\s*mm/);
-  const pinDiameterMm = match ? Number(match[1] ?? match[2]) : DEFAULT_PIN_MM;
+  // Any number written next to "pin" is the diameter; only mm is accepted, so an
+  // explicit "0.5 inch" or "-8 mm" is refused rather than silently replaced.
+  const match = lower.match(/(-?\d+(?:\.\d+)?)\s*([a-z"]+)?\s+(?:diameter\s+)?pin\b|\bpin\s+(?:of\s+|diameter\s+|ø\s*)?(-?\d+(?:\.\d+)?)\s*([a-z"]+)?/);
+  if (match && (match[2] ?? match[4]) !== "mm") {
+    return { ok: false, reason: `give the pin diameter in mm, got "${match[0].trim()}"` };
+  }
+  const pinDiameterMm = match ? Number(match[1] ?? match[3]) : DEFAULT_PIN_MM;
   if (!(pinDiameterMm >= PIN_MIN_MM && pinDiameterMm <= PIN_MAX_MM)) {
     return { ok: false, reason: `pin diameter must be ${PIN_MIN_MM} to ${PIN_MAX_MM} mm, got ${pinDiameterMm}` };
   }
@@ -52,6 +57,19 @@ export function createRequest(root, text, source, now = new Date()) {
 }
 
 // Claiming is a rename into claimed/, so two workers can never take the same request.
+// The phone wrapper claims exactly the request it filed, so a backlog never makes it run another one.
+export function claimById(root, id) {
+  const name = `${id}.json`;
+  mkdirSync(join(root, "queue", "claimed"), { recursive: true });
+  try {
+    renameSync(join(root, "queue", "pending", name), join(root, "queue", "claimed", name));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  return { name, request: JSON.parse(readFileSync(join(root, "queue", "claimed", name), "utf8")) };
+}
+
 export function claimOldest(root) {
   const pending = join(root, "queue", "pending");
   const claimed = join(root, "queue", "claimed");
@@ -68,9 +86,9 @@ export function claimOldest(root) {
   return null;
 }
 
-function work(root, python) {
-  const claim = claimOldest(root);
-  if (!claim) return { ok: true, idle: true };
+function work(root, python, id) {
+  const claim = id ? claimById(root, id) : claimOldest(root);
+  if (!claim) return id ? { ok: false, id, state: "not_pending" } : { ok: true, idle: true };
   const { name, request } = claim;
   let state = "failed";
   try {
@@ -106,13 +124,13 @@ function main(argv) {
   let result;
   if (command === "request") {
     result = createRequest(root, rest.join(" "), process.env.JARVIS_DEMO_SOURCE ?? "cli");
-  } else if (command === "work") {
-    result = work(root, process.env.JARVIS_DEMO_PYTHON ?? join(root, ".venv", "bin", "python"));
+  } else if (command === "work" && (rest.length === 0 || (rest[0] === "--id" && /^jd-[\w-]+$/.test(rest[1] ?? "")))) {
+    result = work(root, process.env.JARVIS_DEMO_PYTHON ?? join(root, ".venv", "bin", "python"), rest[1]);
   } else if (command === "status" && rest[0] && /^jd-[\w-]+$/.test(rest[0])) {
     const path = join(root, "runs", rest[0], "outcome.json");
     result = existsSync(path) ? { ok: true, ...JSON.parse(readFileSync(path, "utf8")) } : { ok: true, state: "pending_or_unknown" };
   } else {
-    console.error("usage: jarvis-demo.mjs request <text> | work | status <id>");
+    console.error("usage: jarvis-demo.mjs request <text> | work [--id <id>] | status <id>");
     return 64;
   }
   console.log(JSON.stringify(result, null, 2));
