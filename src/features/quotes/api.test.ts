@@ -4062,6 +4062,93 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
   });
 
+  it("asks again after a platform admin lookup that ran without a signed in session was denied (OVD-736 R2)", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    // First lookup reaches PostgREST as anon (stored session whose refresh failed)
+    // and gets 42501 once anon EXECUTE is revoked; the next fetch runs signed in.
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42501",
+          details: null,
+          hint: null,
+          message: "permission denied for function api_get_is_platform_admin",
+        },
+        status: 401,
+      })
+      .mockResolvedValueOnce({
+        data: true,
+        error: null,
+        status: 200,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      isPlatformAdmin: false,
+      authState: "authenticated",
+    });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_get_is_platform_admin", undefined);
+  });
+
+  it("asks again after a platform admin lookup denied with 403 for a signed in role", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42501",
+          details: null,
+          hint: null,
+          message: "permission denied for function api_get_is_platform_admin",
+        },
+        status: 403,
+      })
+      .mockResolvedValueOnce({
+        data: true,
+        error: null,
+        status: 200,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({ isPlatformAdmin: false });
+    await expect(fetchAppSessionData()).resolves.toMatchObject({ isPlatformAdmin: true });
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces a clean not-found error when a project row is missing", async () => {
     supabaseMock.projectsMaybeSingle.mockResolvedValue({
       data: null,
