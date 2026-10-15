@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -28,16 +28,24 @@ test("a request missing a part or with an out of range pin is refused", () => {
   assert.match(parseDesignRequest("design a bracket and a pin").reason, /missing: plate/);
   assert.match(parseDesignRequest("bracket plate 40 mm pin").reason, /4 to 20 mm/);
   assert.equal(parseDesignRequest(undefined).ok, false);
+  assert.match(parseDesignRequest("a bracket on a template with a pinterest pin").reason, /missing: plate/);
 });
 
-test("each pending request is claimed exactly once, oldest first", () =>
+test("pending requests are claimed oldest first and each only once", () =>
   withRoot((root) => {
     const first = createRequest(root, "bracket plate 8 mm pin", "test", new Date("2026-10-15T07:00:00Z")).request;
     const second = createRequest(root, "bracket plate 9 mm pin", "test", new Date("2026-10-15T07:01:00Z")).request;
-    assert.equal(claimOldest(root).id, first.id);
-    assert.equal(claimOldest(root).id, second.id);
+    assert.equal(claimOldest(root).request.id, first.id);
+    assert.equal(claimOldest(root).request.id, second.id);
     assert.equal(claimOldest(root), null);
     assert.deepEqual(readdirSync(join(root, "queue", "pending")), []);
+  }));
+
+test("a request still being written is never claimed", () =>
+  withRoot((root) => {
+    mkdirSync(join(root, "queue", "pending"), { recursive: true });
+    writeFileSync(join(root, "queue", "pending", ".jd-partial.tmp"), "{\"id\":");
+    assert.equal(claimOldest(root), null);
   }));
 
 test("the CLI refuses to run unless the admin flag is on", () =>

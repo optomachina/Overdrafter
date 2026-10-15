@@ -24,7 +24,8 @@ const DEFAULT_PIN_MM = 10;
 
 export function parseDesignRequest(text) {
   const lower = String(text ?? "").toLowerCase();
-  const missing = ["bracket", "plate", "pin"].filter((part) => !lower.includes(part));
+  if (lower.length > 500) return { ok: false, reason: "request text is limited to 500 characters" };
+  const missing = ["bracket", "plate", "pin"].filter((part) => !new RegExp(`\\b${part}s?\\b`).test(lower));
   if (missing.length > 0) {
     return { ok: false, reason: `this demo builds only a bracket + plate + pin assembly; missing: ${missing.join(", ")}` };
   }
@@ -39,11 +40,14 @@ export function parseDesignRequest(text) {
 export function createRequest(root, text, source, now = new Date()) {
   const parsed = parseDesignRequest(text);
   if (!parsed.ok) return parsed;
-  const id = `jd-${now.toISOString().replace(/[-:.]/g, "").slice(0, 15)}-${randomUUID().slice(0, 8)}`;
+  const id = `jd-${now.toISOString().replace(/[-:.]/g, "").slice(0, 18)}-${randomUUID().slice(0, 8)}`;
   const request = { id, createdAt: now.toISOString(), source, text, params: parsed.params, state: "pending" };
   const pending = join(root, "queue", "pending");
   mkdirSync(pending, { recursive: true });
-  writeFileSync(join(pending, `${id}.json`), `${JSON.stringify(request, null, 2)}\n`, { flag: "wx" });
+  // Write under a non-.json name, then rename, so a worker never sees a partial file.
+  const staging = join(pending, `.${id}.tmp`);
+  writeFileSync(staging, `${JSON.stringify(request, null, 2)}\n`, { flag: "wx" });
+  renameSync(staging, join(pending, `${id}.json`));
   return { ok: true, request };
 }
 
@@ -56,7 +60,7 @@ export function claimOldest(root) {
   for (const name of names) {
     try {
       renameSync(join(pending, name), join(claimed, name));
-      return JSON.parse(readFileSync(join(claimed, name), "utf8"));
+      return { name, request: JSON.parse(readFileSync(join(claimed, name), "utf8")) };
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
@@ -65,21 +69,26 @@ export function claimOldest(root) {
 }
 
 function work(root, python) {
-  const request = claimOldest(root);
-  if (!request) return { ok: true, idle: true };
-  const runDir = join(root, "runs", request.id);
-  mkdirSync(runDir, { recursive: true });
-  const requestPath = join(runDir, "request.json");
-  writeFileSync(requestPath, `${JSON.stringify({ ...request, state: "running" }, null, 2)}\n`);
-  const script = join(dirname(fileURLToPath(import.meta.url)), "assembly.py");
-  const started = Date.now();
-  const run = spawnSync(python, [script, requestPath, runDir], { encoding: "utf8", timeout: 300_000 });
-  const state = run.status === 0 ? "verified" : run.status === 2 ? "checks_failed" : "failed";
-  const outcome = { id: request.id, state, exitCode: run.status, durationMs: Date.now() - started, runDir };
-  writeFileSync(join(runDir, "worker.log"), `${run.stdout ?? ""}\n--- stderr ---\n${run.stderr ?? ""}${run.error ? `\n${run.error}` : ""}`);
-  writeFileSync(join(runDir, "outcome.json"), `${JSON.stringify(outcome, null, 2)}\n`);
-  renameSync(join(root, "queue", "claimed", `${request.id}.json`), join(root, "queue", state === "verified" ? "done" : "failed", `${request.id}.json`));
-  return { ok: state === "verified", ...outcome };
+  const claim = claimOldest(root);
+  if (!claim) return { ok: true, idle: true };
+  const { name, request } = claim;
+  let state = "failed";
+  try {
+    const runDir = join(root, "runs", request.id);
+    mkdirSync(runDir, { recursive: true });
+    const requestPath = join(runDir, "request.json");
+    writeFileSync(requestPath, `${JSON.stringify({ ...request, state: "running" }, null, 2)}\n`);
+    const script = join(dirname(fileURLToPath(import.meta.url)), "assembly.py");
+    const started = Date.now();
+    const run = spawnSync(python, [script, requestPath, runDir], { encoding: "utf8", timeout: 300_000 });
+    state = run.status === 0 ? "verified" : run.status === 2 ? "checks_failed" : "failed";
+    const outcome = { id: request.id, state, exitCode: run.status, durationMs: Date.now() - started, runDir };
+    writeFileSync(join(runDir, "worker.log"), `${run.stdout ?? ""}\n--- stderr ---\n${run.stderr ?? ""}${run.error ? `\n${run.error}` : ""}`);
+    writeFileSync(join(runDir, "outcome.json"), `${JSON.stringify(outcome, null, 2)}\n`);
+    return { ok: state === "verified", ...outcome };
+  } finally {
+    renameSync(join(root, "queue", "claimed", name), join(root, "queue", state === "verified" ? "done" : "failed", name));
+  }
 }
 
 function main(argv) {
@@ -103,7 +112,8 @@ function main(argv) {
     return 64;
   }
   console.log(JSON.stringify(result, null, 2));
-  return result.ok ? 0 : 1;
+  if (result.ok) return 0;
+  return result.state === "checks_failed" ? 2 : 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

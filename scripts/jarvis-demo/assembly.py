@@ -12,7 +12,7 @@ import math
 import sys
 from pathlib import Path
 
-from build123d import Align, Axis, Box, Compound, Cylinder, Location, Pos, Rot, export_step
+from build123d import Align, Box, Compound, Cylinder, GeomType, Location, Pos, Rot, export_step
 
 PLATE = (120.0, 80.0, 8.0)
 FLANGE = (60.0, 40.0, 8.0)
@@ -72,19 +72,37 @@ def checks(parts, derived, params):
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             overlap = parts[a].intersect(parts[b])
-            volume = overlap.volume if overlap else 0.0
+            volume = sum(solid.volume for solid in overlap.solids()) if overlap else 0.0
             record(f"no interference {a}/{b}", volume < 1e-6, f"overlap_mm3={volume:.6f}")
-    clearance = derived["holeDiameterMm"] - params["pinDiameterMm"]
-    record("pin clearance fit", 0 < clearance <= 0.5, f"diametral_clearance_mm={clearance:.3f}")
+    # Measured from the solids, not from the build constants.
+    def y_cylinders(part):
+        return [f for f in part.faces().filter_by(GeomType.CYLINDER) if abs(abs(f.axis_of_rotation.direction.Y) - 1) < 1e-9]
+
+    holes = y_cylinders(parts["l_bracket"])
+    shank = min(y_cylinders(parts["clevis_pin"]), key=lambda f: f.radius, default=None)
+    if len(holes) == 1 and shank is not None:
+        hole = holes[0]
+        clearance = 2 * (hole.radius - shank.radius)
+        record("pin clearance fit", 0 < clearance <= 0.5, f"measured_diametral_clearance_mm={clearance:.3f}")
+        hp, sp = hole.axis_of_rotation.position, shank.axis_of_rotation.position
+        offset = math.hypot(hp.X - sp.X, hp.Z - sp.Z)
+        record("pin coaxial with hole", offset < 1e-6, f"axis_offset_mm={offset:.6f}")
+    else:
+        record("pin clearance fit", False, f"bracket_y_holes={len(holes)} pin_shank={'found' if shank else 'missing'}")
     pin_box = parts["clevis_pin"].bounding_box()
     upright = parts["l_bracket"].bounding_box()
     record(
-        "pin passes through upright",
+        "pin spans upright",
         pin_box.min.Y < upright.max.Y - FLANGE[2] and pin_box.max.Y > upright.max.Y,
-        f"pin_y=[{pin_box.min.Y:.2f},{pin_box.max.Y:.2f}] upright_back_y={upright.max.Y - FLANGE[2]:.2f} front_y={upright.max.Y:.2f}",
+        f"pin_y=[{pin_box.min.Y:.2f},{pin_box.max.Y:.2f}] upright_y=[{upright.max.Y - FLANGE[2]:.2f},{upright.max.Y:.2f}]",
     )
-    bracket_box = parts["l_bracket"].bounding_box()
-    record("bracket seated on plate", abs(bracket_box.min.Z - PLATE[2]) < 1e-6, f"bracket_min_z={bracket_box.min.Z:.3f}")
+    plate_box = parts["base_plate"].bounding_box()
+    seated = (
+        abs(upright.min.Z - plate_box.max.Z) < 1e-6
+        and plate_box.min.X <= upright.min.X and upright.max.X <= plate_box.max.X
+        and plate_box.min.Y <= upright.min.Y and upright.max.Y <= plate_box.max.Y
+    )
+    record("bracket seated on plate", seated, f"bracket_min_z={upright.min.Z:.3f} plate_top_z={plate_box.max.Z:.3f}")
     return results
 
 
@@ -139,8 +157,6 @@ def main():
     assembly = Compound(label="jarvis_demo_assembly", children=list(parts.values()))
     export_step(assembly, str(out_dir / "assembly.step"))
     files["assembly"] = "assembly.step"
-    render_png(parts, out_dir / "assembly.png")
-    files["render"] = "assembly.png"
     results = checks(parts, derived, params)
     summary = {
         "requestId": request["id"],
@@ -153,6 +169,9 @@ def main():
         "allChecksPass": all(r["pass"] for r in results),
         "files": files,
     }
+    (out_dir / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
+    render_png(parts, out_dir / "assembly.png")
+    summary["files"]["render"] = "assembly.png"
     (out_dir / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({"allChecksPass": summary["allChecksPass"], "files": files}))
     return 0 if summary["allChecksPass"] else 2
