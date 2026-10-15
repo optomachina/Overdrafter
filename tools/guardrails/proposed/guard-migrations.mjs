@@ -592,6 +592,7 @@ function expandVars(src, picks = [], counts = []) {
   let redirectEnd = -1;
   let inRedirect = false;
   let redirectValues = new Map();
+  let redirectOrder = {};
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -605,7 +606,7 @@ function expandVars(src, picks = [], counts = []) {
     return memo.get(key);
   };
   const lookup = (name, child) => {
-    const raw = !child && inRedirect && redirectValues.has(name) ? redirectValues.get(name)
+    const raw = !child && inRedirect && redirectValues.has(name) && pick(redirectOrder, 2) === 0 ? redirectValues.get(name).value
       : child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
     if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name) && !INTERNAL_NAME.test(name)) return SOURCED_AT + name;
     return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
@@ -632,6 +633,14 @@ function expandVars(src, picks = [], counts = []) {
     scope.locals = undefined;
   };
   const assign = (name, value) => {
+    if (inRedirect && redirectValues.has(name)) {
+      const snapshot = redirectValues.get(name);
+      if (pick(redirectOrder, 2) === 0) {
+        snapshot.value = value;
+        if (snapshot.pending) return;
+      }
+      if (!snapshot.pending) value = union([vars[name], value]);
+    }
     // After || the next command may run whether or not the assignment did.
     if (lastOp === "||") return store(name, union([vars[name], value]));
     const scope = scopes.at(-1);
@@ -712,17 +721,19 @@ function expandVars(src, picks = [], counts = []) {
   const frames = [];
   const docs = [];
   const openFrame = (frame) => {
-    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd, redirectValues });
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd, redirectValues, redirectOrder });
+    if (inRedirect && redirectValues.size > 0 && pick(redirectOrder, 2) === 0) vars = { ...vars, ...Object.fromEntries([...redirectValues].map(([name, snapshot]) => [name, snapshot.value])) };
     lastOp = null;
     cmdStart = true;
     declaration = false;
     commandEnv = false;
     redirectEnd = -1;
     redirectValues = new Map();
+    redirectOrder = {};
   };
   const closeFrame = () => {
     const frame = frames.pop();
-    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd, redirectValues } = frame);
+    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd, redirectValues, redirectOrder } = frame);
     if (frame.vars) scopes = scopes.slice(0, frame.scopes);
     return frame.quote;
   };
@@ -807,7 +818,7 @@ function expandVars(src, picks = [], counts = []) {
           const previous = lookup(name, false);
           prefix.values[name] = append ? appendTo(previous, valueOf(text)) : valueOf(text);
           if (ambiguous) {
-            if (!redirectValues.has(name)) redirectValues.set(name, vars[name]);
+            if (!redirectValues.has(name)) redirectValues.set(name, { value: vars[name], pending: false });
             assign(name, union([previous, prefix.values[name]]));
           }
         }
@@ -817,8 +828,8 @@ function expandVars(src, picks = [], counts = []) {
         const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
         const body = local ? scopes.findLast((sc) => sc.fn) : undefined;
         for (const [name, text, append] of values) {
-          // Redirect targets expand before assignments, even when there is no command word.
-          if (!redirectValues.has(name)) redirectValues.set(name, vars[name]);
+          // With no command name, shells may apply assignments before or after redirects; check both orders.
+          if (!redirectValues.has(name)) redirectValues.set(name, { value: vars[name], pending: true });
           if (body) {
             body.locals ??= {};
             if (!(name in body.locals)) body.locals[name] = vars[name];
@@ -889,7 +900,7 @@ function expandVars(src, picks = [], counts = []) {
         take = 2;
       } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
       if (/[\s;&|()]/.test(c)) wordStart = true;
-      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; redirectValues = new Map(); }
+      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; redirectValues = new Map(); redirectOrder = {}; }
       if (c === "\n" && docs.length > 0) {
         // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
         out += c;

@@ -1610,6 +1610,9 @@ test("assignments with redirects retain shell state and distinguish real command
     'MIG=docs; OTHER=v >/dev/null MIG=supabase/migrations; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations; MIG=docs 2>&1 true; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations; MIG=docs >"$MIG/x.sql"; echo ok',
+    'MIG=supabase/migrations; MIG=docs >"$(printf %s "$MIG")/x.sql"; echo ok',
+    'MIG=docs; MIG=supabase/migrations >"$MIG/x.sql"; echo ok',
+    'MIG=docs; MIG=supabase/migrations >"$(printf %s "$MIG")/x.sql"; echo ok',
     'MIG=docs; MIG=supabase/migrations 2>&1 sh -c \'echo x > "$MIG/x.sql"\'',
     'MIG=docs; MIG=supabase/migrations $MAY_BE_EMPTY; echo x > "$MIG/x.sql"',
     'MIG=docs; export MIG=supabase/migrations OTHER; echo x > "$MIG/x.sql"',
@@ -1619,9 +1622,38 @@ test("assignments with redirects retain shell state and distinguish real command
     'MIG=docs; MIG=supabase/migrations >/dev/null true; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations; MIG=docs >/dev/null; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations; >/dev/null MIG=docs; echo x > "$MIG/x.sql"',
-    'MIG=docs; MIG=supabase/migrations >"$MIG/x.sql"; echo ok',
     'MIG=docs; OTHER=v >/dev/null MIG=supabase/migrations true; echo x > "$MIG/x.sql"',
   ]) assert.equal(decide(inFixture(command), { prFiles: fakePrFiles }), null, command);
+});
+
+test("redirect assignment ordering agrees with Bash for default expansions", () => {
+  for (const initial of [null, "", "docs", "supabase/migrations"]) for (const target of ["docs", "supabase/migrations"]) {
+    for (const op of [":=", "=", ":-", "-"]) for (const nested of [false, true]) {
+      const fixture = mkdtempSync(join(tmpdir(), "guard-redirect-order-"));
+      try {
+        mkdirSync(join(fixture, "docs"));
+        mkdirSync(join(fixture, "supabase/migrations"), { recursive: true });
+        const expansion = "${MIG" + op + "docs}";
+        const path = nested ? '$(printf %s "' + expansion + '")' : expansion;
+        const setup = initial === null ? "unset MIG" : `MIG=${initial}`;
+        const redirect = `>"./${path}/redirect.sql"`;
+        const assignment = `${setup}; MIG=${target} ${redirect}`;
+        // Bash permits reversing these steps without a command name. Replay both orders explicitly.
+        let protectedWrite = false;
+        for (const ordering of [`${setup}; MIG=${target}; ${redirect}`, `${setup}; ${redirect}; MIG=${target}`]) {
+          const reference = spawnSync("bash", ["-c", ordering + '; printf %s "$MIG"'], { cwd: fixture, encoding: "utf8" });
+          assert.equal(reference.status, 0, reference.stderr);
+          assert.equal(reference.stderr, "", ordering);
+          protectedWrite ||= reference.stdout === "supabase/migrations" || existsSync(join(fixture, "supabase/migrations/redirect.sql"));
+        }
+        const command = assignment + '; echo x > "./$MIG/x.sql"';
+        const reason = decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }, { prFiles: fakePrFiles });
+        assert.equal(reason !== null, protectedWrite, command);
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    }
+  }
 });
 
 test("export append updates the Git config environment used for aliases", () => {
