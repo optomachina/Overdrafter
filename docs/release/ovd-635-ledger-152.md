@@ -22,7 +22,7 @@ The last direct count anywhere is 149, on Oct 12. The 151 and 152 figures are su
 
 ## Owner step
 
-Run the pre-check read-only against production. The expected row is:
+Run the pre-check read-only against production with psql (`psql "$DB_URL" -X -f docs/release/ovd-635-ledger-152-pre-check.sql`). The dashboard SQL editor shows only the last statement's result, which here is the empty `rollback`. The expected row is:
 
 ```
 count 152 | head 20261014191541 | version_list_md5 dea629f567cdcbf87a5f9d83d9215979 | missing {} | extra {}
