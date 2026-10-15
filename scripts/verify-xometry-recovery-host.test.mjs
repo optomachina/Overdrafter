@@ -953,6 +953,133 @@ describe("recovery-host CLI", () => {
       );
     }
   });
+
+  function failingCollector(failWhen, failure) {
+    const stable = compliantEvidence(OVD410_RECOVERY_HOST_CONTRACT);
+    return (expectations, options) =>
+      collectRecoveryHostEvidence(expectations, {
+        ...options,
+        collectStableEvidence: async () => stable.stable,
+        readStartupScript: async () => stable.startupScriptSource,
+        readRecoveryEgressControl: async () => stable.recoveryEgressControlSource,
+        runCommand: async (_bin, args) => {
+          if (failWhen(args)) throw failure();
+          return {};
+        },
+      });
+  }
+
+  async function runFailingCli(collectEvidence) {
+    const output = { value: "", write(chunk) { this.value += chunk; } };
+    const code = await runCli({ env: productionEnv(), output, collectEvidence });
+    return { code, lines: output.value.split("\n") };
+  }
+
+  it("names the failing lookup and its exit code without echoing command text", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) => args[1] === "firewall-rules" && args[2] === "describe",
+        () =>
+          Object.assign(new Error("secret-message gcloud failed"), {
+            code: 1,
+            signal: null,
+            killed: false,
+            stdout: "secret-stdout",
+            stderr: "ERROR: secret-stderr token=abc",
+          }),
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines).toEqual([
+      "Recovery-host metadata collection failed; failing closed.",
+      "Recovery-host collection diagnostic: step=firewall reason=exit exit=1 signal=none timedOut=false",
+      "",
+    ]);
+  });
+
+  it("reports an execFile timeout as timedOut=true on the egress runtime step", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) =>
+          args[1] === "ssh" &&
+          args.some((arg) =>
+            arg.includes(OVD410_RECOVERY_HOST_CONTRACT.recoveryEgressEvidencePath),
+          ),
+        () =>
+          Object.assign(new Error("secret-message timed out"), {
+            code: null,
+            signal: "SIGTERM",
+            killed: true,
+            stdout: "",
+            stderr: "secret-stderr",
+          }),
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines[1]).toBe(
+      "Recovery-host collection diagnostic: step=recoveryEgressRuntime reason=timeout exit=none signal=SIGTERM timedOut=true",
+    );
+  });
+
+  it("reports unparseable command output as reason=invalid-json", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) => args[0] === "iam",
+        () => {
+          try {
+            JSON.parse("secret-stdout: not json");
+          } catch (error) {
+            return error;
+          }
+          throw new Error("expected JSON.parse to fail");
+        },
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines[1]).toBe(
+      "Recovery-host collection diagnostic: step=serviceAccountPolicy reason=invalid-json exit=none signal=none timedOut=false",
+    );
+  });
+
+  it("never prints stdout, stderr, messages, or command args from a failed step", async () => {
+    const failures = [
+      failingCollector(
+        (args) => args[0] === "compute" && args[1] === "instances",
+        () =>
+          Object.assign(new Error("secret-message"), {
+            code: 7,
+            stdout: "secret-stdout",
+            stderr: "secret-stderr",
+            cmd: "gcloud secret-args",
+          }),
+      ),
+      failingCollector(
+        (args) => args[1] === "ssh",
+        () =>
+          Object.assign(new SyntaxError("Unexpected token secret-stdout"), {
+            stderr: "secret-stderr",
+          }),
+      ),
+      async () => {
+        throw Object.assign(new Error("secret-message untagged"), {
+          stdout: "secret-stdout",
+          stderr: "secret-stderr",
+        });
+      },
+    ];
+    for (const collectEvidence of failures) {
+      const { code, lines } = await runFailingCli(collectEvidence);
+      expect(code).toBe(2);
+      expect(lines[0]).toBe("Recovery-host metadata collection failed; failing closed.");
+      expect(lines[1]).toMatch(
+        /^Recovery-host collection diagnostic: step=[A-Za-z]+ reason=[a-z-]+ exit=(\d+|none) signal=(\w+|none) timedOut=(true|false)$/,
+      );
+      expect(lines).toHaveLength(3);
+      expect(lines.join("\n")).not.toContain("secret");
+      expect(lines.join("\n")).not.toContain("gcloud");
+      expect(lines.join("\n")).not.toContain("--project");
+    }
+  });
 });
 
 describe("recovery-host startup status", () => {
@@ -1119,16 +1246,27 @@ describe("recovery-host metadata collection", () => {
     expect(runtimeCalls).toHaveLength(2);
     expect(attestationCalls).toHaveLength(2);
     expect(startupStatusCalls).toHaveLength(2);
-    expect(
-      startupStatusCalls.every(
-        (call) =>
-          call.args.includes("--ssh-flag=-oBatchMode=yes") &&
-          call.args.includes("--ssh-flag=-oConnectTimeout=10") &&
-          call.args.includes("--ssh-flag=-oConnectionAttempts=1") &&
-          call.args.includes("--ssh-flag=-oServerAliveInterval=5") &&
-          call.args.includes("--ssh-flag=-oServerAliveCountMax=1"),
-      ),
-    ).toBe(true);
+    const boundedSshPrefix = [
+      "compute",
+      "ssh",
+      EXPECTED.instance,
+      "--project",
+      EXPECTED.project,
+      "--zone",
+      EXPECTED.zone,
+      "--tunnel-through-iap",
+      "--quiet",
+      "--ssh-flag=-oBatchMode=yes",
+      "--ssh-flag=-oConnectTimeout=10",
+      "--ssh-flag=-oConnectionAttempts=1",
+      "--ssh-flag=-oServerAliveInterval=5",
+      "--ssh-flag=-oServerAliveCountMax=1",
+      "--command",
+    ];
+    for (const call of [...runtimeCalls, ...attestationCalls, ...startupStatusCalls]) {
+      expect(call.args.slice(0, boundedSshPrefix.length)).toEqual(boundedSshPrefix);
+      expect(call.args).toHaveLength(boundedSshPrefix.length + 1);
+    }
     expect(
       runtimeCalls.every((call) =>
         call.args.includes(

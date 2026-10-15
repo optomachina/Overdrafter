@@ -835,6 +835,14 @@ async function defaultRunCommand(gcloudBin, args) {
   return JSON.parse(stdout);
 }
 
+const BOUNDED_SSH_FLAGS = [
+  "--ssh-flag=-oBatchMode=yes",
+  "--ssh-flag=-oConnectTimeout=10",
+  "--ssh-flag=-oConnectionAttempts=1",
+  "--ssh-flag=-oServerAliveInterval=5",
+  "--ssh-flag=-oServerAliveCountMax=1",
+];
+
 function recoveryStartupStatusArgs(expectations) {
   return [
     "compute",
@@ -846,14 +854,57 @@ function recoveryStartupStatusArgs(expectations) {
     expectations.zone,
     "--tunnel-through-iap",
     "--quiet",
-    "--ssh-flag=-oBatchMode=yes",
-    "--ssh-flag=-oConnectTimeout=10",
-    "--ssh-flag=-oConnectionAttempts=1",
-    "--ssh-flag=-oServerAliveInterval=5",
-    "--ssh-flag=-oServerAliveCountMax=1",
+    ...BOUNDED_SSH_FLAGS,
     "--command",
     `sudo cat ${expectations.startupStatusPath}`,
   ];
+}
+
+const ERRNO_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,31}$/;
+
+/**
+ * Carries only the step name and process-level facts about a failed collection
+ * step. Never retains stdout, stderr, the cause message, or command arguments.
+ */
+export class CollectionStepError extends Error {
+  constructor(step, cause) {
+    super(`Recovery-host collection step failed: ${step}`);
+    this.name = "CollectionStepError";
+    this.step = step;
+    this.code = typeof cause?.code === "number" ? cause.code : null;
+    this.signal = typeof cause?.signal === "string" ? cause.signal : null;
+    this.timedOut = cause?.killed === true || this.signal === "SIGTERM";
+    this.reason = collectionFailureReason(cause, this);
+  }
+}
+
+function collectionFailureReason(cause, tagged) {
+  if (cause instanceof SyntaxError) return "invalid-json";
+  if (tagged.timedOut) return "timeout";
+  if (tagged.code !== null) return "exit";
+  if (tagged.signal !== null) return "signal";
+  if (typeof cause?.code === "string" && ERRNO_CODE_PATTERN.test(cause.code)) {
+    return cause.code;
+  }
+  return "unknown";
+}
+
+async function collectStep(step, run) {
+  try {
+    return await run();
+  } catch (cause) {
+    if (cause instanceof CollectionStepError) throw cause;
+    throw new CollectionStepError(step, cause);
+  }
+}
+
+/** One stable diagnostic line; safe to print because it carries no command text. */
+export function collectionDiagnosticLine(error) {
+  const tagged =
+    error instanceof CollectionStepError
+      ? error
+      : new CollectionStepError("unknown", error);
+  return `Recovery-host collection diagnostic: step=${tagged.step} reason=${tagged.reason} exit=${tagged.code ?? "none"} signal=${tagged.signal ?? "none"} timedOut=${tagged.timedOut}`;
 }
 
 /** Collect one bounded, status-only guest startup observation over private IAP. */
@@ -954,6 +1005,7 @@ export async function collectRecoveryHostEvidence(
     ...zonal,
     "--tunnel-through-iap",
     "--quiet",
+    ...BOUNDED_SSH_FLAGS,
     "--command",
     `sudo ${expectations.recoveryEgressControlPath} verify ${expectations.recoveryEgressPolicySha256} >/dev/null && sudo cat ${expectations.recoveryEgressEvidencePath}`,
   ];
@@ -965,18 +1017,25 @@ export async function collectRecoveryHostEvidence(
     ...zonal,
     "--tunnel-through-iap",
     "--quiet",
+    ...BOUNDED_SSH_FLAGS,
     "--command",
     recoveryEgressControlAttestationCommand,
   ];
   const startupStatusArgs = recoveryStartupStatusArgs(expectations);
+  const run = (step, args) =>
+    collectStep(step, () => runCommand(gcloudBin, args));
 
-  const stable = await collectStableEvidence(expectations, { gcloudBin, runCommand });
+  const stable = await collectStep("stableEgress", () =>
+    collectStableEvidence(expectations, { gcloudBin, runCommand }),
+  );
   const snapshotBucket = serviceEnvironmentValue(
     stable.service,
     "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
   );
   if (typeof snapshotBucket !== "string" || snapshotBucket.length === 0) {
-    throw new Error("Snapshot bucket metadata is unavailable.");
+    throw new CollectionStepError("snapshotBucket", {
+      code: "MISSING_SNAPSHOT_BUCKET",
+    });
   }
   const snapshotBucketPolicyArgs = [
     "storage",
@@ -998,62 +1057,79 @@ export async function collectRecoveryHostEvidence(
 
   const evidence = {
     stable,
-    instance: await runCommand(gcloudBin, instanceArgs),
-    firewall: await runCommand(gcloudBin, firewallArgs),
-    instanceInventory: await runCommand(gcloudBin, instanceInventoryArgs),
-    firewallInventory: await runCommand(gcloudBin, firewallInventoryArgs),
-    serviceAccountPolicy: await runCommand(gcloudBin, serviceAccountPolicyArgs),
-    artifactRepositoryPolicy: await runCommand(gcloudBin, artifactRepositoryPolicyArgs),
-    snapshotBucketPolicy: await runCommand(gcloudBin, snapshotBucketPolicyArgs),
-    projectMetadata: await runCommand(gcloudBin, projectMetadataArgs),
-    snapshotBucketMetadata: await runCommand(gcloudBin, snapshotBucketMetadataArgs),
-    iapService: await runCommand(gcloudBin, iapServiceArgs),
-    startupStatus: await runCommand(gcloudBin, startupStatusArgs),
-    startupScriptSource: await readStartupScript(
-      path.resolve(process.cwd(), expectations.startupScript),
+    instance: await run("instance", instanceArgs),
+    firewall: await run("firewall", firewallArgs),
+    instanceInventory: await run("instanceInventory", instanceInventoryArgs),
+    firewallInventory: await run("firewallInventory", firewallInventoryArgs),
+    serviceAccountPolicy: await run("serviceAccountPolicy", serviceAccountPolicyArgs),
+    artifactRepositoryPolicy: await run(
+      "artifactRepositoryPolicy",
+      artifactRepositoryPolicyArgs,
     ),
-    recoveryEgressControlSource: await readRecoveryEgressControl(
-      path.resolve(process.cwd(), expectations.recoveryEgressControlScript),
+    snapshotBucketPolicy: await run("snapshotBucketPolicy", snapshotBucketPolicyArgs),
+    projectMetadata: await run("projectMetadata", projectMetadataArgs),
+    snapshotBucketMetadata: await run(
+      "snapshotBucketMetadata",
+      snapshotBucketMetadataArgs,
     ),
-    recoveryEgressControlAttestation: await runCommand(
-      gcloudBin,
+    iapService: await run("iapService", iapServiceArgs),
+    startupStatus: await run("startupStatus", startupStatusArgs),
+    startupScriptSource: await collectStep("readStartupScript", () =>
+      readStartupScript(path.resolve(process.cwd(), expectations.startupScript)),
+    ),
+    recoveryEgressControlSource: await collectStep("readRecoveryEgressControl", () =>
+      readRecoveryEgressControl(
+        path.resolve(process.cwd(), expectations.recoveryEgressControlScript),
+      ),
+    ),
+    recoveryEgressControlAttestation: await run(
+      "recoveryEgressControlAttestation",
       recoveryEgressControlAttestationArgs,
     ),
-    recoveryEgressRuntime: await runCommand(
-      gcloudBin,
-      recoveryEgressRuntimeArgs,
-    ),
+    recoveryEgressRuntime: await run("recoveryEgressRuntime", recoveryEgressRuntimeArgs),
   };
-  evidence.confirmInstance = await runCommand(gcloudBin, instanceArgs);
-  evidence.confirmFirewall = await runCommand(gcloudBin, firewallArgs);
-  evidence.confirmInstanceInventory = await runCommand(gcloudBin, instanceInventoryArgs);
-  evidence.confirmFirewallInventory = await runCommand(gcloudBin, firewallInventoryArgs);
-  evidence.confirmProjectIamPolicy = await runCommand(gcloudBin, projectIamPolicyArgs);
-  evidence.confirmServiceAccountPolicy = await runCommand(
-    gcloudBin,
+  evidence.confirmInstance = await run("confirmInstance", instanceArgs);
+  evidence.confirmFirewall = await run("confirmFirewall", firewallArgs);
+  evidence.confirmInstanceInventory = await run(
+    "confirmInstanceInventory",
+    instanceInventoryArgs,
+  );
+  evidence.confirmFirewallInventory = await run(
+    "confirmFirewallInventory",
+    firewallInventoryArgs,
+  );
+  evidence.confirmProjectIamPolicy = await run(
+    "confirmProjectIamPolicy",
+    projectIamPolicyArgs,
+  );
+  evidence.confirmServiceAccountPolicy = await run(
+    "confirmServiceAccountPolicy",
     serviceAccountPolicyArgs,
   );
-  evidence.confirmArtifactRepositoryPolicy = await runCommand(
-    gcloudBin,
+  evidence.confirmArtifactRepositoryPolicy = await run(
+    "confirmArtifactRepositoryPolicy",
     artifactRepositoryPolicyArgs,
   );
-  evidence.confirmSnapshotBucketPolicy = await runCommand(
-    gcloudBin,
+  evidence.confirmSnapshotBucketPolicy = await run(
+    "confirmSnapshotBucketPolicy",
     snapshotBucketPolicyArgs,
   );
-  evidence.confirmProjectMetadata = await runCommand(gcloudBin, projectMetadataArgs);
-  evidence.confirmSnapshotBucketMetadata = await runCommand(
-    gcloudBin,
+  evidence.confirmProjectMetadata = await run(
+    "confirmProjectMetadata",
+    projectMetadataArgs,
+  );
+  evidence.confirmSnapshotBucketMetadata = await run(
+    "confirmSnapshotBucketMetadata",
     snapshotBucketMetadataArgs,
   );
-  evidence.confirmIapService = await runCommand(gcloudBin, iapServiceArgs);
-  evidence.confirmStartupStatus = await runCommand(gcloudBin, startupStatusArgs);
-  evidence.confirmRecoveryEgressRuntime = await runCommand(
-    gcloudBin,
+  evidence.confirmIapService = await run("confirmIapService", iapServiceArgs);
+  evidence.confirmStartupStatus = await run("confirmStartupStatus", startupStatusArgs);
+  evidence.confirmRecoveryEgressRuntime = await run(
+    "confirmRecoveryEgressRuntime",
     recoveryEgressRuntimeArgs,
   );
-  evidence.confirmRecoveryEgressControlAttestation = await runCommand(
-    gcloudBin,
+  evidence.confirmRecoveryEgressControlAttestation = await run(
+    "confirmRecoveryEgressControlAttestation",
     recoveryEgressControlAttestationArgs,
   );
   return evidence;
@@ -1141,8 +1217,9 @@ export async function runCli({
     evidence = await collectEvidence(expectations, {
       gcloudBin: env.GCLOUD_BIN ?? "gcloud",
     });
-  } catch {
+  } catch (error) {
     output.write("Recovery-host metadata collection failed; failing closed.\n");
+    output.write(`${collectionDiagnosticLine(error)}\n`);
     return 2;
   }
 
