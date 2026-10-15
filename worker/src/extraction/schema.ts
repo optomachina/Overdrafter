@@ -34,5 +34,23 @@ export const modelResponseSchema = z.object({
   titleBlockSufficient: z.boolean().default(true),
 });
 
+/**
+ * OpenAI strict structured outputs reject `default` keywords, so the request
+ * format requires every field. Parsing other providers keeps the defaults.
+ */
+const strictModelFieldSchema = modelFieldSchema.extend({
+  reasons: z.array(z.string()).max(8),
+});
+
+export const strictModelResponseSchema = modelResponseSchema.extend({
+  partNumber: strictModelFieldSchema,
+  revision: strictModelFieldSchema,
+  description: strictModelFieldSchema,
+  material: strictModelFieldSchema,
+  finish: strictModelFieldSchema,
+  process: strictModelFieldSchema,
+  titleBlockSufficient: z.boolean(),
+});
+
 export type ModelFieldResponse = z.infer<typeof modelFieldSchema>;
 export type ParsedModelResponse = z.infer<typeof modelResponseSchema>;
