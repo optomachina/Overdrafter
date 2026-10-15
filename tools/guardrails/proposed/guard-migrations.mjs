@@ -488,15 +488,26 @@ function readAssignments(src, i) {
     i = blank.lastIndex;
   }
   // Assignments before a command word apply to that command only and leave the shell variables as they were.
-  const prefix = i < src.length && !/[\s;&|)#]/.test(src[i]) && values.length > 0 && !/^[A-Za-z_]\w*\+?=/.test(src.slice(i));
-  return { end: i, values, prefix };
+  const next = parse(src.slice(i)).segments[0];
+  const command = next?.op === null ? next.words.find((word) => !isAssignment(word)) : undefined;
+  const prefix = values.length > 0 && command !== undefined;
+  return { end: i, values, prefix, ambiguous: prefix && (command.includes("$") || command.includes(SUB)) };
+}
+
+/** The end of a redirect and its target, or i when no redirect starts there. */
+function redirectEndAt(src, i) {
+  const op = /^(?:\d+)?(?:&>>?|>>|>\||>&|<>|<&|<<<|<<-?|>|<)/.exec(src.slice(i));
+  if (!op) return i;
+  let target = i + op[0].length;
+  while (/[ \t]/.test(src[target] ?? "")) target++;
+  return readValue(src, target).end;
 }
 
 /** The end of the simple command that continues at i: the first ; & | newline or ) outside quotes and substitutions. */
 function commandEnd(src, i) {
   for (; i < src.length; i++) {
     const c = src[i];
-    if (/[;&|\n)]/.test(c)) return i;
+    if (/[;&|\n)]/.test(c) && !(c === "&" && (/[<>]/.test(src[i - 1] ?? "") || src[i + 1] === ">")) && !(c === "|" && src[i - 1] === ">")) return i;
     if (c === "\\") i++;
     else if (c === "'") i = indexOrEnd(src, "'", i + 1);
     else if (c === '"') i = Math.max(i, closingQuote(src, i) < 0 ? src.length : closingQuote(src, i));
@@ -578,6 +589,9 @@ function expandVars(src, picks = [], counts = []) {
   let cmdStart = true;
   let declaration = false;
   let commandEnv = false;
+  let redirectEnd = -1;
+  let inRedirect = false;
+  let redirectValues = new Map();
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -591,7 +605,8 @@ function expandVars(src, picks = [], counts = []) {
     return memo.get(key);
   };
   const lookup = (name, child) => {
-    const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
+    const raw = !child && inRedirect && redirectValues.has(name) ? redirectValues.get(name)
+      : child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
     if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name) && !INTERNAL_NAME.test(name)) return SOURCED_AT + name;
     return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
   };
@@ -697,15 +712,17 @@ function expandVars(src, picks = [], counts = []) {
   const frames = [];
   const docs = [];
   const openFrame = (frame) => {
-    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv });
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd, redirectValues });
     lastOp = null;
     cmdStart = true;
     declaration = false;
     commandEnv = false;
+    redirectEnd = -1;
+    redirectValues = new Map();
   };
   const closeFrame = () => {
     const frame = frames.pop();
-    if (frame.vars) ({ vars, lastOp, declaration, commandEnv } = frame);
+    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd, redirectValues } = frame);
     if (frame.vars) scopes = scopes.slice(0, frame.scopes);
     return frame.quote;
   };
@@ -718,6 +735,8 @@ function expandVars(src, picks = [], counts = []) {
     }
     const c = src[i];
     const next = src[i + 1];
+    if (quote === null && i >= redirectEnd && (/[<>&]/.test(c) || (wordStart && /\d/.test(c)))) redirectEnd = redirectEndAt(src, i);
+    inRedirect = i < redirectEnd;
     if (quote === null && wordStart && c === "#") {
       const eol = indexOrEnd(src, "\n", i);
       out += src.slice(i, eol);
@@ -774,23 +793,32 @@ function expandVars(src, picks = [], counts = []) {
         continue;
       }
     }
-    if (quote === null && wordStart && cmdStart) {
+    if (quote === null && wordStart && cmdStart && i >= redirectEnd) {
       if (/^(?:(?:builtin(?:[ \t]+--)?|command(?:[ \t]+-p)?(?:[ \t]+--)?)[ \t]+)*(export|readonly|local|declare|typeset)(?=[ \t]|$)/.test(src.slice(i))) declaration = true;
       if (/^env(?=[ \t]|$)/.test(src.slice(i))) commandEnv = true;
     }
     head.lastIndex = i;
-    if (quote === null && wordStart && (cmdStart || declaration || commandEnv) && head.test(src)) {
-      const { end, values, prefix: isPrefix } = readAssignments(src, i);
-      if (isPrefix || commandEnv) {
+    if (quote === null && wordStart && i >= redirectEnd && (cmdStart || declaration || commandEnv) && head.test(src)) {
+      const { end, values, prefix: isPrefix, ambiguous } = readAssignments(src, i);
+      if ((isPrefix && !declaration) || commandEnv) {
         const at = commandEnd(src, end);
         prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
-        for (const [name, text, append] of values) prefix.values[name] = append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text);
+        for (const [name, text, append] of values) {
+          const previous = lookup(name, false);
+          prefix.values[name] = append ? appendTo(previous, valueOf(text)) : valueOf(text);
+          if (ambiguous) {
+            if (!redirectValues.has(name)) redirectValues.set(name, vars[name]);
+            assign(name, union([previous, prefix.values[name]]));
+          }
+        }
       } else {
         // local (or declare and typeset without -g) in a function body makes a variable that ends with the body. Outside
         // a function body (in an if body or a { } group) it sets the variable as a plain assignment does.
         const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
         const body = local ? scopes.findLast((sc) => sc.fn) : undefined;
         for (const [name, text, append] of values) {
+          // Redirect targets expand before assignments, even when there is no command word.
+          if (!redirectValues.has(name)) redirectValues.set(name, vars[name]);
           if (body) {
             body.locals ??= {};
             if (!(name in body.locals)) body.locals[name] = vars[name];
@@ -803,7 +831,7 @@ function expandVars(src, picks = [], counts = []) {
       i = Math.max(end, i + 1);
       continue;
     }
-    if (quote === null && wordStart && !/[\s;&|()]/.test(c)) cmdStart = false;
+    if (quote === null && wordStart && i >= redirectEnd && !/[\s;&|()]/.test(c)) cmdStart = false;
     wordStart = false;
     if (c === "$" && quote !== "$'") {
       refAt.lastIndex = i;
@@ -861,7 +889,7 @@ function expandVars(src, picks = [], counts = []) {
         take = 2;
       } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
       if (/[\s;&|()]/.test(c)) wordStart = true;
-      if (/[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; }
+      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; redirectValues = new Map(); }
       if (c === "\n" && docs.length > 0) {
         // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
         out += c;
@@ -2793,7 +2821,10 @@ function checkExpanded(text, dir, ctx, depth, report) {
     const cmd = base(argv[0]);
     if (argv.length === 0 || cmd === "export") {
       Object.assign(state.env, env);
-      for (const w of argv.slice(1)) if (isAssignment(w)) state.env[w.slice(0, w.indexOf("="))] = w.slice(w.indexOf("=") + 1);
+      for (const w of argv.slice(1)) if (isAssignment(w)) {
+        const [name, value] = assignmentOf(w);
+        state.env[name] = w.slice(0, w.indexOf("=")).endsWith("+") ? `${state.env[name] ?? process.env[name] ?? SUB}${value}` : value;
+      }
     }
     if (state.inTest) {
       state.inTest = !segment.words.includes("]]");

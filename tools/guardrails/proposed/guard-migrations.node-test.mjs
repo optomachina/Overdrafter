@@ -1602,6 +1602,37 @@ test("named-branch push guidance preserves shell metacharacters as one source ar
   }
 });
 
+test("assignments with redirects retain shell state and distinguish real command prefixes", () => {
+  for (const command of [
+    'MIG=docs; MIG=supabase/migrations >/dev/null; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations 2>/dev/null; cp a.sql "$MIG/"',
+    'MIG=docs; >/dev/null MIG=supabase/migrations; echo x > "$MIG/x.sql"',
+    'MIG=docs; OTHER=v >/dev/null MIG=supabase/migrations; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; MIG=docs 2>&1 true; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; MIG=docs >"$MIG/x.sql"; echo ok',
+    'MIG=docs; MIG=supabase/migrations 2>&1 sh -c \'echo x > "$MIG/x.sql"\'',
+    'MIG=docs; MIG=supabase/migrations $MAY_BE_EMPTY; echo x > "$MIG/x.sql"',
+    'MIG=docs; export MIG=supabase/migrations OTHER; echo x > "$MIG/x.sql"',
+    'MIG=docs; MIG=supabase/migrations <<EOF\nignored\nEOF\necho x > "$MIG/x.sql"',
+  ]) assert.ok(decide(inFixture(command), { prFiles: fakePrFiles }), command);
+  for (const command of [
+    'MIG=docs; MIG=supabase/migrations >/dev/null true; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; MIG=docs >/dev/null; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; >/dev/null MIG=docs; echo x > "$MIG/x.sql"',
+    'MIG=docs; MIG=supabase/migrations >"$MIG/x.sql"; echo ok',
+    'MIG=docs; OTHER=v >/dev/null MIG=supabase/migrations true; echo x > "$MIG/x.sql"',
+  ]) assert.equal(decide(inFixture(command), { prFiles: fakePrFiles }), null, command);
+});
+
+test("export append updates the Git config environment used for aliases", () => {
+  const config = `${EMPTY_GIT_CONFIG}.appended`;
+  writeFileSync(config, '[alias]\n dangerous = push origin HEAD:main\n');
+  const command = `export GIT_CONFIG_GLOBAL=${EMPTY_GIT_CONFIG}; export GIT_CONFIG_GLOBAL+=.appended; git dangerous`;
+  assert.ok(decide(inFixture(command, "gitup"), { prFiles: fakePrFiles }));
+  writeFileSync(config, '[alias]\n dangerous = status\n');
+  assert.equal(decide(inFixture(command, "gitup"), { prFiles: fakePrFiles }), null);
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
