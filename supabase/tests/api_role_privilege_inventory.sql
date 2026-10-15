@@ -18,6 +18,10 @@
 -- The anon and PUBLIC rows are the 56 grants OVD-736 revokes. When OVD-736 is
 -- promoted into supabase/migrations, delete those rows and the eight
 -- authenticated known-debt rows in the same PR.
+-- OVD-766 group b: the PUBLIC and anon rows for api_admin_list_all_jobs,
+-- api_admin_list_all_projects, api_admin_list_all_users and
+-- api_admin_list_organizations also drop when docs/migration-drafts/ovd-766-b.sql
+-- is applied; it revokes the same grants.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -160,12 +164,12 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_admin_get_organization_entitlement_state(uuid)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_admin_grant_organization_entitlement(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
   ('public.api_admin_invalidate_vendor_quote_offer(uuid,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
-  ('public.api_admin_list_all_jobs()', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_admin_list_all_projects()', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_admin_list_all_users()', 'authenticated', 'internal-role', 'OVD-602'),
+  ('public.api_admin_list_all_jobs()', 'authenticated', 'internal-role', 'OVD-768'),
+  ('public.api_admin_list_all_projects()', 'authenticated', 'internal-role', 'OVD-768'),
+  ('public.api_admin_list_all_users()', 'authenticated', 'internal-role', 'OVD-768'),
   ('public.api_admin_list_commercial_account_audit(uuid,text,integer)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_admin_list_manual_quote_requests(text,integer)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_admin_list_organizations()', 'authenticated', 'internal-role', 'OVD-602'),
+  ('public.api_admin_list_organizations()', 'authenticated', 'internal-role', 'OVD-768'),
   ('public.api_admin_list_platform_notifications(integer)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_admin_list_provider_kill_switches()', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_admin_revoke_organization_entitlement(uuid,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
