@@ -3,25 +3,28 @@
  * authority proof. Input is the reviewed pre-change manifest, never a live or
  * post-change catalog. SQL is emitted only under output/ for a fresh fixture.
  */
-const expectedManifestSha256 = "718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac";
-const targetSchemas = new Set(["public", "engineering_private", "storage"]);
+// OVD-743 window 2 rebaseline: main's 148 migrations (the production ledger),
+// replacing the 117 migration 000d82a3 prefix.
+const expectedManifestSha256 = "854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296";
+// Storage functions are owned by supabase_storage_admin, which a hosted postgres
+// runner cannot act as (OVD-743 option A): their ACLs are left as shipped.
+const targetSchemas = new Set(["public", "engineering_private"]);
 const allowedOwners = new Map([
   ["public", "postgres"],
   ["engineering_private", "postgres"],
-  ["storage", "supabase_storage_admin"],
 ]);
 const quote = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 
 function reviewedRoles(manifest, manifestSha256) {
   if (manifestSha256 !== expectedManifestSha256 || manifest.version !== 1
       || manifest.scope !== "synthetic_disposable_source_only_prechange"
-      || manifest.fixture?.migrationCount !== 117
-      || manifest.catalog?.functions?.length !== 352
-      || manifest.catalog?.roles?.length !== 13) {
+      || manifest.fixture?.migrationCount !== 148
+      || manifest.catalog?.functions?.length !== 452
+      || manifest.catalog?.roles?.length !== 15) {
     throw new Error("unreviewed_prechange_manifest");
   }
   const roles = new Map(manifest.catalog.roles.map((role) => [role.rolname, role]));
-  if (roles.size !== 13 || [...roles.values()].some((role) => !role.rolname)) {
+  if (roles.size !== 15 || [...roles.values()].some((role) => !role.rolname)) {
     throw new Error("role_catalog_mismatch");
   }
   return roles;
@@ -79,7 +82,7 @@ export function planExactGrants(manifest, manifestSha256) {
   }
   const counts = Object.fromEntries([...targetSchemas].map((schema) =>
     [schema, grants.filter((grant) => grant.schema === schema).length]));
-  if (counts.public !== 616 || counts.engineering_private !== 0 || counts.storage !== 140) {
+  if (counts.public !== 730 || counts.engineering_private !== 0) {
     throw new Error(`reviewed_grant_count_drift:${JSON.stringify(counts)}`);
   }
   return { grants, counts, sql: `${sql.join("\n")}\n` };

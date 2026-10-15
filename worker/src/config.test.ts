@@ -54,7 +54,7 @@ describe("loadConfig", () => {
   it("keeps the OVD-462 session lease off unless explicitly set, and rejects unknown values (OVD-464)", () => {
     const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
     expect(loadConfig(base).providerSessionLease).toBe("off");
-    expect(loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "on" }).providerSessionLease).toBe("on");
+    expect(loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "on", WORKER_PROVIDER_SESSION_NAMESPACE_KEY: "ab".repeat(32) }).providerSessionLease).toBe("on");
     expect(() => loadConfig({ ...base, WORKER_PROVIDER_SESSION_LEASE: "true" })).toThrow();
   });
 

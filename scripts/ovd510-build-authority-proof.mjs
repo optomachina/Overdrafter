@@ -105,9 +105,10 @@ revoke execute on function public.api_load_native_verification(uuid,uuid),
 reset role;
 
 alter default privileges for role postgres revoke execute on functions from public;
-alter default privileges for role supabase_storage_admin revoke execute on functions from public;
 alter default privileges for role postgres in schema private, extensions grant execute on functions to public;
-revoke execute on all functions in schema public, engineering_private, storage from public;
+-- Storage functions belong to supabase_storage_admin, which a hosted postgres
+-- runner cannot act as; their ACLs stay as Supabase ships them (anon callable).
+revoke execute on all functions in schema public, engineering_private from public;
 ${injectedFailure}
 ${replacementGrantSql}
 grant usage on schema public, engineering_private, storage to engineering_native_verifier;

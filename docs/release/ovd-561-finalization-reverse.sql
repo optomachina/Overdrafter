@@ -18,6 +18,12 @@ begin
   if current_user<>'postgres' or current_setting('transaction_isolation')<>'read committed' or exists(select 1 from engineering_private.native_finalizations) then
     raise exception 'ovd561_reverse_requires_empty_history';
   end if;
+  -- Committed pending envelopes are signed with native_receipt_key. While the
+  -- pending table exists (with or without rows), the key must stay: reverse
+  -- ovd561-pending-reverse.sql first, which refuses while any envelope exists.
+  if to_regclass('engineering_private.native_pending_finalizations') is not null then
+    raise exception 'ovd561_reverse_requires_pending_reverse_first';
+  end if;
 end $preflight$;
 drop function engineering_private.finalize_native_result(text,text,text,uuid);
 drop table engineering_private.native_finalizations;

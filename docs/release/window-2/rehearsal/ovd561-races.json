@@ -1,0 +1,58 @@
+{
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
+  "races": [
+    {
+      "name": "concurrent_exact_replay",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_access_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_admission_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_worker_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_cancellation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_current_attempt_fence",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_storage_substitution",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_receipt_expiry",
+      "status": "passed"
+    },
+    {
+      "name": "newer_occupancy_preserved",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_deadline",
+      "status": "passed"
+    },
+    {
+      "name": "repeatable_read_rejected",
+      "status": "passed"
+    },
+    {
+      "name": "rollback_waits_for_completion",
+      "status": "passed"
+    }
+  ],
+  "currentSourceBehaviorAssertions": 24,
+  "verifierCallableSignatures": 7,
+  "suffix": [],
+  "authorityApplicationOrder": "reviewed prefix, OVD-558/560/561, current-main suffix; not current-production migration qualification"
+}

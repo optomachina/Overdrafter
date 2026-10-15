@@ -102,14 +102,23 @@ alter default privileges in schema public revoke execute on functions from publi
 // and storage_object_id keeps its foreign key to storage.objects, so the drop
 // needs the storage.objects lock as on the real schema.
 const storageObject = "00000000-0000-4000-8000-0000000000f1";
+const attemptId = "00000000-0000-4000-8000-0000000000a1";
+const snapshotId = "00000000-0000-4000-8000-0000000000c1";
+// The attempt and snapshot parents carry the registry's foreign keys, as on the
+// real schema, so dropping the registry columns locks them too.
 const registryFixture = `
+create table public.engineering_execution_attempts (id uuid primary key);
+create table public.engineering_snapshots (id uuid primary key);
+insert into public.engineering_execution_attempts values ('${attemptId}');
+insert into public.engineering_snapshots values ('${snapshotId}');
 create schema storage;
 create table storage.objects (id uuid primary key, bucket_id text, name text);
 insert into storage.objects values ('${storageObject}', 'result-bucket', 'task/attempt/result.json');
 create table engineering_private.native_verifier_registered_objects (
   bucket_id text not null, object_name text not null,
-  organization_id uuid, project_id uuid, task_id uuid, attempt_id uuid, fence bigint,
-  input_snapshot_id uuid, candidate_snapshot_id uuid, artifact_role text,
+  organization_id uuid, project_id uuid, task_id uuid,
+  attempt_id uuid references public.engineering_execution_attempts(id), fence bigint,
+  input_snapshot_id uuid references public.engineering_snapshots(id), candidate_snapshot_id uuid, artifact_role text,
   storage_object_id uuid references storage.objects(id), storage_version text, storage_updated_at timestamptz,
   byte_length bigint, sha256 text, registered_at timestamptz,
   constraint native_result_bucket_name_bound check (octet_length(bucket_id) > 0));
@@ -132,7 +141,7 @@ end $grants$;
 `;
 const registryRow = `insert into engineering_private.native_verifier_registered_objects values
   ('result-bucket','task/attempt/result.json',gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
-   '00000000-0000-4000-8000-0000000000a1',1,gen_random_uuid(),gen_random_uuid(),'result',
+   '${attemptId}',1,'${snapshotId}',gen_random_uuid(),'result',
    '${storageObject}','v1',now(),10,repeat('a',64),now());`;
 const registryState = () => run(`select count(*)||':'||coalesce((select count(*) from pg_attribute
   where attrelid='engineering_private.native_verifier_registered_objects'::regclass
@@ -272,17 +281,22 @@ await scenario("560_reverse_empty_positive_control", registryFixture, async () =
   return { reverseExit: code, safe: code === 0 && bindingColumn === "0" };
 });
 
-// A registration holds storage.objects FOR SHARE and only then reads the
-// registry, as register_native_result_object does. The reverse must take
-// storage.objects before the registry: registry first deadlocks with it.
+// A registration locks its attempt FOR UPDATE, then holds storage.objects FOR
+// SHARE, and only then reads the registry, as register_native_result_object
+// does. The reverse must take the attempt (and snapshot) parents, then
+// storage.objects, then the registry. The pre OVD-743 storage first order
+// deadlocks once the column drop asks for the attempt parent; the registry
+// first order (cf3a9738) deadlocks on storage.objects.
+const attemptsFirstLock = "lock table public.engineering_execution_attempts, public.engineering_snapshots,\n  storage.objects, engineering_private.native_verifier_registered_objects\n  in access exclusive mode;";
 const storageFirstLock = "lock table storage.objects, engineering_private.native_verifier_registered_objects\n  in access exclusive mode;";
 const registryFirstLock = "lock table engineering_private.native_verifier_registered_objects in access exclusive mode;";
-if (!sourceRev && reverse560.split(storageFirstLock).length !== 2) throw new Error("ovd651_storage_first_lock_drift");
-const registration = `select count(*) from engineering_private.native_verifier_registered_objects
-  where attempt_id = '00000000-0000-4000-8000-0000000000a1'; ${registryRow} commit;`;
+if (!sourceRev && reverse560.split(attemptsFirstLock).length !== 2) throw new Error("ovd651_attempts_first_lock_drift");
+const registration = `select id from storage.objects where id = '${storageObject}' for share;
+  select count(*) from engineering_private.native_verifier_registered_objects
+  where attempt_id = '${attemptId}'; ${registryRow} commit;`;
 async function registrationRace(reverseSql) {
   const writer = session("writer");
-  await writer.step(`begin; select id from storage.objects where id = '${storageObject}' for share;`);
+  await writer.step(`begin; select id from public.engineering_execution_attempts where id = '${attemptId}' for update;`);
   const reverser = session("reverser");
   reverser.send(reverseSql);
   await waitBlocked(reverser);
@@ -296,16 +310,37 @@ async function registrationRace(reverseSql) {
     refusal: reversed.stderr.match(/ovd560_[a-z_]+/)?.[0] ?? null,
     rows: Number(rows), bindingRetained: bindingColumn === "1" };
 }
-// Control: the registry first order (cf3a9738) must reproduce the hazard, or
-// this harness could not tell the two orders apart.
+// Controls: the registry first order (cf3a9738) and the storage first order
+// (before OVD-743) must reproduce the hazard, or this harness could not tell
+// the orders apart.
 if (!sourceRev) {
   await scenario("560_reverse_registry_first_registration_control", registryFixture, async () => {
-    const outcome = await registrationRace(reverse560.replace(storageFirstLock, registryFirstLock));
+    const outcome = await registrationRace(reverse560.replace(attemptsFirstLock, registryFirstLock));
+    return { ...outcome, reproduced: outcome.deadlock || outcome.lostCommittedRow,
+      safe: outcome.deadlock || outcome.lostCommittedRow };
+  });
+  await scenario("560_reverse_storage_first_registration_control", registryFixture, async () => {
+    const outcome = await registrationRace(reverse560.replace(attemptsFirstLock, storageFirstLock));
     return { ...outcome, reproduced: outcome.deadlock || outcome.lostCommittedRow,
       safe: outcome.deadlock || outcome.lostCommittedRow };
   });
 }
-await scenario("560_reverse_storage_first_concurrent_registration", registryFixture, async () => {
+// A registration that slipped past "stop the worker" and then sits idle with
+// its attempt locked: the reverse times out on its five second lock_timeout
+// (55P03) and changes nothing; the registry and its binding stay.
+await scenario("560_reverse_lock_timeout_with_idle_registration", registryFixture, async () => {
+  const writer = session("writer");
+  await writer.step(`begin; select id from public.engineering_execution_attempts where id = '${attemptId}' for update;`);
+  const reverser = session("reverser");
+  reverser.send(reverse560);
+  const reversed = await reverser.finish();
+  await writer.step("rollback;");
+  await writer.finish();
+  const [, bindingColumn] = registryState().split(":");
+  return { reverseExit: reversed.code, lockTimeout: /55P03|lock timeout/.test(reversed.stderr),
+    safe: reversed.code !== 0 && /lock timeout/.test(reversed.stderr) && bindingColumn === "1" };
+});
+await scenario("560_reverse_attempts_first_concurrent_registration", registryFixture, async () => {
   const outcome = await registrationRace(reverse560);
   return { ...outcome, safe: !outcome.deadlock && !outcome.lostCommittedRow && outcome.writerExit === 0
     && outcome.reverseExit !== 0 && outcome.refusal === "ovd560_reverse_requires_empty_exact_registry"

@@ -51,9 +51,9 @@ for (const entry of fixture.manifest) {
   const current = sha(readFileSync(join(root, "supabase", "migrations", entry.name)));
   if (current !== entry.sha256) throw new Error(`migration_drift:${entry.name}`);
 }
-if (fixture.manifest.length !== 117 || catalog.functions.length !== 352
+if (fixture.manifest.length !== 148 || catalog.functions.length !== 452
     || catalog.schemas.length !== 10 || catalog.policies.length !== 132
-    || catalog.relations.length !== 135 || !Array.isArray(catalog.sequences)
+    || catalog.relations.length !== 158 || !Array.isArray(catalog.sequences)
     || result.sequenceCount !== catalog.sequences.length
     || !catalog.roles.some((role) => role.rolname === "dashboard_user")
     || catalog.functions.some((f) => !Object.hasOwn(f.callers, "dashboard_user"))
@@ -103,8 +103,17 @@ for (const dir of ["src", "supabase/functions", "worker/src"]) scanDir(join(root
 const expectedDynamic = [
   "src/features/quotes/api/shared/rpc.ts:fn",
   "src/features/quotes/api/shared/rpc.ts:fn",
+  "supabase/functions/engineering-interpretation/index.ts:name",
   "supabase/functions/engineering-worker/index.ts:name",
   "supabase/functions/engineering-worker/index.ts:call.name",
+  "supabase/functions/engineering-worker-task/index.ts:name",
+  "supabase/functions/engineering-worker-task/index.ts:call.name",
+  "worker/src/providerCapabilityCanaryLedger.ts:name",
+  "worker/src/providerCapabilityPersistenceTransport.ts:requested",
+  "worker/src/providerCapabilityPreparationPersistence.ts:rpc",
+  "worker/src/providerCapabilityPreparationTransport.ts:requested",
+  "worker/src/providerCapabilityRuntimePersistence.ts:name",
+  "worker/src/providerDispatchPreflight.ts:PREFLIGHT_RPC",
 ];
 if (dynamic.map((d) => `${d.file}:${d.expression}`).toSorted(compareNames).join("|")
     !== expectedDynamic.toSorted(compareNames).join("|")) {
@@ -116,8 +125,23 @@ for (const f of catalog.functions) {
   found.push(f);
   byName.set(f.function_name, found);
 }
+// Application callers of RPCs that only a staged window 2 file creates. They
+// resolve in no prechange catalog; each must name the staged file that creates
+// exactly that public function, and nothing else may be missing.
+const stagedOnlyRpcs = new Map([
+  ["api_read_native_step_review", "docs/release/ovd-563-step-review-forward.sql"],
+  ["api_configure_stripe_catalog_price", "docs/migration-drafts/ovd-725-stripe-catalog.sql"],
+  ["api_disable_stripe_catalog_price", "docs/migration-drafts/ovd-725-stripe-catalog.sql"],
+]);
 const literalCallers = refs.map((ref) => {
   const matches = byName.get(ref.name) ?? [];
+  if (matches.length === 0 && stagedOnlyRpcs.has(ref.name)) {
+    const stagedPath = stagedOnlyRpcs.get(ref.name);
+    if (!readFileSync(join(root, stagedPath), "utf8").includes(`create function public.${ref.name}(`)) {
+      throw new Error(`staged_only_rpc_source_missing:${ref.name}`);
+    }
+    return { ...ref, exactIdentity: null, stagedSource: stagedPath };
+  }
   if (matches.length !== 1 || matches[0].schema_name !== "public") {
     throw new Error(`ambiguous_or_missing_rpc:${ref.file}:${ref.line}:${ref.name}`);
   }
@@ -165,15 +189,17 @@ if (returnedNames.toSorted(compareNames).join(",") !== declaredGatewayNames.join
 // Deliberate caller or dispatch changes require a reviewed new baseline. A
 // regenerated catalog alone cannot approve a newly named application RPC.
 const callerResolutionSha256 = sha(JSON.stringify({ literalCallers, dynamicSites: dynamic, gatewayCalls }));
-if (callerResolutionSha256 !== "6c93ee9cb0afb7a58f571aade49b7a35ccbf41bd62290c073fabb58ced9ab6b7") {
-  throw new Error("reviewed_rpc_caller_set_drift");
+// Window 2 rebaseline (OVD-743): 148 migration production equal baseline, nine
+// new dynamic sites reviewed below in dynamicRules, three staged only callers.
+if (callerResolutionSha256 !== "65941b4598dd28bcfaa3a7e3d384e229664bd10aef916f492700735c9898e015") {
+  throw new Error(`reviewed_rpc_caller_set_drift:${callerResolutionSha256}`);
 }
 const dispatchSourceSha256 = {
-  "src/features/quotes/api/shared/rpc.ts": "69570b9c2fc0a8b6604be3e1993441f0406f9b4664ede4f522b99ee301866ca0",
+  "src/features/quotes/api/shared/rpc.ts": "14b3271b0d24f35c70a7f9db950f41905a3e5620449263c25fd6a187f76d56aa",
   "supabase/functions/engineering-worker/index.ts": "7fae7eba5e9d5c8f06ed1a7b6649e20c2759d5d4ae524e5863e8680fb47be2fb",
 };
 for (const [path, expected] of Object.entries(dispatchSourceSha256)) {
-  if (sha(readFileSync(join(root, path))) !== expected) throw new Error(`reviewed_dispatch_source_drift:${path}`);
+  if (sha(readFileSync(join(root, path))) !== expected) throw new Error(`reviewed_dispatch_source_drift:${path}:${sha(readFileSync(join(root, path)))}`);
 }
 const manifest = {
   version: 1,
@@ -196,6 +222,13 @@ const manifest = {
       "Both browser wrapper parameters are called only with literal names in scanned source.",
       "Engineering worker serverRpc accepts a three-name RpcName union returned by operation().",
       "The runtime.rpc(call.name) test seam forwards only the same operation() union.",
+      "engineering-interpretation serverRpc accepts only its three-name RpcName union.",
+      "engineering-worker-task serverRpc and runtime.rpc(call.name) accept only its three-name Rpc union returned by rpcFor().",
+      "providerCapabilityCanaryLedger forwards only the literal api_record_capability_observation, once.",
+      "providerCapabilityPersistenceTransport and providerCapabilityPreparationTransport forward only the literal name their operation() call site passes, once.",
+      "providerCapabilityPreparationPersistence and providerCapabilityRuntimePersistence call() receive only literal names from their exported wrappers.",
+      "providerDispatchPreflight PREFLIGHT_RPC is the module constant api_authorize_provider_worker_dispatch.",
+      "Staged only callers (stagedSource) resolve in no prechange catalog; the named staged file creates them.",
     ],
     gatewayCalls,
     hostedOrUnscannedCallers: "unverified",

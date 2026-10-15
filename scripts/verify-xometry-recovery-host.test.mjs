@@ -1578,7 +1578,35 @@ fail_stage`,
     }
   });
 
-  it("maps only a root-owned allowlisted egress install phase into sanitized status", async () => {
+  it.each([
+    ...[
+      ["resolution", "egress-resolution"],
+      ["network-create", "egress-network-create"],
+      ["network-contract", "egress-network-contract"],
+      ["network-ipv6", "egress-network-ipv6"],
+      ["network-ipv6-verify", "egress-network-ipv6-verify"],
+      ["verification-policy", "egress-verification-policy"],
+      ["verification-network", "egress-verification-network"],
+      ["verification-ipv6", "egress-verification-ipv6"],
+      ["verification-empty-network", "egress-verification-empty-network"],
+      ["verification-address-map", "egress-verification-address-map"],
+      ["verification-config", "egress-verification-config"],
+      ["verification-units", "egress-verification-units"],
+      ["verification-dns-config", "egress-verification-dns-config"],
+      ["verification-gateway-config", "egress-verification-gateway-config"],
+      ["verification-dns-tcp", "egress-verification-dns-tcp"],
+      ["verification-dns-udp", "egress-verification-dns-udp"],
+      ["verification-gateway-listener", "egress-verification-gateway-listener"],
+      ["verification-firewall", "egress-verification-firewall"],
+      ["verification-gateway-dns", "egress-verification-gateway-dns"],
+      ["verification-evidence", "egress-verification-evidence"],
+    ].map(([phase, stage]) => ({ phase: `${phase}\n`, stage, exitCode: 19 })),
+    { phase: "untrusted-detail\n", stage: "egress-install", exitCode: 20 },
+    { phase: "resolution\nuntrusted-detail\n", stage: "egress-install", exitCode: 21 },
+    { phase: "resolution\n", stage: "egress-install", statOutput: "1:0:600", exitCode: 22 },
+    { phase: "resolution\n", stage: "egress-install", statOutput: "0:0:640", exitCode: 23 },
+    { phase: "resolution\n", stage: "egress-install", symlinkMarker: true, exitCode: 24 },
+  ])("maps only a root-owned allowlisted egress phase into sanitized status: $stage/$exitCode", async ({ stage, ...scenario }) => {
     const source = await readFile(
       OVD410_RECOVERY_HOST_CONTRACT.startupScript,
       "utf8",
@@ -1642,53 +1670,11 @@ fail_install`,
         );
       };
 
-      for (const [phase, stage] of [
-        ["resolution", "egress-resolution"],
-        ["network-create", "egress-network-create"],
-        ["network-contract", "egress-network-contract"],
-        ["network-ipv6", "egress-network-ipv6"],
-        ["network-ipv6-verify", "egress-network-ipv6-verify"],
-        ["verification-policy", "egress-verification-policy"],
-        ["verification-network", "egress-verification-network"],
-        ["verification-ipv6", "egress-verification-ipv6"],
-        ["verification-empty-network", "egress-verification-empty-network"],
-        ["verification-address-map", "egress-verification-address-map"],
-        ["verification-config", "egress-verification-config"],
-        ["verification-units", "egress-verification-units"],
-        ["verification-dns-config", "egress-verification-dns-config"],
-        ["verification-gateway-config", "egress-verification-gateway-config"],
-        ["verification-dns-tcp", "egress-verification-dns-tcp"],
-        ["verification-dns-udp", "egress-verification-dns-udp"],
-        ["verification-gateway-listener", "egress-verification-gateway-listener"],
-        ["verification-firewall", "egress-verification-firewall"],
-        ["verification-gateway-dns", "egress-verification-gateway-dns"],
-        ["verification-evidence", "egress-verification-evidence"],
-      ]) {
-        const result = await runFailure({
-          phase: `${phase}\n`,
-          exitCode: 19,
-        });
-        expect(result.status, result.stderr).toBe(19);
-        expect(await readFile(statusPath, "utf8")).toBe(
-          `{"stage":"${stage}","exitCode":19}\n`,
-        );
-      }
-
-      for (const scenario of [
-        { phase: "untrusted-detail\n", exitCode: 20 },
-        { phase: "resolution\nuntrusted-detail\n", exitCode: 21 },
-        { phase: "resolution\n", statOutput: "1:0:600", exitCode: 22 },
-        { phase: "resolution\n", statOutput: "0:0:640", exitCode: 23 },
-        { phase: "resolution\n", symlinkMarker: true, exitCode: 24 },
-      ]) {
-        const invalidResult = await runFailure(scenario);
-        expect(invalidResult.status, invalidResult.stderr).toBe(
-          scenario.exitCode,
-        );
-        expect(await readFile(statusPath, "utf8")).toBe(
-          `{"stage":"egress-install","exitCode":${scenario.exitCode}}\n`,
-        );
-      }
+      const result = await runFailure(scenario);
+      expect(result.status, result.stderr).toBe(scenario.exitCode);
+      expect(await readFile(statusPath, "utf8")).toBe(
+        `{"stage":"${stage}","exitCode":${scenario.exitCode}}\n`,
+      );
     } finally {
       await rm(statusDirectory, { recursive: true, force: true });
     }

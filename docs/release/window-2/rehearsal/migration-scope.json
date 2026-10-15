@@ -1,0 +1,6 @@
+{
+  "mode": "reviewed-authority-baseline",
+  "baseline": "26b0b76ec7ea32f79c1d069420ed4481b3cb1ccc",
+  "excludedLaterMigrations": [],
+  "currentMainCompatibility": "not_proven"
+}
