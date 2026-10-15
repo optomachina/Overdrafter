@@ -22,7 +22,9 @@ async function main(argv: string[]) {
   console.log(`${deleted.length} expired, ${kept.length} kept${dryRun ? " (dry run)" : ""}.`);
 }
 
-main(process.argv.slice(2)).catch((error: unknown) => {
+try {
+  await main(process.argv.slice(2));
+} catch (error: unknown) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
-});
+}

@@ -1393,18 +1393,17 @@ function isLiveProviderVendor(vendor: VendorName): boolean {
   return vendor !== "sendcutsend";
 }
 
-export async function runQuote(
-  config: WorkerConfig,
+/**
+ * Revalidates provider-specific admission before registry construction or any
+ * adapter/provider call.
+ */
+async function assertQuoteAdmission(
   args: SmokeArgs,
   vendor: LiveAutomationVendorName,
   quantity: number,
   stagedFiles: StagedEvaluationFiles,
-  buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
-  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
-  providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
-  killSwitchReader?: ProviderKillSwitchReader,
-  runArtifacts: LiveHarnessRunArtifacts | null = null,
-): Promise<SmokeRow> {
+  sendCutSendManifest: SendCutSendEvaluationManifest | null,
+): Promise<void> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
     assertExactOshcutPackageMetadata(args.oshcutPackage);
@@ -1421,6 +1420,38 @@ export async function runQuote(
       throw new Error("SendCutSend adapter invocation denied: quantity is not manifest-bound.");
     }
   }
+}
+
+/** A contract failure still links the artifacts the adapter returned. */
+async function recordFailedRunArtifacts(
+  runArtifacts: LiveHarnessRunArtifacts | null,
+  row: SmokeRow,
+  adapterResult: VendorQuoteAdapterOutput | null,
+  error: unknown,
+): Promise<void> {
+  const vendorError = isVendorAutomationError(error) ? error : null;
+  const errorUrl = vendorError?.payload.url;
+  await recordRunArtifacts(
+    runArtifacts,
+    row,
+    adapterResult?.quoteUrl ?? (typeof errorUrl === "string" ? errorUrl : null),
+    adapterResult?.artifacts ?? vendorError?.artifacts ?? [],
+  );
+}
+
+export async function runQuote(
+  config: WorkerConfig,
+  args: SmokeArgs,
+  vendor: LiveAutomationVendorName,
+  quantity: number,
+  stagedFiles: StagedEvaluationFiles,
+  buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
+  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
+  killSwitchReader?: ProviderKillSwitchReader,
+  runArtifacts: LiveHarnessRunArtifacts | null = null,
+): Promise<SmokeRow> {
+  await assertQuoteAdmission(args, vendor, quantity, stagedFiles, sendCutSendManifest);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
@@ -1545,15 +1576,7 @@ export async function runQuote(
         accountMode,
       },
     );
-    const vendorError = isVendorAutomationError(error) ? error : null;
-    const errorUrl = vendorError?.payload.url;
-    // A contract failure still links the artifacts the adapter returned.
-    await recordRunArtifacts(
-      runArtifacts,
-      row,
-      adapterResult?.quoteUrl ?? (typeof errorUrl === "string" ? errorUrl : null),
-      adapterResult?.artifacts ?? vendorError?.artifacts ?? [],
-    );
+    await recordFailedRunArtifacts(runArtifacts, row, adapterResult, error);
   }
 
   return row;

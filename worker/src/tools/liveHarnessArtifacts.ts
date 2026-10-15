@@ -104,8 +104,16 @@ function assertOutsideRepository(root: string) {
   }
 }
 
+function trimDashes(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "-") start += 1;
+  while (end > start && value[end - 1] === "-") end -= 1;
+  return value.slice(start, end);
+}
+
 function safeSegment(value: string): string {
-  return value.replaceAll(/[^a-z0-9-]+/gi, "-").replaceAll(/^-+|-+$/g, "").slice(0, 60) || "artifact";
+  return trimDashes(value.replaceAll(/[^a-z0-9-]+/gi, "-")).slice(0, 60) || "artifact";
 }
 
 /**
@@ -129,16 +137,17 @@ export async function cleanupExpiredLiveHarnessRuns(options: {
   for (const entry of entries) {
     const time = entry.isDirectory() ? runIdTime(entry.name) : null;
     if (time === null) continue;
-    if (time >= cutoff) {
-      kept.push(entry.name);
-      continue;
-    }
-    if (!options.dryRun) {
-      await fs.rm(path.join(options.root, entry.name), { recursive: true, force: true });
-    }
-    deleted.push(entry.name);
+    if (time >= cutoff) kept.push(entry.name);
+    else deleted.push(entry.name);
   }
-  return { deleted: deleted.sort(), kept: kept.sort() };
+  if (!options.dryRun) {
+    await Promise.all(deleted.map((runId) =>
+      fs.rm(path.join(options.root, runId), { recursive: true, force: true })));
+  }
+  const byRunId = (a: string, b: string) => a.localeCompare(b);
+  deleted.sort(byRunId);
+  kept.sort(byRunId);
+  return { deleted, kept };
 }
 
 /** Applies retention, then creates this run's 0700 directory under the artifact root. */
@@ -171,22 +180,28 @@ export async function openLiveHarnessRunArtifacts(
       };
     },
     async recordResult(input) {
-      const linked: LiveHarnessResultRow["artifacts"] = [];
-      for (const artifact of input.artifacts) {
+      const linkArtifact = async (
+        artifact: (typeof input.artifacts)[number],
+      ): Promise<LiveHarnessResultRow["artifacts"][number] | null> => {
         if (artifact.kind === "html_snapshot") {
           // Re-run the shared redactor on copy so only redacted DOM is linked.
           const html = await fs.readFile(artifact.localPath, "utf8").catch(() => null);
-          if (html === null) continue;
+          if (html === null) return null;
           const target = path.join(
             runDir,
             `${fileBase(input.provider, input.requestedQuantity)}-${safeSegment(artifact.label)}.html`,
           );
           await fs.writeFile(target, redactProviderPortalHtml(html), { encoding: "utf8", mode: 0o600 });
-          linked.push({ kind: artifact.kind, label: artifact.label, path: relative(target) });
-        } else if (artifact.kind === "screenshot" && path.dirname(path.resolve(artifact.localPath)) === runDir) {
-          linked.push({ kind: artifact.kind, label: artifact.label, path: relative(artifact.localPath) });
+          return { kind: artifact.kind, label: artifact.label, path: relative(target) };
         }
-      }
+        if (artifact.kind === "screenshot" && path.dirname(path.resolve(artifact.localPath)) === runDir) {
+          return { kind: artifact.kind, label: artifact.label, path: relative(artifact.localPath) };
+        }
+        return null;
+      };
+      // Promise.all keeps input order, so linked artifacts stay in adapter order.
+      const linked = (await Promise.all(input.artifacts.map(linkArtifact)))
+        .filter((artifact) => artifact !== null);
       const row: LiveHarnessResultRow = {
         schemaVersion: "live-harness-run-artifacts.v1",
         runId,
