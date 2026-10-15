@@ -436,12 +436,129 @@ describe.skip("${displayName} production portal definition in a browser fixture 
 `;
 }
 
+export function isApiProvider(manifest) {
+  return manifest?.integration?.adapterKind === "api";
+}
+
+/** Environment names for an API provider's key secret (names only, never a value). */
+export function apiKeySecretNames(key) {
+  const C = constantCase(key);
+  return { secretNameEnv: `${C}_API_KEY_SECRET_NAME`, mountEnv: `${C}_API_KEY` };
+}
+
+/**
+ * Default-deny scaffold for an API provider. An API provider has no portal
+ * definition for the shared registrar, so this exercises the same shared
+ * authorization check the adapter must call before any network request. It
+ * runs today against the shared check; the adapter author adds the case that
+ * proves the adapter performs no request on a denial.
+ */
+export function apiDefaultDenyTestTs({ key, displayName }) {
+  const C = constantCase(key);
+  const other = key === "quickparts" ? "fictiv" : "quickparts";
+  return `// @vitest-environment node
+import { describe, expect, it } from "vitest";
+import type { VendorQuoteAdapterInput } from "../types";
+import { ${other}DispatchAuthorization, ${other}DispatchEnvelope } from "../../test-support/${other}DispatchFixture";
+import { ${key}DispatchAuthorization, ${key}DispatchEnvelope } from "../../test-support/${key}DispatchFixture";
+import { ${C}_DISPATCH_ENVELOPE, ${key}DispatchAuthorizationDenial } from "./${key}DispatchAuthorization";
+
+/**
+ * ${generatedBanner(key, "live")}
+ *
+ * Default-deny scaffold for the ${displayName} API path: without a current
+ * provider-dispatch authorization for its envelope, bound to the staged bytes
+ * and quantity, the adapter must make no request. These cases pin the shared
+ * authorization check the adapter calls first. Add the adapter case that
+ * proves no request leaves the worker on a denial when the adapter lands.
+ * Synthetic data only.
+ */
+
+const CAD_SHA256 = "e".repeat(64);
+const QUANTITY = 3;
+
+function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
+  const envelope = ${key}DispatchEnvelope({ cadSha256: CAD_SHA256, requestedQuantity: QUANTITY });
+  return {
+    requestedQuantity: QUANTITY,
+    executionContext: "production_dispatch",
+    stagedCadFile: { originalName: "part.step", trustedContentSha256: CAD_SHA256 },
+    stagedDrawingFile: null,
+    providerDispatchAuthorization: ${key}DispatchAuthorization(envelope),
+    ...overrides,
+  } as unknown as VendorQuoteAdapterInput;
+}
+
+function mutatedAuthorization(change: (authorization: NonNullable<VendorQuoteAdapterInput["providerDispatchAuthorization"]>) => void) {
+  const authorization = structuredClone(authorizedInput().providerDispatchAuthorization!);
+  change(authorization);
+  return authorization;
+}
+
+describe("${displayName} API dispatch default-deny", () => {
+  it("accepts exactly the authorized bytes and quantity", () => {
+    expect(${key}DispatchAuthorizationDenial(authorizedInput())).toBeNull();
+  });
+
+  const cases: Array<[string, () => VendorQuoteAdapterInput, string]> = [
+    ["no authorization", () => authorizedInput({ providerDispatchAuthorization: undefined }), "dispatch_authorization_missing"],
+    [
+      "an authorization minted for a different provider",
+      () => authorizedInput({
+        providerDispatchAuthorization: ${other}DispatchAuthorization(
+          ${other}DispatchEnvelope({ cadSha256: CAD_SHA256, requestedQuantity: QUANTITY }),
+        ),
+      }),
+      "dispatch_authorization_provider_mismatch",
+    ],
+    [
+      "an envelope revision that is not reviewed in code",
+      () => authorizedInput({
+        providerDispatchAuthorization: mutatedAuthorization((authorization) => {
+          authorization.envelope.envelope = { id: ${C}_DISPATCH_ENVELOPE.id, version: ${C}_DISPATCH_ENVELOPE.version + 1 };
+        }),
+      }),
+      "dispatch_authorization_envelope_unreviewed",
+    ],
+    [
+      "an expired permit",
+      () => authorizedInput({
+        providerDispatchAuthorization: mutatedAuthorization((authorization) => {
+          authorization.expiresAt = "2020-01-01T00:00:00.000Z";
+        }),
+      }),
+      "dispatch_authorization_expired",
+    ],
+    ["a quantity other than the authorized one", () => authorizedInput({ requestedQuantity: QUANTITY + 1 }), "dispatch_authorization_quantity_mismatch"],
+    [
+      "staged bytes the authorization does not name",
+      () => authorizedInput({ stagedCadFile: { originalName: "part.step", trustedContentSha256: "a".repeat(64) } as never }),
+      "dispatch_authorization_file_mismatch",
+    ],
+  ];
+
+  it.each(cases)("refuses %s", (_name, input, reason) => {
+    expect(${key}DispatchAuthorizationDenial(input())).toBe(reason);
+  });
+});
+`;
+}
+
 export function sessionSecretMarker(key) {
   return `# fixture:onboard ${key} session`;
 }
 
-export function sessionSecretBlock({ key, displayName }) {
+export function sessionSecretBlock({ key, displayName, manifest }) {
   const C = constantCase(key);
+  if (isApiProvider(manifest)) {
+    const { secretNameEnv, mountEnv } = apiKeySecretNames(key);
+    return `${sessionSecretMarker(key)}
+# (${GENERATOR_ISSUE}; default-off, no value)
+# ${displayName} is an API provider: it authenticates with an API key, not a browser session.
+# A live deploy would need ${secretNameEnv} (Secret Manager name only), mounted as ${mountEnv}.
+# Production dispatch also needs admission; see docs/workflows/${key}-live-readiness.md.
+`;
+  }
   return `${sessionSecretMarker(key)}
 # (${GENERATOR_ISSUE}; default-off, no value)
 # ${displayName} reads its session from the generic vendor map, e.g.
@@ -451,12 +568,64 @@ export function sessionSecretBlock({ key, displayName }) {
 `;
 }
 
+function apiReadinessBodies({ key, displayName, manifest }) {
+  const C = constantCase(key);
+  const { secretNameEnv, mountEnv } = apiKeySecretNames(key);
+  return new Map([
+    ["## What the code provides", `| Layer | File | State |
+| --- | --- | --- |
+| Envelope fixture | \`test-fixtures/provider-dispatch-envelope/${key}-v1.json\` | Synthetic \`${dispatchEnvelopeId(key)}.v1\`; one CAD file, no drawing. |
+| Authorization binding | \`worker/src/adapters/${key}DispatchAuthorization.ts\` | \`${C}_DISPATCH_ENVELOPE\` bound to the shared \`providerDispatchAuthorizationDenial\`. Not in \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\`. |
+| Fixture helper | \`worker/test-support/${key}DispatchFixture.ts\` | Uses \`providerDispatchFixture\`. |
+| Default-deny scaffold | \`worker/src/adapters/${key}ApiDispatch.test.ts\` | Pins the shared authorization check the API adapter must call before any request. |
+| API key secret | \`worker/.env.example\`, registry entry | \`${secretNameEnv}\` names the Secret Manager secret and \`${mountEnv}\` receives it. Names only; no value is stored in the repository. |
+
+${displayName} is an API provider, so there is no portal stub and no browser fixture.
+CAD extensions (from the manifest envelope): ${cadExtensions(manifest).map((extension) => `\`${extension}\``).join(", ")}.
+`],
+    ["## Default-off switches", `Nothing generated here enables ${displayName}. Each switch below stays off
+until a reviewed change turns it on:
+
+1. **Admission policy.** The \`${key}\` admission policy stays \`disabled\`;
+   the generator never approves it.
+2. **Reviewed envelope.** \`${dispatchEnvelopeId(key)}\` is not in
+   \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` until step 4 below.
+3. **Live adapter.** The registry entry for \`${key}\` is \`liveAdapter: false\`
+   until the adapter lands and a reviewed edit flips it.
+4. **Worker adapters.** \`${key}\` is not in \`WORKER_LIVE_ADAPTERS\`, and the API
+   key secret is declared by name only.`],
+    ["## Known gaps before admission", `1. The API adapter is built on its own branch. It must call
+   \`${key}DispatchAuthorizationDenial\` before any request and add the case that
+   proves no request leaves the worker on a denial.
+2. Add \`${key}\` to the worker \`LIVE_AUTOMATION_VENDORS\` only if the adapter
+   joins the live automation path (a reviewed enum change).
+3. Make one reviewed edit to the \`${key}\` entry in
+   \`provider-integrations/provider-registry.v1.json\`: \`liveAdapter: true\`. Then run
+   \`npm run provider:sync\` and \`npm run provider:check\`. Never edit the generated
+   \`worker/src/generated/providerRegistry.ts\` or
+   \`worker/scripts/generated/provider-secrets.sh\`.
+4. Review the envelope: add it to \`REVIEWED_PROVIDER_DISPATCH_ENVELOPES\` and
+   generate the review-only admission SQL with
+   \`npm run fixture:onboard -- ${key} --stage=admit\`.
+`],
+    ["## Inputs only Blaine can provide", `1. A ${displayName} API key approved for automated quote-only use, stored
+   in Secret Manager.
+2. The permission basis (written authorization or terms review).
+3. The egress decision and the admission values and certification run.
+`],
+    ["## Admission revision template (not applied)", `Not applied. Generate the review-only admission revision with
+\`npm run fixture:onboard -- ${key} --stage=admit\`. The output is an operator
+review artifact, not a migration. Record admission as a separate reviewed
+change only after the inputs above exist.`],
+  ]);
+}
+
 export function readinessDoc({ key, displayName, manifest }) {
   const C = constantCase(key);
   const P = pascalCase(key);
   // Headings and their order come from the shared constant that provider:check
   // enforces; only the bodies are defined here.
-  const bodies = new Map([
+  const bodies = isApiProvider(manifest) ? apiReadinessBodies({ key, displayName, manifest }) : new Map([
     ["## What the code provides", `| Layer | File | State |
 | --- | --- | --- |
 | Envelope fixture | \`test-fixtures/provider-dispatch-envelope/${key}-v1.json\` | Synthetic \`${dispatchEnvelopeId(key)}.v1\`; one CAD file, no drawing. |
@@ -610,6 +779,10 @@ export function rolloutRunbook({ key, displayName, timestamp }) {
 
 ${generatedBanner(key, "admit")} Nothing here has been applied. Every step
 below is a protected action that needs Blaine's current exact authorization.
+
+Record each attestation on the
+[provider go-live checklist](../../../docs/checklists/provider-go-live-checklist.md);
+the PR that enables ${displayName} carries its **Provider go-live** section.
 
 A new ${displayName} quote needs switches 1–5 on; turning any off stops queued
 tasks before the browser launches.

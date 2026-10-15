@@ -143,6 +143,102 @@ cross join lateral (values
   (context.finalize_control_hash, 'control.step')
 ) as fixture(content_hash, original_name);
 
+-- OVD-723 (window 1): once the export-control upload block exists, the
+-- 6- and 8-argument upload RPCs refuse every call, and uploads go through the
+-- overloads that take the job's clean declaration, with Storage writes needing
+-- a grant from prepare. These helpers keep every assertion below on the same
+-- checks: with the block, they call the declaring overloads with a clean
+-- declaration seeded for the job; without it, they call the original RPCs.
+create temporary table ovd723_upload_declarations (
+  job_id uuid primary key,
+  declaration_id uuid not null
+) on commit drop;
+grant select on ovd723_upload_declarations to authenticated;
+
+create function pg_temp.prepare_job_file_upload(
+  p_job_id uuid, p_original_name text, p_file_kind public.job_file_kind,
+  p_mime_type text, p_size_bytes bigint, p_content_sha256 text
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_declaration_id uuid;
+begin
+  select declaration_id into v_declaration_id from ovd723_upload_declarations where job_id = p_job_id;
+  if v_declaration_id is null then
+    return public.api_prepare_job_file_upload(
+      p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256
+    );
+  end if;
+  return public.api_prepare_job_file_upload(
+    p_job_id, p_original_name, p_file_kind, p_mime_type, p_size_bytes, p_content_sha256, v_declaration_id
+  );
+end;
+$$;
+
+create function pg_temp.finalize_job_file_upload(
+  p_job_id uuid, p_storage_bucket text, p_storage_path text, p_original_name text,
+  p_file_kind public.job_file_kind, p_mime_type text, p_size_bytes bigint, p_content_sha256 text
+)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_declaration_id uuid;
+begin
+  select declaration_id into v_declaration_id from ovd723_upload_declarations where job_id = p_job_id;
+  if v_declaration_id is null then
+    return public.api_finalize_job_file_upload(
+      p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+      p_mime_type, p_size_bytes, p_content_sha256
+    );
+  end if;
+  return public.api_finalize_job_file_upload(
+    p_job_id, p_storage_bucket, p_storage_path, p_original_name, p_file_kind,
+    p_mime_type, p_size_bytes, p_content_sha256, v_declaration_id
+  );
+end;
+$$;
+
+-- With the block, a Storage write needs a grant from prepare; without it,
+-- this does nothing.
+create function pg_temp.grant_job_file_upload(
+  p_job_id uuid, p_original_name text, p_size_bytes bigint, p_content_sha256 text
+)
+returns void
+language plpgsql
+as $$
+begin
+  if exists (select 1 from ovd723_upload_declarations where job_id = p_job_id) then
+    perform pg_temp.prepare_job_file_upload(p_job_id, p_original_name, 'cad', null, p_size_bytes, p_content_sha256);
+  end if;
+end;
+$$;
+
+-- OVD-723 (window 1): seed a clean declaration for each fixture job when the
+-- export-control upload block exists. Without it this block does nothing.
+-- The guard is the declaring prepare overload, not the declarations table:
+-- an expand rollback keeps the table (audit data) but drops the overloads.
+do $ovd723$
+begin
+  if pg_catalog.to_regprocedure(
+    'public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text, uuid)'
+  ) is null then
+    return;
+  end if;
+  with declared as (
+    insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+    select job.id, job.organization_id, job.created_by, 'not_controlled', 'ovd-beta-export-control.v1'
+    from public.jobs job
+    where job.id in ((select prepare_job_id from ovd601_test_context), (select finalize_job_id from ovd601_test_context))
+    returning job_id, id
+  )
+  insert into ovd723_upload_declarations (job_id, declaration_id)
+  select job_id, id from declared;
+end;
+$ovd723$;
+
 update ovd601_test_context
 set job_files_before = (select count(*)::integer from public.job_files),
     blobs_before = (select count(*)::integer from public.organization_file_blobs);
@@ -167,42 +263,42 @@ select is(
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'zero-size.step', 'cad', null, 0, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'zero-size.step', 'cad', null, 0, %L)$$,
     (select prepare_job_id from ovd601_test_context), (select prepare_zero_hash from ovd601_test_context)),
   'P0001', 'file_upload_empty', -- NOSONAR: repeated stable empty-upload denial assertion
   'prepare rejects a zero size'
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'null-size.step', 'cad', null, null, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'null-size.step', 'cad', null, null, %L)$$,
     (select prepare_job_id from ovd601_test_context), (select prepare_null_hash from ovd601_test_context)),
   'P0001', 'file_upload_empty',
   'prepare rejects a missing size'
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'negative-size.step', 'cad', null, -1, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'negative-size.step', 'cad', null, -1, %L)$$,
     (select prepare_job_id from ovd601_test_context), (select prepare_negative_hash from ovd601_test_context)),
   'P0001', 'file_upload_empty',
   'prepare rejects a negative size'
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'empty-hash.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'empty-hash.step', 'cad', null, 10, %L)$$,
     (select prepare_job_id from ovd601_test_context), (select empty_hash from ovd601_test_context)),
   'P0001', 'file_upload_empty',
   'prepare rejects the empty-content hash with a positive size, before reusing an existing blob'
 );
 
 select throws_ok(
-  format($$select public.api_prepare_job_file_upload(%L::uuid, 'empty-hash.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.prepare_job_file_upload(%L::uuid, 'empty-hash.step', 'cad', null, 10, %L)$$,
     (select prepare_job_id from ovd601_test_context), (select ' ' || upper(empty_hash) || ' ' from ovd601_test_context)),
   'P0001', 'file_upload_empty',
   'prepare rejects the empty-content hash after case and whitespace normalization'
 );
 
 select is(
-  public.api_prepare_job_file_upload(
+  pg_temp.prepare_job_file_upload(
     (select prepare_job_id from ovd601_test_context), 'control.step', 'cad', null, 10, (select control_hash from ovd601_test_context)
   ) ->> 'status',
   'upload_required',
@@ -221,7 +317,7 @@ set local role authenticated;
 select pg_temp.set_ovd601_request_identity((select member_user_id from ovd601_test_context));
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'zero-size.step', 'cad', null, 0, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'zero-size.step', 'cad', null, 0, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select finalize_zero_hash from ovd601_test_context), 'zero-size.step'),
     (select finalize_zero_hash from ovd601_test_context)),
@@ -230,7 +326,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'null-size.step', 'cad', null, null, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'null-size.step', 'cad', null, null, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select finalize_null_hash from ovd601_test_context), 'null-size.step'),
     (select finalize_null_hash from ovd601_test_context)),
@@ -239,7 +335,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'negative-size.step', 'cad', null, -1, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'negative-size.step', 'cad', null, -1, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select finalize_negative_hash from ovd601_test_context), 'negative-size.step'),
     (select finalize_negative_hash from ovd601_test_context)),
@@ -248,7 +344,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'empty-hash.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'empty-hash.step', 'cad', null, 10, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select empty_hash from ovd601_test_context), 'empty-hash.step'),
     (select empty_hash from ovd601_test_context)),
@@ -257,7 +353,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'empty-hash.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'empty-hash.step', 'cad', null, 10, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select empty_hash from ovd601_test_context), 'empty-hash.step'),
     (select ' ' || upper(empty_hash) || ' ' from ovd601_test_context)),
@@ -276,8 +372,12 @@ select is((select count(*)::integer from public.organization_file_blobs), (selec
 set local role authenticated;
 select pg_temp.set_ovd601_request_identity((select member_user_id from ovd601_test_context));
 
+select pg_temp.grant_job_file_upload(
+  (select finalize_job_id from ovd601_test_context), 'control.step', 10, (select finalize_control_hash from ovd601_test_context)
+);
+
 select lives_ok(
-  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'control.step', 'cad', null, 10, %L)$$,
+  format($$select pg_temp.finalize_job_file_upload(%L::uuid, 'job-files', %L, 'control.step', 'cad', null, 10, %L)$$,
     (select finalize_job_id from ovd601_test_context),
     public.build_org_file_blob_storage_path((select organization_id from ovd601_test_context), (select finalize_control_hash from ovd601_test_context), 'control.step'),
     (select finalize_control_hash from ovd601_test_context)),

@@ -13,7 +13,13 @@ const DATABASE_AGE = 60_000;
 const WORKER_AGE = 120_000;
 const FAILURE_WINDOW = 86_400_000;
 const MAX_ROWS = 200;
-const FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached"];
+const LEGACY_FAILURE_CODES = ["task_failure", "login_required", "captcha", "selector_failure", "upload_failure", "navigation_failure", "unexpected_ui_state", "anti_detection_block", "profile_in_use", "persistence_failure", "not_implemented", "dispatch_preflight_unavailable", "dispatch_permit_missing", "dispatch_permit_invalid", "spend_cap_reached", "provider_kill_switch_engaged", "provider_kill_switch_unavailable"];
+/** OVD-723 failure codes a worker task can record (export-control holds). */
+export const EXPORT_CONTROL_FAILURE_CODES = [
+  "export_review_pending", "export_scan_unread", "export_declaration_missing", "export_declaration_not_clean",
+  "export_foreign_provider_requires_clean_declaration", "export_control_lookup_failed", "export_scan_missing",
+] as const;
+export const FAILURE_CODES: readonly string[] = [...LEGACY_FAILURE_CODES, ...EXPORT_CONTROL_FAILURE_CODES];
 function oneOf(value: unknown, values: readonly string[]): boolean { return typeof value === "string" && values.includes(value); }
 export function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function provider(value: unknown): OperationsProvider | null { return typeof value === "string" && (OPERATIONS_PROVIDERS as readonly string[]).includes(value) ? value as OperationsProvider : null; }

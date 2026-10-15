@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { callModel, combineUsage, ModelCallError, retryDelayMs } from "./callModel.js";
 import type { ExtractionProvider, ModelPromptInput, ModelRunResult } from "./modelProvider.js";
+import { ExportControlExtractionDeniedError, isExportControlModelStop } from "../exportControl.js";
 
 const PROMPT: ModelPromptInput = {
   parserContext: null,
@@ -35,6 +36,51 @@ function providerOf(run: (...args: never[]) => Promise<ModelRunResult>): Extract
 const noSleep = async () => {};
 
 describe("callModel", () => {
+  // OVD-723 review round 4: the export-control check runs before every
+  // provider request, retries included, and a denial is never wrapped.
+  it("asks the export-control check again before a retry and stops on a denial", async () => {
+    const run = vi.fn().mockResolvedValueOnce(failure("rate_limit")).mockResolvedValue(success());
+    const denial = new ExportControlExtractionDeniedError("export_review_pending");
+    let checks = 0;
+    const beforeRequest = vi.fn(async () => {
+      checks += 1;
+      if (checks > 1) throw denial;
+    });
+
+    const call = callModel(providerOf(run), PROMPT, "gpt-4.1-mini", { sleep: noSleep, beforeRequest });
+
+    await expect(call).rejects.toBe(denial);
+    await expect(call).rejects.not.toBeInstanceOf(ModelCallError);
+    expect(isExportControlModelStop(await call.catch((error: unknown) => error))).toBe(true);
+    expect(beforeRequest).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  // OVD-723 review round 5: the deadline is measured after beforeRequest, so a
+  // slow check cannot hand the provider a timer longer than the time left.
+  it("measures the remaining deadline after the export-control check", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const run = vi.fn().mockResolvedValue(success());
+      const beforeRequest = vi.fn(async () => {
+        now += 5_000;
+      });
+
+      const call = callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+        sleep: noSleep,
+        beforeRequest,
+        deadlineMs: 1_000,
+      });
+
+      await expect(call).rejects.toBeInstanceOf(ModelCallError);
+      expect(beforeRequest).toHaveBeenCalledTimes(1);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("returns usage on first success", async () => {
     const run = vi.fn().mockResolvedValue(success());
 

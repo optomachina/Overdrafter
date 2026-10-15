@@ -69,7 +69,9 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://app.rapiddirect.com/member/login",
     uploadUrl: "https://app.rapiddirect.com/",
     processFamily: "multi_process",
-    supportedFileExtensions: ["step", "stp", "igs", "iges", "prt", "sldprt", "sat", "x_t"],
+    // OVD-723: foreign jurisdiction. Only STEP has an export-control
+    // header scanner, so native and other CAD formats stay off this provider.
+    supportedFileExtensions: ["step", "stp"],
     officialNotes: [
       "Official site advertises instant pricing and DFM for CNC, sheet metal, and 3D printing.",
       "Official platform page lists STEP, STP, IGS, IGES, PRT, SLDPRT, SAT, and X_T uploads.",
@@ -83,7 +85,9 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://app.geomiq.com/",
     uploadUrl: "https://app.geomiq.com/",
     processFamily: "multi_process",
-    supportedFileExtensions: ["step", "stp", "iges", "igs", "stl"],
+    // OVD-723: foreign jurisdiction. Only STEP has an export-control
+    // header scanner, so native and other CAD formats stay off this provider.
+    supportedFileExtensions: ["step", "stp"],
     officialNotes: [
       "Official site advertises instant or 24-hour CNC quotes.",
       "Official platform page covers CNC, injection molding, sheet metal, and 3D printing.",
@@ -97,7 +101,9 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://www.weerg.com/",
     uploadUrl: "https://www.weerg.com/en/global/quotation-tool/upload",
     processFamily: "multi_process",
-    supportedFileExtensions: ["step", "stp", "stl", "iges", "igs"],
+    // OVD-723: foreign jurisdiction. Only STEP has an export-control
+    // header scanner, so native and other CAD formats stay off this provider.
+    supportedFileExtensions: ["step", "stp"],
     officialNotes: [
       "Official site advertises free online instant quotes.",
       "Official site covers CNC machining, 3D printing, and laser cutting.",
@@ -111,7 +117,9 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://www.hubs.com/login/",
     uploadUrl: "https://www.hubs.com/manufacture/",
     processFamily: "multi_process",
-    supportedFileExtensions: ["step", "stp", "stl", "iges", "igs", "sldprt"],
+    // OVD-723: foreign jurisdiction. Only STEP has an export-control
+    // header scanner, so native and other CAD formats stay off this provider.
+    supportedFileExtensions: ["step", "stp"],
     officialNotes: [
       "Official Protolabs Network site advertises instant quote upload for CNC, 3D printing, and sheet metal.",
       "Protolabs Network is the Hubs on-demand manufacturing network under Protolabs.",

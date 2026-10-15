@@ -252,6 +252,18 @@ describe("busy admission denial", () => {
     });
   });
 
+  it("tells the customer the provider is unavailable, with no retry prompt, when the kill switch refuses (OVD-722)", () => {
+    const engaged = { code: "P0001", message: "provider_kill_switch_engaged" };
+    expect(getXometryBetaDispatchDenialMessage(engaged)).toBe("This provider is temporarily unavailable.");
+    expect(getXometryBetaDispatchDenialMessage(engaged)).not.toMatch(/try again|review|queued/i);
+    expect(classifyXometryBetaDispatchFailure(engaged)).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "denied",
+    });
+  });
+
   it("keeps the refreshed-scope message for every other denial", () => {
     expect(getXometryBetaDispatchDenialMessage({ message: "xometry_beta_scope_changed" })).toBe(
       "The current package was not queued. Review the refreshed scope and try again.",

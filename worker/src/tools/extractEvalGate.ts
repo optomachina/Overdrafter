@@ -15,18 +15,24 @@
  * Usage:
  *   npm --prefix worker run eval:gate -- --corpus worker/eval-corpus
  *   npm --prefix worker run eval:gate -- --corpus <dir> --floor 0.9 --json
+ *   npm --prefix worker run eval:gate -- --corpus <dir> --job-id <job id>
+ *
+ * OVD-757: a drawing outside the in-repo fixture roots is refused unless
+ * `--job-id` names a job that passes the export control gate.
  *
  * Exits 0 when every field meets its floor, 1 when any field is below it, and
- * 2 when the corpus is missing or unusable.
+ * 2 when the corpus is missing or unusable, or a drawing fails the export gate.
  */
 
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { loadConfig } from "../config.js";
-import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfFirstPagePreview } from "../extraction/pdfDrawing.js";
+import { extractPdfText, type PdfTextExtraction, inferDrawingSignalsFromPdf, renderPdfFirstPagePreview } from "../extraction/pdfDrawing.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import { normalizeComparableFieldValue } from "../extraction/modelFallback.js";
+import { createServiceClient } from "../queue.js";
+import { admitOperatorDrawing, OperatorExportGateError, readJobIdArg, type OperatorExportGate } from "./operatorExportGate.js";
 import { CRITICAL_MODEL_FIELDS, type CriticalModelFieldName } from "../extraction/policy.js";
 import type { PartRecord, WorkerConfig } from "../types.js";
 
@@ -187,11 +193,33 @@ async function runCase(
   corpusDir: string,
   corpusCase: CorpusCase,
   runDir: string,
+  jobId: string | null,
 ) {
   const pdfPath = path.resolve(corpusDir, corpusCase.pdfPath);
-  const pdfText = await extractPdfText(pdfPath);
   const previewPath = path.join(runDir, `${corpusCase.id}-page-1.png`);
-  const preview = await renderPdfFirstPagePreview(pdfPath, previewPath).catch(() => null);
+  const exportGate = await admitOperatorDrawing({
+    filePath: pdfPath,
+    jobId,
+    readPdfText: extractPdfText,
+    supabase: () => createServiceClient(config),
+  });
+  try {
+    return await runAdmittedCase(config, corpusCase, runDir, pdfPath, previewPath, exportGate);
+  } finally {
+    await exportGate.cleanup();
+  }
+}
+
+async function runAdmittedCase(
+  config: WorkerConfig,
+  corpusCase: CorpusCase,
+  runDir: string,
+  pdfPath: string,
+  previewPath: string,
+  exportGate: OperatorExportGate<PdfTextExtraction>,
+) {
+  const { pdfText, drawingPath } = exportGate;
+  const preview = await renderPdfFirstPagePreview(drawingPath, previewPath).catch(() => null);
 
   const drawingFile = {
     id: `eval-file-${corpusCase.id}`,
@@ -205,10 +233,11 @@ async function runCase(
     cadFile: null,
     drawingFile,
     pdfText,
-    drawingPath: pdfPath,
+    drawingPath,
     previewPagePath: preview?.localPath ?? null,
     runDir,
     config,
+    beforeModelAttempt: exportGate.beforeModelAttempt,
   });
 
   return {
@@ -257,7 +286,7 @@ function parseArgs(argv: string[]) {
     }
   }
 
-  return { corpusDir, json, floors };
+  return { corpusDir, json, floors, jobId: readJobIdArg(argv) };
 }
 
 function renderReport(report: GateReport) {
@@ -296,7 +325,7 @@ function renderReport(report: GateReport) {
 }
 
 async function main() {
-  const { corpusDir, json, floors } = parseArgs(process.argv.slice(2));
+  const { corpusDir, json, floors, jobId } = parseArgs(process.argv.slice(2));
 
   let cases: CorpusCase[];
   try {
@@ -320,7 +349,7 @@ async function main() {
   try {
     const results = [];
     for (const corpusCase of cases) {
-      results.push(await runCase(config, corpusDir, corpusCase, runDir));
+      results.push(await runCase(config, corpusDir, corpusCase, runDir, jobId));
     }
 
     const report: GateReport = { corpusDir, ...scoreCorpus(results, floors) };
@@ -335,7 +364,9 @@ async function main() {
 // Only run when invoked directly, so the scoring helpers stay unit-testable.
 if (process.argv[1] && process.argv[1].includes("extractEvalGate")) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.stack : String(error));
+    console.error(
+      error instanceof OperatorExportGateError ? error.message : error instanceof Error ? error.stack : String(error),
+    );
     process.exit(2);
   });
 }

@@ -20,8 +20,11 @@ import {
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderAbortedError } from "../providerAbort.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -1123,6 +1126,7 @@ function buildConfigurationCapability(
   definition: ProviderPortalDefinition,
   page: Page,
   boundary: PortalBoundaryState,
+  killSwitchCheckpoint?: VendorQuoteAdapterInput["providerKillSwitchCheckpoint"],
 ): ProviderPortalConfigurationCapability {
   const perform = async (
     operation: "fill" | "select",
@@ -1141,8 +1145,11 @@ function buildConfigurationCapability(
         await observeMissingConfiguration(definition, page, boundary, field, operation, value);
         return false;
       }
+      await killSwitchCheckpoint?.("before_configure");
       return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
+    // OVD-722: fresh read immediately before each configuration mutation.
+    await killSwitchCheckpoint?.("before_configure");
     enterProviderMutation(boundary);
     if (operation === "fill") {
       await locator.fill(value);
@@ -1214,6 +1221,8 @@ export async function runIntentionalPortalRetry<T>(input: {
     try {
       return await input.operation();
     } catch (error) {
+      // OVD-722: a kill-switch refusal is final; never retry past it. OVD-748: nor an abort.
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
       lastError = error;
     }
   }
@@ -1303,13 +1312,24 @@ async function captureTerminalPortalState(
 async function uploadAuthorizedPortalFiles(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult | null> {
-  const { definition, files, session } = interaction;
+  const { definition, files, input, session } = interaction;
+  await input.providerKillSwitchCheckpoint?.("before_upload");
   const cadInput = session.page.locator(definition.selectors.cadUpload).first();
   const cadInputCount = await cadInput.count();
   assertPortalBoundary(definition, session.page, session.boundary);
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
+  // OVD-722: re-read after the awaited locator lookup so a switch engaged in
+  // that window still stops the upload. A request already sent cannot be recalled.
+  await input.providerKillSwitchCheckpoint?.("before_upload");
+  // OVD-723: the export-control gate is asked again here, after navigation
+  // and classification and right before the first byte reaches the provider.
+  // A denial is rethrown unchanged by runProviderPortalKernel (never
+  // translated into a portal failure) and the lane is held; nothing has been
+  // uploaded.
+  await input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1319,7 +1339,7 @@ async function uploadAuthorizedPortalFiles(
 async function uploadAuthorizedDrawing(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult | null> {
-  const { definition, files, session } = interaction;
+  const { definition, files, input, session } = interaction;
   if (!files.drawing || !definition.selectors.drawingUpload) {
     return null;
   }
@@ -1329,6 +1349,11 @@ async function uploadAuthorizedDrawing(
   if (drawingInputCount < 1) {
     return terminalResult("selector_drift", "drawing_upload_selector_missing", session.page, [], true);
   }
+  await input.providerKillSwitchCheckpoint?.("before_upload");
+  // OVD-723: the drawing is a separate disclosure, so the export-control gate
+  // is asked again right before it, as in Xometry's drawing fallback.
+  await input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   await drawingInput.setInputFiles(files.drawing);
   assertPortalBoundary(definition, session.page, session.boundary);
   return null;
@@ -1336,15 +1361,18 @@ async function uploadAuthorizedDrawing(
 
 async function configureProviderPortalQuote(interaction: ProviderPortalInteraction): Promise<void> {
   const { definition, config, input, session } = interaction;
+  await input.providerKillSwitchCheckpoint?.("before_configure");
   if (definition.selectors.quantity) {
     const quantityInput = session.page.locator(definition.selectors.quantity).first();
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       enterProviderMutation(session.boundary);
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
     } else if (session.boundary.recover) {
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       await recoverMissingConfiguration(definition, session.page, session.boundary,
         "quantity", "fill", String(input.requestedQuantity));
     } else {
@@ -1352,7 +1380,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     }
   }
   await definition.hooks.configure(
-    buildConfigurationCapability(definition, session.page, session.boundary),
+    buildConfigurationCapability(definition, session.page, session.boundary, input.providerKillSwitchCheckpoint),
     input,
   );
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1408,9 +1436,13 @@ async function extractProviderPortalOffers(
 async function runProviderPortalInteraction(
   interaction: ProviderPortalInteraction,
 ): Promise<ProviderPortalKernelResult> {
-  const { definition, config, session } = interaction;
+  const { definition, config, input, session } = interaction;
   await runIntentionalPortalRetry({
-    operation: () => session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
+    // OVD-722: every navigation attempt, including the retry, re-reads the switch first.
+    operation: async () => {
+      await input.providerKillSwitchCheckpoint?.("before_navigation");
+      return session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" });
+    },
     maxAttempts: 2,
     providerMutationPossible: session.boundary.providerMutationPossible,
   });
@@ -1439,7 +1471,11 @@ function translatePortalKernelError(
   definition: ProviderPortalDefinition,
   boundary: PortalBoundaryState,
   error: unknown,
-): VendorAutomationError {
+): VendorAutomationError | ProviderKillSwitchError {
+  // Dispatch authorization and export-control decisions are rethrown
+  // unchanged by the caller before translation (isDispatchDecisionError).
+  // OVD-722: a kill-switch refusal is never re-labelled as a provider failure.
+  if (error instanceof ProviderKillSwitchError) return error;
   if (error instanceof VendorAutomationError) {
     if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
       error.payload.providerMutationPossible = true;
@@ -1496,8 +1532,12 @@ export async function runProviderPortalKernel(
         provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
     return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
+    if (isDispatchDecisionError(error)) {
+      throw error;
+    }
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
     const translated = translatePortalKernelError(definition, boundary, error);
+    if (translated instanceof ProviderKillSwitchError) throw translated;
     if (dependencies.operationalJev) {
       const { scope } = dependencies.operationalJev;
       await observeBoundOperationalFailure(dependencies.operationalJev, { ...scope, provider: definition.provider,

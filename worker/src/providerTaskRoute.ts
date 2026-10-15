@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authorizeProviderDispatch, type ProviderDispatchClaim } from "./providerDispatchPreflight.js";
+import { PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE, providerDisabledResultRecord } from "./providerKillSwitch.js";
 import type { ProviderDispatchFileRole } from "./providerDispatchTypes.js";
 import type {
   ProviderAuthorizationConsumer,
@@ -137,6 +138,8 @@ export function providerTaskOutcomeNote(vendor: VendorName, outcome: ProviderTas
     return `${vendor} task passed its ${PROVIDER_TASK_MAX_CLAIMS} claim limit; earlier claims may have been requeued before the provider pipeline ran, and no adapter was started on this claim. It will not be retried.`;
   }
   switch (outcome.disposition) {
+    case "cancelled_provider_disabled":
+      return PROVIDER_TEMPORARILY_UNAVAILABLE_NOTE;
     case "persisted":
       return `${vendor} quote collected and validated.`;
     case "requeue":
@@ -156,6 +159,28 @@ export function providerTaskFailureRecord(
   outcome: ProviderTaskOutcome,
   context: { retryCount: number; requestedQuantity: number; artifactStoragePaths?: string[] },
 ): { status: "queued" | "manual_vendor_followup" | "failed"; notes: string[]; raw_payload: Record<string, unknown> } {
+  // OVD-722: the same record the Xometry path writes for a switched-off provider.
+  if (outcome.disposition === "cancelled_provider_disabled" && outcome.killSwitch) {
+    const record = providerDisabledResultRecord({
+      error: outcome.killSwitch.error,
+      requestedQuantity: context.requestedQuantity,
+      providerMutationPossible: outcome.killSwitch.providerMutationPossible,
+    });
+    return {
+      ...record,
+      raw_payload: {
+        ...record.raw_payload,
+        vendor,
+        source: "provider-task-pipeline",
+        failureStage: outcome.stage,
+        adapterStarted: outcome.adapterStarted,
+        retryCount: context.retryCount,
+        requiresManualVendorFollowUp: false,
+        manualFollowUpReason: null,
+        artifactStoragePaths: context.artifactStoragePaths ?? [],
+      },
+    };
+  }
   let status: "queued" | "manual_vendor_followup" | "failed" = "failed";
   if (outcome.disposition === "requeue") status = "queued";
   else if (outcome.disposition === "manual_follow_up") status = "manual_vendor_followup";

@@ -122,7 +122,7 @@ Build the integration kit as separate reviewable slices for the manifest/scaffol
 
 Use the repo-local `add-quote-provider` skill for intake, live continuation, or repair. The skill drives Fixture at every stage instead of hand edits, and runs `npm run provider:check` after each stage.
 
-Provider config goes through one reviewed edit to the provider's entry in [the live-adapter registry](#live-adapter-registry) (`liveAdapter`, session-secret names, `egress`), followed by `npm run provider:sync` and `npm run provider:check`. Do not hand-edit `runtimeSecrets.ts`, `deploy-cloud-run.sh`, or egress settings; they read the registry's projections. Never edit generated files (`worker/src/generated/providerRegistry.ts`, `worker/scripts/generated/provider-secrets.sh`, or the generated catalogs). The other reviewed edits (the adapter list in `worker/src/adapters/index.ts`, `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, moving admit review files into migrations) also stay outside Fixture; the go-live checklist (OVD-690, not yet built) will sequence them.
+Provider config goes through one reviewed edit to the provider's entry in [the live-adapter registry](#live-adapter-registry) (`liveAdapter`, session-secret names, `egress`), followed by `npm run provider:sync` and `npm run provider:check`. Do not hand-edit `runtimeSecrets.ts`, `deploy-cloud-run.sh`, or egress settings; they read the registry's projections. Never edit generated files (`worker/src/generated/providerRegistry.ts`, `worker/scripts/generated/provider-secrets.sh`, or the generated catalogs). The other reviewed edits (the adapter list in `worker/src/adapters/index.ts`, `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, moving admit review files into migrations) also stay outside Fixture; the [provider go-live checklist](checklists/provider-go-live-checklist.md) (OVD-690) sequences them. A PR that makes one of those edits to enable a provider for customers (a registry provider going to `liveAdapter: true` or gaining `stable_nat` egress, compared per provider; a new `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` provider; or a migration that assigns `generic_dispatch_enabled = true` in a SET clause or insert) must carry the filled **Provider go-live** PR section; the `PR body gate` workflow (check name `provider-go-live`) decides from file content, running the base copy of its scripts. Disable and kill switch changes never need it.
 
 For a list of providers, use the skill's batch-intake mode. It preflights duplicate identities, assigns one bounded writer to each provider-owned directory and evaluator/test set, and keeps shared indexes, generated catalogs, Linear changes, and final verification with one integrator. Subagents only research and run the `--dry-run` envelope preview. The integrator runs each key's real `--stage=envelope` serially, because that stage reads, modifies, and writes the shared provider registry and runs `provider:sync`, and then runs one `provider:sync` for the wave. This permits parallel first-party research without concurrent edits to shared generated files or the registry. Batch intake remains offline; live evaluation still requires a separate exact-file approval per provider.
 
@@ -182,6 +182,8 @@ Selector and terminal-signal changes are proposals until human-reviewed. Confide
 
 Public first-party research produces the manifest, conservative eligibility evaluation, default-off identity/catalog wiring, evidence date, and offline envelope tests. Unknown remains unknown. Marketing evidence is not production certification.
 
+Human attestations for this stage belong on the [provider go-live checklist](checklists/provider-go-live-checklist.md). Repo-verifiable envelope artifacts stay with `provider:check`.
+
 ### 2. Make `<provider>` live evaluation operational
 
 Generate the offline scaffold with `fixture:onboard --stage=live` (requires the manifest's supported CAD envelope and the reviewed enum change), then run `provider:check`.
@@ -190,6 +192,8 @@ A declarative or custom adapter provides isolated session setup, exact allowed o
 
 Stage 2 depends on stage 1.
 
+Use the [provider go-live checklist](checklists/provider-go-live-checklist.md) for worker-adapter, secret-name, and egress attestations. A checked box does not deploy or enable anything.
+
 ### 3. Admit and certify `<provider>` for production quotes
 
 Production admission requires a reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization. Only this stage may update the production-certified allowlist or enable routing.
@@ -197,6 +201,16 @@ Production admission requires a reviewed admission-policy revision, provider-neu
 Generate review-only admission artifacts with `fixture:onboard --stage=admit` under the stage 3 issue, then run `provider:check`; applying them is a protected, reviewed action.
 
 Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
+
+Admission still requires a human-applied reviewed SQL revision. Record that work on the [provider go-live checklist](checklists/provider-go-live-checklist.md). Admit SQL never belongs in `supabase/migrations/` from a generator.
+
+### Generated-stage runbook (OVD-687)
+
+`fixture:onboard` (OVD-687) emits a rollout runbook block for admit-stage work.
+That block must link the [provider go-live checklist](checklists/provider-go-live-checklist.md).
+Generated catalog and adapter output stays disabled by default, admit SQL stays
+in review-only stubs outside `supabase/migrations/`, and worker wiring records
+secret names only.
 
 ## Permissions matrix and paid-automation clearance
 

@@ -74,6 +74,58 @@ Baseline failures or exceptions:
 - [ ] Docs updated
 - [ ] No doc updates needed
 
+## Provider go-live
+
+Required only when this PR enables a provider for customers, and CI decides from
+the diff content: a registry provider going to `liveAdapter: true` or gaining
+production egress (compared per provider), a new provider added to
+`REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, or a migration that assigns
+`generic_dispatch_enabled = true` or `admission_state = 'approved'` in a SET
+clause or an insert. Omit this section on every other PR, including generated
+stage 1 and 2 output, registry hardening, permissions docs, kill switch and
+disable changes, and cease and desist disables. A PR that edits the PR body
+gate itself adds a `## Gate change review` section with a `Reviewer: <name>`
+line and an evidence link.
+
+A checked box grants no authority. Generated output stays disabled by default.
+Admission happens only when a human applies reviewed SQL; admit SQL is never
+committed by a generator. Record Secret Manager secret names only.
+
+Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
+`optomachina/Overdrafter`, or a full Linear issue URL. A bare `OVD-n` and other
+URLs are not evidence. Links are format checked only.
+Worker secret, egress, admission, rollout, and certification items may be marked
+`N/A: <written justification>` (checked `[x]`) when they do not apply to this
+stage. The envelope, rollback, and legal stance items cannot be N/A, except the
+ITAR/EAR item for a US only provider.
+See `docs/checklists/provider-go-live-checklist.md`.
+
+### Envelope
+
+- [ ] provider:check green. Evidence:
+- [ ] Envelope reviewed by a named reviewer. Evidence:
+
+### Live
+
+- [ ] Worker adapter deployed and Secret Manager secret created (name only). Evidence:
+- [ ] Stable egress verified (`verify:xometry-egress`-style). Evidence:
+
+### Admit
+
+- [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL is never committed by a generator. Evidence:
+- [ ] `automatic_quote_collection` rollout and org enablement. Evidence:
+- [ ] Certification run evidence:
+- [ ] Rollback/disable steps rehearsed. Evidence:
+
+### Legal stance
+
+- [ ] Per provider kill switch rehearsal (`npm run provider:kill`, `docs/runbooks/provider-cease-and-desist.md`). Evidence:
+- [ ] Provider is turned off the same day on a C&D, IP or bot block, CAPTCHA wall, or account ban. Evidence:
+- [ ] Traffic stays at about 20 quotes per provider per day. Evidence:
+- [ ] Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:
+- [ ] No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:
+- [ ] ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:
+
 ## Screenshots or videos (if UI)
 
 Add screenshots, videos, logs, or other evidence.

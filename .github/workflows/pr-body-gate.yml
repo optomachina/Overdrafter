@@ -1,0 +1,114 @@
+name: PR body gate
+
+# Separate from ci.yml on purpose: the `edited` trigger fires on every title or
+# body edit (review bots edit bodies), and it must not rerun the full CI suite
+# or cancel its runs. This workflow is small and has its own concurrency group.
+#
+# The Provider go-live section is required only when the diff enables a
+# provider for customers (see scripts/provider-enablement-detect.mjs). Every
+# other PR passes in seconds. To make this a required check, add the check name
+# "provider-go-live" (the job name) to branch protection. The workflow also runs
+# on merge_group with a no op pass so a required check never stalls a merge
+# queue; the pull_request run is what enforces the rule.
+#
+# The detector and validator run from the base copy (HEAD^1), so a PR cannot
+# edit them to skip itself. A PR that edits the gate files needs a "Gate change
+# review" section naming a reviewer. When the base has no copy yet (the PR that
+# introduces the gate), the head copy runs.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: pr-body-gate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  provider-go-live:
+    name: provider-go-live
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # A merge queue run has no PR body to read. The rule was enforced on the
+      # pull_request run, so report success here.
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, provider-go-live was enforced on the pull_request run."
+
+      # pull_request checks out the merge commit of the PR head into the
+      # current base tip, so HEAD^1 is the base as merged. Diffing against it
+      # (not the PR base sha, which goes stale) cannot inherit files that landed on main
+      # after the PR branched.
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Copy the gate scripts from the base commit, not the PR, and install the
+      # TypeScript version the base lockfile pins (the detector parses the
+      # envelope list with it).
+      - name: Prepare gate from base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/gate"
+          mkdir -p "$gate/scripts"
+          files="scripts/validate-pr-body.mjs scripts/provider-enablement-detect.mjs"
+          source=base
+          for file in $files; do
+            git cat-file -e "HEAD^1:$file" 2>/dev/null || source=head
+          done
+          for file in $files; do
+            if [ "$source" = base ]; then
+              git show "HEAD^1:$file" > "$gate/$file"
+            else
+              cp "$file" "$gate/$file"
+            fi
+          done
+          echo "Gate scripts taken from: $source"
+          ts_version="$(git show HEAD^1:package-lock.json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).packages["node_modules/typescript"].version)}catch{console.log("5.8.3")}})')"
+          cd "$gate"
+          npm init -y > /dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund "typescript@${ts_version}"
+
+      - name: Validate provider go-live PR section
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # --no-renames keeps a rename source as a deletion plus an addition.
+          git diff --name-status --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"
+          git diff --no-renames -U0 HEAD^1 HEAD > "$RUNNER_TEMP/pr.diff"
+          echo "Changed files:"
+          cat "$RUNNER_TEMP/changed-files.txt"
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          # Run from the checkout so git show reads this repository, with the
+          # base copy of the scripts.
+          node "$RUNNER_TEMP/gate/scripts/validate-pr-body.mjs" "$RUNNER_TEMP/pr-body.md" \
+            --changed-files-from "$RUNNER_TEMP/changed-files.txt" \
+            --diff-from "$RUNNER_TEMP/pr.diff" \
+            --base-ref HEAD^1 --head-ref HEAD \
+            --skip-unless-enabling \
+            --verify-links

@@ -12,7 +12,7 @@ import {
   type LocalNativeCurrencyOffer,
   type LocalNativeCurrencyEvaluationResult,
 } from "../adapters/localEvaluationResult.js";
-import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
+import { buildLiveEvaluationAdapterRegistry, OFFLINE_EVALUATION_PORTAL_VENDORS } from "../adapters/index.js";
 import {
   assertProviderAdapterContract,
   evaluateProviderAdapterFailureContract,
@@ -31,11 +31,13 @@ import {
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
+import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
   sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
+import { ProviderKillSwitchError, type ProviderKillSwitchReader } from "../providerKillSwitch.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
@@ -146,6 +148,7 @@ type EvaluationBatchDependencies = {
   makeVendorConfig?: typeof makeConfig;
   prepareConfig?: typeof prepareRuntimeSecrets;
   stageFiles?: typeof stageLiveEvaluationFiles;
+  killSwitchReader?: ProviderKillSwitchReader;
 };
 
 function usage() {
@@ -1376,6 +1379,11 @@ function nativeCurrencyRow(input: {
  * Runs one quantity from captured bytes after provider-specific admission is
  * revalidated before registry construction or any adapter/provider call.
  */
+/** SendCutSend evaluates a reviewed manifest offline, so it never reaches the provider or the switch. */
+function isLiveProviderVendor(vendor: VendorName): boolean {
+  return vendor !== "sendcutsend";
+}
+
 export async function runQuote(
   config: WorkerConfig,
   args: SmokeArgs,
@@ -1385,6 +1393,7 @@ export async function runQuote(
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
   sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
   providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
+  killSwitchReader?: ProviderKillSwitchReader,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
@@ -1448,9 +1457,14 @@ export async function runQuote(
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
-    const result = adapter.evaluateLocally
-      ? await adapter.evaluateLocally(adapterInput)
-      : await adapter.quote(adapterInput);
+    const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
+      ? adapter.evaluateLocally(input)
+      : adapter.quote(input);
+    const reachesProvider = isLiveProviderVendor(vendor)
+      && (!adapter.evaluateLocally || adapter.evaluateLocallyReachesProvider !== false);
+    const result = reachesProvider
+      ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
+      : await evaluate(adapterInput);
     if (isLocalNativeCurrencyResult(result)) {
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
@@ -1503,6 +1517,7 @@ export async function runQuote(
     };
   } catch (error) {
     console.log("FAILED");
+    if (error instanceof ProviderKillSwitchError) throw error;
     row = buildErrorRow(
       vendor,
       quantity,
@@ -1530,6 +1545,10 @@ export async function runEvaluationBatch(
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
+  await assertOperatorProvidersEnabled(
+    args.vendors.filter((vendor) => isLiveProviderVendor(vendor) && !OFFLINE_EVALUATION_PORTAL_VENDORS.has(vendor)),
+    dependencies.killSwitchReader,
+  );
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
   const providerPortalApproval = await loadProviderPortalApproval(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
@@ -1588,6 +1607,7 @@ export async function runEvaluationBatch(
           buildRegistry,
           sendCutSendManifest,
           providerPortalApproval,
+          dependencies.killSwitchReader,
         );
         rows.push(row);
       }

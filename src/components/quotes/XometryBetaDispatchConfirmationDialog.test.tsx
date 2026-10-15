@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import type { ProviderFanoutPlan } from "@/features/quotes/provider-fanout";
 import { describe, expect, it, vi } from "vitest";
 import {
   XometryBetaDispatchConfirmationDialog,
@@ -149,6 +150,39 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     expect(screen.getByRole("checkbox", { name: authorityLabel })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: exportLabel })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: quoteOnlyLabel })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+  });
+
+  it("withdraws the authority affirmation when the fan out send list changes", () => {
+    const plan = { send: ["xometry", "fictiv"], skipped: [], budget: null } satisfies ProviderFanoutPlan;
+    const { rerender, props } = renderDialog({
+      declaredModelUnits: "inch",
+      scope: createScope(),
+      fanout: { plan, outcomes: {} },
+    });
+    const twoProviderLabel = "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.";
+
+    fireEvent.click(screen.getByRole("checkbox", { name: twoProviderLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: exportLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: quoteOnlyLabel }));
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+
+    // A guard refetch adds a recipient after the box was ticked.
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        declaredModelUnits="inch"
+        scope={createScope()}
+        fanout={{ plan: { ...plan, send: ["xometry", "fictiv", "protolabs"] }, outcomes: {} }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I am authorized to share these files and requirements with Xometry, Fictiv, and Protolabs to request a quote.",
+      }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: exportLabel })).toBeChecked();
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
   });
 

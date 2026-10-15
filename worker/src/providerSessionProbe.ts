@@ -29,6 +29,7 @@ export type SessionProbeReason =
   | "challenge_page"
   | "access_denied"
   | "off_host_redirect"
+  | "login_redirect_off_host"
   | "non_https_target"
   | "redirect_limit_exceeded"
   | "non_get_navigation"
@@ -40,6 +41,7 @@ export type SessionProbeReason =
   | "storage_state_invalid"
   | "secret_unavailable"
   | "navigation_failed"
+  | "browser_launch_failed"
   | "page_inspection_failed"
   | "probe_not_supported"
   | "rmfg_endpoint_not_configured"
@@ -55,6 +57,11 @@ export type SessionProbeEvidence = {
   httpStatus: number | null;
   navigations: number;
   blockedRequests: number;
+  /**
+   * Set only for login_redirect_off_host: the host name (never a URL, path or
+   * query) of the identity or login host the provider redirected to.
+   */
+  offHost?: string;
 };
 
 export type SessionProbeTarget = {
@@ -157,16 +164,20 @@ const GCLOUD_FIXED_LOCATIONS = [
 ];
 
 /**
- * Finds gcloud without consulting PATH: GCLOUD_PATH (an absolute path) first,
- * then a fixed list, then the SDK folder in the home directory.
+ * Finds gcloud without consulting PATH. When GCLOUD_PATH is set it is the only
+ * candidate and must be an absolute, executable path. Otherwise a fixed list,
+ * then the SDK folder in the home directory.
  */
-async function findGcloud(): Promise<string | null> {
+export async function findGcloud(): Promise<string | null> {
   const home = process.env.HOME;
-  const candidates = [
-    process.env.GCLOUD_PATH,
-    ...GCLOUD_FIXED_LOCATIONS,
-    home ? `${home}/google-cloud-sdk/bin/gcloud` : undefined,
-  ].filter((candidate): candidate is string => typeof candidate === "string" && path.isAbsolute(candidate));
+  const explicit = process.env.GCLOUD_PATH;
+  // An explicit GCLOUD_PATH is a decision: if it is wrong, fail closed
+  // instead of quietly using a different gcloud (and a different account).
+  const searched = [...GCLOUD_FIXED_LOCATIONS, home ? `${home}/google-cloud-sdk/bin/gcloud` : undefined].filter(
+    (candidate): candidate is string => typeof candidate === "string" && path.isAbsolute(candidate),
+  );
+  let candidates = searched;
+  if (explicit !== undefined && explicit !== "") candidates = path.isAbsolute(explicit) ? [explicit] : [];
   for (const candidate of candidates) {
     try {
       await fs.access(candidate, fsConstants.X_OK);
@@ -252,8 +263,11 @@ type PageSignals = {
  * Body text never decides a block. A reCAPTCHA footer, a "Forbidden" word in
  * help text or a loading spinner that says "Just a moment" are ordinary on
  * logged in and login pages alike. Only a Cloudflare challenge marker, a
- * Turnstile widget on a page without a password field, or a challenge or
- * denial title counts. Status codes are judged outside the page.
+ * Turnstile widget on a page with neither a password field nor a log out
+ * control, or a challenge or denial title counts. A present log out control
+ * beats a CAPTCHA widget alone. The control is matched in the DOM whether or
+ * not it is visible, because many sites keep it in a closed account menu.
+ * Status codes are judged outside the page.
  */
 const PAGE_SIGNALS_SCRIPT = `(() => {
   const title = (document.title || "").toLowerCase();
@@ -264,13 +278,13 @@ const PAGE_SIGNALS_SCRIPT = `(() => {
   const cfInterstitial =
     typeof window._cf_chl_opt !== "undefined" ||
     document.querySelector('#challenge-form, form[action*="__cf_chl"], [id^="cf-chl-"], script[src*="/cdn-cgi/challenge-platform/"][src*="orchestrate"]') !== null;
-  const turnstile = document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, [name="cf-turnstile-response"]') !== null;
-  const challengeTitle = /^\\s*(just a moment|attention required|checking your browser|verifying you are human|verify you are human|one more step|ddos-guard)/.test(title);
-  const challenge = cfInterstitial || challengeTitle || (turnstile && !loginForm);
-  const denied = /^\\s*(access denied|you have been blocked|error 1020|403 forbidden)/.test(title);
   const marker =
     document.querySelector('a[href*="logout" i], a[href*="log-out" i], a[href*="signout" i], a[href*="sign-out" i], [data-testid*="logout" i], [data-testid*="sign-out" i]') !== null ||
     Array.from(document.querySelectorAll('a, button, [role="menuitem"]')).some((element) => /^\\s*(log\\s?out|sign\\s?out)\\s*$/i.test(element.textContent || ""));
+  const turnstile = document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, [name="cf-turnstile-response"]') !== null;
+  const challengeTitle = /^\\s*(just a moment|attention required|checking your browser|verifying you are human|verify you are human|one more step|ddos-guard)/.test(title);
+  const challenge = cfInterstitial || challengeTitle || (turnstile && !loginForm && !marker);
+  const denied = /^\\s*(access denied|you have been blocked|error 1020|403 forbidden)/.test(title);
   return { loginForm, challenge, denied, marker };
 })()`;
 
@@ -290,6 +304,10 @@ export type BrowserProbeOptions = {
   timeoutMs?: number;
   /** Quiet period after load so a scripted redirect is observed before judging. */
   settleMs?: number;
+  /** Test only: replaces the page sampler, to force an inspection failure. */
+  sampleSignals?: (page: Page) => Promise<unknown>;
+  /** Gap before the confirming second page sample that must agree with the first. */
+  confirmMs?: number;
   now?: () => Date;
 };
 
@@ -314,6 +332,30 @@ function looksLikeLogin(rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+const IDENTITY_HOST_LABEL = /^(login|logon|signin|sign-in|auth|sso|id|idp|identity|account|accounts|oauth|secure|passport)\d*$/;
+const IDENTITY_HOST_SUFFIX = ["auth0.com", "okta.com", "oktapreview.com", "onelogin.com", "microsoftonline.com"];
+
+/**
+ * The host name of an identity or login target outside the allowlist, or null
+ * when the URL is not recognizably a login or identity page. Only the host
+ * name leaves this function.
+ */
+function offHostLoginHost(rawUrl: string, failure: ProbeUrlFailure | null): string | null {
+  if (failure !== "off_host_redirect") return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  const identityHost =
+    host.split(".").some((label) => IDENTITY_HOST_LABEL.test(label)) ||
+    IDENTITY_HOST_SUFFIX.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+  return identityHost || looksLikeLogin(rawUrl) ? host : null;
 }
 
 function frameKindOf(request: Request, page: Page): "main" | "sub" | "other" {
@@ -363,22 +405,35 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     extraNavigations: number;
     extraNavigationLooksLikeLogin: boolean;
     nonGetNavigation: boolean;
+    /** Host name of an off host identity or login target the run refused to request. */
+    offHostLogin: string | null;
     landingHop: LandingHop | null;
   } = {
     navigationFailure: null,
     extraNavigations: 0,
     extraNavigationLooksLikeLogin: false,
     nonGetNavigation: false,
+    offHostLogin: null,
     landingHop: null,
   };
   let redirectLimitExceeded = false;
   const navigations = () => 1 + state.extraNavigations;
+  // A refused off host identity or login target is a logged out answer: the
+  // provider sent the session to sign in elsewhere. Any other refusal is a block.
+  const navigationFailureEvidence = (): SessionProbeEvidence =>
+    state.navigationFailure === "off_host_redirect" && state.offHostLogin !== null
+      ? { ...evidence, outcome: "logged_out", reason: "login_redirect_off_host", offHost: state.offHostLogin }
+      : { ...evidence, outcome: "blocked", reason: state.navigationFailure ?? "off_host_redirect" };
   try {
-    browser = await chromium.launch({
-      headless: true,
-      ...chromiumSandboxLaunchOptions(options.sandbox),
-      executablePath: options.executablePath,
-    });
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        ...chromiumSandboxLaunchOptions(options.sandbox),
+        executablePath: options.executablePath,
+      });
+    } catch {
+      return { ...evidence, outcome: "error", reason: "browser_launch_failed" };
+    }
     let context: BrowserContext;
     try {
       context = await browser.newContext({
@@ -422,8 +477,10 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
         if (hop === null || hop.claimed) {
           // Any main frame navigation outside the probe's own chain.
           evidence.blockedRequests += 1;
-          if (urlFailure) state.navigationFailure = urlFailure;
-          else if (!getLike) state.nonGetNavigation = true;
+          if (urlFailure) {
+            state.navigationFailure = urlFailure;
+            state.offHostLogin = offHostLoginHost(requestUrl, urlFailure);
+          } else if (!getLike) state.nonGetNavigation = true;
           else {
             state.extraNavigations += 1;
             if (looksLikeLogin(requestUrl)) state.extraNavigationLooksLikeLogin = true;
@@ -435,6 +492,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
         if (urlFailure || !getLike) {
           evidence.blockedRequests += 1;
           state.navigationFailure = urlFailure ?? "off_host_redirect";
+          state.offHostLogin = offHostLoginHost(requestUrl, urlFailure);
           await route.abort("blockedbyclient");
           return;
         }
@@ -464,6 +522,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
           if (nextFailure) {
             evidence.blockedRequests += 1;
             state.navigationFailure = nextFailure;
+            state.offHostLogin = offHostLoginHost(next, nextFailure);
             await route.abort("blockedbyclient");
             return;
           }
@@ -558,7 +617,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     // From here on every main frame navigation is an extra one.
     state.landingHop = null;
     evidence.navigations = navigations();
-    if (state.navigationFailure) return { ...evidence, outcome: "blocked", reason: state.navigationFailure };
+    if (state.navigationFailure) return navigationFailureEvidence();
     if (redirectLimitExceeded) return { ...evidence, outcome: "blocked", reason: "redirect_limit_exceeded" };
 
     const status = response?.status() ?? null;
@@ -572,18 +631,40 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     if (status === 401) return { ...evidence, outcome: "logged_out", reason: "http_unauthorized" };
 
     // Bounded wait so a client rendered page can show a login form, a
-    // challenge or the account marker. Passive polling only.
+    // challenge or the account marker. Passive polling only. A decisive
+    // sample must be confirmed by a second one a short moment later, so a
+    // single page app that flashes a password form before its session check
+    // finishes is not read as logged out.
     await page.waitForTimeout(options.settleMs ?? 1_500);
     const deadline = Date.now() + Math.min(timeoutMs, 10_000);
+    const confirmMs = options.confirmMs ?? 600;
+    const sample = async () => (await (options.sampleSignals ?? ((target) => target.evaluate(PAGE_SIGNALS_SCRIPT)))(page)) as PageSignals;
     let signals: PageSignals;
     try {
       for (;;) {
-        signals = (await page.evaluate(PAGE_SIGNALS_SCRIPT)) as PageSignals;
-        if (signals.loginForm || signals.challenge || signals.denied || signals.marker || Date.now() >= deadline) break;
+        signals = await sample();
+        // A refused navigation ends the run; the page is not worth sampling again.
+        if (state.navigationFailure) break;
+        const decisive = signals.loginForm || signals.challenge || signals.denied || signals.marker;
+        if (decisive) {
+          await page.waitForTimeout(confirmMs);
+          const second = await sample();
+          const agrees =
+            second.loginForm === signals.loginForm &&
+            second.challenge === signals.challenge &&
+            second.denied === signals.denied &&
+            second.marker === signals.marker;
+          signals = second;
+          if (agrees) break;
+        }
+        if (Date.now() >= deadline) break;
         await page.waitForTimeout(250);
       }
     } catch {
       evidence.navigations = navigations();
+      // A script redirect that was refused can destroy the page under the
+      // sampler. The refusal is the answer, not an inspection failure.
+      if (state.navigationFailure) return navigationFailureEvidence();
       return { ...evidence, outcome: "error", reason: "page_inspection_failed" };
     }
     evidence.navigations = navigations();
@@ -593,7 +674,7 @@ export async function runBoundedBrowserSessionProbe(options: BrowserProbeOptions
     const pageUrl = page.url();
     const settledUrl = isAllowedProbeUrl(pageUrl, policy) ? pageUrl : hopUrl;
     evidence.finalHost = hostOf(settledUrl);
-    if (state.navigationFailure) return { ...evidence, outcome: "blocked", reason: state.navigationFailure };
+    if (state.navigationFailure) return navigationFailureEvidence();
     if (state.nonGetNavigation) return { ...evidence, outcome: "blocked", reason: "non_get_navigation" };
 
     if (signals.challenge) return { ...evidence, outcome: "blocked", reason: "challenge_page" };
@@ -631,14 +712,30 @@ export type RmfgProbeRequest = {
 export type RmfgProbeTransport = (request: RmfgProbeRequest) => Promise<RmfgProbeResponse>;
 
 /**
- * TODO(OVD-rmfg-probe): the repository has no RMFG HTTP client and no
- * documented account or health endpoint. rmfgQuoteTransport.ts is an offline
- * contract that covers materials, designs, analyze and quotes only, and the
- * materials catalog may be public, so a 200 there would not prove the key.
- * Blaine or the RMFG docs must name the endpoint before this is set. Until
- * then the probe makes no network call.
+ * One read only call to the account resource of the RMFG REST API. Host and
+ * origin match RMFG_API_ORIGIN in adapters/rmfgHttpTransport.ts. The path
+ * comes from RMFG's OpenAPI (GET /v1/account) and has not been checked against
+ * a live account response from this repository.
  */
-export const RMFG_PROBE_ENDPOINT: string | null = null;
+export const RMFG_PROBE_ENDPOINT: string | null = "https://api.rmfg.com/v1/account";
+
+/**
+ * Minimal fetch transport for the probe. It sends one GET with a bearer key,
+ * follows no redirect, never reads the body and returns only the status. The
+ * key is never placed in an error, so a failure carries no secret.
+ */
+export function createRmfgFetchTransport(fetchImpl: typeof fetch = fetch): RmfgProbeTransport {
+  return async ({ method, url, apiKey, timeoutMs }) => {
+    const response = await fetchImpl(url, {
+      method,
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    return { status: response.status };
+  };
+}
 
 export function validateRmfgApiKey(value: string): string | null {
   const key = value.trim();
@@ -766,7 +863,7 @@ export async function runSessionProbe(
   }
   try {
     if (target.adapterKind === "api") {
-      // Decide before reading the secret: with no endpoint there is nothing to call.
+      // Decide before reading the secret: with no endpoint or transport there is nothing to call.
       if (RMFG_PROBE_ENDPOINT === null || !deps.rmfgTransport) {
         return { ...baseEvidence(args.provider, now), reason: "rmfg_endpoint_not_configured" };
       }

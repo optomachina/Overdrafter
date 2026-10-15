@@ -452,11 +452,32 @@ cleanup_ovd410_local_archive() {
   OVD410_LOCAL_DIR=''
 }
 
+# Set before the worker's snapshot-bucket binding is revoked. Failure cleanup
+# always re-adds that binding and proves it with a readback before exiting.
+OVD410_WORKER_BINDING_REMOVED='FALSE'
+restore_ovd410_worker_binding() {
+  gcloud storage buckets add-iam-policy-binding \
+    "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+    --project overdrafter-worker-9133 \
+    --member='serviceAccount:overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com' \
+    --role='roles/storage.objectUser' >/dev/null || return 1
+  gcloud storage buckets get-iam-policy \
+    "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+    --project overdrafter-worker-9133 \
+    --format=json \
+    | jq -e \
+      'any(.bindings[]?; .role == "roles/storage.objectUser" and ((.members // []) | index("serviceAccount:overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com") != null))' \
+      >/dev/null || return 1
+  OVD410_WORKER_BINDING_REMOVED='FALSE'
+  printf '%s\n' 'ovd410-worker-binding-restored=TRUE' >&2
+}
+
 cleanup_ovd410_recovery_ceremony() {
   local original_code="${1:-1}"
   local local_cleanup_code=0
   local resource_teardown_code=0
   local token_binding_cleanup_code=0
+  local worker_binding_restore_code=0
   local compensation_ran='FALSE'
   trap - EXIT
   trap '' HUP INT TERM
@@ -465,6 +486,14 @@ cleanup_ovd410_recovery_ceremony() {
     compensation_ran='TRUE'
     cleanup_ovd410_token_binding
     token_binding_cleanup_code=$?
+  fi
+  if [[ "${OVD410_WORKER_BINDING_REMOVED:-FALSE}" == 'TRUE' ]]; then
+    compensation_ran='TRUE'
+    restore_ovd410_worker_binding
+    worker_binding_restore_code=$?
+    if [[ "$worker_binding_restore_code" -ne 0 ]]; then
+      printf '%s\n' 'ovd410-worker-binding-restored=FALSE' >&2
+    fi
   fi
   if [[ "$OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED" == 'TRUE' ]]; then
     compensation_ran='TRUE'
@@ -490,6 +519,7 @@ cleanup_ovd410_recovery_ceremony() {
   fi
   set -e
   if [[ "$token_binding_cleanup_code" -ne 0 ||
+        "$worker_binding_restore_code" -ne 0 ||
         "$local_cleanup_code" -ne 0 ||
         "$resource_teardown_code" -ne 0 ]]; then
     exit 2
@@ -1282,6 +1312,7 @@ production worker's narrow bucket role is `roles/storage.objectUser`:
 ```bash
 set -euo pipefail
 
+OVD410_WORKER_BINDING_REMOVED='TRUE'
 gcloud storage buckets remove-iam-policy-binding \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
   --project overdrafter-worker-9133 \
@@ -1306,30 +1337,41 @@ gcloud iam service-accounts add-iam-policy-binding \
   --role='roles/iam.serviceAccountTokenCreator'
 OVD410_TOKEN_BINDING_ADDED='TRUE'
 
-OVD410_WORKER_TOKEN=''
-for _attempt in $(seq 1 12); do
-  if OVD410_WORKER_TOKEN="$(gcloud auth print-access-token \
-    --lifetime=300s \
-    --impersonate-service-account=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
-    2>/dev/null)"; then
-    break
-  fi
-  sleep 5
-done
-test -n "$OVD410_WORKER_TOKEN"
-unset _attempt
 OVD410_BUCKET_ENCODED="$(node -e \
   'process.stdout.write(encodeURIComponent(process.argv[1]))' \
   "$XOMETRY_PROFILE_SNAPSHOT_BUCKET")"
 OVD410_OBJECT_ENCODED="$(node -e \
   'process.stdout.write(encodeURIComponent(process.argv[1]))' \
   "$XOMETRY_PROFILE_SNAPSHOT_OBJECT")"
-OVD410_REVOKED_STATUS="$({
-  printf 'header = "Authorization: Bearer %s"\n' "$OVD410_WORKER_TOKEN"
-  printf '%s\n' 'silent' 'show-error' 'output = "/dev/null"' 'write-out = "%{http_code}"'
-} | curl --config - \
-  "https://storage.googleapis.com/storage/v1/b/$OVD410_BUCKET_ENCODED/o/$OVD410_OBJECT_ENCODED")"
-test "$OVD410_REVOKED_STATUS" = "403"
+# IAM grants and revocations propagate asynchronously. Retry the revocation
+# proof for about two minutes; only an observed 403 passes. Each attempt logs a
+# reason code, never the token, bucket, or object.
+OVD410_WORKER_TOKEN=''
+OVD410_REVOKED_STATUS=''
+for _attempt in $(seq 1 24); do
+  if [[ -z "$OVD410_WORKER_TOKEN" ]]; then
+    OVD410_WORKER_TOKEN="$(gcloud auth print-access-token \
+      --lifetime=300s \
+      --impersonate-service-account=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+      2>/dev/null)" || OVD410_WORKER_TOKEN=''
+  fi
+  if [[ -z "$OVD410_WORKER_TOKEN" ]]; then
+    printf 'worker-revocation-check attempt=%s/24 reason=token-unavailable\n' "$_attempt" >&2
+  else
+    OVD410_REVOKED_STATUS="$({
+      printf 'header = "Authorization: Bearer %s"\n' "$OVD410_WORKER_TOKEN"
+      printf '%s\n' 'silent' 'output = "/dev/null"' 'write-out = "%{http_code}"'
+    } | curl --config - \
+      "https://storage.googleapis.com/storage/v1/b/$OVD410_BUCKET_ENCODED/o/$OVD410_OBJECT_ENCODED" 2>/dev/null)" \
+      || OVD410_REVOKED_STATUS='curl-error'
+    [[ "$OVD410_REVOKED_STATUS" == "403" ]] && break
+    printf 'worker-revocation-check attempt=%s/24 reason=status-%s\n' "$_attempt" "${OVD410_REVOKED_STATUS:-none}" >&2
+  fi
+  sleep 5
+done
+unset _attempt
+test "$OVD410_REVOKED_STATUS" = "403" \
+  || { printf 'STOP: worker-revocation-check failed after 24 attempts; last=%s\n' "${OVD410_REVOKED_STATUS:-token-unavailable}" >&2; exit 1; }
 unset OVD410_WORKER_TOKEN OVD410_BUCKET_ENCODED OVD410_OBJECT_ENCODED OVD410_REVOKED_STATUS
 
 cleanup_ovd410_token_binding
@@ -1626,6 +1668,7 @@ gcloud storage buckets get-iam-policy \
   | jq -e \
     'any(.bindings[]?; .role == "roles/storage.objectUser" and ((.members // []) | index("serviceAccount:overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com") != null))' \
     >/dev/null
+OVD410_WORKER_BINDING_REMOVED='FALSE'
 ```
 
 Delete the local archive immediately after the generation/size and restored-IAM

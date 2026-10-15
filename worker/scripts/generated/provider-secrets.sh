@@ -113,29 +113,5 @@ provider_registry_stable_egress_canonical_adapters() {
 }
 
 provider_registry_stable_egress_restriction_message() {
-  local required="${PROVIDER_REGISTRY_STABLE_EGRESS_REQUIRED^}"
-  local -a optional_names=()
-  local adapter
-  for adapter in "${PROVIDER_REGISTRY_STABLE_EGRESS_OPTIONAL_ADAPTERS[@]}"; do
-    optional_names+=("${adapter^}")
-  done
-  local count="${#optional_names[@]}"
-  if (( count == 0 )); then
-    printf '%s\n' "Stable egress deployment is restricted to the live ${required} worker."
-    return 0
-  fi
-  local phrase
-  if (( count == 1 )); then
-    phrase="${optional_names[0]}"
-  elif (( count == 2 )); then
-    phrase="${optional_names[0]} and/or ${optional_names[1]}"
-  else
-    local i
-    phrase=""
-    for (( i=0; i<count-1; i++ )); do
-      phrase+="${optional_names[i]}, "
-    done
-    phrase+="and/or ${optional_names[count-1]}"
-  fi
-  printf '%s\n' "Stable egress deployment is restricted to the live ${required} worker, optionally with ${phrase} in that order."
+  printf '%s\n' 'Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.'
 }

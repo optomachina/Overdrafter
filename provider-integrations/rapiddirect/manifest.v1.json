@@ -39,15 +39,8 @@
     "files": {
       "status": "supported",
       "values": [
-        "iges",
-        "igs",
-        "prt",
-        "sat",
-        "sldprt",
         "step",
-        "stl",
-        "stp",
-        "x_t"
+        "stp"
       ]
     },
     "quantity": {

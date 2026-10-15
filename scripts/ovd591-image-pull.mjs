@@ -42,8 +42,9 @@ export function isPublicEcrThrottle(result) {
   });
 }
 
-/** call retains each raw result; save retains classification and bounded retry decisions. */
-export async function pullFixtureImage({ call, image, label, signal, deadline = Infinity, save },
+/** call retains each raw result; save retains classification and bounded retry decisions.
+ * skipLoaded: an image already present locally with registry RepoDigests (`docker image inspect` succeeds) is receipted as "cached", not pulled. */
+export async function pullFixtureImage({ call, image, label, signal, deadline = Infinity, save, skipLoaded = false },
   { now = Date.now, wait = delay, random = Math.random, env = process.env } = {}) {
   assert.match(image, /^public\.ecr\.aws\/supabase\/[a-z-]+:[a-zA-Z0-9.-]+$/);
   assert.match(label, /^[a-z-]+$/);
@@ -55,6 +56,16 @@ export async function pullFixtureImage({ call, image, label, signal, deadline = 
     assert(now() < expires, `${label} deadline exceeded`);
   };
   try {
+    if (skipLoaded) {
+      const loaded = await call('docker', ['image', 'inspect', '--format', '{{json .RepoDigests}}', image], { timeout: expires - now(), allowFailure: true,
+        label: `${label}-inspect` });
+      check();
+      // docker load drops RepoDigests; only a registry-digested image may skip the pull.
+      if (!loaded.failure && loaded.status === 0 && /@sha256:[a-f0-9]{64}/.test(String(loaded.stdout ?? ''))) {
+        receipt.status = 'cached'; receipt.attempts.push({ attempt: 0, status: 'cached' });
+        return loaded;
+      }
+    }
     for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
       check();
       const timeout = expires - now();
@@ -74,7 +85,7 @@ export async function pullFixtureImage({ call, image, label, signal, deadline = 
       await wait(waitMs, undefined, { signal });
     }
   } finally {
-    if (receipt.status !== 'passed') receipt.status = 'failed';
+    if (receipt.status !== 'passed' && receipt.status !== 'cached') receipt.status = 'failed';
     save(receipt);
   }
 }
@@ -106,7 +117,7 @@ export async function pullImages(images, { call = spawnCall(), out = console.log
         const result = await call(...args);
         if (result.status !== 0 && result.stderr) err(result.stderr.trimEnd());
         return result;
-      }, image, label: `${name}-image-pull`, save: receipt => {
+      }, image, label: `${name}-image-pull`, skipLoaded: true, save: receipt => {
         if (receipt.status !== 'running') out(JSON.stringify(receipt));
       } }, options);
     } catch (error) {

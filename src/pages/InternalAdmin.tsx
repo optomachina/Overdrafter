@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OperationsStatusCard } from "@/components/admin/OperationsStatusCard";
 import { SpendCapCard } from "@/components/admin/SpendCapCard";
+import { ProviderKillSwitchCard } from "@/components/admin/ProviderKillSwitchCard";
 import { ManualQuoteRequestInbox } from "@/components/admin/ManualQuoteRequestInbox";
 import { FoundingBetaEnrollmentCard } from "@/components/admin/FoundingBetaEnrollmentCard";
 import {
@@ -216,6 +217,10 @@ const InternalAdmin = () => {
                 reachable from the read-only Operations summary. */}
             <section id="spend-controls">
               <SpendCapCard />
+            </section>
+
+            <section id="provider-kill-switch">
+              <ProviderKillSwitchCard />
             </section>
 
             <section>

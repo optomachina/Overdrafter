@@ -9,11 +9,20 @@ import { toast } from "sonner";
 import { buildDraftTitleFromPrompt, getEmptyQuoteFileMessage } from "@/features/quotes/file-validation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildAutoProjectName, groupUploadFiles } from "@/features/quotes/upload-groups";
-import { callRpc, callUntypedRpc } from "./shared/rpc";
+import { callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { createClientDraft } from "./jobs-api";
 import { createProject } from "./projects-api";
 import { reconcileJobParts, requestExtraction } from "./extraction-api";
+import {
+  EXPORT_CONTROL_TERMS_VERSION,
+  ExportControlUploadBlockedError,
+  evaluateExportControlAnswer,
+  isExportControlUploadBlockReason,
+  requestExportControlAnswer,
+  type ExportControlAnswer,
+  type ExportControlPromptScope,
+} from "@/features/quotes/export-control";
 
 const CAD_EXTENSIONS = new Set([
   "step",
@@ -93,8 +102,14 @@ export async function findDuplicateUploadSelections(files: File[]): Promise<stri
 }
 
 function toJobFileUploadError(error: unknown, fileName: string): unknown {
-  if (error && typeof error === "object" && (error as { message?: unknown }).message === "file_upload_empty") {
+  const message = error && typeof error === "object" ? (error as { message?: unknown }).message : undefined;
+  if (message === "file_upload_empty") {
     return new Error(getEmptyQuoteFileMessage(fileName));
+  }
+  // OVD-723: finalize found no object this user wrote under the exact upload
+  // grant (wrong path, size, owner, or an expired or used grant).
+  if (message === "file_upload_grant_missing") {
+    return new Error(`${fileName} could not be verified after upload. Upload it again.`);
   }
 
   return error;
@@ -130,17 +145,85 @@ function isStorageObjectExistsError(error: unknown): boolean {
   );
 }
 
+export type ExportControlUploadOptions = {
+  /** Answer already collected by the caller. When absent, the registered prompt asks. */
+  exportControlAnswer?: ExportControlAnswer | null;
+};
+
+/**
+ * OVD-723: resolves the export-control answer for an upload and stops on
+ * anything but `not_controlled`. Runs before any job, project, or file is
+ * created, so a blocked answer stores nothing.
+ */
+export async function resolveCleanExportControlAnswer(
+  options: ExportControlUploadOptions,
+  scope: ExportControlPromptScope = {},
+): Promise<"not_controlled"> {
+  const answer = options.exportControlAnswer === undefined
+    ? await requestExportControlAnswer("upload", scope)
+    : options.exportControlAnswer;
+  const evaluation = evaluateExportControlAnswer(answer);
+
+  if ("reasonCode" in evaluation) {
+    throw new ExportControlUploadBlockedError(evaluation.reasonCode);
+  }
+
+  return evaluation.answer;
+}
+
+/**
+ * Records the declaration for the job and returns its id, which every
+ * prepare and finalize call must carry. Any error or unexpected response
+ * stops the upload.
+ */
+async function declareCleanJobExportStatus(jobId: string): Promise<string> {
+  const { data, error } = await callUntypedRpc("api_declare_job_export_status", {
+    p_job_id: jobId,
+    p_answer: "not_controlled",
+    p_terms_version: EXPORT_CONTROL_TERMS_VERSION,
+  });
+
+  if (error) {
+    const message = (error as { message?: unknown }).message;
+    if (isExportControlUploadBlockReason(message)) {
+      throw new ExportControlUploadBlockedError(message);
+    }
+    throw error;
+  }
+
+  const result = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  const declarationId = result?.declarationId;
+
+  if (result?.uploadAllowed !== true || typeof declarationId !== "string" || declarationId.length === 0) {
+    throw new ExportControlUploadBlockedError(
+      isExportControlUploadBlockReason(result?.reasonCode) ? result.reasonCode : "export_declaration_missing",
+    );
+  }
+
+  return declarationId;
+}
+
+function toExportControlUploadError(error: unknown): unknown {
+  const message = error && typeof error === "object" ? (error as { message?: unknown }).message : undefined;
+  return isExportControlUploadBlockReason(message) ? new ExportControlUploadBlockedError(message) : error;
+}
+
 export async function createJobsFromUploadFiles(input: {
   files: File[];
   prompt?: string;
   projectId?: string | null;
-}): Promise<{ jobIds: string[]; projectId: string | null }> {
+} & ExportControlUploadOptions): Promise<{ jobIds: string[]; projectId: string | null }> {
   const groups = groupUploadFiles(input.files);
   const requestIntake = parseRequestIntake(input.prompt ?? "");
 
   if (groups.length === 0) {
     return { jobIds: [], projectId: input.projectId ?? null };
   }
+
+  const exportControlAnswer = await resolveCleanExportControlAnswer(input, {
+    fileNames: input.files.map((file) => file.name),
+    fileSetCount: groups.length,
+  });
 
   let targetProjectId = input.projectId ?? null;
 
@@ -192,7 +275,7 @@ export async function createJobsFromUploadFiles(input: {
       requestedByDate: requestIntake.requestedByDate,
     });
 
-    await uploadFilesToJob(jobId, group.files);
+    await uploadFilesToJob(jobId, group.files, { exportControlAnswer });
     await reconcileJobParts(jobId);
     await requestExtraction(jobId);
     jobIds.push(jobId);
@@ -201,7 +284,20 @@ export async function createJobsFromUploadFiles(input: {
   return { jobIds, projectId: targetProjectId };
 }
 
-export async function uploadFilesToJob(jobId: string, files: File[]): Promise<UploadFilesToJobSummary> {
+export async function uploadFilesToJob(
+  jobId: string,
+  files: File[],
+  options: ExportControlUploadOptions = {},
+): Promise<UploadFilesToJobSummary> {
+  if (files.length === 0) {
+    return { uploadedCount: 0, reusedCount: 0, duplicateNames: [] };
+  }
+
+  await resolveCleanExportControlAnswer(options, {
+    fileNames: files.map((file) => file.name),
+    fileSetCount: 1,
+  });
+  const exportDeclarationId = await declareCleanJobExportStatus(jobId);
   const hashedFiles = await hashUploadFiles(files);
   const seenHashes = new Set<string>();
   const duplicateNames: string[] = [];
@@ -220,14 +316,21 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
     seenHashes.add(contentSha256);
 
     const fileKind = inferFileKind(file.name);
-    const { data, error } = await callRpc("api_prepare_job_file_upload", {
+    // p_export_declaration_id is added by the OVD-723 draft and is not in the
+    // generated types yet, so these two calls are untyped.
+    const { data, error } = await callUntypedRpc("api_prepare_job_file_upload", {
       p_job_id: jobId,
       p_original_name: file.name,
       p_file_kind: fileKind,
       p_mime_type: file.type || null,
       p_size_bytes: file.size,
       p_content_sha256: contentSha256,
+      p_export_declaration_id: exportDeclarationId,
     });
+
+    if (error) {
+      throw toExportControlUploadError(toJobFileUploadError(error, file.name));
+    }
 
     const prepareResult = ensureJobFileUploadData(data, error, file.name) as PrepareJobFileUploadResult;
 
@@ -250,7 +353,7 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       throw storageError;
     }
 
-    const { error: finalizeError } = await callRpc("api_finalize_job_file_upload", {
+    const { error: finalizeError } = await callUntypedRpc("api_finalize_job_file_upload", {
       p_job_id: jobId,
       p_storage_bucket: prepareResult.storageBucket,
       p_storage_path: prepareResult.storagePath,
@@ -259,10 +362,11 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       p_mime_type: file.type || null,
       p_size_bytes: file.size,
       p_content_sha256: contentSha256,
+      p_export_declaration_id: exportDeclarationId,
     });
 
     if (finalizeError) {
-      throw toJobFileUploadError(finalizeError, file.name);
+      throw toExportControlUploadError(toJobFileUploadError(finalizeError, file.name));
     }
 
     uploadedCount += 1;

@@ -5,6 +5,7 @@ import {
   gcloudSecretLoader,
   parseProbeCliArgs,
   PROBE_USAGE,
+  createRmfgFetchTransport,
   runSessionProbe,
   type SessionProbeEvidence,
 } from "../providerSessionProbe.js";
@@ -47,11 +48,14 @@ try {
       },
       loopbackFixtureUrl: process.env.PROBE_TEST_LOOPBACK_URL,
       executablePath: process.env.PROBE_TEST_CHROMIUM_EXECUTABLE || undefined,
-      // TODO: no RMFG HTTP transport exists yet; see RMFG_PROBE_ENDPOINT.
+      rmfgTransport: createRmfgFetchTransport(),
     },
   );
   const line = JSON.stringify(evidence);
   console.log(line);
+  if (evidence.reason === "browser_launch_failed") {
+    console.error("Chromium did not start. Run `npm --prefix worker ci` and `npm --prefix worker run install:browsers`, then run the probe again.");
+  }
   const outPath = resolveFromInvocationDir(args.outPath);
   if (outPath) await fs.writeFile(outPath, `${line}\n`, { encoding: "utf8", mode: 0o600 });
   process.exitCode = evidence.outcome === "authenticated" ? 0 : 1;
