@@ -185,7 +185,12 @@ export async function teardownRecoveryHost({
   if (
     env.GOOGLE_CLOUD_PROJECT !== contract.project ||
     restorationMode === null ||
-    !contract.allowedZones.includes(zone)
+    !contract.allowedZones.includes(zone) ||
+    !contract.hardwareProfiles.some(
+      (profile) =>
+        profile.machineType ===
+        (env.XOMETRY_RECOVERY_MACHINE_TYPE ?? contract.machineType),
+    )
   ) {
     output.write(
       "OVD-410 recovery teardown configuration is invalid; failing closed.\n",
@@ -285,6 +290,22 @@ export async function teardownRecoveryHost({
         "--project",
         contract.project,
         // Prove absence in every allowlisted zone, not only the one used.
+        "--zones",
+        contract.allowedZones.join(","),
+        `--filter=name=${contract.instance}`,
+        "--format=value(name)",
+      ],
+      (stdout) => stdout.trim() === "",
+    ],
+    [
+      // The boot disk auto-deletes with the VM; prove no orphan remains (any allowed zone).
+      "boot-disk",
+      [
+        "compute",
+        "disks",
+        "list",
+        "--project",
+        contract.project,
         "--zones",
         contract.allowedZones.join(","),
         `--filter=name=${contract.instance}`,

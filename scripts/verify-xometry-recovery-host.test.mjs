@@ -53,6 +53,7 @@ const EXPECTED = {
   serviceAccount: "worker@synthetic-project.iam.gserviceaccount.com",
   instance: "overdrafter-xometry-auth-recovery",
   machineType: "n2-standard-2",
+  bootDiskType: "pd-balanced",
   preemptible: false,
   provisioningModel: "STANDARD",
   instanceTerminationAction: null,
@@ -386,6 +387,7 @@ function compliantEvidence(expectations = EXPECTED) {
         boot: true,
         autoDelete: true,
         mode: "READ_WRITE",
+        source: resource(`zones/${expectations.zone}/disks`, expectations.instance, expectations.project),
         licenses: [resource("global/licenses", expectations.hostLicense, "ubuntu-os-cloud")],
       },
     ],
@@ -448,10 +450,18 @@ function compliantEvidence(expectations = EXPECTED) {
   };
   const iapService = [{ config: { name: expectations.iapService }, state: "ENABLED" }];
   const startupStatus = { stage: "ready", exitCode: 0 };
+  const bootDisk = {
+    name: expectations.instance,
+    type: resource(`zones/${expectations.zone}/diskTypes`, expectations.bootDiskType, expectations.project),
+    sizeGb: "20",
+    users: [resource(`zones/${expectations.zone}/instances`, expectations.instance, expectations.project)],
+  };
   const evidence = {
     stable: compliantStable(expectations, retainedImage),
     instance,
     confirmInstance: structuredClone(instance),
+    bootDisk: structuredClone(bootDisk),
+    confirmBootDisk: structuredClone(bootDisk),
     instanceInventory,
     confirmInstanceInventory: structuredClone(instanceInventory),
     firewall,
@@ -958,6 +968,63 @@ describe("recovery-host CLI", () => {
     }
   });
 
+  it("accepts n4-standard-2 only with a hyperdisk-balanced boot disk", () => {
+    const n4 = { ...EXPECTED, machineType: "n4-standard-2", bootDiskType: "hyperdisk-balanced" };
+    expect(validateRecoveryHostExpectations(n4)).toBe(true);
+    expect(evaluateRecoveryHostEvidence(compliantEvidence(n4), n4).failures).toEqual([]);
+    expect(validateRecoveryHostExpectations({ ...n4, bootDiskType: "pd-balanced" })).toBe(false);
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, bootDiskType: "hyperdisk-balanced" })).toBe(false);
+    for (const machineType of ["e2-standard-2", "n4-standard-4", "n2-standard-4"]) {
+      expect(validateRecoveryHostExpectations({ ...EXPECTED, machineType })).toBe(false);
+    }
+    const wrongDisk = compliantEvidence(n4);
+    wrongDisk.bootDisk.type = wrongDisk.bootDisk.type.replace("hyperdisk-balanced", "pd-balanced");
+    wrongDisk.confirmBootDisk = structuredClone(wrongDisk.bootDisk);
+    expect(evaluateRecoveryHostEvidence(wrongDisk, n4).failures).toContain(
+      "recovery_instance_boot_disk_hardware_invalid",
+    );
+    const bigDisk = compliantEvidence();
+    bigDisk.bootDisk.sizeGb = "50";
+    bigDisk.confirmBootDisk = structuredClone(bigDisk.bootDisk);
+    expect(evaluateRecoveryHostEvidence(bigDisk, EXPECTED).failures).toContain(
+      "recovery_instance_boot_disk_hardware_invalid",
+    );
+    const gpu = compliantEvidence(n4);
+    gpu.instance.guestAccelerators = [{ acceleratorCount: 1 }];
+    gpu.confirmInstance = structuredClone(gpu.instance);
+    expect(evaluateRecoveryHostEvidence(gpu, n4).failures).toContain(
+      "recovery_instance_accelerator_present",
+    );
+  });
+
+  it("selects the machine type from the environment only from the hardware allowlist", async () => {
+    for (const [machineType, collects] of [["n4-standard-2", true], ["e2-standard-2", false]]) {
+      let seen;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      await runCli({
+        args: [],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_MACHINE_TYPE: machineType },
+        output,
+        collectEvidence: async (expectations) => { seen = expectations; throw new Error("stop"); },
+      });
+      if (collects) {
+        expect(seen.machineType).toBe("n4-standard-2");
+        expect(seen.bootDiskType).toBe("hyperdisk-balanced");
+      } else {
+        expect(seen).toBeUndefined();
+        expect(output.value).toContain("configuration is invalid");
+      }
+      const statusOutput = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_MACHINE_TYPE: machineType },
+        output: statusOutput,
+        collectStartupStatus: async () => ({ stage: "ready", exitCode: 0 }),
+      });
+      expect(code).toBe(collects ? 0 : 2);
+    }
+  });
+
   it("fails before collection when one fixed name drifts", async () => {
     let collected = false;
     const output = { value: "", write(chunk) { this.value += chunk; } };
@@ -1202,6 +1269,7 @@ describe("recovery-host metadata collection", () => {
     const expectedEvidence = compliantEvidence();
     const responses = [
       expectedEvidence.instance,
+      expectedEvidence.bootDisk,
       expectedEvidence.firewall,
       expectedEvidence.instanceInventory,
       expectedEvidence.firewallInventory,
@@ -1215,6 +1283,7 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.recoveryEgressControlAttestation,
       expectedEvidence.recoveryEgressRuntime,
       expectedEvidence.confirmInstance,
+      expectedEvidence.confirmBootDisk,
       expectedEvidence.confirmFirewall,
       expectedEvidence.confirmInstanceInventory,
       expectedEvidence.confirmFirewallInventory,
@@ -1254,7 +1323,8 @@ describe("recovery-host metadata collection", () => {
     });
 
     expect(evidence).toEqual(expectedEvidence);
-    expect(calls).toHaveLength(27);
+    expect(calls).toHaveLength(29);
+    expect(calls.filter((call) => call.args[1] === "disks")).toHaveLength(2);
     expect(calls.every((call) => call.bin === "synthetic-gcloud")).toBe(true);
     expect(calls.filter((call) => call.args[1] === "instances")).toHaveLength(4);
     expect(
