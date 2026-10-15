@@ -132,8 +132,21 @@ enforces operator admission, membership, project access and conversation ownersh
 The development-only `/engineering?conversation=<uuid>` screen connects this
 adapter to the existing bottom composer. Like the local handoff workbench, it
 requires development mode, `VITE_ENABLE_ENGINEERING_WORKBENCH=1` and a loopback
-host. The route is excluded from production builds. These browser gates do not
-replace server authorization or enable any operator.
+host. These browser gates do not replace server authorization or enable any operator.
+
+OVD-740 adds a hosted admin entry for the same screen. It is compiled into a
+build only when the public build variable `VITE_ENABLE_ENGINEERING_ADMIN_ROUTE`
+is exactly `1`; it is unset by default, and a build without it is byte for byte
+the same as before. With the variable set, `/engineering` loads a separate lazy
+chunk (`src/pages/EngineeringAdminRoute.tsx`) that asks the server
+`api_get_is_platform_admin` (the existing `private.platform_admin_emails`
+allowlist) on every visit and ignores any cached client flag. Signed out
+visitors, callers the allowlist rejects and failed checks all get the ordinary
+not found page, and only an admitted caller downloads the inbox chunk.
+Conversation data stays behind its RLS policies and operator allowlist, so a
+platform admin who is not an engineering operator still sees no conversation.
+No quoting module may import the engineering area; `src/lib/engineering-isolation.test.ts`
+enforces that.
 
 The screen requires a signed-in session and an already provisioned conversation.
 It reads the owner's conversation scope/head/revision and up to 100 recent
@@ -242,6 +255,8 @@ npx vitest run src/pages/EngineeringInbox.test.tsx
 npx vitest run src/features/engineering/EngineeringTaskStatus.test.tsx
 npx vitest run src/features/engineering/engineering-conversation-reader.test.ts
 PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
+npx vitest run src/pages/EngineeringAdminRoute.test.tsx src/lib/engineering-isolation.test.ts
+PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-admin-route.spec.ts
 ```
 
 The browser test uses synthetic session fixtures and intercepted local HTTP
@@ -397,7 +412,7 @@ existing `scripts/generate-supabase-types.mjs`; they describe database shape,
 not client write permission. Regeneration also includes the existing platform
 notification RPC that was absent from the previously committed types.
 
-The repository's PostgreSQL contract-literal exceptions are recorded for the
+The repository's PostgreSQL contract-literal exceptions were recorded for the
 CLI scanner in `sonar-project.properties`. Sonar automatic analysis does not
 apply that rule-filter setting from repository properties. For PR #484, the
 15 `plsql:S1192` findings were individually scoped to the two SQL files and
@@ -406,6 +421,20 @@ each finding. The separate report-path security finding was fixed in code;
 its stale GitHub SARIF alert was reconciled only after Sonar marked it Fixed.
 No security rule was disabled. See [Sonar automatic-analysis configuration](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis)
 for the supported properties.
+
+OVD-597 removed `sonar-project.properties`, which only a CLI scanner reads and
+this repository does not run, and collapsed its exact-file exceptions into one
+`plsql:S1192` entry in `.sonarcloud.properties` scoped to `supabase/**/*.sql`.
+That widens the recorded exception from named files to every migration, pgTAP
+suite and SQL fixture under `supabase/`. The entry is unproven: issue-ignore
+additions to `.sonarcloud.properties` in #484, #491, #530, #533 and #536 were
+recorded as ineffective under automatic analysis and removed. Until Sonar shows
+otherwise, `plsql:S1192` findings stay visible and are dispositioned per
+finding under this policy. Post-merge check: once OVD-597 reaches main, confirm
+whether the main-branch analysis closes the existing `plsql:S1192` issues on
+`supabase/**/*.sql`, and inspect the issue list of the next PR that changes SQL
+there. If findings still appear, remove the entry and keep the per-finding
+disposition.
 
 ## Migration and rollback
 

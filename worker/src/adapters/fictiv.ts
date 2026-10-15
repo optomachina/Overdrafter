@@ -21,6 +21,13 @@ import {
   type ValueSource,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
+import { ProviderAbortedError } from "../providerAbort.js";
+import { ProviderKillSwitchError } from "../providerKillSwitch.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -402,29 +409,26 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
+ */
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
 
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
+  // Logged-in DOM carries session and account data; never persist it raw.
+  await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
+    encoding: "utf8",
+    mode: 0o600,
   });
 
-  await fs.writeFile(htmlPath, await page.content(), "utf8");
-
   return [
-    {
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    },
     {
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -581,9 +585,10 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
   );
 }
 
-async function setFilesOnUpload(
+export async function setFilesOnUpload(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
+  beforeMutation: () => Promise<void> = async () => undefined,
 ) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 30_000;
@@ -599,7 +604,12 @@ async function setFilesOnUpload(
 
       if (count < 1) continue;
 
+      // OVD-722 and OVD-723: this loop can poll for 30 s; re-read the kill
+      // switch and ask the export-control gate right before each upload
+      // attempt, outside the try so a refusal is never swallowed.
+      await beforeMutation();
       try {
+        markProviderMutationStarted();
         await locator.setInputFiles(files);
         return { selector, attemptedSelectors };
       } catch {
@@ -623,13 +633,20 @@ async function setFilesOnUpload(
   );
 }
 
-async function setQuantity(page: Page, quantity: number) {
+async function setQuantity(
+  page: Page,
+  quantity: number,
+  beforeSubmit: () => Promise<void> = async () => undefined,
+) {
   const match = await firstWorkingLocator(page, FICTIV_LOCATORS.quantityInputs);
   if (!match) {
     return null;
   }
 
   await match.locator.fill(String(quantity));
+  // OVD-722: Enter can submit the form; read the switch again between the
+  // fill and the key press, outside the catch below.
+  await beforeSubmit();
   await match.locator.press("Enter").catch(() => undefined);
   return match.selector;
 }
@@ -651,7 +668,7 @@ async function detectBlockingState(page: Page, runDir: string) {
     );
   }
 
-  await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+  await dismissAutoConfigLoadingModal(page).catch(ignoreUnlessKillSwitch);
 
   const bodyText = await readBodyText(page);
   const signal = detectBlockingStateSignal({
@@ -797,18 +814,24 @@ async function trySetMaterialAndFinish(
   page: Page,
   materialTerms: string[],
   finishTerms: string[],
+  beforeStep: () => Promise<void> = async () => undefined,
 ) {
   let selectedMaterial: string | null = null;
   let selectedFinish: string | null = null;
 
   const materialButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.materialButtons);
   if (materialButtonSelector) {
+    // OVD-722: the dropdown open above is a click; recheck before choosing.
+    await beforeStep();
     selectedMaterial = await chooseOptionByTerms(page, materialTerms, FICTIV_LOCATORS.materialOptions);
   }
 
   if (finishTerms.length > 0) {
+    // OVD-722: fresh read between material and finish.
+    await beforeStep();
     const finishButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.finishButtons);
     if (finishButtonSelector) {
+      await beforeStep();
       selectedFinish = await chooseOptionByTerms(page, finishTerms, FICTIV_LOCATORS.finishOptions);
     }
   }
@@ -877,30 +900,55 @@ async function dismissOverlayModals(page: Page) {
   }
 }
 
+/**
+ * OVD-722: the kill switch checkpoint for the auto configuration Continue
+ * click, keyed by page. The modal is dismissed from every blocking state poll,
+ * so the checkpoint is registered once per page rather than threaded through
+ * each poll helper.
+ */
+const autoConfigContinueCheckpoints = new WeakMap<Page, () => Promise<void>>();
+
+/** Ignores a failed modal dismissal, but never a kill switch refusal or an abort. */
+function ignoreUnlessKillSwitch(error: unknown) {
+  if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
+  return undefined;
+}
+
 async function dismissAutoConfigLoadingModal(page: Page) {
   const continueButton = page.locator(FICTIV_LOCATORS.autoConfigModalContinue[0]).first();
   if (!(await continueButton.isVisible().catch(() => false))) {
     return false;
   }
 
+  // Continue applies Fictiv's auto configuration to the provider side quote.
+  // The read sits outside every catch below so a refusal propagates.
+  const checkpoint = autoConfigContinueCheckpoints.get(page);
+  await checkpoint?.();
   const hideCheckbox = page.locator(FICTIV_LOCATORS.autoConfigModalHideCheckbox[0]).first();
   if (await hideCheckbox.isVisible().catch(() => false)) {
     await hideCheckbox.click({ timeout: 2000 }).catch(() => undefined);
     await page.waitForTimeout(200).catch(() => undefined);
   }
 
+  await checkpoint?.();
   await continueButton.click({ timeout: 2000 }).catch(() => undefined);
   await page.waitForTimeout(200).catch(() => undefined);
   return true;
 }
 
-async function trySelectCncProcess(page: Page) {
+async function trySelectCncProcess(
+  page: Page,
+  beforeClick: () => Promise<void> = async () => undefined,
+) {
   const processTerms = ["CNC", "CNC Machining", "Machining"];
 
   const alreadySelected = await detectSelectedCncRadioCard(page);
   if (alreadySelected) {
     return alreadySelected;
   }
+
+  // OVD-722: the clicks below change the provider page; check first.
+  await beforeClick();
 
   const clickedCnc = await clickCncRadioCard(page);
   if (clickedCnc) {
@@ -912,16 +960,22 @@ async function trySelectCncProcess(page: Page) {
     return "CNC";
   }
 
+  // OVD-722: the radio click wait above may have outlasted an engagement.
+  await beforeClick();
   const processButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.processButtons);
   if (!processButtonSelector) {
     return null;
   }
 
+  await beforeClick();
   const selectedProcess = await chooseOptionByTerms(page, processTerms, FICTIV_LOCATORS.processOptions);
   return selectedProcess ?? null;
 }
 
-async function trySetEndUsePrototype(page: Page) {
+async function trySetEndUsePrototype(
+  page: Page,
+  beforeStep: () => Promise<void> = async () => undefined,
+) {
   const assumedDefaultSelection = {
     selectedEndUse: "Prototype",
     selectedEndUseSource: "assumed_default" as FictivEndUseSource,
@@ -945,6 +999,9 @@ async function trySetEndUsePrototype(page: Page) {
   if (!endUseButtonSelector) {
     return assumedDefaultSelection;
   }
+
+  // OVD-722: outside the try/catch so a kill switch error is not swallowed.
+  await beforeStep();
 
   let selectedEndUse: string | null = null;
   try {
@@ -983,7 +1040,12 @@ async function openConfigurationDrawerIfPresent(page: Page) {
   return true;
 }
 
-async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, runDir: string) {
+async function waitForCncSelectionBeforeUpload(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+  beforeClick: () => Promise<void> = async () => undefined,
+) {
   const deadline = Date.now() + timeoutMs;
   let lastBodyText = "";
 
@@ -999,7 +1061,7 @@ async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, ru
       return null;
     }
 
-    const selectedProcess = await trySelectCncProcess(page);
+    const selectedProcess = await trySelectCncProcess(page, beforeClick);
     if (selectedProcess) {
       return selectedProcess;
     }
@@ -1221,8 +1283,14 @@ function buildFictivOffers(
   });
 }
 
-async function navigateToQuoteSurface(page: Page) {
+async function navigateToQuoteSurface(
+  page: Page,
+  beforeNavigation: () => Promise<void> = async () => undefined,
+) {
   for (const url of [FICTIV_URLS.upload, FICTIV_URLS.quotes, FICTIV_URLS.home]) {
+    // OVD-722: before every navigation attempt, outside the try so the
+    // fallback loop never swallows a refusal.
+    await beforeNavigation();
     try {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       return;
@@ -1367,24 +1435,10 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
-  private buildLaunchArgs() {
-    const launchArgs: string[] = [];
-
-    if (this.config.playwrightDisableSandbox) {
-      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-
-    if (this.config.playwrightDisableDevShmUsage) {
-      launchArgs.push("--disable-dev-shm-usage");
-    }
-
-    return launchArgs;
-  }
-
   private async startLiveSession(prerequisites: FictivLivePrerequisites): Promise<FictivLiveSession> {
     const browser = await chromium.launch({
       headless: this.config.playwrightHeadless,
-      args: this.buildLaunchArgs(),
+      ...chromiumSandboxLaunchOptions(this.config),
     });
     let browserContext: BrowserContext | null = null;
     try {
@@ -1420,7 +1474,7 @@ export class FictivAdapter extends VendorAdapter {
     finishTerms: string[],
     prerequisites: FictivLivePrerequisites,
   ): Promise<FictivLiveSelection> {
-    await navigateToQuoteSurface(page);
+    await navigateToQuoteSurface(page, async () => input.providerKillSwitchCheckpoint?.("before_navigation"));
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "landing");
     await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs, runDir);
@@ -1429,6 +1483,7 @@ export class FictivAdapter extends VendorAdapter {
       page,
       this.config.browserTimeoutMs,
       runDir,
+      async () => input.providerKillSwitchCheckpoint?.("before_configure"),
     );
     await detectBlockingState(page, runDir);
 
@@ -1459,21 +1514,50 @@ export class FictivAdapter extends VendorAdapter {
 
     let uploadSelector: string | null = null;
     if (selectedProcessBeforeUpload) {
-      const uploadResult = await setFilesOnUpload(page, uploadFiles);
+      await input.providerKillSwitchCheckpoint?.("before_upload");
+      const uploadResult = await setFilesOnUpload(
+        page,
+        uploadFiles,
+        async () => {
+          await input.providerKillSwitchCheckpoint?.("before_upload");
+          await input.beforeProviderDisclosure?.();
+        },
+      );
       uploadSelector = uploadResult.selector;
       await appendArtifacts(artifacts, page, runDir, "uploaded");
       await detectBlockingState(page, runDir);
 
       await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
       await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+      // OVD-722: overlay close clicks follow a long poll; read the switch first.
+      await input.providerKillSwitchCheckpoint?.("before_configure");
       await dismissOverlayModals(page);
     }
 
+    // Configuration edits the provider-side quote. A landing page that already
+    // shows a quote skips the upload above, so mark the mutation here as well.
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+    markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
-    const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
-    const quantitySelector = await setQuantity(page, normalizedQuantity(input));
-    const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
-    const endUseSelection = await trySetEndUsePrototype(page);
+    const selectedProcess = (await trySelectCncProcess(page, async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    )) ?? selectedProcessBeforeUpload;
+    // OVD-722: fresh read before each configuration step, not only the first.
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+    const quantitySelector = await setQuantity(page, normalizedQuantity(input), async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+    const selectionResult = await trySetMaterialAndFinish(
+      page,
+      materialTerms,
+      finishTerms,
+      async () => input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+    const endUseSelection = await trySetEndUsePrototype(page, async () =>
+      input.providerKillSwitchCheckpoint?.("before_configure"),
+    );
 
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await detectBlockingState(page, runDir);
@@ -1508,7 +1592,7 @@ export class FictivAdapter extends VendorAdapter {
       .first()
       .waitFor({ state: "attached", timeout: this.config.browserTimeoutMs })
       .catch(() => undefined);
-    await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+    await dismissAutoConfigLoadingModal(page).catch(ignoreUnlessKillSwitch);
 
     const bodyText = await readBodyText(page);
     const priceResult = await extractParsedValue(
@@ -1611,37 +1695,27 @@ export class FictivAdapter extends VendorAdapter {
     );
   }
 
-  private async stopTraceAndAttachArtifact(
-    browserContext: BrowserContext,
-    runDir: string,
-    artifacts: VendorArtifact[],
-  ) {
+  /**
+   * OVD-611: Traces hold unredacted DOM snapshots and request headers, so the
+   * recording is stopped without a path: discarded, never written or uploaded.
+   */
+  private async stopTraceDiscarding(browserContext: BrowserContext) {
     if (!this.config.playwrightCaptureTrace) {
       return false;
     }
 
-    const tracePath = path.join(runDir, "trace.zip");
-    await browserContext.tracing.stop({ path: tracePath });
-    artifacts.push({
-      kind: "trace",
-      label: "playwright-trace",
-      localPath: tracePath,
-      contentType: "application/zip",
-    });
+    await browserContext.tracing.stop();
     return true;
   }
 
   private async cleanupLiveSession(
     browserContext: BrowserContext | null,
     browser: Browser | null,
-    runDir: string,
     traceStopped: boolean,
   ) {
     if (browserContext) {
-      const maybeTracePath = path.join(runDir, "trace.zip");
-
       if (this.config.playwrightCaptureTrace && !traceStopped) {
-        await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+        await browserContext.tracing.stop().catch(() => undefined);
       }
 
       await browserContext.close().catch(() => undefined);
@@ -1724,6 +1798,10 @@ export class FictivAdapter extends VendorAdapter {
       browser = session.browser;
       browserContext = session.browserContext;
       const page = session.page;
+      if (input.providerKillSwitchCheckpoint) {
+        const checkpoint = input.providerKillSwitchCheckpoint;
+        autoConfigContinueCheckpoints.set(page, () => checkpoint("before_configure"));
+      }
       const selection = await this.uploadAndConfigureQuote(
         page,
         input,
@@ -1761,7 +1839,7 @@ export class FictivAdapter extends VendorAdapter {
 
       const isInstantQuote = resultClassification === "instant_quote";
       await appendArtifacts(artifacts, page, runDir, "result");
-      traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
+      traceStopped = await this.stopTraceDiscarding(browserContext);
 
       const quoteUrl = await detectQuoteUrl(page);
       const offers = isInstantQuote
@@ -1861,11 +1939,15 @@ export class FictivAdapter extends VendorAdapter {
       };
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
-        traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts).catch(
-          () => false,
-        );
+        traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
       }
 
+      if (isDispatchDecisionError(error)) {
+        throw error;
+      }
+
+      // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
+      if (error instanceof ProviderKillSwitchError) throw error;
       if (error instanceof VendorAutomationError) {
         throw this.mergeVendorErrorArtifacts(error, artifacts);
       }
@@ -1882,7 +1964,7 @@ export class FictivAdapter extends VendorAdapter {
         artifacts,
       );
     } finally {
-      await this.cleanupLiveSession(browserContext, browser, runDir, traceStopped);
+      await this.cleanupLiveSession(browserContext, browser, traceStopped);
     }
   }
 
@@ -1902,6 +1984,22 @@ export class FictivAdapter extends VendorAdapter {
             terminalState: "unsupported",
           },
         );
+      }
+
+      if (input.executionContext !== "live_evaluation") {
+        const denial = fictivDispatchAuthorizationDenial(input);
+        if (denial) {
+          throw new VendorAutomationError(
+            "Live Fictiv automation requires a current exact-scope provider dispatch authorization.",
+            "unexpected_ui_state",
+            {
+              vendor: "fictiv",
+              reason: denial,
+              terminalState: "unsupported",
+              providerInteractionAttempted: false,
+            },
+          );
+        }
       }
 
       const termResolution = this.resolveLiveTerms(input);

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuoteIntelligenceShell } from "./QuoteIntelligenceShell";
@@ -113,6 +113,23 @@ describe("QuoteIntelligenceShell", () => {
     expect(screen.getByRole("dialog")).toHaveClass("shadow-none");
     expect(screen.getByRole("dialog")).toHaveStyle({ width: "224px" });
     expect(screen.getByRole("button", { name: "Close" })).toHaveClass("h-11", "w-11");
+  });
+
+  it("closes the phone navigation drawer on Escape pressed inside the sheet", async () => {
+    Object.defineProperty(globalThis.window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("keeps the native iOS shell free of web navigation chrome", () => {

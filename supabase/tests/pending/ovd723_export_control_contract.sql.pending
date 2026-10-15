@@ -1,0 +1,1099 @@
+-- OVD-723 (contract): controlled or uncertain uploads are blocked at upload time, files
+-- with export-control markings are held for admin review, and every provider
+-- preflight denies without a clean latest declaration.
+--
+-- Targets the EXPAND draft docs/migration-drafts/ovd-723.sql followed by the
+-- CONTRACT draft docs/migration-drafts/ovd-723-contract.sql (window 2): the
+-- complete server side block. The window 1 suite is
+-- ovd723_export_control_upload_block.sql.pending.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd723_export_control_upload_block.sql in the same
+-- change. Pre-apply observation: every assertion that references the new
+-- functions or tables fails with "does not exist".
+--
+-- Acceptance coverage:
+--   1. upload without a declaration is rejected and stores nothing
+--   2. controlled / unsure blocks the upload; zero storage objects
+--   3. a declaration exists but the latest is not clean: preflight denies
+--   4. a marking hit blocks; a user cannot clear it; an admin can, audited
+--   5. foreign providers have their own denial; Xometry and Fictiv are denied
+--   6. a preflight lookup that finds nothing denies (fail closed)
+--   7. cross-org reads fail, audit UPDATE/DELETE fail, anon cannot execute
+--   8. dispatch needs a clean scan of record for the part's own files; a
+--      reused file (same bytes, different job_file) is not covered by another
+--      file's scan
+--   9. Codex review attacks: an upload grant covers one exact object, is
+--      single use, and finalize checks owner, size, and window (finding 2);
+--      the Storage helper serializes with declaration writers (finding 1, the
+--      two-session race is docs/migration-drafts/ovd-723-upload-race.sh); the
+--      legacy signatures never delegate (finding 3); a scan stops vouching
+--      once its file row is repointed, moved, or its hash is unverified
+--      (finding 4)
+begin;
+
+select plan(103);
+
+create function pg_temp.set_ovd723_request_identity(
+  p_user_id uuid,
+  p_aal text default 'aal1'
+)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config(
+    'request.jwt.claims',
+    pg_catalog.jsonb_build_object(
+      'sub', p_user_id,
+      'role', 'authenticated', -- NOSONAR: repeated JWT fixture claim
+      'aal', p_aal
+    )::text,
+    true
+  );
+  perform pg_catalog.set_config('request.jwt.claim.sub', p_user_id::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+end;
+$$;
+
+create temporary table ovd723_ctx (
+  admin_user_id uuid not null,
+  member_user_id uuid not null,
+  other_user_id uuid not null,
+  organization_id uuid not null,
+  other_organization_id uuid not null,
+  clean_job_id uuid not null,
+  unsure_job_id uuid not null,
+  undeclared_job_id uuid not null,
+  other_job_id uuid not null,
+  clean_hash text not null,
+  blocked_hash text not null,
+  terms_version text not null,
+  controlled_declaration jsonb,
+  unsure_declaration jsonb,
+  clean_declaration jsonb,
+  block_id uuid,
+  job_files_before integer,
+  objects_before integer
+) on commit drop;
+
+insert into ovd723_ctx values (
+  '00000000-0000-4000-8000-000000007231',
+  '00000000-0000-4000-8000-000000007232',
+  '00000000-0000-4000-8000-000000007233',
+  '00000000-0000-4000-8000-000000007234',
+  '00000000-0000-4000-8000-000000007235',
+  '00000000-0000-4000-8000-000000007236',
+  '00000000-0000-4000-8000-000000007237',
+  '00000000-0000-4000-8000-000000007238',
+  '00000000-0000-4000-8000-000000007239',
+  repeat('a', 64),
+  repeat('b', 64),
+  'ovd-beta-export-control.v1',
+  null, null, null, null, null, null
+);
+
+grant select, update on ovd723_ctx to authenticated, service_role;
+
+insert into auth.users (id, aud, role, email, email_confirmed_at)
+values
+  ((select admin_user_id from ovd723_ctx), 'authenticated', 'authenticated', 'ovd723-admin@example.com', timezone('utc', now())),
+  ((select member_user_id from ovd723_ctx), 'authenticated', 'authenticated', 'ovd723-member@example.com', timezone('utc', now())),
+  ((select other_user_id from ovd723_ctx), 'authenticated', 'authenticated', 'ovd723-other@example.com', timezone('utc', now()));
+
+insert into private.platform_admin_emails (email)
+values ('ovd723-admin@example.com');
+
+insert into public.organizations (id, name, slug)
+values
+  ((select organization_id from ovd723_ctx), 'OVD 723 Export', 'ovd-723-export'),
+  ((select other_organization_id from ovd723_ctx), 'OVD 723 Other', 'ovd-723-other');
+
+insert into public.organization_memberships (organization_id, user_id, role)
+values
+  ((select organization_id from ovd723_ctx), (select admin_user_id from ovd723_ctx), 'internal_admin'),
+  ((select organization_id from ovd723_ctx), (select member_user_id from ovd723_ctx), 'client'),
+  ((select other_organization_id from ovd723_ctx), (select other_user_id from ovd723_ctx), 'client');
+
+insert into public.jobs (id, organization_id, created_by, title)
+select job.id, context.organization_id, context.member_user_id, job.title
+from ovd723_ctx context
+cross join lateral (values
+  (context.clean_job_id, 'OVD 723 clean'),
+  (context.unsure_job_id, 'OVD 723 unsure'),
+  (context.undeclared_job_id, 'OVD 723 undeclared')
+) as job(id, title);
+
+insert into public.jobs (id, organization_id, created_by, title)
+select other_job_id, other_organization_id, other_user_id, 'OVD 723 other org'
+from ovd723_ctx;
+
+insert into storage.buckets (id, name, public)
+values ('job-files', 'job-files', false) -- NOSONAR: canonical private bucket fixture
+on conflict (id) do nothing;
+
+update ovd723_ctx
+set job_files_before = (select count(*)::integer from public.job_files),
+    objects_before = (select count(*)::integer from storage.objects where bucket_id = 'job-files');
+
+-- Fixture: enroll the organization so no denial below is a Founding Beta denial.
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+
+select lives_ok(
+  format($$select public.api_admin_set_founding_beta_enrollment(%L::uuid, true, 'Approved export-control test', 'ovd723-grant')$$,
+    (select organization_id from ovd723_ctx)),
+  'an administrator enrolls the test organization'
+);
+
+reset role;
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_accept_founding_beta_notice((select organization_id from ovd723_ctx), 'founding-beta-2026-08-15') ->> 'state',
+  'eligible',
+  'the member is eligible for uploads'
+);
+
+-- 1. No declaration.
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L)$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
+  'P0001', 'export_declaration_missing', -- NOSONAR: stable export-control denial assertion
+  'the legacy prepare signature without a declaration is rejected'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', 'x', 'part.step', 'cad', null, 10, %L)$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
+  'P0001', 'export_declaration_missing',
+  'the legacy finalize signature without a declaration is rejected'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, null::uuid)$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
+  'P0001', 'export_declaration_missing',
+  'prepare with a null declaration id is rejected'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, gen_random_uuid())$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx)),
+  'P0001', 'export_declaration_missing',
+  'prepare with an unknown declaration id on an undeclared job is rejected'
+);
+
+select throws_ok(
+  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select member_user_id from ovd723_ctx)),
+  '42501',
+  null,
+  'storage rejects a job-files object without a declaration-backed grant'
+);
+
+-- Declaration input validation.
+select throws_ok(
+  format($$select public.api_declare_job_export_status(%L::uuid, null, %L)$$,
+    (select clean_job_id from ovd723_ctx), (select terms_version from ovd723_ctx)),
+  'P0001', 'export_declaration_invalid',
+  'a missing answer is invalid (there is no default)'
+);
+
+select throws_ok(
+  format($$select public.api_declare_job_export_status(%L::uuid, 'missing', %L)$$,
+    (select clean_job_id from ovd723_ctx), (select terms_version from ovd723_ctx)),
+  'P0001', 'export_declaration_invalid',
+  'users cannot declare the system-only missing answer'
+);
+
+select throws_ok(
+  format($$select public.api_declare_job_export_status(%L::uuid, 'not_controlled', 'old-terms')$$,
+    (select clean_job_id from ovd723_ctx)),
+  'P0001', 'export_terms_version_stale',
+  'a stale terms version is rejected'
+);
+
+-- 2. controlled and unsure.
+update ovd723_ctx
+set controlled_declaration = public.api_declare_job_export_status(clean_job_id, 'controlled', terms_version);
+
+select is(
+  (select (controlled_declaration ->> 'uploadAllowed')::boolean from ovd723_ctx),
+  false,
+  'a controlled declaration is recorded but not upload-allowed'
+);
+
+select is(
+  (select controlled_declaration ->> 'reasonCode' from ovd723_ctx),
+  'export_declaration_not_clean',
+  'a controlled declaration reports export_declaration_not_clean'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx),
+    (select controlled_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'prepare with a controlled declaration is rejected'
+);
+
+update ovd723_ctx
+set unsure_declaration = public.api_declare_job_export_status(unsure_job_id, 'unsure', terms_version);
+
+select is(
+  (select (unsure_declaration ->> 'uploadAllowed')::boolean from ovd723_ctx),
+  false,
+  'an unsure declaration is not upload-allowed'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select unsure_job_id from ovd723_ctx), (select blocked_hash from ovd723_ctx),
+    (select unsure_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'prepare with an unsure declaration is rejected'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select unsure_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, blocked_hash, 'part.step') from ovd723_ctx),
+    (select blocked_hash from ovd723_ctx),
+    (select unsure_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'finalize with an unsure declaration is rejected'
+);
+
+select throws_ok(
+  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
+    (select public.build_org_file_blob_storage_path(organization_id, blocked_hash, 'part.step') from ovd723_ctx),
+    (select member_user_id from ovd723_ctx)),
+  '42501',
+  null,
+  'storage rejects the object after an unsure declaration'
+);
+
+reset role;
+
+select is(
+  (select count(*)::integer from public.job_files) - (select job_files_before from ovd723_ctx),
+  0,
+  'no job_files row was written by any blocked upload'
+);
+
+select is(
+  (select count(*)::integer from storage.objects where bucket_id = 'job-files') - (select objects_before from ovd723_ctx),
+  0,
+  'zero storage objects were written by any blocked upload'
+);
+
+select is(
+  (select count(*)::integer from private.export_cleared_upload_grants),
+  0,
+  'no upload grant was issued for a blocked upload'
+);
+
+select is(
+  (select count(*)::integer from private.export_control_events
+   where event = 'declaration_recorded' and job_id in ((select clean_job_id from ovd723_ctx), (select unsure_job_id from ovd723_ctx))),
+  2,
+  'controlled and unsure declarations are audited'
+);
+
+-- Clean declaration, then a stale one.
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+update ovd723_ctx
+set clean_declaration = public.api_declare_job_export_status(clean_job_id, 'not_controlled', terms_version);
+
+select is(
+  (select (clean_declaration ->> 'uploadAllowed')::boolean from ovd723_ctx),
+  true,
+  'a not_controlled declaration is upload-allowed'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx), (select clean_hash from ovd723_ctx),
+    (select controlled_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'export_declaration_stale',
+  'a superseded declaration id is rejected as stale'
+);
+
+select is(
+  public.api_prepare_job_file_upload(
+    (select clean_job_id from ovd723_ctx), 'part.step', 'cad', null, 10,
+    (select clean_hash from ovd723_ctx),
+    (select (clean_declaration ->> 'declarationId')::uuid from ovd723_ctx)
+  ) ->> 'status',
+  'upload_required',
+  'prepare with the latest clean declaration proceeds'
+);
+
+-- Finding 2: the grant covers the exact path only.
+select throws_ok(
+  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
+    (select 'org-sha256/' || organization_id || '/' || clean_hash || '/other.pdf' from ovd723_ctx),
+    (select member_user_id from ovd723_ctx)),
+  '42501',
+  null,
+  'storage rejects another basename under the granted org/hash'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select clean_hash from ovd723_ctx),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'file_upload_object_missing',
+  'finalize before the granted object exists is rejected'
+);
+
+-- Real Storage writes the row in a later transaction than prepare; this
+-- fixture runs in one, so it stamps created_at with the wall clock.
+select lives_ok(
+  format($$insert into storage.objects (id, bucket_id, name, owner, created_at, metadata) values (gen_random_uuid(), 'job-files', %L, %L::uuid, clock_timestamp(), '{"size": 10}')$$,
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select member_user_id from ovd723_ctx)),
+  'storage accepts the object covered by a clean grant'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'part.step', 'cad', null, 11, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select clean_hash from ovd723_ctx),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'file_upload_grant_missing',
+  'finalize with a size other than the granted size is rejected'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'renamed.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select clean_hash from ovd723_ctx),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'file_upload_path_mismatch',
+  'finalize under a name other than the granted object is rejected'
+);
+
+select lives_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select clean_hash from ovd723_ctx),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'finalize with the latest clean declaration registers the file'
+);
+
+select is(
+  public.current_user_has_export_cleared_upload(
+    'job-files', (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx)
+  ),
+  false,
+  'a finalized grant no longer authorizes a Storage write (single use)'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, clean_hash, 'part.step') from ovd723_ctx),
+    (select clean_hash from ovd723_ctx),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'A matching file is already attached to this job.',
+  'a consumed grant cannot finalize a second time'
+);
+
+-- Finding 2: an object inserted by another user does not satisfy this
+-- user's grant, and an expired grant authorizes nothing.
+select is(
+  public.api_prepare_job_file_upload(
+    (select clean_job_id from ovd723_ctx), 'owned.step', 'cad', null, 10, repeat('7', 64),
+    (select (clean_declaration ->> 'declarationId')::uuid from ovd723_ctx)
+  ) ->> 'status',
+  'upload_required',
+  'prepare issues a grant for a second object'
+);
+
+reset role;
+
+insert into storage.objects (id, bucket_id, name, owner, created_at, metadata)
+select gen_random_uuid(), 'job-files', public.build_org_file_blob_storage_path(organization_id, repeat('7', 64), 'owned.step'),
+  admin_user_id, clock_timestamp(), '{"size": 10}'
+from ovd723_ctx;
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'owned.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, repeat('7', 64), 'owned.step') from ovd723_ctx),
+    repeat('7', 64),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'file_upload_grant_missing',
+  'finalize rejects an object another user wrote at the granted path'
+);
+
+select is(
+  public.api_prepare_job_file_upload(
+    (select clean_job_id from ovd723_ctx), 'late.step', 'cad', null, 10, repeat('6', 64),
+    (select (clean_declaration ->> 'declarationId')::uuid from ovd723_ctx)
+  ) ->> 'status',
+  'upload_required',
+  'prepare issues a grant that the test then expires'
+);
+
+reset role;
+update private.export_cleared_upload_grants
+set expires_at = clock_timestamp() - interval '1 second'
+where content_sha256 = repeat('6', 64);
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select throws_ok(
+  format($$insert into storage.objects (id, bucket_id, name, owner) values (gen_random_uuid(), 'job-files', %L, %L::uuid)$$,
+    (select public.build_org_file_blob_storage_path(organization_id, repeat('6', 64), 'late.step') from ovd723_ctx),
+    (select member_user_id from ovd723_ctx)),
+  '42501',
+  null,
+  'storage rejects the exact object once its grant has expired'
+);
+
+-- Finding 3: the legacy signatures never delegate, even with a clean
+-- declaration on the job.
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'legacy.step', 'cad', null, 10, %L)$$,
+    (select clean_job_id from ovd723_ctx), repeat('5', 64)),
+  'P0001', 'export_declaration_missing',
+  'the legacy prepare signature is rejected even after a clean declaration'
+);
+
+select throws_ok(
+  format($$select public.api_finalize_job_file_upload(%L::uuid, 'job-files', %L, 'legacy.step', 'cad', null, 10, %L)$$,
+    (select clean_job_id from ovd723_ctx),
+    (select public.build_org_file_blob_storage_path(organization_id, repeat('5', 64), 'legacy.step') from ovd723_ctx),
+    repeat('5', 64)),
+  'P0001', 'export_declaration_missing',
+  'the legacy finalize signature is rejected even after a clean declaration'
+);
+
+reset role;
+
+select ok(
+  not has_function_privilege('authenticated', 'private.job_file_prepare_core(uuid, text, public.job_file_kind, text, bigint, text)', 'execute')
+  and not has_function_privilege('authenticated', 'private.job_file_finalize_core(uuid, text, text, text, public.job_file_kind, text, bigint, text)', 'execute'),
+  'the moved upload cores are not executable by clients'
+);
+
+select ok(
+  (select provolatile = 'v' and prosecdef from pg_proc
+   where oid = 'public.current_user_has_export_cleared_upload(text, text)'::regprocedure),
+  'the Storage helper is VOLATILE SECURITY DEFINER (fresh snapshot after the lock)'
+);
+
+-- 3, 5, 6. Dispatch gate.
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
+  null,
+  'fictiv: a clean, unblocked declaration is admitted'
+);
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'weerg'),
+  null,
+  'weerg: a clean, unblocked declaration is admitted'
+);
+
+select is(
+  private.export_control_dispatch_denial((select unsure_job_id from ovd723_ctx), 'fictiv'),
+  'export_declaration_not_clean',
+  'fictiv: an unsure latest declaration is denied'
+);
+
+select is(
+  private.export_control_dispatch_denial((select unsure_job_id from ovd723_ctx), 'xometry'),
+  'export_declaration_not_clean',
+  'xometry: an unsure latest declaration is denied'
+);
+
+select is(
+  private.export_control_dispatch_denial((select unsure_job_id from ovd723_ctx), 'weerg'),
+  'export_foreign_provider_requires_clean_declaration',
+  'weerg: the foreign-provider rule has its own code'
+);
+
+select is(
+  private.export_control_dispatch_denial((select undeclared_job_id from ovd723_ctx), 'xometry'),
+  'export_declaration_missing',
+  'xometry: no declaration is denied'
+);
+
+select is(
+  private.export_control_dispatch_denial((select undeclared_job_id from ovd723_ctx), 'geomiq'),
+  'export_foreign_provider_requires_clean_declaration',
+  'geomiq: no declaration is denied by the foreign rule'
+);
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'new-unknown-provider'),
+  null,
+  'an unknown provider with a clean declaration passes the foreign rule'
+);
+
+select is(
+  private.export_control_dispatch_denial((select undeclared_job_id from ovd723_ctx), 'new-unknown-provider'),
+  'export_foreign_provider_requires_clean_declaration',
+  'an unknown provider is held to the foreign rule'
+);
+
+select is(
+  private.export_control_dispatch_denial_for_task(gen_random_uuid(), 'fictiv'),
+  'export_declaration_missing',
+  'a task lookup that finds nothing is denied'
+);
+
+set local role service_role;
+
+select is(
+  public.api_authorize_provider_worker_dispatch(gen_random_uuid(), gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()) ->> 'denial',
+  'scope_mismatch',
+  'a core denial of an unknown task is returned unchanged by the provider wrapper'
+);
+
+select is(
+  public.api_authorize_xometry_beta_worker_dispatch(gen_random_uuid(), gen_random_uuid(), '{"vendor":"xometry"}'::jsonb, 'worker-1', now()) ->> 'reasonCode',
+  'dispatch_task_not_running',
+  'a core denial of an unknown task is returned unchanged by the Xometry wrapper'
+);
+
+-- 4. Marking hit.
+update ovd723_ctx
+set block_id = (public.api_record_export_control_marking_hits(
+  clean_job_id, null, null, 'drawing_text', array['itar', 'eccn_code']
+) ->> 'blockId')::uuid;
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
+  'export_review_pending',
+  'fictiv: an open marking block is denied'
+);
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'xometry'),
+  'export_review_pending',
+  'xometry: an open marking block is denied'
+);
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'geomiq'),
+  'export_foreign_provider_requires_clean_declaration',
+  'geomiq: an open marking block is denied by the foreign rule'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select is(
+  public.api_get_job_export_control_status((select clean_job_id from ovd723_ctx)) ->> 'exportReviewState',
+  'blocked_pending_review',
+  'the member sees the part held for review'
+);
+
+select throws_ok(
+  format($$select public.api_prepare_job_file_upload(%L::uuid, 'part.step', 'cad', null, 10, %L, %L::uuid)$$,
+    (select clean_job_id from ovd723_ctx), repeat('c', 64),
+    (select clean_declaration ->> 'declarationId' from ovd723_ctx)),
+  'P0001', 'export_review_pending',
+  'further uploads to a held part are rejected'
+);
+
+select throws_ok(
+  format($$select public.api_review_export_control_block(%L::uuid, 'cleared_by_admin', 'not controlled')$$,
+    (select block_id from ovd723_ctx)),
+  '42501', 'export_review_admin_required',
+  'a user cannot clear a marking block'
+);
+
+select throws_ok(
+  format($$select public.api_declare_job_export_status(%L::uuid, 'not_controlled', %L)$$,
+    (select other_job_id from ovd723_ctx), (select terms_version from ovd723_ctx)),
+  '42501', 'export_declaration_forbidden',
+  'a user cannot declare for another organization''s job'
+);
+
+reset role;
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+
+select throws_ok(
+  format($$select public.api_review_export_control_block(%L::uuid, 'cleared_by_admin', '  ')$$,
+    (select block_id from ovd723_ctx)),
+  'P0001', 'export_review_invalid',
+  'an admin review requires a note'
+);
+
+select is(
+  public.api_review_export_control_block((select block_id from ovd723_ctx), 'cleared_by_admin', 'Title block reference only') ->> 'state',
+  'cleared_by_admin',
+  'an admin can clear a marking block'
+);
+
+select throws_ok(
+  format($$select public.api_review_export_control_block(%L::uuid, 'confirmed_controlled', 'again')$$,
+    (select block_id from ovd723_ctx)),
+  'P0001', 'export_review_not_pending',
+  'a reviewed block cannot be reviewed again'
+);
+
+reset role;
+
+select is(
+  (select actor from private.export_control_events
+   where event = 'marking_block_cleared' and detail ->> 'blockId' = (select block_id::text from ovd723_ctx)),
+  (select admin_user_id from ovd723_ctx),
+  'the admin clearance is audited with the admin as actor'
+);
+
+select is(
+  private.export_control_dispatch_denial((select clean_job_id from ovd723_ctx), 'fictiv'),
+  null,
+  'after admin clearance the clean declaration is admitted again'
+);
+
+-- 8. Clean scan of record (reused files and skipped extraction).
+reset role;
+
+-- trusted_content_sha256 stands for the worker's staging, which records the
+-- hash of the bytes it downloaded (api_register_trusted_file_hash).
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, trusted_content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select file.id, context.clean_job_id, context.organization_id, context.member_user_id,
+  file.sha, file.sha, 'job-files', 'org-sha256/' || context.organization_id || '/' || file.sha || '/' || file.name,
+  file.name, file.name, file.kind::public.job_file_kind, 100
+from ovd723_ctx context
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072a1'::uuid, repeat('d', 64), 'part.step', 'cad'),
+  ('00000000-0000-4000-8000-0000000072a2'::uuid, repeat('e', 64), 'part.pdf', 'drawing'),
+  -- Reused copies: identical bytes attached as different job_files.
+  ('00000000-0000-4000-8000-0000000072a3'::uuid, repeat('d', 64), 'part-copy.step', 'cad'),
+  ('00000000-0000-4000-8000-0000000072a4'::uuid, repeat('e', 64), 'part-copy.pdf', 'drawing')
+) as file(id, sha, name, kind);
+
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select '00000000-0000-4000-8000-0000000072a5', other_job_id, other_organization_id, other_user_id,
+  repeat('f', 64), 'job-files', 'org-sha256/' || other_organization_id || '/' || repeat('f', 64) || '/other.step',
+  'other.step', 'other.step', 'cad', 100
+from ovd723_ctx;
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id)
+select part.id, clean_job_id, organization_id, part.name, part.key, part.cad, part.drawing
+from ovd723_ctx
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072b1'::uuid, 'Scanned part', 'scanned-part',
+    '00000000-0000-4000-8000-0000000072a1'::uuid, '00000000-0000-4000-8000-0000000072a2'::uuid),
+  ('00000000-0000-4000-8000-0000000072b2'::uuid, 'Reused part', 'reused-part',
+    '00000000-0000-4000-8000-0000000072a3'::uuid, '00000000-0000-4000-8000-0000000072a4'::uuid)
+) as part(id, name, key, cad, drawing);
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select task.id, organization_id, clean_job_id, task.part_id, 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx
+cross join lateral (values
+  ('00000000-0000-4000-8000-0000000072c1'::uuid, '00000000-0000-4000-8000-0000000072b1'::uuid),
+  ('00000000-0000-4000-8000-0000000072c2'::uuid, '00000000-0000-4000-8000-0000000072b2'::uuid)
+) as task(id, part_id);
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a clean, unblocked job is still denied while its part files have no clean scan'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text)', 'execute')
+  and has_function_privilege('service_role', 'public.api_record_export_control_clean_scan(uuid, uuid, uuid, text, text)', 'execute'),
+  'only the service role can record a clean scan'
+);
+
+set local role service_role;
+
+select throws_ok(
+  format($$select public.api_record_export_control_clean_scan(%L::uuid, null, '00000000-0000-4000-8000-0000000072a5', 'step_header', %L)$$,
+    (select clean_job_id from ovd723_ctx), repeat('f', 64)),
+  'P0001', 'export_scan_invalid',
+  'a clean scan cannot be recorded against a file from another job'
+);
+
+select throws_ok(
+  format($$select public.api_record_export_control_clean_scan(%L::uuid, '00000000-0000-4000-8000-0000000072b1', '00000000-0000-4000-8000-0000000072a2', 'drawing_text', %L)$$,
+    (select clean_job_id from ovd723_ctx), repeat('8', 64)),
+  'P0001', 'export_content_hash_mismatch',
+  'a clean scan of bytes whose hash differs from the file''s claimed hash is rejected (finding 2, 4)'
+);
+
+select throws_ok(
+  format($$select public.api_record_export_control_clean_scan(%L::uuid, '00000000-0000-4000-8000-0000000072b2', '00000000-0000-4000-8000-0000000072a2', 'drawing_text', %L)$$,
+    (select clean_job_id from ovd723_ctx), repeat('e', 64)),
+  'P0001', 'export_scan_invalid',
+  'a clean scan cannot name a part that does not reference the file'
+);
+
+select lives_ok(
+  $$select public.api_record_export_control_clean_scan(
+    (select clean_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072b1',
+    '00000000-0000-4000-8000-0000000072a2', 'drawing_text', repeat('e', 64))$$,
+  'the worker records a clean drawing scan'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a scanned drawing is not enough while the STEP header has no clean scan'
+);
+
+set local role service_role;
+select public.api_record_export_control_clean_scan(
+  (select clean_job_id from ovd723_ctx), '00000000-0000-4000-8000-0000000072b1',
+  '00000000-0000-4000-8000-0000000072a1', 'step_header', repeat('d', 64));
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  null,
+  'with both files scanned clean, the part is admitted'
+);
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c2', 'fictiv'),
+  'export_scan_missing',
+  'a reused copy of the same bytes is denied: another file''s scan never vouches for it'
+);
+
+-- Finding 4: a scan stops vouching once its row changes. The internal org
+-- role may update job_files (job_files_update_internal).
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+
+select lives_ok(
+  $$update public.job_files
+    set content_sha256 = repeat('9', 64), trusted_content_sha256 = repeat('9', 64),
+        storage_path = 'org-sha256/' || organization_id || '/' || repeat('9', 64) || '/part.step'
+    where id = '00000000-0000-4000-8000-0000000072a1'$$,
+  'an internal org role repoints the scanned CAD row to other bytes'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a repointed CAD row loses its clean scan'
+);
+
+update public.job_files
+set content_sha256 = repeat('d', 64), trusted_content_sha256 = repeat('d', 64),
+    storage_path = 'org-sha256/' || organization_id || '/' || repeat('d', 64) || '/part.step'
+where id = '00000000-0000-4000-8000-0000000072a1';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  null,
+  'restoring the scanned bytes restores the admission'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select admin_user_id from ovd723_ctx), 'aal2');
+
+select lives_ok(
+  format($$update public.job_files set job_id = %L::uuid where id = '00000000-0000-4000-8000-0000000072a2'$$,
+    (select undeclared_job_id from ovd723_ctx)),
+  'an internal org role moves the scanned drawing row to another job'
+);
+
+reset role;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a drawing row moved to another job loses its clean scan'
+);
+
+update public.job_files
+set job_id = (select clean_job_id from ovd723_ctx)
+where id = '00000000-0000-4000-8000-0000000072a2';
+
+-- The worker's staging found different bytes than the claimed hash.
+update public.job_files
+set trusted_content_sha256 = repeat('8', 64)
+where id = '00000000-0000-4000-8000-0000000072a2';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a drawing whose staged bytes do not match its claimed hash is denied'
+);
+
+update public.job_files
+set trusted_content_sha256 = repeat('e', 64)
+where id = '00000000-0000-4000-8000-0000000072a2';
+
+-- A part repointed to a file that was scanned clean in another job.
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, trusted_content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select '00000000-0000-4000-8000-0000000072a6', undeclared_job_id, organization_id, member_user_id,
+  repeat('4', 64), repeat('4', 64), 'job-files', 'org-sha256/' || organization_id || '/' || repeat('4', 64) || '/elsewhere.pdf',
+  'elsewhere.pdf', 'elsewhere.pdf', 'drawing', 100
+from ovd723_ctx;
+
+set local role service_role;
+select lives_ok(
+  format($$select public.api_record_export_control_clean_scan(%L::uuid, null, '00000000-0000-4000-8000-0000000072a6', 'drawing_text', %L)$$,
+    (select undeclared_job_id from ovd723_ctx), repeat('4', 64)),
+  'the other job''s drawing is scanned clean in its own job'
+);
+reset role;
+
+update public.parts
+set drawing_file_id = '00000000-0000-4000-8000-0000000072a6'
+where id = '00000000-0000-4000-8000-0000000072b1';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  'export_scan_missing',
+  'a part repointed to another job''s scanned file is denied'
+);
+
+update public.parts
+set drawing_file_id = '00000000-0000-4000-8000-0000000072a2'
+where id = '00000000-0000-4000-8000-0000000072b1';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c1', 'fictiv'),
+  null,
+  'the restored part is admitted again'
+);
+
+-- A CAD format with no scanner still needs a verified hash.
+insert into public.job_files (
+  id, job_id, organization_id, uploaded_by, content_sha256, storage_bucket,
+  storage_path, original_name, normalized_name, file_kind, size_bytes
+)
+select '00000000-0000-4000-8000-0000000072a7', clean_job_id, organization_id, member_user_id,
+  repeat('3', 64), 'job-files', 'org-sha256/' || organization_id || '/' || repeat('3', 64) || '/part.sldprt',
+  'part.sldprt', 'part.sldprt', 'cad', 100
+from ovd723_ctx;
+
+insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id)
+select '00000000-0000-4000-8000-0000000072b3', clean_job_id, organization_id, 'Native part', 'native-part',
+  '00000000-0000-4000-8000-0000000072a7'
+from ovd723_ctx;
+
+insert into public.work_queue (id, organization_id, job_id, part_id, task_type, status, payload)
+select '00000000-0000-4000-8000-0000000072c3', organization_id, clean_job_id,
+  '00000000-0000-4000-8000-0000000072b3', 'run_vendor_quote', 'running', '{"vendor":"fictiv"}'::jsonb
+from ovd723_ctx;
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c3', 'fictiv'),
+  'export_scan_missing',
+  'a native CAD file without a worker-verified hash is denied'
+);
+
+update public.job_files
+set trusted_content_sha256 = repeat('3', 64)
+where id = '00000000-0000-4000-8000-0000000072a7';
+
+select is(
+  private.export_control_dispatch_denial_for_task('00000000-0000-4000-8000-0000000072c3', 'fictiv'),
+  null,
+  'a native CAD file with a verified hash is admitted (no scanner for the format yet)'
+);
+
+-- Wrapper order: the core runs first; when it authorizes and the export gate
+-- denies, everything the core wrote is rolled back. A stub core records each
+-- call so the rollback is observable.
+create temporary table ovd723_core_calls (task_id uuid not null) on commit drop;
+grant insert, select on ovd723_core_calls to service_role;
+
+create or replace function private.provider_worker_dispatch_core(
+  p_work_queue_task_id uuid,
+  p_vendor_quote_result_id uuid,
+  p_scope_snapshot jsonb,
+  p_expected_worker_name text,
+  p_expected_claimed_at timestamptz
+)
+returns jsonb
+language plpgsql
+as $$
+begin
+  insert into ovd723_core_calls values (p_work_queue_task_id);
+  return pg_catalog.jsonb_build_object('schema', 'provider-dispatch-authorization.v1', 'authorized', true);
+end;
+$$;
+
+set local role service_role;
+
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-0000000072c2', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
+  ) ->> 'denial',
+  'export_scan_missing',
+  'an export denial replaces a core authorization'
+);
+
+select is(
+  (select count(*)::integer from ovd723_core_calls),
+  0,
+  'the core''s writes are rolled back when the export gate denies'
+);
+
+select is(
+  public.api_authorize_provider_worker_dispatch(
+    '00000000-0000-4000-8000-0000000072c1', gen_random_uuid(), '{"vendor":"fictiv"}'::jsonb, 'worker-1', now()
+  ) ->> 'authorized',
+  'true',
+  'a core authorization passes through when the export gate admits'
+);
+
+select is(
+  (select count(*)::integer from ovd723_core_calls),
+  1,
+  'the admitted core call keeps its writes'
+);
+
+reset role;
+
+select throws_ok(
+  $$delete from private.job_file_export_scans$$,
+  '42501', 'export_control_audit_append_only',
+  'clean scan records cannot be deleted'
+);
+
+-- 10. Manual quote requests (C.6, review round 3 finding 7). A held part
+-- never reaches the admin manual quote inbox.
+reset role;
+
+insert into public.jobs (id, organization_id, created_by, title)
+select '00000000-0000-4000-8000-0000000072f0', organization_id, member_user_id, 'OVD 723 manual clean'
+from ovd723_ctx;
+
+select ok(
+  has_function_privilege('authenticated', 'public.api_request_manual_quote(uuid, boolean)', 'execute')
+  and not has_function_privilege('anon', 'public.api_request_manual_quote(uuid, boolean)', 'execute')
+  and not has_function_privilege('authenticated', 'private.manual_quote_request_core(uuid, boolean)', 'execute')
+  and not has_function_privilege('service_role', 'private.manual_quote_request_core(uuid, boolean)', 'execute')
+  and (select prosecdef from pg_proc where oid = 'public.api_request_manual_quote(uuid, boolean)'::regprocedure),
+  'the manual quote RPC keeps its grants; only the wrapper reaches the moved core'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select member_user_id from ovd723_ctx));
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select unsure_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'a manual quote request for an unsure part is refused'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select undeclared_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_missing',
+  'a manual quote request for an undeclared part is refused'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select clean_job_id from ovd723_ctx)),
+  'P0001', 'export_scan_missing',
+  'a manual quote request is refused while any part of the job lacks a clean scan of its bytes'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quotes(array[%L::uuid])$$, (select unsure_job_id from ovd723_ctx)),
+  'P0001', 'export_declaration_not_clean',
+  'the bulk manual quote RPC is gated through the same wrapper'
+);
+
+select throws_ok(
+  format($$select public.api_request_manual_quote(%L::uuid)$$, (select other_job_id from ovd723_ctx)),
+  'P0001', format('You do not have permission to request quotes for job %s.', (select other_job_id from ovd723_ctx)),
+  'a job the caller cannot edit keeps the core''s own error'
+);
+
+select lives_ok(
+  $$select public.api_declare_job_export_status('00000000-0000-4000-8000-0000000072f0', 'not_controlled', 'ovd-beta-export-control.v1')$$,
+  'the owner declares a job with no files clean'
+);
+
+select isnt(
+  public.api_request_manual_quote('00000000-0000-4000-8000-0000000072f0'),
+  null,
+  'a clean job with nothing held reaches the manual quote core'
+);
+
+reset role;
+
+-- 7. Isolation and audit immutability.
+set local role authenticated;
+select pg_temp.set_ovd723_request_identity((select other_user_id from ovd723_ctx));
+
+select throws_ok(
+  format($$select public.api_get_job_export_control_status(%L::uuid)$$, (select clean_job_id from ovd723_ctx)),
+  '42501', 'export_status_forbidden',
+  'another organization cannot read the declaration status'
+);
+
+reset role;
+
+select throws_ok(
+  $$update private.export_control_events set detail = '{}'::jsonb$$,
+  '42501', 'export_control_audit_append_only',
+  'audit events cannot be updated'
+);
+
+select throws_ok(
+  $$delete from private.job_export_declarations$$,
+  '42501', 'export_control_audit_append_only',
+  'declarations cannot be deleted'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.api_declare_job_export_status(uuid, text, text, uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_get_job_export_control_status(uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.api_review_export_control_block(uuid, text, text)', 'execute'),
+  'anon cannot execute the declaration, status, or review RPCs'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute')
+  and has_function_privilege('service_role', 'public.api_record_export_control_marking_hits(uuid, uuid, uuid, text, text[], text)', 'execute'),
+  'only the service role can record marking hits'
+);
+
+select ok(
+  (select prosecdef and proconfig @> array['search_path=""']
+   from pg_proc where oid = 'public.api_declare_job_export_status(uuid, text, text, uuid)'::regprocedure),
+  'the declaration RPC is SECURITY DEFINER with an empty search_path'
+);
+
+select * from finish();
+rollback;

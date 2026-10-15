@@ -1,16 +1,19 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
+import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { deriveFanoutApprovalReference } from "@/features/quotes/provider-fanout-dispatch";
 import ClientPart from "./ClientPart";
 
 const {
   api,
   mockQuoteCollectionMode,
   mockUseAppSession,
+  mockUsePartDeadline,
   prefetchProjectPage,
   prefetchPartPage,
   toastMock,
@@ -31,6 +34,8 @@ const {
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchVendorCapabilityProfiles: vi.fn(),
+    getFoundingBetaAccess: vi.fn(),
+    acceptFoundingBetaNotice: vi.fn(),
     fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
@@ -45,9 +50,12 @@ const {
     cancelQuoteRequest: vi.fn(),
     getQuoteLaneEligibility: vi.fn(),
     getXometryBetaDispatchScope: vi.fn(),
+    getProviderDispatchScope: vi.fn(),
+    getProviderFanoutGuards: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
     requestXometryBetaDispatch: vi.fn(),
+    requestProviderDispatch: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
     persistClientQuoteSelection: vi.fn(),
@@ -66,8 +74,10 @@ const {
     isLoading: false,
     plan: "pro",
     setAutomaticEnabled: vi.fn(),
+    refresh: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUsePartDeadline: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -118,9 +128,12 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   getQuoteLaneEligibility: api.getQuoteLaneEligibility,
   getXometryBetaDispatchScope: api.getXometryBetaDispatchScope,
+  getProviderDispatchScope: api.getProviderDispatchScope,
+  getProviderFanoutGuards: api.getProviderFanoutGuards,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   requestXometryBetaDispatch: api.requestXometryBetaDispatch,
+  requestProviderDispatch: api.requestProviderDispatch,
   persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
@@ -133,8 +146,14 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
     fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
   };
 });
-vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
+vi.mock("@/features/quotes/quote-access", () => ({
+  useQuoteAccess: () => mockQuoteCollectionMode,
+}));
+// Enrollment is explicit fixture data; it must never make a real RPC from this
+// page suite. Success, non-enrollment, and unavailable cases are covered below.
+vi.mock("@/features/quotes/api/founding-beta-api", () => ({
+  getFoundingBetaAccess: api.getFoundingBetaAccess,
+  acceptFoundingBetaNotice: api.acceptFoundingBetaNotice,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -168,6 +187,10 @@ vi.mock("@/features/quotes/workspace-navigation", async () => {
     prefetchPartPage,
   };
 });
+
+vi.mock("@/features/quotes/use-part-deadline", () => ({
+  usePartDeadline: (...args: unknown[]) => mockUsePartDeadline(...args),
+}));
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
@@ -340,6 +363,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
     options,
     selectedOption,
     activePreset,
+    deadline,
     controls,
     headerActions,
     onSelect,
@@ -356,6 +380,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       selectionTarget?: unknown;
     } | null;
     activePreset?: string | null;
+    deadline?: { date: string | null; state: string } | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
     onSelect?: (option: unknown) => void;
@@ -367,6 +392,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       lastOption: options?.at(-1) ?? null,
       selectedOption,
       activePreset,
+      deadline,
       onSelect,
     };
 
@@ -417,8 +443,12 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       >
         {scope === "domestic" ? "US-only sourcing" : "All sourcing"}
       </button>
-      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
-      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
+      {onModeChange ? (
+        <>
+          <button type="button" onClick={() => onModeChange("fastest")}>Fast</button>
+          <button type="button" onClick={() => onModeChange("cheapest")}>Cheap</button>
+        </>
+      ) : null}
     </div>
   ),
 }));
@@ -591,6 +621,124 @@ function createXometryDispatchScope() {
   };
 }
 
+function renderPartControllerHook() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rendered = renderHook(() => useClientPartController("job-1", { warmNavigation: false }), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+    ),
+  });
+  return { ...rendered, queryClient };
+}
+
+/** A part detail with one live Xometry offer (`offer-1`), selected by the given stored offer id. */
+function createLiveOfferPartDetail(liveTimestamp: string, selectedOfferId: string | null = "offer-1") {
+  const base = createPartDetail();
+  return createPartDetail({
+    job: { ...base.job, selected_vendor_quote_offer_id: selectedOfferId },
+    summary: {
+      ...createPartDetail().summary,
+      selectedSupplier: null,
+    },
+    part: {
+      ...createPartDetail().part,
+      cadFile: {
+        id: "cad-file-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "org-1/job-1/bracket.step",
+        normalized_name: "bracket.step",
+        original_name: "bracket.step",
+        mime_type: "application/step",
+        size_bytes: 1024,
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6 aluminum",
+        finish: "Black anodize",
+        tightest_tolerance_inch: 0.005,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: ["xometry"],
+        spec_snapshot: { process: "CNC milling" },
+        approved_by: "user-1",
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+      vendorQuotes: [
+        {
+          id: "quote-1",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "xometry",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 10,
+          total_price_usd: 100,
+          lead_time_business_days: 7,
+          quote_url: "https://www.xometry.com/quoting/home/quote-1",
+          dfm_issues: [],
+          notes: [],
+          raw_payload: {
+            automationVersion: "xometry-worker-v1",
+            detectedFlow: "quote_ready",
+            requirementCapturedAt: liveTimestamp,
+          },
+          created_at: liveTimestamp,
+          updated_at: liveTimestamp,
+          offers: [
+            {
+              id: "offer-1",
+              vendor_quote_result_id: "quote-1",
+              organization_id: "org-1",
+              offer_key: "xometry-standard",
+              supplier: "Xometry",
+              lane_label: "USA / Standard",
+              sourcing: "USA",
+              tier: "Standard",
+              quote_ref: "Q-1",
+              quote_date: liveTimestamp.slice(0, 10),
+              unit_price_usd: 10,
+              total_price_usd: 100,
+              lead_time_business_days: 7,
+              ship_receive_by: "2026-03-10",
+              due_date: "2026-04-15",
+              process: "CNC Machining",
+              material: "6061-T6",
+              finish: "Black anodize",
+              tightest_tolerance: "±.005\"",
+              tolerance_source: "Drawing",
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 0,
+              raw_payload: {},
+              created_at: liveTimestamp,
+              updated_at: liveTimestamp,
+            },
+          ],
+          artifacts: [],
+        },
+      ],
+    },
+  });
+}
+
 async function findActivityCommentField() {
   if (!screen.queryByLabelText("Leave a comment")) {
     await openActivitySection();
@@ -625,6 +773,71 @@ function LocationEcho() {
       <div data-testid="location-search">{location.search}</div>
     </>
   );
+}
+
+/** A manufacturing-quote part with trusted CAD and approved requirements, ready for confirmation. */
+function createDispatchReadyPartDetail(applicableVendors: string[]) {
+  return createPartDetail({
+    job: {
+      ...createPartDetail().job,
+      status: "ready_to_quote",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      selected_vendor_quote_offer_id: null,
+    },
+    summary: {
+      ...createPartDetail().summary,
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
+    },
+    part: {
+      ...createPartDetail().part,
+      cad_file_id: "cad-1",
+      cadFile: {
+        id: "cad-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "cad.step",
+        normalized_name: "cad.step",
+        original_name: "cad.step",
+        size_bytes: 123,
+        mime_type: "application/step",
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        approved_by: "user-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6",
+        finish: null,
+        tightest_tolerance_inch: null,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: applicableVendors,
+        spec_snapshot: {},
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+    },
+    revisionSiblings: [],
+  });
 }
 
 function createPartDetail(overrides: Record<string, unknown> = {}) {
@@ -738,11 +951,14 @@ describe("ClientPart", () => {
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
+      isVerifiedAuth: true,
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    api.getFoundingBetaAccess.mockRejectedValue(new Error("Synthetic beta-access lookup unavailable"));
+    api.acceptFoundingBetaNotice.mockRejectedValue(new Error("Unexpected notice acceptance in ClientPart fixture"));
     storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
     storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
@@ -850,6 +1066,30 @@ describe("ClientPart", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(["eligible", "not_enrolled", "unavailable"] as const)(
+    "uses explicit upload enrollment fixture state: %s", async (state) => {
+      if (state !== "unavailable") {
+        api.getFoundingBetaAccess.mockResolvedValue({ state, policyRevision: "founding-beta-2026-08-15",
+          termsPath: "/legal/beta-terms", privacyPath: "/legal/privacy" });
+      }
+      renderWithClient("/parts/job-1");
+      const upload = await screen.findByRole("button", { name: "Upload part files" });
+      await waitFor(() => expect(api.getFoundingBetaAccess).toHaveBeenCalledWith("org-1"));
+      const input = screen.getByLabelText("Attach files to part");
+      const click = vi.spyOn(input, "click").mockImplementation(() => {});
+      fireEvent.click(upload);
+      if (state === "eligible") {
+        await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+        expect(toastMock.error).not.toHaveBeenCalled();
+      } else {
+        await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+        expect(click).not.toHaveBeenCalled();
+      }
+      expect(api.uploadFilesToJob).not.toHaveBeenCalled();
+      expect(api.acceptFoundingBetaNotice).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses revision siblings from the main part detail aggregate", async () => {
     renderWithClient("/parts/job-1");
@@ -1068,108 +1308,7 @@ describe("ClientPart", () => {
     const liveTimestamp = new Date().toISOString();
     api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
     api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        summary: {
-          ...createPartDetail().summary,
-          selectedSupplier: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cadFile: {
-            id: "cad-file-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "org-1/job-1/bracket.step",
-            normalized_name: "bracket.step",
-            original_name: "bracket.step",
-            mime_type: "application/step",
-            size_bytes: 1024,
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6 aluminum",
-            finish: "Black anodize",
-            tightest_tolerance_inch: 0.005,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: { process: "CNC milling" },
-            approved_by: "user-1",
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-          vendorQuotes: [
-            {
-              id: "quote-1",
-              quote_run_id: "run-1",
-              part_id: "part-1",
-              organization_id: "org-1",
-              vendor: "xometry",
-              requested_quantity: 10,
-              status: "official_quote_received",
-              unit_price_usd: 10,
-              total_price_usd: 100,
-              lead_time_business_days: 7,
-              quote_url: "https://www.xometry.com/quoting/home/quote-1",
-              dfm_issues: [],
-              notes: [],
-              raw_payload: {
-                automationVersion: "xometry-worker-v1",
-                detectedFlow: "quote_ready",
-                requirementCapturedAt: liveTimestamp,
-              },
-              created_at: liveTimestamp,
-              updated_at: liveTimestamp,
-              offers: [
-                {
-                  id: "offer-1",
-                  vendor_quote_result_id: "quote-1",
-                  organization_id: "org-1",
-                  offer_key: "xometry-standard",
-                  supplier: "Xometry",
-                  lane_label: "USA / Standard",
-                  sourcing: "USA",
-                  tier: "Standard",
-                  quote_ref: "Q-1",
-                  quote_date: liveTimestamp.slice(0, 10),
-                  unit_price_usd: 10,
-                  total_price_usd: 100,
-                  lead_time_business_days: 7,
-                  ship_receive_by: "2026-03-10",
-                  due_date: "2026-04-15",
-                  process: "CNC Machining",
-                  material: "6061-T6",
-                  finish: "Black anodize",
-                  tightest_tolerance: "±.005\"",
-                  tolerance_source: "Drawing",
-                  thread_callouts: null,
-                  thread_match_notes: null,
-                  notes: null,
-                  sort_rank: 0,
-                  raw_payload: {},
-                  created_at: liveTimestamp,
-                  updated_at: liveTimestamp,
-                },
-              ],
-              artifacts: [],
-            },
-          ],
-        },
-      }),
+      createLiveOfferPartDetail(liveTimestamp),
     );
 
     renderWithClient("/parts/job-1");
@@ -1182,6 +1321,105 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({
       optionCount: 1,
       totalPrices: [100],
+    });
+  });
+
+  describe("when the stored quote selection is gone", () => {
+    const missingSelectionDetail = () => createLiveOfferPartDetail(new Date().toISOString(), "offer-gone");
+
+    it("selects no substitute at the controller level while options still exist", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const { result, queryClient } = renderPartControllerHook();
+
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+      expect(result.current.rankedQuoteOptions.some((option) => option.eligible)).toBe(true);
+      expect(result.current.selectedQuoteOption).toBeNull();
+      expect(result.current.previousQuoteSelectionUnavailable).toBe(true);
+      queryClient.clear();
+    });
+
+    it("never persists a selection when a preset or the sourcing toggle is applied", async () => {
+      api.fetchPartDetailByJobId.mockResolvedValue(missingSelectionDetail());
+      const { result, queryClient } = renderPartControllerHook();
+      await waitFor(() => expect(result.current.rankedQuoteOptions.length).toBeGreaterThan(0));
+
+      act(() => result.current.handlePresetSelection("cheapest_global"));
+      act(() => result.current.handlePresetSelection("balanced_domestic"));
+
+      expect(result.current.activePreset).toBe("balanced_domestic");
+      expect(result.current.selectedQuoteOption).toBeNull();
+      // TanStack Query runs mutationFn asynchronously, so let it flush before asserting nothing was persisted.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(result.current.activePreset).toBe("balanced_domestic"));
+      expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+      expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
+      queryClient.clear();
+    });
+
+    async function findReviewOrderButton(selectedOfferId: string) {
+      api.fetchPartDetailByJobId.mockResolvedValue(createLiveOfferPartDetail(new Date().toISOString(), selectedOfferId));
+      renderWithClient("/parts/job-1");
+      await screen.findByText("Xometry · Standard");
+      return screen.getByRole("button", { name: "Review order" });
+    }
+
+    it("keeps the Review order button disabled with an accessible reason until a quote is chosen", async () => {
+      const button = await findReviewOrderButton("offer-gone");
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription("Choose a quote to continue");
+    });
+
+    it("passes an expired confirmed deadline to the panel as expired with its recorded date", async () => {
+      mockUsePartDeadline.mockReturnValue({
+        partId: "part-1",
+        revision: null,
+        recordedDate: "2026-01-15",
+        activeDate: null,
+        state: "expired",
+      });
+      await findReviewOrderButton("offer-1");
+      expect(lastQuoteDecisionPanelProps?.deadline).toEqual({ date: "2026-01-15", state: "expired" });
+    });
+
+    it("rolls the selection back and keeps the error state when persisting a selection fails", async () => {
+      const button = await findReviewOrderButton("offer-1");
+      expect(button).toBeEnabled();
+      const persistedKey = (lastQuoteDecisionPanelProps?.selectedOption as { key: string }).key;
+      api.setJobSelectedVendorQuoteOffer.mockRejectedValue(new Error("boom"));
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("boom"));
+
+      await act(async () => {
+        (lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void)(null);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("boom"));
+      await waitFor(() => {
+        expect((lastQuoteDecisionPanelProps?.selectedOption as { key: string } | null)?.key).toBe(persistedKey);
+      });
+      expect(screen.getByRole("button", { name: "Review order" })).toBeEnabled();
+    });
+
+    it("rolls back an optimistic selection to the persisted one when the persist mutation rejects", async () => {
+      const button = await findReviewOrderButton("offer-gone");
+      expect(button).toBeDisabled();
+      api.persistClientQuoteSelection.mockRejectedValue(new Error("persist failed"));
+
+      await act(async () => {
+        const onSelect = lastQuoteDecisionPanelProps?.onSelect as (option: unknown) => void;
+        onSelect(lastQuoteDecisionPanelProps?.firstOption);
+      });
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("persist failed"));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Review order" })).toBeDisabled());
+      expect(lastQuoteDecisionPanelProps?.selectedOption).toBeNull();
+    });
+
+    it("enables the Review order button when the stored selection is still current", async () => {
+      const button = await findReviewOrderButton("offer-1");
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAttribute("aria-describedby");
     });
   });
 
@@ -1302,6 +1540,9 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global");
     });
+    // The sourcing toggle only filters and reorders; it must not persist a hidden winner.
+    expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalled();
     api.persistClientQuoteSelection.mockClear();
     await act(async () => {
       const onSelect = lastQuoteDecisionPanelProps?.onSelect as
@@ -1332,19 +1573,9 @@ describe("ClientPart", () => {
       "offer-imported-1",
     );
 
-    api.persistClientQuoteSelection.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
-
-    await waitFor(() => {
-      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
-        jobId: "job-1",
-        target: {
-          kind: "published_quote_option",
-          packageId: "published-package-imported-1",
-          optionId: "published-option-imported-1",
-        },
-      });
-    });
+    // OVD-571: table order is Cheapest/Fastest on the comparison table; no preset button auto-selects a winner.
+    expect(screen.queryByRole("button", { name: "Cheap" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Balanced" })).not.toBeInTheDocument();
     expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
   });
 
@@ -1567,74 +1798,464 @@ describe("ClientPart", () => {
     });
   });
 
-  it("submits a client quote request when the part is ready", async () => {
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
+  it("confirms through the generic Fictiv RPCs when the deployment targets Fictiv (OVD-673)", async () => {
+    vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+    try {
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["fictiv"]));
+
+      renderWithClient("/parts/job-1");
+
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      const confirm = await screen.findByRole("button", { name: "Confirm & queue Fictiv quote" });
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(confirm);
+
+      await waitFor(() => {
+        expect(api.requestProviderDispatch).toHaveBeenCalledWith({
+          jobId: "job-1",
+          provider: "fictiv",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          noticeRevision: "founding-beta-2026-08-15",
+          expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+          approvalReference: expect.any(String),
+        });
+      });
+      expect(api.getProviderDispatchScope).toHaveBeenCalledWith("job-1", "fictiv", "inch");
+      expect(api.getXometryBetaDispatchScope).not.toHaveBeenCalled();
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  /**
+   * The server's Xometry provider set rule (OVD-762 draft): without a fan out
+   * marker Xometry must be the only enabled provider; with one, the marker
+   * must name Xometry and another provider, all of them enabled. The blanket
+   * successful scope mock used to hide this rule from the fan out tests.
+   */
+  function xometryProviderSetRefusal(enabledVendors: string[], marker: readonly string[] | null | undefined) {
+    if (!marker) {
+      return enabledVendors.length === 1 && enabledVendors[0] === "xometry"
+        ? null
+        : "xometry_beta_exact_provider_set_required";
+    }
+    if (!marker.includes("xometry") || marker.length < 2 || new Set(marker).size !== marker.length) {
+      return "xometry_beta_fanout_marker_invalid";
+    }
+    return marker.every((vendor) => enabledVendors.includes(vendor)) ? null : "xometry_beta_exact_provider_set_required";
+  }
+
+  function mockFanoutVendors(vendors: string[]) {
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      availableVendors: vendors,
+      projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
+      jobVendorPreferences: { includedVendors: vendors, excludedVendors: [] },
+    });
+    api.getXometryBetaDispatchScope.mockImplementation(
+      async (_jobId: string, _units: string, marker?: readonly string[] | null) => {
+        const refusal = xometryProviderSetRefusal(vendors, marker);
+        if (refusal) throw { message: refusal, code: "P0001" };
+        return createXometryDispatchScope();
+      },
     );
+  }
+
+  /** Accepts a Xometry request only when it passes the same server rule. */
+  function mockXometryRequestServerRule(vendors: string[]) {
+    api.requestXometryBetaDispatch.mockImplementation(
+      async (input: { fanout?: { vendors: readonly string[] } | null }) => {
+        const refusal = xometryProviderSetRefusal(vendors, input.fanout?.vendors);
+        if (refusal) throw { message: refusal, code: "P0001" };
+        return {
+          accepted: true,
+          created: true,
+          deduplicated: false,
+          permitId: "permit-xometry",
+          quoteRequestId: "request-xometry",
+          quoteRunId: "run-xometry",
+          scopeFingerprint: "a".repeat(64),
+          status: "queued",
+        };
+      },
+    );
+  }
+
+  async function confirmXometryDialog() {
+    fireEvent.click(await findRequestQuoteButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    const confirm = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    fireEvent.click(confirm);
+  }
+
+  it("keeps the single provider flow when the fan out flag is off", async () => {
+    mockFanoutVendors(["xometry"]);
+    mockXometryRequestServerRule(["xometry"]);
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
+
+    renderWithClient("/parts/job-1");
+    await confirmXometryDialog();
+
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1));
+    expect(api.getXometryBetaDispatchScope).toHaveBeenCalledWith("job-1", "inch", null);
+    expect(api.requestXometryBetaDispatch.mock.calls[0][0].fanout).toBeNull();
+    expect(screen.queryByText("Providers for this request")).not.toBeInTheDocument();
+    expect(api.getProviderFanoutGuards).not.toHaveBeenCalled();
+    expect(api.getProviderDispatchScope).not.toHaveBeenCalled();
+    expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+  });
+
+  it("with the flag off asks for the exact Xometry scope, which the server refuses beside other providers", async () => {
+    mockFanoutVendors(["xometry", "fictiv", "sendcutsend"]);
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv", "sendcutsend"]));
+
+    renderWithClient("/parts/job-1");
+    fireEvent.click(await findRequestQuoteButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+    await waitFor(() => expect(api.getXometryBetaDispatchScope).toHaveBeenCalledWith("job-1", "inch", null));
+    await expect(api.getXometryBetaDispatchScope.mock.results[0].value).rejects.toMatchObject({
+      message: "xometry_beta_exact_provider_set_required",
+    });
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(api.getProviderFanoutGuards).not.toHaveBeenCalled();
+    expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+  });
+
+  it("fans one confirmation out to every applicable provider when the flag is on", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv", "protolabs", "sendcutsend", "rapiddirect", "geomiq"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: ["protolabs"],
+        exportDeclaration: "not_clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestXometryBetaDispatch.mockRejectedValue({ message: "xometry_beta_rollout_disabled", code: "P0001" });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-2",
+        quoteRequestId: "request-2",
+        quoteRunId: "run-2",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(
+        createDispatchReadyPartDetail(["xometry", "fictiv", "protolabs", "sendcutsend", "rapiddirect", "geomiq"]),
+      );
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      expect(within(sent).getByText("Xometry")).toBeInTheDocument();
+      expect(within(sent).getByText("Fictiv")).toBeInTheDocument();
+      const skipped = screen.getByRole("list", { name: "Providers skipped" });
+      expect(within(skipped).getByText("Protolabs").parentElement).toHaveTextContent("Switched off");
+      expect(within(skipped).getByText("SendCutSend").parentElement).toHaveTextContent("process");
+      expect(within(skipped).getByText("RapidDirect").parentElement).toHaveTextContent("export declaration");
+      expect(within(skipped).getByText("Geomiq").parentElement).toHaveTextContent("Not offered");
+      expect(
+        screen.getByRole("checkbox", {
+          name: "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.",
+        }),
+      ).toBeInTheDocument();
+
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      // Xometry is denied for a reason other than a changed package, so Fictiv
+      // is still sent with its own scope and a reference derived from the
+      // customer's confirmation.
+      await waitFor(() => {
+        expect(api.requestProviderDispatch).toHaveBeenCalledWith({
+          jobId: "job-1",
+          provider: "fictiv",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          noticeRevision: "founding-beta-2026-08-15",
+          expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+          approvalReference: expect.any(String),
+        });
+      });
+      const confirmationReference = api.requestXometryBetaDispatch.mock.calls[0][0].approvalReference;
+      expect(api.requestProviderDispatch.mock.calls[0][0].approvalReference).toBe(
+        await deriveFanoutApprovalReference(confirmationReference, "fictiv"),
+      );
+      // The Xometry primary reads and requests its scope with the fan out
+      // marker; the request names exactly the providers this confirmation reaches.
+      expect(api.getXometryBetaDispatchScope).toHaveBeenCalledWith("job-1", "inch", [
+        "fictiv",
+        "geomiq",
+        "protolabs",
+        "rapiddirect",
+        "sendcutsend",
+        "xometry",
+      ]);
+      expect(api.requestXometryBetaDispatch.mock.calls[0][0].fanout).toEqual({
+        confirmationReference,
+        vendors: ["fictiv", "xometry"],
+      });
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.getProviderDispatchScope).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "queued");
+      });
+      expect(sent.querySelector('[data-provider="xometry"]')).toHaveAttribute("data-status", "denied");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("lets Xometry join as an extra when Fictiv is the primary", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      mockXometryRequestServerRule(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-fictiv",
+        quoteRequestId: "request-fictiv",
+        quoteRunId: "run-fictiv",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" }));
+
+      await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1));
+      const confirmationReference = api.requestProviderDispatch.mock.calls[0][0].approvalReference;
+      expect(api.getXometryBetaDispatchScope).toHaveBeenCalledWith("job-1", "inch", ["fictiv", "xometry"]);
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith({
+        jobId: "job-1",
+        declaredModelUnits: "inch",
+        expectedScopeFingerprint: "a".repeat(64),
+        policyRevision: "founding-beta-2026-08-15",
+        approvalReference: await deriveFanoutApprovalReference(confirmationReference, "xometry"),
+        fanout: { confirmationReference, vendors: ["fictiv", "xometry"] },
+      });
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="xometry"]')).toHaveAttribute("data-status", "queued");
+      });
+      expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "queued");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses locally when the plan leaves Xometry alone beside another enabled provider", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      mockXometryRequestServerRule(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: ["fictiv"],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      renderWithClient("/parts/job-1");
+      await confirmXometryDialog();
+
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith(
+          "Xometry can take this request only together with another provider right now.",
+        );
+      });
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+      expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("replays an uncertain Xometry fan out request with its original marker after fan out turns off", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("Request failed"));
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      const { queryClient } = renderWithClient("/parts/job-1");
+      await confirmXometryDialog();
+
+      expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+      const attemptedInput = { ...api.requestXometryBetaDispatch.mock.calls[0][0] };
+      expect(attemptedInput.fanout).toEqual({
+        confirmationReference: attemptedInput.approvalReference,
+        vendors: ["fictiv", "xometry"],
+      });
+
+      // Automatic collection turns off, which also turns fan out off.
+      mockQuoteCollectionMode.automaticEnabled = false;
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
+      mockXometryRequestServerRule(["xometry", "fictiv"]);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
+      expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
+      expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("sends no extra provider when the primary is refused because the package changed", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: null,
+      });
+      // A second tab edited the requirement after this dialog loaded it.
+      api.requestXometryBetaDispatch.mockRejectedValue({ message: "xometry_beta_scope_changed", code: "P0001" });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv"]));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+      await waitFor(() => {
+        expect(sent.querySelector('[data-provider="fictiv"]')).toHaveAttribute("data-status", "denied");
+      });
+      expect(sent.querySelector('[data-provider="fictiv"]')).toHaveTextContent("changed after you reviewed it");
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.getProviderDispatchScope).not.toHaveBeenCalled();
+      expect(api.requestProviderDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("shows which extras the per user quote request limit would refuse", async () => {
+    vi.stubEnv("VITE_MULTI_PROVIDER_FANOUT", "true");
+    try {
+      mockFanoutVendors(["xometry", "fictiv", "protolabs"]);
+      api.getProviderFanoutGuards.mockResolvedValue({
+        killSwitchedProviders: [],
+        exportDeclaration: "clean",
+        providersAtDailyCap: [],
+        quoteRequestBudget: {
+          userWindowMinutes: 60,
+          userMaxRequestsPerWindow: 5,
+          userRequestsRemaining: 2,
+          orgPendingCostCeilingUsd: 500,
+          costPerLaneUsd: 75,
+          orgPendingCostHeadroomUsd: 500,
+        },
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry", "fictiv", "protolabs"]));
+
+      renderWithClient("/parts/job-1");
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+
+      const sent = await screen.findByRole("list", { name: "Providers sent" });
+      expect(within(sent).getByText("Xometry")).toBeInTheDocument();
+      expect(within(sent).getByText("Fictiv")).toBeInTheDocument();
+      const skipped = screen.getByRole("list", { name: "Providers skipped" });
+      expect(within(skipped).getByText("Protolabs").parentElement).toHaveTextContent(
+        "You can send 5 quote requests every 60 minutes",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("lets an eligible Free customer confirm their own request without changing commercial status", async () => {
+    mockQuoteCollectionMode.plan = "free";
+    mockQuoteCollectionMode.hasAutomaticEntitlement = false;
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
 
     renderWithClient("/parts/job-1");
 
-    await clickRequestQuoteButton();
+    const requestButton = await findRequestQuoteButton();
+    fireEvent.click(requestButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    expect(mockQuoteCollectionMode.plan).toBe("free");
+    expect(mockQuoteCollectionMode.hasAutomaticEntitlement).toBe(false);
 
     await waitFor(() => {
       expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith(
@@ -1649,85 +2270,35 @@ describe("ClientPart", () => {
     });
   });
 
-  it("fails closed and refreshes scope when the Xometry dispatch request is denied", async () => {
-    api.requestXometryBetaDispatch.mockRejectedValue(new Error("xometry_beta_scope_changed"));
+  it.each([
+    ["xometry_beta_scope_changed", "The current package was not queued. Review the refreshed scope and try again."],
+    ["free_allowance_unavailable", "The current package was not queued. Review the refreshed scope and try again."],
+    ["xometry_beta_job_busy", "This part is being updated in another session. Try again in a moment."],
+  ])("fails closed and refreshes scope when dispatch is denied: %s", async (reason, expectedToast) => {
+    api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
+    mockQuoteCollectionMode.refresh.mockImplementation(async () => {
+      mockQuoteCollectionMode.automaticEnabled = false;
+    });
 
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
-    );
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
 
     renderWithClient("/parts/job-1");
 
     await clickRequestQuoteButton();
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "The current package was not queued. Review the refreshed scope and try again.",
-      );
+      expect(toastMock.error).toHaveBeenCalledWith(expectedToast);
     });
+    await screen.findByText(/current package was not queued/i);
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
-  it("blocks duplicate part quote requests while the first request is pending", async () => {
+  it.each(["stable", "blocked_after", "blocked_during", "scope_changed", "actor_changed", "actor_changed_after", "unverified_after"])("preserves only same-actor uncertain replay through close and reopen: %s", async (scenario) => {
     const deferred = createDeferredPromise<{
       jobId: string;
       accepted: boolean;
@@ -1743,72 +2314,10 @@ describe("ClientPart", () => {
     }>();
     void deferred.promise.catch(() => undefined);
 
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
-    );
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
     api.requestXometryBetaDispatch.mockReturnValue(deferred.promise);
 
-    renderWithClient("/parts/job-1");
+    const { queryClient } = renderWithClient("/parts/job-1");
 
     const button = await findRequestQuoteButton();
 
@@ -1830,13 +2339,253 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(sendButton).toBeDisabled();
     });
+    expect(screen.queryByText("Check previous quote request")).not.toBeInTheDocument();
 
-    deferred.reject(new Error("Request failed"));
+    if (scenario === "blocked_during" || scenario === "actor_changed") {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      if (scenario === "actor_changed") {
+        const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+        mockUseAppSession.mockReturnValue({ ...previous, user: { ...previous.user, id: "user-2" } });
+      }
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    }
+    await act(async () => { deferred.reject(new Error("Request failed")); });
+    if (scenario === "actor_changed") {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+      expect(screen.queryByText(/could not confirm whether the request was queued/i)).not.toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+      return;
+    }
 
     expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
     expect(screen.queryByText(/queued for worker processing/i)).not.toBeInTheDocument();
     expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    const attemptedInput = { ...api.requestXometryBetaDispatch.mock.calls[0][0] };
+    const approval = attemptedInput.approvalReference;
+    if (scenario === "actor_changed_after" || scenario === "unverified_after") {
+      const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+      mockUseAppSession.mockReturnValue({
+        ...previous,
+        ...(scenario === "actor_changed_after"
+          ? { user: { ...previous.user, id: "user-2" } }
+          : { isVerifiedAuth: false }),
+      });
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      return;
+    }
+    if (scenario === "blocked_after" || scenario === "scope_changed") {
+      api.getXometryBetaDispatchScope.mockResolvedValue({
+        ...createXometryDispatchScope(),
+        scopeFingerprint: "d".repeat(64),
+        policyRevision: "founding-beta-new-policy",
+      });
+      mockQuoteCollectionMode.refresh.mockImplementation(async () => {
+        if (scenario === "blocked_after") mockQuoteCollectionMode.automaticEnabled = false;
+      });
+      const previousScopeChecks = api.getXometryBetaDispatchScope.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh current scope" }));
+      await waitFor(() => expect(api.getXometryBetaDispatchScope.mock.calls.length).toBeGreaterThan(previousScopeChecks));
+    }
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    if (!mockQuoteCollectionMode.automaticEnabled) {
+      expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
+    expect(screen.queryByText("d".repeat(64))).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inches" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Millimeters" })).toBeDisabled();
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      expect(checkbox).toBeChecked();
+      expect(checkbox).toBeDisabled();
+    }
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    api.requestXometryBetaDispatch.mockResolvedValue({ accepted: true, created: false, deduplicated: true, status: "queued" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0].approvalReference).toBe(approval);
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(api.requestQuote).not.toHaveBeenCalled();
   });
+
+  it("does not offer recovery for a blocked confirmation that was never submitted", async () => {
+    const { queryClient } = renderWithClient("/parts/job-1?quote=request");
+    await screen.findByTestId("part-info-panel");
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+    mockQuoteCollectionMode.automaticEnabled = false;
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
+  it.each(["approvalReference", "declaredModelUnits", "policyRevision", "scopeFingerprint"] as const)(
+    "does not use uncertain recovery to admit a changed %s while access is blocked",
+    async (changedField) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result, rerender } = renderHook(
+        () => useClientPartController("job-1", { warmNavigation: false }),
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+      await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+      const originalInput = {
+        approvalReference: "original-approval",
+        declaredModelUnits: "inch" as const,
+        policyRevision: "founding-beta-2026-08-15",
+        scopeFingerprint: "a".repeat(64),
+      };
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(true);
+      mockQuoteCollectionMode.automaticEnabled = false;
+      rerender();
+      const changedInput = {
+        ...originalInput,
+        ...{
+          approvalReference: { approvalReference: "fresh-approval" },
+          declaredModelUnits: { declaredModelUnits: "millimeter" as const },
+          policyRevision: { policyRevision: "new-policy" },
+          scopeFingerprint: { scopeFingerprint: "d".repeat(64) },
+        }[changedField],
+      };
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(changedInput)).toMatchObject({ status: "denied" });
+      });
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.requestQuote).not.toHaveBeenCalled();
+      queryClient.clear();
+    },
+  );
+
+  it("keeps uncertain recovery when the exact replay is refused as busy, but not for a fresh approval", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useClientPartController("job-1", { warmNavigation: false }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+    const originalInput = {
+      approvalReference: "original-approval",
+      declaredModelUnits: "inch" as const,
+      policyRevision: "founding-beta-2026-08-15",
+      scopeFingerprint: "a".repeat(64),
+    };
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await act(async () => {
+      expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(true);
+
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("xometry_beta_job_busy"));
+    await act(async () => {
+      expect(await result.current.handleRequestQuote({ ...originalInput })).toMatchObject({
+        status: "unknown",
+        diagnosticCode: "explicit_server_denial",
+      });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(true);
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenLastCalledWith("This part is being updated in another session. Try again in a moment.");
+    });
+    for (const [message] of toastMock.error.mock.calls) {
+      expect(String(message)).not.toMatch(/nothing was queued|not queued/i);
+    }
+
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("xometry_beta_job_busy"));
+    await act(async () => {
+      expect(
+        await result.current.handleRequestQuote({ ...originalInput, approvalReference: "fresh-approval" }),
+      ).toMatchObject({ status: "denied" });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(false);
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(3);
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toMatchObject({ approvalReference: "original-approval" });
+    expect(api.requestQuote).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
+
+  it.each(["organization", "job"] as const)(
+    "removes uncertain recovery and denies the old approval after the %s changes",
+    async (changedIdentity) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result, rerender } = renderHook(
+        ({ jobId }) => useClientPartController(jobId, { warmNavigation: false }),
+        {
+          initialProps: { jobId: "job-1" },
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+      await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+      const originalInput = {
+        approvalReference: "original-approval",
+        declaredModelUnits: "inch" as const,
+        policyRevision: "founding-beta-2026-08-15",
+        scopeFingerprint: "a".repeat(64),
+      };
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(true);
+
+      mockQuoteCollectionMode.automaticEnabled = false;
+      const jobId = changedIdentity === "job" ? "job-2" : "job-1";
+      const organizationId = changedIdentity === "organization" ? "org-2" : "org-1";
+      const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+      mockUseAppSession.mockReturnValue({
+        ...previous,
+        activeMembership: { ...previous.activeMembership, organizationId },
+      });
+      api.resolveClientPartDetailRoute.mockResolvedValue({ routeId: jobId, jobId, source: "job" });
+      const detail = createPartDetail();
+      api.fetchPartDetailByJobId.mockResolvedValue(createPartDetail({
+        job: { ...detail.job, id: jobId, organization_id: organizationId },
+        part: { ...detail.part, job_id: jobId, organization_id: organizationId },
+        summary: { ...detail.summary, jobId },
+      }));
+      rerender({ jobId });
+      await waitFor(() => expect(result.current.quoteConfirmationIdentity).toBe(`user-1:${organizationId}:${jobId}`));
+      expect(result.current.canRecoverQuoteRequest).toBe(false);
+
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "denied" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(false);
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.requestXometryBetaDispatch.mock.calls[0][0]).toMatchObject({ jobId: "job-1", approvalReference: "original-approval" });
+      expect(api.requestQuote).not.toHaveBeenCalled();
+      queryClient.clear();
+    },
+  );
 
   it("confirms and cancels an in-flight quote request from the status card", async () => {
     api.fetchPartDetailByJobId.mockResolvedValue(
@@ -2450,11 +3199,19 @@ describe("ClientPart", () => {
     );
     expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
-    await act(async () => updateRequest.resolve());
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    // The draft already shows the newer edit, so waiting on its value cannot observe the
+    // acknowledgement. Wait on the acknowledgement itself, inside one act scope: the save reports
+    // success only after its own refresh lands, and its per-call onSuccess marks the patch
+    // preservation completed in the microtasks that follow. Leaving act then commits that state
+    // and flushes the effect that clears the preservation. Refreshing before that commit lets the
+    // acknowledgement and the next server refresh land in one commit, which keeps the draft.
+    await act(async () => {
+      updateRequest.resolve();
+      await vi.waitFor(() => {
+        expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+      });
     });
+    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
 
     persistedDescription = "Server description after acknowledgement";
     await act(async () => {
@@ -2525,11 +3282,22 @@ describe("ClientPart", () => {
       resolvePatchRequest?.();
     });
 
+    // Wait on each stage of the serialized pipeline in order instead of asserting its final state
+    // inside one real-time window: the pending save settles after its refresh, the queued reset
+    // runs, and the reset settles only after it has refreshed and reconciled the draft.
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Request details updated.");
+    });
     await waitFor(() => {
       expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
         jobId: "job-1",
         fields: ["description"],
       });
+    });
+    await waitFor(() => {
+      expect(toastMock.success).toHaveBeenCalledWith("Field reset to extracted value.");
+    });
+    await waitFor(() => {
       expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
       expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });
@@ -2658,6 +3426,25 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Restoring your part workspace.")).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+  });
+
+  it("renders the shell without part data while a persisted session is still being verified", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      signOut: vi.fn(),
+      isAuthInitializing: true,
+      hasCachedSession: true,
+    });
+
+    renderWithClient("/parts/job-1");
+
+    expect(screen.getByTestId("client-shell")).toBeInTheDocument();
+    expect(screen.queryByText("Restoring your part workspace.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Account Menu")).not.toBeInTheDocument();
+    expect(api.fetchPartDetailByJobId).not.toHaveBeenCalled();
+    expect(api.resolveClientPartDetailRoute).not.toHaveBeenCalled();
+    expect(api.fetchAccessibleJobs).not.toHaveBeenCalled();
   });
 
   it("preserves iOS app mode after account sign-out completes", async () => {

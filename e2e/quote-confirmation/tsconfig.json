@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.app.json",
+  "compilerOptions": { "noUnusedLocals": true, "noUnusedParameters": true, "lib": ["ES2023", "DOM", "DOM.Iterable"] },
+  "include": ["./*.ts", "./*.tsx", "../../src/vite-env.d.ts"]
+}

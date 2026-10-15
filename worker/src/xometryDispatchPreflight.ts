@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VendorAdapter } from "./adapters/base.js";
+import { EXPORT_CONTROL_DENIAL_CODES } from "./exportControl.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -8,7 +9,8 @@ import type {
   XometryDispatchAuthorization,
 } from "./types.js";
 
-const XOMETRY_ENVELOPE_REVISION = "xometry-controlled-beta-envelope.v1" as const;
+/** Reviewed controlled-beta envelope persisted on every legacy Xometry permit. */
+export const XOMETRY_ENVELOPE_REVISION = "xometry-controlled-beta-envelope.v1" as const;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BOUNDED_DENIAL_REASON_CODES = new Set([
@@ -25,6 +27,10 @@ const BOUNDED_DENIAL_REASON_CODES = new Set([
   "dispatch_provider_configuration_changed",
   "dispatch_staged_scope_changed",
   "dispatch_current_scope_changed",
+  // OVD-723: export-control gate applied by the preflight wrapper.
+  ...EXPORT_CONTROL_DENIAL_CODES,
+  // OVD-722: the Xometry or global kill switch is engaged. Terminal.
+  "provider_kill_switch_engaged",
 ]);
 
 type WorkerPreflightDecision = {

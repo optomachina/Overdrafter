@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import type { ProviderFanoutPlan } from "@/features/quotes/provider-fanout";
 import { describe, expect, it, vi } from "vitest";
 import {
   XometryBetaDispatchConfirmationDialog,
@@ -119,6 +120,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
         approvalReference: expect.any(String),
         authorityToShare: true,
         declaredModelUnits: "inch",
+        envelopeRevision: "xometry-controlled-beta-envelope.v1",
         nonExportControlled: true,
         policyRevision: "founding-beta-notice.v1",
         quoteOnly: true,
@@ -151,6 +153,39 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
   });
 
+  it("withdraws the authority affirmation when the fan out send list changes", () => {
+    const plan = { send: ["xometry", "fictiv"], skipped: [], budget: null } satisfies ProviderFanoutPlan;
+    const { rerender, props } = renderDialog({
+      declaredModelUnits: "inch",
+      scope: createScope(),
+      fanout: { plan, outcomes: {} },
+    });
+    const twoProviderLabel = "I am authorized to share these files and requirements with Xometry and Fictiv to request a quote.";
+
+    fireEvent.click(screen.getByRole("checkbox", { name: twoProviderLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: exportLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: quoteOnlyLabel }));
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+
+    // A guard refetch adds a recipient after the box was ticked.
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        declaredModelUnits="inch"
+        scope={createScope()}
+        fanout={{ plan: { ...plan, send: ["xometry", "fictiv", "protolabs"] }, outcomes: {} }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I am authorized to share these files and requirements with Xometry, Fictiv, and Protolabs to request a quote.",
+      }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: exportLabel })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+  });
+
   it("fails closed while loading or when the server cannot provide an eligible scope", () => {
     const onRetryScope = vi.fn();
     const { rerender, props } = renderDialog({ declaredModelUnits: "inch", isScopeLoading: true });
@@ -172,6 +207,30 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry scope check" }));
     expect(onRetryScope).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+  });
+
+  it("offers Settings only for a missing confirmed shipping destination", () => {
+    const onOpenSourcingSettings = vi.fn();
+    const { rerender, props } = renderDialog({
+      declaredModelUnits: "inch",
+      onOpenSourcingSettings,
+      scopeDenialCode: "xometry_beta_confirmed_sourcing_address_required",
+      scopeError: "Xometry needs a confirmed shipping address.",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Settings to confirm address" }));
+    expect(onOpenSourcingSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        scopeDenialCode="xometry_beta_standard_tolerance_required"
+        scopeError="Enter this part's tightest tolerance."
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Open Settings to confirm address" })).not.toBeInTheDocument();
+    expect(screen.getByText("Enter this part's tightest tolerance.")).toBeInTheDocument();
   });
 
   it("shows a truthful denial and refresh path without claiming dispatch approval", async () => {
@@ -222,5 +281,135 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
 
     expect(await screen.findByText(/Diagnostic: unknown_failure/i)).toBeInTheDocument();
+  });
+  it("retains the attempted disclosure on policy block and clears it on definitive denial", async () => {
+    const onConfirm = vi.fn().mockResolvedValueOnce({ accepted: false, created: false, status: "unknown" })
+      .mockResolvedValueOnce({ accepted: false, created: false, status: "denied" });
+    const { rerender, props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    const attempted = onConfirm.mock.calls[0][0];
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} scope={null} scopeError="Policy no longer available" />);
+    expect(screen.getByRole("checkbox", { name: authorityLabel })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+    expect(onConfirm.mock.calls[1][0]).toEqual(attempted);
+    expect(await screen.findByText(/current package was not queued/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    expect(onConfirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("locks an uncertain approval to its units and clears it for a replacement customer component", async () => {
+    const onConfirm = vi.fn().mockResolvedValue({ accepted: false, created: false, status: "unknown" });
+    const { rerender, props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} scope={null} scopeError="Policy unavailable" />);
+    expect(screen.getByRole("button", { name: "Millimeters" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Millimeters" }));
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Inches" })).toHaveAttribute("aria-pressed", "true");
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} key="another-customer" scope={null} scopeError="Policy unavailable" />);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Inches", "Millimeters", authorityLabel, exportLabel, quoteOnlyLabel])(
+    "preserves exact uncertain replay after an attempted edit: %s",
+    async (control) => {
+      const onConfirm = vi.fn().mockResolvedValue({ accepted: false, created: false, status: "unknown" });
+      const { props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+      for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      await screen.findByText(/could not confirm whether the request was queued/i);
+      const attempted = onConfirm.mock.calls[0][0];
+      vi.mocked(props.onDeclaredModelUnitsChange).mockClear();
+      const target = screen.getByRole(control === "Inches" || control === "Millimeters" ? "button" : "checkbox", { name: control });
+      expect(target).toBeDisabled();
+      fireEvent.click(target);
+      fireEvent.click(screen.getByRole("button", { name: "Refresh current scope" }));
+      expect(screen.getByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+      expect(props.onDeclaredModelUnitsChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+      expect(onConfirm.mock.calls[1][0]).toEqual(attempted);
+    },
+  );
+
+  it("locks edits while confirmation is pending even before a parent submitting update", async () => {
+    let resolve!: (value: { accepted: false; created: false; status: "unknown" }) => void;
+    const onConfirm = vi.fn().mockReturnValue(new Promise((done) => { resolve = done; }));
+    renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) expect(screen.getByRole("checkbox", { name: label })).toBeDisabled();
+    for (const name of ["Inches", "Millimeters", "Confirm & queue Xometry quote"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    resolve({ accepted: false, created: false, status: "unknown" });
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+});
+
+describe("ProviderDispatchConfirmationDialog for Fictiv (OVD-673)", () => {
+  function createFictivScope(): XometryBetaDispatchScope {
+    const scope = createScope({ provider: "fictiv", envelopeRevision: "fictiv-quote-envelope.v1" });
+    return { ...scope, scope: { ...scope.scope, vendor: "fictiv" } };
+  }
+  const fictivAuthorityLabel = "I am authorized to share these files and requirements with Fictiv to request a quote.";
+
+  it("names Fictiv everywhere the customer is told who receives the package", () => {
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope: createFictivScope() });
+
+    expect(screen.getByText("Founding Beta · Fictiv")).toBeInTheDocument();
+    expect(screen.getByText("Confirm Fictiv beta quote request")).toBeInTheDocument();
+    expect(screen.getByText(/OverDrafter will queue for Fictiv\./)).toBeInTheDocument();
+    expect(screen.getByText("Fictiv")).toBeInTheDocument();
+    expect(screen.getByText("fictiv-quote-envelope.v1")).toBeInTheDocument();
+    expect(screen.getByLabelText(fictivAuthorityLabel)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" })).toBeDisabled();
+    expect(screen.queryByText(/Xometry/)).not.toBeInTheDocument();
+  });
+
+  it("submits the exact Fictiv scope only after all three affirmations", async () => {
+    const scope = createFictivScope();
+    const onConfirm = vi.fn().mockResolvedValue({ accepted: true, created: true, status: "queued" });
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope, onConfirm });
+
+    const submit = screen.getByRole("button", { name: "Confirm & queue Fictiv quote" });
+    fireEvent.click(screen.getByLabelText(fictivAuthorityLabel));
+    fireEvent.click(screen.getByLabelText(exportLabel));
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(quoteOnlyLabel));
+    fireEvent.click(submit);
+
+    await screen.findByText("Fictiv quote request queued");
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      authorityToShare: true,
+      nonExportControlled: true,
+      quoteOnly: true,
+      declaredModelUnits: "inch",
+      envelopeRevision: "fictiv-quote-envelope.v1",
+      policyRevision: scope.policyRevision,
+      scopeFingerprint: scope.scopeFingerprint,
+    }));
+    expect(screen.getByText(/Fictiv has not yet been confirmed as having received the package\./)).toBeInTheDocument();
+  });
+
+  it("never presents a scope computed for a different provider", () => {
+    renderDialog({ provider: "fictiv", declaredModelUnits: "inch", scope: createScope() });
+
+    expect(screen.queryByText("BRKT-001.step")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(fictivAuthorityLabel)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm & queue Fictiv quote" })).toBeDisabled();
+  });
+
+  it("keeps the Xometry copy when no provider is named", () => {
+    renderDialog({ declaredModelUnits: "inch", scope: createFictivScope() });
+
+    expect(screen.getByText("Confirm Xometry beta quote request")).toBeInTheDocument();
+    expect(screen.queryByText("BRKT-001.step")).not.toBeInTheDocument();
   });
 });

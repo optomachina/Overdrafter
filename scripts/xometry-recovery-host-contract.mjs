@@ -47,6 +47,8 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   project: OVD410_PRODUCTION_CONTRACT.project,
   region: OVD410_PRODUCTION_CONTRACT.region,
   zone: "us-west1-b",
+  // Capacity fallback zones (same region: the egress subnet, router and NAT are regional).
+  allowedZones: Object.freeze(["us-west1-b", "us-west1-a", "us-west1-c"]),
   network: OVD410_PRODUCTION_CONTRACT.network,
   subnet: OVD410_PRODUCTION_CONTRACT.subnet,
   subnetRange: OVD410_PRODUCTION_CONTRACT.subnetRange,
@@ -59,6 +61,13 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   serviceAccount: OVD410_PRODUCTION_CONTRACT.serviceAccount,
   instance: "overdrafter-xometry-auth-recovery",
   machineType: "n2-standard-2",
+  bootDiskType: "pd-balanced",
+  bootDiskSizeGb: "20",
+  // Capacity fallback hardware: each machine type is accepted only with its paired boot disk type.
+  hardwareProfiles: Object.freeze([
+    Object.freeze({ machineType: "n2-standard-2", bootDiskType: "pd-balanced" }),
+    Object.freeze({ machineType: "n4-standard-2", bootDiskType: "hyperdisk-balanced" }),
+  ]),
   preemptible: false,
   provisioningModel: "STANDARD",
   instanceTerminationAction: null,

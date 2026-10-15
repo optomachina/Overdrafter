@@ -29,6 +29,7 @@ const termsSections: PolicySection[] = [
     paragraphs: [
       "You must have authority to share every file and requirement you submit. You retain ownership of your content and give OverDrafter permission to use it only to operate the service, support you, and obtain the quotes you request.",
       "Do not submit ITAR, CUI, export-controlled, classified, weapons or firearms, medical-implant, life-safety, or other regulated work. OverDrafter 1.0 is not approved for those workloads.",
+      "Controlled data is not supported in the beta. Before each upload you declare whether the files are export-controlled. Only files that are EAR99 or not subject to the EAR, and not ITAR, can be uploaded; a controlled or unsure answer stops the upload and nothing is stored. Files that carry export-control markings are held for review and are not sent to any provider.",
     ],
   },
   {

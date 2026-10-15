@@ -4,12 +4,14 @@ Every provider parent has exactly these gated children. Replace `<provider>` wit
 
 ## 1. Define `<provider>`’s evidence-backed quote envelope
 
+Generator: `npm run fixture:onboard -- [<key>] --stage=envelope --url <https-url>` (the key is optional with `--url`; adds the default-off provider-registry entry and runs `provider:sync`), then `npm run provider:check`.
+
 Outcome: public first-party research establishes a conservative manifest, eligibility evaluator, default-off identity/catalog wiring, review date, and offline envelope tests.
 
 Acceptance boundaries:
 
 - Every material claim links to public first-party evidence.
-- Unknown remains unknown; marketing language is not automation permission or certification.
+- Unknown remains unknown; marketing language is not certification.
 - A genuinely new key has reviewed migration stubs for enum identity and a disabled admission row, but no applied or enabled migration.
 - Generated presentation metadata contains no production authority.
 - Offline scaffold, manifest, catalog, and envelope checks pass.
@@ -27,25 +29,28 @@ Acceptance boundaries:
 
 Dependency: stage 2 depends on stage 1.
 
+Generate the offline scaffold with `npm run fixture:onboard -- <key> --stage=live` and verify with `npm run provider:check`.
+
 ## 3. Admit and certify `<provider>` for production quotes
 
 Outcome: independently reviewed controls and evidence permit production quote routing for this provider.
 
 Acceptance boundaries:
 
-- Acceptable written automation-permission evidence exists.
 - A reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization all pass.
 - Production enablement is default-off and isolated to this provider.
-- Failed permission or certification leaves the provider disabled without blocking other providers.
+- Failed certification leaves the provider disabled without blocking other providers.
 
-Dependencies: stage 3 depends on successful stage 2, the provider-neutral production-control issues, and acceptable permission evidence. Only this stage may update the manually reviewed production-certified allowlist or enable routing.
+Generate the review-only admission artifacts with `npm run fixture:onboard -- <key> --stage=admit [--issue OVD-<n>]` and run `npm run provider:check`. Run this stage only under the stage 3 issue. It writes `provider-integrations/<key>/admit/` review files and a rollout runbook; nothing goes to `supabase/migrations`, and the `<...>` placeholders in the admission revision keep it from running as-is. Moving a review file into a migration, applying it, and the operator admission revision are reviewed, protected actions (re-check the timestamp first). The [go-live checklist](../../../../docs/checklists/provider-go-live-checklist.md) (OVD-690) covers the final sequence, and the PR that enables the provider carries its **Provider go-live** section with real evidence links.
+
+Dependencies: stage 3 depends on successful stage 2 and the provider-neutral production-control issues. Only this stage may update the manually reviewed production-certified allowlist or enable routing.
 
 ## Provider parent outcome
 
 Use this parent description:
 
 ```markdown
-Deliver a safe, evidence-backed quote-provider integration through three independent gates: conservative public envelope definition, separately authorized local live evaluation, and separately reviewed production admission/certification. The provider remains disabled unless stage 3 completes. Missing permission or failed certification must not block unrelated providers.
+Deliver a safe, evidence-backed quote-provider integration through three independent gates: conservative public envelope definition, separately authorized local live evaluation, and separately reviewed production admission/certification. The provider remains disabled unless stage 3 completes. Failed certification must not block unrelated providers.
 ```
 
 Keep stages dependency-sequenced rather than treating them as one completion checklist. Use one writer per provider when envelope stages run in parallel.

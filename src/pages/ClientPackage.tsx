@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
@@ -25,6 +26,8 @@ import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { supabase } from "@/integrations/supabase/client";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/quotes/utils";
+
+const refreshedQuoteMessage = "This option needs a refreshed quote before it can be selected. Please contact the estimating team.";
 
 const ClientPackage = () => {
   const navigate = useNavigate();
@@ -164,12 +167,18 @@ const ClientPackage = () => {
   };
 
   const selectMutation = useMutation({
-    mutationFn: (optionId: string) =>
-      selectQuoteOption({
+    mutationFn: (optionId: string) => {
+      const option = packageQuery.data?.options.find((candidate) => candidate.id === optionId);
+      if (!option?.source_vendor_quote_offer_id) {
+        throw new Error(refreshedQuoteMessage);
+      }
+
+      return selectQuoteOption({
         packageId,
         optionId,
         note: selectionNote,
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success("Quote option selected.");
       await queryClient.invalidateQueries({ queryKey: ["client-package", packageId] });
@@ -211,7 +220,7 @@ const ClientPackage = () => {
       <AppShell title="Package unavailable" subtitle="The requested client package could not be loaded.">
         <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="p-6 text-sm text-destructive">
-            {packageQuery.error instanceof Error ? packageQuery.error.message : "Unknown error"}
+            {getUserFacingErrorMessage(packageQuery.error, "Unknown error")}
           </CardContent>
         </Card>
       </AppShell>
@@ -355,10 +364,16 @@ const ClientPackage = () => {
                       <p className="text-sm text-muted-foreground">
                         {option.comparison_summary || "Curated from the internal vendor comparison."}
                       </p>
+                      {!option.source_vendor_quote_offer_id ? (
+                        <p id={`quote-refresh-${option.id}`} className="text-sm text-muted-foreground">
+                          {refreshedQuoteMessage}
+                        </p>
+                      ) : null}
                       <Button
                         className="w-full rounded-full"
                         onClick={() => selectMutation.mutate(option.id)}
-                        disabled={!isVerifiedAuth || selectMutation.isPending}
+                        disabled={!option.source_vendor_quote_offer_id || !isVerifiedAuth || selectMutation.isPending}
+                        aria-describedby={!option.source_vendor_quote_offer_id ? `quote-refresh-${option.id}` : undefined}
                       >
                         {selectMutation.isPending ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

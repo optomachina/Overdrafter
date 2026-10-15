@@ -18,7 +18,7 @@ function digest() { return createHash('sha256').update(randomUUID()).digest('hex
 async function sql(text) { return (await exec('docker',[...psql,'-c',text],{timeout:20_000,maxBuffer:2_000_000})).stdout.trim(); }
 const tap=await sql(await readFile(new URL('../supabase/tests/engineering_native_ownership.sql',import.meta.url),'utf8'));
 assert.doesNotMatch(tap,/not ok|Looks like you failed|planned \d+ tests but ran/i);
-assert.match(tap,/^1\.\.120$/m);
+assert.match(tap,/^1\.\.129$/m);
 const seedFiles=[
   {path:'synthetic-assembly.SLDASM',bytes:59987,sha256:'90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a'},
   {path:'parts/baseline-5mm.SLDPRT',bytes:56144,sha256:'e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa'},
@@ -134,7 +134,7 @@ await sql(`begin;
   set local request.jwt.claim.sub=${q(replacement.actor)};
   select public.api_control_worker_session(${q(replacement.worker)},1,${q(randomUUID())},'enabled',${q(replacement.boot)});commit;`);
 assert.equal((await claim(replacement,randomUUID(),replacement.otherTask)).reason,'native_slot_occupied');
-console.log(JSON.stringify({schema:'overdrafter.native-ownership-db-test.v1',tapAssertions:120,duplicateClaims:5,createdAttemptsFromDuplicates:1,
+console.log(JSON.stringify({schema:'overdrafter.native-ownership-db-test.v1',tapAssertions:129,duplicateClaims:5,createdAttemptsFromDuplicates:1,
   concurrentConversationClaims:2,nativeWinners:1,accessRecheckedAfterConversationWait:true,leaseExpiryRecheckedAfterWait:true,
   revokedWorkerReplacementPreservesOccupancy:true,exampleJobText:receipts[0].jobText,exampleContextText:duplicate.contextText,
   windowsQualification:false,productionChanged:false},null,2));

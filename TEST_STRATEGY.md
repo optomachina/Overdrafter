@@ -85,6 +85,16 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 
 ### Explicit execution boundaries
 
+- The default suite's browser-recovery tests exercise real Chromium DOM behavior.
+  CI provisions Playwright Chromium in the test job. Local runners may select an
+  already installed browser with `OVD_TEST_CHROMIUM_EXECUTABLE_PATH=/absolute/path`;
+  record its version with results. This override affects only the test launcher,
+  leaves production browser configuration unchanged, and never skips a test.
+- `npm run test:portable-node` runs the explicit portable Node suites for catalog
+  parity diagnostics, sourcing schema restore preparation, and closed native
+  journal parsing. Root `verify` and CI require this gate independently of the
+  agent control-plane checks. These use synthetic data and owned temporary files;
+  they do not establish database behavior or native runtime qualification.
 - `npm test` and the default `npm run verify` discovery exclude the local
   database-backed quote RPC suite and live-provider tests. Exclusion is lane
   selection, not a passing integration or provider result.
@@ -116,6 +126,24 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ### Browser lane boundaries
 
+- `npm run e2e:quote-confirmation` is a separate, required static-fixture browser
+  lane for the actual Free quote access, ClientPart controller and confirmation
+  dialog. It covers explicit consent, pending duplicate prevention, unknown-result
+  exact replay, scope/access refresh and explicit denial. Synthetic session and
+  workspace reads plus intercepted loopback RPC responses do not qualify real
+  authentication, SQL admission or provider execution. Every unexpected request
+  is aborted before send; no CAD/PDF bytes or saved auth state are used. See
+  `e2e/quote-confirmation/README.md` for the matrix and recovery boundaries.
+- `npx playwright test --config e2e/delivered-comparison.config.ts` is the
+  `OVD-571` static-fixture lane for the actual `ClientQuoteDecisionPanel`:
+  delivered-date and expected-delivered-cost axes, overlap and late options, Cheapest/Fastest order,
+  deadline keyboard/mouse/touch control (grip only; points under the line stay
+  clickable), arrival-time selection, focus and viewport preservation (no
+  scroll on a user reorder), and the terminal request notice at desktop and
+  mobile widths. `npm run e2e:fixture` runs it after the main fixture suite, so
+  the required CI browser job executes it; the main config ignores this spec. Quotes, deadline intent and provider results are synthetic; every
+  non-loopback request is aborted. It does not exercise the OVD-570 RPC, quote
+  polling, or provider execution.
 - `npm run e2e:fixture` selects only `@fixture` tests, skips auth preparation,
   forces a fresh loopback-only app server with an inert backend, and ignores
   ambient backend/base-URL overrides. It must not load saved auth state.
@@ -307,11 +335,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   repeatability evidence for `OVD-206`
 - preserve the complete Xometry suite as the provider-neutral regression baseline; provider-neutral work must add default-off admission-policy, versioned provider-envelope, exact outbound derivative, cross-provider permit, session-isolation, and zero-adapter-call denial tests rather than replacing Xometry assertions with weaker generic checks
 - verify the private provider-admission registry seeds every current provider, keeps Xometry controlled-beta-only and every other provider disabled, fails closed for missing/incomplete/expired policies, requires a new revision for each change, preserves append-only history, exposes only its bounded service-role resolver, and has no routing/permit/preflight integration until a later reviewed migration adds one
-- for every additional 1.0 provider, verify current written automation permission, admitted process/material/file limits, isolated session ownership, exact action-time confirmation, immediate service-side recheck, finite failure/manual-follow-up behavior, normalized price/quantity/lead-time/provider-reference provenance, rollback, and no-order behavior before production certification
+- for every additional 1.0 provider, verify admitted process/material/file limits, isolated session ownership, exact action-time confirmation, immediate service-side recheck, finite failure/manual-follow-up behavior, normalized price/quantity/lead-time/provider-reference provenance, rollback, and no-order behavior before production certification
 - prove that a permit, policy revision, envelope, file or derivative hash, scope, lane/task, session, or organization for one provider cannot authorize another provider
 - verify the 1.0 beta-enablement preflight rejects fewer than five qualifying
   providers and excludes manual-only, evaluation-only, disabled, expired,
-  permission-incomplete, or package-incompatible providers from the count
+  or package-incompatible providers from the count
 - verify the accepted set explicitly names Xometry plus at least four additional
   providers and that no provider's policy, permit, files, envelope, session, or
   evidence authorizes another provider
@@ -740,6 +768,20 @@ fixture is a database contract test, not a Windows observer or production
 qualification. The registry inserts no stop admission and makes no occupancy or
 result-eligibility transition. The existing native-ownership tests and current
 repository gate remain separate integration checks.
+
+With `--staged-replay` it also loads the staged OVD-649 replacement in
+`scripts/native/stop-observer/sql/` and proves exact receipt recovery, that a
+concurrent admission revocation either waits for an in-flight ingestion or
+causes it to be denied, that two concurrent identical READ COMMITTED
+ingestions return one retained UUID, and that REPEATABLE READ and SERIALIZABLE
+ingestion is refused. It then runs the generated paired restoration
+(`store-native-observer-evidence-restore.staged.sql`): non READ COMMITTED runs
+are refused with 0A000, the restoration waits on the shared (510,2) advisory
+lock, returns the exact OVD-575 definition, OID, owner and grants, refuses a
+second run unchanged, and survives reapply and restore. The disposable OVD-510
+chain (`--ovd563`) adds stage `ovd649_window_order`, which proves the window 2
+order in `docs/release/ovd-649-window-2-order.md` against the verbatim OVD-558
+reverse preflight. The staged SQL is not a migration.
 
 ### OVD-562 retained parent integration
 

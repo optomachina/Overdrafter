@@ -18,5 +18,5 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "vite.sample-plate.config.ts", "scripts/serve-sample-plate.ts"]
+  "include": ["vite.config.ts", "vite.sample-plate.config.ts", "scripts/serve-sample-plate.ts", "scripts/native-storage-qualification.ts", "scripts/native-storage-qualification.test.ts"]
 }

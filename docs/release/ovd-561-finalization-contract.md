@@ -18,6 +18,33 @@ key or call finalization. Fixtures inject a generated ephemeral key; real key
 provisioning and runtime adapter qualification are separate protected work.
 No caller-supplied key or boolean grants verification authority.
 
+## Source-only delivery bridge
+
+`server/engineering/native-result-finalization.ts` composes the existing
+registered-byte verifier with this exact transaction. It remains default-off and
+accepts only trusted private repository adapters and an already supplied verifier
+key; it exposes no route, credential loader or SQL grant. The envelope producer
+retains the exact verified candidate-context text together with signed payload
+text, signature and an idempotency UUID. The persistence adapter must atomically
+insert-if-absent by task/attempt and durably return that immutable envelope before
+delivery. A conflicting concurrent preparation never delivers its losing bytes.
+
+An existing pending envelope requires explicit `replay`, which sends those exact
+arguments without a new verification/signature/idempotency key. Missing or
+altered envelopes and mismatched completion identities fail closed. One bounded
+invocation and caller cancellation cover pending lookup, verification,
+persistence and delivery; late adapter completion cannot start a successor.
+Cancellation propagates to active registered-object readers. An interrupted
+write is uncertain and requires exact reconciliation, not a rollback claim.
+
+The deterministic tests use synthetic registered bytes, generated in-memory keys
+and injected persistence/SQL functions. The durable-envelope adapter
+(`native-result-persistence.ts`) and the owner-only transaction executor
+(`native-result-executor.ts`) are implemented as source, unqualified: their SQL
+is staged and unapplied. Qualified-stop/registry integration and provisioning
+remain separate gates. The source bridge
+does not establish deployed transport, native execution or successor dispatch.
+
 The transaction requires READ COMMITTED; repeatable-read and serializable
 transactions are rejected before processing so old authority snapshots cannot
 bypass revocation. The transaction locks organization slot, worker, conversation, task and attempt
@@ -57,5 +84,13 @@ finalization behavior and concurrency checks. That order verifies source
 compatibility; it does not qualify applying OVD-558 to a database already on
 current production. No shared OVD-558 pin is regenerated or waived.
 
-Reverse acquires exclusive key/history table locks before inspecting history;
+Reverse refuses any isolation other than READ COMMITTED, takes the shared
+window 2 reverse lock `pg_advisory_xact_lock(510, 2)`, and acquires exclusive
+key/history table locks before inspecting history;
 a concurrent committed finalization prevents rollback from dropping its receipt.
+
+The current-source clone suffix creates two cluster-wide validator roles. The
+race fixture records whether those roles already exist, then drops only newly
+created suffix roles after every owned clone is removed. It uses no cascading
+cleanup; any remaining dependency fails the fixture. Exact catalog rollback
+comparison remains in force, including roles, memberships and effective grants.

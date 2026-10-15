@@ -328,6 +328,33 @@ select is(
   'the automatic request fixture leaves no queued task after rollback'
 );
 
+-- OVD-723 fixture: after the export-control contract (C.6), a manual quote
+-- request needs a clean declaration and a clean scan of each part's files.
+-- On main (the OVD-723 draft not applied) this block does nothing.
+do $ovd723$
+begin
+  if pg_catalog.to_regclass('private.job_export_declarations') is null then
+    return;
+  end if;
+  insert into private.job_export_declarations (job_id, organization_id, declared_by, answer, terms_version)
+  select job.id, job.organization_id, job.created_by, 'not_controlled', 'ovd-beta-export-control.v1'
+  from public.jobs job
+  where job.id = '00000000-0000-4000-8000-000000005345'
+    and job.created_by is not null;
+  update public.job_files file
+  set trusted_content_sha256 = pg_catalog.lower(file.content_sha256)
+  where file.job_id = '00000000-0000-4000-8000-000000005345'
+    and file.trusted_content_sha256 is null
+    and file.content_sha256 ~ '^[0-9a-f]{64}$';
+  insert into private.job_file_export_scans (job_file_id, job_id, organization_id, source, content_sha256)
+  select file.id, file.job_id, file.organization_id, source.name, pg_catalog.lower(file.content_sha256)
+  from public.job_files file
+  cross join (values ('drawing_text'), ('step_header')) as source(name)
+  where file.job_id = '00000000-0000-4000-8000-000000005345'
+    and file.content_sha256 ~ '^[0-9a-f]{64}$';
+end;
+$ovd723$;
+
 set local role authenticated;
 select is(
   public.api_request_manual_quote(:owner_job_id, false)

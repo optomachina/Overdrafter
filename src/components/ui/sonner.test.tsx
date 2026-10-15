@@ -111,7 +111,7 @@ describe("sonner error toast defaults", () => {
     );
     expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
       2,
-      "Error toast triggered.",
+      "Something went wrong. Please try again.",
       expect.objectContaining({
         action: expect.objectContaining({
           label: expect.any(Object),
@@ -120,7 +120,7 @@ describe("sonner error toast defaults", () => {
     );
     expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
       3,
-      "Error toast triggered.",
+      "Something went wrong. Please try again.",
       expect.objectContaining({
         action: expect.objectContaining({
           label: expect.any(Object),
@@ -129,7 +129,7 @@ describe("sonner error toast defaults", () => {
     );
     expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
       4,
-      "Error toast triggered.",
+      "Something went wrong. Please try again.",
       expect.objectContaining({
         action: expect.objectContaining({
           label: expect.any(Object),

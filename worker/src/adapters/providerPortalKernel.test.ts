@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Browser, BrowserContext, Locator, Page } from "playwright";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
+import { createProviderMutationPhase, runInProviderMutationPhase } from "../providerMutationPhase";
+import { exportControlHoldReason, withExportControlDispatchRecheck } from "../dispatchRouting";
+import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
@@ -156,6 +161,8 @@ function fakeBrowser(options: {
   redirectedUrl?: string;
   bodyText?: string;
   uploadCount?: number;
+  missingSelector?: string;
+  missingSelectors?: string[];
   uploadFailure?: Error;
   popupDuringRead?: boolean;
   navigateDuringRead?: string;
@@ -260,6 +267,7 @@ function fakeBrowser(options: {
     }),
     url: vi.fn(() => currentUrl),
     locator: vi.fn((selector: string) => {
+      if (selector === options.missingSelector || options.missingSelectors?.includes(selector)) return { first: () => ({ count: async () => 0 }) } as unknown as Locator;
       if (selector === "body") {
         return bodyLocator as unknown as Locator;
       }
@@ -311,6 +319,86 @@ function fakeBrowser(options: {
 }
 
 describe("provider portal kernel admission", () => {
+  // OVD-723 review round 4: the export-control gate is asked again after
+  // navigation and classification, right before the first upload.
+  it("holds the lane when the export-control gate flips during navigation", async () => {
+    let denied = false;
+    const rpc = vi.fn(async () => ({
+      data: denied ? { allowed: false, reasonCode: "export_review_pending" } : { allowed: true },
+      error: null,
+    }));
+    const fake = fakeBrowser();
+    const goto = fake.page.goto as unknown as ReturnType<typeof vi.fn>;
+    const originalGoto = goto.getMockImplementation()!;
+    goto.mockImplementation(async (url: string) => {
+      denied = true;
+      return originalGoto(url);
+    });
+    const adapter = {
+      quote: (quoteInput: VendorQuoteAdapterInput) => runProviderPortalKernel(definition(), config(), quoteInput, {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      }) as never,
+    };
+    const wrapped = withExportControlDispatchRecheck(adapter, { rpc } as never, { taskId: "task-1", vendor: "quickparts" });
+
+    const error = await wrapped.quote(await input()).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderDispatchAuthorizationError);
+    expect(exportControlHoldReason(error)).toBe("export_review_pending");
+    expect(goto).toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  // OVD-723 review round 5: the drawing is a separate disclosure, so the gate
+  // is asked again right before the drawing upload (as in Xometry).
+  it("asks the export-control gate again before the drawing upload", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "provider-kernel-drawing-"));
+    tempDirs.push(tempDir);
+    const cadPath = path.join(tempDir, "part.step");
+    const drawingPath = path.join(tempDir, "part.pdf");
+    await fs.writeFile(cadPath, "authorized-cad-bytes");
+    await fs.writeFile(drawingPath, "authorized-drawing-bytes");
+    const [cadDigest, drawingDigest] = await Promise.all([sha256File(cadPath), sha256File(drawingPath)]);
+    const withDrawing = definition({
+      selectors: { cadUpload: "input.cad", drawingUpload: "input.drawing", quantity: "input[name='quantity']" },
+    });
+    const authorized = (await authorizeLiveEvaluationInput({
+      executionContext: "live_evaluation",
+      liveEvaluationAuthorization: {
+        nonExportControlled: true,
+        cadFileSha256: cadDigest,
+        drawingFileSha256: drawingDigest,
+      },
+      providerPortalExecutionScope: { cadPath, drawingPath, requestedQuantities: [5] },
+      organizationId: "org-1",
+      quoteRunId: "run-1",
+      part: { id: "part-1", quantity: 5 },
+      stagedCadFile: { originalName: "part.step", localPath: cadPath, trustedContentSha256: cadDigest },
+      stagedDrawingFile: { originalName: "part.pdf", localPath: drawingPath, trustedContentSha256: drawingDigest },
+      requestedQuantity: 5,
+      requirement: { quantity: 5, material: "6061 aluminum" },
+    } as VendorQuoteAdapterInput))!;
+    authorized.providerPortalApproval = buildExpectedProviderPortalApproval(withDrawing, authorized)!;
+    const hold = new ProviderDispatchAuthorizationError("export_review_pending");
+    let gateCalls = 0;
+    authorized.beforeProviderDisclosure = vi.fn(async () => {
+      gateCalls += 1;
+      if (gateCalls > 1) throw hold;
+    });
+    const fake = fakeBrowser();
+
+    const error = await runProviderPortalKernel(withDrawing, config(), authorized, {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBe(hold);
+    expect(gateCalls).toBe(2);
+    expect(fake.setInputFiles).toHaveBeenCalledTimes(1);
+  });
+
   it("does not launch without internally captured exact-file authorization", async () => {
     const launchBrowser = vi.fn();
     const unauthorized = { ...(await input()) } as VendorQuoteAdapterInput;
@@ -910,6 +998,114 @@ describe("provider portal finite states and offers", () => {
     expect(fake.browser.close).toHaveBeenCalledOnce();
   });
 
+  it("attaches optional advisory triage without weakening uncertain-upload failure", async () => {
+    const fake = fakeBrowser({ uploadFailure: new Error("Session expired; sign in again") });
+    const audit = vi.fn(async () => undefined);
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: async () => fake.browser,
+      failureTriage: {
+        decide: async (question) => ({
+          model: "jev-1.13.0", choice: "expired_session", confidence: 1,
+          probabilities: Object.fromEntries(Object.keys(question.criteria).map((key) => [key, key === "expired_session" ? 1 : 0])),
+          inputTokens: 10, outputTokens: 10,
+        }), audit,
+      },
+    })).rejects.toMatchObject({ code: "selector_failure", payload: {
+      reason: "ambiguous_provider_mutation", providerMutationPossible: true,
+      failureTriage: { category: "expired_session", advisoryOnly: true },
+    } });
+    expect(fake.setInputFiles).toHaveBeenCalledOnce();
+    expect(audit).toHaveBeenCalledOnce();
+  });
+
+  it("operational shadow observes the original failure without changing kernel error or DOM actions", async () => {
+    const approved = await input();
+    const scope: OperationalJevScope = { organizationId: approved.organizationId, quoteRunId: approved.quoteRunId,
+      taskId: "task", provider: "quickparts", sourceRevision: "f9195d2f071159bd46873b0ad402b1b12de75601" };
+    const audit = vi.fn(async () => true);
+    const decide = vi.fn(async (question) => ({ model: "jev-1.13.0", choice: "expired_session", confidence: 1,
+      probabilities: Object.fromEntries(Object.keys(question.criteria).map((key) => [key, key === "expired_session" ? 1 : 0])),
+      inputTokens: 10, outputTokens: 10 }));
+    const session = new OperationalJevSession({ mode: "shadow", admission: { scope, expiresAt: Date.now() + 60_000,
+      uses: ["exception_routing", "recovery"], evidenceProfiles: ["failure_words.v1"] }, capabilities: {
+      authorize: async () => true, reserve: async () => ({ reservationId: "budget", estimatedUsd: 0.25 }),
+      settle: async () => undefined, audit, decide,
+    } });
+    const outcomes = [];
+    for (const binding of [undefined, { session, scope, observations: new OperationalJevObservations() }]) {
+      const fake = fakeBrowser({ uploadFailure: new Error("Session expired; sign in again secret=123") });
+      const error = await runProviderPortalKernel(definition(), config(), approved, {
+        launchBrowser: async () => fake.browser, captureEvidence: async () => [], operationalJev: binding,
+      }).catch((error) => error);
+      outcomes.push({ message: error.message, code: error.code, payload: error.payload });
+      expect(fake.setInputFiles).toHaveBeenCalledOnce();
+      expect(fake.fill).not.toHaveBeenCalled(); expect(fake.selectOption).not.toHaveBeenCalled();
+      expect(fake.context.close).toHaveBeenCalledOnce(); expect(fake.browser.close).toHaveBeenCalledOnce();
+      expect(decide).not.toHaveBeenCalled();
+      await binding?.observations.drain();
+    }
+    expect(outcomes[1]).toEqual(outcomes[0]);
+    expect(outcomes[1].payload).not.toHaveProperty("failureTriage");
+    expect(decide).toHaveBeenCalledOnce();
+    expect(JSON.stringify(audit.mock.calls)).not.toContain("secret");
+  });
+
+  it.each(["declared", "quantity"])("fresh shadow preserves missing %s branch and finishes before close", async (kind) => {
+    const approved = await input();
+    const scope: OperationalJevScope = { organizationId: approved.organizationId, quoteRunId: approved.quoteRunId,
+      taskId: "task", provider: "quickparts", sourceRevision: "a".repeat(40) };
+    const missingSelector = kind === "quantity" ? "input[name='quantity']" : "select[name='material']";
+    const branchResults: boolean[] = [];
+    const portal = definition(kind === "declared" ? { selectors: { ...definition().selectors,
+      configuration: { material: { selector: missingSelector, operation: "select" } } },
+      hooks: { ...definition().hooks, configure: async (capability) => { branchResults.push(await capability.select("material", "6061")); } } } : {});
+    const run = async (shadow: boolean) => {
+      const fake = fakeBrowser({ missingSelector });
+      const session = new OperationalJevSession({ mode: "off" });
+      const recovery = vi.spyOn(session, "recovery").mockImplementation(async (_scope, observation) => {
+        expect(fake.context.close).not.toHaveBeenCalled(); expect(fake.browser.close).not.toHaveBeenCalled();
+        observation.assertBoundary(); await observation.assertReady();
+        expect(observation.field).toBe(kind === "quantity" ? "quantity" : "material");
+        return { revision: "jev-operational-source.v1", use: "recovery", phase: "final", advisoryOnly: true,
+          outcome: "observed", reason: "observed", recoveryOutcome: "proposed" };
+      });
+      vi.spyOn(session, "captureEnabled").mockReturnValue(shadow);
+      const result = await runProviderPortalKernel(portal, config(), approved, { launchBrowser: async () => fake.browser,
+        captureEvidence: async () => [], operationalJev: { session, scope, observations: new OperationalJevObservations(), freshBrowserRecovery: "bounded_observation" } });
+      expect(recovery).toHaveBeenCalledTimes(shadow ? 1 : 0);
+      expect(fake.context.close).toHaveBeenCalledOnce(); expect(fake.browser.close).toHaveBeenCalledOnce();
+      expect(fake.fill).toHaveBeenCalledTimes(kind === "quantity" ? 0 : 1); expect(fake.selectOption).not.toHaveBeenCalled();
+      return result;
+    };
+    expect(await run(true)).toEqual(await run(false));
+    if (kind === "declared") expect(branchResults).toEqual([false, false]);
+  });
+
+  it("does not reuse a task recovery receipt for a different later missing generic field", async () => {
+    const approved = await input();
+    const scope: OperationalJevScope = { organizationId: approved.organizationId, quoteRunId: approved.quoteRunId,
+      taskId: "task", provider: "quickparts", sourceRevision: "a".repeat(40) };
+    const authorize = vi.fn(async () => true), decide = vi.fn();
+    const session = new OperationalJevSession({ mode: "shadow", admission: { scope, expiresAt: Date.now() + 60000,
+      uses: ["recovery"], evidenceProfiles: ["recovery_labels.v1"] }, capabilities: { authorize, decide,
+      reserve: async () => ({ reservationId: "one", estimatedUsd: 0.1 }), settle: async () => undefined, audit: async () => true } });
+    const observations = new OperationalJevObservations();
+    const fake = fakeBrowser({ missingSelectors: ["input[name='quantity']", "select[name='material']"] });
+    const portal = definition({ selectors: { ...definition().selectors,
+      configuration: { material: { selector: "select[name='material']", operation: "select" } } },
+      hooks: { ...definition().hooks, configure: async (capability) => {
+        expect(observations.localReview().get("recovery")).toMatchObject({ reason: "no_evidence" });
+        expect(await capability.select("material", "6061")).toBe(false);
+        expect(observations.localReview().get("recovery")).toMatchObject({ reason: "recovery_observation_missing",
+          recoveryOutcome: "unavailable", freshness: "historical_after_observation", targetAuthority: "none" });
+      } } });
+    await expect(runProviderPortalKernel(portal, config(), approved, { launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [], operationalJev: { session, scope, observations, freshBrowserRecovery: "bounded_observation" } }))
+      .resolves.toMatchObject({ state: "offers_extracted" });
+    expect(authorize).toHaveBeenCalledOnce(); expect(decide).not.toHaveBeenCalled();
+    expect(fake.fill).not.toHaveBeenCalled(); expect(fake.selectOption).not.toHaveBeenCalled();
+  });
+
   it("extracts anchored offers after one authorized upload", async () => {
     const fake = fakeBrowser();
     const result = await runProviderPortalKernel(
@@ -926,6 +1122,44 @@ describe("provider portal finite states and offers", () => {
     expect(fake.setInputFiles).toHaveBeenCalledOnce();
     expect(fake.fill).toHaveBeenCalledWith("5");
     expect(fake.context.close).toHaveBeenCalledOnce();
+  });
+
+  it("marks the task mutation phase at the CAD upload and not before it", async () => {
+    const approved = await input();
+    const uploadedPhase = createProviderMutationPhase();
+    const uploaded = fakeBrowser();
+    await runInProviderMutationPhase(uploadedPhase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => uploaded.browser,
+      captureEvidence: async () => [],
+    }));
+    expect(uploaded.setInputFiles).toHaveBeenCalledOnce();
+    // A later plain failure in the same task (for example artifact persistence)
+    // is therefore not retried.
+    expect(uploadedPhase.started).toBe(true);
+
+    const redirectedPhase = createProviderMutationPhase();
+    const redirected = fakeBrowser({ navigateDuringCountAt: 1 });
+    await runInProviderMutationPhase(redirectedPhase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => redirected.browser,
+      captureEvidence: async () => [],
+    })).catch(() => undefined);
+    expect(redirected.setInputFiles).not.toHaveBeenCalled();
+    expect(redirectedPhase.started).toBe(false);
+  });
+
+  it.each([
+    { playwrightDisableSandbox: false, chromiumSandbox: true, args: [] as string[] },
+    { playwrightDisableSandbox: true, chromiumSandbox: false, args: ["--no-sandbox", "--disable-setuid-sandbox"] },
+  ])("passes the Chromium sandbox decision explicitly (disable=$playwrightDisableSandbox)", async (
+    { playwrightDisableSandbox, chromiumSandbox, args },
+  ) => {
+    const fake = fakeBrowser();
+    const launchBrowser = vi.fn(async () => fake.browser);
+    await runProviderPortalKernel(definition(), { ...config(), playwrightDisableSandbox }, await input(), {
+      launchBrowser,
+      captureEvidence: async () => [],
+    });
+    expect(launchBrowser).toHaveBeenCalledWith({ headless: true, timeout: 100, chromiumSandbox, args });
   });
 
   it("scrubs account identifiers and bounds portal evidence text", () => {
@@ -968,5 +1202,157 @@ describe("provider portal finite states and offers", () => {
       url: "https://quickquote.quickparts.com/",
       textSummary: { present: true },
     });
+  });
+});
+
+describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", () => {
+  it("refuses before navigation when the switch is engaged: the page is never loaded", async () => {
+    const fake = fakeBrowser();
+    const checkpoints: string[] = [];
+    // Authorized by identity, so the checkpoint is attached to the same object.
+    const approved = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        checkpoints.push(checkpoint);
+        throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    const error = await runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderKillSwitchError);
+    expect(checkpoints).toEqual(["before_navigation"]);
+    expect(fake.page.goto).not.toHaveBeenCalled();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.context.close).toHaveBeenCalledOnce();
+  });
+
+  it("a running task flipped off mid-flight stops at the next checkpoint before any upload or configuration", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    let engaged = false;
+    // Authorized by identity, so the checkpoint is attached to the same object.
+    const approved = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+        engaged = true; // the admin flips the switch right after navigation is allowed
+      },
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(fake.page.goto).toHaveBeenCalledOnce();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.fill).not.toHaveBeenCalled();
+    expect(phase.started).toBe(false);
+  });
+  type Checkpoint = Parameters<NonNullable<VendorQuoteAdapterInput["providerKillSwitchCheckpoint"]>>[0];
+
+  /** Fails closed only after `engaged` is flipped; records every read. */
+  async function switchableInput() {
+    const state = { engaged: false, reads: [] as Checkpoint[] };
+    const approved = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: Checkpoint) => {
+        state.reads.push(checkpoint);
+        if (state.engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    return { state, approved };
+  }
+
+  it("engaged between the before_upload read and the upload step: the CAD upload never starts", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    const { state, approved } = await switchableInput();
+    // The admin flips the switch while the kernel awaits the upload locator lookup,
+    // after the phase-level before_upload read already passed.
+    const uploadLocator = fake.page.locator("input[type='file']").first();
+    vi.mocked(uploadLocator.count).mockImplementationOnce(async () => {
+      state.engaged = true;
+      return 1;
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", reasonCode: "provider_kill_switch_engaged", checkpoint: "before_upload" });
+    expect(state.reads).toEqual(["before_navigation", "before_upload", "before_upload"]);
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+    expect(fake.fill).not.toHaveBeenCalled();
+    expect(phase.started).toBe(false);
+  });
+
+  it("engaged while the CAD upload is awaiting: no configuration is written afterwards", async () => {
+    const fake = fakeBrowser();
+    const phase = createProviderMutationPhase();
+    const { state, approved } = await switchableInput();
+    fake.setInputFiles.mockImplementationOnce(async () => {
+      state.engaged = true;
+    });
+    const error = await runInProviderMutationPhase(phase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    })).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+    expect(fake.setInputFiles).toHaveBeenCalledOnce();
+    expect(fake.fill).not.toHaveBeenCalled();
+    // The upload already reached the provider; the record says so truthfully.
+    expect(phase.started).toBe(true);
+  });
+
+  it("engaged during the quantity fill: the configure hook cannot select any option", async () => {
+    const fake = fakeBrowser();
+    const { state, approved } = await switchableInput();
+    fake.fill.mockImplementationOnce(async () => {
+      state.engaged = true;
+    });
+    const configured = definition({
+      selectors: {
+        ...definition().selectors,
+        configuration: { material: { selector: "select[name='material']", operation: "select" } },
+      },
+      hooks: {
+        ...definition().hooks,
+        configure: async (configuration) => {
+          await configuration.select("material", "6061");
+        },
+      },
+    });
+    const error = await runProviderPortalKernel(configured, config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+    expect(fake.fill).toHaveBeenCalledOnce();
+    expect(fake.selectOption).not.toHaveBeenCalled();
+  });
+
+  it("engaged during a failed navigation attempt: the retry re-reads the switch and never navigates again", async () => {
+    const fake = fakeBrowser();
+    const { state, approved } = await switchableInput();
+    vi.mocked(fake.page.goto).mockImplementationOnce(async () => {
+      state.engaged = true;
+      throw new Error("net::ERR_CONNECTION_RESET");
+    });
+    const error = await runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => fake.browser,
+      captureEvidence: async () => [],
+    }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_navigation" });
+    expect(state.reads).toEqual(["before_navigation", "before_navigation"]);
+    expect(fake.page.goto).toHaveBeenCalledOnce();
+    expect(fake.setInputFiles).not.toHaveBeenCalled();
+  });
+
+  it("runIntentionalPortalRetry never retries past a kill-switch refusal", async () => {
+    const refusal = new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", "before_navigation");
+    const operation = vi.fn(async () => {
+      throw refusal;
+    });
+    await expect(runIntentionalPortalRetry({ operation, maxAttempts: 2, providerMutationPossible: false }))
+      .rejects.toBe(refusal);
+    expect(operation).toHaveBeenCalledOnce();
   });
 });

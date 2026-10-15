@@ -1,5 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevTaskCapability } from "./jev/operationalSession.js";
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
 import { autoApproveJobRequirements } from "./autoApprove.js";
@@ -61,19 +63,45 @@ import {
   VendorArtifact,
   VendorAutomationError,
   VendorName,
+  VendorQuoteAdapterInput,
   WorkerConfig,
 } from "./types.js";
 import { buildExtractionCompletionPayload } from "./extractionObservability.js";
 import { createSpendGuard, SpendCapExceededError } from "./spendGuard.js";
 import {
+  ExportMarkingRescanTaskInvalidError,
   failureCodeForError,
+  isRetryableExportRescanError,
   isRetryableVendorTaskError,
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
+import {
+  createProviderMutationPhase,
+  currentProviderMutationPhase,
+  markProviderMutationStarted,
+  providerMutationEvidence,
+  runInProviderMutationPhase,
+} from "./providerMutationPhase.js";
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
-import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
+import { isProductionEnvironment, shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
+import {
+  assertExportControlExtractionAllowed,
+  enforceAndRecordStepHeaderScan,
+  ExportControlDrawingUnreadError,
+  ExportControlLookupError,
+  exportControlModelAttemptGuard,
+  exportScanOutcomesPayload,
+  type ExportScanOutcomes,
+  isStepFileName,
+  readStagedStepHeaderPrefix,
+  runExportMarkingRescan,
+  scanDrawingForExtraction,
+  scanPartStepHeaderForExtraction,
+  ExportControlStepScanRetryableError,
+  scanStagedDrawingForExportMarkings,
+} from "./exportControl.js";
 import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
 import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
 import {
@@ -83,9 +111,42 @@ import {
 import { isRetryableCadPreviewError } from "./cadPreview.js";
 import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 import {
-  quoteWithDispatchPreflight,
-  XometryDispatchAuthorizationError,
-} from "./xometryDispatchPreflight.js";
+  assertExportControlDispatchAllowed,
+  dispatchAuthorizationFailure,
+  exportControlHoldNote,
+  exportControlHoldReason,
+  providerDispatchClaimFromTask,
+  quoteWithRoutedDispatchPreflight,
+  withExportControlDispatchRecheck,
+} from "./dispatchRouting.js";
+import {
+  cancelVendorTaskForDisabledProvider,
+  checkProviderKillSwitchAtClaim,
+  createProviderKillSwitchGuard,
+  guardProviderQuote,
+  markTaskCancelledForDisabledProvider,
+  supabaseProviderKillSwitchReader,
+  failVendorResultForUnavailableKillSwitch,
+  ProviderKillSwitchError,
+  isProviderKillSwitchEngaged,
+  providerKillSwitchSweepWarnings,
+  sweepProviderDisabledTasks,
+} from "./providerKillSwitch.js";
+import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
+import { createProviderDaySwitch, type ProviderTaskOutcome } from "./providerTaskPipeline.js";
+import {
+  preserveDerivedValiditySource,
+  providerTaskFailureRecord,
+  providerTaskOutcomeNote,
+  runGenericProviderTask,
+} from "./providerTaskRoute.js";
+
+// OVD-464: process wide state for the generic provider route. The replay
+// record is keyed by permit and fingerprint, so one permit dispatches at most
+// once in this process; the day switch turns a provider off until the next
+// UTC midnight after a block or ban.
+const providerAuthorizationConsumer = createProviderAuthorizationConsumer();
+const providerDaySwitch = createProviderDaySwitch();
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -555,6 +616,20 @@ async function runDrawingExtractionForTask(
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
+    // OVD-723: a marking hit records a blocked_pending_review block and fails
+    // the task before any model call; a clean result records a clean scan,
+    // which dispatch requires. A failed record also fails the task.
+    // The clean scan is bound to the hash of the staged bytes; without a
+    // staged file there is no hash, and a record attempt fails closed. A
+    // drawing with any unread page gets no clean scan and the task stops
+    // before any model call.
+    await scanDrawingForExtraction(supabase, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      drawingFile: context.drawingFile,
+      contentSha256: stagedDrawingFile?.trustedContentSha256 ?? "",
+      pdfText,
+    });
     let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
 
     if (stagedDrawingFile && pdfText) {
@@ -602,6 +677,9 @@ async function runDrawingExtractionForTask(
             ...config,
             drawingExtractionModel: effectiveModel,
           };
+    // OVD-723: no CAD or drawing content reaches a model unless the job's
+    // latest declaration is not_controlled with no open or confirmed block.
+    await assertExportControlExtractionAllowed(supabase, { jobId: task.job_id });
     const extraction = await runHybridExtraction({
       part: context.part,
       cadFile: context.cadFile,
@@ -611,6 +689,10 @@ async function runDrawingExtractionForTask(
       previewPagePath: firstPagePreviewPath,
       runDir,
       config: extractionConfig,
+      // OVD-723: asked again before each model attempt (title block crop,
+      // full page), so a declaration or block that lands after the check
+      // above stops the next attempt before any content is sent.
+      beforeModelAttempt: exportControlModelAttemptGuard(supabase, { jobId: task.job_id }),
       // Budget is enforced here rather than at request admission: a ceiling
       // checked when a user clicks something cannot stop a retry storm or a
       // stuck loop, which is the shape a runaway actually takes.
@@ -664,12 +746,25 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   let runDir: string | null = null;
   let organizationIdForError: string | null = null;
   let partIdForError: string | null = task.part_id;
+  // OVD-723: per file scan outcomes, recorded in the task payload on
+  // completion and on an unread drawing failure (exportScanOutcomes).
+  const exportScanOutcomes: ExportScanOutcomes = {};
   try {
     const identityContext = await fetchPartContext(supabase, task.part_id!);
     const identityStageDir = await createRunDir(config, ["identity", task.id]);
     runDir = identityStageDir;
-    await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
-    await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
+    const identityStagedCad = await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
+    const identityStagedDrawing = await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
+    // OVD-723 review round 5: scan the STEP header here, on both the reuse and
+    // the extraction path, so a new STEP part has its scan of record (or a
+    // held outcome) before any quote is requested. No model is called.
+    await scanPartStepHeaderForExtraction(supabase, {
+      jobId: task.job_id!,
+      partId: task.part_id,
+      cadFile: identityContext.cadFile,
+      stagedCad: identityStagedCad,
+      readPrefix: readStagedStepHeaderPrefix,
+    }, exportScanOutcomes);
 
     const { data: trustedIntake, error: trustedIntakeError } = await supabase.rpc(
       "api_resolve_trusted_part_intake",
@@ -716,12 +811,29 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           throw new CanonicalArtifactsPendingError(sourcePartId);
         }
       } else {
+        // OVD-723: reuse skips extraction, so this part's own drawing has not
+        // been scanned in this job. Scan it here; a hit blocks this job, and
+        // without a clean scan dispatch is denied (export_scan_missing).
+        await scanStagedDrawingForExportMarkings(supabase, {
+          jobId: task.job_id!,
+          partId: task.part_id,
+          drawingFile:
+            identityContext.drawingFile && identityStagedDrawing
+              ? {
+                  id: identityContext.drawingFile.id,
+                  localPath: identityStagedDrawing.localPath,
+                  contentSha256: identityStagedDrawing.trustedContentSha256 ?? "",
+                }
+              : null,
+          extractText: extractPdfText,
+        }, exportScanOutcomes);
         const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
         await markTaskCompleted(supabase, task, {
           canonicalPartVersionId: partVersionId,
           reusedCanonicalPartVersion: true,
           sourcePartId,
           autoApprovedPartCount,
+          exportScanOutcomes,
         });
         return;
       }
@@ -816,8 +928,13 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     await markTaskCompleted(supabase, task, {
       cadPreviewStatus,
       ...completionPayload,
+      exportScanOutcomes,
     });
   } catch (error) {
+    if (error instanceof ExportControlDrawingUnreadError) {
+      // The failed task records the STEP outcome with the unread drawing.
+      error.exportScanOutcomes = { ...exportScanOutcomes, ...error.exportScanOutcomes };
+    }
     if (organizationIdForError && task.job_id) {
       await logWorkerAuditEvent(supabase, {
         organizationId: organizationIdForError,
@@ -1019,11 +1136,14 @@ async function handleDebugExtractTask(
  * Retryable automation or persistence failures are rethrown for queue retry; terminal
  * failures are recorded on the result before the task completes.
  */
-async function handleVendorQuoteTask(
+export async function handleVendorQuoteTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   config: WorkerConfig,
+  operationalJev?: OperationalJevTaskCapability,
 ) {
+  const advisory = operationalJev ? Object.freeze({ ...operationalJev,
+    session: captureOperationalJevConsumer(operationalJev.session) }) : undefined;
   if (!task.part_id || !task.quote_run_id || !task.job_id) {
     throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
   }
@@ -1086,6 +1206,53 @@ async function handleVendorQuoteTask(
 
   const retryCount = retryCountForAttempts(task.attempts);
 
+  // OVD-722: a switched-off provider's queued task ends truthfully at claim,
+  // before the lane is marked running or anything is staged.
+  if (config.workerMode === "live") {
+    let claimCheck: "proceed" | "cancelled";
+    try {
+      claimCheck = await checkProviderKillSwitchAtClaim({
+        supabase,
+        task,
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        requestedQuantity: currentResult.requested_quantity,
+      });
+    } catch (error) {
+      // An unreadable switch is retried by the queue loop. When its retries are
+      // spent the loop fails the task, so the lane must settle visibly too;
+      // otherwise it would stay queued with no task left to run it.
+      if (error instanceof ProviderKillSwitchError && nextRetryAt(task.attempts) === null) {
+        // A database error while settling must not replace the kill switch
+        // error: the queue loop needs it to fail the task with the right code.
+        try {
+          await failVendorResultForUnavailableKillSwitch(supabase, {
+            vendorQuoteResultId: currentResult.id,
+            error,
+            retryCount,
+            requestedQuantity: currentResult.requested_quantity,
+          });
+          await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+        } catch (settleError) {
+          console.warn(
+            JSON.stringify({
+              service: "overdrafter-cad-worker",
+              level: "warn",
+              source: "worker.kill_switch",
+              message: `Could not settle the lane after the kill switch read failed: ${summarizeWorkerError(settleError)}`,
+              context: { taskId: task.id, vendorQuoteResultId: currentResult.id },
+            }),
+          );
+        }
+      }
+      throw error;
+    }
+    if (claimCheck === "cancelled") {
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+      return;
+    }
+  }
+
   await supabase
     .from("vendor_quote_results")
     .update({
@@ -1103,12 +1270,250 @@ async function handleVendorQuoteTask(
     })
     .eq("id", currentResult.id);
 
-  const adapters = buildAdapterRegistry(config);
+  const operationalScope = Object.freeze({ organizationId: task.organization_id, taskId: task.id,
+    quoteRunId: task.quote_run_id, provider: vendor, sourceRevision: advisory?.sourceRevision ?? "" });
+  const adapters = buildAdapterRegistry(config, advisory ? { session: advisory.session, scope: operationalScope,
+    observations: advisory.observations, freshBrowserRecovery: advisory.freshBrowserRecovery, engineeringCatalog: advisory.engineeringCatalog,
+  } : undefined);
   const adapter = adapters[vendor];
   const artifactDirs = new Set<string>();
   let stageDir: string | null = null;
 
+  let stagedCadFile: Awaited<ReturnType<typeof stageStorageObject>> = null;
+  let stagedDrawingFile: Awaited<ReturnType<typeof stageStorageObject>> = null;
+  // Only container time actually consumed should be charged. Staging can fail
+  // before the browser ever launches, and settling the full estimate for a lane
+  // that never started would hold budget for spend that did not happen.
+  let vendorAutomationStarted = false;
+  // OVD-723: the export stop the generic route raised while the pipeline's own
+  // mutation phase was still unmarked (no upload yet). The lane is held either
+  // way; this only picks the note that says nothing was sent.
+  let exportStopBeforeProviderMutation: unknown = null;
+  // Set once vendor_quote_results and its offers are written atomically. From
+  // then on a bookkeeping failure must never overwrite that result.
+  let resultPersisted = false;
+
+  // Every failure of this lane, before or after the spend reservation, ends
+  // here: an export-control hold closes the lane, a denied dispatch becomes
+  // manual follow-up, anything else is recorded and rethrown for retry.
+  // The task's ids were checked non-null at entry; the closure below keeps them narrowed.
+  const laneJobId = task.job_id;
+  const lanePartId = task.part_id;
+  const laneQuoteRunId = task.quote_run_id;
+  const handleLaneFailure = async (error: unknown): Promise<void> => {
+    if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
+    if (resultPersisted) {
+      await settlePostPersistBookkeepingFailure(supabase, task, error);
+      return;
+    }
+    // OVD-722: an engaged switch at any checkpoint (before launch, or inside
+    // the adapter before navigation/upload/configure) ends the task as
+    // cancelled_provider_disabled, never as a provider failure or a retry.
+    if (isProviderKillSwitchEngaged(error)) {
+      await cancelVendorTaskForDisabledProvider(supabase, task, {
+        vendorQuoteResultId: currentResult.id,
+        error,
+        requestedQuantity: currentResult.requested_quantity,
+        providerMutationPossible: providerMutationEvidence().providerMutationPossible === true,
+      });
+      await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+      return;
+    }
+    const vendorError =
+      error instanceof VendorAutomationError ? error : null;
+    const dispatchAuthorizationError = dispatchAuthorizationFailure(error);
+    const failureArtifacts = vendorError?.artifacts ?? [];
+    failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
+    const failureArtifactStoragePaths =
+      failureArtifacts.length > 0
+        ? await persistVendorArtifacts(supabase, config, {
+            vendorQuoteResultId: currentResult.id,
+            organizationId: task.organization_id,
+            quoteRunId: laneQuoteRunId,
+            partId: lanePartId,
+            vendor,
+            artifacts: failureArtifacts,
+          })
+        : [];
+
+    if (vendorError) {
+      await enqueueRepairCandidate(supabase, task, vendorError);
+    }
+
+    // OVD-723: an export-control hold (a gate denial, a marking hit while
+    // staging, or a lookup that failed through every retry) is terminal and
+    // never becomes manual vendor follow-up: quoting held files by hand would
+    // send them to the vendor the gate refused. The lane is closed as failed,
+    // so it stays out of the manual quote queue, and the task completes so it
+    // is never retried (a retry would only rescan and refuse again). A lookup
+    // that failed after the adapter started is held too: the provider may
+    // already hold an upload, so the task is never requeued.
+    const providerMutationStarted = currentProviderMutationPhase()?.started === true;
+    const exportControlHold =
+      exportControlHoldReason(error)
+      ?? (error instanceof ExportControlLookupError
+        && (providerMutationStarted || nextRetryAt(task.attempts) === null) ? error.reasonCode : null);
+    if (exportControlHold) {
+      const holdWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+        status: "failed",
+        notes: [exportControlHoldNote({
+          providerMutationStarted,
+          stopBeforeProviderMutation: error === exportStopBeforeProviderMutation,
+          lookupFailed: error instanceof ExportControlLookupError,
+        })],
+        raw_payload: {
+          ...buildFailureRawPayload(vendor, retryCount, exportControlHold, {}, failureArtifactStoragePaths),
+          ...providerMutationEvidence(),
+          requestedQuantity: currentResult.requested_quantity,
+          retryScheduledFor: null,
+          requiresManualVendorFollowUp: false,
+          manualFollowUpReason: null,
+          exportControlHold: true,
+          exportControlReasonCode: exportControlHold,
+        },
+      });
+      if (holdWrite !== "written") {
+        await settleUnwrittenProviderOutcome(supabase, task, holdWrite, providerMutationStarted);
+        return;
+      }
+      await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+      await markTaskCompleted(supabase, task, {
+        vendorStatus: "failed",
+        exportControlHold: true,
+        failureCode: exportControlHold,
+      });
+      return;
+    }
+
+    const failureCode = dispatchAuthorizationError
+      ? dispatchAuthorizationError.reasonCode
+      : failureCodeForError(error);
+    const failureMessage = summarizeWorkerError(error);
+    // An unreadable kill switch is retryable only before any provider mutation.
+    const retryableDispatchAuthorizationError =
+      dispatchAuthorizationError?.retryable === true &&
+      (dispatchAuthorizationError.boundary !== "kill_switch" || isRetryableVendorTaskError(error));
+    const requiresManualVendorFollowUp =
+      vendorError?.code === "not_implemented" ||
+      Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
+    const retryAt =
+      requiresManualVendorFollowUp ||
+      !(retryableDispatchAuthorizationError || isRetryableVendorTaskError(error))
+        ? null
+        : nextRetryAt(task.attempts);
+    let manualReasonCode: string | null = null;
+    if (dispatchAuthorizationError && !retryableDispatchAuthorizationError) {
+      manualReasonCode = dispatchAuthorizationError.reasonCode;
+    } else if (requiresManualVendorFollowUp) {
+      manualReasonCode = "adapter_not_implemented";
+    }
+    let resultStatus: "queued" | "manual_vendor_followup" | "failed" = "failed";
+    if (requiresManualVendorFollowUp) {
+      resultStatus = "manual_vendor_followup";
+    } else if (retryAt) {
+      resultStatus = "queued";
+    }
+    let failureNote = failureMessage;
+    if (dispatchAuthorizationError?.boundary === "kill_switch") {
+      // After a provider mutation may have started the read failure is not
+      // retryable and the lane goes to manual follow up; the note must not say
+      // nothing was sent.
+      if (requiresManualVendorFollowUp) {
+        failureNote = `${vendor} kill switch state could not be confirmed after the upload started, so the provider may already hold the upload. Automation stopped and manual follow-up is required.`;
+      } else if (retryableDispatchAuthorizationError && retryAt) {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent. Retry scheduled for ${retryAt}.`;
+      } else {
+        failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
+      }
+    } else if (dispatchAuthorizationError?.boundary === "provider") {
+      failureNote = retryableDispatchAuthorizationError && retryAt
+        ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
+        : `Automatic ${vendor} dispatch authorization was denied before adapter launch; manual follow-up is required.`;
+    } else if (retryableDispatchAuthorizationError && retryAt) {
+      failureNote = `Xometry dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`;
+    } else if (dispatchAuthorizationError) {
+      failureNote =
+        "Automatic Xometry dispatch authorization was denied before browser launch; manual follow-up is required.";
+    } else if (requiresManualVendorFollowUp) {
+      failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
+    } else if (error instanceof ExportControlLookupError && retryAt) {
+      failureNote = `The export-control check is temporarily unavailable. Nothing was sent to ${vendor}. Retry scheduled for ${retryAt}.`;
+    } else if (retryAt) {
+      failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
+    }
+
+    const laneWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+      status: resultStatus,
+      notes: [failureNote],
+      raw_payload: {
+        ...buildFailureRawPayload(
+          vendor,
+          retryCount,
+          failureCode,
+          vendorError?.payload ?? {},
+          failureArtifactStoragePaths,
+        ),
+        ...providerMutationEvidence(),
+        requestedQuantity: currentResult.requested_quantity,
+        retryScheduledFor: retryAt,
+        requiresManualVendorFollowUp,
+        manualFollowUpReason: manualReasonCode,
+      },
+    }).catch(() => "written" as const); // The failure write was never checked here; an error keeps the old flow.
+    if (laneWrite === "persisted") {
+      // The atomic write committed but its acknowledgement was lost: the result
+      // and offers stand, and the task must not be retried into a second quote.
+      await settlePersistedResultTask(supabase, task, error, "persist_ack_lost");
+      return;
+    }
+
+    await syncJobStatusAfterVendorUpdate(supabase, laneJobId, laneQuoteRunId);
+
+    if (requiresManualVendorFollowUp) {
+      await markTaskCompleted(supabase, task, {
+          vendorStatus: "manual_vendor_followup",
+        manualVendor: true,
+        manualReasonCode,
+        failureCode,
+      });
+      return;
+    }
+
+    throw error;
+  };
+
+  // OVD-723: the export-control gate runs before any route that could make
+  // this lane manual work (an adapter not enabled in WORKER_LIVE_ADAPTERS, an
+  // exhausted spend cap). A held job closes the lane as held here and never
+  // becomes a manual quote task. The STEP header is scanned first, on every
+  // quote, so the gate sees this file's scan of record; it is recorded clean
+  // only when the whole header was read.
+  try {
+    stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
+    stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
+    stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    if (stagedCadFile && context.cadFile && isStepFileName(context.cadFile.original_name)) {
+      await enforceAndRecordStepHeaderScan(supabase, {
+        jobId: task.job_id,
+        partId: context.part.id,
+        jobFileId: context.cadFile.id,
+        localPath: stagedCadFile.localPath,
+        contentSha256: stagedCadFile.trustedContentSha256 ?? "",
+        readPrefix: readStagedStepHeaderPrefix,
+      });
+    }
+    await assertExportControlDispatchAllowed(supabase, { taskId: task.id, vendor });
+  } catch (error) {
+    try {
+      await handleLaneFailure(error);
+    } finally {
+      await cleanupPaths([stageDir, ...artifactDirs]);
+    }
+    return;
+  }
+
   if (!adapter) {
+    await cleanupPaths([stageDir]);
     const manualReasonCode = "adapter_not_enabled";
 
     await supabase
@@ -1156,6 +1561,7 @@ async function handleVendorQuoteTask(
       taskId: task.id,
     });
   } catch (error) {
+    await cleanupPaths([stageDir]);
     if (error instanceof SpendCapExceededError) {
       const retryAt = nextRetryAt(task.attempts);
 
@@ -1163,31 +1569,37 @@ async function handleVendorQuoteTask(
       // terminal path here moves it on; without this it would sit reporting
       // "running" forever on a lane that was never going to run -- a
       // customer-facing quote that silently never resolves.
-      await supabase
-        .from("vendor_quote_results")
-        .update({
-          status: retryAt ? "queued" : "manual_vendor_followup",
-          notes: [
-            retryAt
-              ? `Spend cap reached; this lane will retry. ${error.message}`
-              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
-          ],
-          raw_payload: {
-            mode: config.workerMode,
-            requiresManualVendorFollowUp: !retryAt,
-            manualFollowUpReason: "spend_cap_reached",
-            spendCapReasonCode: error.reasonCode,
-            requestedQuantity: currentResult.requested_quantity,
-            failureCode: "spend_cap_reached",
-          },
-        })
-        .eq("id", currentResult.id);
+      const writeSpendCapLane = () =>
+        supabase
+          .from("vendor_quote_results")
+          .update({
+            status: retryAt ? "queued" : "manual_vendor_followup",
+            notes: [
+              retryAt
+                ? `Spend cap reached; this lane will retry. ${error.message}`
+                : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+            ],
+            raw_payload: {
+              mode: config.workerMode,
+              requiresManualVendorFollowUp: !retryAt,
+              manualFollowUpReason: "spend_cap_reached",
+              spendCapReasonCode: error.reasonCode,
+              requestedQuantity: currentResult.requested_quantity,
+              failureCode: "spend_cap_reached",
+            },
+          })
+          .eq("id", currentResult.id);
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
+        // Requeue first: the lane may only advertise a retry that is actually
+        // scheduled. False means the task was settled elsewhere (cancelled,
+        // say); queue.ts logs that and the lane is left as it is.
+        const requeued = await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
           spendCapReasonCode: error.reasonCode,
         });
+        if (requeued) await writeSpendCapLane();
       } else {
+        await writeSpendCapLane();
         // Retries are exhausted, but nothing about this lane is broken -- it was
         // priced out. Cancelling rather than failing keeps the distinction, so it
         // reads as "not run" instead of "tried and defective" and can simply be
@@ -1201,15 +1613,7 @@ async function handleVendorQuoteTask(
     throw error;
   }
 
-  // Only container time actually consumed should be charged. Staging can fail
-  // before the browser ever launches, and settling the full estimate for a lane
-  // that never started would hold budget for spend that did not happen.
-  let vendorAutomationStarted = false;
-
   try {
-    stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
-    const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
-    const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
     const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(
       "api_get_worker_sourcing_intent",
       { p_job_id: task.job_id, p_part_id: context.part.id },
@@ -1239,15 +1643,186 @@ async function handleVendorQuoteTask(
     if (laneRegistrationError) {
       throw laneRegistrationError;
     }
-    const result = await quoteWithDispatchPreflight({
+    if (advisory) {
+      try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
+      catch { /* Local advisory capture cannot affect dispatch authority. */ }
+    }
+    // OVD-723: the export-control gate runs again before the preflight; a
+    // denial ends the task like a preflight denial, before any adapter
+    // launches.
+    await assertExportControlDispatchAllowed(supabase, { taskId: task.id, vendor });
+    // OVD-464: a live non Xometry task carrying a generic permit runs the
+    // ordered provider pipeline and records its own finite outcome. Xometry
+    // and simulate mode keep the path below unchanged.
+    const genericClaim =
+      config.workerMode === "live"
+        ? providerDispatchClaimFromTask({ task, vendorQuoteResultId: currentResult.id, vendor })
+        : null;
+    if (genericClaim) {
+      const { quote_run_id: quoteRunId, part_id: partId } = task;
+      // OVD-723: the generic route asks the export-control gate again right
+      // before adapter.quote and before each upload. A hold or failed lookup
+      // raised in there is rethrown to handleLaneFailure once the pipeline
+      // returns, so the lane is closed as held (or retried, for a lookup),
+      // never recorded as a provider failure or manual follow-up.
+      let exportControlStop: unknown = null;
+      // Vendor automation counts as started (full spend estimate) only once
+      // both the kill switch read and this recheck passed.
+      const exportCheckedAdapter = withExportControlDispatchRecheck(adapter, supabase, {
+        taskId: task.id,
+        vendor,
+        onAllowed: () => {
+          vendorAutomationStarted = true;
+        },
+      });
+      const approvedRequirement = context.requirement;
+      const quoteInput: VendorQuoteAdapterInput = {
+        organizationId: task.organization_id,
+        quoteRunId: task.quote_run_id,
+        part: context.part,
+        cadFile: context.cadFile,
+        drawingFile: context.drawingFile,
+        stagedCadFile,
+        stagedDrawingFile,
+        requirement: context.requirement,
+        requestedQuantity: currentResult.requested_quantity,
+      };
+      const outcome = await runGenericProviderTask({
+        supabase,
+        workerName: config.workerName,
+        claimedAt: task.locked_at ?? "",
+        task: { id: task.id, attempts: task.attempts, organizationId: task.organization_id, quoteRunId: task.quote_run_id },
+        claim: genericClaim,
+        scopeSnapshot,
+        requestedQuantity: currentResult.requested_quantity,
+        environment: isProductionEnvironment() ? "production" : "development",
+        adapterRevision: `${vendor}@${config.workerBuildVersion}`.slice(0, 80),
+        leaseSetting: config.providerSessionLease ?? "off",
+        // No lease port: the OVD-462 lease manager is not on main yet, so
+        // with the setting on the pipeline fails closed with
+        // session_lease_unavailable.
+        quoteInput,
+        // OVD-722: the kill switch is read again immediately before the
+        // launch, inside the pipeline's adapter step, and the same guard goes
+        // to the adapter for its own checkpoints. An engaged switch comes back
+        // as the cancelled_provider_disabled outcome. Never marks a provider
+        // mutation here: the pipeline runs the adapter in its own mutation
+        // phase, which the adapter marks itself.
+        // OVD-723: inside that guard the export-control recheck runs before
+        // adapter.quote. Both gates must pass before any provider call; the
+        // kill switch is read first, so an engaged switch ends the lane as
+        // cancelled_provider_disabled even when the job is also held.
+        adapter: {
+          provider: vendor,
+          quote: guardProviderQuote(
+            createProviderKillSwitchGuard(supabaseProviderKillSwitchReader(supabase), vendor),
+            async (input) => {
+              try {
+                return await exportCheckedAdapter.quote(input);
+              } catch (error) {
+                if (exportControlHoldReason(error) || error instanceof ExportControlLookupError) {
+                  exportControlStop = error;
+                  // The pipeline runs this call in its own mutation phase, which
+                  // adapters mark right before their first upload.
+                  if (currentProviderMutationPhase()?.started !== true) exportStopBeforeProviderMutation = error;
+                }
+                throw error;
+              }
+            },
+          ),
+        },
+        consumer: providerAuthorizationConsumer,
+        daySwitch: providerDaySwitch,
+        persist: async (output) => {
+          output.artifacts.forEach((artifact: VendorArtifact) => artifactDirs.add(path.dirname(artifact.localPath)));
+          const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
+            vendorQuoteResultId: currentResult.id,
+            organizationId: task.organization_id,
+            quoteRunId,
+            partId,
+            vendor,
+            artifacts: output.artifacts,
+          });
+          await finalizeVendorQuoteResult(
+            supabase,
+            currentResult.id,
+            {
+              status: output.status,
+              unit_price_usd: output.unitPriceUsd,
+              total_price_usd: output.totalPriceUsd,
+              lead_time_business_days: output.leadTimeBusinessDays,
+              quote_url: output.quoteUrl,
+              dfm_issues: output.dfmIssues,
+              notes: output.notes,
+              raw_payload: {
+                ...output.rawPayload,
+                offers: output.offers ?? [],
+                artifactStoragePaths,
+                requestedQuantity: currentResult.requested_quantity,
+                requirementCapturedAt,
+                retryCount,
+                failureCode: null,
+              },
+            },
+            preserveDerivedValiditySource(
+              output,
+              buildVendorQuoteOfferPayloads({
+                vendorQuoteResultId: currentResult.id,
+                organizationId: task.organization_id,
+                vendor,
+                requestedQuantity: currentResult.requested_quantity,
+                requirement: approvedRequirement,
+                requirementCapturedAt,
+                result: output,
+              }),
+            ),
+          );
+          resultPersisted = true;
+          return { artifactCount: artifactStoragePaths.length };
+        },
+      });
+      // Once the adapter ran, nothing later in this task may be retried by the
+      // generic task retry: the provider may hold an upload or a quote. This
+      // is marked before an export stop is rethrown, so a lookup that failed
+      // after an upload closes the lane as held instead of requeueing it.
+      if (outcome.adapterStarted) markProviderMutationStarted();
+      if (exportControlStop) throw exportControlStop;
+      const failureArtifactStoragePaths = await keepGenericProviderFailureEvidence(supabase, config, task, {
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        outcome,
+        artifactDirs,
+      });
+      await recordGenericProviderOutcome(supabase, task, {
+        vendor,
+        vendorQuoteResultId: currentResult.id,
+        requestedQuantity: currentResult.requested_quantity,
+        retryCount,
+        outcome,
+        failureArtifactStoragePaths,
+      });
+      return;
+    }
+
+    const result = await quoteWithRoutedDispatchPreflight({
       supabase,
       config,
-      workQueueTaskId: task.id,
+      task,
       vendorQuoteResultId: currentResult.id,
       claimedAt: task.locked_at ?? "",
       vendor,
       scopeSnapshot,
-      adapter,
+      // OVD-723 point in time check: after the preflight authorizes and
+      // immediately before adapter.quote, the gate is asked once more. Vendor
+      // automation counts as started (full spend estimate) only once it passes,
+      // so a lane denied here settles nothing.
+      adapter: withExportControlDispatchRecheck(adapter, supabase, {
+        taskId: task.id,
+        vendor,
+        onAllowed: () => {
+          vendorAutomationStarted = true;
+        },
+      }),
       quoteInput: {
         organizationId: task.organization_id,
         quoteRunId: task.quote_run_id,
@@ -1258,9 +1833,6 @@ async function handleVendorQuoteTask(
         stagedDrawingFile,
         requirement: context.requirement,
         requestedQuantity: currentResult.requested_quantity,
-      },
-      onAuthorized: () => {
-        vendorAutomationStarted = true;
       },
     });
 
@@ -1309,6 +1881,7 @@ async function handleVendorQuoteTask(
       },
       offerPayloads,
     );
+    resultPersisted = true;
 
     // Compute and store routing scores for this quote run.
     // This is a best-effort operation — it will only succeed once all
@@ -1349,100 +1922,7 @@ async function handleVendorQuoteTask(
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
-    const vendorError =
-      error instanceof VendorAutomationError ? error : null;
-    const dispatchAuthorizationError =
-      error instanceof XometryDispatchAuthorizationError ? error : null;
-    const failureArtifacts = vendorError?.artifacts ?? [];
-    failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
-    const failureArtifactStoragePaths =
-      failureArtifacts.length > 0
-        ? await persistVendorArtifacts(supabase, config, {
-            vendorQuoteResultId: currentResult.id,
-            organizationId: task.organization_id,
-            quoteRunId: task.quote_run_id,
-            partId: task.part_id,
-            vendor,
-            artifacts: failureArtifacts,
-          })
-        : [];
-
-    if (vendorError) {
-      await enqueueRepairCandidate(supabase, task, vendorError);
-    }
-
-    const failureCode = dispatchAuthorizationError
-      ? dispatchAuthorizationError.reasonCode
-      : failureCodeForError(error);
-    const failureMessage = summarizeWorkerError(error);
-    const retryableDispatchAuthorizationError =
-      dispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable";
-    const requiresManualVendorFollowUp =
-      vendorError?.code === "not_implemented" ||
-      Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
-    const retryAt =
-      requiresManualVendorFollowUp ||
-      !(retryableDispatchAuthorizationError || isRetryableVendorTaskError(error))
-        ? null
-        : nextRetryAt(task.attempts);
-    let manualReasonCode: string | null = null;
-    if (dispatchAuthorizationError && !retryableDispatchAuthorizationError) {
-      manualReasonCode = dispatchAuthorizationError.reasonCode;
-    } else if (requiresManualVendorFollowUp) {
-      manualReasonCode = "adapter_not_implemented";
-    }
-    let resultStatus: "queued" | "manual_vendor_followup" | "failed" = "failed";
-    if (requiresManualVendorFollowUp) {
-      resultStatus = "manual_vendor_followup";
-    } else if (retryAt) {
-      resultStatus = "queued";
-    }
-    let failureNote = failureMessage;
-    if (retryableDispatchAuthorizationError && retryAt) {
-      failureNote = `Xometry dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`;
-    } else if (dispatchAuthorizationError) {
-      failureNote =
-        "Automatic Xometry dispatch authorization was denied before browser launch; manual follow-up is required.";
-    } else if (requiresManualVendorFollowUp) {
-      failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
-    } else if (retryAt) {
-      failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
-    }
-
-    await supabase
-      .from("vendor_quote_results")
-      .update({
-        status: resultStatus,
-        notes: [failureNote],
-        raw_payload: {
-          ...buildFailureRawPayload(
-            vendor,
-            retryCount,
-            failureCode,
-            vendorError?.payload ?? {},
-            failureArtifactStoragePaths,
-          ),
-          requestedQuantity: currentResult.requested_quantity,
-          retryScheduledFor: retryAt,
-          requiresManualVendorFollowUp,
-          manualFollowUpReason: manualReasonCode,
-        },
-      })
-      .eq("id", currentResult.id);
-
-    await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-
-    if (requiresManualVendorFollowUp) {
-      await markTaskCompleted(supabase, task, {
-          vendorStatus: "manual_vendor_followup",
-        manualVendor: true,
-        manualReasonCode,
-        failureCode,
-      });
-      return;
-    }
-
-    throw error;
+    await handleLaneFailure(error);
   } finally {
     // Settle regardless of outcome: an estimate left booked for a lane that
     // never ran would hold budget for the rest of the window.
@@ -1451,6 +1931,301 @@ async function handleVendorQuoteTask(
       vendorAutomationStarted ? VENDOR_RUN_SPEND_ESTIMATE_USD : 0,
     );
     await cleanupPaths([stageDir, ...artifactDirs]);
+  }
+}
+
+/**
+ * OVD-723 scan only rescan of one job file (`export_marking_rescan`), queued
+ * after a clean declaration for files with no clean scan of their current
+ * bytes. It records a clean scan or opens a block and never calls a model
+ * (`runExportMarkingRescan`). A blocked, unread, or incomplete result is an
+ * outcome, not a failure: the task completes and dispatch stays denied.
+ */
+export async function handleExportMarkingRescanTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  config: WorkerConfig,
+) {
+  const jobFileId = typeof task.payload.jobFileId === "string" ? task.payload.jobFileId : null;
+  if (!task.job_id || !jobFileId) {
+    throw new ExportMarkingRescanTaskInvalidError();
+  }
+
+  const { data: file, error } = await supabase
+    .from("job_files")
+    .select("*")
+    .eq("id", jobFileId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!file || file.job_id !== task.job_id) {
+    // The row was deleted or moved: nothing in this job to vouch for.
+    await markTaskCompleted(supabase, task, { exportScanOutcome: "file_not_in_job" });
+    return;
+  }
+
+  const jobFile = file as JobFileRecord;
+  let runDir: string | null = null;
+  try {
+    runDir = await createRunDir(config, ["export-rescan", task.id]);
+    const stageDir = runDir;
+    const outcome = await runExportMarkingRescan(supabase, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      file: jobFile,
+      stage: () => stageStorageObject(supabase, jobFile, stageDir),
+      extractText: extractPdfText,
+      readStepPrefix: readStagedStepHeaderPrefix,
+    });
+    await markTaskCompleted(supabase, task, { exportScanOutcome: outcome, jobFileId });
+  } finally {
+    await cleanupPaths([runDir]);
+  }
+}
+
+/**
+ * A failure after the atomic result write (request status read, job status
+ * sync, task completion). The persisted result and its offers stay as they
+ * are; the task is marked failed with a stable code, best effort, and the
+ * failure is logged. Never rethrown, so the generic catch cannot overwrite the
+ * result and the generic task retry cannot rerun a completed provider quote.
+ */
+async function settlePostPersistBookkeepingFailure(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  error: unknown,
+) {
+  await settlePersistedResultTask(supabase, task, error, "post_persist_bookkeeping_failed");
+}
+
+/**
+ * Settles the task of a run whose result is persisted, without touching the
+ * result row: syncs the job status and marks the task failed with a stable
+ * code. Best effort and never rethrown.
+ */
+async function settlePersistedResultTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  error: unknown,
+  failureCode: "post_persist_bookkeeping_failed" | "persist_ack_lost",
+) {
+  console.error(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "error",
+      source: "worker.vendor_quote.post_persist",
+      message: `${failureCode}: the vendor quote result was persisted; ${summarizeWorkerError(error)}`,
+      context: { taskId: task.id, quoteRunId: task.quote_run_id },
+    }),
+  );
+  try {
+    if (failureCode === "persist_ack_lost" && task.job_id && task.quote_run_id) {
+      await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+    }
+  } catch {
+    // The job status catches up on the next lane update; the task is still settled below.
+  }
+  try {
+    const note = failureCode === "persist_ack_lost"
+      ? "The vendor quote result was persisted but its acknowledgement was lost."
+      : "Bookkeeping failed after the vendor quote result was persisted.";
+    await markTaskFailed(supabase, task, note, { failureCode, vendorQuoteResultPersisted: true });
+  } catch {
+    // The stale task reaper settles a task left running; the persisted result is untouched either way.
+  }
+}
+
+const UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES = ["queued", "running"] as const;
+const PERSISTED_VENDOR_QUOTE_RESULT_STATUSES: ReadonlySet<unknown> = new Set([
+  "instant_quote_received",
+  "official_quote_received",
+]);
+
+/**
+ * Writes a non persisted outcome to the lane as a compare and set: only while
+ * the row is still queued or running. If no row matched, the row is read back:
+ * `persisted` means `reconcile_vendor_quote_offers` committed even though its
+ * response was lost, so the result and its live offers must stand; `settled`
+ * means something else already settled the lane. Neither is ever overwritten.
+ */
+async function writeUnsettledVendorQuoteResult(
+  supabase: SupabaseClient,
+  vendorQuoteResultId: string,
+  patch: Record<string, unknown>,
+): Promise<"written" | "persisted" | "settled"> {
+  const { data, error } = await supabase
+    .from("vendor_quote_results")
+    .update(patch)
+    .eq("id", vendorQuoteResultId)
+    .in("status", [...UNSETTLED_VENDOR_QUOTE_RESULT_STATUSES])
+    .select("id");
+  if (error) throw error;
+  if (Array.isArray(data) && data.length > 0) return "written";
+  const { data: row, error: readError } = await supabase
+    .from("vendor_quote_results")
+    .select("status")
+    .eq("id", vendorQuoteResultId)
+    .maybeSingle();
+  if (readError) throw readError;
+  const status = (row as { status?: unknown } | null)?.status;
+  return PERSISTED_VENDOR_QUOTE_RESULT_STATUSES.has(status) ? "persisted" : "settled";
+}
+
+/**
+ * OVD-464: the generic lane could not take the outcome. A persisted result
+ * stands and the task is settled without a retry; a lane settled elsewhere is
+ * left as is and the task is failed with a stable code, never requeued.
+ */
+async function settleUnwrittenProviderOutcome(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  laneWrite: "persisted" | "settled",
+  adapterStarted: boolean,
+) {
+  if (laneWrite === "persisted") {
+    await settlePersistedResultTask(supabase, task, new Error("The result write acknowledgement was lost."), "persist_ack_lost");
+    return;
+  }
+  await markTaskFailed(supabase, task, "The vendor quote result was already settled; the outcome was not recorded on it.", {
+    failureCode: "lane_already_settled",
+    adapterStarted,
+  });
+}
+
+/**
+ * OVD-464: keeps the evidence of a failed or refused generic provider run as
+ * the legacy path did: artifact directories join the cleanup set, the
+ * artifacts are stored, and a selector failure becomes a repair candidate.
+ * Best effort; evidence handling never changes the outcome.
+ */
+async function keepGenericProviderFailureEvidence(
+  supabase: SupabaseClient,
+  config: WorkerConfig,
+  task: QueueTaskRecord,
+  input: { vendor: VendorName; vendorQuoteResultId: string; outcome: ProviderTaskOutcome; artifactDirs: Set<string> },
+): Promise<string[]> {
+  const { adapterError, artifacts } = input.outcome.evidence;
+  artifacts.forEach((artifact) => input.artifactDirs.add(path.dirname(artifact.localPath)));
+  let storagePaths: string[] = [];
+  try {
+    if (artifacts.length > 0 && task.part_id && task.quote_run_id) {
+      storagePaths = await persistVendorArtifacts(supabase, config, {
+        vendorQuoteResultId: input.vendorQuoteResultId,
+        organizationId: task.organization_id,
+        quoteRunId: task.quote_run_id,
+        partId: task.part_id,
+        vendor: input.vendor,
+        artifacts,
+      });
+    }
+    if (adapterError) await enqueueRepairCandidate(supabase, task, adapterError);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "worker.vendor_quote.failure_evidence",
+        message: `Provider failure evidence was not stored: ${summarizeWorkerError(error)}`,
+        context: { taskId: task.id, quoteRunId: task.quote_run_id },
+      }),
+    );
+  }
+  return storagePaths;
+}
+
+/**
+ * OVD-464: writes one finite visible state for a generic provider outcome.
+ * The pipeline already decided retry; this never rethrows a provider failure
+ * into the generic task retry.
+ */
+async function recordGenericProviderOutcome(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  input: {
+    vendor: VendorName;
+    vendorQuoteResultId: string;
+    requestedQuantity: number;
+    retryCount: number;
+    outcome: ProviderTaskOutcome;
+    failureArtifactStoragePaths?: string[];
+  },
+) {
+  const { vendor, outcome } = input;
+  const { job_id: jobId, quote_run_id: quoteRunId } = task;
+  if (!jobId || !quoteRunId) throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
+  if (outcome.disposition === "persisted") {
+    try {
+      await computeAndStoreRoutingScores(supabase, quoteRunId, task.organization_id);
+    } catch (scoringError) {
+      console.warn(
+        JSON.stringify({
+          service: "overdrafter-cad-worker",
+          level: "warn",
+          source: "worker.scoring",
+          message: `Routing score computation failed: ${summarizeWorkerError(scoringError)}`,
+          context: { quoteRunId: task.quote_run_id },
+        }),
+      );
+    }
+    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
+    if (requestStatusAfterResult === "canceled") {
+      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
+        vendorStatus: outcome.persisted?.status ?? null,
+        artifactCount: outcome.persisted?.artifactCount ?? 0,
+        ignoredDueToCanceledRequest: true,
+      });
+      return;
+    }
+    await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+    await markTaskCompleted(supabase, task, {
+      vendorStatus: outcome.persisted?.status ?? null,
+      artifactCount: outcome.persisted?.artifactCount ?? 0,
+      offerCount: outcome.persisted?.offerCount ?? 0,
+    });
+    return;
+  }
+
+  const record = providerTaskFailureRecord(vendor, outcome, {
+    retryCount: input.retryCount,
+    requestedQuantity: input.requestedQuantity,
+    artifactStoragePaths: input.failureArtifactStoragePaths ?? [],
+  });
+  const note = providerTaskOutcomeNote(vendor, outcome);
+  const taskPatch = {
+    failureCode: outcome.code,
+    failureStage: outcome.stage,
+    adapterStarted: outcome.adapterStarted,
+    providerDisabledForDay: outcome.providerDisabledForDay,
+  };
+  // A requeue is scheduled before the lane says "queued", so the lane never
+  // advertises a retry that did not happen. False means the task was settled
+  // elsewhere (cancelled, say); queue.ts logs that and the lane is left as it is.
+  const retryAt = outcome.disposition === "requeue" ? outcome.retryAt : null;
+  if (retryAt && !(await markTaskQueuedForRetry(supabase, task, note, retryAt, { ...taskPatch, nextRetryAt: retryAt }))) {
+    return;
+  }
+
+  const laneWrite = await writeUnsettledVendorQuoteResult(supabase, input.vendorQuoteResultId, record);
+  if (laneWrite !== "written") {
+    await settleUnwrittenProviderOutcome(supabase, task, laneWrite, outcome.adapterStarted);
+    return;
+  }
+  await syncJobStatusAfterVendorUpdate(supabase, jobId, quoteRunId);
+
+  if (outcome.disposition === "cancelled_provider_disabled" && outcome.killSwitch) {
+    await markTaskCancelledForDisabledProvider(supabase, task, outcome.killSwitch.error);
+    return;
+  }
+  if (retryAt) {
+    return;
+  } else if (outcome.disposition === "manual_follow_up") {
+    await markTaskCompleted(supabase, task, {
+      ...taskPatch,
+      vendorStatus: "manual_vendor_followup",
+      manualVendor: true,
+      manualReasonCode: outcome.code,
+    });
+  } else {
+    await markTaskFailed(supabase, task, note, taskPatch);
   }
 }
 
@@ -1557,6 +2332,7 @@ async function processTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   config: WorkerConfig,
+  operationalJev?: OperationalJevTaskCapability,
 ) {
   switch (task.task_type) {
     case "extract_part":
@@ -1569,7 +2345,7 @@ async function processTask(
       await handleGenerateCadPreviewTask(supabase, task, config);
       return;
     case "run_vendor_quote":
-      await handleVendorQuoteTask(supabase, task, config);
+      await handleVendorQuoteTask(supabase, task, config, operationalJev);
       return;
     case "publish_package":
       await handlePublishTask(supabase, task);
@@ -1582,12 +2358,144 @@ async function processTask(
           pollSkipped: true,
       });
       return;
+    case "export_marking_rescan":
+      await handleExportMarkingRescanTask(supabase, task, config);
+      return;
     default:
       throw new Error(`Unhandled task type: ${task.task_type}`);
   }
 }
 
-async function main() {
+export type OperationalJevHost = Readonly<{
+  /** Trusted local selection only: no model, ledger or network work in this callback. */
+  captureTask(scope: Readonly<{ organizationId: string; taskId: string; quoteRunId: string | null; provider: unknown }>): OperationalJevTaskCapability | undefined;
+}>;
+
+/** The real worker loop uses this same acknowledgement boundary. Drain is owned, post-ack,
+ * and may add up to six bounded seven-second callbacks of next-task latency. */
+export async function processClaimedTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig,
+  runtimeState: WorkerRuntimeState, host?: OperationalJevHost, advisorySignal?: AbortSignal): Promise<void> {
+  let advisory: OperationalJevTaskCapability | undefined;
+  if (host && task.task_type === "run_vendor_quote") {
+    try { advisory = host.captureTask(Object.freeze({ organizationId: task.organization_id, taskId: task.id,
+      quoteRunId: task.quote_run_id, provider: task.payload.vendor })); } catch { /* Optional host selection cannot fail the task. */ }
+  }
+  let drain: (() => Promise<void>) | undefined;
+  let cancelAdvisory = () => undefined;
+  try {
+    drain = advisory?.observations.drain.bind(advisory.observations);
+    const cancel = advisory?.session.cancel.bind(advisory.session);
+    cancelAdvisory = () => { try { cancel?.(); } catch { /* Advisory host bugs cannot fail the task. */ } return undefined; };
+  } catch { advisory = undefined; drain = undefined; }
+  if (advisorySignal?.aborted) cancelAdvisory();
+  advisorySignal?.addEventListener("abort", cancelAdvisory, { once: true });
+  let acknowledged = false;
+  const providerMutationPhase = createProviderMutationPhase();
+  try {
+    const taskSummary = {
+      id: task.id,
+      type: task.task_type,
+    };
+    runtimeState.currentTask = taskSummary;
+    runtimeState.lastTaskStartedAt = new Date().toISOString();
+    const taskStartMs = Date.now();
+    logWorkerEvent(runtimeState, {
+      level: "info",
+      source: "worker.task.start",
+      message: `Starting ${task.task_type} ${task.id}.`,
+      context: buildTaskContext(task),
+    });
+
+    try {
+      await runInProviderMutationPhase(providerMutationPhase, () =>
+        processTask(supabase, task, config, advisory),
+      );
+      acknowledged = true;
+      runtimeState.lastTaskCompletedAt = new Date().toISOString();
+      runtimeState.lastCompletedTask = taskSummary;
+      runtimeState.lastError = null;
+      logWorkerEvent(runtimeState, {
+        level: "info",
+        source: "worker.task.complete",
+        message: `Completed ${task.task_type} ${task.id}.`,
+        context: {
+          ...buildTaskContext(task),
+          task_duration_ms: Date.now() - taskStartMs,
+        },
+      });
+    } catch (error) {
+      let retryAt: string | null = null;
+      const shouldRetry =
+        (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
+        (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
+        (task.task_type === "extract_part" && error instanceof ExportControlLookupError) ||
+        (task.task_type === "extract_part" && error instanceof ExportControlStepScanRetryableError) ||
+        (task.task_type === "export_marking_rescan" && isRetryableExportRescanError(error)) ||
+        (task.task_type === "run_vendor_quote" &&
+          isRetryableVendorTaskError(error, providerMutationPhase));
+      if (shouldRetry) {
+        retryAt = nextRetryAt(task.attempts);
+      }
+      const retryCount = retryCountForAttempts(task.attempts);
+      const failureEvidence = buildWorkerTaskFailureEvidence(
+        error,
+        failureCodeForError(error),
+        retryCount,
+      );
+      const message = failureEvidence.failureMessage;
+      let settledElsewhere = false;
+
+      if (retryAt) {
+        // False when the row was already settled elsewhere (cancelled, say):
+        // it stays as it is, nothing is scheduled, and queue.ts logs it.
+        settledElsewhere = !(await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+          ...failureEvidence.payload,
+          nextRetryAt: retryAt,
+        }));
+      } else {
+        await markTaskFailed(
+          supabase,
+          task,
+          failureEvidence.failureMessage,
+          { ...failureEvidence.payload, ...exportScanOutcomesPayload(error) },
+        );
+      }
+
+      acknowledged = true;
+      runtimeState.lastTaskFailedAt = new Date().toISOString();
+      runtimeState.lastFailedTask = taskSummary;
+      runtimeState.lastError = message;
+      if (!settledElsewhere) {
+        logWorkerEvent(runtimeState, {
+          level: retryAt ? "warn" : "error",
+          source: retryAt ? "worker.task.retry" : "worker.task.failure",
+          message: retryAt
+            ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
+            : `Failed ${task.task_type} ${task.id}: ${message}`,
+          context: {
+            ...buildTaskContext(task),
+            task_duration_ms: Date.now() - taskStartMs,
+            retryCount,
+            nextRetryAt: retryAt,
+          },
+          error: failureEvidence.runtimeError,
+        });
+      }
+    } finally {
+      runtimeState.currentTask = null;
+    }
+
+    // Rejected/unknown authoritative persistence exits above; it must never start a drain.
+    if (acknowledged && !advisorySignal?.aborted && drain) {
+      try { await drain(); } catch { /* Both synchronous and asynchronous advisory failures are contained after ack. */ }
+    }
+  } finally {
+    advisorySignal?.removeEventListener("abort", cancelAdvisory);
+    if (!acknowledged) cancelAdvisory();
+  }
+}
+
+export async function main(operationalHost?: OperationalJevHost) {
   const baseConfig = loadConfig();
   const runtimeState = createWorkerRuntimeState();
   let config = baseConfig;
@@ -1611,6 +2519,7 @@ async function main() {
       previewStoredPartExtraction(config, { partId, modelId }),
   });
   let stopping = false;
+  const advisoryShutdown = new AbortController();
 
   const logReadinessChange = (issues: string[]) => {
     if (issues.length > 0) {
@@ -1638,6 +2547,7 @@ async function main() {
     }
 
     stopping = true;
+    advisoryShutdown.abort();
     runtimeState.status = "shutting_down";
     logWorkerEvent(runtimeState, {
       level: "info",
@@ -1768,6 +2678,31 @@ async function main() {
           error: reaperError,
         });
       }
+      // OVD-722: cancel queued lanes for switched-off providers so none stay
+      // parked. Claim-time and pre-launch checks still refuse on their own.
+      if (config.workerMode === "live") {
+        try {
+          const sweep = await sweepProviderDisabledTasks(supabase);
+          for (const run of sweep.quoteRuns) {
+            await syncJobStatusAfterVendorUpdate(supabase, run.jobId, run.quoteRunId);
+          }
+          for (const warning of providerKillSwitchSweepWarnings(sweep)) {
+            logWorkerEvent(runtimeState, {
+              level: "warn",
+              source: "worker.kill_switch",
+              message: warning.message,
+              context: warning.context,
+            });
+          }
+        } catch (sweepError) {
+          logWorkerEvent(runtimeState, {
+            level: "error",
+            source: "worker.kill_switch",
+            message: `Kill-switch sweep failed: ${summarizeWorkerError(sweepError)}`,
+            error: sweepError,
+          });
+        }
+      }
     }
 
     const task = await claimNextTask(supabase, config.workerName);
@@ -1777,85 +2712,7 @@ async function main() {
       continue;
     }
 
-    const taskSummary = {
-      id: task.id,
-      type: task.task_type,
-    };
-    runtimeState.currentTask = taskSummary;
-    runtimeState.lastTaskStartedAt = new Date().toISOString();
-    const taskStartMs = Date.now();
-    logWorkerEvent(runtimeState, {
-      level: "info",
-      source: "worker.task.start",
-      message: `Starting ${task.task_type} ${task.id}.`,
-      context: buildTaskContext(task),
-    });
-
-    try {
-      await processTask(supabase, task, config);
-      runtimeState.lastTaskCompletedAt = new Date().toISOString();
-      runtimeState.lastCompletedTask = taskSummary;
-      runtimeState.lastError = null;
-      logWorkerEvent(runtimeState, {
-        level: "info",
-        source: "worker.task.complete",
-        message: `Completed ${task.task_type} ${task.id}.`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-        },
-      });
-    } catch (error) {
-      let retryAt: string | null = null;
-      const shouldRetry =
-        (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
-        (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
-        (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
-      if (shouldRetry) {
-        retryAt = nextRetryAt(task.attempts);
-      }
-      const retryCount = retryCountForAttempts(task.attempts);
-      const failureEvidence = buildWorkerTaskFailureEvidence(
-        error,
-        failureCodeForError(error),
-        retryCount,
-      );
-      const message = failureEvidence.failureMessage;
-
-      if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
-          ...failureEvidence.payload,
-          nextRetryAt: retryAt,
-        });
-      } else {
-        await markTaskFailed(
-          supabase,
-          task,
-          failureEvidence.failureMessage,
-          failureEvidence.payload,
-        );
-      }
-
-      runtimeState.lastTaskFailedAt = new Date().toISOString();
-      runtimeState.lastFailedTask = taskSummary;
-      runtimeState.lastError = message;
-      logWorkerEvent(runtimeState, {
-        level: retryAt ? "warn" : "error",
-        source: retryAt ? "worker.task.retry" : "worker.task.failure",
-        message: retryAt
-          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
-          : `Failed ${task.task_type} ${task.id}: ${message}`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-          retryCount,
-          nextRetryAt: retryAt,
-        },
-        error: failureEvidence.runtimeError,
-      });
-    } finally {
-      runtimeState.currentTask = null;
-    }
+    await processClaimedTask(supabase, task, config, runtimeState, operationalHost, advisoryShutdown.signal);
 
     if (!stopping && task.task_type === "run_vendor_quote" && config.vendorRateLimitMs > 0) {
       await sleep(config.vendorRateLimitMs);
@@ -1865,7 +2722,7 @@ async function main() {
   await healthServer.close();
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch((error) => {
   console.error(
     JSON.stringify({
       service: "overdrafter-cad-worker",

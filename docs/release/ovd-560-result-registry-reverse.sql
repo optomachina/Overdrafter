@@ -3,6 +3,24 @@
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '30s';
+-- READ COMMITTED first: the emptiness check below must read a snapshot taken
+-- after the locks; an older REPEATABLE READ or SERIALIZABLE snapshot could miss
+-- a committed registration.
+do $isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd560_reverse_requires_read_committed';
+  end if;
+end $isolation$;
+-- The shared window 2 reverse lock serializes every staged reverse, including
+-- the OVD-558 reverse, before any relation lock is requested.
+select pg_advisory_xact_lock(510, 2);
+-- storage.objects before the registry, the order registration takes them
+-- (FOR SHARE on the object, then the registry read), so a concurrent
+-- registration waits instead of deadlocking. Dropping storage_object_id also
+-- drops the foreign key to storage.objects, which needs that lock anyway.
+lock table storage.objects, engineering_private.native_verifier_registered_objects
+  in access exclusive mode;
 do $preflight$
 begin
   if current_user <> 'postgres'

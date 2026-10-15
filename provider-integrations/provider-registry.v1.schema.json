@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overdrafter.local/schemas/provider-registry.v1.schema.json",
+  "title": "ProviderRegistryV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "stableEgressRequiredKey",
+    "providers"
+  ],
+  "properties": {
+    "$schema": { "const": "./provider-registry.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "stableEgressRequiredKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{1,49}$",
+      "description": "Live adapter that must remain on the governed stable-NAT worker. Not a production-authorization flag."
+    },
+    "oneDotZero": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9]{1,49}$" },
+      "description": "Reviewed list of provider keys in the 1.0 scope, sorted, each present in providers. The provider permissions lint derives its required 1.0 coverage from this list."
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/providerEntry" }
+    }
+  },
+  "$defs": {
+    "providerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "liveAdapter", "sessionSecrets", "egress"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9]{1,49}$" },
+        "liveAdapter": {
+          "type": "boolean",
+          "description": "When true, a live deploy may list this key in WORKER_LIVE_ADAPTERS. Default for new entries is false. Never grants production authority."
+        },
+        "sessionSecrets": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/sessionSecret" }
+        },
+        "egress": { "enum": ["stable_nat", "none"] },
+        "adapterKind": {
+          "enum": ["api"],
+          "description": "Set to api for a provider reached over an HTTP API rather than a browser portal. An api provider may declare its key secret (name only) while liveAdapter is false; the generated helpers render secrets only for live adapters."
+        },
+        "adoptedAdapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module"],
+          "description": "Points the fixture kit at an existing hand-built adapter so fixture:onboard --stage=live does not generate a placeholder stub next to it. Only valid when liveAdapter is true.",
+          "properties": {
+            "module": { "type": "string", "pattern": "^worker/src/adapters/[A-Za-z][A-Za-z0-9]*\\.ts$" },
+            "defaultDenyTest": { "type": "string", "pattern": "^worker/src/adapters/[A-Za-z][A-Za-z0-9]*\\.test\\.ts$" }
+          }
+        },
+        "sessionlessJustification": {
+          "type": "string",
+          "minLength": 20,
+          "description": "Required when liveAdapter is true and no session secret has requiredWhenListed true. Explains why the adapter can be listed without a generated required-secret check."
+        }
+      }
+    },
+    "sessionSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secretNameEnv", "requiredWhenListed"],
+      "properties": {
+        "secretNameEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*_SECRET_NAME$",
+          "description": "Environment variable that holds the Secret Manager secret name, never a secret value. Must end in _SECRET_NAME and must not collide with deploy-script variables."
+        },
+        "mountEnv": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,80}$",
+          "description": "Worker environment variable that receives the named secret."
+        },
+        "mountPath": {
+          "type": "string",
+          "pattern": "^/var/secrets/[a-z0-9-]+/storage-state\\.json$",
+          "description": "Fixed Cloud Run secret mount path. Not a secret value."
+        },
+        "requiredWhenListed": {
+          "type": "boolean",
+          "description": "When true, a live deploy that lists this adapter must set secretNameEnv. When false, the generated helper still applies the secret if the env var is set and still removes a stale binding when the adapter is not listed, unless manualDeploy is true."
+        },
+        "manualDeploy": {
+          "type": "boolean",
+          "description": "When true, the generated deploy helper skips apply/remove for this secret because deploy-cloud-run.sh owns the binding. Restricted to the xometry allowlist; other providers are rejected. Required-secret checks and stale-remove steps for every other listed secret still run."
+        }
+      }
+    }
+  }
+}

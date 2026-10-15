@@ -1,6 +1,38 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { QueueTaskRecord, WorkerConfig } from "./types.js";
 
+const terminalFreeQuoteCursors = new WeakMap<SupabaseClient, string | null>();
+const RECONCILIATION_LIMIT = 100;
+type TerminalFreeQuoteSummary = {
+  scanned: number;
+  reconciled: number;
+  indeterminate: number;
+  deferred: number;
+  nextCursor: string | null;
+};
+
+/** Requires the separately qualified terminal-lifecycle migration before use. */
+export async function reconcileTerminalFreeQuoteTasks(supabase: SupabaseClient): Promise<TerminalFreeQuoteSummary> {
+  const { data, error } = await supabase.rpc("api_reconcile_terminal_free_quote_tasks", {
+    p_after_admission_id: terminalFreeQuoteCursors.get(supabase) ?? null,
+    p_limit: RECONCILIATION_LIMIT,
+  }).abortSignal(AbortSignal.timeout(10_000));
+  if (error) throw error;
+  const result = data as Partial<TerminalFreeQuoteSummary> | null;
+  const counts = [result?.scanned, result?.reconciled, result?.indeterminate, result?.deferred];
+  if (!result || counts.some((value) => typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > RECONCILIATION_LIMIT)
+    || result.reconciled! + result.indeterminate! + result.deferred! > result.scanned!
+    || (result.nextCursor !== null && (typeof result.nextCursor !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.nextCursor)))) {
+    throw new Error("free_quote_reconciliation_response_invalid");
+  }
+  // An interrupted call safely repeats its old page; an indeterminate row does
+  // not prevent later pages from being inspected on subsequent reaper passes.
+  terminalFreeQuoteCursors.set(supabase, result.nextCursor);
+  if (result.indeterminate! > 0) throw new Error("free_quote_lifecycle_indeterminate");
+  return result as TerminalFreeQuoteSummary;
+}
+
 /** Creates a non-persistent service-role Supabase client for worker operations. */
 export function createServiceClient(config: WorkerConfig) {
   return createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
@@ -113,15 +145,26 @@ export async function markTaskCancelled(
   }
 }
 
-/** Requeues a task for a later retry and clears the current worker lock. */
+/**
+ * Requeues a task for a later retry and clears the current worker lock.
+ *
+ * Conditional on the row still being `running` under this worker's lock and
+ * claim generation, so a retry can never revive a task that was cancelled (for
+ * example by the OVD-722 kill switch), completed, failed, or reaped and
+ * reclaimed in the meantime. `attempts` is the value this claim returned
+ * (`api_claim_next_task` increments it), so an old handler cannot requeue a
+ * newer claim of the same task under the same worker name.
+ * Zero matched rows means the task was already settled elsewhere: it is
+ * logged and left as it is. Returns whether the row was requeued.
+ */
 export async function markTaskQueuedForRetry(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   errorMessage: string,
   availableAt: string,
   payloadPatch: Record<string, unknown> = {},
-) {
-  const { error } = await supabase
+): Promise<boolean> {
+  const update = supabase
     .from("work_queue")
     .update({
       status: "queued",
@@ -131,11 +174,28 @@ export async function markTaskQueuedForRetry(
       locked_by: null,
       last_error: errorMessage,
     })
-    .eq("id", task.id);
+    .eq("id", task.id)
+    .eq("status", "running")
+    .eq("attempts", task.attempts);
+  const held = task.locked_by === null ? update.is("locked_by", null) : update.eq("locked_by", task.locked_by);
+  const { data, error } = await held.select("id");
 
   if (error) {
     throw error;
   }
+
+  if (!data || data.length === 0) {
+    console.warn(JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.task.requeue_skipped",
+      message: "Did not requeue the task: it is no longer running under this worker's lock.",
+      context: { taskId: task.id, lockedBy: task.locked_by, attempts: task.attempts },
+    }));
+    return false;
+  }
+
+  return true;
 }
 
 // Reaps tasks that have been stuck in "running" for more than staleness_minutes.
@@ -163,5 +223,9 @@ export async function reapStaleTasks(
     throw error;
   }
 
+  // A separate transaction avoids queue -> result/request lock inversion.
+  // Always scan, including when zero tasks were just reaped, to recover an
+  // interruption between a previous terminal queue commit and reconciliation.
+  await reconcileTerminalFreeQuoteTasks(supabase);
   return data?.length ?? 0;
 }

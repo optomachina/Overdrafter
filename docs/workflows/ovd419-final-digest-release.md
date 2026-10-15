@@ -111,6 +111,39 @@ host. It starts neither Docker nor the worker and is not proof of an actual
 built image's environment. Release attestation tests separately reject both
 `unknown` and a validly formatted but mismatched runtime SHA.
 
+### Blaine runs (OVD-527 build qualification packet)
+
+`scripts/ovd527-build-packet.mjs` produces the bundle that `attestBuildOnly`
+accepts. It reads Git and hashes files; it never runs `gcloud` or `docker`.
+Blaine runs these from a clean checkout of the release candidate:
+
+1. `node scripts/ovd527-build-packet.mjs source --sha <full sha>` refuses a
+   dirty checkout (untracked files included) or a HEAD that differs from the
+   SHA. It writes `source.tgz` (a `git archive` of `worker/`), its manifest,
+   `source.json` and `cloudbuild.json` to `~/ovd527-packet/<sha>` (outside the
+   repository), then prints the archive and manifest SHA-256 values and the
+   critical file hashes the image must carry.
+2. `node scripts/ovd527-build-packet.mjs commands --sha <full sha>` prints the
+   exact commands and what each must show: a build only `gcloud builds submit`
+   of that archive (one docker build step with the full SHA as
+   `WORKER_BUILD_VERSION`, one pushed image, SHA256 source provenance, no
+   deploy step), the build record, digest resolve and tag list saved to
+   `build.json`, and a `linux/amd64`, `--network=none` inspection of the image
+   by digest with the worker entrypoint replaced by a read only check, saved
+   to `inspect.json`.
+3. `node scripts/ovd527-build-packet.mjs bundle --build-json <file>
+   --inspect-json <file>` rechecks the packet files, derives every evidence
+   field from the saved outputs, and refuses on any mismatch (listing each
+   failure). On success it prints the bundle, which
+   `node scripts/run-ovd419-final-digest-release.mjs --plan-stdin` must report
+   as `plan-valid`.
+
+The archive SHA-256 is bound to the uploaded bytes through Cloud Build source
+provenance; the manifest is the toolchain independent identity of the same
+files. The inspection also requires the image user `pwuser`, no `*.mmdb`
+files and the required runtime assets. A passing bundle is build evidence only;
+promotion still needs its own exact approval.
+
 ### Worker dependency remediation before requalification
 
 The September 7 dependency repair pins the existing Anthropic SDK to 0.91.1

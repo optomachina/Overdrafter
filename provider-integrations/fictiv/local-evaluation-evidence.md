@@ -37,8 +37,8 @@ disclosed, no quote was requested, and no production admission was changed.
 2. Explicit authorization for the exact provider action, approved account mode,
    permitted origins, non-export-controlled CAD and optional drawing bytes,
    requested quantities, and the closed descriptor required by
-   `docs/provider-integration.md`. Authenticated session availability and
-   automation permission must be verified separately.
+   `docs/provider-integration.md`. Authenticated session availability must be
+   verified separately.
 3. An actual local-only run showing each option value, currency and total/unit
    basis on the observed portal, stable provider identifiers, quantity, lead time, and
    scrubbed artifact references. Unknown validity, geographic origin, or

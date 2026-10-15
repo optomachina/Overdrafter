@@ -7,21 +7,38 @@ import {
 } from "../types.js";
 import { FictivAdapter } from "./fictiv.js";
 import { FabworksAdapter } from "./fabworks.js";
+import { RmfgAdapter } from "./rmfg.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
-import { buildQuickpartsOfflinePortalDefinition } from "./quickpartsPortal.js";
+import {
+  buildQuickpartsOfflinePortalDefinition,
+  buildQuickpartsProductionPortalDefinition,
+} from "./quickpartsPortal.js";
 import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
-import { createWeergPortalDefinition } from "./weergPortal.js";
+import { buildWeergProductionPortalDefinition, createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
+import { OperationalEvidenceCapture, type EvidenceUse } from "../jev/operationalEvidence.js";
 import { VendorAdapter } from "./base.js";
+import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import type { LocalEvaluationAdapter, LocalEvaluationResult } from "./localEvaluationResult.js";
 import {
   CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
+
+/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
+  "quickparts",
+  "weerg",
+  "geomiq",
+  "ponoko",
+  "protolabsnetwork",
+  "rapiddirect",
+]);
 
 class XometryLiveEvaluationAdapter extends XometryAdapter {
   override quote(input: Parameters<XometryAdapter["quote"]>[0]) {
@@ -39,6 +56,11 @@ class LiveEvaluationAdapter extends VendorAdapter {
 
   override async quote(input: VendorQuoteAdapterInput) {
     return this.delegate.quote(await this.authorize(input));
+  }
+
+  /** Portal delegates run the local preflight kernel; every other delegate evaluates through its live quote(). */
+  get evaluateLocallyReachesProvider(): boolean {
+    return !(this.delegate instanceof PortalQuoteWorkflowAdapter);
   }
 
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
@@ -107,13 +129,20 @@ function buildRegistry(
 ): Partial<Record<VendorName, VendorAdapter>> {
   const evaluationAdapter = (adapter: VendorAdapter) =>
     liveEvaluation ? new LiveEvaluationAdapter(adapter, config) : adapter;
+  // Production keeps the Quickparts and Weerg definitions default-off: the
+  // registry is filtered to WORKER_LIVE_ADAPTERS in live mode, and each
+  // definition launches only behind a generic provider-dispatch authorization
+  // (OVD-674, OVD-675).
   const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
     ? {
       quickparts: buildQuickpartsOfflinePortalDefinition(),
       weerg: createWeergPortalDefinition(),
       geomiq: buildGeomiqPortalDefinition(),
     }
-    : {};
+    : {
+      quickparts: buildQuickpartsProductionPortalDefinition(),
+      weerg: buildWeergProductionPortalDefinition(),
+    };
   const registry: Partial<Record<VendorName, VendorAdapter>> = {
     xometry: xometryAdapter,
     fictiv: evaluationAdapter(new FictivAdapter("fictiv", config)),
@@ -135,6 +164,9 @@ function buildRegistry(
       }),
     ),
     fabworks: evaluationAdapter(new FabworksAdapter(config)),
+    // Default off: quotes only in live mode with rmfg in WORKER_LIVE_ADAPTERS
+    // and a dispatch authorization for its unreviewed envelope (OVD-678).
+    rmfg: evaluationAdapter(new RmfgAdapter(config)),
   };
 
   if (config.workerMode !== "live") {
@@ -148,8 +180,54 @@ function buildRegistry(
   );
 }
 
-export function buildAdapterRegistry(config: WorkerConfig): Partial<Record<VendorName, VendorAdapter>> {
-  return buildRegistry(config, new XometryAdapter("xometry", config), false);
+class OperationalAdvisoryAdapter extends VendorAdapter {
+  constructor(private readonly delegate: VendorAdapter, config: WorkerConfig, private readonly binding: OperationalJevBinding) {
+    super(delegate.vendor, config);
+    delegate.operationalJev = binding;
+  }
+
+  override async quote(input: VendorQuoteAdapterInput) {
+    const { session, scope } = this.binding;
+    // Derive caller identities from the actual adapter invocation, never from admission.
+    const actualScope = Object.freeze({ ...scope, provider: this.vendor,
+      organizationId: input.organizationId, quoteRunId: input.quoteRunId });
+    let capture: OperationalEvidenceCapture | undefined;
+    try { if (session.captureEnabled(actualScope)) capture = new OperationalEvidenceCapture(actualScope, input, this.binding.engineeringCatalog); } catch { /* No authority on capture failure. */ }
+    this.delegate.operationalProviderObserver = capture?.observe;
+    try { return await this.delegate.quote(input); }
+    catch (error) {
+      // OVD-723: a dispatch or export-control decision is a hold, not an
+      // operational failure, so it is not reported to Jev (as in the adapters).
+      if (!isDispatchDecisionError(error)) await observeBoundOperationalFailure(this.binding, actualScope, error);
+      throw error;
+    } finally {
+      this.delegate.operationalProviderObserver = undefined;
+      try { if (capture) {
+        capture.close();
+        const captured = capture;
+        const review = session.reviewEvidence.bind(session);
+        this.binding.observations.retainLocal("provider_source", captured.source());
+        for (const use of ["quote_evidence", "catalog_mapping", "clarification", "relevance"] satisfies EvidenceUse[]) {
+          this.binding.observations.enqueue(use, async () => {
+            const plan = await captured.plan(use);
+            const receipt = await review(actualScope, plan);
+            const result = await plan.resolve(receipt.outcome === "observed" ? receipt.proposal ?? plan.baseline : "abstain");
+            this.binding.observations.retainLocal(use, Object.freeze({ receipt, result }));
+          });
+        }
+      } } catch { /* Advisory capture cannot replace authoritative result or error. */ }
+    }
+  }
+}
+
+export function buildAdapterRegistry(config: WorkerConfig, operationalJev?: OperationalJevBinding): Partial<Record<VendorName, VendorAdapter>> {
+  const registry = buildRegistry(config, new XometryAdapter("xometry", config), false);
+  if (!operationalJev) return registry;
+  const binding = Object.freeze({ ...operationalJev, scope: Object.freeze({ ...operationalJev.scope }),
+    session: captureOperationalJevConsumer(operationalJev.session) });
+  return Object.fromEntries(Object.entries(registry).map(([vendor, adapter]) => [vendor,
+    new OperationalAdvisoryAdapter(adapter, config, binding),
+  ]));
 }
 
 /** Builds adapters for the standalone OVD-407 local-evidence evaluation harness. */
@@ -171,6 +249,13 @@ export {
 } from "./providerAdapterContract.js";
 export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
 export { runRmfgQuoteOnly, RMFG_QUOTE_TRANSPORT_REVISION } from "./rmfgQuoteTransport.js";
+export {
+  evaluateRmfgEligibility,
+  RMFG_ADAPTER_REVISION,
+  RMFG_API_KEY_ENV,
+  RmfgAdapter,
+} from "./rmfg.js";
+export { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
 export type {
   RmfgQuoteInput,
   RmfgQuoteOffer,

@@ -1,5 +1,9 @@
 # Weerg local evaluation preparation (OVD-432)
 
+> The default-off production quote path (OVD-675) is described in
+> `docs/workflows/ovd675-weerg-live-readiness.md`. The local evaluation
+> definition below is unchanged and still interaction-disabled.
+
 The September 7 offline implementation adds `createWeergPortalDefinition` and
 `runWeergLocalEvaluationPreflight`. This is a bounded preparation slice, not an
 operational adapter or a provider observation. The public envelope remains at
@@ -67,8 +71,8 @@ prove an account exists or that authentication works.
 
 ## Account evidence and operator handoff
 
-Account existence, current access, isolated-session validity and automation
-permission are **unknown**. No account or session was inspected for this work.
+Account existence, current access and isolated-session validity are
+**unknown**. No account or session was inspected for this work.
 Do not create an account, refresh login, read cookies or infer access from the
 manifest. The operator must supply nonsecret confirmation of account availability
 and perform any required authentication separately before approved live work.

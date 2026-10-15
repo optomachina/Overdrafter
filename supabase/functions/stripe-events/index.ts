@@ -1,5 +1,9 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import {
+  evaluateCatalogWebhookEvent,
+  parseBoolean,
+} from "../_shared/billingCatalog.ts";
 
 export const STRIPE_EVENT_API_VERSION =
   "2024-11-20.acacia" as Stripe.LatestApiVersion;
@@ -177,6 +181,41 @@ export function createStripeEventHandler(
     if (!result || result.state === "failed") {
       console.error("stripe-events: event requires retry");
       return json(500, { error: "Event processing failed." });
+    }
+
+    const catalogDecision = evaluateCatalogWebhookEvent(event, {
+      expectedLivemode: parseBoolean(
+        getEnvironmentVariable("STRIPE_EXPECTED_LIVEMODE"),
+      ),
+      replayed: result.replayed,
+    });
+    // The event is already recorded as processed, so a Stripe retry would be a
+    // replay and could not re-run this disable. A failed disable is logged and
+    // acknowledged instead; Checkout re-validates the expanded Price on every
+    // session, so a drifted Price is still refused there.
+    if (catalogDecision.action === "disable_key") {
+      const { error: disableError } = await runtime.serviceClient.rpc(
+        "api_disable_stripe_catalog_price",
+        {
+          p_lookup_key: catalogDecision.lookupKey,
+          p_livemode: event.livemode,
+          p_reason: catalogDecision.reason ?? "catalog_mismatch",
+          p_stripe_event_id: event.id,
+        },
+      );
+      if (disableError) {
+        console.error(
+          "stripe-events: catalog price disable failed",
+          catalogDecision.lookupKey,
+          catalogDecision.reason,
+        );
+      } else {
+        console.error(
+          "stripe-events: catalog price disabled",
+          catalogDecision.lookupKey,
+          catalogDecision.reason,
+        );
+      }
     }
 
     return json(200, {

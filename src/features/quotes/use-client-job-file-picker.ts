@@ -5,6 +5,7 @@ import {
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import { containsSensitiveErrorDetail } from "@/lib/error-message";
 import {
   getFoundingBetaStatusFromRefetch,
   getFoundingBetaUploadMessage,
@@ -21,9 +22,16 @@ type UseClientJobFilePickerOptions = {
   onFilesSelected: (files: File[]) => Promise<void>;
 };
 
+const UPLOAD_ERROR_FALLBACK = "Unable to create a new job right now.";
+
+// Server-provided upload errors can carry tokens or stack frames; those never reach the toast.
+function withoutSensitiveDetail(message: string): string {
+  return containsSensitiveErrorDetail(message) ? UPLOAD_ERROR_FALLBACK : message;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
-    return error.message;
+    return withoutSensitiveDetail(error.message);
   }
 
   if (
@@ -32,10 +40,10 @@ function getErrorMessage(error: unknown): string {
     "message" in error &&
     typeof (error as { message?: unknown }).message === "string"
   ) {
-    return (error as { message: string }).message;
+    return withoutSensitiveDetail((error as { message: string }).message);
   }
 
-  return "Unable to create a new job right now.";
+  return UPLOAD_ERROR_FALLBACK;
 }
 
 export function useClientJobFilePicker({
@@ -47,6 +55,7 @@ export function useClientJobFilePicker({
   onFilesSelected,
 }: UseClientJobFilePickerOptions) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadPendingRef = useRef(false);
   const betaAccess = useFoundingBetaAccess({
     organizationId,
     userId,
@@ -65,6 +74,10 @@ export function useClientJobFilePicker({
   };
 
   const openFilePicker = async () => {
+    if (uploadPendingRef.current) {
+      toast.error("An upload is already in progress. Please wait before adding more files.");
+      return;
+    }
     if (!isSignedIn) {
       onRequireAuth?.();
       return;
@@ -92,18 +105,26 @@ export function useClientJobFilePicker({
       return;
     }
 
-    if (!(await requireUploadAccess())) {
+    if (uploadPendingRef.current) {
+      toast.error("An upload is already in progress. Please wait before adding more files.");
       return;
     }
 
-    const { accepted, errors } = validateQuoteFiles(incomingFiles);
-    errors.forEach((error) => toast.error(error));
-
-    if (accepted.length === 0) {
-      return;
-    }
-
+    // Claim the selection before any async access check so repeated input events
+    // cannot start overlapping intake attempts.
+    uploadPendingRef.current = true;
     try {
+      if (!(await requireUploadAccess())) {
+        return;
+      }
+
+      const { accepted, errors } = validateQuoteFiles(incomingFiles);
+      errors.forEach((error) => toast.error(error));
+
+      if (accepted.length === 0) {
+        return;
+      }
+
       await onFilesSelected(accepted);
     } catch (error) {
       if (isFoundingBetaEnforcementError(error)) {
@@ -115,6 +136,8 @@ export function useClientJobFilePicker({
       } else {
         toast.error(getErrorMessage(error));
       }
+    } finally {
+      uploadPendingRef.current = false;
     }
   };
 

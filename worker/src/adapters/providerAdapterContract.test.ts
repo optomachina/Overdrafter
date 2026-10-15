@@ -131,7 +131,7 @@ describe("provider adapter contract harness", () => {
       quoteUrl: "https://www.xometry.com/quoting/quote/Q-FIXTURE",
       snapshots: [{
         selector: ".price-tier",
-        text: "Domestic Economy - Lead Time: 8 business days\nMade in USA\n$20.00 ea.\n$100.00",
+        text: "Domestic Economy - Lead Time: 8 business days\nMade in USA\nUSD $20.00 ea.\nUSD $100.00",
         attributes: { "data-option-id": "domestic-economy" },
       }],
     });

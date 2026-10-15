@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { callModel, combineUsage, ModelCallError, retryDelayMs } from "./callModel.js";
 import type { ExtractionProvider, ModelPromptInput, ModelRunResult } from "./modelProvider.js";
+import { ExportControlExtractionDeniedError, isExportControlModelStop } from "../exportControl.js";
 
 const PROMPT: ModelPromptInput = {
   parserContext: null,
@@ -35,6 +36,51 @@ function providerOf(run: (...args: never[]) => Promise<ModelRunResult>): Extract
 const noSleep = async () => {};
 
 describe("callModel", () => {
+  // OVD-723 review round 4: the export-control check runs before every
+  // provider request, retries included, and a denial is never wrapped.
+  it("asks the export-control check again before a retry and stops on a denial", async () => {
+    const run = vi.fn().mockResolvedValueOnce(failure("rate_limit")).mockResolvedValue(success());
+    const denial = new ExportControlExtractionDeniedError("export_review_pending");
+    let checks = 0;
+    const beforeRequest = vi.fn(async () => {
+      checks += 1;
+      if (checks > 1) throw denial;
+    });
+
+    const call = callModel(providerOf(run), PROMPT, "gpt-4.1-mini", { sleep: noSleep, beforeRequest });
+
+    await expect(call).rejects.toBe(denial);
+    await expect(call).rejects.not.toBeInstanceOf(ModelCallError);
+    expect(isExportControlModelStop(await call.catch((error: unknown) => error))).toBe(true);
+    expect(beforeRequest).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  // OVD-723 review round 5: the deadline is measured after beforeRequest, so a
+  // slow check cannot hand the provider a timer longer than the time left.
+  it("measures the remaining deadline after the export-control check", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const run = vi.fn().mockResolvedValue(success());
+      const beforeRequest = vi.fn(async () => {
+        now += 5_000;
+      });
+
+      const call = callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+        sleep: noSleep,
+        beforeRequest,
+        deadlineMs: 1_000,
+      });
+
+      await expect(call).rejects.toBeInstanceOf(ModelCallError);
+      expect(beforeRequest).toHaveBeenCalledTimes(1);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("returns usage on first success", async () => {
     const run = vi.fn().mockResolvedValue(success());
 
@@ -134,7 +180,7 @@ describe("combineUsage", () => {
   it("sums tokens, time, and attempts across attempts", () => {
     const combined = combineUsage([
       { provider: "openai", modelName: "m", inputTokens: 10, outputTokens: 5, durationMs: 100, estimatedCostUsd: 0.01, attempts: 1 },
-      { provider: "openai", modelName: "m", inputTokens: 20, outputTokens: 7, durationMs: 150, estimatedCostUsd: 0.02, attempts: 2 },
+      { provider: "openai", modelName: "m", inputTokens: 20, outputTokens: 7, durationMs: 150, estimatedCostUsd: 0.02, attempts: 2, costCoverage: "complete" },
     ]);
 
     expect(combined).toMatchObject({
@@ -199,7 +245,7 @@ describe("callModel spend enforcement", () => {
     expect(settle).not.toHaveBeenCalled();
   });
 
-  it("settles at zero when the call fails, so a failed spend does not hold budget", async () => {
+  it("preserves unknown cost when an invoked call fails", async () => {
     const run = vi.fn().mockResolvedValue(failure("refusal"));
     const reserve = vi.fn().mockResolvedValue({ reservationId: "res-1", estimatedUsd: 0.5 });
     const settle = vi.fn().mockResolvedValue(undefined);
@@ -211,7 +257,7 @@ describe("callModel spend enforcement", () => {
       }),
     ).rejects.toBeInstanceOf(ModelCallError);
 
-    expect(settle).toHaveBeenCalledWith({ reservationId: "res-1", estimatedUsd: 0.5 }, 0);
+    expect(settle).toHaveBeenCalledWith({ reservationId: "res-1", estimatedUsd: 0.5 }, null);
   });
 
   it("reserves once for a call that retries internally", async () => {
@@ -240,4 +286,64 @@ describe("callModel spend enforcement", () => {
       callModel(providerOf(run), PROMPT, "gpt-4.1-mini", { sleep: noSleep }),
     ).resolves.toBeDefined();
   });
+});
+
+ describe("attempt cost knowledge", () => {
+  function guard() {return {reserve:vi.fn().mockResolvedValue({reservationId:"r",estimatedUsd:0.25}),settle:vi.fn().mockResolvedValue(undefined)};}
+  it("counts zero invocations when expired before dispatch and releases zero", async () => {
+    const g=guard(),run=vi.fn().mockResolvedValue(success());
+    const error=await callModel(providerOf(run),PROMPT,"m",{deadlineMs:0,spend:{guard:g,estimatedUsd:0.25}}).catch(e=>e);
+    expect(error.attempts).toBe(0);expect(run).not.toHaveBeenCalled();expect(g.settle).toHaveBeenCalledWith(expect.anything(),0);
+  });
+  it("preserves the original thrown error if settlement throws", async () => {
+    const g=guard();g.settle.mockRejectedValue(new Error("settlement secret"));const original=new Error("provider failed");
+    await expect(callModel(providerOf(vi.fn().mockRejectedValue(original)),PROMPT,"m",{spend:{guard:g,estimatedUsd:0.25}})).rejects.toBe(original);
+    expect(g.settle).toHaveBeenCalledWith(expect.anything(),null);
+  });
+  it("marks final success after an uncertain attempt as partial without settling subtotal",async()=>{
+    const g=guard();const run=vi.fn().mockResolvedValueOnce(failure("server_error")).mockResolvedValueOnce({...success(),estimatedCostUsd:0.02});
+    const result=await callModel(providerOf(run),PROMPT,"m",{sleep:noSleep,random:()=>0,spend:{guard:g,estimatedUsd:0.25}});
+    expect(result.usage).toMatchObject({attempts:2,estimatedCostUsd:null,knownCostSubtotalUsd:0.02,costCoverage:"partial"});
+    expect(g.settle).toHaveBeenCalledWith(expect.anything(),null);
+  });
+  it.each([NaN,Infinity,-1])("does not settle malformed provider cost %s",async(cost)=>{
+    const g=guard();const result=await callModel(providerOf(vi.fn().mockResolvedValue({...success(),estimatedCostUsd:cost})),PROMPT,"m",{spend:{guard:g,estimatedUsd:0.25}});
+    expect(result.usage.estimatedCostUsd).toBeNull();expect(g.settle).toHaveBeenCalledWith(expect.anything(),null);
+  });
+  it("never presents a partial aggregate as complete",()=>{
+    const usage={provider:"openai",modelName:"m",inputTokens:1,outputTokens:1,durationMs:1,attempts:1};
+    expect(combineUsage([{...usage,estimatedCostUsd:null},{...usage,estimatedCostUsd:0.02}])).toMatchObject({estimatedCostUsd:null,knownCostSubtotalUsd:0.02,costCoverage:"partial"});
+  });
+ });
+
+describe("cost validation and outcome isolation", () => {
+ it("preserves successful extraction when settlement rejects",async()=>{
+  const settle=vi.fn().mockRejectedValue(new Error("private ledger details"));
+  const result=await callModel(providerOf(vi.fn().mockResolvedValue(success())),PROMPT,"m",{spend:{guard:{reserve:async()=>({reservationId:"r",estimatedUsd:0.25}),settle},estimatedUsd:0.25}});
+  expect(result.usage.costCoverage).toBe("complete");
+ });
+ it.each([NaN,-1,Infinity])("does not price malformed token usage %s",async(n)=>{
+  const result=await callModel(providerOf(vi.fn().mockResolvedValue({...success(),inputTokens:n})),PROMPT,"m");
+  expect(result.usage).toMatchObject({estimatedCostUsd:null,costCoverage:"unknown",knownCostSubtotalUsd:null});
+ });
+ it("keeps an unpriced success unknown instead of using reservation as price",async()=>{
+  const settle=vi.fn();
+  await callModel(providerOf(vi.fn().mockResolvedValue(success("unregistered"))),PROMPT,"unregistered",{spend:{guard:{reserve:async()=>({reservationId:"r",estimatedUsd:0.25}),settle},estimatedUsd:0.25}});
+  expect(settle).toHaveBeenCalledWith(expect.anything(),null);
+ });
+});
+
+it.each([null,NaN,-1,Infinity,0])("does not label inconsistent subtotal %s a complete aggregate",(subtotal)=>{
+ const base={provider:"openai",modelName:"m",inputTokens:1,outputTokens:1,durationMs:1,attempts:1,estimatedCostUsd:0.02};
+ expect(combineUsage([{...base,knownCostSubtotalUsd:subtotal},base])?.estimatedCostUsd).toBeNull();
+ expect(combineUsage([{...base,costCoverage:"partial"},base])?.estimatedCostUsd).toBeNull();
+});
+
+it("retains unknown when aggregate cost overflows",()=>{
+ const item={provider:"openai",modelName:"m",inputTokens:1,outputTokens:1,durationMs:1,attempts:1,estimatedCostUsd:Number.MAX_VALUE};
+ expect(combineUsage([item,item])).toMatchObject({estimatedCostUsd:null,knownCostSubtotalUsd:null,costCoverage:"unknown"});
+});
+
+it("does not promote legacy retry-shaped usage to complete coverage",()=>{
+ expect(combineUsage([{provider:"openai",modelName:"m",inputTokens:1,outputTokens:1,durationMs:1,attempts:2,estimatedCostUsd:0.02}])).toMatchObject({estimatedCostUsd:null,knownCostSubtotalUsd:0.02,costCoverage:"partial"});
 });

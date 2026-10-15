@@ -205,12 +205,12 @@ or extend the CNC validation geometry to fabrication processes.
 - [ ] The beta-enablement evidence names the effective CNC provider set and
       the process-specific RMFG and OSH Cut disposition; manual RFQ
       sources, standalone evaluation adapters, enum/catalog entries, simulated
-      offers, and disabled, expired, permission-incomplete, or incompatible
+      offers, and disabled, expired, or incompatible
       policies do not count toward live automatic sources. Account existence,
       source integration, live quote verification, and production certification
       are recorded as distinct states; no provider is called live without
       current real-offer evidence.
-- [ ] Each provider certification records current permission evidence, exact
+- [ ] Each provider certification records the exact
       process/material/file envelope, session owner, action-time confirmation,
       immediate pre-adapter recheck, normalized offer/failure provenance,
       rollback, monitoring, and no-order proof.

@@ -486,6 +486,12 @@ export function useAppSession() {
   const isAuthInitializing =
     !hasResolvedInitialRestore &&
     (initialAuthCheck === "present" || (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
+  // The React Query cache is empty after a reload, so also trust the persisted Supabase
+  // token read synchronously at startup. This only lets pages draw their shell chrome;
+  // `user` stays null (and data queries stay disabled) until the session is verified.
+  const hasCachedSession =
+    startupHadStoredTokenRef.current ||
+    Boolean(sessionQuery.data?.user && sessionQuery.data.authState === "authenticated");
 
   useEffect(() => {
     if (sessionQuery.isLoading) {
@@ -626,6 +632,7 @@ export function useAppSession() {
     membershipError: sessionQuery.data?.membershipError ?? null,
     isAuthInitializing,
     hasResolvedInitialAuth: hasResolvedInitialRestore,
+    hasCachedSession,
     initialAuthCheck,
     activeOrganizationId: activeMembership?.organizationId ?? null,
     activeMembership,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useTheme } from "next-themes";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
@@ -63,7 +64,8 @@ import type {
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
-import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { ACCOUNT_SETTINGS_REQUEST_EVENT } from "@/components/chat/account-settings-request";
 import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
 import { setDiagnosticsEnabled, setDiagnosticsPanelOpen, useDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -73,6 +75,8 @@ import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
+import { BillingTierCatalog } from "@/components/billing/BillingTierCatalog";
+import { isBillingTierCatalogUiEnabled } from "@/lib/billing-flags";
 import { openBillingPortal } from "@/features/quotes/billing-sessions";
 import {
   FOUNDING_BETA_POLICY_EFFECTIVE_DATE,
@@ -562,6 +566,8 @@ export function WorkspaceAccountMenu({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const placesAutocompleteRef = useRef<any>(null);
   const isAdmin = activeMembership?.role === "internal_admin";
+  // Any organization member may edit and confirm billing/shipping (OVD-679).
+  const canManageAddresses = Boolean(activeMembership?.organizationId);
 
   // Fetch org details when settings panel opens
   useEffect(() => {
@@ -678,8 +684,25 @@ export function WorkspaceAccountMenu({
     setSourcingError(null);
     try {
       const { id: _id, name: _name, ...patch } = orgDetailsDraft;
-      await updateOrganizationDetails(activeMembership.organizationId, patch);
-      setOrgDetails(orgDetailsDraft);
+      if (editingSection === "company") {
+        await updateOrganizationDetails(activeMembership.organizationId, patch);
+        setOrgDetails(orgDetailsDraft);
+      } else {
+        const {
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        } = orgDetailsDraft;
+        await updateOrganizationAddresses(activeMembership.organizationId, {
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        });
+        // Only address fields were persisted; keep unsaved company edits out of saved state.
+        setOrgDetails((prev) => ({
+          ...prev,
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        }));
+      }
       setEditingSection(null);
       try {
         setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
@@ -702,7 +725,7 @@ export function WorkspaceAccountMenu({
       await confirmSourcingDestination(activeMembership.organizationId, sourcingDestination.address);
       setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
     } catch (error) {
-      setSourcingError(error instanceof Error ? error.message : "Could not confirm the shipping address.");
+      setSourcingError(getUserFacingErrorMessage(error, "Could not confirm the shipping address."));
       try {
         const [destination, details] = await Promise.all([
           fetchSourcingDestination(activeMembership.organizationId),
@@ -806,6 +829,16 @@ export function WorkspaceAccountMenu({
     }
   };
 
+  // Other surfaces (e.g. the Xometry dispatch dialog) can ask for Settings.
+  useEffect(() => {
+    const handleSettingsRequest = () => {
+      setMenuOpen(false);
+      setActivePanel("settings");
+    };
+    window.addEventListener(ACCOUNT_SETTINGS_REQUEST_EVENT, handleSettingsRequest);
+    return () => window.removeEventListener(ACCOUNT_SETTINGS_REQUEST_EVENT, handleSettingsRequest);
+  }, []);
+
   const handleHelpAction = (panelId: HelpItem["id"]) => {
     if (panelId === "report-bug") {
       setMenuOpen(false);
@@ -843,9 +876,10 @@ export function WorkspaceAccountMenu({
       await openBillingPortal(organizationId);
     } catch (error) {
       setBillingError(
-        error instanceof Error
-          ? error.message
-          : "Billing could not be opened. Your current product access is unchanged.",
+        getUserFacingErrorMessage(
+          error,
+          "Billing could not be opened. Your current product access is unchanged.",
+        ),
       );
     } finally {
       setIsOpeningBilling(false);
@@ -1124,6 +1158,11 @@ export function WorkspaceAccountMenu({
                   {billingError}
                 </p>
               ) : null}
+              {isBillingTierCatalogUiEnabled() ? (
+                <div className="mt-4">
+                  <BillingTierCatalog />
+                </div>
+              ) : null}
             </div>
 
             {activeMembership?.organizationId && orgDetailsLoaded && (
@@ -1157,7 +1196,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Billing Address</PanelSectionTitle>
-                    {isAdmin && (
+                    {canManageAddresses && (
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
@@ -1185,7 +1224,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Shipping Address</PanelSectionTitle>
-                    {isAdmin && (
+                    {canManageAddresses && (
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
@@ -1221,7 +1260,7 @@ export function WorkspaceAccountMenu({
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
                           sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
                       </p>
-                      {isAdmin && sourcingDestination.state !== "confirmed" && (
+                      {canManageAddresses && sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}

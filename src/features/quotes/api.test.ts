@@ -542,6 +542,19 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
+const cleanUploadDeclarationResponse = {
+  data: {
+    declarationId: "declaration-1",
+    answer: "not_controlled",
+    termsVersion: "ovd-beta-export-control.v1",
+    uploadAllowed: true,
+    reasonCode: null,
+  },
+  error: null,
+};
+
+const cleanUploadOptions = { exportControlAnswer: "not_controlled" as const };
+
 function createMockFile(contents: string, name: string, options: { type?: string } = {}): File {
   const bytes = new TextEncoder().encode(contents);
 
@@ -598,7 +611,9 @@ import {
   pinJob,
   pinProject,
   persistClientQuoteSelection,
+  getProviderDispatchScope,
   getXometryBetaDispatchScope,
+  requestProviderDispatch,
   requestXometryBetaDispatch,
   requestDebugExtraction,
   requestManualQuote,
@@ -2194,6 +2209,7 @@ describe("quotes api helpers", () => {
   });
 
   it("uploads job files through prepare/finalize RPCs and returns a summary", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.storageUpload.mockResolvedValue({ error: null });
     supabaseMock.rpc
       .mockResolvedValueOnce({
@@ -2220,7 +2236,7 @@ describe("quotes api helpers", () => {
       createMockFile("drawing", "bracket.pdf", { type: "application/pdf" }),
     ];
 
-    await expect(uploadFilesToJob("job-123", files)).resolves.toEqual({
+    await expect(uploadFilesToJob("job-123", files, cleanUploadOptions)).resolves.toEqual({
       uploadedCount: 2,
       reusedCount: 0,
       duplicateNames: [],
@@ -2240,15 +2256,16 @@ describe("quotes api helpers", () => {
       files[1],
       { upsert: false },
     );
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_prepare_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_prepare_job_file_upload", {
       p_job_id: "job-123",
       p_original_name: "bracket.step",
       p_file_kind: "cad",
       p_mime_type: "model/step",
       p_size_bytes: files[0].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_finalize_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_finalize_job_file_upload", {
       p_job_id: "job-123",
       p_storage_bucket: "job-files",
       p_storage_path: "org-sha256/org-1/hash-a/bracket.step",
@@ -2257,16 +2274,18 @@ describe("quotes api helpers", () => {
       p_mime_type: "model/step",
       p_size_bytes: files[0].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_prepare_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_prepare_job_file_upload", {
       p_job_id: "job-123",
       p_original_name: "bracket.pdf",
       p_file_kind: "drawing",
       p_mime_type: "application/pdf",
       p_size_bytes: files[1].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_finalize_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(5, "api_finalize_job_file_upload", {
       p_job_id: "job-123",
       p_storage_bucket: "job-files",
       p_storage_path: "org-sha256/org-1/hash-b/bracket.pdf",
@@ -2275,10 +2294,12 @@ describe("quotes api helpers", () => {
       p_mime_type: "application/pdf",
       p_size_bytes: files[1].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
   });
 
   it("stops when file storage upload fails", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "upload_required",
@@ -2292,13 +2313,14 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "bad.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "bad.step", { type: "model/step" })], cleanUploadOptions),
     ).rejects.toThrow("Storage down");
 
-    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
   });
 
   it("skips same-job duplicates reported by the prepare RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "duplicate_in_job",
@@ -2307,7 +2329,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "duplicate.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "duplicate.step", { type: "model/step" })], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 0,
       reusedCount: 0,
@@ -2319,6 +2341,7 @@ describe("quotes api helpers", () => {
   });
 
   it("reuses org-scoped duplicates without uploading the blob again", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "reused",
@@ -2328,7 +2351,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "reused.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "reused.step", { type: "model/step" })], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 0,
       reusedCount: 1,
@@ -2340,6 +2363,7 @@ describe("quotes api helpers", () => {
   });
 
   it("skips duplicate content within a selected batch before hitting the network twice", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc
       .mockResolvedValueOnce({
         data: {
@@ -2357,14 +2381,14 @@ describe("quotes api helpers", () => {
       uploadFilesToJob("job-123", [
         createMockFile(duplicateContent, "first.step", { type: "model/step" }),
         createMockFile(duplicateContent, "second.step", { type: "model/step" }),
-      ]),
+      ], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 1,
       reusedCount: 0,
       duplicateNames: ["second.step"],
     });
 
-    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(3);
     expect(toastMock.error).toHaveBeenCalledWith("second.step is duplicated in this upload batch and was skipped.");
   });
 
@@ -3217,6 +3241,10 @@ describe("quotes api helpers", () => {
         });
       }
 
+      if (fn === "api_declare_job_export_status") {
+        return Promise.resolve(cleanUploadDeclarationResponse);
+      }
+
       if (fn === "api_finalize_job_file_upload") {
         return Promise.resolve({ data: "file-1", error: null });
       }
@@ -3241,6 +3269,7 @@ describe("quotes api helpers", () => {
       createJobsFromUploadFiles({
         files,
         prompt: "I need 10 of these by April 15",
+        exportControlAnswer: "not_controlled",
       }),
     ).resolves.toEqual({
       jobIds: ["job-1", "job-2"],
@@ -3266,11 +3295,11 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(8, "api_prepare_part_intake", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_prepare_part_intake", {
       p_cad_content_sha256: createHash("sha256").update("b").digest("hex"),
       p_drawing_content_sha256: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(10, "api_create_client_draft", {
       p_title: "beta",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
@@ -4252,6 +4281,146 @@ describe("quotes api helpers", () => {
       p_non_export_controlled: true,
       p_quote_only: true,
     });
+  });
+
+  it("sends a Xometry fan out request with its marker to the fan out RPC (OVD-762)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestXometryBetaDispatch({
+      jobId: "job-1",
+      declaredModelUnits: "inch",
+      expectedScopeFingerprint: "a".repeat(64),
+      policyRevision: "founding-beta-2026-08-15",
+      approvalReference: "approval-1",
+      fanout: { confirmationReference: "confirmation-1", vendors: ["fictiv", "xometry"] },
+    })).resolves.toMatchObject({ accepted: true, status: "queued" });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_xometry_beta_fanout_dispatch", {
+      p_job_id: "job-1",
+      p_declared_model_units: "inch",
+      p_expected_scope_fingerprint: "a".repeat(64),
+      p_policy_revision: "founding-beta-2026-08-15",
+      p_approval_reference: "approval-1",
+      p_fanout_confirmation_reference: "confirmation-1",
+      p_fanout_vendors: ["fictiv", "xometry"],
+      p_authority_to_share: true,
+      p_non_export_controlled: true,
+      p_quote_only: true,
+    });
+  });
+
+  it("reads a Xometry fan out scope with its marker from the fan out RPC (OVD-762)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: null, error: { message: "xometry_beta_exact_provider_set_required" } });
+
+    await expect(getXometryBetaDispatchScope("job-1", "inch", ["fictiv", "xometry"])).rejects.toBeTruthy();
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_xometry_beta_fanout_dispatch_scope", {
+      p_job_id: "job-1",
+      p_declared_model_units: "inch",
+      p_fanout_vendors: ["fictiv", "xometry"],
+    });
+  });
+
+  it("loads and confirms a Fictiv scope only through the generic provider RPCs (OVD-673)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        schema: "provider-dispatch-scope.v1",
+        organizationId: "org-1",
+        jobId: "job-1",
+        partId: "part-1",
+        provider: "fictiv",
+        requestedQuantity: 1,
+        scopeVersion: 1,
+        scopeFingerprint: "a".repeat(64),
+        declaredModelUnits: "inch",
+        noticeRevision: "founding-beta-2026-08-15",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: {
+          schema: "quote-lane-scope.v1",
+          vendor: "fictiv",
+          quantity: 1,
+          destination: { confirmationRevision: "1", state: "confirmed", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" },
+          part: {
+            id: "part-1",
+            cad: { fileId: "cad-1", sha256: "b".repeat(64), name: "validation.step", mimeType: "application/step", sizeBytes: 1024 },
+            drawing: null,
+          },
+          requirements: {
+            id: "requirements-1",
+            capturedAt: "2026-08-15T00:00:00Z",
+            description: "Validation bracket",
+            partNumber: "VALIDATION-001",
+            revision: "A",
+            material: "6061-T6",
+            finish: null,
+            tightestToleranceInch: 0.005,
+            requestedDeliveryDate: null,
+            specification: {},
+          },
+        },
+      },
+      error: null,
+    });
+
+    await expect(getProviderDispatchScope("job-1", "fictiv", "inch")).resolves.toMatchObject({
+      provider: "fictiv",
+      policyRevision: "founding-beta-2026-08-15",
+      envelopeRevision: "fictiv-quote-envelope.v1",
+    });
+    expect(supabaseMock.rpc).toHaveBeenLastCalledWith("api_get_provider_dispatch_scope", {
+      p_job_id: "job-1",
+      p_provider: "fictiv",
+      p_declared_model_units: "inch",
+    });
+
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        provider: "fictiv",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestProviderDispatch({
+      jobId: "job-1",
+      provider: "fictiv",
+      declaredModelUnits: "inch",
+      expectedScopeFingerprint: "a".repeat(64),
+      noticeRevision: "founding-beta-2026-08-15",
+      expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+      approvalReference: "approval-1",
+    })).resolves.toMatchObject({ accepted: true, status: "queued", permitId: "permit-1" });
+    expect(supabaseMock.rpc).toHaveBeenLastCalledWith("api_request_provider_dispatch", {
+      p_job_id: "job-1",
+      p_provider: "fictiv",
+      p_declared_model_units: "inch",
+      p_expected_scope_fingerprint: "a".repeat(64),
+      p_notice_revision: "founding-beta-2026-08-15",
+      p_expected_envelope_revision: "fictiv-quote-envelope.v1",
+      p_approval_reference: "approval-1",
+      p_authority_to_share: true,
+      p_non_export_controlled: true,
+      p_quote_only: true,
+    });
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_request_xometry_beta_dispatch", expect.anything());
   });
 
   it("accepts the authoritative idempotent Xometry dispatch result", async () => {

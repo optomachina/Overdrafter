@@ -10,7 +10,23 @@ import {
   readCurrentVendorKeys,
   readProviderManifests,
 } from "./provider-manifest.mjs";
-import { assertSafeGeneratedOutput, syncProviderCatalogs } from "./provider-sync.mjs";
+import { assertSafeGeneratedOutput, syncProviderIntegrations } from "./provider-sync.mjs";
+import {
+  PROVIDER_REGISTRY_RELATIVE_PATH,
+  PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
+  WORKER_REGISTRY_RELATIVE_PATH,
+  WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  assertGeneratedRegistryOutput,
+  assertRegistryCoversManifests,
+  readProviderRegistry,
+  readProviderRegistrySchema,
+} from "./provider-registry.mjs";
+import { assertDefaultDenyExecuted } from "./default-deny-execution.mjs";
+import { assertReviewedEnvelopeCompleteness, reviewedDefaultDenySuites } from "./reviewed-envelope-check.mjs";
+
+export const KILL_SWITCH_SEED_RELATIVE_PATH = "docs/migration-drafts/ovd-722.sql";
+const KILL_SWITCH_SEED_INSERT = /insert\s+into\s+private\.provider_kill_switches\s*\(\s*provider\s*,\s*engaged\s*\)/i;
+const VENDOR_ENUM_RANGE = /enum_range\s*\(\s*null::public\.vendor_name\s*\)/i;
 
 const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
 const REQUIRED_CATALOG_CONSUMERS = new Map([
@@ -87,6 +103,38 @@ export function assertCheckedInProviderIdentity(manifest) {
   }
 }
 
+// OVD-722: every registry provider must start with a kill-switch row, otherwise
+// the fail-closed reader treats it as switched off.
+export function assertKillSwitchSeedCoversRegistry(sql, registryKeys, vendorKeys) {
+  const seed = sql
+    .replace(/--[^\n]*/g, "")
+    .split(";")
+    .find((statement) => KILL_SWITCH_SEED_INSERT.test(statement));
+  if (!seed) {
+    throw new Error(`kill-switch seed for private.provider_kill_switches is missing: ${KILL_SWITCH_SEED_RELATIVE_PATH}`);
+  }
+  const seeded = VENDOR_ENUM_RANGE.test(seed)
+    ? new Set(vendorKeys)
+    : new Set([...seed.matchAll(/\(\s*'([a-z][a-z0-9]+)'/g)].map((match) => match[1]));
+  const missing = registryKeys.filter((key) => !seeded.has(key));
+  if (missing.length > 0) {
+    throw new Error(`provider registry key has no kill-switch seed row: ${missing.join(",")}`);
+  }
+}
+
+async function assertKillSwitchSeed(rootDir, registry, vendorKeys) {
+  let sql;
+  try {
+    sql = await fs.readFile(path.join(rootDir, KILL_SWITCH_SEED_RELATIVE_PATH), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`kill-switch seed SQL is missing: ${KILL_SWITCH_SEED_RELATIVE_PATH}`);
+    }
+    throw error;
+  }
+  assertKillSwitchSeedCoversRegistry(sql, registry.providers.map((entry) => entry.key), vendorKeys);
+}
+
 async function readProviderSchema(rootDir) {
   let schema;
   try {
@@ -102,6 +150,11 @@ async function readProviderSchema(rootDir) {
   }
 }
 
+async function readRegistryContract(rootDir) {
+  await readProviderRegistrySchema(rootDir);
+  return readProviderRegistry(rootDir);
+}
+
 function assertManifestKeysMatch(manifestKeys, vendorKeys) {
   if (JSON.stringify(manifestKeys) === JSON.stringify(vendorKeys)) {
     return;
@@ -111,26 +164,40 @@ function assertManifestKeysMatch(manifestKeys, vendorKeys) {
   throw new Error(`manifest/vendor enum mismatch; missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
 }
 
-async function assertGeneratedCatalogs(rootDir, today) {
-  const expected = await syncProviderCatalogs({ rootDir, dryRun: true, today });
-  for (const output of expected.rendered) {
-    const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath);
+function generatedOutputKind(relativePath) {
+  if (
+    relativePath === WORKER_REGISTRY_RELATIVE_PATH
+    || relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH
+  ) {
+    return "generated provider registry";
+  }
+  return "generated provider catalog";
+}
+
+async function assertGeneratedOutputs(rootDir, today) {
+  const expected = await syncProviderIntegrations({ rootDir, dryRun: true, today });
+  await Promise.all(expected.rendered.map(async (output) => {
+    const kind = generatedOutputKind(output.relativePath);
+    const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath, kind);
     let actual;
     try {
       actual = await fs.readFile(outputPath, "utf8");
     } catch (error) {
       if (error?.code === "ENOENT") {
-        throw new Error(`generated provider catalog is missing: ${output.relativePath}`);
+        throw new Error(`${kind} is missing: ${output.relativePath}`);
       }
       throw error;
     }
     if (actual !== output.contents) {
-      throw new Error(`generated provider catalog is stale: ${output.relativePath}`);
+      throw new Error(`${kind} is stale: ${output.relativePath}`);
     }
-    if (/certified|admission|dispatchEnabled|productionAuthorized/i.test(actual)) {
-      throw new Error(`generated provider catalog contains production authority language: ${output.relativePath}`);
+    if (kind === "generated provider registry") {
+      assertGeneratedRegistryOutput(actual, output.relativePath);
+    } else if (/certified|admission|dispatchEnabled|productionAuthorized/i.test(actual)) {
+      throw new Error(`${kind} contains production authority language: ${output.relativePath}`);
     }
-  }
+  }));
+  return expected;
 }
 
 async function assertCatalogConsumers(rootDir) {
@@ -154,8 +221,10 @@ export async function checkProviderIntegrations({
   checkConsumers = true,
 }) {
   await readProviderSchema(rootDir);
+  const registry = await readRegistryContract(rootDir);
   const manifests = await readProviderManifests(rootDir, { today });
   manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
+  assertRegistryCoversManifests(registry, manifests.map(({ manifest }) => manifest.key));
   const manifestKeys = manifests
     .map(({ manifest }) => manifest.key)
     .sort((left, right) => {
@@ -169,15 +238,28 @@ export async function checkProviderIntegrations({
     });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
-  await assertGeneratedCatalogs(rootDir, today);
+  await assertKillSwitchSeed(rootDir, registry, vendorKeys);
+  const generated = await assertGeneratedOutputs(rootDir, today);
 
   if (checkConsumers) {
     await assertCatalogConsumers(rootDir);
   }
+  const reviewed = await assertReviewedEnvelopeCompleteness({ rootDir, today });
+  const defaultDeny = await assertDefaultDenyExecuted({ rootDir, suites: await reviewedDefaultDenySuites(rootDir) });
   return {
     providerCount: manifests.length,
     vendorKeys,
-    generatedOutputs: [WEB_CATALOG_RELATIVE_PATH, WORKER_CATALOG_RELATIVE_PATH],
+    liveAdapters: generated.liveAdapters,
+    generatedOutputs: [
+      WEB_CATALOG_RELATIVE_PATH,
+      WORKER_CATALOG_RELATIVE_PATH,
+      WORKER_REGISTRY_RELATIVE_PATH,
+      WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+    ],
+    registryPath: PROVIDER_REGISTRY_RELATIVE_PATH,
+    registrySchemaPath: PROVIDER_REGISTRY_SCHEMA_RELATIVE_PATH,
+    reviewedProviders: reviewed.reviewedProviders,
+    defaultDenyExecuted: defaultDeny.executed,
   };
 }
 

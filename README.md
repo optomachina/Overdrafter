@@ -354,6 +354,12 @@ also depends on the `job-archive-fallback` Edge Function being deployed with `SU
 `SUPABASE_SERVICE_ROLE_KEY` so storage cleanup can run through the Storage API when direct
 `storage.objects` deletes are blocked. The primary RPC already clears published-package options
 before deleting jobs, so quoted or published archived parts do not fail on those foreign keys.
+
+Vercel skips preview deploys for agent branches (`claude/**`, `codex/**`, `cursor/**`) through
+`git.deploymentEnabled` in `vercel.json`, because the free plan allows 100 deployments per day and agent pushes
+exhausted it. Main still deploys to production and other branches still get previews. To get a preview of an
+agent branch, push the same commit to a branch with a different name (for example `preview/<topic>`).
+
 Vercel preview or production app deploys do not deploy Supabase Edge Functions automatically, so
 confirm the active Supabase project for `VITE_SUPABASE_URL` also has `job-archive-fallback`
 deployed and configured before treating preview archive-delete failures as app regressions.
@@ -447,6 +453,7 @@ Docker note:
 - `npm run db:start` and `npm run db:reset` require Docker Desktop because local Supabase runs in Docker
 - if `supabase start` fails with `Cannot connect to the Docker daemon`, start Docker Desktop first
 - if you do not want to use Docker, use the built-in fixture surfaces instead
+- `npm run seed:dev` also applies `e2e/fixtures/beta-access.sql` with `psql` (Founding Beta enrollment for the demo clients), so it needs the PostgreSQL client installed (for example `postgresql-client`, or `brew install libpq`); it looks in fixed system directories only, never `PATH`; for keg only libpq or Postgres.app set `SEED_PSQL_PATH` to the absolute path of the `psql` binary, for example `SEED_PSQL_PATH=/opt/homebrew/opt/libpq/bin/psql npm run seed:dev`; the step runs against a local database only and is skipped under `--allow-remote`
 
 Typical usage:
 
@@ -478,6 +485,8 @@ Seeded local users:
 - `client.demo@overdrafter.local`
 - `estimator.demo@overdrafter.local`
 - `admin.demo@overdrafter.local`
+- `outsider.demo@overdrafter.local` (client of a different organization)
+- `unenrolled.demo@overdrafter.local` (client whose organization has no Founding Beta enrollment)
 - password: `Overdrafter123!`
 
 Dev-only instant login shortcut:
@@ -554,9 +563,8 @@ Recent live-adapter status:
   only and retains file-bound export-control confirmation; production dispatch
   remains governed by the existing permit path.
 - Fictiv live automation was repaired in PR #235 and validated historically for
-  internal use. It is not a certified 1.0 lane until Fictiv supplies prior
-  written consent and the adapter passes the provider-neutral certification
-  contract.
+  internal use. It is not a certified 1.0 lane until the adapter passes the
+  provider-neutral certification contract.
 - Xometry live automation historically used standard Playwright after PR #277
   showed that Patchright returned `401` for the material API. The current
   private Cloud Run worker instead uses Camoufox snapshot mode: a closed

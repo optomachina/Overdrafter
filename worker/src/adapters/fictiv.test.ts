@@ -15,7 +15,13 @@ vi.mock("playwright", () => ({
   },
 }));
 
-import { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { VendorAutomationError, VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import {
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+} from "../providerMutationPhase";
+import { isRetryableVendorTaskError } from "../vendorTaskRetry";
+import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -27,6 +33,7 @@ import {
   isManualReviewText,
   parseFirstCurrency,
   parseLeadTime,
+  setFilesOnUpload,
 } from "./fictiv";
 import {
   buildFinishSearchTerms,
@@ -35,6 +42,7 @@ import {
   FICTIV_URLS,
 } from "./fictivConstraints";
 import { evaluateProviderAdapterContract, evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
+import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
 
 const tempDirs: string[] = [];
 
@@ -74,7 +82,29 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   };
 }
 
+const STAGED_CAD_SHA256 = "e".repeat(64);
+
+/**
+ * Production-path inputs carry a synthetic Fictiv dispatch authorization bound
+ * to the staged bytes and quantity, as the provider preflight would hand over.
+ * Live-evaluation inputs and explicit overrides are left untouched.
+ */
 function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
+  const input = makeUnauthorizedInput(overrides);
+  if (input.executionContext === "live_evaluation" || "providerDispatchAuthorization" in overrides) {
+    return input;
+  }
+  return {
+    ...input,
+    providerDispatchAuthorization: fictivDispatchAuthorization(fictivDispatchEnvelope({
+      cadSha256: input.stagedCadFile?.trustedContentSha256 ?? STAGED_CAD_SHA256,
+      drawingSha256: input.stagedDrawingFile?.trustedContentSha256 ?? null,
+      requestedQuantity: input.requestedQuantity,
+    })),
+  };
+}
+
+function makeUnauthorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
   return {
     organizationId: "org-1",
     quoteRunId: "run-1",
@@ -103,6 +133,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       localPath: path.resolve(".tmp/part.step"),
       storageBucket: "job-files",
       storagePath: "cad/part.step",
+      trustedContentSha256: STAGED_CAD_SHA256,
     },
     stagedDrawingFile: null,
     requirement: {
@@ -131,6 +162,7 @@ type LocatorBehavior = {
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
+  waitFor?: () => Promise<void> | void;
 };
 
 type FakePageOptions = {
@@ -155,7 +187,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       return this;
     },
     async waitFor() {
-      return undefined;
+      await behavior.waitFor?.();
     },
     async isVisible() {
       return resolve(behavior.count, 0) > 0;
@@ -270,8 +302,8 @@ function createFakeBrowser(page: ReturnType<typeof createFakePage>) {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
-      start: vi.fn(),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     },
     async newPage() {
       return page;
@@ -330,6 +362,99 @@ describe("Fictiv helpers", () => {
         url: FICTIV_URLS.login,
       }),
     ).toBe("login_required");
+  });
+});
+
+describe("FictivAdapter production dispatch authorization (OVD-673)", () => {
+  const authorizedFor = (binding: { cadSha256?: string; drawingSha256?: string | null; requestedQuantity?: number }) =>
+    fictivDispatchAuthorization(fictivDispatchEnvelope({
+      cadSha256: binding.cadSha256 ?? STAGED_CAD_SHA256,
+      drawingSha256: binding.drawingSha256 ?? null,
+      requestedQuantity: binding.requestedQuantity ?? 2,
+    }));
+  const stagedDrawing = {
+    originalName: "part.pdf",
+    localPath: path.resolve(".tmp/part.pdf"),
+    storageBucket: "job-files",
+    storagePath: "drawings/part.pdf",
+    trustedContentSha256: "f".repeat(64),
+  };
+  const xometryEnvelope = () => {
+    const authorization = authorizedFor({});
+    return { ...authorization, provider: "xometry" as const };
+  };
+  const otherRevision = () => {
+    const authorization = authorizedFor({});
+    return { ...authorization, envelope: { ...authorization.envelope, envelope: { id: "fictiv-quote-envelope", version: 2 } } };
+  };
+  const expired = () => {
+    const authorization = authorizedFor({});
+    const past = "2020-01-01T00:00:00.000Z";
+    return { ...authorization, expiresAt: past, envelope: { ...authorization.envelope, expiresAt: past } };
+  };
+
+  it.each([
+    ["missing", () => makeInput({ providerDispatchAuthorization: undefined }), "dispatch_authorization_missing"],
+    ["for another provider", () => makeInput({ providerDispatchAuthorization: xometryEnvelope() }), "dispatch_authorization_provider_mismatch"],
+    ["for an unreviewed envelope revision", () => makeInput({ providerDispatchAuthorization: otherRevision() }), "dispatch_authorization_envelope_unreviewed"],
+    ["expired", () => makeInput({ providerDispatchAuthorization: expired() }), "dispatch_authorization_expired"],
+    ["for another quantity", () => makeInput({ providerDispatchAuthorization: authorizedFor({ requestedQuantity: 3 }) }), "dispatch_authorization_quantity_mismatch"],
+    ["for other CAD bytes", () => makeInput({ providerDispatchAuthorization: authorizedFor({ cadSha256: "a".repeat(64) }) }), "dispatch_authorization_file_mismatch"],
+    [
+      "without the staged drawing",
+      () => makeInput({ stagedDrawingFile: stagedDrawing, providerDispatchAuthorization: authorizedFor({}) }),
+      "dispatch_authorization_file_mismatch",
+    ],
+    [
+      "naming a drawing that is not staged",
+      () => makeInput({ providerDispatchAuthorization: authorizedFor({ drawingSha256: "f".repeat(64) }) }),
+      "dispatch_authorization_file_mismatch",
+    ],
+    [
+      "against staged bytes without a trusted digest",
+      () => makeInput({
+        stagedCadFile: { ...makeUnauthorizedInput().stagedCadFile!, trustedContentSha256: undefined },
+        providerDispatchAuthorization: authorizedFor({}),
+      }),
+      "dispatch_authorization_file_mismatch",
+    ],
+  ])("refuses a production launch with an authorization %s before any browser launch", async (_label, input, reason) => {
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    const failure = await adapter.quote(input()).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(failure).toMatchObject({
+      payload: { vendor: "fictiv", reason, terminalState: "unsupported", providerInteractionAttempted: false },
+    });
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "unsupported" });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unauthorized production launch even for requirements it would route to manual follow-up", async () => {
+    const adapter = new FictivAdapter("fictiv", makeConfig());
+    await expect(adapter.quote(makeInput({
+      providerDispatchAuthorization: undefined,
+      requirement: { ...makeUnauthorizedInput().requirement, material: "mystery alloy" },
+    }))).rejects.toMatchObject({ payload: { reason: "dispatch_authorization_missing" } });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an authorization bound to both staged files and proceeds to the session", async () => {
+    const close = vi.fn();
+    launchMock.mockResolvedValue({ newContext: vi.fn().mockRejectedValue(new Error("session unavailable")), close });
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    const failure = await adapter.quote(makeInput({
+      stagedDrawingFile: stagedDrawing,
+      providerDispatchAuthorization: authorizedFor({ drawingSha256: stagedDrawing.trustedContentSha256 }),
+    })).catch((error: unknown) => error);
+    expect(launchMock).toHaveBeenCalledOnce();
+    expect(failure).not.toMatchObject({ payload: { reason: expect.stringMatching(/^dispatch_authorization_/) } });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps simulate mode free of any dispatch authorization", async () => {
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerMode: "simulate" }));
+    await expect(adapter.quote(makeUnauthorizedInput())).resolves.toMatchObject({ vendor: "fictiv" });
+    expect(launchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -426,7 +551,7 @@ describe("FictivAdapter", () => {
     });
   });
 
-  it("captures a live instant quote after CNC/process setup and upload-analysis progression", async () => {
+  it.each([false, true])("captures a live instant quote after CNC/process setup and upload-analysis progression (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const cadPath = path.join(workerTempDir, "evaluation-part.step");
     await fs.writeFile(cadPath, "authorized-fictiv-cad");
@@ -537,17 +662,37 @@ describe("FictivAdapter", () => {
       },
       optionTexts: ["CNC", "6061", "Type II", "Prototype"],
     });
-    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
 
     const adapter = new FictivAdapter(
       "fictiv",
       makeConfig({
         workerTempDir,
         fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+        playwrightCaptureTrace: captureTrace,
       }),
     );
 
     const result = await adapter.quote(authorizedInput!);
+
+    // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
+    const context = await browser.newContext();
+    if (captureTrace) {
+      expect(context.tracing.start).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledWith();
+    } else {
+      expect(context.tracing.start).not.toHaveBeenCalled();
+    }
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+    expect(result.artifacts.map((artifact) => artifact.kind)).not.toContain("screenshot");
+    const runDir = path.dirname(result.artifacts[0]!.localPath);
+    await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
@@ -965,6 +1110,428 @@ describe("FictivAdapter", () => {
     expect(interactionLog[uploadStepIndex]).toBe("set-upload-files:cnc");
   });
 
+  describe("OVD-722 kill switch checkpoints right before each provider mutation", () => {
+    type Checkpoint = "before_navigation" | "before_upload" | "before_configure" | "before_save";
+    /** A switch the test flips; `engageAfter` engages it right after the first read of that checkpoint passes. */
+    const killSwitch = (engageAfter?: Checkpoint) => {
+      const state = { engaged: false, reads: [] as Checkpoint[] };
+      const providerKillSwitchCheckpoint = async (checkpoint: Checkpoint) => {
+        state.reads.push(checkpoint);
+        if (state.engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "fictiv", checkpoint);
+        if (checkpoint === engageAfter) state.engaged = true;
+      };
+      return { state, providerKillSwitchCheckpoint };
+    };
+    const flowPage = (
+      spies: { upload?: () => void; process?: () => void; material?: () => void; finish?: () => void },
+      extraSelectors: Record<string, LocatorBehavior> = {},
+    ) => {
+      let cncSelected = false;
+      return createFakePage({
+        bodyTextSequence: [
+          "Select process to continue",
+          "Uploading your parts",
+          "Analyzing your geometry",
+          "Active quotes Total price USD $88.00 Lead time 4 business days",
+        ],
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: {
+            count: 1,
+            text: () => (cncSelected ? "CNC" : "Process"),
+            click: vi.fn(() => {
+              spies.process?.();
+              cncSelected = true;
+            }),
+          },
+          [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn(() => spies.upload?.()) },
+          [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn(() => spies.material?.()) },
+          [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn(() => spies.finish?.()) },
+          [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $88.00" },
+          [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "4 business days" },
+          [FICTIV_LOCATORS.quoteLinkAnchors[0]]: { count: 1, href: "/quotes/kill-switch" },
+          ...extraSelectors,
+        },
+        optionTexts: ["CNC", "6061-T6", "Type II Anodize Black"],
+      });
+    };
+    const adapterFor = async () => {
+      const workerTempDir = await makeTempDir();
+      return new FictivAdapter("fictiv", makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }));
+    };
+
+    it("engaged after the pre upload check while the upload input is polled: setInputFiles never runs", async () => {
+      const { providerKillSwitchCheckpoint } = killSwitch("before_upload");
+      const upload = vi.fn();
+      const page = flowPage({ upload });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_upload" });
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("engaged while a navigation attempt fails: the fallback route is never opened", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = flowPage({});
+      page.goto = vi.fn(async (url: string) => {
+        page.visitedUrls.push(url);
+        state.engaged = true;
+        throw new Error("net::ERR_CONNECTION_RESET");
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_navigation" });
+      expect(page.visitedUrls).toEqual([FICTIV_URLS.upload]);
+    });
+
+    it("engaged after navigation: the pre upload CNC selection is never clicked", async () => {
+      const { providerKillSwitchCheckpoint } = killSwitch("before_navigation");
+      const process = vi.fn();
+      const upload = vi.fn();
+      launchMock.mockResolvedValue(createFakeBrowser(flowPage({ process, upload })));
+
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+      expect(process).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    /** Records which dropdown options get clicked, by the option name the adapter asks for. */
+    const trackOptionClicks = (page: ReturnType<typeof flowPage>) => {
+      const clicked: string[] = [];
+      const getByRole = page.getByRole.bind(page);
+      page.getByRole = ((role: string, input: { name?: RegExp }) => {
+        const locator = getByRole(role, input);
+        const click = locator.click.bind(locator);
+        locator.click = async () => {
+          clicked.push(String(input.name));
+          await click();
+        };
+        return locator;
+      }) as typeof page.getByRole;
+      return clicked;
+    };
+    const runExpectingKillSwitch = async (page: ReturnType<typeof flowPage>, providerKillSwitchCheckpoint: Parameters<typeof makeInput>[0] extends infer T ? NonNullable<T> extends { providerKillSwitchCheckpoint?: infer C } ? C : never : never) => {
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const error = await (await adapterFor()).quote(makeInput({ providerKillSwitchCheckpoint })).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ name: "ProviderKillSwitchError", checkpoint: "before_configure" });
+    };
+
+    it("engaged between the quantity fill and Enter: Enter is never pressed", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const press = vi.fn();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(() => { state.engaged = true; }), press },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(press).not.toHaveBeenCalled();
+    });
+
+    it("engaged while the material is selected: the material option and the finish are never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const finish = vi.fn();
+      const page = flowPage({ material: () => { state.engaged = true; }, finish });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /6061/.test(name))).toBe(false);
+      expect(finish).not.toHaveBeenCalled();
+    });
+
+    it("engaged while the finish dropdown opens: the finish option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = flowPage({ finish: () => { state.engaged = true; } });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /Type II|Black/.test(name))).toBe(false);
+    });
+
+    it("engaged while the end use dropdown opens: the end use option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = createFakePage({
+        bodyText: "Active quotes Total price USD $88.00 Lead time 4 business days",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC", click: vi.fn() },
+          [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Select", click: vi.fn(() => { state.engaged = true; }) },
+        },
+        optionTexts: ["CNC", "6061-T6", "Type II Anodize Black", "Prototype"],
+      });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /Prototype/.test(name))).toBe(false);
+    });
+
+    it("engaged while the configuration drawer opens: the CNC radio card is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const radio = vi.fn();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: { count: 1, click: vi.fn(() => { state.engaged = true; }) },
+        [FICTIV_LOCATORS.processRadioCards[0]]: { count: 1, text: "CNC Machining", click: radio },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      // One click is the pre upload selection; none may follow the drawer open.
+      expect(radio).toHaveBeenCalledTimes(1);
+    });
+
+    it("engaged while the process dropdown opens: the process option is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const page = createFakePage({
+        bodyText: "Select process to continue",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "Process", click: vi.fn(() => { state.engaged = true; }) },
+        },
+        optionTexts: ["CNC"],
+      });
+      const clicked = trackOptionClicks(page);
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(clicked.some((name) => /CNC/.test(name))).toBe(false);
+    });
+
+    it("engaged during the post upload poll: the overlay close click is never made", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const close = vi.fn();
+      const page = flowPage({ upload: () => { state.engaged = true; } }, {
+        [FICTIV_LOCATORS.modalCloseButtons[0]]: { count: 1, click: close },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    it("engaged between upload analysis and the auto configuration Continue: Continue is never clicked", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      let uploaded = false;
+      const continueClick = vi.fn();
+      const page = flowPage({ upload: () => { uploaded = true; state.engaged = true; } }, {
+        [FICTIV_LOCATORS.autoConfigModalContinue[0]]: { count: () => (uploaded ? 1 : 0), click: continueClick },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(continueClick).not.toHaveBeenCalled();
+    });
+
+    /** A Continue modal that shows for exactly one visibility check once `show` is called. */
+    const oneShotContinue = () => {
+      let pending = false;
+      const click = vi.fn();
+      return {
+        show: () => { pending = true; },
+        click,
+        behavior: {
+          count: () => {
+            if (!pending) return 0;
+            pending = false;
+            return 1;
+          },
+          click,
+        } satisfies LocatorBehavior,
+      };
+    };
+
+    it("engaged after the last configuration checkpoint, before the final blocking state check: the refusal is rethrown", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const modal = oneShotContinue();
+      const page = flowPage({}, { [FICTIV_LOCATORS.autoConfigModalContinue[0]]: modal.behavior });
+      page.waitForLoadState = vi.fn(async () => {
+        state.engaged = true;
+        modal.show();
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(modal.click).not.toHaveBeenCalled();
+    });
+
+    it("engaged while extractQuoteData waits for the quote: the refusal is rethrown, not swallowed", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const modal = oneShotContinue();
+      const page = flowPage({}, {
+        [FICTIV_LOCATORS.autoConfigModalContinue[0]]: modal.behavior,
+        [[
+          '[data-test-target="quote-level-lead-time-price-selected"]',
+          '[data-test-target="quote-level-lead-time-selected-option"]',
+        ].join(", ")]: {
+          waitFor: () => {
+            state.engaged = true;
+            modal.show();
+          },
+        },
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(modal.click).not.toHaveBeenCalled();
+    });
+
+    it("engaged during the failed radio click wait: the process dropdown fallback is never opened", async () => {
+      const { state, providerKillSwitchCheckpoint } = killSwitch();
+      const process = vi.fn();
+      const page = createFakePage({
+        bodyText: "Select process to continue",
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.processRadioCards[0]]: {
+            count: 1,
+            text: "CNC Machining",
+            click: vi.fn(() => {
+              state.engaged = true;
+              throw new Error("radio card click timed out");
+            }),
+          },
+          [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "Process", click: process },
+        },
+        optionTexts: ["CNC"],
+      });
+
+      await runExpectingKillSwitch(page, providerKillSwitchCheckpoint);
+
+      expect(process).not.toHaveBeenCalled();
+    });
+  });
+
+  it("treats a plain failure after upload as a possible provider mutation and redacts captured DOM", async () => {
+    const workerTempDir = await makeTempDir();
+    let uploaded = false;
+    const page = createFakePage({
+      bodyTextSequence: [
+        "Select process to continue jane@customer.example token=fictiv-session-secret",
+        "Uploading your parts",
+      ],
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: 1,
+          text: "CNC",
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(() => {
+            uploaded = true;
+          }),
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    // Screenshots are no longer captured (OVD-611), so fail the post-upload DOM capture instead.
+    const captureContent = page.content.bind(page);
+    page.content = async () => {
+      if (uploaded) {
+        throw new Error("Target page, context or browser has been closed");
+      }
+      return captureContent();
+    };
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+    const phase = createProviderMutationPhase();
+
+    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+      .catch((error: unknown) => error);
+
+    expect(uploaded).toBe(true);
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    // Without the phase the transport-flavored code alone would be retried.
+    expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
+    expect(phase.started).toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
+
+    const htmlArtifacts = (failure as VendorAutomationError).artifacts
+      .filter((artifact) => artifact.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+    for (const artifact of htmlArtifacts) {
+      const html = await fs.readFile(artifact.localPath, "utf8");
+      expect(html).not.toContain("jane@customer.example");
+      expect(html).not.toContain("fictiv-session-secret");
+      expect((await fs.stat(artifact.localPath)).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("treats configuring a landing quote page without an upload as a provider mutation", async () => {
+    const workerTempDir = await makeTempDir();
+    const upload = vi.fn();
+    const fillQuantity = vi.fn();
+    const page = createFakePage({
+      bodyText: "Active quotes Total price USD $120.00 Lead time 5 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: upload },
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: fillQuantity, press: vi.fn() },
+        [FICTIV_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            throw new Error("Target page, context or browser has been closed");
+          }),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+    const phase = createProviderMutationPhase();
+
+    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+      .catch((error: unknown) => error);
+
+    expect(upload).not.toHaveBeenCalled();
+    expect(fillQuantity).toHaveBeenCalledWith("2");
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    // Without the phase the transport-flavored code alone would be retried.
+    expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
+    expect(phase.started).toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
+  });
+
+  it.each([
+    { playwrightDisableSandbox: false, chromiumSandbox: true, args: ["--disable-dev-shm-usage"] },
+    {
+      playwrightDisableSandbox: true,
+      chromiumSandbox: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    },
+  ])("passes the Chromium sandbox decision explicitly (disable=$playwrightDisableSandbox)", async (
+    { playwrightDisableSandbox, chromiumSandbox, args },
+  ) => {
+    launchMock.mockResolvedValue({
+      newContext: vi.fn().mockRejectedValue(new Error("session unavailable")),
+      close: vi.fn(),
+    });
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({ workerTempDir: await makeTempDir(), playwrightDisableSandbox }),
+    );
+    await adapter.quote(makeInput()).catch(() => undefined);
+    expect(launchMock).toHaveBeenCalledWith({ headless: true, chromiumSandbox, args });
+  });
+
   it("continues quote flow when optional configuration and end-use controls throw", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
@@ -1084,5 +1651,122 @@ describe("FictivAdapter", () => {
     });
     expect(result.notes.length).toBeGreaterThan(0);
     expect(result.artifacts.length).toBeGreaterThan(0);
+  });
+
+  // OVD-611: Verify no screenshots or traces are captured
+  it("does not capture screenshots per OVD-611 evidence masking policy", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "CNC machining is not available for your account. Contact your account manager.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+    
+    // Verify no screenshot artifacts
+    const screenshotArtifacts = result.artifacts.filter(a => a.kind === "screenshot");
+    expect(screenshotArtifacts).toHaveLength(0);
+    
+    // Verify HTML snapshots are still captured
+    const htmlArtifacts = result.artifacts.filter(a => a.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+  });
+
+  it("discards the trace instead of writing or uploading it when trace capture is enabled (OVD-611)", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "CNC machining is not available for your account. Contact your account manager.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+        playwrightCaptureTrace: true,
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    const context = await browser.newContext();
+    expect(context.tracing.start).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledWith();
+    expect(result.artifacts.length).toBeGreaterThan(0);
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("setFilesOnUpload export-control gate (OVD-723)", () => {
+  function fakeUploadPage(options: { appearsAfterWaits: number }) {
+    let waits = 0;
+    const setInputFiles = vi.fn(async () => undefined);
+    const page = {
+      locator: () => ({
+        first: () => ({
+          count: async () => (waits >= options.appearsAfterWaits ? 1 : 0),
+          setInputFiles,
+        }),
+      }),
+      waitForTimeout: vi.fn(async () => {
+        waits += 1;
+      }),
+      url: () => "https://www.fictiv.com/quote",
+    };
+    return { page, setInputFiles };
+  }
+
+  it("asks the gate right before the upload, after the locator wait", async () => {
+    const { page, setInputFiles } = fakeUploadPage({ appearsAfterWaits: 2 });
+    const order: string[] = [];
+    const gate = vi.fn(async () => {
+      order.push("gate");
+    });
+    setInputFiles.mockImplementation(async () => {
+      order.push("upload");
+    });
+
+    await setFilesOnUpload(page as never, ["/tmp/part.step"], gate);
+
+    expect(page.waitForTimeout).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(["gate", "upload"]);
+  });
+
+  it("stops the upload when a hold lands while the locator loop waits", async () => {
+    const { page, setInputFiles } = fakeUploadPage({ appearsAfterWaits: 1 });
+    const hold = new Error("export_review_pending");
+    const gate = vi.fn(async () => {
+      throw hold;
+    });
+
+    await expect(setFilesOnUpload(page as never, ["/tmp/part.step"], gate)).rejects.toBe(hold);
+    expect(setInputFiles).not.toHaveBeenCalled();
   });
 });

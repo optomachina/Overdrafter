@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -57,6 +58,7 @@ import {
 } from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import { useAppSession } from "@/hooks/use-app-session";
@@ -159,6 +161,7 @@ export function useClientHomeController() {
     isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
   };
   const navigationModel = useWorkspaceNavigationModel({
+    accessScope: workspaceAccessScope,
     accessibleJobs,
     accessibleProjects,
     projectJobMemberships,
@@ -188,14 +191,19 @@ export function useClientHomeController() {
     },
   });
 
-  const bootstrapErrorMessage =
+  // Raw text feeds membership matching and operator diagnostics; the sanitized text is the only
+  // value that leaves this hook for customer facing readiness copy.
+  const rawBootstrapErrorMessage =
     bootstrapAccountMutation.error instanceof Error ? bootstrapAccountMutation.error.message : null;
+  const bootstrapErrorMessage = bootstrapAccountMutation.error instanceof Error
+    ? getUserFacingErrorMessage(bootstrapAccountMutation.error)
+    : null;
   const shouldRecoverMembership =
     Boolean(user) &&
     isVerifiedAuth &&
     !activeMembership &&
     (bootstrapAccountMutation.status === "success" ||
-      (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+      (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(rawBootstrapErrorMessage)));
 
   const canBootstrapSelfServiceOrganization =
     Boolean(user) &&
@@ -254,11 +262,11 @@ export function useClientHomeController() {
       await invalidateClientWorkspaceQueries(queryClient);
 
       if (result.projectId && result.jobIds.length > 1) {
-        navigate(`/projects/${result.projectId}`);
+        navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
         return;
       }
 
-      navigate(`/parts/${result.jobIds[0]}`);
+      navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
     },
   });
 
@@ -407,7 +415,7 @@ export function useClientHomeController() {
       return;
     }
 
-    const recoveryKey = `${user.id}:${bootstrapAccountMutation.status}:${bootstrapErrorMessage ?? ""}`;
+    const recoveryKey = `${user.id}:${bootstrapAccountMutation.status}:${rawBootstrapErrorMessage ?? ""}`;
     if (membershipRecoveryKeyRef.current === recoveryKey) {
       return;
     }
@@ -427,7 +435,7 @@ export function useClientHomeController() {
       {
         userId: user.id,
         bootstrapStatus: bootstrapAccountMutation.status,
-        bootstrapErrorMessage,
+        bootstrapErrorMessage: rawBootstrapErrorMessage,
       },
     );
 
@@ -494,7 +502,7 @@ export function useClientHomeController() {
         {
           userId: user.id,
           bootstrapStatus: bootstrapAccountMutation.status,
-          bootstrapErrorMessage,
+          bootstrapErrorMessage: rawBootstrapErrorMessage,
           attempts: MEMBERSHIP_RECOVERY_DELAYS_MS.length,
         },
       );
@@ -508,7 +516,7 @@ export function useClientHomeController() {
   }, [
     activeMembership,
     bootstrapAccountMutation.status,
-    bootstrapErrorMessage,
+    rawBootstrapErrorMessage,
     isVerifiedAuth,
     queryClient,
     shouldRecoverMembership,
@@ -836,11 +844,11 @@ export function useClientHomeController() {
     await invalidateClientWorkspaceQueries(queryClient);
 
     if (result.projectId && result.jobIds.length > 1) {
-      navigate(`/projects/${result.projectId}`);
+      navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
       return;
     }
 
-    navigate(`/parts/${result.jobIds[0]}`);
+    navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
   };
 
   const prefetchProject = (projectId: string) => {
