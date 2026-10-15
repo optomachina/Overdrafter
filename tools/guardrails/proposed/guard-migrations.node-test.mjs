@@ -1589,6 +1589,19 @@ test("named-branch push guidance preserves the source ref instead of substitutin
   }
 });
 
+test("named-branch push guidance preserves shell metacharacters as one source argument", () => {
+  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  for (const source of ["feature/a;echo", "feature/a'echo"]) {
+    const config = `remote.origin.push=refs/heads/${source}:refs/heads/main`;
+    const reason = decide(inFixture(`git -c ${quote(config)} push origin ${quote(source)}`, "gitup"), { prFiles: fakePrFiles });
+    assert.ok(reason, source);
+    const hint = reason.split("for example ").at(-1).replace("<branch>", "destination");
+    const replay = spawnSync("sh", ["-c", `git() { printf '%s\\n' "$@"; }; ${hint}`], { encoding: "utf8" });
+    assert.equal(replay.status, 0, replay.stderr);
+    assert.deepEqual(replay.stdout.trimEnd().split("\n"), ["push", "-u", "origin", `${source}:destination`]);
+  }
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {

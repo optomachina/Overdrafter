@@ -2084,7 +2084,8 @@ function mappedDestinations(spec, remote, call, ctx) {
 /** Block reason for a refspec with no colon that git maps to main through remote.<name>.push or push.default upstream. */
 function mappedReason(spec, remote, call, ctx) {
   const source = spec.replace(/^\+/, "");
-  const guidance = `${NAME_DESTINATION}, for example git push -u origin ${source}:<branch>`;
+  const quotedSource = /^[A-Za-z0-9_./@+-]+$/.test(source) ? source : `'${source.replaceAll("'", "'\\''")}'`;
+  const guidance = `${NAME_DESTINATION}, for example git push -u origin ${quotedSource}:<branch>`;
   let dests;
   try {
     dests = mappedDestinations(spec, remote, call, ctx);
