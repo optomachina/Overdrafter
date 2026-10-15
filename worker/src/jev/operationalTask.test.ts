@@ -272,6 +272,26 @@ describe("actual worker operational advisory seam", () => {
     ]));
   });
 
+  it("wires the lease port when the lease setting is on with a namespace key (OVD-381)", async () => {
+    const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"], providerSessionLease: "on",
+      providerSessionNamespaceKey: new Uint8Array(32).fill(7) } as WorkerConfig;
+    const generic = { ...task, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,
+      providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c", providerDispatchEnvelopeFingerprint: "c".repeat(64) } } as QueueTaskRecord;
+    const db = database();
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: unknown }).rpc = (name: string, args: unknown) => name === "api_authorize_provider_worker_dispatch"
+      ? (db.writes.push({ rpc: name, args: structuredClone(args) }), Promise.resolve({ data: {
+        schema: "provider-dispatch-authorization.v1", authorized: false, denial: "permit_revoked", retryable: false }, error: null }))
+      : rpc(name as never, args as never);
+    await handleVendorQuoteTask(db.client, generic, live);
+    const rpcs = db.writes.flatMap((write) => (write as { rpc?: string }).rpc ?? []);
+    expect(rpcs).toContain("api_authorize_provider_worker_dispatch");
+    expect(db.writes).toEqual(expect.arrayContaining([
+      { table: "vendor_quote_results", update: expect.objectContaining({ status: "manual_vendor_followup",
+        raw_payload: expect.objectContaining({ failureCode: "permit_revoked", adapterStarted: false }) }) },
+    ]));
+  });
+
   it("requeues a generic task on a transient preflight failure with zero adapter calls (OVD-464)", async () => {
     const live = { ...config, workerMode: "live", workerLiveAdapters: ["fictiv"] } as WorkerConfig;
     const generic = { ...task, attempts: 1, payload: { vendor: "fictiv", vendorQuoteResultId: "result", requestedQuantity: 2,

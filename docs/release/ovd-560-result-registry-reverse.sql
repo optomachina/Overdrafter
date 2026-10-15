@@ -15,11 +15,15 @@ end $isolation$;
 -- The shared window 2 reverse lock serializes every staged reverse, including
 -- the OVD-558 reverse, before any relation lock is requested.
 select pg_advisory_xact_lock(510, 2);
--- storage.objects before the registry, the order registration takes them
--- (FOR SHARE on the object, then the registry read), so a concurrent
--- registration waits instead of deadlocking. Dropping storage_object_id also
--- drops the foreign key to storage.objects, which needs that lock anyway.
-lock table storage.objects, engineering_private.native_verifier_registered_objects
+-- The window 2 relation order, the order registration takes them: the attempt
+-- (registration locks it FOR UPDATE first), its snapshot parent, then
+-- storage.objects (FOR SHARE on the object), then the registry. Dropping the
+-- registry columns drops their foreign keys, which takes ACCESS EXCLUSIVE on
+-- every referenced table; taking those locks here, first, means a live
+-- registration either finishes before the reverse (which then refuses) or
+-- waits behind it and fails, and the two never deadlock.
+lock table public.engineering_execution_attempts, public.engineering_snapshots,
+  storage.objects, engineering_private.native_verifier_registered_objects
   in access exclusive mode;
 do $preflight$
 begin
@@ -56,10 +60,18 @@ alter table engineering_private.native_verifier_registered_objects
 do $postflight$
 declare callable_count integer;
 begin
+  -- OVD-558 allowlist: exactly 7 application functions, and in storage nothing
+  -- anon cannot call (storage functions keep Supabase's shipped ACLs).
   select count(*) into callable_count from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
+    where n.nspname in ('public','engineering_private')
       and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
       and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE');
   if callable_count <> 7 then raise exception 'ovd560_reverse_allowlist_drift:%', callable_count; end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage'
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')) then
+    raise exception 'ovd560_reverse_allowlist_drift_storage_beyond_anon';
+  end if;
 end $postflight$;
 commit;

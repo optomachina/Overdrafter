@@ -532,6 +532,8 @@ export type WorkerConfig = {
    * off until the lease migration is applied; off keeps today's behavior.
    */
   providerSessionLease?: "off" | "on";
+  /** OVD-381: HMAC key for opaque lease identities; required when the lease is on. Never logged. */
+  providerSessionNamespaceKey?: Uint8Array | null;
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
   drawingExtractionDebugAllowedModels: string[];

@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "forwardSha256": "652aa8fe33077fcaaebc672ecc03090547dabb21a0b544d1586105feb06167bd",
+  "reverseSha256": "2f1381dc96586b952ddee47b724f8ff3a2d204240792a53ffb7a2648107a5584",
+  "proofSha256": "1daebb5948202928999d6bd4a09b40085f363b5390317e854cf9fba11c066d80",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "catalogSha256": "96a2fddf7b6f38fda9c29a4879115109920a29a1d9ec619de9aa74ac28aba192",
+  "restoredCatalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
+  "proofAssertionsPassed": 11,
+  "secondApplicationRejected": true,
+  "reverseThenReapplyPassed": true
+}

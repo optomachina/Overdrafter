@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "forwardSha256": "559820a613c6c81e463533d2fda1c42e1d739422fc19cf9e15038ea1c56cdb04",
+  "proofSha256": "9cb62aa0e1faef16e1f1d0110437828c39a6edc0a853065c6545817dd7e04f06",
+  "assertions": 24,
+  "failureFirst": true,
+  "reverseReapply": true
+}

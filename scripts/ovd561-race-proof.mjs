@@ -63,11 +63,19 @@ export async function runFinalizationRaceProof(options) {
   if (options.suffix?.length) {
     const applied = await session(options,"ovd561_seed",options.suffix.map((entry) => entry.sql).join("\n"));
     assert.equal(applied.code,0,applied.stderr);
+    // Option A (window 2 manifest verifierRule): exactly 7 application functions outside
+    // storage, and inside storage exactly the functions anon can call, nothing more.
     const allowlist = await session(options,"ovd561_seed",`select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname in ('public','engineering_private','storage')
+      where n.nspname in ('public','engineering_private')
         and has_schema_privilege('engineering_native_verifier',n.oid,'USAGE')
         and has_function_privilege('engineering_native_verifier',p.oid,'EXECUTE');`);
     assert.equal(allowlist.code,0,allowlist.stderr); assert.equal(allowlist.stdout,"7");
+    const storageBeyondAnon = await session(options,"ovd561_seed",`select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='storage'
+        and has_schema_privilege('engineering_native_verifier',n.oid,'USAGE')
+        and has_function_privilege('engineering_native_verifier',p.oid,'EXECUTE')
+        and not (has_schema_privilege('anon',n.oid,'USAGE') and has_function_privilege('anon',p.oid,'EXECUTE'));`);
+    assert.equal(storageBeyondAnon.code,0,storageBeyondAnon.stderr); assert.equal(storageBeyondAnon.stdout,"0");
     const currentBehavior = await session(options,"ovd561_seed",`${fixturePrefix}\n${proof}\nrollback;`);
     assert.equal(currentBehavior.code,0,currentBehavior.stderr);
     assert.ok(!/not ok/.test(currentBehavior.stdout),"Current-source finalization behavior failed.");

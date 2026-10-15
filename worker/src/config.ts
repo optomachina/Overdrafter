@@ -5,6 +5,7 @@ import { parseEnvBooleanLike, parseEnvList } from "./env.js";
 import { DEFAULT_QUANTITY_PRICING_LADDER, normalizePricingLadder } from "./quantityPricing.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import { LIVE_AUTOMATION_VENDORS, type LiveAutomationVendorName, type WorkerConfig } from "./types.js";
+import { parseProviderSessionNamespaceKey, PROVIDER_SESSION_NAMESPACE_KEY_MIN_BYTES } from "./providerTaskLeasePort.js";
 
 const envBoolean = z.preprocess((value) => {
   if (typeof value === "boolean") {
@@ -84,6 +85,7 @@ const schema = z.object({
   OPENROUTER_API_KEY: optionalSetting(),
   WORKER_BUILD_VERSION: z.string().default("dev-local"),
   WORKER_PROVIDER_SESSION_LEASE: z.enum(["off", "on"]).default("off"),
+  WORKER_PROVIDER_SESSION_NAMESPACE_KEY: optionalSetting(),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
   DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: optionalSetting(),
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
@@ -166,6 +168,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
   const workerLiveAdapters = parseWorkerLiveAdapters(parsed.WORKER_LIVE_ADAPTERS);
+  const providerSessionNamespaceKey = parseProviderSessionNamespaceKey(parsed.WORKER_PROVIDER_SESSION_NAMESPACE_KEY);
+  if (parsed.WORKER_PROVIDER_SESSION_LEASE === "on" && !providerSessionNamespaceKey) {
+    throw new Error(
+      `WORKER_PROVIDER_SESSION_LEASE=on requires WORKER_PROVIDER_SESSION_NAMESPACE_KEY (hex or base64, at least ${PROVIDER_SESSION_NAMESPACE_KEY_MIN_BYTES} bytes).`,
+    );
+  }
   const vendorStorageStateDir = parsed.QUOTE_VENDOR_STORAGE_STATE_DIR
     ? path.resolve(parsed.QUOTE_VENDOR_STORAGE_STATE_DIR)
     : null;
@@ -265,6 +273,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     openRouterApiKey: parsed.OPENROUTER_API_KEY ?? null,
     workerBuildVersion: parsed.WORKER_BUILD_VERSION,
     providerSessionLease: parsed.WORKER_PROVIDER_SESSION_LEASE,
+    providerSessionNamespaceKey,
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,

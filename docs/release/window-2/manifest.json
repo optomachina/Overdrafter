@@ -1,0 +1,226 @@
+{
+  "format": "ovd743.window2.v1",
+  "description": "Window 2 packet pins. The run sheet is docs/release/window-2/README.md; this file is the one authoritative apply and reverse order. Reverse order is exactly the reverse of jarvis[].",
+  "base": {
+    "sha": "26b0b76ec7ea32f79c1d069420ed4481b3cb1ccc",
+    "migrations": 148,
+    "note": "main's supabase/migrations, equal to the production ledger (148 versions). OVD-575 (20260927130000) and OVD-576 (20260927140000, 20260927225843) are in it."
+  },
+  "fixture": {
+    "postgresImage": "public.ecr.aws/supabase/postgres:17.6.1.095",
+    "postgresMajor": 17,
+    "runner": "node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563"
+  },
+  "ovd558": {
+    "runnerRole": "postgres",
+    "reviewedManifest": "docs/release/ovd-510-prechange-compatibility-manifest.json",
+    "reviewedManifestSha256": "854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296",
+    "prechangeCatalogSha256": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b",
+    "postchangeCatalogSha256": "be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8",
+    "digestQuery": "docs/release/window-2/ovd558-catalog-digest.sql",
+    "digestNote": "Taken with search_path = pg_catalog, so postgres and supabase_admin print the same value. The forward preflight compares it with prechangeCatalogSha256; the reverse preflight with postchangeCatalogSha256.",
+    "generatorCheck": "node scripts/ovd510-generate-migration-sql.mjs be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8 --check",
+    "verifierAppFunctions": [
+      "engineering_private.complete_native_verification(uuid,text)",
+      "engineering_private.load_native_verification(uuid,uuid)",
+      "engineering_private.native_verifier_can_read_object(text,text)",
+      "engineering_private.reject_native_verification(uuid,jsonb)",
+      "public.api_complete_native_verification(uuid,text)",
+      "public.api_load_native_verification(uuid,uuid)",
+      "public.api_reject_native_verification(uuid,jsonb)"
+    ],
+    "anonStorageFunctions": [
+      "storage.can_insert_object(text,text,uuid,jsonb)",
+      "storage.delete_leaf_prefixes(text[],text[])",
+      "storage.enforce_bucket_name_length()",
+      "storage.extension(text)",
+      "storage.filename(text)",
+      "storage.foldername(text)",
+      "storage.get_common_prefix(text,text,text)",
+      "storage.get_level(text)",
+      "storage.get_prefix(text)",
+      "storage.get_prefixes(text)",
+      "storage.get_size_by_bucket()",
+      "storage.list_multipart_uploads_with_delimiter(text,text,text,integer,text,text)",
+      "storage.list_objects_with_delimiter(text,text,text,integer,text,text,text)",
+      "storage.operation()",
+      "storage.protect_delete()",
+      "storage.search(text,text,integer,integer,integer,text,text,text)",
+      "storage.search_by_timestamp(text,text,integer,integer,text,text,text,text)",
+      "storage.search_legacy_v1(text,text,integer,integer,integer,text,text,text)",
+      "storage.search_v2(text,text,integer,integer,text,text,text,text)",
+      "storage.update_updated_at_column()"
+    ],
+    "verifierRule": "The verifier can call exactly verifierAppFunctions outside storage, and in storage exactly the functions anon can call, which must equal anonStorageFunctions (a Storage upgrade that changes them fails closed). It holds no storage table privilege anon lacks. Storage functions keep Supabase's shipped ACLs; storage.delete_leaf_prefixes and the other storage definer functions stay callable by the verifier exactly as by anon. Option C (no storage USAGE for the verifier) is a 1.1 follow up.",
+    "previous": {
+      "supabaseAdminRunner": {
+        "prechangeAdminCatalogSha256": "68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930",
+        "postchangeAdminCatalogSha256": "82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c",
+        "note": "Required a supabase_admin superuser, which hosted Supabase does not give customers; replaced by the postgres runner."
+      },
+      "baselineRevision": "000d82a323d887414eb86f1dfe7d105c0b5a776c",
+      "migrations": 117,
+      "reviewedManifestSha256": "718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac",
+      "prechangeAdminCatalogSha256": "ee81feb70d8a72cb1baa3c73109c311504b9079603b51954a3f6d50a8a763dc1",
+      "refusalOnProductionEqualBaseline": "docs/release/window-2/evidence/pin-refusal/result.json"
+    }
+  },
+  "ovd602": {
+    "pin": "docs/release/window-1/ovd602-pin.main.json",
+    "expectedDir": "docs/release/window-2/ovd602-expected"
+  },
+  "jarvis": [
+    {
+      "order": 1,
+      "id": "ovd-558",
+      "title": "OVD-558 verifier authority (#702)",
+      "forward": {
+        "path": "docs/release/ovd-558-verifier-authority-forward.sql",
+        "sha256": "acc45e6ba5591caf24dd9d7e6be8d22af8d1e914f9310dbbe6be8bccff21fdac",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/ovd-558-verifier-authority-reverse.sql",
+        "sha256": "7af9fb70e1c550a5087e6fdb25c549aeb1816f9c544f046f923c8b74d2b9bb9c",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 2,
+      "id": "ovd-560",
+      "title": "OVD-560 result registry",
+      "forward": {
+        "path": "docs/release/ovd-560-result-registry-forward.sql",
+        "sha256": "652aa8fe33077fcaaebc672ecc03090547dabb21a0b544d1586105feb06167bd",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/ovd-560-result-registry-reverse.sql",
+        "sha256": "2f1381dc96586b952ddee47b724f8ff3a2d204240792a53ffb7a2648107a5584",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 3,
+      "id": "ovd-561-finalization",
+      "title": "OVD-561 finalization",
+      "forward": {
+        "path": "docs/release/ovd-561-finalization-forward.sql",
+        "sha256": "559820a613c6c81e463533d2fda1c42e1d739422fc19cf9e15038ea1c56cdb04",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/ovd-561-finalization-reverse.sql",
+        "sha256": "33a173365885e4d264747925bedf0b3613665dbb5a08dbe6d48f8f9cffb0d8f3",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 4,
+      "id": "ovd-561-pending",
+      "title": "OVD-561 pending finalization (#619)",
+      "forward": {
+        "path": "docs/release/ovd561-pending-forward.sql",
+        "sha256": "f951165513fb3d295ad8e2d191fe872478bf9d10d074370e0c17ed0e50000fda",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/ovd561-pending-reverse.sql",
+        "sha256": "0ee6dacd9729c5f8348e4eca5667e38520f15d156e5521da634863c99e6daf2f",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 5,
+      "id": "native-result-reader",
+      "title": "Native result reader bindings (#619)",
+      "forward": {
+        "path": "docs/release/native-result-reader-forward.sql",
+        "sha256": "1b153ed77164d3669ce4677dac052aacae01ffac1f199188e0e7c07aacc75506",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/native-result-reader-reverse.sql",
+        "sha256": "cda8983aaaf3d79eaad58bedd5ec460059ea66788bf3ab84f774089430ab9d94",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 6,
+      "id": "private-artifact",
+      "title": "Private artifact mapping tables (#614)",
+      "forward": {
+        "path": "docs/release/private-artifact-forward.sql",
+        "sha256": "613ad48b3a2663590c1ee287281ed3ba34ca6b5f87bdafdbb27e5e28eac35857",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/private-artifact-reverse.sql",
+        "sha256": "43d4d2b317f42f60143afd4e3951cce30baf2f8cda2e23429dcd635e6437954f",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 7,
+      "id": "native-artifact-mapping",
+      "title": "Native artifact mapping writer functions (#614)",
+      "forward": {
+        "path": "docs/release/native-artifact-mapping-forward.sql",
+        "sha256": "8cb4016853ddfa95375350ba77a7c4c53a7e066977f95e327c841fb682e57186",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/native-artifact-mapping-reverse.sql",
+        "sha256": "c01c276bddf6d0c588a5135b79882f821f2cde132201b697b767350b2216cc31",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 8,
+      "id": "ovd-563",
+      "title": "OVD-563 step review",
+      "forward": {
+        "path": "docs/release/ovd-563-step-review-forward.sql",
+        "sha256": "287295f8d36b2fc235152383a2971bbe43d266a58d407e38fc66147dc924ed35",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "docs/release/ovd-563-step-review-reverse.sql",
+        "sha256": "7d7fa0c9a09b9193e60a0f61cd114fa4e630c4fba3fd5da42b46604c8a8f812c",
+        "role": "postgres"
+      }
+    },
+    {
+      "order": 9,
+      "id": "ovd-649-observer-replay",
+      "title": "OVD-649 observer replay replacement and restoration (#620)",
+      "forward": {
+        "path": "scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql",
+        "sha256": "780db77d4704e0bd696b25fe102ecd7142c0b180933900683220fb7563d5562e",
+        "role": "postgres"
+      },
+      "reverse": {
+        "path": "scripts/native/stop-observer/sql/store-native-observer-evidence-restore.staged.sql",
+        "sha256": "0aee9163a75a03da72fa84057f2a61d7cab9d01b4f6aa0f6cafba980891d6248",
+        "role": "postgres"
+      }
+    }
+  ],
+  "slots": [
+    {
+      "id": "ovd-723-contract",
+      "title": "OVD-723 contract (server side ITAR/EAR block)",
+      "status": "not built in this packet"
+    },
+    {
+      "id": "ovd-725-stripe-catalog",
+      "title": "OVD-725 Stripe catalog",
+      "status": "not built in this packet; draft at docs/migration-drafts/ovd-725-stripe-catalog.sql"
+    },
+    {
+      "id": "ovd-746-client-write-auth-gate",
+      "title": "OVD-746 client write auth gate",
+      "status": "not built in this packet"
+    }
+  ]
+}
