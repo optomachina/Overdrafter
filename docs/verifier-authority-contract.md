@@ -249,6 +249,29 @@ call resolves to one catalog identity. The earlier five-site count is a
 historical source snapshot. This local artifact does not establish hosted
 caller or owner parity; deployment preflight must recheck those dimensions.
 
+**Window 2 rebaseline (OVD-743, October 12).** The manifest now binds a fresh
+replay of main `26b0b76e` with all 148 repository migrations (the production
+ledger): 452 functions, 10 schemas, 132 policies, 158 relations, 12 sequences
+and 15 non-system roles (adding `ovd575_observer_validator` and
+`ovd576_stop_validator`); SHA-256
+`854ec2fc0f7141f9a770378a0290a9c71bc32389ba2c3d2ba585309fc4b99296`. The source scan
+found 118 literal RPC calls, 13 dynamic sites (9 new, each with a reviewed rule
+in the manifest) and 3 calls to RPCs that only staged window 2 SQL creates. The
+OVD-558 forward and reverse were regenerated from it to run as `postgres`, the
+hosted Supabase owner role, with no superuser (option A): the catalog digest is
+taken with `search_path = pg_catalog`, so it is role independent (prechange
+`e1947671…`, post change `be97ed54…`). Storage functions belong to
+`supabase_storage_admin` and keep the ACLs Supabase ships; the postflight proves
+the verifier can call exactly the 7 application functions outside `storage`, and
+inside `storage` exactly the functions `anon` can call, pinned by name (20), with
+no `storage` table privilege `anon` lacks. `storage.delete_leaf_prefixes` and the
+other Storage definer functions therefore stay callable by the verifier exactly as
+by anon. Option C (no `storage` USAGE for the verifier; signed URLs or a
+`service_role` fetch after a definer check) is a 1.1 follow up. The September 24
+values above are history; `docs/release/window-2/manifest.json` records the old
+and new pins.
+
+
 ## Forward migration order
 
 The implementation issue must encode and test this order. Steps 1–4 are

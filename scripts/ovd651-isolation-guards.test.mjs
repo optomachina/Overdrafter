@@ -9,16 +9,22 @@ const normalize = (sql) => sql.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").tri
 // Source ordering checks only. Behavior under two real sessions is proven by
 // scripts/ovd651-isolation-race-proof.mjs against a disposable local database.
 const advisory = "select pg_advisory_xact_lock(510, 2);";
-const registryLock = "lock table storage.objects, engineering_private.native_verifier_registered_objects in access exclusive mode;";
+const registryLock = "lock table public.engineering_execution_attempts, public.engineering_snapshots, storage.objects, engineering_private.native_verifier_registered_objects in access exclusive mode;";
 const registryIsolation = "if current_setting('transaction_isolation') <> 'read committed' then raise exception 'ovd560_reverse_requires_read_committed';";
 const registryEmptiness = "(select count(*) from engineering_private.native_verifier_registered_objects) <> 0";
 const stepLock = "lock table engineering_private.native_step_reviews in access exclusive mode;";
 const stepIsolation = "if current_setting('transaction_isolation') <> 'read committed' then raise exception 'ovd563_reverse_requires_read_committed';";
 const stepEmptiness = "select engineering_private.assert_empty_native_step_reviews();";
 const isolation = (tag) => `if current_setting('transaction_isolation') <> 'read committed' then raise exception '${tag}_reverse_requires_read_committed';`;
+const reverse560Lock = "lock table public.engineering_execution_attempts, public.engineering_snapshots,\n  storage.objects, engineering_private.native_verifier_registered_objects\n  in access exclusive mode;\n";
 const timeouts = ["set local lock_timeout = '5s';", "set local statement_timeout = '30s';"];
 const readerIsolation = "if current_setting('transaction_isolation')<>'read committed' then raise exception 'native_result_binding_read_committed_required' using errcode='42501'; end if;";
 const readerFirstRead = "select * into a from public.engineering_execution_attempts";
+// Every window 2 forward: READ COMMITTED (0A000), then the shared lock, first.
+const forwardGuard = (tag) => [
+  `if current_setting('transaction_isolation') <> 'read committed' then raise exception '${tag}_forward_read_committed_required' using errcode = '0A000';`,
+  advisory,
+];
 
 // Each guard must appear exactly once, in order, before the first destructive
 // or authority reading statement.
@@ -51,7 +57,8 @@ const cases = [
     advisory,
     "lock table engineering_private.native_receipt_key, engineering_private.native_finalizations in access exclusive mode;",
     "or exists(select 1 from engineering_private.native_finalizations) then raise exception 'ovd561_reverse_requires_empty_history';",
-    "drop function engineering_private.finalize_native_result(", "commit;",
+    "if to_regclass('engineering_private.native_pending_finalizations') is not null then raise exception 'ovd561_reverse_requires_pending_reverse_first';",
+    "drop function engineering_private.finalize_native_result(", "drop table engineering_private.native_receipt_key;", "commit;",
   ]],
   ["ovd561-pending-reverse.sql", [
     "begin;", ...timeouts, isolation("ovd561_pending"), advisory,
@@ -69,15 +76,42 @@ const cases = [
     "begin;", ...timeouts,
     "if current_setting('transaction_isolation') <> 'read committed' then raise exception 'Private artifact rollback requires READ COMMITTED.';",
     advisory,
-    "lock table storage.objects, storage.buckets, engineering_private.native_artifact_inputs, engineering_private.native_artifact_outputs in access exclusive mode;",
+    "lock table public.engineering_execution_attempts, engineering_private.native_input_admissions, storage.objects, storage.buckets, engineering_private.native_artifact_inputs, engineering_private.native_artifact_outputs in access exclusive mode;",
     "if exists (select 1 from engineering_private.native_artifact_inputs)",
     "drop table engineering_private.native_artifact_outputs;", "commit;",
   ]],
   ["private-artifact-forward.sql", [
-    "begin;", ...timeouts, "create table engineering_private.native_artifact_inputs (",
+    "begin;", ...timeouts, ...forwardGuard("private_artifact"), "create table engineering_private.native_artifact_inputs (",
+  ]],
+  ["native-artifact-mapping-reverse.sql", [
+    "begin;", ...timeouts,
+    "if current_setting('transaction_isolation') <> 'read committed' then raise exception 'native_mapping_reverse_requires_read_committed' using errcode = '0A000';",
+    advisory, "raise exception 'native_mapping_reverse_preflight_failed';",
+    "drop function engineering_private.write_native_artifact_mappings(uuid,text,text) restrict;", "commit;",
+  ]],
+  ["native-artifact-mapping-forward.sql", [
+    "begin;", "set local lock_timeout='5s';", "set local statement_timeout='30s';", ...forwardGuard("native_mapping"),
+    "create function engineering_private.prepare_native_artifact_inputs(",
+  ]],
+  ["ovd-560-result-registry-forward.sql", [
+    "begin;", ...timeouts, ...forwardGuard("ovd560"),
+    "lock table public.engineering_execution_attempts, public.engineering_snapshots, storage.objects in share row exclusive mode;",
+    "lock table engineering_private.native_verifier_registered_objects in access exclusive mode;",
+    "raise exception 'ovd560_requires_empty_ovd558_registry_owned_by_postgres';",
+    "alter table engineering_private.native_verifier_registered_objects", "commit;",
+  ]],
+  ["ovd-561-finalization-forward.sql", [
+    "begin;", ...timeouts, ...forwardGuard("ovd561"), "create table engineering_private.native_receipt_key (",
+  ]],
+  ["ovd561-pending-forward.sql", [
+    "begin;", ...timeouts, ...forwardGuard("ovd561_pending"), "raise exception 'ovd561_pending_preflight_failed';",
+    "create table engineering_private.native_pending_finalizations (",
+  ]],
+  ["ovd-563-step-review-forward.sql", [
+    "begin;", ...timeouts, ...forwardGuard("ovd563"), "create table engineering_private.native_step_reviews (",
   ]],
   ["native-result-reader-forward.sql", [
-    "begin;", "set local lock_timeout = '5s';", "set local statement_timeout = '30s';",
+    "begin;", "set local lock_timeout = '5s';", "set local statement_timeout = '30s';", ...forwardGuard("native_result_binding"),
     "or to_regclass('engineering_private.native_result_read_bindings') is not null then raise exception 'native_result_binding_preflight_failed';",
     "create table engineering_private.native_result_read_bindings (",
     "if current_user<>'postgres' then raise exception 'native_result_binding_owner_required'",
@@ -94,11 +128,30 @@ describe("OVD-651 staged result SQL isolation guards", () => {
 
   const mutations = [
     ["560 emptiness check before lock", "ovd-560-result-registry-reverse.sql",
-      (sql) => sql.replace("lock table storage.objects, engineering_private.native_verifier_registered_objects\n  in access exclusive mode;\n", "").replace("drop function engineering_private.register_native_result_object", `${registryLock}\ndrop function engineering_private.register_native_result_object`)],
+      (sql) => sql.replace(reverse560Lock, "").replace("drop function engineering_private.register_native_result_object", `${registryLock}\ndrop function engineering_private.register_native_result_object`)],
     ["560 registry locked before storage.objects", "ovd-560-result-registry-reverse.sql",
-      (sql) => sql.replace("lock table storage.objects, engineering_private.native_verifier_registered_objects", "lock table engineering_private.native_verifier_registered_objects, storage.objects")],
+      (sql) => sql.replace("  storage.objects, engineering_private.native_verifier_registered_objects", "  engineering_private.native_verifier_registered_objects, storage.objects")],
     ["560 storage.objects not locked", "ovd-560-result-registry-reverse.sql",
-      (sql) => sql.replace("lock table storage.objects, ", "lock table ")],
+      (sql) => sql.replace("  storage.objects, engineering_private", "  engineering_private")],
+    ["560 attempts not locked before storage.objects", "ovd-560-result-registry-reverse.sql",
+      (sql) => sql.replace("lock table public.engineering_execution_attempts, public.engineering_snapshots,\n  storage.objects", "lock table storage.objects")],
+    ["560 forward without the shared lock", "ovd-560-result-registry-forward.sql",
+      (sql) => sql.replace(`${advisory}\n`, "")],
+    ["560 forward registry locked before storage.objects", "ovd-560-result-registry-forward.sql",
+      (sql) => sql.replace("lock table public.engineering_execution_attempts, public.engineering_snapshots, storage.objects\n  in share row exclusive mode;\nlock table engineering_private.native_verifier_registered_objects in access exclusive mode;",
+        "lock table engineering_private.native_verifier_registered_objects in access exclusive mode;\nlock table public.engineering_execution_attempts, public.engineering_snapshots, storage.objects\n  in share row exclusive mode;")],
+    ["561 reverse without the pending refusal", "ovd-561-finalization-reverse.sql",
+      (sql) => sql.replace("raise exception 'ovd561_reverse_requires_pending_reverse_first';", "null;")],
+    ["561 forward isolation guard removed", "ovd-561-finalization-forward.sql",
+      (sql) => sql.replace("raise exception 'ovd561_forward_read_committed_required' using errcode = '0A000';", "null;")],
+    ["pending forward without the shared lock", "ovd561-pending-forward.sql",
+      (sql) => sql.replace(`${advisory}\n`, "")],
+    ["563 forward without the shared lock", "ovd-563-step-review-forward.sql",
+      (sql) => sql.replace(`${advisory}\n`, "")],
+    ["mapping forward isolation guard removed", "native-artifact-mapping-forward.sql",
+      (sql) => sql.replace("raise exception 'native_mapping_forward_read_committed_required' using errcode = '0A000';", "null;")],
+    ["mapping reverse without the shared lock", "native-artifact-mapping-reverse.sql",
+      (sql) => sql.replace(`${advisory}\n`, "")],
     ["560 shared reverse lock removed", "ovd-560-result-registry-reverse.sql",
       (sql) => sql.replace(`${advisory}\n`, "")],
     ["560 shared reverse lock after relation lock", "ovd-560-result-registry-reverse.sql",
@@ -124,8 +177,10 @@ describe("OVD-651 staged result SQL isolation guards", () => {
     ["private artifact reverse shared lock removed", "private-artifact-reverse.sql",
       (sql) => sql.replace(`${advisory}\n`, "")],
     ["private artifact reverse mapping locked before storage", "private-artifact-reverse.sql",
-      (sql) => sql.replace("lock table storage.objects, storage.buckets,\n  engineering_private.native_artifact_inputs,\n  engineering_private.native_artifact_outputs",
-        "lock table engineering_private.native_artifact_inputs,\n  engineering_private.native_artifact_outputs, storage.objects, storage.buckets")],
+      (sql) => sql.replace("  storage.objects, storage.buckets,\n  engineering_private.native_artifact_inputs,\n  engineering_private.native_artifact_outputs",
+        "  engineering_private.native_artifact_inputs,\n  engineering_private.native_artifact_outputs, storage.objects, storage.buckets")],
+    ["private artifact reverse parents not locked first", "private-artifact-reverse.sql",
+      (sql) => sql.replace("lock table public.engineering_execution_attempts,\n  engineering_private.native_input_admissions,\n  storage.objects", "lock table storage.objects")],
     ["private artifact forward statement timeout removed", "private-artifact-forward.sql",
       (sql) => sql.replace("set local statement_timeout = '30s';\n", "")],
     ["563 isolation guard removed", "ovd-563-step-review-reverse.sql",

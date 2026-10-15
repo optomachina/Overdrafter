@@ -1,0 +1,359 @@
+50100000-0000-4000-8000-000000000001
+{"revision": 1, "messageId": "8ee2ab57-e238-46ec-b240-0c78da7c6f58", "requestId": "0e188ff9-736d-4caf-9a78-3c28572d846d", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 2, "messageId": "ba7b68e6-6e41-451e-9f63-ccb8ec14b84a", "requestId": "cd274af2-a526-42e7-a8d9-c880dec34053", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 1, "messageId": "fd3b278c-8042-4602-905f-eb685530c21c", "requestId": "43dbd0f7-3048-4c09-9dd5-ff5d7147e2a1", "conversationId": "50100000-0000-4000-8000-000000000031", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+ok 1 - owner cannot impersonate a worker claim
+ok 2 - runtime admissions are private
+ok 3 - input admissions are private
+ok 4 - native occupancy internals are private
+ok 5 - wrong credential refused
+ok 6 - paired boot alone has no native authority
+ok 7 - ineligible request creates no attempt
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 2, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:31.937917+00:00", "expiresAt": "2026-10-13T04:11:31.937917+00:00", "sessionId": "9df959bb-ad20-4832-b66b-565d6d07b652"}
+ok 8 - enablement cannot create runtime/input qualification
+ok 9 - gateway cannot forge runtime admissions
+ok 10 - gateway cannot forge input admissions
+ok 11 - gateway has no direct attempt read
+ok 12 - no worker success setter
+ok 13 - successor cannot skip unrealized predecessor
+ok 14 - other boot cannot claim
+ok 15 - enabled qualified worker claims exact first task
+ok 16 - same claim returns immutable original receipt
+ok 17 - claim key cannot change input admission
+ok 18 - another request cannot use old task revision
+ok 19 - another conversation cannot overlap native work
+ok 20 - fresh authority is independent of claim replay
+ok 21 - wrong boot heartbeat refused
+ok 22 - wrong fence heartbeat refused
+ok 23 - heartbeat renews exact current attempt
+ok 24 - heartbeat replay preserves old expiry
+ok 25 - stale heartbeat revision refused
+ok 26 - duplicate dispatch created one attempt
+ok 27 - deadline fixed at first claim
+ok 28 - lease cannot exceed deadline
+ok 29 - claim does not imply verification
+ok 30 - job binds exact stored context digest
+ok 31 - all seven checks frozen into job
+ok 32 - native job bytes immutable
+ok 33 - attempt history cannot be deleted
+ok 34 - fence cannot move backward
+ok 35 - admitted evidence cannot be rewritten
+ok 36 - owner can inspect own attempt
+50100000-0000-4000-8000-000000000003
+ok 37 - allowed project peer cannot read another owner attempt
+50100000-0000-4000-8000-000000000002
+ok 38 - other tenant cannot read task ownership
+50100000-0000-4000-8000-000000000001
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": "2026-10-12T20:11:31.983818+00:00", "revision": 3, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:31.937917+00:00", "expiresAt": "2026-10-13T04:11:31.937917+00:00", "sessionId": "9df959bb-ad20-4832-b66b-565d6d07b652"}
+ok 39 - paused session drains active attempt
+ok 40 - pause blocks another claim
+ok 41 - access loss blocks heartbeat authority
+ok 42 - access loss does not pretend the native process stopped
+
+ok 43 - fresh read rejects an expired lease before a heartbeat
+ok 44 - expiry persists uncertainty rather than reviving
+ok 45 - old claim receipt remains historical
+ok 46 - historical claim replay cannot restore authority
+ok 47 - recovery attempt cannot renew
+ok 48 - expired lease keeps organization occupancy
+ok 49 - uncertain execution blocks its task
+ok 50 - expired output loses result eligibility
+ok 51 - credentials excluded from transition history
+ok 52 - missing admitted stop cannot release occupancy
+ok 53 - worker cannot insert shutdown claims as stop authority
+ok 54 - worker cannot select owner recovery
+
+
+ok 55 - mismatched job stop evidence rejected
+ok 56 - admitted exact stop resolves physical occupancy
+ok 57 - late successful native exit remains historical after lease loss
+ok 58 - confirmed stop releases only its own slot
+ok 59 - stop admission is not verification
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 4, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.079369+00:00", "expiresAt": "2026-10-13T04:11:32.079369+00:00", "sessionId": "ceef9f1e-a3dc-4901-8fe5-2e2f82b2b275"}
+ok 60 - new independent task receives a higher organization fence
+ok 61 - old stop replay returns only its historical receipt
+ok 62 - late old stop cannot release newer occupancy
+ok 63 - newer task retains its physical slot
+
+ok 64 - current successful exit awaits artifact verification
+ovd560-proof-start
+ok 65 - registered exact successful attempt and private object
+ok 66 - identical retry is idempotent
+ok 67 - cross-tenant registration rejects
+ok 68 - stale fence registration rejects
+ok 69 - mismatched digest replay rejects
+ok 70 - registration cannot be deleted
+ok 71 - registration cannot be rewritten
+engineering_native_verifier
+{"fence": 2, "task_id": "c938c8da-a294-4843-8295-039414971964", "attempt_id": "3e554044-e969-4db7-9e95-8728c6c10689", "project_id": "50100000-0000-4000-8000-000000000007", "organization_id": "50100000-0000-4000-8000-000000000004"}
+1
+{"fence": 2, "task_id": "c938c8da-a294-4843-8295-039414971964", "attempt_id": "3e554044-e969-4db7-9e95-8728c6c10689", "project_id": "50100000-0000-4000-8000-000000000007", "organization_id": "50100000-0000-4000-8000-000000000005"}
+0
+ok 72 - verifier sees exact registered Storage row
+ok 73 - foreign tenant verifier cannot read registered object
+ok 74 - verifier cannot invoke registration helper
+{"fence": 2, "task_id": "c938c8da-a294-4843-8295-039414971964", "attempt_id": "3e554044-e969-4db7-9e95-8728c6c10689", "project_id": "50100000-0000-4000-8000-000000000007", "organization_id": "50100000-0000-4000-8000-000000000004"}
+0
+ok 75 - Storage metadata substitution closes verifier read
+50100000-0000-4000-8000-000000000001
+{"revision": 1, "messageId": "f4591c69-3a75-4805-b1e8-6888b66d9274", "requestId": "a48e3e4d-8fd0-42ff-826e-897a92b560fb", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 2, "messageId": "27f4004e-eabf-4174-abc2-537bc1da9aac", "requestId": "2e78853e-1f55-4dc0-80ae-ca54d968948b", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 1, "messageId": "01e615f5-6737-44da-852e-e15ad0f8b726", "requestId": "ba1e33c5-3dca-477a-9e99-bfc258ad195c", "conversationId": "50100000-0000-4000-8000-000000000031", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+ok 1 - owner cannot impersonate a worker claim
+ok 2 - runtime admissions are private
+ok 3 - input admissions are private
+ok 4 - native occupancy internals are private
+ok 5 - wrong credential refused
+ok 6 - paired boot alone has no native authority
+ok 7 - ineligible request creates no attempt
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 2, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.440713+00:00", "expiresAt": "2026-10-13T04:11:32.440713+00:00", "sessionId": "d451e06e-7197-47e7-8b71-2ffb743d9ffc"}
+ok 8 - enablement cannot create runtime/input qualification
+ok 9 - gateway cannot forge runtime admissions
+ok 10 - gateway cannot forge input admissions
+ok 11 - gateway has no direct attempt read
+ok 12 - no worker success setter
+ok 13 - successor cannot skip unrealized predecessor
+ok 14 - other boot cannot claim
+ok 15 - enabled qualified worker claims exact first task
+ok 16 - same claim returns immutable original receipt
+ok 17 - claim key cannot change input admission
+ok 18 - another request cannot use old task revision
+ok 19 - another conversation cannot overlap native work
+ok 20 - fresh authority is independent of claim replay
+ok 21 - wrong boot heartbeat refused
+ok 22 - wrong fence heartbeat refused
+ok 23 - heartbeat renews exact current attempt
+ok 24 - heartbeat replay preserves old expiry
+ok 25 - stale heartbeat revision refused
+ok 26 - duplicate dispatch created one attempt
+ok 27 - deadline fixed at first claim
+ok 28 - lease cannot exceed deadline
+ok 29 - claim does not imply verification
+ok 30 - job binds exact stored context digest
+ok 31 - all seven checks frozen into job
+ok 32 - native job bytes immutable
+ok 33 - attempt history cannot be deleted
+ok 34 - fence cannot move backward
+ok 35 - admitted evidence cannot be rewritten
+ok 36 - owner can inspect own attempt
+50100000-0000-4000-8000-000000000003
+ok 37 - allowed project peer cannot read another owner attempt
+50100000-0000-4000-8000-000000000002
+ok 38 - other tenant cannot read task ownership
+50100000-0000-4000-8000-000000000001
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": "2026-10-12T20:11:32.504242+00:00", "revision": 3, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.440713+00:00", "expiresAt": "2026-10-13T04:11:32.440713+00:00", "sessionId": "d451e06e-7197-47e7-8b71-2ffb743d9ffc"}
+ok 39 - paused session drains active attempt
+ok 40 - pause blocks another claim
+ok 41 - access loss blocks heartbeat authority
+ok 42 - access loss does not pretend the native process stopped
+
+ok 43 - fresh read rejects an expired lease before a heartbeat
+ok 44 - expiry persists uncertainty rather than reviving
+ok 45 - old claim receipt remains historical
+ok 46 - historical claim replay cannot restore authority
+ok 47 - recovery attempt cannot renew
+ok 48 - expired lease keeps organization occupancy
+ok 49 - uncertain execution blocks its task
+ok 50 - expired output loses result eligibility
+ok 51 - credentials excluded from transition history
+ok 52 - missing admitted stop cannot release occupancy
+ok 53 - worker cannot insert shutdown claims as stop authority
+ok 54 - worker cannot select owner recovery
+
+
+ok 55 - mismatched job stop evidence rejected
+ok 56 - admitted exact stop resolves physical occupancy
+ok 57 - late successful native exit remains historical after lease loss
+ok 58 - confirmed stop releases only its own slot
+ok 59 - stop admission is not verification
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 4, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.6052+00:00", "expiresAt": "2026-10-13T04:11:32.6052+00:00", "sessionId": "7984fc3c-9dd5-46eb-a58b-4b5c6c6b0766"}
+ok 60 - new independent task receives a higher organization fence
+ok 61 - old stop replay returns only its historical receipt
+ok 62 - late old stop cannot release newer occupancy
+ok 63 - newer task retains its physical slot
+
+ok 64 - current successful exit awaits artifact verification
+t
+t
+t
+t
+t
+t
+t
+50100000-0000-4000-8000-000000000001
+{"revision": 2, "messageId": "3ce8cd3a-07fc-402a-8e2e-5044f96d8e17", "requestId": "b6b3646d-4b06-4e6e-9d69-e33ca6fb549b", "conversationId": "50100000-0000-4000-8000-000000000031", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"taskId": "1b7a150f-85ee-440d-89d6-743fd48a304c", "outcome": "prepared_change", "revision": 2, "requestId": "b6b3646d-4b06-4e6e-9d69-e33ca6fb549b", "decisionId": "c7a66e18-3aea-4b9e-ad48-eef926a686dd", "conversationId": "50100000-0000-4000-8000-000000000031", "interpretationId": "b5e0d719-b4d3-42dd-aa18-be5e2c9a87f1", "predecessorDecisionId": "e838a4c4-1d2c-4d31-b81e-df9dc03e1db1"}
+ovd561-proof-start
+ok 65 - forged signature denied
+ok 66 - changed candidate bytes denied
+ok 67 - old receipt version denied
+ok 68 - missing digest denied
+ok 69 - stale fence denied
+ok 70 - foreign task denied
+ok 71 - incomplete registry denied
+ok 72 - denials create no completion
+ok 73 - late failure rolls back transaction
+ok 74 - no partial snapshot
+ok 75 - no partial successor admission
+ok 76 - no partial task completion
+ok 77 - no early successor release
+ok 78 - valid signed result finalizes
+ok 79 - exact replay returns original receipt
+ok 80 - changed idempotency key conflicts
+ok 81 - one completion after replay
+ok 82 - only verified completion releases successor
+ok 83 - snapshot preserves exact verified context bytes
+ok 84 - completed attempt cannot register more results
+ok 85 - service role cannot finalize
+ok 86 - verifier cannot finalize
+ok 87 - verifier cannot read signing key
+ok 88 - gateway cannot provision or read key
+50100000-0000-4000-8000-000000000001
+{"revision": 1, "messageId": "263fc6c3-b0ab-4c2c-830c-3761d791d385", "requestId": "d042b18f-4770-4cb4-9bcb-666eefd5acc0", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 2, "messageId": "1babfe03-9dcd-4bb9-99d8-3fcea745a78d", "requestId": "e2f05361-9f81-41e5-88a8-3429bdb80afe", "conversationId": "50100000-0000-4000-8000-000000000030", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"revision": 1, "messageId": "3be5f488-86ee-4d99-9a2b-cc1d24015186", "requestId": "9824f021-6590-4266-adac-a0e99b321c83", "conversationId": "50100000-0000-4000-8000-000000000031", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+ok 1 - owner cannot impersonate a worker claim
+ok 2 - runtime admissions are private
+ok 3 - input admissions are private
+ok 4 - native occupancy internals are private
+ok 5 - wrong credential refused
+ok 6 - paired boot alone has no native authority
+ok 7 - ineligible request creates no attempt
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 2, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.948933+00:00", "expiresAt": "2026-10-13T04:11:32.948933+00:00", "sessionId": "e3fa9d3b-07c3-4355-a7a1-615ca3bed286"}
+ok 8 - enablement cannot create runtime/input qualification
+ok 9 - gateway cannot forge runtime admissions
+ok 10 - gateway cannot forge input admissions
+ok 11 - gateway has no direct attempt read
+ok 12 - no worker success setter
+ok 13 - successor cannot skip unrealized predecessor
+ok 14 - other boot cannot claim
+ok 15 - enabled qualified worker claims exact first task
+ok 16 - same claim returns immutable original receipt
+ok 17 - claim key cannot change input admission
+ok 18 - another request cannot use old task revision
+ok 19 - another conversation cannot overlap native work
+ok 20 - fresh authority is independent of claim replay
+ok 21 - wrong boot heartbeat refused
+ok 22 - wrong fence heartbeat refused
+ok 23 - heartbeat renews exact current attempt
+ok 24 - heartbeat replay preserves old expiry
+ok 25 - stale heartbeat revision refused
+ok 26 - duplicate dispatch created one attempt
+ok 27 - deadline fixed at first claim
+ok 28 - lease cannot exceed deadline
+ok 29 - claim does not imply verification
+ok 30 - job binds exact stored context digest
+ok 31 - all seven checks frozen into job
+ok 32 - native job bytes immutable
+ok 33 - attempt history cannot be deleted
+ok 34 - fence cannot move backward
+ok 35 - admitted evidence cannot be rewritten
+ok 36 - owner can inspect own attempt
+50100000-0000-4000-8000-000000000003
+ok 37 - allowed project peer cannot read another owner attempt
+50100000-0000-4000-8000-000000000002
+ok 38 - other tenant cannot read task ownership
+50100000-0000-4000-8000-000000000001
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": "2026-10-12T20:11:33.009288+00:00", "revision": 3, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:32.948933+00:00", "expiresAt": "2026-10-13T04:11:32.948933+00:00", "sessionId": "e3fa9d3b-07c3-4355-a7a1-615ca3bed286"}
+ok 39 - paused session drains active attempt
+ok 40 - pause blocks another claim
+ok 41 - access loss blocks heartbeat authority
+ok 42 - access loss does not pretend the native process stopped
+
+ok 43 - fresh read rejects an expired lease before a heartbeat
+ok 44 - expiry persists uncertainty rather than reviving
+ok 45 - old claim receipt remains historical
+ok 46 - historical claim replay cannot restore authority
+ok 47 - recovery attempt cannot renew
+ok 48 - expired lease keeps organization occupancy
+ok 49 - uncertain execution blocks its task
+ok 50 - expired output loses result eligibility
+ok 51 - credentials excluded from transition history
+ok 52 - missing admitted stop cannot release occupancy
+ok 53 - worker cannot insert shutdown claims as stop authority
+ok 54 - worker cannot select owner recovery
+
+
+ok 55 - mismatched job stop evidence rejected
+ok 56 - admitted exact stop resolves physical occupancy
+ok 57 - late successful native exit remains historical after lease loss
+ok 58 - confirmed stop releases only its own slot
+ok 59 - stop admission is not verification
+{"bootId": "50100000-0000-4000-8000-000000000052", "pausedAt": null, "revision": 4, "workerId": "50100000-0000-4000-8000-000000000050", "enabledAt": "2026-10-12T20:11:33.107073+00:00", "expiresAt": "2026-10-13T04:11:33.107073+00:00", "sessionId": "0dbc5e77-5fae-4ae6-9189-47820848e05c"}
+ok 60 - new independent task receives a higher organization fence
+ok 61 - old stop replay returns only its historical receipt
+ok 62 - late old stop cannot release newer occupancy
+ok 63 - newer task retains its physical slot
+
+ok 64 - current successful exit awaits artifact verification
+t
+t
+t
+t
+t
+t
+t
+50100000-0000-4000-8000-000000000001
+{"revision": 2, "messageId": "0ba6ffce-f43e-42c5-a731-4ea6aea6753f", "requestId": "90ce7bf7-2e65-4502-abba-9243f951b66e", "conversationId": "50100000-0000-4000-8000-000000000031", "inputSnapshotId": "50100000-0000-4000-8000-000000000020"}
+{"taskId": "78830be0-b899-4410-af7a-3b1576462c7b", "outcome": "prepared_change", "revision": 2, "requestId": "90ce7bf7-2e65-4502-abba-9243f951b66e", "decisionId": "90814793-6238-4b2b-89be-1c997e26703b", "conversationId": "50100000-0000-4000-8000-000000000031", "interpretationId": "967c9e3b-aa17-4a95-a830-16ab789508a9", "predecessorDecisionId": "5eb6ecea-6e98-4fdb-9309-7496f1ea0134"}
+ovd561-proof-start
+ok 65 - forged signature denied
+ok 66 - changed candidate bytes denied
+ok 67 - old receipt version denied
+ok 68 - missing digest denied
+ok 69 - stale fence denied
+ok 70 - foreign task denied
+ok 71 - incomplete registry denied
+ok 72 - denials create no completion
+ok 73 - late failure rolls back transaction
+ok 74 - no partial snapshot
+ok 75 - no partial successor admission
+ok 76 - no partial task completion
+ok 77 - no early successor release
+ok 78 - valid signed result finalizes
+ok 79 - exact replay returns original receipt
+ok 80 - changed idempotency key conflicts
+ok 81 - one completion after replay
+ok 82 - only verified completion releases successor
+ok 83 - snapshot preserves exact verified context bytes
+ok 84 - completed attempt cannot register more results
+ok 85 - service role cannot finalize
+ok 86 - verifier cannot finalize
+ok 87 - verifier cannot read signing key
+ok 88 - gateway cannot provision or read key
+ovd563-proof-start
+ok 89 - authenticated cannot read private STEP table
+ok 90 - service role cannot write or read private STEP table
+ok 91 - service role cannot associate STEP bytes
+ok 92 - authenticated actor can call review RPC
+ok 93 - anonymous actor cannot call review RPC
+
+ok 94 - missing STEP is unavailable for the verified candidate
+ok 95 - unverified successor has no current geometry
+ok 96 - stale candidate snapshot rejected
+
+ok 97 - foreign actor cannot retrieve STEP
+ok 98 - substituted bytes or digest denied before association
+ok 99 - foreign candidate snapshot cannot be associated
+ok 100 - verified exact STEP association stored once
+ok 101 - identical association replay is inert
+ok 102 - reverse refuses populated review history
+ok 103 - conflicting STEP replay denied
+ok 104 - associated review history is immutable
+
+ok 105 - authenticated owner retrieves current verified STEP
+ok 106 - read digest binds exact bytes
+
+{"sub": "50100000-0000-4000-8000-000000000001", "role": "authenticated"}
+ok 107 - JSON-only JWT claims authorize current owner
+
+ok 108 - project peer holds enabled engineering access
+ok 109 - same-project peer cannot retrieve owner STEP
+
+ok 110 - revoked owner access returns no STEP
+
+ok 111 - restored owner access retrieves STEP again
+
+ok 112 - substituted finalized-result binding rejected at read
+
+ok 113 - substituted stored STEP bytes rejected at read

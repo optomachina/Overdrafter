@@ -779,9 +779,14 @@ ingestion is refused. It then runs the generated paired restoration
 are refused with 0A000, the restoration waits on the shared (510,2) advisory
 lock, returns the exact OVD-575 definition, OID, owner and grants, refuses a
 second run unchanged, and survives reapply and restore. The disposable OVD-510
-chain (`--ovd563`) adds stage `ovd649_window_order`, which proves the window 2
-order in `docs/release/ovd-649-window-2-order.md` against the verbatim OVD-558
-reverse preflight. The staged SQL is not a migration.
+chain (`--ovd563`) on the reviewed 148 migration baseline ends with stage
+`window2_chain` (`scripts/ovd510-window2-chain.mjs`): the whole window 2 Jarvis
+chain in the order of `docs/release/window-2/README.md`, each OVD-602 diff
+against its checked in expected diff, the OVD-649 order proven with #702's real
+OVD-558 pins (`scripts/ovd510-ovd649-window-order.mjs`), the proofs on the full
+chain, every reverse back to the baseline exactly, and a reapply.
+`scripts/window2-packet.node-test.mjs` (portable lane) fails on generator,
+manifest pin or order drift. The staged SQL is not a migration.
 
 ### OVD-562 retained parent integration
 

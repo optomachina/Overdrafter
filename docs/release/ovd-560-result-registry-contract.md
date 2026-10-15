@@ -20,11 +20,15 @@ changed replay, stale attempt or fence, foreign tenant, public bucket, or
 changed Storage generation rejects. Update and delete triggers reject registry
 mutation. The reverse script refuses any isolation level other than READ
 COMMITTED, takes the shared window 2 reverse lock `pg_advisory_xact_lock(510, 2)`,
-then takes ACCESS EXCLUSIVE locks on `storage.objects` and then the registry
-(the order registration takes them, and the order the OVD-558 reverse uses),
-and only then refuses a nonempty registry. A registration that holds the storage
-object FOR SHARE completes while the reverse waits and is seen and retained;
-registry first locking deadlocks with it (OVD-651 race proof).
+then takes ACCESS EXCLUSIVE locks on the attempt and snapshot parents, then
+`storage.objects`, then the registry (the order registration takes them: the
+attempt FOR UPDATE, the object FOR SHARE, then the registry; dropping the
+registry columns drops their foreign keys, which locks every parent anyway),
+and only then refuses a nonempty registry. A registration that holds its attempt
+completes while the reverse waits and is seen and retained; the earlier storage
+first and registry first orders deadlock with it (OVD-651 race proof). The
+forward takes the same READ COMMITTED check, the (510, 2) lock and the same
+relation order. Window 2 order: `docs/release/window-2/README.md`.
 
 The private source registration service reads the actual uploaded object by
 trusted Storage ID, bounds the stream by role and time, and measures SHA-256 and

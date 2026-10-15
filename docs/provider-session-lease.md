@@ -5,7 +5,10 @@ as version `20261012212325`
 ([`supabase/migrations/20261012212325_ovd462_provider_session_lease.sql`](../supabase/migrations/20261012212325_ovd462_provider_session_lease.sql), recorded by #717).
 The expand-phase rollback is kept as the pgTAP fixture
 [`supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc`](../supabase/tests/fixtures/ovd462_provider_session_leases_rollback.inc).
-Leases stay off until OVD-464 wires the RPC store into the worker.
+The worker wires the RPC store into the generic provider route
+(`worker/src/providerTaskLeasePort.ts`, OVD-381). Leases stay off until
+`WORKER_PROVIDER_SESSION_LEASE=on`, which also requires
+`WORKER_PROVIDER_SESSION_NAMESPACE_KEY`; see [Worker wiring](#worker-wiring).
 
 ## Purpose
 
@@ -227,6 +230,33 @@ relies on the migration runner's transaction wrapper; by hand, use
     run against the migrated schema. When promoting, keep the fixture as a byte
     copy of the migration (as OVD-684 does), or drop the include and the guard.
 
+## Worker wiring
+
+`createSupabaseProviderTaskLeasePort` (`worker/src/providerTaskLeasePort.ts`)
+adapts the lease manager to the OVD-464 pipeline port. The generic
+provider route only builds it when `WORKER_PROVIDER_SESSION_LEASE=on`.
+
+- `WORKER_PROVIDER_SESSION_NAMESPACE_KEY` holds the HMAC namespace key, hex or
+  base64, at least 32 bytes. It is a secret: keep it in the secret store, and
+  give every worker replica the same value so that they all derive the same
+  binding. When the lease is on, the worker refuses to start without a valid
+  key. If a config is built without one, no port is created and generic tasks
+  stop with `session_lease_unavailable` before the preflight.
+- Rotating the key derives new bindings. Any block recorded under the old
+  bindings then no longer applies, so treat a rotation as an operator decision
+  to clear blocks.
+- Each provider has one storage-state slot per deployment, so the account
+  material is the fixed slot label `default`. `accountRef` and
+  `sessionBindingRef` are HMACs over provider, environment and slot, so they
+  never collide across providers or environments.
+- The adapter's terminal outcomes map to blocking lease outcomes:
+  `blocked` becomes `provider_blocked`, `banned` becomes `account_banned`, and
+  `login_required` and `challenge_required` keep their names. The binding then
+  stays blocked until an operator clears it.
+- Xometry keeps its specialized path and is not leased.
+- Deploy wiring for the new secret belongs to the deploy track, and the
+  setting stays off until it exists.
+
 ## Promotion record (migration window 1)
 
 1. Done: the draft was promoted byte-for-byte to
@@ -236,6 +266,7 @@ relies on the migration runner's transaction wrapper; by hand, use
    read the migration file; the race test reads the rollback from its pgTAP fixture.
 3. Done: applied in the window. The CI race test rehearses the rollback and
    re-apply on a scratch database.
-4. Next: OVD-464 wires `createProviderSessionLeaseRpcStore(supabase)` into the worker.
+4. Done: OVD-381 wires `createProviderSessionLeaseRpcStore(supabase)` into the
+   generic provider route behind `WORKER_PROVIDER_SESSION_LEASE` (default off).
    Operator tooling alone uses `createProviderSessionLeaseOperatorRpcStore`.
    The contract phase (retention and sidecar-lock retirement) is a separate issue.

@@ -1,0 +1,17 @@
+{
+  "format": "ovd602.diff.v1",
+  "added": {
+    "relations": [
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "engineering_private.native_pending_finalizations",
+        "rls": true
+      }
+    ]
+  },
+  "removed": {},
+  "changed": {},
+  "flags": []
+}
