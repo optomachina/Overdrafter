@@ -197,8 +197,10 @@ export function validateRecoveryHostExpectations(expectations) {
 }
 
 function matchesProductionContract(expectations) {
-  return Object.entries(OVD410_RECOVERY_HOST_CONTRACT).every(
-    ([key, value]) => expectations[key] === value,
+  return Object.entries(OVD410_RECOVERY_HOST_CONTRACT).every(([key, value]) =>
+    key === "zone"
+      ? OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone)
+      : expectations[key] === value,
   );
 }
 

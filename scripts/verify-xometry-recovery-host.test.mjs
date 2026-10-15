@@ -938,6 +938,26 @@ describe("recovery-host CLI", () => {
     expect(validateRecoveryHostExpectations({ ...EXPECTED, zone: "us-west1-z" })).toBe(false);
   });
 
+  it("runs the full verifier for an allowlisted fallback zone and rejects others", async () => {
+    for (const [zone, collects] of [["us-west1-c", true], ["us-west2-a", false]]) {
+      let seen;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      await runCli({
+        args: [],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_ZONE: zone },
+        output,
+        collectEvidence: async (expectations) => { seen = expectations.zone; throw new Error("stop"); },
+      });
+      if (collects) {
+        expect(seen).toBe(zone);
+        expect(output.value).not.toContain("configuration is invalid");
+      } else {
+        expect(seen).toBeUndefined();
+        expect(output.value).toContain("configuration is invalid");
+      }
+    }
+  });
+
   it("fails before collection when one fixed name drifts", async () => {
     let collected = false;
     const output = { value: "", write(chunk) { this.value += chunk; } };
