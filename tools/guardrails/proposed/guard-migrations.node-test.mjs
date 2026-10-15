@@ -1670,20 +1670,24 @@ test("unsupported redirect assignments block across Bash orderings and source po
 });
 
 test("side-effecting prefix values with redirects are unsupported", () => {
-  const fixture = mkdtempSync(join(tmpdir(), "guard-prefix-order-"));
-  try {
-    mkdirSync(join(fixture, "supabase/migrations"), { recursive: true });
-    const command = 'X=; >"./$X/x.sql" Y=${X:=supabase/migrations} true';
-    const reference = spawnSync("bash", ["-c", command], { cwd: fixture, encoding: "utf8" });
-    assert.equal(reference.status, 0, reference.stderr);
-    assert.equal(reference.stderr, "");
-    assert.ok(existsSync(join(fixture, "supabase/migrations/x.sql")) || existsSync(join(fixture, "x.sql")));
-    assert.match(decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }), /ordering cannot be checked/);
-    assert.ok(decide(inFixture('Y=$(printf value) true >docs/prefix.txt')));
-    assert.equal(decide(inFixture('Y=${X:-docs} true >docs/prefix.txt')), null);
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
+  for (const parameter of ["X:=", "X[0]:=", "X[0]=", "X[1+0]:="]) {
+    const fixture = mkdtempSync(join(tmpdir(), "guard-prefix-order-"));
+    try {
+      mkdirSync(join(fixture, "supabase/migrations"), { recursive: true });
+      const command = 'X=; >"./$X/x.sql" Y=${' + parameter + 'supabase/migrations} true';
+      const reference = spawnSync("bash", ["-c", command], { cwd: fixture, encoding: "utf8" });
+      assert.equal(reference.status, 0, reference.stderr);
+      assert.equal(reference.stderr, "");
+      assert.ok(existsSync(join(fixture, "supabase/migrations/x.sql")) || existsSync(join(fixture, "x.sql")));
+      assert.match(decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }), /ordering cannot be checked/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   }
+  assert.ok(decide(inFixture('Y=$(printf value) true >docs/prefix.txt')));
+  assert.ok(decide(inFixture('Y=${X[0]} true >docs/prefix.txt')));
+  assert.equal(decide(inFixture('Y=${X:-docs} true >docs/prefix.txt')), null);
+  assert.equal(decide(inFixture('Y=${X} true >docs/prefix.txt')), null);
 });
 
 test("export append updates the Git config environment used for aliases", () => {

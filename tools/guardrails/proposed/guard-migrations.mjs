@@ -2767,8 +2767,8 @@ function assignmentRedirectReason(src) {
     const cmd = base(argv[0]);
     const uncertain = !argv[0] || ["$", "*", "?", "[", SUB].some((part) => argv[0].includes(part));
     const prefix = Object.keys(env).length > 0;
-    const sideEffects = Object.values(env).some((value) => value.includes(SUB) || /\$\{[A-Za-z_]\w*:?=/.test(value));
-    if ((prefix && (uncertain || sideEffects || special.has(cmd) || wrappers.has("exec"))) ||
+    const opaqueValues = Object.values(env).some((value) => value.includes(SUB) || value.replace(/\$\{[A-Za-z_]\w*(?::?[-+?][^{}]*)?\}/g, "").includes("${"));
+    if ((prefix && (uncertain || opaqueValues || special.has(cmd) || wrappers.has("exec"))) ||
         (declarations.has(cmd) && argv.slice(1).some(isAssignment))) return ASSIGNMENT_REDIRECTS;
   }
   return null;
