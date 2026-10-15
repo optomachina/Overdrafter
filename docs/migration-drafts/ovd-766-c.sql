@@ -1,71 +1,56 @@
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
--- OVD-766 (split child c): public.api_reconcile_job_parts(uuid).
+-- OVD-766 (split child c) / OVD-769: public.api_reconcile_job_parts(uuid).
 --
 -- This file is a DRAFT. It is not under supabase/migrations/, is not part of
 -- migration lineage and has not been applied to any database. Promote it only
 -- inside a Blaine-approved migration window. Rollback: ovd-766-c.rollback.sql.
 --
--- Idempotent with the OVD-736 anon revoke: both revoke EXECUTE from PUBLIC and
--- anon on this function, so applying either one first, or both, ends in the
--- same ACL. Re-running this file is also a no-op.
+-- Release decision: option (b). authenticated keeps EXECUTE because the
+-- browser calls this RPC directly with the signed in user's JWT:
+--   src/features/quotes/api/extraction-api.ts      reconcileJobParts()
+--   awaited from src/features/quotes/api/uploads-api.ts,
+--   src/features/quotes/use-client-part-controller.ts,
+--   src/features/quotes/use-client-project-controller.ts, src/pages/JobCreate.tsx.
+-- Instead the body regains the guard that 20260304010000 had and
+-- 20260308113000 dropped:
+--   1. `perform public.require_verified_auth();` is the first statement, so a
+--      caller with no user or an unverified email is refused;
+--   2. `public.user_can_edit_job(p_job_id)` must hold, with the 20260304010000
+--      message 'You do not have access to job %'. It runs before the job
+--      lookup, so a missing job and a forbidden job get the same answer.
+-- The rest of the body is the 20260308113000 definition unchanged (its org
+-- membership check stays as a second, redundant gate).
 --
--- ---------------------------------------------------------------------
--- BLOCKER: an authenticated browser client calls this RPC directly.
--- ---------------------------------------------------------------------
--- The requested change (service_role only: revoke from public, anon and
--- authenticated; grant to service_role) would break client intake. Callers
--- found on the current branch:
---   src/features/quotes/api/extraction-api.ts      reconcileJobParts() ->
---     callRpc('api_reconcile_job_parts') -> supabase.rpc() with the signed in
---     user's JWT (src/integrations/supabase/client), role authenticated.
---   reconcileJobParts() is awaited from:
---     src/features/quotes/api/uploads-api.ts         (new-job upload flow)
---     src/features/quotes/use-client-part-controller.ts
---     src/features/quotes/use-client-project-controller.ts
---     src/pages/JobCreate.tsx
---   e2e/intake.spec.ts and docs/qa/customer-continuous-fixture.js expect it.
--- No caller in supabase/functions/, worker/, server/, api/ or services.
--- Nested SQL caller: public.api_request_extraction(uuid)
---   (supabase/migrations/20260812042000_add_canonical_part_identity.sql) does
---   `perform public.api_reconcile_job_parts(p_job_id)`. It is SECURITY DEFINER,
---   so it calls as the function owner and is unaffected by any grant change.
---
--- So the service_role-only change is COMMENTED OUT below (section 2). Before
--- enabling it, the browser call sites must stop calling this RPC (for example
--- rely on api_request_extraction, which already reconciles) and ship first.
---
--- Second finding: the body gates only on public.user_can_access_org(), which
--- reads auth.uid(). A service_role request carries no user, so a direct
--- service_role call always raises 'You do not have access to job ...'. With
--- the body kept, service_role-only leaves no direct caller that can succeed;
--- only nested SECURITY DEFINER callers acting for a signed in member work.
---
--- Third finding (tracked as OVD-769, not changed here): the latest definition
--- (20260308113000_fix_job_file_reconcile_and_add_org_blob_dedupe.sql) dropped
--- the guard that 20260304010000 had: there is no require_verified_auth() call,
--- and any org member (not only a job editor) may rewrite parts. The OVD-602
--- inventory labelled it verified-auth+membership; it is now known-debt
--- OVD-769. If the browser caller must stay, the alternative fix is to keep
--- authenticated and restore `perform public.require_verified_auth();` plus
--- `public.user_can_edit_job(v_job.id)`; that is a behavior change for
--- unverified or view-only members and needs its own decision.
---
--- What section 1 (active) changes, all safe for the browser caller:
+-- Also:
 --   - search_path = '' with every reference schema qualified (was `public`);
---     the body is otherwise identical to the 20260308113000 definition;
---   - revoke all from PUBLIC and anon (the OVD-736 overlap);
---   - authenticated keeps EXECUTE; service_role keeps its existing grant.
--- On apply, delete the PUBLIC and anon api_reconcile_job_parts rows from
--- supabase/tests/api_role_privilege_inventory.sql in the same PR, and update
--- row 6 of supabase/tests/client_rpc_least_privilege.sql (anon now gets 42501
--- permission denied instead of the job access error).
+--   - revoke all from PUBLIC and anon (the OVD-736 overlap); grant EXECUTE to
+--     authenticated; service_role keeps its existing grant.
+-- Idempotent with the OVD-736 anon revoke: both end in the same ACL, and
+-- re-running this file is a no-op.
+--
+-- Behavior change: unverified members, and anon (now 42501 before the body),
+-- can no longer reconcile. Every verified org member still passes, because
+-- user_can_edit_job admits any user_can_access_org member, the job creator and
+-- project editors. The nested caller public.api_request_extraction(uuid)
+-- (20260812042000) already runs require_verified_auth() and
+-- user_can_edit_job() before its `perform public.api_reconcile_job_parts`, so
+-- it is unaffected.
+--
+-- Same PR on apply:
+--   - promote supabase/tests/pending/ovd766_c_guards.sql.pending to
+--     supabase/tests/ovd766_c_guards.sql;
+--   - delete the PUBLIC and anon api_reconcile_job_parts rows from
+--     supabase/tests/api_role_privilege_inventory.sql (the authenticated row
+--     is already 'job-editor', OVD-769);
+--   - update supabase/tests/client_rpc_least_privilege.sql row 6 (anon now
+--     42501 permission denied; unverified now the verify-email error) and drop
+--     its "KNOWN GAP: unverified org A member can reconcile job parts" check.
 -- =====================================================================
 
 begin;
 
--- 1. Active: fixed search_path, PUBLIC/anon revoke. Body unchanged.
 create or replace function public.api_reconcile_job_parts(p_job_id uuid)
 returns jsonb
 language plpgsql
@@ -79,6 +64,12 @@ declare
   v_missing_drawings integer := 0;
   v_missing_cad integer := 0;
 begin
+  perform public.require_verified_auth();
+
+  if not public.user_can_edit_job(p_job_id) then
+    raise exception 'You do not have access to job %', p_job_id;
+  end if;
+
   select *
   into v_job
   from public.jobs
@@ -164,16 +155,5 @@ $$;
 
 revoke all on function public.api_reconcile_job_parts(uuid) from public, anon;
 grant execute on function public.api_reconcile_job_parts(uuid) to authenticated;
-
--- 2. BLOCKED (see header): service_role only. Enable only after the browser
---    call sites above are removed and deployed. When enabled, also delete the
---    authenticated api_reconcile_job_parts row (OVD-769 known-debt) from
---    supabase/tests/api_role_privilege_inventory.sql, delete row 6 from
---    supabase/tests/client_rpc_least_privilege.sql, and promote
---    supabase/tests/pending/ovd766_c_guards.sql.pending.
---
--- revoke all on function public.api_reconcile_job_parts(uuid)
---   from public, anon, authenticated;
--- grant execute on function public.api_reconcile_job_parts(uuid) to service_role;
 
 commit;
