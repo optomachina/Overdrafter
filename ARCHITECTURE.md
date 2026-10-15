@@ -343,7 +343,9 @@ Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript cont
   fencing, bounded renewal, idempotent release and blocking manual-follow-up
   outcomes, all over opaque references. Its Postgres storage is the
   migration `supabase/migrations/20261012212325_ovd462_provider_session_lease.sql` applied in migration window 1,
-  and worker wiring is OVD-464, so no dispatch path evaluates leases yet
+  and the generic provider route holds the lease around the adapter call when
+  `WORKER_PROVIDER_SESSION_LEASE=on` (OVD-381, `worker/src/providerTaskLeasePort.ts`;
+  default off, Xometry not leased)
 - admission requires the authoritative stored binding, the current service-only
   admission resolver row, rollout control, and permit state to agree; envelope
   fields, the reviewed-envelope list, and runtime observations can only deny

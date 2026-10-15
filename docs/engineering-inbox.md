@@ -425,16 +425,16 @@ for the supported properties.
 OVD-597 removed `sonar-project.properties`, which only a CLI scanner reads and
 this repository does not run, and collapsed its exact-file exceptions into one
 `plsql:S1192` entry in `.sonarcloud.properties` scoped to `supabase/**/*.sql`.
-That widens the recorded exception from named files to every migration, pgTAP
-suite and SQL fixture under `supabase/`. The entry is unproven: issue-ignore
-additions to `.sonarcloud.properties` in #484, #491, #530, #533 and #536 were
-recorded as ineffective under automatic analysis and removed. Until Sonar shows
-otherwise, `plsql:S1192` findings stay visible and are dispositioned per
-finding under this policy. Post-merge check: once OVD-597 reaches main, confirm
-whether the main-branch analysis closes the existing `plsql:S1192` issues on
-`supabase/**/*.sql`, and inspect the issue list of the next PR that changes SQL
-there. If findings still appear, remove the entry and keep the per-finding
-disposition.
+The October 15 main-branch readback confirmed that the entry does not suppress
+these findings: Sonar still reports open `plsql:S1192` findings in
+`supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql`,
+including issue `AaE3HRh2cNxV58HhoEVY`. The public issue API returned 281
+`supabase/` findings in the first 500 S1192 results (2,387 results overall).
+The ineffective entry was removed as the original post-merge check required.
+Keep dispositioning findings individually under the policy above; no analyzer
+or security rule is disabled. `.sonarcloud.properties` remains the single
+configuration source, and the existing version-keyed Playwright cache remains
+in both browser jobs.
 
 ## Migration and rollback
 
