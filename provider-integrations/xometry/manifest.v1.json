@@ -21,7 +21,8 @@
   "integration": {
     "adapterKind": "custom_portal",
     "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "implementationStage": "existing_adapter",
+    "quoteCurrency": "USD"
   },
   "capabilityEnvelope": {
     "version": 1,

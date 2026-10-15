@@ -4,6 +4,7 @@ import {
   type GeographicOrigin,
   type VendorQuoteAdapterOffer,
 } from "../types.js";
+import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
 import {
   createXometryQuoteObservation,
@@ -77,11 +78,19 @@ function parseCurrencyValue(value: string) {
 }
 
 /** USD-only offer fields require currency evidence on every anchored amount.
+ * A bare `$` amount is USD only when the provider manifest's reviewed quote
+ * currency is USD; any explicit or conflicting marker still decides first.
  * Foreign/ambiguous observations stay in error evidence, never USD comparisons.
  */
 const CURRENCY_CODES = new Set(Intl.supportedValuesOf("currency"));
+const DOLLAR_AMOUNT_SOURCE = String.raw`\$\s*([\d,]+(?:\.\d{2})?)`;
+const USD_CODE_AMOUNT_SOURCE = String.raw`\bUSD[^\S\r\n]*([\d,]+(?:\.\d{2})?)`;
+/** `$` amounts; symbol-less `USD 41.41` amounts count only when no `$` amount exists. */
+function amountSource(text: string) {
+  return new RegExp(DOLLAR_AMOUNT_SOURCE).test(text) ? DOLLAR_AMOUNT_SOURCE : USD_CODE_AMOUNT_SOURCE;
+}
 
-function currencyEvidence(text: string) {
+function currencyEvidence(text: string, registryCurrency: string | null) {
   const observed = new Set<string>();
   const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
   let trusted = true;
@@ -95,7 +104,8 @@ function currencyEvidence(text: string) {
       if (!codes.length) observed.add("unknown");
     }
   }
-  const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
+  const amounts = [...text.matchAll(new RegExp(amountSource(text), "g"))];
+  let bareAmountUnverified = false;
   for (const amount of amounts) {
     const start = amount.index ?? 0;
     const prefix = /(?:\b([A-Z]{3})[^\S\r\n]*|\b(US|CA|AU|NZ|HK|SG|C|A|S))$/i.exec(text.slice(0, start));
@@ -119,20 +129,28 @@ function currencyEvidence(text: string) {
     const prefixCode = prefix?.[1] && CURRENCY_CODES.has(prefix[1].toUpperCase()) ? prefix[1] : undefined;
     const codes = [prefixCode, prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
       .map((code) => aliases[code.toUpperCase()] ?? code.toUpperCase());
-    if (!codes.length) { observed.add("unknown"); trusted = false; }
+    if (amount[0].startsWith("USD")) codes.push("USD");
+    if (!codes.length) {
+      if (registryCurrency === "USD") codes.push("USD");
+      else { observed.add("unknown"); trusted = false; bareAmountUnverified = true; }
+    }
     for (const code of [...codes, ...lineCodes]) { observed.add(code); if (code !== "USD") trusted = false; }
   }
   for (const [symbol, code] of [["€", "EUR"], ["£", "GBP"], ["¥", "JPY_or_CNY"]]) {
     if (text.includes(symbol)) { observed.add(code); trusted = false; }
   }
-  return { trusted: trusted && amounts.length > 0, observedCurrencies: [...observed] };
+  // Only bare amounts, with no conflicting marker, are unverified rather than foreign.
+  const unverified = bareAmountUnverified && observed.size === 1;
+  return { trusted: trusted && amounts.length > 0, unverified, observedCurrencies: [...observed] };
 }
 
 function parsePrices(text: string, requestedQuantity: number) {
-  const currencyMatches = [...text.matchAll(/\$\s*([\d,]+(?:\.\d{2})?)/g)];
+  const source = amountSource(text);
+  const currencyMatches = [...text.matchAll(new RegExp(source, "g"))];
   if (currencyMatches.length === 0) return null;
 
-  const unitMatch = /\$\s*([\d,]+(?:\.\d{2})?)\s*(?:ea\.?|each|\/\s*ea\.?)/i.exec(text);
+  // Case-insensitive unit suffix without making the USD anchor case-insensitive.
+  const unitMatch = new RegExp(String.raw`${source}\s*(?:\/\s*)?[Ee][Aa](?:[Cc][Hh])?\b\.?`).exec(text);
   if (unitMatch?.index !== undefined) {
     const unitPriceUsd = parseCurrencyValue(unitMatch[1]);
     const unitMatchEnd = unitMatch.index + unitMatch[0].length;
@@ -277,10 +295,25 @@ export function parseXometryOfferSnapshots(input: {
   snapshots: XometryOfferSnapshot[];
   requestedQuantity: number;
   quoteUrl: string;
+  /** Manifest quote currency; bare `$` amounts fail closed unless it is USD. */
+  registryCurrency?: string | null;
 }): VendorQuoteAdapterOffer[] {
+  const registryCurrency = input.registryCurrency === undefined
+    ? PROVIDER_CATALOG.xometry.quoteCurrency
+    : input.registryCurrency;
   const availableSnapshots = input.snapshots.filter((snapshot) => !isExplicitlyUnavailable(snapshot));
   const offers = availableSnapshots.map((snapshot, index) => {
-    const currency = currencyEvidence(snapshot.text);
+    const currency = currencyEvidence(snapshot.text, registryCurrency);
+    if (currency.unverified) {
+      throw new VendorAutomationError(
+        "A Xometry option used bare dollar prices without a USD registry currency.",
+        "unexpected_ui_state",
+        { vendor: "xometry", reason: "price_currency_unverified",
+          containerSelector: snapshot.selector, optionIndex: index, registryCurrency,
+          observedCurrencies: currency.observedCurrencies,
+          providerText: snapshot.text.slice(0, 1000) },
+      );
+    }
     if (!currency.trusted && currency.observedCurrencies.length > 0) {
       throw new VendorAutomationError(
         "A Xometry option did not establish exclusively USD prices.",

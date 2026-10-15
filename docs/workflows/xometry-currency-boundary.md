@@ -49,3 +49,21 @@ npm run provider:check
 Review follow-up: explicit `Currency: CODE`/`currency = CODE` declarations bind the whole option across lines. Three-letter prose prefixes are ignored unless they are recognized currency codes; all recognized code tokens remain conflicting evidence regardless of case or separator. The narrow complete lowercase phrases `all taxes included` and `all fees included` are excluded from that scan, including when parenthesized. Other code-like prose may still be withheld as ambiguous. The phrase `all taxes/fees included` is treated as prose; explicit `ALL` remains ambiguous currency evidence and is rejected.
 
 A `Currency:` or `currency =` declaration is validated in full: only an exact USD declaration is accepted. Mixed or unsupported values are withheld, rather than accepting their USD prefix. This intentionally conservative grammar is not a general natural-language currency interpreter.
+
+## Registry-backed bare dollar amounts (OVD-778)
+
+A saved real Xometry quote page shows tier prices as bare `$41.41 ea.` / `$414.15`
+with no USD marker, so the guard above withheld every live option. The provider
+manifest now carries an optional, evidence-reviewed `integration.quoteCurrency`
+(ISO 4217), projected into the worker provider catalog only. Xometry declares `USD`.
+
+A bare `$` amount with no prefix, suffix, alias or line-level currency code is
+treated as USD only when that registry value is exactly `USD`. When the registry
+currency is unknown (`null`) or anything other than USD, bare amounts fail closed
+with `unexpected_ui_state` and reason `price_currency_unverified` (the Fictiv
+convention). Explicit foreign or conflicting markers keep `xometry_offer_currency_untrusted`.
+`US$41.41`, `USD $41.41` and `$41.41 USD` parse regardless of registry. A symbol-less
+`USD 41.41` amount is used only when the option has no `$` amount, so existing `$` grammar is unchanged. Explicit markers decide first:
+`C$`, `CA$`, `A$`, `CAD`/`EUR`/`GBP` codes, `€`/`£`/`¥`, contradictory
+annotations and non-USD `Currency:` declarations are still rejected. No FX or
+relabeling is introduced. Coverage is in `worker/src/adapters/xometryCurrency.test.ts`.
