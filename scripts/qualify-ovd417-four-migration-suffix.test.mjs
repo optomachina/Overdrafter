@@ -125,19 +125,20 @@ describe("OVD-417 local qualification harness", () => {
     expect(runner.match(/dry-run\.txt\" 2>&1/g)).toHaveLength(2);
   });
 
-  it("rejects routing overrides, duplicate databases, and non-empty evidence before qualification", () => {
+  it.each([
+    ["routing override", "must not contain connection query or fragment parameters"],
+    ["duplicate database", "must be pairwise distinct"],
+    ["non-empty evidence", "local evidence directory must be empty"],
+  ])("rejects %s before qualification", (scenario, message) => {
     const clean = "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_clean";
     const recovery = "postgresql://postgres:postgres@localhost:54322/ovd417_recovery";
     const restored = "postgresql://postgres:postgres@[::1]:54322/ovd417_restored";
-    expect(validationFailure({ clean: `${clean}?hostaddr=203.0.113.10`, recovery, restored })).toContain(
-      "must not contain connection query or fragment parameters",
-    );
-    expect(validationFailure({ clean, recovery: clean.replace("127.0.0.1", "localhost"), restored })).toContain(
-      "must be pairwise distinct",
-    );
-    expect(validationFailure({ clean, recovery, restored, dirtyEvidence: true })).toContain(
-      "local evidence directory must be empty",
-    );
+    expect(validationFailure({
+      clean: scenario === "routing override" ? `${clean}?hostaddr=203.0.113.10` : clean,
+      recovery: scenario === "duplicate database" ? clean.replace("127.0.0.1", "localhost") : recovery,
+      restored,
+      dirtyEvidence: scenario === "non-empty evidence",
+    })).toContain(message);
   });
 
   it("injects immediately after the first migration and refuses promotion from a one-row prefix", () => {

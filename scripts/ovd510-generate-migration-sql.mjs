@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
+import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
 import { catalogSql } from "./ovd510-catalog-sql.mjs";
 import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 
@@ -11,42 +11,78 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifestPath = resolve(root, "docs/release/ovd-510-prechange-compatibility-manifest.json");
 const forwardPath = resolve(root, "docs/release/ovd-558-verifier-authority-forward.sql");
 const reversePath = resolve(root, "docs/release/ovd-558-verifier-authority-reverse.sql");
+const digestPath = resolve(root, "docs/release/window-2/ovd558-catalog-digest.sql");
 const manifestBytes = readFileSync(manifestPath);
 const manifestSha = createHash("sha256").update(manifestBytes).digest("hex");
 const manifest = JSON.parse(manifestBytes);
 const plan = planExactGrants(manifest, manifestSha);
-// pg_get_functiondef/pg_get_expr render under the runner role, so this is the
-// supabase_admin view of the same reviewed catalog, not the postgres JSON hash.
-const baselineCanonicalSha = "ee81feb70d8a72cb1baa3c73109c311504b9079603b51954a3f6d50a8a763dc1";
+// The catalog digest is taken with search_path = pg_catalog, so expressions and
+// function definitions render fully qualified and the digest does not depend on
+// the runner's role or its role level search_path (OVD-743). Measured as
+// postgres on the 148 migration baseline.
+const baselineCanonicalSha = "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b";
 const catalogSelect = catalogSql.replace(/^begin read only;\n/, "").replace(/\ncommit;$/, "");
 if (!catalogSelect.startsWith("with selected_roles(role_name) as (")
     || !catalogSelect.endsWith(")::text;")) throw new Error("catalog_select_shape_drift");
-const catalogJsonbSelect = catalogSelect.replace(/\)::text;$/, ");");
-const digestQuery = (select, normalized = false) => {
+const digestQuery = (select) => {
   const source = `(${select.slice(0, -1)}) snapshot(catalog_value)`;
-  if (!normalized) {
-    return `select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from ${source}`;
-  }
-  return `select encode(sha256(convert_to(
-    jsonb_set(catalog_value, '{functions}',
-      (select jsonb_agg(case when item->>'schema_name' = 'storage'
-        then jsonb_set(jsonb_set(item, '{acl}', 'null'::jsonb),
-          '{explicit_grants}', '[]'::jsonb) else item end order by ordinal)
-       from jsonb_array_elements(catalog_value->'functions') with ordinality as f(item, ordinal)))::text,
-    'UTF8')), 'hex') from ${source}`;
+  return `select encode(sha256(convert_to(catalog_value, 'UTF8')), 'hex') from ${source}`;
 };
-// The reverse cannot restore a null storage proacl; it leaves explicit
-// owner/PUBLIC EXECUTE entries. This is that exact expanded shape.
-const storageExpandedAclMismatch = `exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'storage' and not exists (
-      select 1 from aclexplode(p.proacl) a
-      where a.grantee = 0 and a.grantor = p.proowner
-        and a.privilege_type = 'EXECUTE' and not a.is_grantable))
-     or exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-       cross join lateral aclexplode(p.proacl) a
-       where n.nspname = 'storage' and
-         (a.grantor <> p.proowner or a.privilege_type <> 'EXECUTE'
-          or a.is_grantable or a.grantee not in (0, p.proowner)))`;
+// Inside a DO block that declares saved_search_path; the session path is restored.
+const pinnedDigestInto = (target) => `perform set_config('search_path', 'pg_catalog', true);
+  select digest_value into ${target} from (${digestQuery(catalogSelect)}) as digest(digest_value);
+  perform set_config('search_path', saved_search_path, true);`;
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
+  ? fn.identity_arguments.split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",") : ""})`;
+// OVD-743 option A: the verifier may call exactly the 7 application functions,
+// plus exactly the storage functions anon can call (nothing anon cannot).
+export const verifierAppFunctions = [...allowedVerifierSignatures].sort(byCodeUnit);
+export const anonStorageFunctions = manifest.catalog.functions
+  .filter((fn) => fn.schema_name === "storage" && !fn.extension_owned
+    && fn.callers.anon?.schemaUsage && fn.callers.anon?.functionExecute)
+  .map(signature).sort(byCodeUnit);
+if (verifierAppFunctions.length !== 7 || anonStorageFunctions.length !== 20) {
+  throw new Error("reviewed_verifier_function_set_drift");
+}
+const sqlArray = (list) => `array[${list.map((name) => `'${name}'`).join(",\n    ")}]::text[]`;
+const callable = (role, schemaFilter) => `(select coalesce(array_agg(p.oid::regprocedure::text
+      order by p.oid::regprocedure::text collate "C"), '{}')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where ${schemaFilter} and has_schema_privilege('${role}', n.oid, 'USAGE')
+      and has_function_privilege('${role}', p.oid, 'EXECUTE'))`;
+const verifierAuthorityChecks = `select ${callable("engineering_native_verifier", "n.nspname in ('public','engineering_private')")} into found;
+  if found is distinct from ${sqlArray(verifierAppFunctions)} then
+    raise exception 'ovd558_verifier_app_allowlist_mismatch:%', found;
+  end if;
+  select ${callable("engineering_native_verifier", "n.nspname = 'storage'")} into found;
+  select ${callable("anon", "n.nspname = 'storage'")} into anon_found;
+  if found is distinct from anon_found then
+    raise exception 'ovd558_verifier_storage_functions_exceed_anon:%', found;
+  end if;
+  -- Fails closed when a Supabase Storage upgrade adds or changes a function.
+  if anon_found is distinct from ${sqlArray(anonStorageFunctions)} then
+    raise exception 'ovd558_storage_anon_functions_changed:%', anon_found;
+  end if;
+  if exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) as priv(name)
+      where n.nspname = 'storage' and c.relkind in ('r','p','v','m','f')
+        and has_table_privilege('engineering_native_verifier', c.oid, priv.name)
+        and not has_table_privilege('anon', c.oid, priv.name)) then
+    raise exception 'ovd558_verifier_storage_table_exceeds_anon';
+  end if;
+  if exists (select 1 from pg_namespace n where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
+      and (has_schema_privilege('engineering_native_verifier', n.oid, 'CREATE')
+        or has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
+          <> (n.nspname in ('public','engineering_private','storage')))) then
+    raise exception 'ovd558_verifier_schema_authority_mismatch';
+  end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public','engineering_private')
+      and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
+        where a.grantee = 0 and a.privilege_type = 'EXECUTE')) then
+    raise exception 'ovd558_public_execute_leak';
+  end if;`;
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const identity = (fn) => `${quote(fn.schema_name)}.${quote(fn.function_name)}(${fn.identity_arguments})`;
 const sqlSha = (value) => createHash("sha256").update(value).digest("hex");
@@ -61,64 +97,54 @@ function forwardSql(postCanonicalSha) {
   mutation = mutation.replaceAll("ovd510_proof_registry", "native_verifier_registered_objects");
   mutation = mutation.replace(/create function public\.ovd510_unlisted_plain\(\)[\s\S]*?(?=revoke execute on function public\.api_load_native_verification)/, "");
   if (mutation.includes("ovd510_unlisted_") || mutation.includes("registered-result")
-      || !mutation.includes(plan.sql)) throw new Error("proof_mutation_extraction_failed");
+      || /set role "?supabase_storage_admin|for role supabase_storage_admin/i.test(mutation)
+      || !mutation.includes(plan.sql)) {
+    throw new Error("proof_mutation_extraction_failed");
+  }
   const postCheck = postCanonicalSha
-    ? `select digest_value into actual from (${digestQuery(catalogSelect)}) as digest(digest_value);
+    ? `${pinnedDigestInto("actual")}
   if actual is distinct from '${postCanonicalSha}' then
     raise exception 'ovd558_postchange_catalog_mismatch:%', actual;
   end if;`
-    : `if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname in ('public','engineering_private','storage')
-        and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
-        and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')) <> 7 then
-    raise exception 'ovd558_verifier_allowlist_count_mismatch';
-  end if;`;
+    : "";
   return `-- OVD-558 staged source migration. Do not add this file to the active migration tree.
 -- Pinned prechange manifest SHA-256: ${manifestSha}
--- Pinned PostgreSQL jsonb catalog SHA-256: ${baselineCanonicalSha}
--- Requires separately qualified source, fixture ownership, and runner identity.
+-- Pinned PostgreSQL jsonb catalog SHA-256 (search_path pg_catalog): ${baselineCanonicalSha}
+-- Runs as postgres, the hosted Supabase owner role; no superuser is needed.
+-- Storage functions are owned by supabase_storage_admin and keep their shipped
+-- ACLs: the verifier may call exactly the storage functions anon can call.
+-- READ COMMITTED and the shared window 2 lock come first, as in every staged
+-- forward and reverse, so no two window 2 scripts interleave.
 begin;
 set local statement_timeout = '180s';
 set local lock_timeout = '10s';
-select pg_advisory_xact_lock(510, 2);
-do $ovd558_preflight$ declare actual text; normalized text;
+do $ovd558_forward_isolation$
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd558_forward_read_committed_required' using errcode = '0A000';
+  end if;
+end $ovd558_forward_isolation$;
+select pg_advisory_xact_lock(510, 2);
+do $ovd558_preflight$ declare actual text; saved_search_path text := current_setting('search_path');
+begin
+  if current_user <> 'postgres'
      or to_regrole('engineering_native_verifier') is not null
      or to_regclass('engineering_private.native_verifier_registered_objects') is not null
      or to_regprocedure('public.api_load_native_verification(uuid,uuid)') is not null then
     raise exception 'ovd558_runner_or_object_preflight_mismatch';
   end if;
-  select digest_value into actual from (${digestQuery(catalogSelect)}) as digest(digest_value);
+  ${pinnedDigestInto("actual")}
   if actual is distinct from '${baselineCanonicalSha}' then
-    -- Otherwise accept only the exact catalog the reverse leaves behind.
-    select digest_value into normalized
-      from (${digestQuery(catalogJsonbSelect, true)}) as digest(digest_value);
-    if normalized is distinct from '${baselineCanonicalSha}'
-       or ${storageExpandedAclMismatch} then
-      raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
-    end if;
+    raise exception 'ovd558_prechange_catalog_mismatch:%', actual;
   end if;
 end $ovd558_preflight$;
 ${mutation}
-do $ovd558_postflight$ declare actual text; found text[];
+do $ovd558_postflight$ declare actual text; found text[]; anon_found text[];
+  saved_search_path text := current_setting('search_path');
 begin
-  select array_agg(n.nspname || '.' || p.proname || '(' ||
-    pg_get_function_identity_arguments(p.oid) || ')' order by n.nspname, p.proname)
-    into found from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
-      and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
-      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE');
-  if coalesce(array_length(found, 1), 0) <> 7 then
-    raise exception 'ovd558_verifier_allowlist_count_mismatch:%', found;
-  end if;
-  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
-      and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
-        where a.grantee = 0 and a.privilege_type = 'EXECUTE')) then
-    raise exception 'ovd558_public_execute_leak';
-  end if;
+  perform set_config('search_path', 'pg_catalog', true);
+  ${verifierAuthorityChecks}
+  perform set_config('search_path', saved_search_path, true);
   ${postCheck}
 end $ovd558_postflight$;
 commit;
@@ -140,10 +166,6 @@ function reverseSql(postCanonicalSha, forwardSha) {
           `grant execute on function ${target} to ${grantee};`),
       ].join("\n") };
     });
-  const storagePublicGrants = manifest.catalog.functions.filter((fn) =>
-    fn.schema_name === "storage" && !fn.extension_owned && fn.public_execute)
-    .map((fn) => ({ owner: fn.owner,
-      statement: `grant execute on function ${identity(fn)} to public;` }));
   const grouped = (entries) => {
     const owners = new Map();
     for (const entry of entries) {
@@ -157,7 +179,7 @@ function reverseSql(postCanonicalSha, forwardSha) {
   return `-- OVD-558 separate source-only reverse migration.
 -- Exact forward SQL SHA-256: ${forwardSha}
 -- Pinned prechange manifest SHA-256: ${manifestSha}
--- Only storage function raw proacl null-to-explicit normalization is permitted.
+-- Runs as postgres. Restores the exact prechange catalog (storage untouched).
 -- READ COMMITTED and the registry lock come first so the emptiness check reads
 -- a snapshot taken after every concurrent registry writer has finished.
 -- storage.objects is locked before the registry, the order a verifier read
@@ -174,23 +196,21 @@ end $ovd558_reverse_isolation$;
 select pg_advisory_xact_lock(510, 2);
 do $ovd558_reverse_lock$
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_user <> 'postgres'
      or to_regclass('engineering_private.native_verifier_registered_objects') is null then
     raise exception 'ovd558_reverse_runner_or_registry_mismatch';
   end if;
   lock table storage.objects, engineering_private.native_verifier_registered_objects
     in access exclusive mode;
 end $ovd558_reverse_lock$;
-do $ovd558_reverse_preflight$ declare actual text;
+do $ovd558_reverse_preflight$ declare actual text; saved_search_path text := current_setting('search_path');
 begin
-  if current_user <> 'supabase_admin'
-     or not (select rolsuper from pg_roles where rolname = current_user)
+  if current_user <> 'postgres'
      or to_regrole('engineering_native_verifier') is null
      or (select count(*) from engineering_private.native_verifier_registered_objects) <> 0 then
     raise exception 'ovd558_reverse_runner_or_registry_mismatch';
   end if;
-  select digest_value into actual from (${digestQuery(catalogSelect)}) as digest(digest_value);
+  ${pinnedDigestInto("actual")}
   if actual is distinct from '${postCanonicalSha}' then
     raise exception 'ovd558_unknown_postchange_catalog:%', actual;
   end if;
@@ -221,16 +241,11 @@ reset role;
 drop role engineering_native_verifier;
 ${grouped(plan.grants.map((grant, index) => ({ owner: grant.owner, statement: reverseGrants[index] })))}
 ${grouped(publicRestores)}
-${grouped(storagePublicGrants)}
 alter default privileges for role postgres in schema private, extensions revoke execute on functions from public;
 alter default privileges for role postgres grant execute on functions to public;
-alter default privileges for role supabase_storage_admin grant execute on functions to public;
-do $ovd558_reverse_postflight$ declare actual text;
+do $ovd558_reverse_postflight$ declare actual text; saved_search_path text := current_setting('search_path');
 begin
-  if ${storageExpandedAclMismatch} then
-    raise exception 'ovd558_storage_expanded_acl_mismatch';
-  end if;
-  select digest_value into actual from (${digestQuery(catalogJsonbSelect, true)}) as digest(digest_value);
+  ${pinnedDigestInto("actual")}
   if actual is distinct from '${baselineCanonicalSha}' then
     raise exception 'ovd558_reverse_catalog_mismatch:%', actual;
   end if;
@@ -239,21 +254,41 @@ commit;
 `;
 }
 
-const postSha = process.argv[2];
-const checkOnly = process.argv.includes("--check");
-if (postSha && !/^[0-9a-f]{64}$/.test(postSha)) throw new Error("post_catalog_sha_required");
-if (checkOnly && !postSha) throw new Error("check_requires_post_catalog_sha");
-const forward = forwardSql(postSha);
-const reverse = postSha ? reverseSql(postSha, sqlSha(forward)) : null;
-if (checkOnly) {
-  if (readFileSync(forwardPath, "utf8") !== forward
-      || readFileSync(reversePath, "utf8") !== reverse) {
-    throw new Error("staged_migration_source_drift");
-  }
-} else {
-  writeFileSync(forwardPath, forward);
-  if (reverse) writeFileSync(reversePath, reverse);
+/** The lead's read only go or no go query: the forward preflight digest, verbatim. */
+export function digestSql() {
+  return `-- OVD-743 window 2 go or no go: READ ONLY. Prints the catalog digest that the
+-- OVD-558 forward preflight computes, generated with it by
+-- scripts/ovd510-generate-migration-sql.mjs (do not edit). The digest is taken
+-- with search_path = pg_catalog, so it is the same for any role; run it as
+-- postgres. It writes nothing and holds no lock beyond a read only snapshot.
+-- Usage (lead only, never an agent): psql "$DB_URL" -X -At -f docs/release/window-2/ovd558-catalog-digest.sql
+begin read only;
+set local search_path = pg_catalog;
+${digestQuery(catalogSelect)};
+rollback;
+`;
 }
-process.stdout.write(JSON.stringify({ forwardSha256: sqlSha(forward),
-  reverseSha256: reverse ? sqlSha(reverse) : null,
-  postCatalogSha256: postSha ?? null }) + "\n");
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const postSha = process.argv[2];
+  const checkOnly = process.argv.includes("--check");
+  if (postSha && !/^[0-9a-f]{64}$/.test(postSha)) throw new Error("post_catalog_sha_required");
+  if (checkOnly && !postSha) throw new Error("check_requires_post_catalog_sha");
+  const forward = forwardSql(postSha);
+  const reverse = postSha ? reverseSql(postSha, sqlSha(forward)) : null;
+  const digest = digestSql();
+  if (checkOnly) {
+    if (readFileSync(forwardPath, "utf8") !== forward
+        || readFileSync(reversePath, "utf8") !== reverse
+        || readFileSync(digestPath, "utf8") !== digest) {
+      throw new Error("staged_migration_source_drift");
+    }
+  } else {
+    writeFileSync(forwardPath, forward);
+    if (reverse) writeFileSync(reversePath, reverse);
+    writeFileSync(digestPath, digest);
+  }
+  process.stdout.write(JSON.stringify({ forwardSha256: sqlSha(forward),
+    reverseSha256: reverse ? sqlSha(reverse) : null, digestSha256: sqlSha(digest),
+    postCatalogSha256: postSha ?? null }) + "\n");
+}

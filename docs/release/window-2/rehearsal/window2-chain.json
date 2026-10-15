@@ -1,0 +1,1635 @@
+{
+  "status": "passed",
+  "manifestSha256": "7dfa9dc1ff497dd065cb46031a32875614f472293904a2b9af2bbee5aac5168e",
+  "baseCatalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e",
+  "readOnlyDigest": {
+    "supabaseAdmin": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b",
+    "postgres": "e1947671b453122789c6ba947bac2a279973a8a429815a8a18f16f8c941e9d0b"
+  },
+  "steps": [
+    {
+      "id": "ovd-558",
+      "order": 1,
+      "role": "postgres",
+      "forwardMs": 632,
+      "catalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
+      "ovd602Flags": [
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_accept_project_invite(text)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_jobs()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_projects()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_all_users()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_admin_list_organizations()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_approve_job_requirements(uuid,jsonb)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_archive_job(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_archive_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_assign_job_to_project(uuid,uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_cancel_quote_request(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_create_project(text,text)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_create_self_service_organization(text)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_delete_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_dissolve_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_client_intake_compatibility()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_is_platform_admin()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_get_quote_run_readiness(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_invite_project_member(uuid,text,public.project_role)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_activity_events(uuid[],integer)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_part_metadata(uuid[])",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_client_quote_workspace(uuid[])",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_organization_memberships(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_list_project_assignee_profiles(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_publish_quote_package(uuid,uuid,text,boolean)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_reconcile_job_parts(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_remove_job_from_project(uuid,uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_remove_project_member(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_request_debug_extraction(uuid,text)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_request_extraction(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_reset_client_part_property_overrides(uuid,text[])",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_start_quote_run(uuid,boolean)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_unarchive_job(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_unarchive_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_organization_membership_role(uuid,public.app_role)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.api_update_project(uuid,text,text)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.current_user_has_verified_auth()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.current_user_home_organization_id()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_internal_user(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_internal_user_any_org()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_org_admin(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.is_platform_admin()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.load_editable_project_part_context(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.require_verified_auth()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.sync_quote_request_status_from_vendor_result()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.sync_service_request_line_item_status_from_quote_request()",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_job(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_job_via_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_org(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_package(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_access_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_destructively_edit_job(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_edit_job(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_can_edit_project(uuid)",
+        "DEFINER_EXECUTABLE_BY anon,authenticated changed public.user_is_project_owner(uuid)",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_accept_project_invite(text) search_path=public, auth",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_jobs() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_projects() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_all_users() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_admin_list_organizations() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_approve_job_requirements(uuid,jsonb) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_archive_job(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_archive_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_assign_job_to_project(uuid,uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_cancel_quote_request(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_create_project(text,text) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_create_self_service_organization(text) search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_delete_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_dissolve_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_client_intake_compatibility() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_is_platform_admin() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_get_quote_run_readiness(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_invite_project_member(uuid,text,public.project_role) search_path=public, auth",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_activity_events(uuid[],integer) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_part_metadata(uuid[]) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_client_quote_workspace(uuid[]) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_organization_memberships(uuid) search_path=public, auth",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_list_project_assignee_profiles(uuid) search_path=public, auth",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_publish_quote_package(uuid,uuid,text,boolean) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_reconcile_job_parts(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_remove_job_from_project(uuid,uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_remove_project_member(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_request_debug_extraction(uuid,text) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_request_extraction(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_reset_client_part_property_overrides(uuid,text[]) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_start_quote_run(uuid,boolean) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_unarchive_job(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_unarchive_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_client_part_request(uuid,text[],text,text,text,text,text,text,text,text,numeric,text,text,integer,integer[],date,jsonb,jsonb,jsonb,jsonb) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_organization_membership_role(uuid,public.app_role) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.api_update_project(uuid,text,text) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.current_user_has_verified_auth() search_path=public, auth",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.current_user_home_organization_id() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_internal_user(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_internal_user_any_org() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_org_admin(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.is_platform_admin() search_path=public, auth, private",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.load_editable_project_part_context(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.require_verified_auth() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.sync_quote_request_status_from_vendor_result() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.sync_service_request_line_item_status_from_quote_request() search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_job(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_job_via_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_org(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_package(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_access_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_destructively_edit_job(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_edit_job(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_can_edit_project(uuid) search_path=public",
+        "DEFINER_NONEMPTY_SEARCH_PATH changed public.user_is_project_owner(uuid) search_path=public"
+      ]
+    },
+    {
+      "id": "ovd-560",
+      "order": 2,
+      "role": "postgres",
+      "forwardMs": 126,
+      "catalogSha256": "96a2fddf7b6f38fda9c29a4879115109920a29a1d9ec619de9aa74ac28aba192",
+      "ovd602Flags": []
+    },
+    {
+      "id": "ovd-561-finalization",
+      "order": 3,
+      "role": "postgres",
+      "forwardMs": 119,
+      "catalogSha256": "b299453ce95a3b52e4e8b0e49077aa2055a5729b75b7900d26e6c6763f7718e6",
+      "ovd602Flags": []
+    },
+    {
+      "id": "ovd-561-pending",
+      "order": 4,
+      "role": "postgres",
+      "forwardMs": 123,
+      "catalogSha256": "cfa6a75a6d352ff84b2304495ad23f0969f77217d2eaea839114622f643d4236",
+      "ovd602Flags": []
+    },
+    {
+      "id": "native-result-reader",
+      "order": 5,
+      "role": "postgres",
+      "forwardMs": 120,
+      "catalogSha256": "5ab4083e2e282f2285ac8b66f7c39ad991de7a28c899e078ede3be3aa03a6b09",
+      "ovd602Flags": []
+    },
+    {
+      "id": "private-artifact",
+      "order": 6,
+      "role": "postgres",
+      "forwardMs": 111,
+      "catalogSha256": "804efb3e028463bb4dcf4173d2fe3e8d1d0c0df44690c2061ea4eefab2731046",
+      "ovd602Flags": []
+    },
+    {
+      "id": "native-artifact-mapping",
+      "order": 7,
+      "role": "postgres",
+      "forwardMs": 110,
+      "catalogSha256": "6a001c67ac32dba476bf99e02dd90f6a3b87acaf920c8a5854120eb789ffd750",
+      "ovd602Flags": []
+    },
+    {
+      "id": "ovd-563",
+      "order": 8,
+      "role": "postgres",
+      "forwardMs": 103,
+      "catalogSha256": "27a9acac225651f98be849824fe26ea43747272a3ce59aa76a003f660584de4f",
+      "ovd602Flags": [
+        "DEFINER_EXECUTABLE_BY authenticated added public.api_read_native_step_review(uuid,uuid,uuid)"
+      ]
+    },
+    {
+      "id": "ovd-649-observer-replay",
+      "order": 9,
+      "role": "postgres",
+      "forwardMs": 110,
+      "catalogSha256": "603b989c9cc8c35e0d3f2a91a0d23fd0b355540bf5a7b4d8193fb40388df83ec",
+      "ovd602Flags": []
+    }
+  ],
+  "reverses": [
+    {
+      "id": "ovd-649-observer-replay",
+      "order": 9,
+      "role": "postgres",
+      "reverseMs": 117,
+      "catalogSha256": "27a9acac225651f98be849824fe26ea43747272a3ce59aa76a003f660584de4f"
+    },
+    {
+      "id": "ovd-563",
+      "order": 8,
+      "role": "postgres",
+      "reverseMs": 97,
+      "catalogSha256": "6a001c67ac32dba476bf99e02dd90f6a3b87acaf920c8a5854120eb789ffd750"
+    },
+    {
+      "id": "native-artifact-mapping",
+      "order": 7,
+      "role": "postgres",
+      "reverseMs": 90,
+      "catalogSha256": "804efb3e028463bb4dcf4173d2fe3e8d1d0c0df44690c2061ea4eefab2731046"
+    },
+    {
+      "id": "private-artifact",
+      "order": 6,
+      "role": "postgres",
+      "reverseMs": 104,
+      "catalogSha256": "5ab4083e2e282f2285ac8b66f7c39ad991de7a28c899e078ede3be3aa03a6b09"
+    },
+    {
+      "id": "native-result-reader",
+      "order": 5,
+      "role": "postgres",
+      "reverseMs": 94,
+      "catalogSha256": "cfa6a75a6d352ff84b2304495ad23f0969f77217d2eaea839114622f643d4236"
+    },
+    {
+      "id": "ovd-561-pending",
+      "order": 4,
+      "role": "postgres",
+      "reverseMs": 85,
+      "catalogSha256": "b299453ce95a3b52e4e8b0e49077aa2055a5729b75b7900d26e6c6763f7718e6"
+    },
+    {
+      "id": "ovd-561-finalization",
+      "order": 3,
+      "role": "postgres",
+      "reverseMs": 91,
+      "catalogSha256": "96a2fddf7b6f38fda9c29a4879115109920a29a1d9ec619de9aa74ac28aba192"
+    },
+    {
+      "id": "ovd-560",
+      "order": 2,
+      "role": "postgres",
+      "reverseMs": 117,
+      "catalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381"
+    },
+    {
+      "id": "ovd-558",
+      "order": 1,
+      "role": "postgres",
+      "reverseMs": 585,
+      "catalogSha256": "f67421df0fde782901cdc27c8ff15ba0f7ac135ec704cf1d31238c1032dc218e"
+    }
+  ],
+  "reapply": [
+    {
+      "id": "ovd-558",
+      "forwardMs": 456
+    },
+    {
+      "id": "ovd-560",
+      "forwardMs": 154
+    },
+    {
+      "id": "ovd-561-finalization",
+      "forwardMs": 103
+    },
+    {
+      "id": "ovd-561-pending",
+      "forwardMs": 105
+    },
+    {
+      "id": "native-result-reader",
+      "forwardMs": 99
+    },
+    {
+      "id": "private-artifact",
+      "forwardMs": 99
+    },
+    {
+      "id": "native-artifact-mapping",
+      "forwardMs": 102
+    },
+    {
+      "id": "ovd-563",
+      "forwardMs": 111
+    },
+    {
+      "id": "ovd-649-observer-replay",
+      "forwardMs": 100
+    }
+  ],
+  "proofs": {
+    "ovd560": 11,
+    "ovd561": 24,
+    "ovd563": 25
+  },
+  "windowOrderForward": {
+    "replacementWaitedMs": 2867,
+    "ovd558ForwardRefusal": {
+      "sqlstate": "P0001",
+      "message": "ovd558_prechange_catalog_mismatch:354ca05fe2f72368baa4e51250e0661d564a756574ebb49688c0047739d0c214"
+    }
+  },
+  "windowOrderReverse": {
+    "ovd558ReverseRefusal": {
+      "sqlstate": "P0001",
+      "message": "ovd558_unknown_postchange_catalog:ecda43bd4c8d7f5fb2c82729400f9ca626efb5c6c970b750c0680317bafa6c84"
+    },
+    "reverseAfterRestore": true
+  },
+  "suites": [
+    {
+      "name": "engineering_inbox",
+      "planned": 34,
+      "passed": 34,
+      "failed": 0,
+      "transcriptSha256": "3ddf55eadab1f6bd5edd112de746ad5cca318378fbe532d7b93e3cce11a89bc5"
+    },
+    {
+      "name": "engineering_native_ownership",
+      "planned": 129,
+      "passed": 129,
+      "failed": 0,
+      "transcriptSha256": "e4b6cb7a906c1b93c558c99844b53e7aed75e30b66a91c66445426b975d03857"
+    },
+    {
+      "name": "quote_publication_helper_privileges",
+      "planned": 14,
+      "passed": 14,
+      "failed": 0,
+      "transcriptSha256": "de95f907d0a56ca4853d170da5ef6d2984a9910bd5e7fac57b94c46dfce6ea03"
+    },
+    {
+      "name": "mobile_auth_bridge",
+      "planned": 58,
+      "passed": 58,
+      "failed": 0,
+      "transcriptSha256": "7cf2897da951741ce365d40efbfd4fbbc5a15b3a2f694a81a0afb8026c544ed4"
+    },
+    {
+      "name": "cad_preview_storage_policy",
+      "planned": 4,
+      "passed": 4,
+      "failed": 0,
+      "transcriptSha256": "27730132c3f5d050213c97dff5a782b4c9264c4fa5b29fd6ba28776a5566a7c7"
+    }
+  ],
+  "mainSuites": {
+    "baseline": {
+      "automatic_quote_rollout_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "automatic_quote_rollout_gate": {
+        "planned": 8,
+        "passed": 8,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "billing_sessions": {
+        "planned": 31,
+        "passed": 31,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "cad_preview_storage_policy": {
+        "planned": 4,
+        "passed": 4,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "canonical_part_identity": {
+        "planned": 13,
+        "passed": 13,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_observation_ledger_concurrency": {
+        "planned": 7,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "capability_observation_ledger": {
+        "planned": 41,
+        "passed": 41,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_observation_rpcs": {
+        "planned": 34,
+        "passed": 34,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_preparation_persistence": {
+        "planned": 488,
+        "passed": 488,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_runtime_persistence_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "capability_runtime_persistence": {
+        "planned": 129,
+        "passed": 129,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "client_part_metadata_no_drawing_lifecycle": {
+        "planned": 6,
+        "passed": 6,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "client_rpc_least_privilege": {
+        "planned": 67,
+        "passed": 67,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "commercial_account_admin_api": {
+        "planned": 75,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_admin_security": {
+        "planned": 36,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_audit_uuid_scopes": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_rollout_controls_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_rollout_controls": {
+        "planned": 25,
+        "passed": 25,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "deferred_foundations_access": {
+        "planned": 41,
+        "passed": 41,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "drawing_preview_storage_policy": {
+        "planned": 3,
+        "passed": 3,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "empty_file_upload_rejection": {
+        "planned": 19,
+        "passed": 19,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_inbox": {
+        "planned": 34,
+        "passed": 34,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_interpretation_reservations": {
+        "planned": 29,
+        "passed": 29,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_native_ownership": {
+        "planned": 129,
+        "passed": 129,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_ordered_changes": {
+        "planned": 61,
+        "passed": 61,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_worker_sessions": {
+        "planned": 84,
+        "passed": 84,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "extraction_quality_summary_security": {
+        "planned": 29,
+        "passed": 29,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_enrollment": {
+        "planned": 30,
+        "passed": 30,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_file_boundaries": {
+        "planned": 38,
+        "passed": 38,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_subscription_bypass": {
+        "planned": 74,
+        "passed": 74,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "free_confirmed_quote_access": {
+        "planned": 30,
+        "passed": 30,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "free_quote_job_meter": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "free_quote_terminal_lifecycle": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "job_service_detail_privileges": {
+        "planned": 27,
+        "passed": 27,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "manual_quote_admin_inbox": {
+        "planned": 66,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "manual_quote_request_lifecycle": {
+        "planned": 16,
+        "passed": 16,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "mobile_auth_bridge": {
+        "planned": 58,
+        "passed": 58,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "organization_entitlements_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "organization_entitlements": {
+        "planned": 42,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "ovd536_audit_writer_guard_failure": {
+        "planned": 18,
+        "passed": 18,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd536_audit_writer_privileges": {
+        "planned": 23,
+        "passed": 23,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd537_internal_reader_privileges": {
+        "planned": 51,
+        "passed": 51,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd538_platform_spend_summary": {
+        "planned": 7,
+        "passed": 7,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd539_quote_status_helper_privileges": {
+        "planned": 36,
+        "passed": 36,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd631_archived_job_delete_canonical_blob_constraint": {
+        "planned": 9,
+        "passed": 9,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd684_backfill_object_finish": {
+        "planned": 12,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "ovd685_archived_job_delete_privileges": {
+        "planned": 6,
+        "passed": 6,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd725_stripe_catalog_draft": {
+        "planned": 20,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "private_part_fingerprint_analytics": {
+        "planned": 13,
+        "passed": 13,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "provider_dispatch_admission_serialization": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_permits_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_permits": {
+        "planned": 133,
+        "passed": 77,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_preflight_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_preflight": {
+        "planned": 64,
+        "passed": 64,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_lane_eligibility": {
+        "planned": 25,
+        "passed": 25,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_provider_admission_registry": {
+        "planned": 88,
+        "passed": 88,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_publication_helper_privileges": {
+        "planned": 14,
+        "passed": 14,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_scope_and_validity": {
+        "planned": 10,
+        "passed": 10,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_selection_expiry": {
+        "planned": 32,
+        "passed": 32,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_selection_publication_contract": {
+        "planned": 45,
+        "passed": 45,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "sourcing_destination_members": {
+        "planned": 22,
+        "passed": 22,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "sourcing_intent_concurrency": {
+        "planned": 13,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "sourcing_intent": {
+        "planned": 36,
+        "passed": 36,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "stripe_event_sync_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "stripe_event_sync": {
+        "planned": 42,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "supplier_directory_foundation_rls": {
+        "planned": 11,
+        "passed": 11,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "vendor_quote_offer_geographic_origin": {
+        "planned": 15,
+        "passed": 15,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "worker_rpc_privileges": {
+        "planned": 27,
+        "passed": 27,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "xometry_beta_dispatch_admission_serialization": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "xometry_beta_dispatch_permits_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "xometry_beta_dispatch_permits": {
+        "planned": 66,
+        "passed": 66,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      }
+    },
+    "fullChain": {
+      "automatic_quote_rollout_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "automatic_quote_rollout_gate": {
+        "planned": 8,
+        "passed": 8,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "billing_sessions": {
+        "planned": 31,
+        "passed": 31,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "cad_preview_storage_policy": {
+        "planned": 4,
+        "passed": 4,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "canonical_part_identity": {
+        "planned": 13,
+        "passed": 13,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_observation_ledger_concurrency": {
+        "planned": 7,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "capability_observation_ledger": {
+        "planned": 41,
+        "passed": 41,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_observation_rpcs": {
+        "planned": 34,
+        "passed": 34,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_preparation_persistence": {
+        "planned": 488,
+        "passed": 488,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "capability_runtime_persistence_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "capability_runtime_persistence": {
+        "planned": 129,
+        "passed": 129,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "client_part_metadata_no_drawing_lifecycle": {
+        "planned": 6,
+        "passed": 6,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "client_rpc_least_privilege": {
+        "planned": 67,
+        "passed": 67,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "commercial_account_admin_api": {
+        "planned": 75,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_admin_security": {
+        "planned": 36,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_audit_uuid_scopes": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_rollout_controls_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "commercial_rollout_controls": {
+        "planned": 25,
+        "passed": 25,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "deferred_foundations_access": {
+        "planned": 41,
+        "passed": 41,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "drawing_preview_storage_policy": {
+        "planned": 3,
+        "passed": 3,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "empty_file_upload_rejection": {
+        "planned": 19,
+        "passed": 19,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_inbox": {
+        "planned": 34,
+        "passed": 34,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_interpretation_reservations": {
+        "planned": 29,
+        "passed": 29,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_native_ownership": {
+        "planned": 129,
+        "passed": 129,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_ordered_changes": {
+        "planned": 61,
+        "passed": 61,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "engineering_worker_sessions": {
+        "planned": 84,
+        "passed": 84,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "extraction_quality_summary_security": {
+        "planned": 29,
+        "passed": 29,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_enrollment": {
+        "planned": 30,
+        "passed": 30,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_file_boundaries": {
+        "planned": 38,
+        "passed": 38,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "founding_beta_subscription_bypass": {
+        "planned": 74,
+        "passed": 74,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "free_confirmed_quote_access": {
+        "planned": 30,
+        "passed": 30,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "free_quote_job_meter": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "free_quote_terminal_lifecycle": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "job_service_detail_privileges": {
+        "planned": 27,
+        "passed": 27,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "manual_quote_admin_inbox": {
+        "planned": 66,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "manual_quote_request_lifecycle": {
+        "planned": 16,
+        "passed": 16,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "mobile_auth_bridge": {
+        "planned": 58,
+        "passed": 58,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "organization_entitlements_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "organization_entitlements": {
+        "planned": 42,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "ovd536_audit_writer_guard_failure": {
+        "planned": 18,
+        "passed": 18,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd536_audit_writer_privileges": {
+        "planned": 23,
+        "passed": 23,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd537_internal_reader_privileges": {
+        "planned": 51,
+        "passed": 51,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd538_platform_spend_summary": {
+        "planned": 7,
+        "passed": 7,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd539_quote_status_helper_privileges": {
+        "planned": 36,
+        "passed": 36,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd631_archived_job_delete_canonical_blob_constraint": {
+        "planned": 9,
+        "passed": 9,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd684_backfill_object_finish": {
+        "planned": 12,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "ovd685_archived_job_delete_privileges": {
+        "planned": 6,
+        "passed": 6,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "ovd725_stripe_catalog_draft": {
+        "planned": 20,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "private_part_fingerprint_analytics": {
+        "planned": 13,
+        "passed": 13,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "provider_dispatch_admission_serialization": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_permits_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_permits": {
+        "planned": 133,
+        "passed": 77,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_preflight_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "provider_dispatch_preflight": {
+        "planned": 64,
+        "passed": 64,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_lane_eligibility": {
+        "planned": 25,
+        "passed": 25,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_provider_admission_registry": {
+        "planned": 88,
+        "passed": 88,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_publication_helper_privileges": {
+        "planned": 14,
+        "passed": 14,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_scope_and_validity": {
+        "planned": 10,
+        "passed": 10,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_selection_expiry": {
+        "planned": 32,
+        "passed": 32,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "quote_selection_publication_contract": {
+        "planned": 45,
+        "passed": 45,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "sourcing_destination_members": {
+        "planned": 22,
+        "passed": 22,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "sourcing_intent_concurrency": {
+        "planned": 13,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "sourcing_intent": {
+        "planned": 36,
+        "passed": 36,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "stripe_event_sync_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "stripe_event_sync": {
+        "planned": 42,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "supplier_directory_foundation_rls": {
+        "planned": 11,
+        "passed": 11,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "vendor_quote_offer_geographic_origin": {
+        "planned": 15,
+        "passed": 15,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "worker_rpc_privileges": {
+        "planned": 27,
+        "passed": 27,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      },
+      "xometry_beta_dispatch_admission_serialization": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "xometry_beta_dispatch_permits_concurrency": {
+        "planned": null,
+        "passed": 0,
+        "failed": 0,
+        "exit": 3,
+        "pass": false
+      },
+      "xometry_beta_dispatch_permits": {
+        "planned": 66,
+        "passed": 66,
+        "failed": 0,
+        "exit": 0,
+        "pass": true
+      }
+    },
+    "regressed": []
+  },
+  "gates": [
+    {
+      "name": "every staged file matches its manifest sha256",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "baseline OVD-602 inventory equals the window 1 pin",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "main suites at baseline leave the catalog unchanged",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "observer replacement refuses REPEATABLE READ with 0A000",
+      "pass": true,
+      "detail": "ovd649_replay_read_committed_required"
+    },
+    {
+      "name": "refused replacement changes nothing",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "observer replacement waits on a held (510, 2) lock",
+      "pass": true,
+      "detail": "2867 ms"
+    },
+    {
+      "name": "replacement changes the catalog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "verbatim OVD-558 forward refuses while the replacement is live (real prechange pin)",
+      "pass": true,
+      "detail": "ovd558_prechange_catalog_mismatch:354ca05fe2f72368baa4e51250e0661d564a756574ebb49688c0047739d0c214"
+    },
+    {
+      "name": "restoration refuses REPEATABLE READ with 0A000",
+      "pass": true,
+      "detail": "ovd649_restore_read_committed_required"
+    },
+    {
+      "name": "restoration returns the exact baseline catalog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "a second restoration refuses and changes nothing",
+      "pass": true,
+      "detail": "ovd649_restore_unexpected_current_state:6ec69c8214fe42427905f0501aa738cb0b2bee0d68d00d4d0c937c1e6d9f3bb4"
+    },
+    {
+      "name": "ovd602 step-1-ovd-558 diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "verbatim OVD-558 reverse refuses while the replacement is live (real post change pin)",
+      "pass": true,
+      "detail": "ovd558_unknown_postchange_catalog:ecda43bd4c8d7f5fb2c82729400f9ca626efb5c6c970b750c0680317bafa6c84"
+    },
+    {
+      "name": "restoration returns the exact post OVD-558 catalog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "verbatim OVD-558 reverse runs after the restoration and returns the baseline",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "OVD-558 forward reapplies to the same post change catalog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-2-ovd-560 diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-3-ovd-561-finalization diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-4-ovd-561-pending diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-5-native-result-reader diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-6-private-artifact diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-7-native-artifact-mapping diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-8-ovd-563 diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 step-9-ovd-649-observer-replay diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd602 window-2 diff equals the checked in expected diff",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "OVD-560 proof passes on the full chain",
+      "pass": true,
+      "detail": "11/11"
+    },
+    {
+      "name": "OVD-561 proof passes on the full chain",
+      "pass": true,
+      "detail": "24/24"
+    },
+    {
+      "name": "OVD-563 proof passes on the full chain",
+      "pass": true,
+      "detail": "25/25"
+    },
+    {
+      "name": "no main pgTAP suite that passes at baseline fails on the full chain",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "proofs and suites leave the full chain catalog unchanged",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "OVD-561 reverse refuses while the pending table exists",
+      "pass": true,
+      "detail": "ovd561_reverse_requires_pending_reverse_first"
+    },
+    {
+      "name": "OVD-558 reverse refuses while later window 2 steps are applied",
+      "pass": true,
+      "detail": "ovd558_unknown_postchange_catalog:ece79b2fcce20c29ad0c02ea6475fbf94e1523c29641debb4ea8a7a7aa37865c"
+    },
+    {
+      "name": "refused out of order reverses change nothing",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-649-observer-replay reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-649-observer-replay reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-563 reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-563 reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "native-artifact-mapping reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "native-artifact-mapping reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "private-artifact reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "private-artifact reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "native-result-reader reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "native-result-reader reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-561-pending reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-561-pending reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-561-finalization reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-561-finalization reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-560 reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-560 reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-558 reverse returns the exact catalog before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ovd-558 reverse returns the OVD-602 inventory before its forward",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "full reverse ends at the baseline catalog exactly",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "full reverse ends at the window 1 OVD-602 pin exactly",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "reapply returns the same full chain catalog",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "OVD-563 proof passes after reapply",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

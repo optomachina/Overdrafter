@@ -5,6 +5,7 @@ import {
   EXTRACTION_SYSTEM_INSTRUCTION,
   EXTRACTION_USER_INSTRUCTIONS,
   modelResponseSchema,
+  strictModelResponseSchema,
   type ParsedModelResponse,
 } from "./schema.js";
 import {
@@ -188,7 +189,7 @@ export class OpenAIExtractionProvider implements ExtractionProvider {
             { role: "developer", content: systemInstruction },
             { role: "user", content },
           ],
-          text: { format: zodTextFormat(modelResponseSchema, "drawing_field_extraction") },
+          text: { format: zodTextFormat(strictModelResponseSchema, "drawing_field_extraction") },
           // Not in the pinned SDK's request types yet; the API accepts it.
           ...({ prompt_cache_key: EXTRACTION_PROMPT_CACHE_KEY } as object),
         },

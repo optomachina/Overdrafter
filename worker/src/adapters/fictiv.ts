@@ -335,12 +335,14 @@ function classifyPortalState(bodyText: string): FictivPortalState {
     return "manual_review";
   }
 
-  if (isSignalPresent(bodyText, FICTIV_LOCATORS.configurationRequiredSignals)) {
-    return "configuration_required";
-  }
-
+  // Fictiv shows its "configure all parts" summary while upload analysis is
+  // still running, so analysis in progress outranks configuration required.
   if (isSignalPresent(bodyText, FICTIV_LOCATORS.inProgressSignals)) {
     return "in_progress";
+  }
+
+  if (isSignalPresent(bodyText, FICTIV_LOCATORS.configurationRequiredSignals)) {
+    return "configuration_required";
   }
 
   if (isSignalPresent(bodyText, FICTIV_LOCATORS.quoteReadySignals)) {
@@ -551,16 +553,30 @@ function portalStateSignalFor(state: Exclude<FictivPortalState, "unknown">, body
   }
 }
 
+/**
+ * The "configure all parts" summary lingers after the prototype classification
+ * click while Fictiv reprices (live: still shown after networkidle, replaced by
+ * the final summary later), so it only counts as terminal once it holds for
+ * this many consecutive polls (about 25 s live).
+ */
+const CONFIGURATION_REQUIRED_SETTLE_POLLS = 40;
+
 async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir: string) {
   const deadline = Date.now() + timeoutMs;
   let lastBodyText = "";
+  let configurationRequiredPolls = 0;
 
   while (Date.now() < deadline) {
     const bodyText = await detectBlockingState(page, runDir);
     lastBodyText = bodyText;
 
     const state = classifyPortalState(bodyText);
-    if (state === "in_progress" || state === "unknown") {
+    configurationRequiredPolls = state === "configuration_required" ? configurationRequiredPolls + 1 : 0;
+    if (
+      state === "in_progress" ||
+      state === "unknown" ||
+      (state === "configuration_required" && configurationRequiredPolls < CONFIGURATION_REQUIRED_SETTLE_POLLS)
+    ) {
       await page.waitForTimeout(500);
       continue;
     }

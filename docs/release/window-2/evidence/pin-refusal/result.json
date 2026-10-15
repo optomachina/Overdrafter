@@ -1,0 +1,14 @@
+{
+  "status": "failed",
+  "stage": "durable_forward",
+  "fixtureId": "5825d650-f9f7-46b2-8b81-c0692cc48efc",
+  "error": "Error: docker_exec_failed: ERROR:  P0001: ovd558_prechange_catalog_mismatch:68f1d7d989057b5e02bc7e1507adf7f0b8d0b8f4308cd32942a50a7530715930\nCONTEXT:  PL/pgSQL function inline_code_block line 214 at RAISE\nLOCATION:  exec_stmt_raise, pl_exec.c:3911",
+  "cleanup": {
+    "container": "removed_owned",
+    "network": "removed_owned",
+    "storageSource": "removed_owned",
+    "authSource": "removed_owned"
+  },
+  "submittedInputsSha256": "9f1822e22002494d74cc03a7fd8703f2917194dca3d25c8fb8c0d4b41ca3fa83",
+  "completedAt": "2026-10-12T17:35:35.918Z"
+}

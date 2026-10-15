@@ -47,7 +47,9 @@ late query completion cannot dispatch a successor statement.
 ## Durable state and replay
 
 Apply `ovd561-pending-forward.sql` only after the staged OVD561 forward source
-has been authorized and qualified. The pending table is private, RLS-enabled,
+has been authorized and qualified (window 2 order: `docs/release/window-2/README.md`).
+The OVD561 reverse refuses while the pending table exists, because pending
+envelopes are signed with the key it drops. The pending table is private, RLS-enabled,
 owner-only and immutable under UPDATE/DELETE. One row per attempt retains exact
 payload/context text and signature/key. Separate retry attempts retain separate
 history. Existing OVD561 still permits only one successful completion per task.

@@ -28,10 +28,18 @@ insert into storage.objects (bucket_id, name) values
   ('ovd558-proof', 'registered-result'), ('ovd558-proof', 'unregistered-result');
 do $future$ begin
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where p.proname like 'ovd558_future_%' and n.nspname in ('public','engineering_private','storage')
+    where p.proname like 'ovd558_future_%' and n.nspname in ('public','engineering_private')
       and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
         where a.grantee = 0 and a.privilege_type = 'EXECUTE')) then
     raise exception 'ovd558_future_target_public_execute';
+  end if;
+  -- OVD-743 option A: a future storage function keeps Supabase's default ACL;
+  -- the verifier can call it exactly when anon can, never beyond anon.
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where p.proname = 'ovd558_future_storage' and n.nspname = 'storage'
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')
+        is distinct from has_function_privilege('anon', p.oid, 'EXECUTE')) then
+    raise exception 'ovd558_future_storage_not_anon_equivalent';
   end if;
   if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where p.proname like 'ovd558_future_%' and n.nspname in ('private','extensions')
@@ -84,18 +92,18 @@ begin
   begin perform engineering_private.preserve_native_execution_identity();
     raise exception 'ovd558_trigger_helper_callable';
   exception when insufficient_privilege then null; end;
-  begin perform storage.get_level('foo'::text);
-    raise exception 'ovd558_storage_helper_callable';
-  exception when insufficient_privilege then null; end;
+  -- OVD-743 option A: storage functions keep Supabase's shipped ACLs, so the
+  -- verifier can call one exactly as anon can (checked against anon below).
+  perform storage.get_level('foo'::text);
   begin perform public.ovd558_future_public();
     raise exception 'ovd558_future_public_callable';
   exception when insufficient_privilege then null; end;
   begin perform engineering_private.ovd558_future_private();
     raise exception 'ovd558_future_private_callable';
   exception when insufficient_privilege then null; end;
-  begin perform storage.ovd558_future_storage();
-    raise exception 'ovd558_future_storage_callable';
-  exception when insufficient_privilege then null; end;
+  -- A future storage function keeps Supabase's default ACL: callable as by anon
+  -- (the $future$ block above asserts the anon equivalence).
+  perform storage.ovd558_future_storage();
   begin insert into storage.objects (bucket_id,name) values ('ovd558-proof','illegal-insert');
     raise exception 'ovd558_storage_insert_succeeded';
   exception when insufficient_privilege then null; end;
@@ -107,4 +115,9 @@ begin
   exception when insufficient_privilege then null; end;
 end $checks$;
 reset role;
+do $anon_equivalence$ begin
+  if not has_function_privilege('anon', 'storage.get_level(text)', 'EXECUTE') then
+    raise exception 'ovd558_storage_call_not_anon_equivalent';
+  end if;
+end $anon_equivalence$;
 rollback;`;
