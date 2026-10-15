@@ -299,6 +299,7 @@ function parse(src) {
       i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
     } else if (c === "<" && next === "<" && src[i + 2] !== "<") {
       seg().redirects = true;
+      if (word !== null && /^\d+$/.test(word)) word = null;
       flush();
       const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
       if (m) pendingDocs.push({ delim: m[2], quoted: m[1] !== "", segment: seg() });
@@ -2766,7 +2767,8 @@ function assignmentRedirectReason(src) {
     const cmd = base(argv[0]);
     const uncertain = !argv[0] || ["$", "*", "?", "[", SUB].some((part) => argv[0].includes(part));
     const prefix = Object.keys(env).length > 0;
-    if ((prefix && (uncertain || special.has(cmd) || wrappers.has("exec"))) ||
+    const sideEffects = Object.values(env).some((value) => value.includes(SUB) || /\$\{[A-Za-z_]\w*:?=/.test(value));
+    if ((prefix && (uncertain || sideEffects || special.has(cmd) || wrappers.has("exec"))) ||
         (declarations.has(cmd) && argv.slice(1).some(isAssignment))) return ASSIGNMENT_REDIRECTS;
   }
   return null;
@@ -2774,7 +2776,7 @@ function assignmentRedirectReason(src) {
 
 function checkCommand(src, dir, ctx, depth = 0) {
   if (depth > 6) return "command nests too deeply to check";
-  // In collect mode (used by the tests to list every reason) a reason is recorded and checking goes on.
+  // Collect mode records reasons; an unsupported form ends that reading because its state is not modeled.
   const report = (reason) => {
     if (!reason || !ctx.collect) return reason;
     ctx.collect.push(reason);

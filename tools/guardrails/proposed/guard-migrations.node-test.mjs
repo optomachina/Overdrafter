@@ -1617,6 +1617,8 @@ test("unsupported assignment redirects fail closed while definite temporary pref
     'MIG=docs; MIG=supabase/migrations $MAY_BE_EMPTY; echo x > "$MIG/x.sql"',
     'MIG=docs; export MIG=supabase/migrations OTHER; echo x > "$MIG/x.sql"',
     'MIG=docs; MIG=supabase/migrations <<EOF\nignored\nEOF\necho x > "$MIG/x.sql"',
+    'MIG=docs; MIG=supabase/migrations 0<<EOF\nignored\nEOF\necho x > "$MIG/x.sql"',
+    'MIG=docs; MIG=supabase/migrations 0<<-EOF\n\tignored\nEOF\necho x > "$MIG/x.sql"',
     'MIG=supabase/migrations; MIG=docs >/dev/null; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations; >/dev/null MIG=docs; echo x > "$MIG/x.sql"',
     'MIG=docs; >"$MIG/x.sql" MIG=supabase/migrations; echo ok',
@@ -1630,6 +1632,7 @@ test("unsupported assignment redirects fail closed while definite temporary pref
     'MIG=docs; >/dev/null MIG=supabase/migrations true; echo x > "$MIG/x.sql"',
     'echo MIG=supabase/migrations >docs/ordinary-argument.txt',
     '>docs/bare-redirect.txt',
+    'MIG=supabase/migrations echo 0 <<EOF\nignored\nEOF',
   ]) assert.equal(decide(inFixture(command), { prFiles: fakePrFiles }), null, command);
 });
 
@@ -1663,6 +1666,23 @@ test("unsupported redirect assignments block across Bash orderings and source po
         rmSync(fixture, { recursive: true, force: true });
       }
     }
+  }
+});
+
+test("side-effecting prefix values with redirects are unsupported", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "guard-prefix-order-"));
+  try {
+    mkdirSync(join(fixture, "supabase/migrations"), { recursive: true });
+    const command = 'X=; >"./$X/x.sql" Y=${X:=supabase/migrations} true';
+    const reference = spawnSync("bash", ["-c", command], { cwd: fixture, encoding: "utf8" });
+    assert.equal(reference.status, 0, reference.stderr);
+    assert.equal(reference.stderr, "");
+    assert.ok(existsSync(join(fixture, "supabase/migrations/x.sql")) || existsSync(join(fixture, "x.sql")));
+    assert.match(decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }), /ordering cannot be checked/);
+    assert.ok(decide(inFixture('Y=$(printf value) true >docs/prefix.txt')));
+    assert.equal(decide(inFixture('Y=${X:-docs} true >docs/prefix.txt')), null);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
   }
 });
 
