@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "sqlSha256": "f53bd31268a4f34a03a9cb5d408d6ed21d3cc9fb58db7811ba2507b0371e6abc",
+  "registeredReadCount": 1,
+  "approvedEntryCalls": 4,
+  "deniedDirectFunctionCalls": 6,
+  "storageCallsAsAnon": 2,
+  "deniedStorageDml": 3,
+  "rolledBackCatalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381"
+}

@@ -17,14 +17,16 @@
  *   install whose target is protected or cannot be resolved, a copy whose
  *   source would land on a protected path, git checkout/restore with a
  *   pathspec that could cover them (git global options such as -C are
- *   normalized first), git apply of a patch that names them, any pipe into a
+ *   normalized first), git apply or git am of a patch that names them or
+ *   that lands in them under --directory (after -p), any pipe into a
  *   shell, decoded or generated text run by an interpreter, and shell scripts
  *   (run by a shell or by path, with -c text attached or not) whose text does
  *   any of that. A generated file name inside a protected directory is still
  *   a write there. Readers (cat, sed -n, awk, jq, grep, head, sort, eslint and
  *   prettier without their writing flags, psql -f and so on) pass, also with a
  *   redirect to a path that is not protected;
- * - running tools/guardrails/apply.mjs by any route;
+ * - running tools/guardrails/apply.mjs by path (generated or ~ paths
+ *   included), through an interpreter or through a package.json script;
  * - supabase CLI commands that create migration files, or that target a
  *   hosted project (--linked, --project-ref, a --db-url that is not loopback,
  *   or a remote only command) unless they are on a read allow list, also when
@@ -34,9 +36,42 @@
  *   whose target is not provably loopback, unless psql runs read only SQL,
  *   and HTTP writes to Supabase APIs (each curl --next transfer on its own);
  * - hosted Supabase write tools under any MCP server name, and execute_sql
- *   unless it is a single read only statement;
- * - git push to main (heads/main included, -c aliases expanded), the merges
- *   API and writes to the main ref;
+ *   unless it is a single read only statement that calls no function in an
+ *   app schema;
+ * - git push to main. A literal destination that is main or master blocks,
+ *   and a wildcard one blocks when it matches refs/heads/main or master. A
+ *   push of the current branch (no refspec, HEAD, @, an empty destination, or
+ *   a destination built by a variable or substitution that could spell
+ *   main) is judged in two ways:
+ *   with no git checkout, switch or branch -m before it in the command, git
+ *   reads the branch in the push's own directory (failing closed when it
+ *   cannot) and main or master blocks, and for a push with no refspec every
+ *   remote.<name>.push refspec of the remote counts, else push.default is
+ *   applied as git does (git rev-parse @{push} for the push remote); after
+ *   one, only a new branch made right before the push (checkout -b, -B or
+ *   --orphan, switch -c or -C, a literal name that is not main or master,
+ *   same directory, no cd after it, no subshell, compound command or !,
+ *   joined by && only; with no refspec also push.default simple or current)
+ *   passes and everything else fails closed. A refspec with no colon that
+ *   names a local branch is mapped as git maps it (remote.<name>.push, then
+ *   push.default upstream through branch.<name>.merge), and a push with no
+ *   refspec to a remote with remote.<name>.mirror true blocks. In a variable
+ *   assigned from $PWD, $OLDPWD or a command substitution that part becomes
+ *   an unresolved placeholder and the rest of the path is kept (quoted and
+ *   unquoted parts of the value are joined; NAME= counts only at a word
+ *   start outside quotes; assignments before a command word reach only the
+ *   single quoted or escaped text of that command, such as its -c text;
+ *   X+=v appends and unset X unsets; an assignment in a subshell ends with
+ *   it, and one that may not run (after && or ||, in a pipeline, or in an
+ *   if, case, loop or { } body) leaves both values possible, each checked;
+ *   ${VAR:-x} and ${VAR-x} give the value of a known VAR and stay as
+ *   written otherwise; eval of a command that is not known fails closed;
+ *   timeout and time options with values are skipped), and a .. after an
+ *   unresolved part keeps it unresolved. A dry run and tags only pass.
+ *   Aliases from -c, git config, the repository config (include files too)
+ *   and the GIT_CONFIG environment are expanded. Also the merges API,
+ *   writes to the main ref, and contents API writes to main, master or an
+ *   unnamed or empty (default) branch;
  * - merges and auto merges of a PR whose changed files (renames included)
  *   touch supabase/migrations/, failing closed when the files cannot be
  *   listed or the PR cannot be resolved.
@@ -48,7 +83,7 @@
  * fails closed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,12 +101,54 @@ const isReader = (cmd) => READERS.has(cmd) || /^(sha\d*sum|shasum|b2sum)$/.test(
 // Commands for which a bare "supabase", ".claude" or "tools" word (or a glob that could expand to it) means the directory.
 const FILE_WRITERS = new Set(["cp", "mv", "rm", "rmdir", "rsync", "ln", "install", "tar", "unzip", "touch", "mkdir", "chmod", "chown", "truncate", "dd", "tee", "shred", "git"]);
 const COPY_COMMANDS = new Set(["cp", "rsync", "install"]);
-const GIT_READERS = new Set(["log", "show", "status", "blame", "diff", "grep", "ls-files", "add", "fetch", "rev-parse", "branch", "remote", "config", "describe", "shortlog", "cat-file", "ls-tree", "merge-base"]);
-const WRAPPERS = new Set(["env", "sudo", "command", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf"]);
+const GIT_READERS = new Set([
+  "log", "show", "status", "blame", "diff", "grep", "ls-files", "add", "fetch", "rev-parse", "branch", "remote", "config", "describe", "shortlog", "cat-file", "ls-tree",
+  "merge-base", "rev-list", "diff-tree", "diff-index", "diff-files", "whatchanged", "check-ignore", "check-attr", "show-ref", "for-each-ref", "name-rev", "range-diff", "reflog",
+]);
+// git commands an alias cannot replace, so their names are never looked up as aliases.
+const GIT_BUILTINS = new Set([
+  ...GIT_READERS, "am", "annotate", "apply", "archive", "backfill", "bisect", "bundle", "check-mailmap", "check-ref-format", "checkout", "checkout-index", "cherry",
+  "cherry-pick", "citool", "clean", "clone", "column", "commit", "commit-graph", "commit-tree", "count-objects", "credential", "difftool", "fetch-pack",
+  "filter-branch", "fmt-merge-msg", "for-each-repo", "format-patch", "fsck", "gc", "get-tar-commit-id", "gui", "hash-object", "help", "index-pack", "init",
+  "instaweb", "interpret-trailers", "ls-remote", "maintenance", "merge", "merge-file", "merge-index", "merge-tree", "mergetool", "mktag", "mktree",
+  "multi-pack-index", "mv", "notes", "pack-objects", "pack-refs", "prune", "prune-packed", "pull", "push", "read-tree", "rebase", "receive-pack", "refs", "repack",
+  "replace", "replay", "request-pull", "rerere", "reset", "restore", "revert", "rm", "send-email", "show-branch", "show-index", "sparse-checkout", "stash",
+  "stripspace", "submodule", "switch", "symbolic-ref", "tag", "unpack-file", "unpack-objects", "update-index", "update-ref", "update-server-info", "upload-archive",
+  "upload-pack", "var", "verify-commit", "verify-pack", "verify-tag", "version", "worktree", "write-tree",
+]);
+// On macOS /usr/bin/git is a shim that fails without the developer tools, so Homebrew's git is tried first there.
+const GIT_CANDIDATES =
+  process.platform === "darwin"
+    ? ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]
+    : ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git", "/home/linuxbrew/.linuxbrew/bin/git"];
+// git config keys that pull another config file in, so an alias can come from it.
+const GIT_INCLUDE_KEY = /^(include\.path|includeif\..+\.path)$/i;
+const GIT_ALIAS_DEPTH = 5;
+// git config keys that decide where a push with no refspec goes.
+const PUSH_CONFIG_KEY = /^(push\.default|remote\..+\.(push|fetch|url|mirror)|remote\.pushdefault|branch\..+\.(remote|pushremote|merge))$/i;
+// Environment variables that change which git config is read, so an alias can come from them.
+const GIT_CONFIG_ENV = /^(GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_CONFIG_PARAMETERS)$/;
+const WRAPPERS = new Set(["env", "sudo", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "xargs", "stdbuf", "ionice", "chrt", "taskset"]);
 // Shell keywords that start a command, and words that never write a file (keywords and assignment builtins).
 const PREFIX_KEYWORDS = new Set(["!", "{", "do", "then", "else", "elif", "if", "while", "until"]);
+// Words that open and close a compound command, and the keywords inside one.
+const COMPOUND_OPEN = new Set(["if", "while", "until", "for", "select", "case", "{"]);
+const COMPOUND_CLOSE = new Set(["fi", "done", "esac", "}"]);
+const COMPOUND_INNER = new Set(["then", "do", "else", "elif", "!"]);
 const NO_WRITE_WORDS = new Set(["for", "select", "case", "in", "done", "fi", "esac", "}", "[[", "]]", "readonly", "local", "declare", "typeset", "export", "return", "exit", "shift", "set", "unset", "trap"]);
 const VALUE_FLAGS = new Set(["-I", "-n", "-P", "-L", "-d", "-s", "-u", "-g"]);
+// Wrapper options that take the next word as their value, beyond VALUE_FLAGS.
+const WRAPPER_VALUE_FLAGS = {
+  timeout: new Set(["--signal", "-k", "--kill-after"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+  env: new Set(["--unset", "-C", "--chdir"]),
+  nice: new Set(["--adjustment"]),
+  ionice: new Set(["-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"]),
+  stdbuf: new Set(["-i", "-o", "-e", "--input", "--output", "--error"]),
+  chrt: new Set(["-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"]),
+};
+// chrt takes a priority and taskset a CPU mask or list before the command; a word with a digit there is that value.
+const WRAPPER_NUMBER = /^(timeout|chrt|taskset)$/;
 const GH_TEXT_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "--message", "-m"]);
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 // Hosted Supabase write tools. The first set has no namesake on the GitHub or Vercel servers.
@@ -87,6 +164,8 @@ const SQL_WRITE_WORDS =
 // Built in and extension functions that write or change server state. User defined functions are a documented residual.
 const SQL_SIDE_EFFECTS =
   /\b(nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_signal_backend|pg_reload_conf|pg_rotate_logfile|pg_switch_wal|pg_promote|pg_notify|pg_advisory\w*|pg_try_advisory\w*|pg_create_\w+|pg_drop_\w+|pg_replication_\w+|pg_stat_reset\w*|pg_stat_statements_reset|pg_file_\w+|pg_logical_\w+|pg_import_system_collations|pg_backup_\w+|pg_start_backup|pg_stop_backup|pg_wal_replay_\w+|pg_log_backend_memory_contexts|lo_\w+|dblink\w*|http_\w+|resolve|create_secret|update_secret|schedule|unschedule|alter_job)\s*\(/i;
+const SQL_SYSTEM_SCHEMAS = new Set(["pg_catalog", "information_schema", "extensions"]);
+const SQL_AUTH_READS = new Set(["uid", "role", "jwt", "email"]);
 const PROTECTED_TEXT = /supabase\W+migrations|\.claude\W+(hooks|settings)|tools\W+guardrails/i;
 const SCRIPT_FILE = /\.(sh|bash|zsh|ksh|js|mjs|cjs|ts|py|rb|pl|php)$/i;
 const PG_CLIENTS = /^(psql|pgcli|pgbench|pg_restore|createdb|dropdb|createuser|dropuser|vacuumdb|reindexdb|clusterdb)$/;
@@ -156,9 +235,13 @@ function ansiC(src, i) {
   return [out, i + 1];
 }
 
-/** Shell lexer: returns segments ({ words, outs, ins, heredocs, op }) and the bodies of $( ), backticks and <( ). */
+/**
+ * Shell lexer: returns segments ({ words, outs, ins, heredocs, op, depth }) and the bodies of $( ), backticks and <( ).
+ * op is the operator before the segment and depth the number of subshell parentheses it sits in.
+ */
 function parse(src) {
-  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], op });
+  let depth = 0;
+  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], redirects: false, op, depth });
   const segments = [newSegment(null)];
   const substs = [];
   const pendingDocs = [];
@@ -168,7 +251,10 @@ function parse(src) {
   const add = (text) => (word = (word ?? "") + text);
   const flush = () => {
     if (word === null) return;
-    if (redirect === ">") seg().outs.push(word);
+    // >&word writes both streams to the file word, unless word is a descriptor number or - (2>&1, >&2, >&-).
+    if (redirect === ">&") {
+      if (!/^(\d+-?|-)$/.test(word)) seg().outs.push(word);
+    } else if (redirect === ">") seg().outs.push(word);
     else if (redirect === "<") seg().ins.push(word);
     else if (redirect === "<<<") seg().heredocs.push(word);
     else seg().words.push(word);
@@ -212,16 +298,20 @@ function parse(src) {
     } else if ((c === "<" || c === ">") && next === "(") {
       i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
     } else if (c === "<" && next === "<" && src[i + 2] !== "<") {
+      seg().redirects = true;
+      if (word !== null && /^\d+$/.test(word)) word = null;
       flush();
       const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
       if (m) pendingDocs.push({ delim: m[2], quoted: m[1] !== "", segment: seg() });
       i += m ? m[0].length : 2;
     } else if (c === ">" || c === "<" || (c === "&" && next === ">")) {
+      seg().redirects = true;
       if (word !== null && /^\d+$/.test(word)) word = null;
       flush();
       const m = /^(&>>?|>>|>\||>&|<>|<&|<<<|>|<)/.exec(src.slice(i));
       if (m[0] === "<<<") redirect = "<<<";
-      else redirect = m[0].includes(">") && m[0] !== ">&" ? ">" : "<";
+      else if (m[0] === ">&") redirect = ">&";
+      else redirect = m[0].includes(">") ? ">" : "<";
       i += m[0].length;
     } else if (c === "\n" && pendingDocs.length > 0) {
       flush();
@@ -243,6 +333,8 @@ function parse(src) {
     } else if (/[;&|()\n]/.test(c)) {
       flush();
       const op = /^(&&|\|\||\|&|[;&|()\n])/.exec(src.slice(i))[0];
+      if (op === "(") depth++;
+      else if (op === ")") depth = Math.max(0, depth - 1);
       segments.push(newSegment(op));
       i += op.length;
     } else if (c === "#" && word === null) {
@@ -261,26 +353,568 @@ function parse(src) {
 
 /**
  * Expands $VAR and ${VAR} with the value assigned most recently before the
- * reference. Arrays, substitutions and quoted or escaped values are not
- * recorded, so references to them stay unresolved.
+ * reference. Quoted and unquoted parts of a value are joined the way the shell
+ * joins them. Arrays, escaped values and values that would split into several
+ * words are not recorded, so references to them stay unresolved.
  */
-function expandVars(src) {
-  const vars = Object.create(null);
-  const ref = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
-  const assignOrRef = /(^|[\s;&|(])([A-Za-z_]\w*)=("[^"]*"|'[^']*'|[^\s;&|)]*)|\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
-  return src.replace(assignOrRef, (all, lead, name, value, braced, bare) => {
-    if (name !== undefined) {
-      const raw = value.replace(/(^["'])|(["']$)/g, "");
-      if (/(^\()|\$\(|[`"'\\]/.test(raw)) delete vars[name];
-      else vars[name] = raw.replace(ref, (seen, a, b) => vars[a ?? b] ?? seen);
-      return all;
+const PWD_REF = /\$(?:\{((?:OLD)?PWD)\}|((?:OLD)?PWD)(?!\w))/g;
+// A command substitution in a value is not known from the text. Like $PWD it becomes a placeholder that still holds $, so
+// a cd to the value stays unresolved while the literal segments after it (supabase/migrations, .claude/hooks) are checked.
+const SUBST_AT_ASSIGN = "$__SUBST_AT_ASSIGN";
+
+/** The index just past the ) that closes a $( substitution whose body starts at i. Quoted spans are skipped. */
+function substitutionEnd(src, i) {
+  for (let depth = 1; i < src.length; i++) {
+    const c = src[i];
+    if (c === "\\") i++;
+    else if (c === "'" || c === '"') i = indexOrEnd(src, c, i + 1);
+    else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i + 1;
+  }
+  return src.length;
+}
+
+/** The index of the " that closes a double quoted span opened at i, or -1 when nothing closes it. */
+function closingQuote(src, i) {
+  for (i++; i < src.length; i++) {
+    if (src[i] === "\\") i++;
+    else if (src[i] === '"') return i;
+  }
+  return -1;
+}
+
+/** Reads the assignment value that starts at i. Returns where it ends and its text, or text null when it cannot be recorded. */
+function readValue(src, i) {
+  // An array value is skipped whole and drops the old value.
+  if (src[i] === "(") return { end: Math.min(matchClose(src, i, "(", ")") + 1, src.length), text: null };
+  let text = "";
+  let recordable = true;
+  let quoted = false;
+  while (i < src.length) {
+    const c = src[i];
+    if (!quoted && /[\s;&|<>)]/.test(c)) break;
+    if (c === "\\") {
+      // The escaped character is taken as it is, so an escaped quote neither opens nor closes a quoted part.
+      recordable = false;
+      text += src.slice(i, i + 2);
+      i += 2;
+    } else if (c === '"') {
+      // A quote that nothing closes is left to the caller, so the rest of the command is not read as the value.
+      if (!quoted && closingQuote(src, i) < 0) {
+        recordable = false;
+        break;
+      }
+      quoted = !quoted;
+      i++;
+    } else if (c === "'" && !quoted) {
+      const close = src.indexOf("'", i + 1);
+      if (close < 0) {
+        recordable = false;
+        break;
+      }
+      // A single quoted $ is literal; recording it would let a later expansion read it as a reference.
+      if (src.slice(i + 1, close).includes("$")) recordable = false;
+      text += src.slice(i + 1, close);
+      i = close + 1;
+    } else if (c === "`") {
+      text += SUBST_AT_ASSIGN;
+      i = indexOrEnd(src, "`", i + 1) + 1;
+    } else if (c === "$" && src[i + 1] === "(") {
+      text += SUBST_AT_ASSIGN;
+      i = substitutionEnd(src, i + 2);
+    } else {
+      if (c === "$" && src[i + 1] === "'") recordable = false;
+      text += c;
+      i++;
     }
-    return vars[braced ?? bare] ?? all;
-  });
+  }
+  // Blanks are kept: an unquoted reference splits into words as the shell splits it. A newline or quote would be read as
+  // syntax when the value is put back into the text, so such a value is not recorded. A value with an operator is marked
+  // (see valueOf) and put back only inside double quotes, where the operator is text.
+  if (quoted || /[\n"'\\`]/.test(text)) recordable = false;
+  return { end: Math.min(i, src.length), text: recordable ? text : null };
+}
+
+// Marks a value that holds an operator (; & | < > ( )). It is put back only inside double quotes, where the shell reads
+// the operator as text ("$C" for eval "$C"); anywhere else it stays unresolved, as an unknown value does.
+const OPERATOR_VALUE = "\u0002";
+const OPERATOR = /[;&|<>()]/;
+// After source or . runs a file, a variable it may have set is this placeholder, which still holds $. A write target or
+// push destination that holds it fails closed; anywhere else it is an unresolved value. These are rarely set by a file.
+const SOURCED_AT = "$__SOURCED_";
+const SOURCE_KEPT = new Set(["HOME", "PWD", "OLDPWD", "TMPDIR", "USER", "PATH"]);
+// The key in the variable table that records that a file was sourced; it cannot be a variable name.
+const SOURCED_KEY = "@sourced";
+
+/**
+ * The value of ${name<op>word} when name is known (null when it is known to be unset): the - and = forms give the value when it is set (with a colon, set and
+ * not empty) and else the word, + gives the word or nothing the other way round, and ? gives the value or stays as
+ * written. An unknown name stays as written, so a default is never taken for a value that may be set outside the command.
+ */
+function expandDefault(value, colon, op, word, seen) {
+  if (value === undefined) return seen;
+  // null is a variable known to be unset.
+  const set = value !== null && (colon ? value !== "" : true);
+  if (op === "+") return set ? word : "";
+  if (op === "?") return set ? value : seen;
+  return set ? value : word;
+}
+
+// A reference: ${name<op>word}, ${name} or $name. The word may hold $name, ${name} and ${name<op>plain word} references.
+// A bare $name in the word matches its whole name ((?!\w)), so a name is never split between the two alternatives, which
+// would backtrack exponentially on a long word that does not match.
+const REF =
+  String.raw`\$(?:\{([A-Za-z_]\w*)(:?)([-=+?])((?:[^}$` +
+  "`" +
+  String.raw`]|\$\{[A-Za-z_]\w*(?::?[-=+?][^}$` +
+  "`" +
+  String.raw`]*)?\}|\$[A-Za-z_]\w*(?!\w))*)\}|\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))`;
+
+/**
+ * An assignment group starting at i: name=value and name+=value words separated by blanks. Returns the end, the values
+ * read as [name, text, append], and whether a command follows.
+ */
+function readAssignments(src, i) {
+  const values = [];
+  const head = /([A-Za-z_]\w*)(\+?)=/y;
+  for (;;) {
+    head.lastIndex = i;
+    const m = head.exec(src);
+    if (!m) break;
+    const { end, text } = readValue(src, i + m[0].length);
+    values.push([m[1], text, m[2] === "+"]);
+    i = end;
+    const blank = /[ \t]*/y;
+    blank.lastIndex = i;
+    blank.exec(src);
+    if (blank.lastIndex === i) break;
+    i = blank.lastIndex;
+  }
+  // Assignments before a command word apply to that command only and leave the shell variables as they were.
+  const next = parse(src.slice(i, commandEnd(src, i))).segments[0];
+  const command = next?.op === null ? next.words.find((word) => !isAssignment(word)) : undefined;
+  const prefix = values.length > 0 && command !== undefined;
+  return { end: i, values, prefix, ambiguous: prefix && (command.includes("$") || command.includes(SUB)) };
+}
+
+/** The end of a redirect and its target, or i when no redirect starts there. */
+function redirectEndAt(src, i) {
+  const op = /^(?:\d+)?(?:&>>?|>>|>\||>&|<>|<&|<<<|<<-?|>|<)/.exec(src.slice(i));
+  if (!op) return i;
+  let target = i + op[0].length;
+  while (/[ \t]/.test(src[target] ?? "")) target++;
+  return readValue(src, target).end;
+}
+
+/** The end of the simple command that continues at i: the first ; & | newline or ) outside quotes and substitutions. */
+function commandEnd(src, i) {
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (/[;&|\n)]/.test(c) && !(c === "&" && (/[<>]/.test(src[i - 1] ?? "") || src[i + 1] === ">")) && !(c === "|" && src[i - 1] === ">")) return i;
+    if (c === "\\") i++;
+    else if (c === "'") i = indexOrEnd(src, "'", i + 1);
+    else if (c === '"') i = Math.max(i, closingQuote(src, i) < 0 ? src.length : closingQuote(src, i));
+    else if (c === "`") i = indexOrEnd(src, "`", i + 1);
+    else if (c === "$" && src[i + 1] === "(") i = substitutionEnd(src, i + 2) - 1;
+  }
+  return src.length;
+}
+
+// X+=v when X is not known: the old part is a placeholder that still holds $, like a command substitution.
+const APPEND_AT_ASSIGN = "$__APPEND_AT_ASSIGN";
+// Keywords that open, divide and close a compound command whose body may not run, or may run in one branch only.
+// A { } group is counted too, since it may be a function body that runs later or never.
+const BODY_OPEN = /^(if|case|while|until|for|select|\{)$/;
+const BODY_SPLIT = /^(else|elif|;;)$/;
+const BODY_CLOSE = /^(fi|esac|done|\})$/;
+// The most variable value combinations checked for one command text; past it the command fails closed.
+const MAX_VARIANTS = 32;
+const TOO_MANY_VARIANTS = `the command expands to more than ${String(MAX_VARIANTS)} variants, so the guard cannot check it; split the loop into smaller loops or list the files explicitly`;
+const ASSIGNMENT_REDIRECTS = "assignment/redirection ordering cannot be checked; split assignments and redirections into separate commands in the intended order";
+// The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
+const MAX_WORK = 400;
+// The placeholders that stand for a value the command made itself; a sourced file cannot set them.
+const INTERNAL_NAME = /^__(?:(?:OLD)?PWD_AT_ASSIGN|SUBST_AT_ASSIGN|APPEND_AT_ASSIGN|SOURCED_\w*)$/;
+// The head of a function definition just before its { body: name() or function name.
+const FUNCTION_HEAD = /(?:(?:^|[\s;&|(){}])function[ \t]+[^\s;&|<>()]+(?:[ \t]*\(\))?|(?:^|[\s;&|{}])[A-Za-z_][\w.:-]*[ \t]*\([ \t]*\))[ \t\n]*$/;
+
+/** The possible values held in a variable slot: undefined (not known), null (unset) or a string. */
+const altsOf = (v) => (v !== null && typeof v === "object" ? v.alts : [v]);
+function union(values) {
+  const alts = [];
+  for (const v of values.flatMap(altsOf)) if (!alts.includes(v)) alts.push(v);
+  return alts.length === 1 ? alts[0] : { alts };
+}
+
+/**
+ * Every text the command can expand to, or null when there are more than MAX_VARIANTS. A variable that an assignment may
+ * or may not have changed holds both values, and each combination of the values used is one text. Every default word and
+ * loop item gets its own reading; nothing is folded or skipped, so a command past the cap fails closed.
+ */
+function expandVariants(src) {
+  const texts = [];
+  let picks = [];
+  for (let n = 0; n < MAX_VARIANTS; n++) {
+    const counts = [];
+    const text = expandVars(src, picks, counts);
+    if (!texts.includes(text)) texts.push(text);
+    const next = counts.map((_, j) => picks[j] ?? 0);
+    let k = counts.length - 1;
+    while (k >= 0 && next[k] + 1 >= counts[k]) k--;
+    if (k < 0) return texts;
+    next[k]++;
+    picks = next.slice(0, k + 1);
+  }
+  return null;
+}
+
+/**
+ * Scans the command once, tracking quotes, substitutions and heredoc bodies. An assignment is recognized only at a word
+ * start outside quotes, so NAME= inside a quoted string is text. A reference is expanded wherever it stands, since quoted
+ * text may run again as -c or eval text. A prefix assignment (X=v cmd, env X=v cmd) does not change the shell variable;
+ * its value is used only for the references that the child expands: single quoted and escaped ones in the rest of that
+ * simple command. unset makes a variable known to be unset, and X+=v appends.
+ *
+ * An assignment in a subshell, $( ) or backticks is dropped at its end. One that may not run keeps the old value possible
+ * too: after || or in a pipeline at once; after && or in the body of if, case or a loop it holds for the commands that run
+ * only after it, and both values are possible once the && list ends, at else, elif and ;;, and after the body (a { }
+ * group counts as a body, since it may be a function that runs later or never). picks and
+ * counts choose among the possible values in the order they are read (see expandVariants); every reference to the same
+ * value shares one pick. A variable that is not known gives ${X:-w}, ${X-w} and ${X:=w} two readings, as written and as
+ * the word. A for loop over literal words records the loop variable with each word, local in a function body ends with
+ * the body, and source or . marks every variable as possibly set by the file.
+ */
+function expandVars(src, picks = [], counts = []) {
+  let vars = Object.create(null);
+  let prefix = null;
+  // Each scope records, for the variables assigned in it, the value before it and the values given in it.
+  let scopes = [];
+  let lastOp = null;
+  let cmdStart = true;
+  let declaration = false;
+  let commandEnv = false;
+  let redirectEnd = -1;
+  // One pick per variable state: every reference to the same value, or to the same unknown variable between two
+  // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
+  const memo = new Map();
+  const versions = Object.create(null);
+  const pick = (key, n) => {
+    if (!memo.has(key)) {
+      const at = counts.length;
+      counts.push(n);
+      memo.set(key, picks[at] ?? 0);
+    }
+    return memo.get(key);
+  };
+  const lookup = (name, child) => {
+    const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
+    if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name) && !INTERNAL_NAME.test(name)) return SOURCED_AT + name;
+    return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
+  };
+  const store = (name, value) => {
+    versions[name] = (versions[name] ?? 0) + 1;
+    if (value === undefined) delete vars[name];
+    else vars[name] = value;
+  };
+  const note = (scope, name, values) => {
+    scope.pending[name] ??= { old: vars[name], seen: [] };
+    scope.pending[name].seen.push(...values);
+  };
+  const merge = (scope) => {
+    const parent = scopes[scopes.indexOf(scope) - 1];
+    for (const [name, { old, seen }] of Object.entries(scope.pending)) {
+      // A local variable of a function body ends with it and never reaches the variable outside.
+      if (scope.locals && name in scope.locals) continue;
+      if (parent) note(parent, name, seen);
+      store(name, union([old, ...seen, vars[name]]));
+    }
+    for (const [name, old] of Object.entries(scope.locals ?? {})) store(name, old);
+    scope.pending = {};
+    scope.locals = undefined;
+  };
+  const assign = (name, value) => {
+    // After || the next command may run whether or not the assignment did.
+    if (lastOp === "||") return store(name, union([vars[name], value]));
+    const scope = scopes.at(-1);
+    if (scope) note(scope, name, [value]);
+    store(name, value);
+  };
+  const endList = () => {
+    while (scopes.at(-1)?.kind === "chain") merge(scopes.pop());
+    lastOp = null;
+  };
+  const unmark = (v) => (typeof v === "string" && v.startsWith(OPERATOR_VALUE) ? v.slice(1) : v);
+  const mark = (v) => (OPERATOR.test(v) ? OPERATOR_VALUE + v : v);
+  // dq: the reference stands inside double quotes of this text, where an operator value is text.
+  const resolve = (child, dq) => (seen, name, colon, op, word, braced, bare) => {
+    const shown = (v) => {
+      if (typeof v !== "string" || !v.startsWith(OPERATOR_VALUE)) return v;
+      return dq ? v.slice(1) : undefined;
+    };
+    if (name === undefined) {
+      const value = shown(lookup(braced ?? bare, child));
+      return value === undefined ? seen : (value ?? "");
+    }
+    // ${X:-$Y} takes the value of Y as its word.
+    word = word.replace(new RegExp(REF, "g"), resolve(child, dq));
+    const value = shown(lookup(name, child));
+    if (value === undefined && (op === "-" || op === "=")) {
+      // A variable that is not known may be set or not, so the reference is both as written and the word; ${X:=word}
+      // also records X with the word in the second case.
+      if (pick(`?${name}#${versions[name] ?? 0}${colon}`, 2) === 0) return seen;
+      if (op === "=" && !child) assign(name, word);
+      return word;
+    }
+    const result = expandDefault(value, colon, op, word, seen);
+    // ${X:=word} also assigns X.
+    if (op === "=" && value !== undefined && !child) assign(name, result);
+    return result;
+  };
+  const ref = new RegExp(REF, "g");
+  const refAt = new RegExp(REF, "y");
+  const head = /[A-Za-z_]\w*\+?=/y;
+  const keyword = /(if|case|while|until|for|select|else|elif|fi|esac|done|then|do|\{|\}|!)(?=[\s;&|()]|$)/y;
+  const unset = /unset((?:[ \t]+-[a-z]+)*)((?:[ \t]+[A-Za-z_]\w*)+)[ \t]*(?=[;&|)\n#]|$)/y;
+  const sourceWord = /(source|\.)(?=[ \t])/y;
+  // for NAME in WORDS: plain words and quoted words without backslash or glob characters, which may hold $name and ${name}.
+  // A reference matches its whole name, so a word is read only one way (no backtracking across splits of a name).
+  const forRef = String.raw`\$(?:\{[A-Za-z_]\w*\}|[A-Za-z_]\w*(?!\w))`;
+  const forWord = String.raw`(?:[^\s;&|<>()'"\`\\$*?[\]{}]|${forRef})+|'[^'\n$]*'|"(?:[^"$\`\\\n]|${forRef})*"`;
+  const forList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+(?:${forWord}))*)[ \t]*(?=[;\n])`, "y");
+  // Unquoted, a word's references split on blanks; quoted, the word is one item.
+  const forItems = (list) =>
+    (list.match(new RegExp(forWord, "g")) ?? []).flatMap((w) => {
+      if (w.startsWith("'")) return [w.slice(1, -1)];
+      const text = w.replace(/^"(.*)"$/s, "$1").replace(new RegExp(REF, "g"), resolve(false, true));
+      return w.startsWith('"') ? [text] : text.split(/[ \t]+/).filter(Boolean);
+    });
+  const forName = /[ \t]+([A-Za-z_]\w*)/y;
+  // for NAME in WORDS where a word is a glob or a brace list: a word that names a protected path is kept as written.
+  const globList = new RegExp(String.raw`[ \t]+([A-Za-z_]\w*)[ \t]+in((?:[ \t]+[^\s;&|<>()'"\`\\]+)+)[ \t]*(?=[;\n])`, "y");
+  // The loop variable is each word that keep picks, and one unknown value for all the others.
+  const loopValue = (words, keep) => {
+    const kept = words.filter(keep);
+    return union(kept.length < words.length ? [undefined, ...kept] : kept);
+  };
+  // $PWD or $OLDPWD in a value is the directory at the time of the assignment, which a later cd cannot know from the text.
+  // It becomes a placeholder that still holds $, like a command substitution. A value that cannot be recorded is undefined.
+  // Inside a value an operator is text, so a reference is put in whatever it holds, and the value is marked when it holds one.
+  const valueOf = (text) => (text === null ? undefined : mark(text.replace(PWD_REF, (seen, b, p) => `$__${b ?? p}_AT_ASSIGN`).replace(ref, resolve(false, true))));
+  const appendTo = (old, text) => {
+    if (text === undefined) return undefined;
+    const before = old === undefined ? APPEND_AT_ASSIGN : (unmark(old) ?? "");
+    return mark(before + unmark(text));
+  };
+  // After source or . the variables are wiped and marked as possibly set by the file, once its command ends.
+  let sourcedAt = null;
+  let out = "";
+  let quote = null;
+  let wordStart = true;
+  const frames = [];
+  const docs = [];
+  const openFrame = (frame) => {
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd });
+    lastOp = null;
+    cmdStart = true;
+    declaration = false;
+    commandEnv = false;
+    redirectEnd = -1;
+  };
+  const closeFrame = () => {
+    const frame = frames.pop();
+    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd } = frame);
+    if (frame.vars) scopes = scopes.slice(0, frame.scopes);
+    return frame.quote;
+  };
+  for (let i = 0; i < src.length; ) {
+    if (prefix && i >= prefix.end) prefix = null;
+    if (sourcedAt !== null && i >= sourcedAt) {
+      vars = Object.create(null);
+      vars[SOURCED_KEY] = true;
+      sourcedAt = null;
+    }
+    const c = src[i];
+    const next = src[i + 1];
+    if (quote === null && i >= redirectEnd && (/[<>&]/.test(c) || (wordStart && /\d/.test(c)))) redirectEnd = redirectEndAt(src, i);
+    if (quote === null && wordStart && c === "#") {
+      const eol = indexOrEnd(src, "\n", i);
+      out += src.slice(i, eol);
+      i = eol;
+      continue;
+    }
+    if (quote === null && wordStart) {
+      keyword.lastIndex = i;
+      const k = keyword.exec(src)?.[1];
+      // The { of function name { comes after the name, so it is not at a command start.
+      const fn = k === "{" && FUNCTION_HEAD.test(src.slice(Math.max(0, i - 200), i));
+      if (k !== undefined && (cmdStart || fn)) {
+        if (BODY_OPEN.test(k)) scopes.push({ kind: "body", pending: {}, fn });
+        if (k === "for") {
+          // The loop variable holds each word of a literal list in turn. Over a glob that names a protected path it holds
+          // the glob as written, so a write to it fails closed; over any other glob or a reference it is not known.
+          forList.lastIndex = i + k.length;
+          globList.lastIndex = i + k.length;
+          forName.lastIndex = i + k.length;
+          const list = forList.exec(src);
+          const globs = list ? null : globList.exec(src);
+          const name = list?.[1] ?? globs?.[1] ?? forName.exec(src)?.[1];
+          let words = [];
+          let value;
+          if (list) {
+            value = union((words = forItems(list[2]).map(mark)));
+          } else if (globs) {
+            words = globs[2].trim().split(/[ \t]+/).map((w) => w.replace(new RegExp(REF, "g"), resolve(false, true)));
+            value = loopValue(words, (w) => PROTECTED_TEXT.test(w));
+          }
+          if (name !== undefined && (words.length > 0 || !(list || globs))) assign(name, value);
+        }
+        const body = scopes.findLast((sc) => sc.kind === "body");
+        if (BODY_SPLIT.test(k) && body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
+        if (BODY_CLOSE.test(k) && body) {
+          while (scopes.at(-1) !== body) merge(scopes.pop());
+          merge(scopes.pop());
+        }
+        out += k;
+        i += k.length;
+        wordStart = false;
+        continue;
+      }
+      sourceWord.lastIndex = i;
+      if (cmdStart && sourceWord.test(src)) sourcedAt = commandEnd(src, i);
+      unset.lastIndex = i;
+      const u = cmdStart ? unset.exec(src) : null;
+      if (u && !/f/.test(u[1])) {
+        for (const name of u[2].trim().split(/[ \t]+/)) assign(name, null);
+        out += u[0];
+        i += u[0].length;
+        wordStart = false;
+        cmdStart = false;
+        continue;
+      }
+    }
+    if (quote === null && wordStart && cmdStart && i >= redirectEnd) {
+      if (/^(?:(?:builtin(?:[ \t]+--)?|command(?:[ \t]+-p)?(?:[ \t]+--)?)[ \t]+)*(export|readonly|local|declare|typeset)(?=[ \t]|$)/.test(src.slice(i))) declaration = true;
+      if (/^env(?=[ \t]|$)/.test(src.slice(i))) commandEnv = true;
+    }
+    head.lastIndex = i;
+    if (quote === null && wordStart && i >= redirectEnd && (cmdStart || declaration || commandEnv) && head.test(src)) {
+      const { end, values, prefix: isPrefix, ambiguous } = readAssignments(src, i);
+      if ((isPrefix && !declaration) || commandEnv) {
+        const at = commandEnd(src, end);
+        prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
+        for (const [name, text, append] of values) {
+          const previous = lookup(name, false);
+          prefix.values[name] = append ? appendTo(previous, valueOf(text)) : valueOf(text);
+          if (ambiguous) {
+            assign(name, union([previous, prefix.values[name]]));
+          }
+        }
+      } else {
+        // local (or declare and typeset without -g) in a function body makes a variable that ends with the body. Outside
+        // a function body (in an if body or a { } group) it sets the variable as a plain assignment does.
+        const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
+        const body = local ? scopes.findLast((sc) => sc.fn) : undefined;
+        for (const [name, text, append] of values) {
+          if (body) {
+            body.locals ??= {};
+            if (!(name in body.locals)) body.locals[name] = vars[name];
+          }
+          assign(name, append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text));
+        }
+      }
+      out += src.slice(i, end);
+      wordStart = /[ \t]/.test(src[end - 1]);
+      i = Math.max(end, i + 1);
+      continue;
+    }
+    if (quote === null && wordStart && i >= redirectEnd && !/[\s;&|()]/.test(c)) cmdStart = false;
+    wordStart = false;
+    if (c === "$" && quote !== "$'") {
+      refAt.lastIndex = i;
+      const m = refAt.exec(src);
+      if (m) {
+        const child = quote === "'" || src[i - 1] === "\\";
+        out += resolve(child, !child && quote === '"')(...m);
+        i = refAt.lastIndex;
+        continue;
+      }
+    }
+    let take = 1;
+    if (quote === "'" || quote === "$'") {
+      if (c === "\\" && quote === "$'") take = 2;
+      else if (c === "'") quote = null;
+    } else if (c === "\\") {
+      // An escaped $ is still read as a reference above, as text a child shell expands.
+      take = next === "$" ? 1 : 2;
+    } else if (c === '"') {
+      quote = quote === '"' ? null : '"';
+    } else if (c === "`") {
+      if (frames.at(-1)?.tick) quote = closeFrame();
+      else {
+        openFrame({ quote, tick: true });
+        quote = null;
+      }
+    } else if (c === "$" && next === "(") {
+      openFrame({ quote });
+      quote = null;
+      take = 2;
+    } else if (quote === null) {
+      if (c === "'") quote = "'";
+      else if (c === "$" && next === "'") {
+        quote = "$'";
+        take = 2;
+      } else if (c === "(") openFrame({ quote: null });
+      else if (c === ")" && frames.length > 0 && !frames.at(-1).tick) quote = closeFrame();
+      else if (c === "<" && next === "<" && src[i + 2] !== "<" && src[i - 1] !== "<") {
+        const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
+        if (m) {
+          docs.push(m[2]);
+          take = m[0].length;
+        } else take = 2;
+      } else if ((c === "&" && next === "&") || (c === "|" && next === "|")) {
+        // A list joined by && or || : an assignment after it may not run.
+        if (c === "|") for (const scope of scopes.filter((sc) => sc.kind === "chain")) merge(scope);
+        else if (scopes.at(-1)?.kind !== "chain") scopes.push({ kind: "chain", pending: {} });
+        lastOp = c === "&" ? "&&" : "||";
+        take = 2;
+      } else if (c === "|") lastOp = "||";
+      else if (c === ";" && next === ";") {
+        endList();
+        const body = scopes.findLast((sc) => sc.kind === "body");
+        if (body) for (const [name, { old }] of Object.entries(body.pending)) store(name, old);
+        take = 2;
+      } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
+      if (/[\s;&|()]/.test(c)) wordStart = true;
+      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; }
+      if (c === "\n" && docs.length > 0) {
+        // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
+        out += c;
+        i++;
+        for (const delim of docs.splice(0)) {
+          while (i < src.length) {
+            const eol = indexOrEnd(src, "\n", i);
+            const line = src.slice(i, eol);
+            out += line.replace(ref, resolve(false)) + (eol < src.length ? "\n" : "");
+            i = eol + 1;
+            if (line.replace(/^\t+/, "") === delim) break;
+          }
+        }
+        continue;
+      }
+    }
+    out += src.slice(i, i + take);
+    i += take;
+  }
+  return out;
 }
 
 const base = (word = "") => word.split("/").pop();
-const isAssignment = (w) => /^[A-Za-z_]\w*=/.test(w);
+const isAssignment = (w) => /^[A-Za-z_]\w*\+?=/.test(w);
+/** The name and value of an assignment word; X+=v gives v. */
+const assignmentOf = (w) => {
+  const at = w.indexOf("=");
+  return [w.slice(0, at).replace(/\+$/, ""), w.slice(at + 1)];
+};
 
 /** Strips leading assignments and wrapper commands; returns the argv, the wrappers seen and the assignments. */
 function unwrap(words) {
@@ -289,8 +923,8 @@ function unwrap(words) {
   const wrappers = new Set();
   const takeAssignments = () => {
     while (argv.length > 0 && isAssignment(argv[0])) {
-      const at = argv[0].indexOf("=");
-      env[argv[0].slice(0, at)] = argv[0].slice(at + 1);
+      const [name, value] = assignmentOf(argv[0]);
+      env[name] = value;
       argv = argv.slice(1);
     }
   };
@@ -299,12 +933,13 @@ function unwrap(words) {
   while (WRAPPERS.has(base(argv[0]))) {
     const wrapper = base(argv[0]);
     wrappers.add(wrapper);
-    const isOption = (w) => w.startsWith("-") || isAssignment(w) || (wrapper === "timeout" && /^\d/.test(w));
+    const isOption = (w) => w.startsWith("-") || isAssignment(w) || (WRAPPER_NUMBER.test(wrapper) && /^(\d[\w.,-]*|0x[\da-f]+)$/i.test(w));
     let i = 1;
-    for (; i < argv.length && isOption(argv[i]); i += VALUE_FLAGS.has(argv[i]) ? 2 : 1) {
+    const takesValue = (w) => VALUE_FLAGS.has(w) || (WRAPPER_VALUE_FLAGS[wrapper]?.has(w) ?? false);
+    for (; i < argv.length && isOption(argv[i]); i += takesValue(argv[i]) ? 2 : 1) {
       if (isAssignment(argv[i])) {
-        const at = argv[i].indexOf("=");
-        env[argv[i].slice(0, at)] = argv[i].slice(at + 1);
+        const [name, value] = assignmentOf(argv[i]);
+        env[name] = value;
       }
     }
     argv = argv.slice(i);
@@ -346,12 +981,16 @@ const inMigrations = (segs) => pairAt(segs, "supabase", ["migrations"]);
 const inGuardFiles = (segs) => pairAt(segs, ".claude", ["hooks", "settings.json", "settings.local.json"]);
 const inGuardrails = (segs) => pairAt(segs, "tools", ["guardrails"]);
 
+const unresolvedPart = (part = "") => part.includes("$") || part.includes(SUB);
+
 function changeDir(dir, target) {
   if (!target || target === "-" || target.startsWith("~")) return dir;
   const next = target.startsWith("/") ? [] : [...dir];
   for (const part of target.split("/")) {
-    if (part === "..") next.pop();
-    else if (part && part !== ".") next.push(part);
+    // A .. after an unresolved part could go anywhere, so the unresolved part stays and the directory stays unresolved.
+    if (part === "..") {
+      if (!unresolvedPart(next.at(-1))) next.pop();
+    } else if (part && part !== ".") next.push(part);
   }
   return next;
 }
@@ -368,6 +1007,21 @@ function isDirectory(path) {
 }
 
 /**
+ * Path segments a word names from dir, with ~ and $HOME kept as a ~ root. A
+ * substitution inside a word stands for one unknown name, so a fixed
+ * directory with a generated name still resolves; a word that is only
+ * substitutions is a generated path (see writeTargetReason) and gives null.
+ */
+function wordSegs(word, dir) {
+  if (word.includes(SUB)) {
+    if (word.split("/").every((part) => part.replaceAll(SUB, "") === "")) return null;
+    word = word.replaceAll(SUB, "_");
+  }
+  const home = /^(~|\$\{?HOME\}?)\//.exec(word);
+  return home ? ["~", ...changeDir([], word.slice(home[0].length))] : changeDir(dir, word);
+}
+
+/**
  * Names the protected area a word points at from dir, or null. Paths are
  * normalized first, so supabase/migrations/../../docs/x.md is not a hit.
  * With wholeDir a word naming the supabase, .claude or tools/guardrails
@@ -375,13 +1029,8 @@ function isDirectory(path) {
  * which matters only for commands that write files.
  */
 function protectedName(word, dir, wholeDir = false) {
-  if (word.includes(SUB)) {
-    // A word that is only substitutions is a generated path (see writeTargetReason); a fixed directory with a generated name is not.
-    if (word.split("/").every((part) => part.replaceAll(SUB, "") === "")) return null;
-    word = word.replaceAll(SUB, "_");
-  }
-  const home = /^(~|\$\{?HOME\}?)\//.exec(word);
-  const segs = home ? ["~", ...changeDir([], word.slice(home[0].length))] : changeDir(dir, word);
+  const segs = wordSegs(word, dir);
+  if (segs === null) return null;
   const joined = segs.join("/");
   const last = segs.at(-1) ?? "";
   const named = word.split("/").some(Boolean);
@@ -491,12 +1140,26 @@ function ghCall(argv) {
 /**
  * git argv with global options (-C, -c, --git-dir, --work-tree, --no-pager,
  * pathspec switches and so on) removed, the directory -C or --work-tree
- * names, and any -c value that names a protected path.
+ * names, and any -c value that names a protected path. state carries the
+ * aliases and include files set earlier in the command, and env the
+ * assignments in effect for the call (only the GIT_CONFIG ones are used).
  */
-function gitCall(argv, dir) {
+function gitCall(argv, dir, ctx, state = {}, env = {}) {
   let cwd = dir;
+  let gitDir;
   let config = null;
   const aliases = {};
+  const recordedIncludes = state.gitIncludes?.length ?? 0;
+  const includes = [...(state.gitIncludes ?? [])];
+  const pushConfig = [];
+  let pushConfigUnknown = false;
+  const configEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!GIT_CONFIG_ENV.test(key)) continue;
+    // As in the shell, a leading ~ is expanded; git reads a relative config path from the directory the command runs in.
+    const path = value.replace(/^~(?=\/|$)/, process.env.HOME ?? "~");
+    configEnv[key] = /^GIT_CONFIG_(GLOBAL|SYSTEM)$/.test(key) && path && !path.startsWith("/") ? pathOf(dir, path) : path;
+  }
   let i = 1;
   for (; i < argv.length && argv[i].startsWith("-"); i++) {
     const w = argv[i];
@@ -506,21 +1169,132 @@ function gitCall(argv, dir) {
     if (/^-[Cc]./.test(w)) [flag, value] = [w.slice(0, 2), w.slice(2)];
     if (value === undefined && /^(-C|-c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix|--attr-source|--list-cmds)$/.test(flag)) value = argv[++i] ?? "";
     if (flag === "-C" || flag === "--work-tree") cwd = changeDir(cwd, value);
+    if (flag === "--git-dir") gitDir = pathOf(cwd, value);
     const alias = flag === "-c" && /^alias\.([^=]+)=([\s\S]*)$/i.exec(value);
     if (alias) aliases[alias[1].toLowerCase()] = alias[2];
     else if ((flag === "-c" || flag === "--config-env") && PROTECTED_TEXT.test(value)) config = value;
+    if (flag === "-c" && GIT_INCLUDE_KEY.test(value.split("=")[0])) includes.push(value);
+    // Settings that decide where a push with no refspec goes are passed on when the push destination is read.
+    if ((flag === "-c" || flag === "--config-env") && PUSH_CONFIG_KEY.test(value.split("=")[0])) {
+      if (flag === "-c" && !value.includes(SUB) && !value.includes("$")) pushConfig.push(value);
+      else pushConfigUnknown = true;
+    }
   }
-  const rest = argv.slice(i);
-  // An alias given with -c is expanded: a ! alias is returned as shell text to check, any other becomes git arguments.
-  const alias = Object.hasOwn(aliases, rest[0]?.toLowerCase()) ? aliases[rest[0].toLowerCase()] : undefined;
-  if (alias?.startsWith("!")) return { argv: [argv[0]], dir: cwd, config, shell: alias.slice(1), shellArgs: rest.slice(1) };
-  const expanded = alias === undefined ? rest : [...parse(alias).segments.flatMap((s) => s.words), ...rest.slice(1)];
-  return { argv: [argv[0], ...expanded], dir: cwd, config };
+  let rest = argv.slice(i);
+  const call = { dir: cwd, gitDir, config, includes, configEnv, pushConfig, pushConfigUnknown };
+  // An alias is expanded, a few levels deep: a ! alias is returned as shell text to check, any other becomes git
+  // arguments. Aliases come from -c, from git config set earlier in the same command, or from the repository config
+  // and the files it includes (also an include.path given with -c or set earlier in the command), with the GIT_CONFIG
+  // environment of the call. An alias written with git config --file counts only when that file is read. Past the depth
+  // limit, or when an include file or the GIT_CONFIG environment cannot be read, an alias is not known, so the call fails closed.
+  for (let depth = 0; rest[0] !== undefined && !GIT_BUILTINS.has(rest[0]); depth++) {
+    const name = rest[0].toLowerCase();
+    let alias = Object.hasOwn(aliases, name) ? aliases[name] : undefined;
+    if (alias === undefined && ctx) {
+      try {
+        const current = configAlias(name, { ...call, includes: includes.slice(recordedIncludes) }, ctx);
+        const pending = configAlias(name, call, ctx);
+        const changed = fileAlias(name, call, state.gitFileAliases ?? []);
+        const possibilities = new Set([current, pending, changed].filter((value) => value !== undefined));
+        if (possibilities.size > 1) throw new Error("current and same-command alias values conflict");
+        alias = possibilities.values().next().value;
+      } catch (error) {
+        return { ...call, argv: [argv[0]], error: `git ${rest[0]} may be an alias, and git config could not be read to check it (${error.message}); failing closed` };
+      }
+    }
+    if (alias === undefined) break;
+    if (depth >= GIT_ALIAS_DEPTH) return { ...call, argv: [argv[0]], error: `git ${rest[0]} expands through more than ${String(GIT_ALIAS_DEPTH)} aliases; failing closed` };
+    if (alias.startsWith("!")) return { ...call, argv: [argv[0]], shell: alias.slice(1), shellArgs: rest.slice(1) };
+    rest = [...parse(alias).segments.flatMap((s) => s.words), ...rest.slice(1)];
+  }
+  return { ...call, argv: [argv[0], ...rest] };
 }
 
-/** Reads a file named in a command, resolved from dir; null when it cannot be read. */
+function runGit(args, call) {
+  const git = GIT_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (!git) throw new Error(`git not found in ${GIT_CANDIDATES.join(", ")}`);
+  const where = call.dir.some((part) => part.includes(SUB) || part.includes("$")) ? null : pathOf(call.dir, ".");
+  if (where === null) throw new Error("the directory cannot be resolved");
+  const configEnv = call.configEnv ?? {};
+  if (Object.values(configEnv).some((v) => v.includes(SUB) || v.includes("$"))) throw new Error("the GIT_CONFIG environment cannot be resolved");
+  const full = ["-C", where, ...(call.gitDir ? ["--git-dir", call.gitDir] : []), ...[...(call.includes ?? []), ...(call.pushConfig ?? [])].flatMap((c) => ["-c", c]), ...args];
+  // Nothing runs while a call is checked, so one git read gives the same answer for every reading of the command.
+  const key = JSON.stringify([git, full, configEnv]);
+  if (gitCache.has(key)) return gitCache.get(key);
+  const result = spawnSync(git, full, { encoding: "utf8", timeout: GH_TIMEOUT_MS, env: { ...process.env, ...configEnv, LC_ALL: "C" } });
+  if (result.error) throw new Error(result.error.code === "ETIMEDOUT" ? "git timed out" : `git failed: ${result.error.message}`);
+  gitCache.set(key, result);
+  return result;
+}
+// git results for the call being checked; decide clears it.
+const gitCache = new Map();
+
+/**
+ * The value of alias.<name> in the git config seen from the call's directory, include files followed, or undefined.
+ * Throws when it cannot be read: git fails (a shim that is not git exits 1 with an error), or an include file
+ * given in the command does not exist yet (git skips a missing include, and the command may write it first).
+ */
+function configAlias(name, call, ctx) {
+  const key = `${call.dir.join("/")}#${call.gitDir ?? ""}#${(call.includes ?? []).join("\n")}#${JSON.stringify(call.configEnv ?? {})}#${name}`;
+  if (!ctx.gitAliases.has(key)) {
+    for (const include of call.includes ?? []) {
+      const file = include.slice(include.indexOf("=") + 1).replace(/^~(?=\/)/, process.env.HOME ?? "~");
+      if (!file.startsWith("/") || readNamed(file, []) === null) throw new Error(`include file ${file} cannot be read`);
+    }
+    const result = runGit(["config", "--includes", "--get", `alias.${name}`], call);
+    if (result.status !== 0 && (result.status !== 1 || result.stderr.trim() !== "")) {
+      throw new Error(`git config exited ${String(result.status)}${result.stderr.trim() ? `: ${result.stderr.trim().split("\n")[0]}` : ""}`);
+    }
+    ctx.gitAliases.set(key, result.status === 0 ? result.stdout.replace(/\n$/, "") : undefined);
+  }
+  return ctx.gitAliases.get(key);
+}
+
+/**
+ * The alias set earlier in the command with git config --file <path>, when git reads that file for the call: the
+ * global or system file (GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM included), an include file, or the repository config.
+ * A file git does not read gives undefined, so it cannot hide or invent an alias.
+ */
+function fileAlias(name, call, recorded) {
+  const candidates = recorded.filter((r) => r.name === name);
+  if (candidates.length === 0) return undefined;
+  const env = { ...process.env, ...call.configEnv };
+  const home = process.env.HOME ?? "";
+  const loaded = new Set([
+    ...(env.GIT_CONFIG_GLOBAL !== undefined ? [env.GIT_CONFIG_GLOBAL] : [`${home}/.gitconfig`, `${env.XDG_CONFIG_HOME || `${home}/.config`}/git/config`]),
+    env.GIT_CONFIG_SYSTEM ?? "/etc/gitconfig",
+    ...(call.includes ?? []).map((c) => c.slice(c.indexOf("=") + 1).replace(/^~(?=\/)/, home)),
+  ]);
+  const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], call);
+  if (common.status === 0 && common.stdout.trim()) loaded.add(`${common.stdout.trim()}/config`);
+  const origins = runGit(["config", "--includes", "--null", "--show-origin", "--list"], call);
+  if (origins.status !== 0) throw new Error("loaded config origins cannot be read");
+  const fields = origins.stdout.split("\0");
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    if (fields[i].startsWith("file:")) loaded.add(fields[i].slice(5));
+  }
+  const identity = (file) => {
+    const absolute = file.startsWith("/") ? file : `${pathOf(call.dir, ".")}/${file}`;
+    try { return realpathSync(absolute); } catch { return absolute; }
+  };
+  const loadedIdentities = new Set([...loaded].map(identity));
+  if (candidates.some((r) => r.unknown)) throw new Error("alias mutation config target cannot be resolved");
+  const values = new Set(candidates.filter((r) => loadedIdentities.has(identity(r.file))).map((r) => r.value));
+  if (values.size > 1) throw new Error("same-command alias mutations have conflicting possible values");
+  return values.values().next().value;
+}
+
+/** The branch checked out in the call's directory. Throws when it cannot be resolved (detached HEAD included). */
+function currentBranch(call) {
+  const result = runGit(["symbolic-ref", "--short", "HEAD"], call);
+  const branch = result.stdout.trim();
+  if (result.status !== 0 || !branch) throw new Error(`git symbolic-ref exited ${String(result.status)}`);
+  return branch;
+}
+
+/** Reads a file named in a command, resolved from dir; null when it cannot be read or is a device such as /dev/stdin. */
 function readNamed(word, dir) {
-  if (!word || word.includes(SUB) || word === "-") return null;
+  if (!word || word.includes(SUB) || word === "-" || /^\/(dev|proc)\//.test(word)) return null;
   try {
     return readFileSync(word.startsWith("/") ? word : pathOf(dir, word), "utf8");
   } catch {
@@ -833,7 +1607,7 @@ function ghApiCall(argv, dir) {
 
 // curl short options that take a value; any other letter in a bundle such as -sX is a switch.
 const CURL_SHORT_VALUE = "bcCdDeEFHKmoPQrtTuUwxXyYzA";
-const CURL_LONG_VALUE = /^--(request|data|data-ascii|data-binary|data-raw|data-urlencode|json|form|form-string|upload-file|url|header|user|output|user-agent|referer|cookie|cookie-jar|config|proxy|write-out|connect-timeout|max-time|retry|range|resolve|cacert|cert|key|dump-header|continue-at|quote|telnet-option|ftp-port|proxy-user|time-cond|speed-limit|speed-time|variable|expand-url|expand-data|expand-json)$/;
+const CURL_LONG_VALUE = /^--(?:expand-)?(request|data|data-ascii|data-binary|data-raw|data-urlencode|json|form|form-string|upload-file|url|header|user|output|user-agent|referer|cookie|cookie-jar|config|proxy|write-out|connect-timeout|max-time|retry|range|resolve|cacert|cert|key|dump-header|continue-at|quote|telnet-option|ftp-port|proxy-user|time-cond|speed-limit|speed-time|variable)$/;
 
 /** curl arguments as [option, value] pairs (value undefined for switches and URLs), with bundled short options split. */
 function curlOptions(args) {
@@ -841,8 +1615,9 @@ function curlOptions(args) {
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
     const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
-    if (eq) out.push([eq[1], eq[2]]);
-    else if (w.startsWith("--")) out.push(CURL_LONG_VALUE.test(w) ? [w, args[++i] ?? ""] : [w, undefined]);
+    // --expand-<option> is <option> with {{variables}} expanded in its value.
+    if (eq) out.push([eq[1].replace(/^--expand-/, "--"), eq[2]]);
+    else if (w.startsWith("--")) out.push(CURL_LONG_VALUE.test(w) ? [w.replace(/^--expand-/, "--"), args[++i] ?? ""] : [w, undefined]);
     else if (/^-[^-]/.test(w)) {
       for (let k = 1; k < w.length; k++) {
         const flag = `-${w[k]}`;
@@ -963,11 +1738,27 @@ function mergeTarget(argv, env, dir) {
   return null;
 }
 
-/** Block reason for a REST call that merges branches or writes the main ref. Agents never push to main. */
+/**
+ * Block reason for a contents API write by the branch it commits to: main or master, a branch the body does not name
+ * or leaves empty (the default branch), or one that cannot be read. JSON fields are matched as text, so an escaped
+ * spelling such as m\u0061in is not decoded (a documented residual). An explicit other branch passes.
+ */
+function contentsBranchReason(body) {
+  if (body === null) return "a contents API write whose body cannot be read; failing closed";
+  const branches = [...body.matchAll(/(?:^|\n)branch=([^\n]*)|"branch"\s*:\s*"([^"]*)"/g)].map((m) => m[1] ?? m[2]);
+  // An empty branch field is the default branch too.
+  if (branches.length === 0 || branches.includes("")) return "a contents API write that names no branch commits to the default branch; agents never push to main";
+  if (branches.some((b) => b.includes("$") || b.includes(SUB))) return "a contents API write to a branch that cannot be read; failing closed";
+  if (branches.some((b) => /^(refs\/)?(heads\/)?(main|master)$/.test(b))) return "a contents API write to the main branch; agents never push to main";
+  return null;
+}
+
+/** Block reason for a REST call that merges branches, writes the main ref, or commits to main through the contents API. Agents never push to main. */
 function branchWriteReason(route, method, body) {
   if (method === "GET" || method === "HEAD") return null;
   const path = route.replace(/^\w+:\/\/[^/]+/, "").replace(/^\/+/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
   if (/^repos\/[^/]+\/[^/]+\/merges$/.test(path)) return "the merges API merges one branch into another; agents never merge";
+  if (/^repos\/[^/]+\/[^/]+\/contents\/./.test(path) && (method === "PUT" || method === "DELETE")) return contentsBranchReason(body);
   const ref = /^repos\/[^/]+\/[^/]+\/git\/refs(?:\/(.*))?$/.exec(path);
   if (!ref) return null;
   if (/^(refs\/)?heads\/(main|master)$/.test(ref[1] ?? "")) return "writes the main branch ref; agents never push to main";
@@ -1038,14 +1829,21 @@ export function ghPrFiles(target, cwd) {
   return { files: out.split("\n").filter(Boolean), headSha };
 }
 
+// PR file lookups for the current call, by target and directory, so a PR named in many readings is looked up once.
+const prCache = new Map();
+
 function mergeReason(target, ctx) {
   if (target.graphql) return `${target.graphql}, so its changed files cannot be checked; failing closed (use gh pr merge)`;
-  let result;
-  try {
-    result = ctx.prFiles(target, ctx.cwd);
-  } catch (error) {
-    return `could not list the PR's changed files to check for supabase/migrations/ (${error.message}); failing closed`;
+  const key = JSON.stringify([target, ctx.cwd]);
+  if (!prCache.has(key)) {
+    try {
+      prCache.set(key, { result: ctx.prFiles(target, ctx.cwd) });
+    } catch (error) {
+      prCache.set(key, { error });
+    }
   }
+  const { result, error } = prCache.get(key);
+  if (error) return `could not list the PR's changed files to check for supabase/migrations/ (${error.message}); failing closed`;
   const files = Array.isArray(result) ? result : result?.files;
   if (!Array.isArray(files)) return "PR file lookup returned no list; failing closed";
   if (target.sha && result?.headSha && !result.headSha.startsWith(target.sha)) return `the PR head is ${result.headSha}, not the ${target.sha} this merge names; failing closed`;
@@ -1060,44 +1858,400 @@ function broadPathspec(spec, dir) {
   return segs.length <= dir.length && segs.every((s, i) => s === dir[i]);
 }
 
-function patchReason(files, dir, what) {
+/**
+ * The first line of a patch that writes a protected path, or null. Paths in diff --git, --- and +++ headers lose strip
+ * leading parts as git apply -p does before they are checked; rename and copy lines are checked as written. Hunk content
+ * is text, not a path. Any other line that names a protected path (a binary or quoted header) fails closed.
+ */
+function patchTarget(text, strip, isProtected) {
+  const cut = (path) => path.split("/").slice(strip).join("/");
+  for (const line of text.split("\n")) {
+    if (/^[ +\-\\]/.test(line) && !/^(---|\+\+\+) /.test(line)) continue;
+    let m;
+    let paths = null;
+    if ((m = /^diff --git (\S+) (\S+)$/.exec(line)) && !line.includes('"')) paths = [cut(m[1]), cut(m[2])];
+    else if ((m = /^(?:---|\+\+\+) ([^\s"]+)(\t.*)?$/.exec(line))) paths = m[1] === "/dev/null" ? [] : [cut(m[1])];
+    else if ((m = /^(?:rename|copy) (?:from|to) ([^"]+)$/.exec(line))) paths = [m[1]];
+    if (paths === null ? PROTECTED_TEXT.test(line) : paths.some((path) => isProtected(path))) return line;
+  }
+  return null;
+}
+
+/**
+ * Block reason for a patch. With a directory (git apply or git am --directory) every path the patch names lands under
+ * it, so the joined paths are checked too.
+ */
+function patchReason(files, dir, what, { directory, strip = 1 } = {}) {
+  if (directory !== undefined && protectedName(directory, dir)) return `${what} --directory=${directory} places files in a protected path`;
   if (files.length === 0) return `${what} reads a patch from stdin, which cannot be checked; failing closed`;
   for (const file of files) {
     const text = readNamed(file, dir);
     if (text === null) return `${what} patch ${file} cannot be read to check it; failing closed`;
-    if (PROTECTED_TEXT.test(text)) return `${what} patch ${file} changes a protected path`;
+    const target = patchTarget(text, strip, (path) => protectedName(directory === undefined ? path : `${directory}/${path}`, dir));
+    if (target) return `${what} patch ${file} ${directory === undefined ? "changes a protected path" : `lands in a protected path under --directory=${directory}`}: ${target}`;
   }
   return null;
+}
+
+/** The patch files, --directory value and -p strip count of a git apply or git am command. */
+function patchArgs(args) {
+  const files = [];
+  const opts = {};
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    const long = /^--(directory|include|exclude|whitespace)(?:=(.*))?$/.exec(w);
+    if (long) {
+      const value = long[2] ?? args[++i] ?? "";
+      if (long[1] === "directory") opts.directory = value.replace(/\/+$/, "");
+    } else if (/^-p\d*$/.test(w)) opts.strip = Number(w.slice(2) || args[++i]);
+    else if (!w.startsWith("-")) files.push(w);
+  }
+  if (!Number.isInteger(opts.strip)) delete opts.strip;
+  return { files, opts };
+}
+
+/**
+ * Whether a git checkout, switch or branch -m changes the branch: undefined when it does not (a path restore, a patch),
+ * else { name, created }. name is the branch left checked out, or null when it cannot be read from the command (a
+ * generated or variable name, -, --detach); created is true for -b, -B, -c, -C and --orphan, which make a new branch.
+ */
+function branchChange([sub, ...args], dir) {
+  if (sub !== "checkout" && sub !== "switch" && sub !== "branch") return undefined;
+  const dash = args.indexOf("--");
+  if (dash >= 0 && args.length > dash + 1) return undefined;
+  const words = dash >= 0 ? args.slice(0, dash) : args;
+  const NEW = { checkout: /^(-b|-B|--orphan)$/, switch: /^(-c|-C|--create|--force-create|--orphan)$/, branch: /^(-m|-M|--move)$/ }[sub];
+  const positional = [];
+  let created;
+  let move = false;
+  let track = false;
+  let detach = false;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const eq = /^(--[\w-]+)=(.*)$/s.exec(w);
+    if (sub === "branch" && NEW.test(w)) move = true;
+    else if (NEW.test(eq ? eq[1] : w)) created = eq ? eq[2] : (words[++i] ?? "");
+    else if (sub !== "branch" && /^-[bBcC]./.test(w) && NEW.test(w.slice(0, 2))) created = w.slice(2);
+    else if (/^(-t|--track)(=|$)/.test(w)) track = true;
+    else if (/^(--detach|-d)$/.test(w) && sub !== "branch") detach = true;
+    else if (/^(-p|--patch)$/.test(w) || w.startsWith("--pathspec-from-file")) return undefined;
+    else if (w === "-" || !w.startsWith("-")) positional.push(w);
+  }
+  const named = (name) => (name.includes(SUB) || name.includes("$") || name === "-" || name.startsWith("@{") || name === "" ? null : name);
+  const change = (name, isNew = false) => ({ name: named(name), created: isNew });
+  if (sub === "branch") return move && positional.length > 0 ? change(positional.at(-1)) : undefined;
+  if (detach) return change("-");
+  if (created !== undefined) return change(created, true);
+  if (positional.length !== 1) return undefined;
+  const [target] = positional;
+  // A lone checkout argument that is an existing path restores that path.
+  if (!track && sub === "checkout" && dash < 0 && target !== "-" && !target.includes(SUB) && !target.includes("$") && existsSync(pathOf(dir, target))) return undefined;
+  return change(target);
+}
+
+/** Records a git checkout, switch or branch -m in this command, in the order the hook reads them. */
+function recordBranch(argv, dir, state, ctx, env) {
+  if (base(argv[0]) !== "git") return;
+  const git = gitCall(argv, dir, ctx, state, env);
+  if (git.error || git.shell !== undefined) return;
+  const change = branchChange(git.argv.slice(1), git.dir);
+  if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, negated: state.negated, dir: git.dir, gitDir: git.gitDir });
+}
+
+const NAME_DESTINATION = "name the destination branch explicitly";
+const NAME_THE_BRANCH = `${NAME_DESTINATION}, for example git push -u origin HEAD:<branch>`;
+
+/**
+ * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b,
+ * -B or --orphan, or git switch -c or -C, with a literal name that is not main or master, in the same command text, the
+ * same directory (no cd after the change, no differing -C), outside any subshell and any compound command (if, while,
+ * until, for, select, case or a { } group), not negated with !, and joined to the push by && all the way, so a creation
+ * that fails (the branch already exists) stops the push.
+ */
+function newBranchBeforePush(change, call, state) {
+  if (!change.created || change.compound || change.negated || change.name === null || MAIN_REF.test(change.name) || change.inv !== state.inv) return false;
+  if (state.lastCd > change.index) return false;
+  if (change.gitDir !== call.gitDir || change.dir.join("/") !== call.dir.join("/")) return false;
+  const chain = state.segments.slice(change.index, state.index + 1);
+  if (chain.some((s) => s.depth !== 0)) return false;
+  if (!chain.slice(1).every((s) => s.op === "&&")) return false;
+  // The change itself must run whenever the push would: after ;, a newline, && or at the start, not after || or |.
+  const own = chain[0].op;
+  return own === null || own === ";" || own === "\n" || own === "&&";
+}
+
+/** git config of the call as [key, value] pairs (section and variable names lowercased by git). Throws when it cannot be read. */
+function gitConfigList(call) {
+  if (call.pushConfigUnknown) throw new Error("a push setting given with -c or --config-env cannot be resolved");
+  const result = runGit(["config", "-z", "--list"], call);
+  if (result.status !== 0) throw new Error(`git config --list exited ${String(result.status)}`);
+  return result.stdout
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => {
+      const nl = entry.indexOf("\n");
+      // A key written with no value (a bare "mirror" line) is a true boolean to git.
+      return nl < 0 ? [entry, "true"] : [entry.slice(0, nl), entry.slice(nl + 1)];
+    });
+}
+
+const configValue = (config, key) => config.findLast(([k]) => k === key)?.[1];
+const pushMode = (config) => (configValue(config, "push.default") ?? "simple").toLowerCase();
+// git rev-parse @{push} errors that mean there is no upstream, so push.default simple or current push the branch to its own name.
+const NO_PUSH_UPSTREAM = /no upstream configured for branch|no such branch|has no remote for pushing/;
+
+/**
+ * Where a push with no refspec sends the current branch. The remote is the one named, else the branch's push remote
+ * (branch.<b>.pushRemote, remote.pushDefault, branch.<b>.remote, origin). When that remote has remote.<name>.push
+ * values git pushes every one of them, so they are all returned as { refspecs }. Otherwise push.default decides:
+ * { matching: true } for matching, { nothing: true } when git pushes nothing, else the branch name on the remote.
+ * For the push remote it is read with git rev-parse @{push}, with no upstream the branch name, as simple and current
+ * push; for another named remote, which @{push} does not describe, push.default is applied as git does. Throws when
+ * it cannot be resolved.
+ */
+function pushDestination(branch, remoteArg, call) {
+  const config = gitConfigList(call);
+  if (remoteArg !== undefined && (remoteArg.includes(SUB) || remoteArg.includes("$"))) throw new Error("the remote cannot be resolved");
+  const fetchRemote = configValue(config, `branch.${branch}.remote`) ?? "origin";
+  const pushRemote = configValue(config, `branch.${branch}.pushremote`) ?? configValue(config, "remote.pushdefault") ?? fetchRemote;
+  const remote = remoteArg ?? pushRemote;
+  if (gitTrue(configValue(config, `remote.${remote}.mirror`) ?? "false")) return { mirror: remote };
+  const refspecs = config.filter(([k]) => k === `remote.${remote}.push`).map(([, v]) => v);
+  if (refspecs.length > 0) return { refspecs };
+  const mode = pushMode(config);
+  if (mode === "matching") return { matching: true };
+  if (mode === "nothing") return { nothing: true };
+  if (!["simple", "current", "upstream", "tracking"].includes(mode)) throw new Error(`push.default ${mode} is not known`);
+  // As git does: current pushes to the branch name, and so does simple to a remote that is not the branch's upstream
+  // remote (@{push} cannot resolve that one).
+  if (mode === "current" || (mode === "simple" && remote !== fetchRemote)) return branch;
+  if (remote !== pushRemote) {
+    // simple pushes to the branch name or refuses when the upstream has another name; upstream pushes to
+    // branch.<b>.merge when the remote is the branch's upstream remote, and refuses otherwise.
+    if (mode === "simple") return branch;
+    if (remote !== fetchRemote) return { nothing: true };
+    const merges = config.filter(([k]) => k === `branch.${branch}.merge`);
+    if (merges.length !== 1) throw new Error(`branch.${branch}.merge has ${String(merges.length)} values`);
+    return merges[0][1];
+  }
+  const at = runGit(["rev-parse", "--symbolic-full-name", "@{push}"], call);
+  let full = at.stdout.trim();
+  if (at.status !== 0) {
+    const error = at.stderr.trim();
+    if (NO_PUSH_UPSTREAM.test(error)) return branch;
+    if (!/ambiguous argument '@\{push\}'|unknown revision/.test(error)) throw new Error(`git rev-parse @{push} failed: ${error.split("\n")[0] || `exit ${String(at.status)}`}`);
+    // The destination has no remote tracking ref yet (a branch never pushed); for-each-ref names it anyway.
+    full = runGit(["for-each-ref", "--format=%(push)", `refs/heads/${branch}`], call).stdout.trim();
+  }
+  const remotes = [...new Set(config.map(([k]) => /^remote\.(.+)\.url$/.exec(k)?.[1]).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const tracking = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
+  const fetch = config.filter(([k]) => k === `remote.${tracking}.fetch`).map(([, v]) => v.replace(/^\+/, ""));
+  if (!tracking || fetch.length !== 1 || fetch[0] !== `refs/heads/*:refs/remotes/${tracking}/*`) throw new Error(`the push destination ${full || "(none)"} cannot be mapped to a remote branch`);
+  return full.slice(`refs/remotes/${tracking}/`.length);
+}
+
+/** Whether a configured push refspec updates main or master: : (matching), a destination that is main, or a wildcard matching it. */
+function refspecIsMain(spec, branch) {
+  const text = spec.replace(/^\+/, "");
+  if (text.startsWith("^")) return false;
+  if (text === ":") return true;
+  const colon = text.indexOf(":");
+  const src = colon < 0 ? text : text.slice(0, colon);
+  let dst = colon < 0 || text.slice(colon + 1) === "" ? src : text.slice(colon + 1);
+  if (dst === "HEAD" || dst === "@") dst = branch;
+  return dst === "" || destinationIsMain(dst);
+}
+
+/** Whether a git boolean config value is true; a value git does not read as false counts as true (failing closed). */
+const gitTrue = (value) => !/^(false|no|off|0*|)$/i.test(value.trim());
+
+/**
+ * Where git sends a refspec with no colon that names a local ref (builtin/push.c refspec_append_mapped): the
+ * destination of a matching remote.<remote>.push value, else with push.default upstream or tracking the branch's one
+ * branch.<name>.merge value, else the same name. Every matching remote.<remote>.push value counts (git takes the first),
+ * and its source may be written short or full. Returns the destinations; throws when they cannot be known.
+ */
+function mappedDestinations(spec, remote, call, ctx) {
+  if (remote === undefined || remote.includes(SUB) || remote.includes("$")) throw new Error("the remote cannot be resolved");
+  const plain = spec.replace(/^\+/, "");
+  // In a directory that does not exist git push cannot run, so the name is taken as written.
+  if (!call.dir.some((part) => part.includes(SUB) || part.includes("$")) && !call.gitDir && !isDirectory(pathOf(call.dir, "."))) return [plain];
+  const config = gitConfigList(call);
+  const full = /^refs\//.test(plain) ? plain : `refs/heads/${plain.replace(/^heads\//, "")}`;
+  const names = new Set([plain, full, full.replace(/^refs\//, ""), full.replace(/^refs\/heads\//, "")]);
+  const dests = [];
+  for (const [, value] of config.filter(([k]) => k === `remote.${remote}.push`)) {
+    const text = value.replace(/^\+/, "");
+    if (text.startsWith("^") || text === ":") continue;
+    const colon = text.indexOf(":");
+    const src = colon < 0 ? text : text.slice(0, colon);
+    const dst = colon < 0 || text.slice(colon + 1) === "" ? src : text.slice(colon + 1);
+    const star = src.indexOf("*");
+    for (const name of names) {
+      if (star < 0 ? name === src : name.length >= src.length - 1 && name.startsWith(src.slice(0, star)) && name.endsWith(src.slice(star + 1))) {
+        dests.push(star < 0 ? dst : dst.replace("*", name.slice(star, name.length - (src.length - star - 1))));
+      }
+    }
+  }
+  if (dests.length > 0) return dests;
+  const mode = pushMode(config);
+  if ((mode === "upstream" || mode === "tracking") && full.startsWith("refs/heads/")) {
+    const branch = full.slice(11);
+    // A branch made earlier in the same command may get an upstream (git checkout -b x origin/main) that config does not show yet.
+    if (ctx.branchChanges.some((c) => c.name === branch)) throw new Error(`push.default ${mode} with ${branch} made in the same command`);
+    const merges = config.filter(([k]) => k === `branch.${branch}.merge`);
+    if (merges.length === 1) return [merges[0][1]];
+  }
+  return [plain];
+}
+
+/** Block reason for a refspec with no colon that git maps to main through remote.<name>.push or push.default upstream. */
+function mappedReason(spec, remote, call, ctx) {
+  const source = spec.replace(/^\+/, "");
+  const quotedSource = /^[A-Za-z0-9_./@+-]+$/.test(source) ? source : `'${source.replaceAll("'", "'\\''")}'`;
+  const guidance = `${NAME_DESTINATION}, for example git push -u origin ${quotedSource}:<branch>`;
+  let dests;
+  try {
+    dests = mappedDestinations(spec, remote, call, ctx);
+  } catch (error) {
+    return `git push ${spec}, whose destination cannot be resolved (${error.message}); failing closed, ${guidance}`;
+  }
+  const main = dests.find((d) => destinationIsMain(d));
+  return main === undefined ? null : `git push ${spec} goes to ${main} on the remote (remote.<name>.push or push.default upstream), and agents never push to main; ${guidance}`;
+}
+
+/**
+ * Block reason for a push whose destination is the current branch. With no branch change earlier in the command the
+ * branch is read with git symbolic-ref in the push's directory, and for a push with no refspec the destination is read
+ * with git rev-parse @{push}; after a change, only a new branch made right before the push passes, a push with no
+ * refspec only when push.default is simple or current and no remote.<name>.push is set, and anything else fails closed.
+ */
+function currentPushReason(call, ctx, state, push) {
+  const last = ctx.branchChanges.at(-1);
+  if (last !== undefined) {
+    if (!newBranchBeforePush(last, call, state)) return `git push of the current branch after a branch change in the same command; failing closed, ${NAME_THE_BRANCH}`;
+    if (push.mapped) return mappedReason(last.name, push.remote, call, ctx);
+    if (!push.implicit) return null;
+    let config;
+    try {
+      config = gitConfigList(call);
+    } catch (error) {
+      return `git push with no refspec after a new branch, and git config cannot be read (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+    }
+    const mode = pushMode(config);
+    if (mode !== "simple" && mode !== "current") return `git push with no refspec after a new branch, with push.default ${mode} (it may push to the start point's branch); failing closed, ${NAME_THE_BRANCH}`;
+    if (config.some(([k]) => /^remote\..+\.push$/.test(k))) return `git push with no refspec after a new branch, with a remote.<name>.push refspec set; failing closed, ${NAME_THE_BRANCH}`;
+    if (config.some(([k, v]) => /^remote\..+\.mirror$/.test(k) && gitTrue(v))) return `git push with no refspec after a new branch, with a remote.<name>.mirror set (it pushes every ref, main included); failing closed, ${NAME_THE_BRANCH}`;
+    return null;
+  }
+  let branch;
+  try {
+    branch = currentBranch(call);
+  } catch (error) {
+    return `git push of the current branch, which cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+  }
+  if (MAIN_REF.test(branch)) return `git push from ${branch} would update ${branch}; agents never push to main`;
+  if (push.mapped) return mappedReason(branch, push.remote, call, ctx);
+  if (!push.implicit) return null;
+  let dest;
+  try {
+    dest = pushDestination(branch, push.remote, call);
+  } catch (error) {
+    return `git push with no refspec, whose destination cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+  }
+  if (dest.refspecs) {
+    const main = dest.refspecs.find((spec) => refspecIsMain(spec, branch));
+    return main === undefined ? null : `git push with no refspec pushes every remote.<name>.push refspec, and ${main} updates main; agents never push to main; ${NAME_THE_BRANCH}`;
+  }
+  if (dest.mirror) return `git push with no refspec to ${dest.mirror}, whose remote.${dest.mirror}.mirror is set, pushes every ref, main included; agents never push to main; ${NAME_THE_BRANCH}`;
+  if (dest.nothing) return null;
+  if (dest.matching) return `git push with no refspec and push.default matching also pushes main; failing closed, ${NAME_THE_BRANCH}`;
+  return MAIN_REF.test(dest) ? `git push from ${branch} goes to ${dest} on the remote (push.default or remote.<name>.push), and agents never push to main; ${NAME_THE_BRANCH}` : null;
+}
+
+/** Whether a literal push destination is main or master, or a wildcard that matches refs/heads/main or refs/heads/master. */
+function destinationIsMain(dest) {
+  if (!/[*?[]/.test(dest)) return MAIN_REF.test(dest);
+  return ["main", "master"].some((name) => [name, `heads/${name}`, `refs/heads/${name}`].some((ref) => globEq(dest, ref)));
 }
 
 /** Block reason for a git push that would update main. */
-function pushReason(args) {
+function pushReason(args, call, ctx, state) {
   const positional = [];
+  let tags = false;
+  let every = null;
+  let dryRun = false;
+  let repo;
   for (let i = 0; i < args.length; i++) {
     const w = args[i];
-    if (/^(--repo|-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
-    else if (/^--(all|mirror|branches)$/.test(w)) return `git push ${w} would push main; agents never push to main`;
+    if (w === "--repo") repo = args[++i];
+    else if (w.startsWith("--repo=")) repo = w.slice(7);
+    else if (/^(-o|--push-option|--receive-pack|--exec)$/.test(w)) i++;
+    // As in git, the last of --dry-run (or -n) and --no-dry-run wins.
+    else if (w === "--dry-run" || w === "-n" || w === "--no-dry-run") dryRun = w !== "--no-dry-run";
+    else if (/^--(all|mirror|branches)$/.test(w)) every = w;
+    else if (w === "--tags") tags = true;
     else if (!w.startsWith("-")) positional.push(w);
   }
-  for (const spec of positional.slice(1)) {
-    const dest = spec.includes(":") ? spec.slice(spec.lastIndexOf(":") + 1) : spec.replace(/^\+/, "");
-    if (MAIN_REF.test(dest)) return `git push ${spec} would update main; agents never push to main`;
+  if (dryRun) return null; // a dry run writes nothing
+  if (every) return `git push ${every} would push main; agents never push to main`;
+  // As in git, the first positional argument is the repository (it overrides --repo) and the rest are refspecs.
+  const specs = positional.slice(1);
+  // With no refspec, a push updates the current branch; --tags alone pushes only tags.
+  let current = specs.length === 0 && !tags;
+  let mapped = false;
+  for (let k = 0; k < specs.length; k++) {
+    const spec = specs[k];
+    // tag <name> pushes refs/tags/<name>.
+    if (spec === "tag") {
+      k++;
+      continue;
+    }
+    const plain = spec.replace(/^\+/, "");
+    if (plain === ":") return `git push ${spec} pushes every matching branch, main included; agents never push to main`;
+    // The colon inside a ${VAR:-x} expansion is not the refspec colon.
+    const colon = plain.replace(/\$\{[^}]*\}/g, (m) => "_".repeat(m.length)).lastIndexOf(":");
+    // An empty destination (HEAD:, main:) names the same ref as the source.
+    const dest = (colon < 0 ? plain : plain.slice(colon + 1)) || plain.slice(0, colon);
+    if (dest.includes(SOURCED_AT)) return `git push ${spec} has a destination from a variable that a sourced file may set; failing closed`;
+    if (dest.includes(SUB) || dest.includes("$")) {
+      // A default or alternate value written in the destination (HEAD:${TARGET:-main}) is judged as written. Otherwise a
+      // destination built by substitution or a variable is read as the current branch, unless it cannot spell main
+      // whatever the values are (HEAD:fix/$(date +%s)), which is judged like a wildcard.
+      const filled = dest.replace(/\$\{[A-Za-z_]\w*:?[-=+?]([^}]*)\}/g, "$1").replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "").replaceAll(SUB, "");
+      if (destinationIsMain(filled)) return `git push ${spec} can expand to main; agents never push to main`;
+      const pattern = dest.replace(/\$(\{[^}]*\}|[A-Za-z_]\w*|\d|[@*#?$!-])/g, "*").replaceAll(SUB, "*");
+      if (destinationIsMain(pattern)) {
+        current = true;
+        // git maps a refspec with no colon that names the current branch through remote.<name>.push or push.default upstream.
+        if (colon < 0) mapped = true;
+      }
+    } else if (/^(HEAD|@)$/.test(dest)) current = true;
+    else if (destinationIsMain(dest)) return `git push ${spec} would update main; agents never push to main`;
+    else if (colon < 0) {
+      // A local branch named with no colon goes where git maps it, which can be main (push.default upstream).
+      const reason = mappedReason(plain, positional[0], call, ctx);
+      if (reason) return reason;
+    }
   }
-  return null;
+  return current ? currentPushReason(call, ctx, state, { implicit: specs.length === 0 && !tags, remote: positional[0] ?? repo, mapped }) : null;
 }
 
-function gitReason(argv, segment, dir) {
+function gitReason(argv, segment, call, ctx, state) {
+  const dir = call.dir;
   const sub = argv[1];
   const args = argv.slice(2);
   if (sub === "commit") return commitArgs(argv).some((w) => protectedName(w, dir, true)) ? "git commit reads or writes a protected file" : null;
-  if (sub === "push") return pushReason(args);
+  if (sub === "push") return pushReason(args, call, ctx, state);
   const output = args.find((w) => w.startsWith("--output"));
   if (output) return protectedName(output.replace(/^--output=?/, "") || args[args.indexOf(output) + 1] || "", dir, true) ? "git writes output to a protected path" : null;
-  if (GIT_READERS.has(sub)) return null;
+  // reflog expire and reflog delete change the reflog; its other forms read it.
+  if (GIT_READERS.has(sub) && !(sub === "reflog" && /^(expire|delete|drop)$/.test(args[0] ?? ""))) return null;
   if (sub === "apply" || sub === "am") {
     if (args.some((w) => /^--(abort|skip|quit|continue|show-current-patch)$/.test(w))) return null;
     if (sub === "apply" && args.some((w) => /^--(check|stat|numstat|summary)$/.test(w)) && !args.includes("--apply")) return null;
-    return patchReason([...args.filter((w) => !w.startsWith("-")), ...segment.ins], dir, `git ${sub}`);
+    const { files, opts } = patchArgs(args);
+    return patchReason([...files, ...segment.ins], dir, `git ${sub}`, opts);
   }
   if (sub === "checkout" || sub === "restore") {
     const dash = args.indexOf("--");
@@ -1184,6 +2338,7 @@ function supabaseHttpReason(argv, dir) {
 function writeTargetReason(target, dir, segment, substs) {
   const name = protectedName(target, dir, true);
   if (name) return `into ${name}`;
+  if (target?.includes(SOURCED_AT)) return "to a path from a variable that a sourced file may set; failing closed";
   if (target.includes(SUB) && substs.some((s) => PROTECTED_TEXT.test(s))) return "to a generated path that names a protected path";
   if (target.includes("$") && [...segment.words, ...segment.heredocs].some((w) => PROTECTED_TEXT.test(w))) return "to an unresolved variable path in a command that names a protected path; failing closed";
   return null;
@@ -1245,21 +2400,25 @@ function copyReason(cmd, args, dir, segment, substs) {
   return null;
 }
 
-function protectedWrite(argv, segment, dir, substs) {
+function protectedWrite(argv, segment, dir, substs, ctx, state) {
   const cmd = base(argv[0]);
   if (NO_WRITE_WORDS.has(cmd) && segment.outs.length === 0) return null;
   for (const target of segment.outs) {
     const reason = writeTargetReason(target, dir, segment, substs);
     if (reason) return `redirects output ${reason}`;
-    if (SCRIPT_FILE.test(target) && (argv.slice(1).some((w) => PROTECTED_TEXT.test(w)) || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)))) {
+    // Only echo and printf print their arguments; any other command (git show, cat) prints file contents, so a copy is a read.
+    const printsArgs = /^(echo|printf)$/.test(cmd) && argv.slice(1).some((w) => PROTECTED_TEXT.test(w));
+    if (SCRIPT_FILE.test(target) && (printsArgs || segment.heredocs.some((h) => PROTECTED_TEXT.test(h)))) {
       return `writes a script file ${target} whose text names a protected path; run those steps directly instead`;
     }
   }
   if (cmd === "git") {
-    const git = gitCall(argv, dir);
+    const git = gitCall(argv, dir, ctx, state, { ...state.env, ...unwrap(segment.words).env });
+    if (git.error) return git.error;
     if (git.config) return `git -c ${git.config} names a protected path`;
-    if (git.shell !== undefined) return git.shellArgs.some((w) => protectedName(w, git.dir, true)) ? "git shell alias gets a protected path as an argument" : null;
-    return gitReason(git.argv, segment, git.dir);
+    // Plain arguments were checked with the alias text (checkSegment); a generated one that names a protected path cannot be.
+    if (git.shell !== undefined) return git.shellArgs.some((w) => w.includes(SUB) && protectedName(w, git.dir, true)) ? "git shell alias gets a generated protected path as an argument" : null;
+    return gitReason(git.argv, segment, git, ctx, state);
   }
   if (cmd === "gh") {
     const gh = ghCall(argv).argv;
@@ -1281,10 +2440,8 @@ function protectedWrite(argv, segment, dir, substs) {
   // A package runner's command and a shell's -c text are checked on their own (checkSegment); only what is left is checked here.
   if (runnerInner(argv)) return null;
   let args = argv.slice(1);
-  if (SCRIPT_SHELLS.has(cmd)) {
-    const texts = shellInline(argv) ?? [];
-    args = args.filter((w) => !texts.includes(w) && !/^[-+][^-]/.test(w));
-  }
+  // A shell's -c text was checked with its positional values put in (checkSegment); options and the values are not writes here.
+  if (SCRIPT_SHELLS.has(cmd)) args = shellInline(argv) ? [] : args.filter((w) => !/^[-+][^-]/.test(w));
   // psql reads the file it runs; its target host was checked by pgReason.
   if (cmd === "psql") args = args.filter((w, i) => !/^(-f|--file)$/.test(args[i - 1] ?? "") && !/^(-f.|--file=)/.test(w));
   // The file an interpreter runs is read, not written; inline code (-c, -e) stays checked. node --test runs every file it names.
@@ -1311,6 +2468,7 @@ function argsReason(cmd, args, segment, dir, substs) {
     return reason ? `sort would write ${reason}` : null;
   }
   const writesArgs = FILE_WRITERS.has(cmd) || isReader(cmd);
+  if (writesArgs && args.some((w) => w.includes(SOURCED_AT))) return `${cmd} would write to a path from a variable that a sourced file may set; failing closed`;
   const generated = writesArgs && args.some((w) => w.includes(SUB)) && substs.some((s) => PROTECTED_TEXT.test(s));
   const name = inMigrations(dir) ? "supabase/migrations" : args.map((w) => protectedName(w, dir, FILE_WRITERS.has(cmd))).find(Boolean);
   if (!name && !generated) return null;
@@ -1324,13 +2482,19 @@ function argsReason(cmd, args, segment, dir, substs) {
  * Inline command texts a shell runs with -c, or null when it runs none. A
  * word such as -ce is a cluster of options and the text is the next
  * argument; -cTEXT is also read as the text itself, so both readings are checked.
+ * Long options such as --login or --noprofile are skipped, and a -- that
+ * ends the options is not the text.
  */
 function shellInline(argv) {
   const texts = [];
   let inline = false;
   let i = 1;
-  for (; i < argv.length && /^[-+][^-]/.test(argv[i]); i++) {
+  for (; i < argv.length && /^([-+][^-]|--.)/.test(argv[i]); i++) {
     const w = argv[i];
+    if (w.startsWith("--")) {
+      if (/^--(rcfile|init-file)$/.test(w)) i++;
+      continue;
+    }
     const at = w.indexOf("c");
     if (at > 0) {
       inline = true;
@@ -1339,8 +2503,36 @@ function shellInline(argv) {
     if (/^[-+][a-zA-Z]*[oO]$/.test(w)) i++;
   }
   if (!inline) return null;
+  // A lone - ends the options like --.
+  if (argv[i] === "--" || argv[i] === "-") i++;
   if (i < argv.length) texts.push(argv[i]);
-  return texts;
+  // The words after the text are $0, $1 and so on; they are values the text uses, so they are put into it.
+  return texts.flatMap((text) => positionalReadings(text, argv.slice(i + 1)));
+}
+
+/**
+ * Readings of shell text with its positional values put in. When the text moves the values (shift, set --) or reads
+ * them with a default (\${1:-x}, \${1-x}), each value is also tried in every earlier position, and the text is also
+ * read with the references left as variables, which stand for an unresolved value.
+ */
+function positionalReadings(text, values) {
+  if (!/\bshift\b|\bset\s+--|\$\{\d+:?[-=+?]/.test(text)) return [withPositional(text, values)];
+  const plain = text.replace(/\$\{(\d+):?[-=+?][^}]*\}/g, "${$1}");
+  const readings = [text];
+  for (let k = 0; k < Math.max(values.length - 1, 1); k++) readings.push(withPositional(plain, [values[0], ...values.slice(1 + k)].filter((v) => v !== undefined)));
+  return readings;
+}
+
+/** Shell text with $0, $1..$9, ${N}, "$@", $@ and $* replaced by the values a shell gives them. */
+function withPositional(text, values) {
+  if (values.length === 0) return text;
+  const quote = (w) => `'${w.replaceAll("'", "'\\''")}'`;
+  const escape = (w) => w.replace(/[\\"$`]/g, "\\$&");
+  const args = values.slice(1);
+  return text
+    .replace(/"\$(?:@|\{@\})"/g, () => args.map(quote).join(" "))
+    .replace(/\$(?:(\d)|\{(\d+)\})/g, (_, a, b) => escape(values[Number(a ?? b)] ?? ""))
+    .replace(/\$(?:[@*]|\{[@*]\})/g, () => args.map(escape).join(" "));
 }
 
 const SHELL_SCRIPT_NAME = /\.(sh|bash|zsh)$/i;
@@ -1376,7 +2568,8 @@ function pathScript(argv, dir) {
 function shellScript(cmd, argv, segment, dir) {
   if (!SCRIPT_SHELLS.has(cmd) && cmd !== "source" && cmd !== ".") return pathScript(argv, dir);
   if (SCRIPT_SHELLS.has(cmd) && shellInline(argv)) return undefined;
-  const file = argv.slice(1).find((w, i) => !w.startsWith("-") && !w.startsWith("+") && !/^[-+][a-zA-Z]*[oO]$/.test(argv[i] ?? ""));
+  // --rcfile, --init-file and -o take a value, which is not the script.
+  const file = argv.slice(1).find((w, i) => !w.startsWith("-") && !w.startsWith("+") && !/^([-+][a-zA-Z]*[oO]|--rcfile|--init-file)$/.test(argv[i] ?? ""));
   if (file !== undefined) return readNamed(file, dir) ?? null;
   if (segment.ins.length > 0) return readNamed(segment.ins[0], dir) ?? null;
   return undefined;
@@ -1414,7 +2607,7 @@ function dockerInner(argv) {
 
 /** True when argv runs tools/guardrails/apply.mjs, by path or through an interpreter. */
 function runsInstaller(argv, dir) {
-  const isInstaller = (w) => !w.includes(SUB) && /(^|\/)tools\/guardrails\/apply\.mjs$/i.test(changeDir(dir, w).join("/"));
+  const isInstaller = (w) => /(^|\/)tools\/guardrails\/apply\.mjs$/i.test(wordSegs(w, dir)?.join("/") ?? "");
   if (isInstaller(argv[0] ?? "")) return true;
   return INTERPRETERS.has(base(argv[0])) && !SHELLS.has(base(argv[0])) && argv.slice(1).some(isInstaller);
 }
@@ -1423,9 +2616,13 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   const { argv, wrappers, env } = unwrap(segment.words);
   const cmd = base(argv[0]);
   if (runsInstaller(argv, dir)) return "runs tools/guardrails/apply.mjs, which installs the guardrail; only the lead runs it, with Blaine's approval";
-  const shellAlias = cmd === "git" ? gitCall(argv, dir) : null;
+  const shellAlias = cmd === "git" ? gitCall(argv, dir, ctx, state, { ...state.env, ...env }) : null;
   if (shellAlias?.shell !== undefined) {
-    const reason = checkCommand(shellAlias.shell, shellAlias.dir, ctx, depth + 1);
+    // git runs sh -c '<alias> "$@"' '<alias>' <arguments>, so the arguments are put where the text uses them. A generated
+    // argument becomes a placeholder word, so the later ones keep their positions.
+    const values = shellAlias.shellArgs.map((w) => (w.includes(SUB) ? "_generated_" : w));
+    const text = withPositional(`${shellAlias.shell} "$@"`, [shellAlias.shell, ...values]);
+    const reason = checkCommand(text, shellAlias.dir, ctx, depth + 1);
     if (reason) return `git shell alias: ${reason}`;
   }
   const piped = segment.op === "|" || segment.op === "|&";
@@ -1447,7 +2644,11 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
     if (reason) return `${cmd} script: ${reason}`;
   }
   let inline = [];
-  if (cmd === "eval") inline = [argv.slice(1).join(" ")];
+  if (cmd === "eval") {
+    inline = [argv.slice(1).join(" ")];
+    // A command word that is still a reference or a placeholder is not known, so what eval runs cannot be checked.
+    if (parse(inline[0]).segments.some((s) => (unwrap(s.words).argv[0] ?? "").includes("$"))) return "eval runs a command from a variable that is not known; failing closed";
+  }
   else if (SCRIPT_SHELLS.has(cmd)) inline = shellInline(argv) ?? [];
   else if (SHELLS.has(cmd) || /^(npx|npm)$/.test(cmd)) inline = argv.filter((w, i) => /^(-c|--call)$/.test(argv[i - 1] ?? ""));
   for (const text of inline) {
@@ -1493,41 +2694,190 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
   const merge = target && mergeReason(target, ctx);
   if (merge) return merge;
   const fullArgv = wrappers.has("xargs") && piped ? [...argv, ...state.prevArgs] : argv;
-  return protectedWrite(fullArgv, segment, dir, substs);
+  return protectedWrite(fullArgv, segment, dir, substs, ctx, state);
+}
+
+/**
+ * Records possible alias values with the config targets git config can write. A later invocation checks both current
+ * and possible values: skipped writes and config precedence cannot turn an unsafe current alias into a safe one.
+ */
+function recordGitAlias(argv, dir, state, env) {
+  if (base(argv[0]) !== "git") return;
+  const git = gitCall(argv, dir, null, state, env);
+  const args = git.argv.slice(2);
+  if (git.argv[1] !== "config" || args.some((w) => /^--(get|get-all|get-regexp|unset|unset-all|list|blob)(=|$)|^-l$/.test(w))) return;
+  const fileAt = args.findIndex((w) => /^(-f|--file)(=|$)/.test(w));
+  const file = fileAt < 0 ? undefined : /^--file=/.test(args[fileAt]) ? args[fileAt].slice(7) : args[fileAt + 1];
+  const at = args.findIndex((w, i) => /^alias\.[^=]+$/i.test(w) && (fileAt < 0 || i !== fileAt + 1));
+  if (at >= 0 && args[at + 1] !== undefined) {
+    const name = args[at].slice(6).toLowerCase();
+    const configEnv = { ...process.env, ...git.configEnv };
+    let targets;
+    if (file !== undefined) targets = [file.replace(/^~(?=\/|$)/, process.env.HOME ?? "~")];
+    else if (args.includes("--global")) targets = configEnv.GIT_CONFIG_GLOBAL !== undefined
+      ? [configEnv.GIT_CONFIG_GLOBAL]
+      : [`${process.env.HOME ?? ""}/.gitconfig`, `${process.env.XDG_CONFIG_HOME || `${process.env.HOME ?? ""}/.config`}/git/config`];
+    else if (args.includes("--system")) targets = [configEnv.GIT_CONFIG_SYSTEM ?? "/etc/gitconfig"];
+    else {
+      const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], git);
+      targets = common.status === 0 && common.stdout.trim() ? [`${common.stdout.trim()}/config`] : [];
+      if (args.includes("--worktree")) {
+        const local = runGit(["rev-parse", "--absolute-git-dir"], git);
+        if (local.status === 0 && local.stdout.trim()) targets.push(`${local.stdout.trim()}/config.worktree`);
+      }
+    }
+    if (targets.length === 0 || targets.some((target) => target.includes(SUB) || target.includes("$"))) {
+      state.gitFileAliases.push({ name, unknown: true });
+    } else for (const target of targets) state.gitFileAliases.push({
+      file: target.startsWith("/") ? target : `${pathOf(git.dir, ".")}/${target}`, name, value: args[at + 1],
+    });
+  }
+  const include = args.findIndex((w) => GIT_INCLUDE_KEY.test(w));
+  if (include >= 0 && args[include + 1] !== undefined) state.gitIncludes.push(`${args[include]}=${args[include + 1]}`);
+}
+
+/**
+ * The directory a cd leads to. $PWD and ${PWD} are the current directory; ~, $HOME, ${HOME} and a bare cd are expanded from HOME; cd - goes back to the directory before the last
+ * cd in this command. A directory that cannot be known gets an unresolved part, so git calls there fail closed.
+ */
+function cdTarget(dir, target, oldDir) {
+  if (target === "-") return oldDir ?? [...dir, "$OLDPWD"];
+  // $PWD is the directory the cd runs in.
+  const pwdVar = /^\$(\{PWD\}|PWD)(?=\/|$)/.exec(target ?? "");
+  if (pwdVar) return changeDir(dir, `.${target.slice(pwdVar[0].length)}`);
+  const home = process.env.HOME;
+  const homeVar = /^\$(\{HOME\}|HOME)(?=\/|$)/.exec(target ?? "");
+  if (homeVar) target = `~${target.slice(homeVar[0].length)}`;
+  if (target === undefined || target === "~" || target.startsWith("~/")) {
+    return home?.startsWith("/") ? changeDir(changeDir([], home), (target ?? "~").slice(2)) : [...dir, "$HOME"];
+  }
+  if (target.startsWith("~")) return [...dir, "$HOME"];
+  return changeDir(dir, target);
+}
+
+/** Unsupported assignment timing is explicit; definite temporary prefixes and ordinary arguments remain supported. */
+function assignmentRedirectReason(src) {
+  const declarations = new Set(["export", "readonly", "local", "declare", "typeset"]);
+  const special = new Set([".", ":", "break", "continue", "eval", "exec", "exit", "return", "set", "shift", "times", "trap", "unset", "source", ...declarations]);
+  for (const segment of parse(src).segments) {
+    if (!segment.redirects) continue;
+    let words = segment.words;
+    while (PREFIX_KEYWORDS.has(words[0])) words = words.slice(1);
+    const { argv, env, wrappers } = unwrap(words);
+    const cmd = base(argv[0]);
+    const uncertain = !argv[0] || ["$", "*", "?", "[", SUB].some((part) => argv[0].includes(part));
+    const prefix = Object.keys(env).length > 0;
+    const opaqueValues = Object.values(env).some((value) => value.includes(SUB) || value.replace(/\$\{[A-Za-z_]\w*(?::?[-+?][^{}]*)?\}/g, "").includes("${"));
+    if ((prefix && (uncertain || opaqueValues || special.has(cmd) || wrappers.has("exec"))) ||
+        (declarations.has(cmd) && argv.slice(1).some(isAssignment))) return ASSIGNMENT_REDIRECTS;
+  }
+  return null;
 }
 
 function checkCommand(src, dir, ctx, depth = 0) {
   if (depth > 6) return "command nests too deeply to check";
-  // In collect mode (used by the tests to list every reason) a reason is recorded and checking goes on.
+  // Collect mode records reasons; an unsupported form ends that reading because its state is not modeled.
   const report = (reason) => {
     if (!reason || !ctx.collect) return reason;
     ctx.collect.push(reason);
     return null;
   };
-  const { segments, substs } = parse(expandVars(src));
+  const unsupported = assignmentRedirectReason(src);
+  if (unsupported) return report(unsupported);
+  const texts = expandVariants(src);
+  if (texts === null) return report(TOO_MANY_VARIANTS);
+  for (const text of texts) {
+    const unsupported = assignmentRedirectReason(text);
+    if (unsupported) {
+      const reason = report(unsupported);
+      if (reason) return reason;
+      continue;
+    }
+    // Readings multiply across nested -c, eval and $( ) text; past the budget the command fails closed, also in collect mode.
+    if (++ctx.work > MAX_WORK) {
+      const reason = "the command has too many readings to check in time; failing closed";
+      ctx.collect?.push(reason);
+      return reason;
+    }
+    const reason = checkExpanded(text, dir, ctx, depth, report);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+/** checkCommand for one expansion of the command text. */
+function checkExpanded(text, dir, ctx, depth, report) {
+  const { segments, substs } = parse(text);
   for (const inner of substs) {
     const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;
   }
-  const state = { decoded: false, env: {}, prevArgs: [], inTest: false };
-  for (const segment of segments) {
+  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitIncludes: [], gitFileAliases: [], oldDir: undefined };
+  // Each command text checked gets its own number, so a branch change and a push are known to be in the same text.
+  // lastCd is the index of the last segment that changed directory, compound the depth of if, while, for, case and { }.
+  Object.assign(state, { inv: ctx.invocations++, segments, index: 0, lastCd: -1, compound: 0 });
+  // A subshell gets a copy of the directory; a cd inside it does not change the directory after it.
+  const outer = [];
+  state.dirStack = [];
+  let conditionalDirs = [];
+  for (const [index, segment] of segments.entries()) {
+    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: [...state.dirStack], conditionalDirs: [...conditionalDirs] });
+    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: state.dirStack, conditionalDirs } = outer.pop());
+    state.index = index;
+    // A pipeline negated with ! succeeds when its command fails, so a creation there never stops a push after it.
+    state.negated = false;
+    let splitBody = false;
+    for (const w of segment.words) {
+      if (w === "else" || w === "elif" || w === ";;") splitBody = true;
+      if (COMPOUND_OPEN.has(w)) state.compound++;
+      else if (COMPOUND_CLOSE.has(w)) state.compound = Math.max(0, state.compound - 1);
+      else if (w === "!") state.negated = true;
+      else if (!COMPOUND_INNER.has(w)) break;
+    }
+    const joined = conditionalDirs.filter((entry) => state.compound < entry.depth || splitBody || (entry.chain && segment.op !== "&&"));
+    if (joined.length > 0) dir = [...joined[0].before, "$CONDITIONAL_CD"];
+    conditionalDirs = conditionalDirs.flatMap((entry) => {
+      if (!joined.includes(entry)) return [entry];
+      return entry.depth > 0 && state.compound >= entry.depth ? [{ ...entry, chain: false }] : [];
+    });
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
     if (argv.length === 0 || cmd === "export") {
       Object.assign(state.env, env);
-      for (const w of argv.slice(1)) if (isAssignment(w)) state.env[w.slice(0, w.indexOf("="))] = w.slice(w.indexOf("=") + 1);
+      for (const w of argv.slice(1)) if (isAssignment(w)) {
+        const [name, value] = assignmentOf(w);
+        state.env[name] = w.slice(0, w.indexOf("=")).endsWith("+") ? `${state.env[name] ?? process.env[name] ?? SUB}${value}` : value;
+      }
     }
     if (state.inTest) {
       state.inTest = !segment.words.includes("]]");
       continue;
     }
     if (cmd === "[[" && !segment.words.includes("]]")) state.inTest = true;
-    if (cmd === "cd" || cmd === "pushd") {
-      dir = changeDir(dir, argv.slice(1).find((w) => !w.startsWith("-")));
+    if (cmd === "cd" || cmd === "pushd" || cmd === "popd") {
+      // popd returns to a directory on the stack, a pushd with no directory or a +N or -N rotates the stack, and a cd in
+      // a pipeline runs in its own subshell; none is followed, so the directory after them is unresolved. popd's
+      // unresolved part goes on the directory before the last pushd in this command, where popd most likely returns.
+      const piped = /^\|&?$/.test(segment.op ?? "") || /^\|&?$/.test(segments[index + 1]?.op ?? "");
+      const target = argv.slice(1).find((w) => w === "-" || !w.startsWith("-"));
+      let next;
+      if (piped) next = [...dir, "$DIRSTACK"];
+      else if (cmd === "popd") next = [...(state.dirStack.pop() ?? dir), "$DIRSTACK"];
+      else if (cmd === "pushd" && (target === undefined || /^[+-]\d+$/.test(target))) next = [...dir, "$DIRSTACK"];
+      else next = cdTarget(dir, target, state.oldDir);
+      if (cmd === "pushd" && !piped) state.dirStack.push(dir);
+      if (segment.op === "||") next = [...dir, "$CONDITIONAL_CD"];
+      if (state.compound > 0 || segment.op === "&&" || segment.op === "||") {
+        conditionalDirs.push({ before: dir, depth: state.compound, chain: segment.op === "&&" || segment.op === "||" });
+      }
+      [dir, state.oldDir] = [next, dir];
+      state.lastCd = index;
       continue;
     }
     const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
     if (reason) return reason;
+    recordGitAlias(argv, dir, state, { ...state.env, ...env });
+    recordBranch(argv, dir, state, ctx, { ...state.env, ...env });
     state.prevArgs = argv.slice(1);
   }
   return null;
@@ -1537,6 +2887,8 @@ function checkCommand(src, dir, ctx, depth = 0) {
 export function sqlReason(sql) {
   if (typeof sql !== "string") return "execute_sql has no query string; failing closed";
   if (/(^|[^\w$])"?pgmq"?\s*\.\s*"?[\w$]+"?\s*\(/i.test(sql)) return "execute_sql calls a pgmq function, which changes queue state";
+  const identifier = (name) => /^[a-z_][a-z0-9_$]*$/.test(name)
+    ? name : `q_${Buffer.from(name, "utf8").toString("hex")}`;
   let text = "";
   for (let i = 0; i < sql.length; ) {
     const rest = sql.slice(i);
@@ -1571,9 +2923,10 @@ export function sqlReason(sql) {
       if (i >= sql.length) return "execute_sql has an unterminated quote; failing closed";
       const inner = sql.slice(start, i).replaceAll('""', '"');
       i++;
-      // A quoted identifier called as a function keeps its name so side effect functions are still caught.
+      // Preserve known side-effect names and keep arbitrary quoted function/schema names as single identifiers.
       if (quote === "'") text += " '' ";
-      else text += /^\s*\(/.test(sql.slice(i)) ? ` ${inner}` : " q ";
+      else if (/^\s*\(/.test(sql.slice(i))) text += ` ${identifier(inner)}`;
+      else text += /^\s*\./.test(sql.slice(i)) ? ` ${identifier(inner)}` : " q ";
     } else if (dollar && !/\w$/.test(sql.slice(0, i))) {
       const end = sql.indexOf(dollar[0], i + dollar[0].length);
       if (end < 0) return "execute_sql has an unterminated dollar quote; failing closed";
@@ -1586,7 +2939,15 @@ export function sqlReason(sql) {
   const first = /^[\s(]*([A-Za-z]+)/.exec(statement)?.[1]?.toLowerCase();
   if (!SQL_FIRST_WORDS.has(first)) return "execute_sql allows only read only statements (select, with, show, explain, table)";
   const write = SQL_WRITE_WORDS.exec(statement) ?? SQL_SIDE_EFFECTS.exec(statement);
-  return write ? `execute_sql query contains "${write[0].trim()}", which is not read only` : null;
+  if (write) return `execute_sql query contains "${write[0].trim()}", which is not read only`;
+  // A schema qualified call into an app schema may be a user defined function that writes; system schemas and the
+  // Supabase auth helpers that read the request (auth.uid, auth.role, auth.jwt, auth.email) stay allowed.
+  for (const m of statement.matchAll(/(?:^|[^\w$.])([A-Za-z_][\w$]*)\s*\.\s*([A-Za-z_][\w$]*)\s*\(/g)) {
+    const [schema, fn] = [m[1].toLowerCase(), m[2].toLowerCase()];
+    if (SQL_SYSTEM_SCHEMAS.has(schema) || (schema === "auth" && SQL_AUTH_READS.has(fn))) continue;
+    return `execute_sql calls a function in the ${m[1]} schema, which may write; failing closed`;
+  }
+  return null;
 }
 
 function mcpMergeTarget(name, input) {
@@ -1640,8 +3001,10 @@ export function decide(payload, options = {}) {
   if (input == null || typeof input !== "object") return "tool_input is missing; failing closed";
   const tool = String(payload.tool_name ?? "");
   const cwdPath = resolve(payload.cwd || process.cwd());
-  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), collect: options.collect ? [] : null };
+  const ctx = { prFiles: options.prFiles ?? ghPrFiles, cwd: cwdPath, visited: new Set(), gitAliases: new Map(), branchChanges: [], invocations: 0, work: 0, collect: options.collect ? [] : null };
   const cwd = changeDir([], cwdPath);
+  gitCache.clear();
+  prCache.clear();
   if (tool.startsWith("mcp__")) return checkMcp(tool, input, ctx);
   if (EDIT_TOOLS.has(tool)) return checkEdit(input, cwd);
   if (tool !== "Bash") return null;
@@ -1660,11 +3023,34 @@ async function main() {
     reason = `could not check this call (${error.message}); failing closed`;
   }
   if (!reason) return 0;
-  process.stderr.write(
-    `guard-migrations blocked this call: ${reason}.\n` +
-      "This hook is best effort. The real gates are the deny rules in .claude/settings.json, workers never merging, and Blaine's explicit yes for anything under supabase/migrations/. Stop and report; do not route around it.\n",
-  );
+  process.stderr.write(blockMessage(reason));
   return 2;
+}
+
+/**
+ * The text shown when a call is blocked. A push whose destination is the current branch has an intended fix, naming a
+ * destination that is not main, so its message says so; every other block says to stop and report.
+ */
+export function blockMessage(reason) {
+  if (reason.includes(ASSIGNMENT_REDIRECTS)) {
+    return `guard-migrations blocked this call: ${reason}.\nThe intended fix is to split assignments and redirections into separate commands in the intended order; each command remains subject to the guard.\n`;
+  }
+  if (reason.includes(NAME_DESTINATION)) {
+    return (
+      `guard-migrations blocked this call: ${reason}.\n` +
+      "This push goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, using the source ref shown above; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
+    );
+  }
+  if (reason.includes(TOO_MANY_VARIANTS)) {
+    return (
+      `guard-migrations blocked this call: ${reason}.\n` +
+      `The guard checks every variant of a command up to ${String(MAX_VARIANTS)} and blocks anything larger. The intended fix is to split the loop into smaller loops or list the files explicitly; each smaller command is checked in full, so doing that is not routing around the guard.\n`
+    );
+  }
+  return (
+    `guard-migrations blocked this call: ${reason}.\n` +
+    "This hook is best effort. The real gates are the deny rules in .claude/settings.json, workers never merging, and Blaine's explicit yes for anything under supabase/migrations/. Stop and report; do not route around it.\n"
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

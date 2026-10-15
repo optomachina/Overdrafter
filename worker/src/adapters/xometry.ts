@@ -1777,6 +1777,7 @@ async function findButtonAndOpen(
       {
         vendor: "xometry",
         field,
+        terminalState: "selector_drift",
         failedSelector: selectors[0],
         attemptedSelectors: [...selectors],
         nearbyAttributes: [...selectors],
@@ -1790,12 +1791,15 @@ async function findButtonAndOpen(
     .getAttribute("aria-expanded")
     .then((value) => value === "true")
     .catch(() => false);
-  if (match.isPreferred && controlRole === "combobox") {
+  // Xometry's searchable comboboxes render "No options" until a search term
+  // is typed, so the caller fills each term into the returned search input.
+  const searchable = match.isPreferred && controlRole === "combobox";
+  if (searchable) {
     await match.locator.press("ArrowDown");
   } else if (!alreadyExpanded) {
     await match.locator.click();
   }
-  return match.selector;
+  return { selector: match.selector, searchInput: searchable ? match.locator : null };
 }
 
 export async function chooseOptionByTerms(
@@ -1805,8 +1809,10 @@ export async function chooseOptionByTerms(
   field: "material" | "finish",
   controlSelector: string,
   observer?: XometryProviderObserver,
+  searchInput: Locator | null = null,
 ) {
   for (const term of terms) {
+    if (searchInput) await searchInput.fill(term);
     const roleOption = page
       .getByRole("option", { name: new RegExp(escapeRegex(term), "i") })
       .first();
@@ -1852,6 +1858,7 @@ export async function chooseOptionByTerms(
     {
       vendor: "xometry",
       field,
+      terminalState: "selector_drift",
       failedSelector: optionSelectors[0],
       attemptedSelectors: [...optionSelectors],
       nearbyAttributes: [...optionSelectors],
@@ -1899,8 +1906,10 @@ async function configureRequiredOption(
   field: "material" | "finish",
   observer?: XometryProviderObserver,
 ) {
-  const controlSelector = await findButtonAndOpen(page, controlSelectors, field);
-  return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector, observer);
+  const control = await findButtonAndOpen(page, controlSelectors, field);
+  return chooseOptionByTerms(
+    page, terms, optionSelectors, field, control.selector, observer, control.searchInput,
+  );
 }
 
 async function saveConfiguration(

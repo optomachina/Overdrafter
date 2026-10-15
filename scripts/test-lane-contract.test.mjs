@@ -20,6 +20,7 @@ const portableSuites = [
   "scripts/verify-migration-lineage.node-test.mjs",
   "scripts/provider-permissions-verify.node-test.mjs",
   "tools/guardrails/proposed/guard-migrations.node-test.mjs",
+  "scripts/window2-packet.node-test.mjs",
 ];
 
 function portableCommand() {

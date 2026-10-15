@@ -10,10 +10,14 @@ end $$;
 -- The shared window 2 reverse lock: staged reverses run one at a time.
 select pg_advisory_xact_lock(510, 2);
 -- Freeze both admission sets before checking emptiness; otherwise a concurrent
--- trusted insert could commit after the check and be deleted by DROP. Storage
--- comes first, the order mapping preparation reads it before writing a mapping;
--- the drops remove foreign keys to both storage tables and lock them anyway.
-lock table storage.objects, storage.buckets,
+-- trusted insert could commit after the check and be deleted by DROP. The
+-- window 2 relation order: the attempt and admission parents (mapping
+-- preparation locks the admission FOR UPDATE first), then storage, then the
+-- mapping tables. The drops remove foreign keys to all four parents and take
+-- ACCESS EXCLUSIVE on them anyway; taking them first avoids a deadlock.
+lock table public.engineering_execution_attempts,
+  engineering_private.native_input_admissions,
+  storage.objects, storage.buckets,
   engineering_private.native_artifact_inputs,
   engineering_private.native_artifact_outputs in access exclusive mode;
 do $$ begin

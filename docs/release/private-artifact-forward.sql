@@ -5,6 +5,15 @@
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '30s';
+-- READ COMMITTED, then the shared window 2 lock, before any relation is read
+-- or locked: no staged forward or reverse interleaves with another.
+do $window2_forward_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'private_artifact_forward_read_committed_required' using errcode = '0A000';
+  end if;
+end $window2_forward_isolation$;
+select pg_advisory_xact_lock(510, 2);
 create table engineering_private.native_artifact_inputs (
   id uuid primary key,
   input_admission_id uuid not null references engineering_private.native_input_admissions(id),
