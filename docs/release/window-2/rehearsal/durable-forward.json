@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "forwardSha256": "acc45e6ba5591caf24dd9d7e6be8d22af8d1e914f9310dbbe6be8bccff21fdac",
+  "catalogSha256": "28ba5c5b96eaea58904ae48589e4c37877a39a2c750c5a552da15b248f9e4fae",
+  "canonicalCatalogSha256": "013cf17e9044c8ccaea7e742b5ce511247b861758dbe1933e912290ebc7dc381",
+  "adminCanonicalCatalogSha256": "75d7e476f03d395af4b9a28a5c0fed3d45008ed563a74cbdfa0cf6325f2dab70"
+}

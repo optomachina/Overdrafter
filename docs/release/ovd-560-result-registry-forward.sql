@@ -4,6 +4,22 @@
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '30s';
+-- READ COMMITTED, then the shared window 2 lock, before any relation is read
+-- or locked: no staged forward or reverse interleaves with another.
+do $window2_forward_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd560_forward_read_committed_required' using errcode = '0A000';
+  end if;
+end $window2_forward_isolation$;
+select pg_advisory_xact_lock(510, 2);
+-- Relation locks in the window 2 order, before the emptiness check reads the
+-- registry: the attempt and snapshot parents, then storage.objects, then the
+-- registry. Registration and the OVD-560 reverse take them in the same order.
+-- The foreign keys added below need SHARE ROW EXCLUSIVE on each parent.
+lock table public.engineering_execution_attempts, public.engineering_snapshots, storage.objects
+  in share row exclusive mode;
+lock table engineering_private.native_verifier_registered_objects in access exclusive mode;
 
 do $preflight$
 begin
@@ -177,11 +193,19 @@ revoke execute on function engineering_private.native_result_registration_immuta
 do $postflight$
 declare callable_count integer;
 begin
+  -- OVD-558 allowlist: exactly 7 application functions, and in storage nothing
+  -- anon cannot call (storage functions keep Supabase's shipped ACLs).
   select count(*) into callable_count from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname in ('public','engineering_private','storage')
+    where n.nspname in ('public','engineering_private')
       and has_schema_privilege('engineering_native_verifier', n.oid, 'USAGE')
       and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE');
   if callable_count <> 7 then raise exception 'ovd560_verifier_allowlist_drift:%', callable_count; end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'storage'
+      and has_function_privilege('engineering_native_verifier', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')) then
+    raise exception 'ovd560_verifier_allowlist_drift_storage_beyond_anon';
+  end if;
   if exists (select 1 from (values ('anon'),('authenticated'),('service_role'),('engineering_native_verifier')) role_name(name)
     where has_table_privilege(role_name.name,
       'engineering_private.native_verifier_registered_objects', 'SELECT, INSERT, UPDATE, DELETE')) then
