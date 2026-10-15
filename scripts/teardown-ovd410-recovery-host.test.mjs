@@ -14,7 +14,7 @@ function testEnvironment(overrides = {}) {
 }
 
 function commandKind(args) {
-  if (args.includes("instances")) return "vm";
+  if (args.includes("instances") || args.includes("disks")) return "vm";
   if (args.includes("firewall-rules")) return "firewall";
   if (args.includes("repositories")) return "repository-binding";
   if (args.includes("service-accounts")) return "recovery-service-account";
@@ -47,7 +47,7 @@ describe("OVD-410 recovery compensating teardown", () => {
     });
 
     expect(code).toBe(0);
-    expect(calls).toHaveLength(11);
+    expect(calls).toHaveLength(12);
     expect(new Set(calls.map(commandKind))).toEqual(
       new Set([
         "vm",
@@ -78,6 +78,26 @@ describe("OVD-410 recovery compensating teardown", () => {
     expect(del[del.indexOf("--zone") + 1]).toBe("us-west1-c");
     const list = calls.find((a) => a.includes("instances") && a.includes("list"));
     expect(list[list.indexOf("--zones") + 1]).toBe(CONTRACT.allowedZones.join(","));
+  });
+
+  it("fails closed on a machine type outside the hardware allowlist", async () => {
+    for (const [machineType, expected] of [["e2-standard-2", 1], ["n4-standard-2", 0]]) {
+      const calls = [];
+      const code = await teardownRecoveryHost({
+        env: testEnvironment({ XOMETRY_RECOVERY_MACHINE_TYPE: machineType }),
+        output: { write: () => {} },
+        runCommand: async (args) => {
+          calls.push(args);
+          if (commandKind(args) === "repository-binding" && isReadback(args)) {
+            return JSON.stringify({ bindings: [] });
+          }
+          return "";
+        },
+      });
+      expect(code).toBe(expected);
+      if (expected === 1) expect(calls).toHaveLength(0);
+      else expect(calls.some((a) => a.includes("disks") && a.includes("list"))).toBe(true);
+    }
   });
 
   it("fails closed on a recovery zone outside the allowlist", async () => {
@@ -121,7 +141,7 @@ describe("OVD-410 recovery compensating teardown", () => {
       "recovery-service-account",
       "iap-restoration",
     ]);
-    expect(calls.filter(isReadback)).toHaveLength(6);
+    expect(calls.filter(isReadback)).toHaveLength(7);
     expect(output.join("")).toContain("residue=vm");
   });
 

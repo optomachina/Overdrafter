@@ -141,6 +141,8 @@ export function validateRecoveryHostExpectations(expectations) {
     ZONE_PATTERN.test(expectations.zone ?? "") &&
     expectations.zone.startsWith(`${expectations.region}-`) &&
     OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone) &&
+    recoveryHardwareProfile(expectations.machineType)?.bootDiskType ===
+      expectations.bootDiskType &&
     [
       expectations.network,
       expectations.subnet,
@@ -196,12 +198,24 @@ export function validateRecoveryHostExpectations(expectations) {
   );
 }
 
-function matchesProductionContract(expectations) {
-  return Object.entries(OVD410_RECOVERY_HOST_CONTRACT).every(([key, value]) =>
-    key === "zone"
-      ? OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone)
-      : expectations[key] === value,
+export function recoveryHardwareProfile(machineType) {
+  return (
+    OVD410_RECOVERY_HOST_CONTRACT.hardwareProfiles.find(
+      (profile) => profile.machineType === machineType,
+    ) ?? null
   );
+}
+
+function matchesProductionContract(expectations) {
+  const profile = recoveryHardwareProfile(expectations.machineType);
+  if (profile === null || expectations.bootDiskType !== profile.bootDiskType) return false;
+  return Object.entries(OVD410_RECOVERY_HOST_CONTRACT).every(([key, value]) => {
+    if (key === "zone") {
+      return OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone);
+    }
+    if (key === "machineType" || key === "bootDiskType") return true;
+    return expectations[key] === value;
+  });
 }
 
 /** Validate the exact sanitized guest-startup status shape. */
@@ -370,7 +384,7 @@ function evaluateInstanceIdentity(instance, expectations, failures) {
   }
 }
 
-function evaluateInstanceSecurity(instance, expectations, failures) {
+function evaluateInstanceSecurity(instance, expectations, failures, evidence = {}) {
   const shielded = instance.shieldedInstanceConfig;
   if (
     shielded?.enableSecureBoot !== true ||
@@ -405,6 +419,22 @@ function evaluateInstanceSecurity(instance, expectations, failures) {
   ) {
     failures.push("recovery_instance_boot_disk_invalid");
   }
+  const bootDisk = evidence.bootDisk;
+  if (
+    !isObject(bootDisk) ||
+    basename(bootDisk.type) !== expectations.bootDiskType ||
+    String(bootDisk.sizeGb) !== OVD410_RECOVERY_HOST_CONTRACT.bootDiskSizeGb ||
+    basename(instance.disks?.[0]?.source) !== bootDisk.name ||
+    !exactly(
+      bootDisk.users?.map((user) => basename(user)),
+      [expectations.instance],
+    )
+  ) {
+    failures.push("recovery_instance_boot_disk_hardware_invalid");
+  }
+  if (JSON.stringify(evidence.bootDisk) !== JSON.stringify(evidence.confirmBootDisk)) {
+    failures.push("recovery_instance_boot_disk_changed_during_collection");
+  }
   const serviceAccounts = instance.serviceAccounts;
   if (
     !Array.isArray(serviceAccounts) ||
@@ -429,7 +459,7 @@ function evaluateInstanceEvidence(evidence, expectations, failures) {
     expectations,
     failures,
   );
-  evaluateInstanceSecurity(instance, expectations, failures);
+  evaluateInstanceSecurity(instance, expectations, failures, evidence);
 }
 
 function evaluateRecoveryEgressEvidence(evidence, expectations, failures) {
@@ -939,6 +969,14 @@ export async function collectRecoveryHostEvidence(
     ...zonal,
     "--format=json(id,name,zone,machineType,status,canIpForward,deletionProtection,tags,labels,guestAccelerators,resourcePolicies,networkInterfaces,metadata,fingerprint,shieldedInstanceConfig,confidentialInstanceConfig,scheduling,disks,serviceAccounts)",
   ];
+  const bootDiskArgs = [
+    "compute",
+    "disks",
+    "describe",
+    expectations.instance,
+    ...zonal,
+    "--format=json(name,type,sizeGb,users)",
+  ];
   const firewallArgs = [
     "compute",
     "firewall-rules",
@@ -1061,6 +1099,7 @@ export async function collectRecoveryHostEvidence(
   const evidence = {
     stable,
     instance: await run("instance", instanceArgs),
+    bootDisk: await run("bootDisk", bootDiskArgs),
     firewall: await run("firewall", firewallArgs),
     instanceInventory: await run("instanceInventory", instanceInventoryArgs),
     firewallInventory: await run("firewallInventory", firewallInventoryArgs),
@@ -1092,6 +1131,7 @@ export async function collectRecoveryHostEvidence(
     recoveryEgressRuntime: await run("recoveryEgressRuntime", recoveryEgressRuntimeArgs),
   };
   evidence.confirmInstance = await run("confirmInstance", instanceArgs);
+  evidence.confirmBootDisk = await run("confirmBootDisk", bootDiskArgs);
   evidence.confirmFirewall = await run("confirmFirewall", firewallArgs);
   evidence.confirmInstanceInventory = await run(
     "confirmInstanceInventory",
@@ -1144,6 +1184,11 @@ function expectationsFromEnv(env) {
     project: env.GOOGLE_CLOUD_PROJECT,
     region: env.CLOUD_RUN_REGION ?? OVD410_RECOVERY_HOST_CONTRACT.region,
     zone: env.XOMETRY_RECOVERY_ZONE ?? OVD410_RECOVERY_HOST_CONTRACT.zone,
+    machineType:
+      env.XOMETRY_RECOVERY_MACHINE_TYPE ?? OVD410_RECOVERY_HOST_CONTRACT.machineType,
+    bootDiskType: recoveryHardwareProfile(
+      env.XOMETRY_RECOVERY_MACHINE_TYPE ?? OVD410_RECOVERY_HOST_CONTRACT.machineType,
+    )?.bootDiskType,
     network: env.CLOUD_RUN_NETWORK,
     subnet: env.CLOUD_RUN_SUBNET,
     subnetRange: env.CLOUD_RUN_SUBNET_RANGE,
@@ -1165,10 +1210,16 @@ async function runStartupStatusCli({ env, output, collectStartupStatus }) {
     ...OVD410_RECOVERY_HOST_CONTRACT,
     project: env.GOOGLE_CLOUD_PROJECT,
     zone: env.XOMETRY_RECOVERY_ZONE ?? OVD410_RECOVERY_HOST_CONTRACT.zone,
+    machineType:
+      env.XOMETRY_RECOVERY_MACHINE_TYPE ?? OVD410_RECOVERY_HOST_CONTRACT.machineType,
+    bootDiskType: recoveryHardwareProfile(
+      env.XOMETRY_RECOVERY_MACHINE_TYPE ?? OVD410_RECOVERY_HOST_CONTRACT.machineType,
+    )?.bootDiskType,
   };
   if (
     expectations.project !== OVD410_RECOVERY_HOST_CONTRACT.project ||
-    !OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone)
+    !OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone) ||
+    recoveryHardwareProfile(expectations.machineType) === null
   ) {
     output.write("Recovery-host startup status configuration is invalid; failing closed.\n");
     return 2;
