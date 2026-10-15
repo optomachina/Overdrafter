@@ -5,7 +5,7 @@
 // at least one pass row so false positives stay visible.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { after, test } from "node:test";
@@ -493,7 +493,7 @@ deny (Bash(npm run db:push:*)) | npm run db:push
 # 13. Residuals that stay visible.
 residual (a symlink made earlier hides the target) | echo x > m/x.sql
 residual (a path generated from file contents at run time is not known) | touch "$(cat /tmp/name)"
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git reset --hard origin/main
 block | git push origin HEAD
 residual (a gh alias made before the guard is not expanded) | gh m 1
 residual (env -C changes directory without a cd the hook can follow) | env -C supabase/migrations touch x.sql
@@ -759,10 +759,10 @@ pass sql | select j.id, lower(j.status) from public.jobs j where j.id = 1
 pass sql | select column_name from information_schema.columns where table_name = 'jobs'
 residual sql (an unqualified call to a user defined function with side effects is not inspected) | select archive_old_jobs()
 # 14. Residuals that stay visible. A function form alias (f() { ...; }; f) and the $1 form both block above.
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git stash pop
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git pull origin main
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git clean -fdx
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git stash pop
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git pull origin main
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git clean -fdx
 `;
 
 // Round 16: the third polish round before install. Every fix has a block row and every false positive fix an allow row.
@@ -867,10 +867,10 @@ pass | gh pr diff 676
 pass | gh api repos/o/r/pulls/1
 pass fixture:gitfeat | git push -u origin HEAD
 # Residuals that stay: these change local files only, and deliberate evasions are not chased.
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git reset --hard origin/main
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git stash pop
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git pull origin main
-residual (git reset, stash, pull and clean change local files only and are not inspected) | git clean -fdx
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git reset --hard origin/main
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git stash pop
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git pull origin main
+residual (git reset, stash, merge, pull and clean change local files only and are not inspected) | git clean -fdx
 residual fixture:gitfeat (a refspec generated to spell main is read as the current branch; a deliberate evasion) | git push origin "$(echo main)"
 block fixture:gitfeat | git -c alias.sw='!git switch main' sw && git push
 block fixture:gitfeat | bash -c 'git checkout main' && git push
@@ -1457,11 +1457,42 @@ test("round 25: a PR named in many readings of a merge loop is looked up once", 
   assert.deepEqual([...seen].sort((a, b) => a.localeCompare(b)), ["11", "12", "13", "14", "15", "16", "17", "18"]);
 });
 
+test("an alias configured through a symlinked repository path is still inspected", () => {
+  const linked = join(FIXTURE, "linked-gitlivefeat");
+  symlinkSync(join(FIXTURE, "gitlivefeat"), linked, "dir");
+  try {
+    const payload = {
+      tool_name: "Bash", cwd: linked,
+      tool_input: { command: "git config --file .git/config alias.x 'push origin HEAD:main' && git x" },
+    };
+    assert.ok(decide(payload, { prFiles: fakePrFiles }), "a symlink cannot hide a same-command alias");
+    assert.equal(decide({ ...payload, tool_input: { command: "git config --file .git/config alias.x 'status' && git x" } }, { prFiles: fakePrFiles }), null);
+  } finally {
+    rmSync(linked);
+  }
+});
+
+test("named-branch push guidance preserves the source ref instead of substituting HEAD", () => {
+  git("gitup", "checkout", "-q", "-b", "feature/a");
+  try {
+    for (const source of ["feature/u", "heads/feature/u", "refs/heads/feature/u", "+feature/u"]) {
+      const reason = decide(inFixture(`git push origin ${source}`, "gitup"), { prFiles: fakePrFiles });
+      assert.ok(reason, source);
+      const message = blockMessage(reason);
+      assert.ok(message.includes(`git push -u origin ${source.replace(/^\+/, "")}:<branch>`), message);
+      assert.doesNotMatch(message, /HEAD:<branch>|This push of the current branch/);
+      assert.doesNotMatch(message, /Stop and report; do not route around it/);
+    }
+  } finally {
+    git("gitup", "checkout", "-q", "feature/u");
+  }
+});
+
 test("round 18: a push of the current branch says naming a destination is the fix; other blocks say stop and report", () => {
   const run = (command, sub) => decide(inFixture(command, sub), { prFiles: fakePrFiles });
   for (const [command, sub] of [["git checkout -b feature/x; git push", "gitlive"], ["git push", "gitup"], ["git push", "gitmatch"], ["git push", ""]]) {
     const message = blockMessage(run(command, sub));
-    assert.match(message, /intended fix is to name a destination branch that is not main, for example git push -u origin HEAD:<branch>/, command);
+    assert.match(message, /intended fix is to name a destination branch that is not main, using the source ref shown above/, command);
     assert.doesNotMatch(message, /Stop and report; do not route around it/, command);
   }
   for (const [command, sub] of [["git push origin HEAD:main", "gitlivefeat"], ["echo x > supabase/migrations/x.sql", ""], ["git push --all origin", "gitlivefeat"]]) {
@@ -2189,7 +2220,7 @@ const PROBES = [
   [11, "git apply --check /tmp/nope.patch", PASSES],
   [11, "git am --abort", PASSES],
   [11, `patch -p1 < ${FIXTURE}/clean.patch`, PASSES],
-  [11, "git reset --hard origin/main", residual("git reset, stash, pull and clean change local files only and are not inspected")],
+  [11, "git reset --hard origin/main", residual("git reset, stash, merge, pull and clean change local files only and are not inspected")],
   // Codex HIGH: merge evidence bound to the right repository and head.
   [11, "GH_REPO=other/repo gh pr merge 2", HOOK_BLOCKS],
   [11, "export GH_REPO=other/repo; gh pr merge 2 --squash", HOOK_BLOCKS],

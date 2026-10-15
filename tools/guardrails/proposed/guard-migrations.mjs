@@ -83,7 +83,7 @@
  * fails closed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1229,7 +1229,11 @@ function fileAlias(name, call, recorded) {
   ]);
   const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], call);
   if (common.status === 0 && common.stdout.trim()) loaded.add(`${common.stdout.trim()}/config`);
-  return candidates.findLast((r) => loaded.has(r.file))?.value;
+  const identity = (file) => {
+    try { return realpathSync(file); } catch { return file; }
+  };
+  const loadedIdentities = new Set([...loaded].map(identity));
+  return candidates.findLast((r) => loadedIdentities.has(identity(r.file)))?.value;
 }
 
 /** The branch checked out in the call's directory. Throws when it cannot be resolved (detached HEAD included). */
@@ -1906,7 +1910,8 @@ function recordBranch(argv, dir, state, ctx, env) {
   if (change !== undefined) ctx.branchChanges.push({ ...change, inv: state.inv, index: state.index, compound: state.compound > 0, negated: state.negated, dir: git.dir, gitDir: git.gitDir });
 }
 
-const NAME_THE_BRANCH = "name the destination branch explicitly, for example git push -u origin HEAD:<branch>";
+const NAME_DESTINATION = "name the destination branch explicitly";
+const NAME_THE_BRANCH = `${NAME_DESTINATION}, for example git push -u origin HEAD:<branch>`;
 
 /**
  * Whether the branch change before a push of the current branch is a new branch made right before it: git checkout -b,
@@ -2054,14 +2059,16 @@ function mappedDestinations(spec, remote, call, ctx) {
 
 /** Block reason for a refspec with no colon that git maps to main through remote.<name>.push or push.default upstream. */
 function mappedReason(spec, remote, call, ctx) {
+  const source = spec.replace(/^\+/, "");
+  const guidance = `${NAME_DESTINATION}, for example git push -u origin ${source}:<branch>`;
   let dests;
   try {
     dests = mappedDestinations(spec, remote, call, ctx);
   } catch (error) {
-    return `git push ${spec}, whose destination cannot be resolved (${error.message}); failing closed, ${NAME_THE_BRANCH}`;
+    return `git push ${spec}, whose destination cannot be resolved (${error.message}); failing closed, ${guidance}`;
   }
   const main = dests.find((d) => destinationIsMain(d));
-  return main === undefined ? null : `git push ${spec} goes to ${main} on the remote (remote.<name>.push or push.default upstream), and agents never push to main; ${NAME_THE_BRANCH}`;
+  return main === undefined ? null : `git push ${spec} goes to ${main} on the remote (remote.<name>.push or push.default upstream), and agents never push to main; ${guidance}`;
 }
 
 /**
@@ -2914,10 +2921,10 @@ async function main() {
  * destination that is not main, so its message says so; every other block says to stop and report.
  */
 export function blockMessage(reason) {
-  if (reason.includes(NAME_THE_BRANCH)) {
+  if (reason.includes(NAME_DESTINATION)) {
     return (
       `guard-migrations blocked this call: ${reason}.\n` +
-      "This push of the current branch goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, for example git push -u origin HEAD:<branch>; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
+      "This push goes to main, or the hook could not confirm that it goes anywhere else. The intended fix is to name a destination branch that is not main, using the source ref shown above; doing that is not routing around the guard. Stop and report only if the destination you need really is main.\n"
     );
   }
   if (reason.includes(TOO_MANY_VARIANTS)) {
