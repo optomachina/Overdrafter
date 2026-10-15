@@ -1,6 +1,7 @@
 import { zodTextFormat } from "openai/helpers/zod";
 import { describe, expect, it } from "vitest";
-import { strictModelResponseSchema } from "./schema.js";
+import { MODEL_FALLBACK_PROMPT_VERSION } from "./modelFallback.js";
+import { modelResponseSchema, strictModelResponseSchema } from "./schema.js";
 
 function collectKeys(value: unknown, keys: Set<string>): Set<string> {
   if (Array.isArray(value)) value.forEach((entry) => collectKeys(entry, keys));
@@ -38,5 +39,33 @@ describe("OpenAI strict extraction format", () => {
         Object.keys(object.properties as object).sort(),
       );
     }
+  });
+});
+
+describe("tolerant vs strict parsing", () => {
+  const field = { value: "X", confidence: 0.9, fieldSource: "title_block" as const };
+  const names = ["partNumber", "revision", "description", "material", "finish", "process"] as const;
+  const lenient = Object.fromEntries(names.map((name) => [name, { ...field }]));
+  const full = {
+    ...Object.fromEntries(names.map((name) => [name, { ...field, reasons: ["r"] }])),
+    titleBlockSufficient: false,
+  };
+
+  it("keeps defaults for providers parsing via modelResponseSchema", () => {
+    const parsed = modelResponseSchema.parse(lenient);
+    expect(parsed.titleBlockSufficient).toBe(true);
+    for (const name of names) expect(parsed[name].reasons).toEqual([]);
+    expect(strictModelResponseSchema.safeParse(lenient).success).toBe(false);
+  });
+
+  it("parses a full valid response identically under both schemas", () => {
+    expect(strictModelResponseSchema.parse(full)).toEqual(modelResponseSchema.parse(full));
+  });
+});
+
+describe("prompt version", () => {
+  // Must not change for OVD-772: this is the value on main before the strict schema change.
+  it("is unchanged", () => {
+    expect(MODEL_FALLBACK_PROMPT_VERSION).toBe("sha256:24595ac5e265");
   });
 });
