@@ -221,6 +221,14 @@ export async function assertReviewedEnvelopeCompleteness(options) {
 export async function reviewedDefaultDenySuites(rootDir) {
   const reviewed = await readReviewedEnvelopes(rootDir);
   const suites = await Promise.all(reviewed.map(async ({ key }) => {
+    // An adopted or API adapter names its own default-deny test and has no
+    // shared-registrar call, so every test in that file must pass instead.
+    const own = await readOwnDefaultDenyTest(rootDir, key);
+    if (own) {
+      return (await lstatIfPresent(path.join(rootDir, own.defaultDenyTest)))
+        ? { key, file: own.defaultDenyTest, requireAllPassed: true }
+        : null;
+    }
     const file = REVIEWED_ENVELOPE_ARTIFACTS.defaultDenyTest.expectedPath(key);
     return (await lstatIfPresent(path.join(rootDir, file))) ? { key, file } : null;
   }));
@@ -465,16 +473,34 @@ async function hasDispatchFixture(rootDir, envelope) {
  */
 const DEFAULT_DENY_REGISTRAR_SOURCE = "worker/test-support/productionPortalDefaultDeny.ts";
 const DEFAULT_DENY_REASON = /^(?:dispatch_authorization|drawing_upload|cad_file_type)_[a-z_]+$/;
+const API_DEFAULT_DENY_REASON = /^dispatch_authorization_[a-z_]+$/;
 
-/** The registry's adoptedAdapter entry when it names its own default-deny test; the kit then checks that test, not the shared registrar call. */
-async function readAdoptedDefaultDenyTest(rootDir, key) {
+/**
+ * The registry entry's own default-deny test, when it has one: an
+ * adoptedAdapter that names `defaultDenyTest`, or an `adapterKind: "api"`
+ * provider, whose generated test is `<key>ApiDispatch.test.ts` beside
+ * `<key>DispatchAuthorization.ts`. The kit then checks that test, not the
+ * shared registrar call.
+ */
+async function readOwnDefaultDenyTest(rootDir, key) {
   const registry = await readJsonIfPresent(path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH));
   const entry = Array.isArray(registry?.providers) ? registry.providers.find((candidate) => candidate?.key === key) : null;
   const adopted = entry?.adoptedAdapter;
-  return isPlainObject(adopted) && typeof adopted.module === "string" && typeof adopted.defaultDenyTest === "string"
-    ? { module: adopted.module, defaultDenyTest: adopted.defaultDenyTest }
-    : null;
+  if (isPlainObject(adopted) && typeof adopted.module === "string" && typeof adopted.defaultDenyTest === "string") {
+    return { module: adopted.module, defaultDenyTest: adopted.defaultDenyTest, reasonPattern: DEFAULT_DENY_REASON };
+  }
+  if (entry?.adapterKind === "api") {
+    return {
+      module: `worker/src/adapters/${key}DispatchAuthorization.ts`,
+      defaultDenyTest: `worker/src/adapters/${key}ApiDispatch.test.ts`,
+      // An API adapter has no portal kernel, so only the authorization refusals apply.
+      reasonPattern: API_DEFAULT_DENY_REASON,
+    };
+  }
+  return null;
 }
+
+const readAdoptedDefaultDenyTest = readOwnDefaultDenyTest;
 
 function stringLiteralValues(source, fileName) {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -499,7 +525,7 @@ async function adoptedDefaultDenyProblems(rootDir, envelope, adopted) {
     return [`${DEFAULT_DENY_REGISTRAR_SOURCE} is missing`];
   }
   const required = [...stringLiteralValues(registrar, DEFAULT_DENY_REGISTRAR_SOURCE).values]
-    .filter((value) => DEFAULT_DENY_REASON.test(value))
+    .filter((value) => adopted.reasonPattern.test(value))
     .sort(compareStrings);
   const { sourceFile, values } = stringLiteralValues(test, adopted.defaultDenyTest);
   const moduleBase = path.posix.basename(adopted.module, ".ts");
@@ -673,16 +699,18 @@ async function registryDeclaresProvider(registry, key, rootDir) {
       secretNames.push(secret.mountEnv);
     }
   }
-  return generatedMappingsContainNames(rootDir, secretNames);
+  return generatedMappingsContainNames(rootDir, secretNames, entry.liveAdapter === true);
 }
 
-async function generatedMappingsContainNames(rootDir, secretNames) {
+// The generated deploy script only wires live adapters, so a provider that is
+// not listed live is checked against the generated registry alone.
+async function generatedMappingsContainNames(rootDir, secretNames, live = true) {
   if (secretNames.length === 0) {
     return true;
   }
   const generated = [
     await readTextIfPresent(path.join(rootDir, GENERATED_PROVIDER_REGISTRY_TS)),
-    await readTextIfPresent(path.join(rootDir, GENERATED_PROVIDER_SECRETS_SH)),
+    ...(live ? [await readTextIfPresent(path.join(rootDir, GENERATED_PROVIDER_SECRETS_SH))] : []),
   ];
   const present = generated.filter((text) => text !== null);
   if (present.length === 0) {
