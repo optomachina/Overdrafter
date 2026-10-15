@@ -6,7 +6,9 @@ export const FICTIV_URLS = {
 } as const;
 
 export const FICTIV_LOCATORS = {
-  loginSignals: [/log in to your account/i, /email address/i, /password/i],
+  // Login form labels sit on their own line. The logged-in quote summary says
+  // "update your account with a company email address", which is not a login.
+  loginSignals: [/log in to your account/i, /^\s*email address\s*$/im, /^\s*password\s*$/im],
   captchaSignals: [/captcha/i, /verify you are human/i, /cloudflare/i],
   manualReviewSignals: [
     /manual review/i,
@@ -15,6 +17,7 @@ export const FICTIV_LOCATORS = {
     /pending review/i,
     /requires review/i,
     /quote will be reviewed/i,
+    /unable to provide an instant quote/i,
   ],
   capabilityLimitSignals: [
     /not available for your account/i,
@@ -23,6 +26,8 @@ export const FICTIV_LOCATORS = {
     /contact support to enable/i,
     /requires enterprise/i,
     /feature is unavailable/i,
+    // Quote summary when the account tier cannot instant-price the specs.
+    /to access advanced quoting/i,
   ],
   configurationRequiredSignals: [
     /configuration required/i,
@@ -33,6 +38,9 @@ export const FICTIV_LOCATORS = {
     /select (?:a )?material/i,
     /choose (?:a )?finish/i,
     /select (?:a )?finish/i,
+    // Quote summary until every part is configured and the prototype or
+    // commercial classification is chosen; no price renders before then.
+    /configure all parts/i,
   ],
   inProgressSignals: [
     /uploading your parts/i,
@@ -42,6 +50,9 @@ export const FICTIV_LOCATORS = {
     /extracting geometry/i,
     /generating quote/i,
     /calculating quote/i,
+    /uploading files/i,
+    /creating new quote/i,
+    /parts are being analyzed/i,
   ],
   uploadSurfaceSignals: [
     /upload your parts/i,
