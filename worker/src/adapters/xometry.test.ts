@@ -91,8 +91,10 @@ import { OperationalJevSession, OperationalJevObservations } from "../jev/operat
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
+import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
 import {
   XometryAdapter,
+  chooseOptionByTerms,
   detectBlockingStateSignal,
   hasVisibleFilename,
   isManualReviewText,
@@ -884,6 +886,15 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
   const openFinishOptions = vi.fn(() => {
     finishOptionsOpen = true;
   });
+  // Live Xometry comboboxes show "No options" until a search term is typed.
+  let materialSearch = "";
+  let finishSearch = "";
+  const searchMaterial = vi.fn((value: string) => {
+    materialSearch = value;
+  });
+  const searchFinish = vi.fn((value: string) => {
+    finishSearch = value;
+  });
   const clickMaterialControl = vi.fn();
   const clickFinishControl = vi.fn();
   const hiddenMaterialControl = vi.fn();
@@ -942,6 +953,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
           return name === "aria-expanded" ? "true" : null;
         },
         press: openMaterialOptions,
+        fill: searchMaterial,
         click: clickMaterialControl,
       },
       [XOMETRY_LOCATORS.finishButtons[0]]: {
@@ -955,6 +967,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
         },
         getAttribute: (name) => (name === "role" ? "combobox" : null),
         press: openFinishOptions,
+        fill: searchFinish,
         click: clickFinishControl,
       },
       [XOMETRY_LOCATORS.priceText[0]]: {
@@ -971,8 +984,10 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
       },
     },
     optionTexts: () => {
-      if (finishOptionsOpen && finishOptionsRendered) return ["Black Anodize"];
-      if (materialOptionsOpen && materialOptionsRendered) return ["6061-T6"];
+      if (finishOptionsOpen && finishOptionsRendered && finishSearch) return ["Black Anodize"];
+      if (materialOptionsOpen && materialOptionsRendered && materialSearch === "6061-T6") {
+        return ["Aluminum 6061-T6x (Best Available)", "Aluminum 6061-T651, Plate"];
+      }
       return [];
     },
     onOptionWait: (name) => {
@@ -981,12 +996,48 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
     },
   });
   return {
-    page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
+    page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish, clickMaterialControl,
     clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
   };
 }
 
 describe("Xometry helpers", () => {
+  it("types each search term into a searchable combobox and fails as finite selector drift", async () => {
+    const typed: string[] = [];
+    const searchInput = { fill: vi.fn(async (value: string) => { typed.push(value); }) };
+    const page = {
+      getByRole: () => ({
+        first: () => ({ waitFor: () => Promise.reject(new Error("No options")) }),
+      }),
+      locator: () => ({
+        filter: () => ({ first: () => ({ count: async () => 0 }) }),
+        innerText: async () => "No options",
+      }),
+      url: () => "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
+    };
+
+    const failure = await chooseOptionByTerms(
+      page as never,
+      ["6061-T6", "6061"],
+      XOMETRY_LOCATORS.materialOptions,
+      "material",
+      XOMETRY_LOCATORS.materialButtons[0],
+      undefined,
+      searchInput as never,
+    ).catch((error: unknown) => error);
+
+    expect(typed).toEqual(["6061-T6", "6061"]);
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(failure).toMatchObject({
+      code: "selector_failure",
+      payload: { terminalState: "selector_drift", requestedTerms: ["6061-T6", "6061"] },
+    });
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+      ok: true,
+      terminalState: "selector_drift",
+    });
+  });
+
   it("prefers the current searchable material and finish comboboxes", () => {
     expect(XOMETRY_LOCATORS.uploadInputs[0]).toContain("Start A New Instant Quote");
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
@@ -1576,8 +1627,8 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
     const {
-      page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
-      clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+      page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish,
+      clickMaterialControl, clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
     } = createLiveConfigureFlow(input);
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -1623,6 +1674,8 @@ describe("XometryAdapter", () => {
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
     expect(openMaterialOptions).toHaveBeenCalledWith("ArrowDown");
     expect(openFinishOptions).toHaveBeenCalledWith("ArrowDown");
+    expect(searchMaterial).toHaveBeenCalledWith("6061-T6");
+    expect(searchFinish).toHaveBeenCalledWith("Black Anodize");
     expect(playwrightLaunchMock).toHaveBeenCalledTimes(1);
     expect(launchMock).not.toHaveBeenCalled();
     expect(clickMaterialControl).not.toHaveBeenCalled();
