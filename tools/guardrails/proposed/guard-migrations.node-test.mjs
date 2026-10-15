@@ -703,7 +703,7 @@ block | git frobnicate
 pass fixture:gitfeat | git st
 pass fixture:gitfeat | git lg -- supabase/migrations
 pass fixture:gitfeat | git status --short -- supabase/migrations
-pass | git config alias.st status && git st -- supabase/migrations
+pass fixture:gitfeat | git config alias.st status && git st -- supabase/migrations
 pass | git config --get alias.st
 pass | git -c alias.l='!git log "$1"' l -- supabase/migrations
 # 6. git read commands pass with a protected pathspec; reflog expire and reflog delete are not reads.
@@ -1455,6 +1455,107 @@ test("round 25: a PR named in many readings of a merge loop is looked up once", 
   const command = "for pr in 11 12 13 14 15 16 17 18; do gh pr merge $pr --squash; done; x || A=1; echo $A ${B:-$C}";
   assert.equal(decide({ tool_name: "Bash", tool_input: { command }, cwd: CWD }, { prFiles }), null);
   assert.deepEqual([...seen].sort((a, b) => a.localeCompare(b)), ["11", "12", "13", "14", "15", "16", "17", "18"]);
+});
+
+test("review batch: alias mutations preserve repository, precedence and skipped-write uncertainty", () => {
+  git("gitlivefeat", "config", "alias.t5scope", "push origin HEAD:main");
+  git("gitlivefeat", "config", "alias.t5safe", "status");
+  const run = (command) => decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles });
+  try {
+    for (const command of [
+      `git -C ${FIXTURE}/gitfeat config alias.t5scope status; git t5scope`,
+      "git config --global alias.t5scope status && git t5scope",
+      "false && git config alias.t5scope status; git t5scope",
+      "if false; then git config alias.t5scope status; fi; git t5scope",
+    ]) assert.ok(run(command), command);
+    assert.equal(run("git config alias.t5safe status && git t5safe"), null);
+    assert.equal(run(`git -C ${FIXTURE}/gitfeat config alias.t5safe 'push origin HEAD:main'; git t5safe`), null);
+    assert.equal(run(`git config --file ${FIXTURE}/unloaded-review.gitconfig alias.t5safe 'push origin HEAD:main'; git t5safe`), null);
+  } finally {
+    git("gitlivefeat", "config", "--unset", "alias.t5scope");
+    git("gitlivefeat", "config", "--unset", "alias.t5safe");
+  }
+});
+
+test("review batch: aliases in already-included nested config files are inspected", () => {
+  const outer = join(FIXTURE, "review-outer.gitconfig");
+  const inner = join(FIXTURE, "review-inner.gitconfig");
+  writeFileSync(outer, `[include]\npath = ${inner}\n`);
+  writeFileSync(inner, "[alias]\nt5included = status\n");
+  git("gitlivefeat", "config", "include.path", outer);
+  try {
+    const command = `git config --file ${inner} alias.t5included 'push origin HEAD:main' && git t5included`;
+    assert.ok(decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles }), command);
+  } finally {
+    git("gitlivefeat", "config", "--unset", "include.path");
+  }
+});
+
+test("review batch: inherited config target environments are honored", () => {
+  for (const scope of ["GLOBAL", "SYSTEM"]) {
+    const key = `GIT_CONFIG_${scope}`;
+    const previous = process.env[key];
+    const target = join(FIXTURE, `review-ambient-${scope}.gitconfig`);
+    writeFileSync(target, "");
+    process.env[key] = target;
+    try {
+      const command = `git config --${scope.toLowerCase()} alias.t5ambient 'push origin HEAD:main' && git t5ambient`;
+      assert.ok(decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles }), command);
+    } finally {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    }
+  }
+});
+
+test("review batch: relative included-file origins use the invoked repository directory", () => {
+  const target = join(FIXTURE, "gitlivefeat", "review-relative.gitconfig");
+  writeFileSync(target, "[alias]\nt5relative = status\n");
+  git("gitlivefeat", "config", "include.path", "../review-relative.gitconfig");
+  try {
+    const command = `git config --file ${target} alias.t5relative 'push origin HEAD:main' && git t5relative`;
+    assert.ok(decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles }), command);
+  } finally {
+    git("gitlivefeat", "config", "--unset", "include.path");
+  }
+});
+
+test("review batch: a conditional cd cannot change the assumed directory after paths rejoin", () => {
+  const target = join(FIXTURE, "gitlivefeat");
+  const run = (command) => decide(inFixture(command, "gitlive"), { prFiles: fakePrFiles });
+  for (const command of [
+    `false && cd ${target}; git push origin HEAD`,
+    `true || cd ${target} && git push origin HEAD`,
+    `false && cd ${target} && git status; git push origin HEAD`,
+    `if false; then cd ${target}; fi; git push origin HEAD`,
+    `if false; then cd ${target}; else git push origin HEAD; fi`,
+  ]) assert.ok(run(command), command);
+  assert.equal(run(`cd ${target} && git push origin HEAD`), null);
+  assert.equal(run(`true && cd ${target} && git push origin HEAD`), null);
+});
+
+test("review batch: quoted SQL function identifiers remain one qualified call token", () => {
+  for (const sql of ['select public."mutate data"()', 'select public."rotate-keys"()', 'select public."ro""tate"()', 'select auth."uid junk"()', 'select public."123"()', 'select "1app".mutate()', 'select public."$fn"()', 'select "pg-catalog".mutate()', 'select "AUTH".uid()']) {
+    assert.ok(sqlReason(sql), sql);
+  }
+  assert.equal(sqlReason(`select pg_catalog."lower"('x')`), null);
+  assert.equal(sqlReason('select auth."uid"()'), null);
+});
+
+test("review batch: ordinary assignment-looking arguments do not replace shell variables", () => {
+  for (const command of [
+    "B=main; echo B=feature/x; git push origin HEAD:$B",
+    'D=supabase/migrations; echo D=docs; echo x > "$D/x.sql"',
+    'D=docs; builtin export D=supabase/migrations; echo x > "$D/x.sql"',
+    'D=docs; command export D=supabase/migrations; echo x > "$D/x.sql"',
+    'D=docs; builtin readonly D=supabase/migrations; echo x > "$D/x.sql"',
+    'D=docs; command -p builtin -- export D=supabase/migrations; echo x > "$D/x.sql"',
+  ]) assert.ok(decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles }), command);
+  for (const command of [
+    'D=docs; echo D=supabase/migrations; echo x > "$D/x.sql"',
+    'D=docs; command -v export D=supabase/migrations; echo x > "$D/x.sql"',
+    'D=supabase/migrations; builtin export D=docs; echo x > "$D/x.sql"',
+  ]) assert.equal(decide(inFixture(command, "gitlivefeat"), { prFiles: fakePrFiles }), null, command);
 });
 
 test("an alias configured through a symlinked repository path is still inspected", () => {

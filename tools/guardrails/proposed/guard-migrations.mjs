@@ -576,6 +576,8 @@ function expandVars(src, picks = [], counts = []) {
   let scopes = [];
   let lastOp = null;
   let cmdStart = true;
+  let declaration = false;
+  let commandEnv = false;
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -695,13 +697,15 @@ function expandVars(src, picks = [], counts = []) {
   const frames = [];
   const docs = [];
   const openFrame = (frame) => {
-    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp });
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv });
     lastOp = null;
     cmdStart = true;
+    declaration = false;
+    commandEnv = false;
   };
   const closeFrame = () => {
     const frame = frames.pop();
-    if (frame.vars) ({ vars, lastOp } = frame);
+    if (frame.vars) ({ vars, lastOp, declaration, commandEnv } = frame);
     if (frame.vars) scopes = scopes.slice(0, frame.scopes);
     return frame.quote;
   };
@@ -770,10 +774,14 @@ function expandVars(src, picks = [], counts = []) {
         continue;
       }
     }
+    if (quote === null && wordStart && cmdStart) {
+      if (/^(?:(?:builtin(?:[ \t]+--)?|command(?:[ \t]+-p)?(?:[ \t]+--)?)[ \t]+)*(export|readonly|local|declare|typeset)(?=[ \t]|$)/.test(src.slice(i))) declaration = true;
+      if (/^env(?=[ \t]|$)/.test(src.slice(i))) commandEnv = true;
+    }
     head.lastIndex = i;
-    if (quote === null && wordStart && head.test(src)) {
+    if (quote === null && wordStart && (cmdStart || declaration || commandEnv) && head.test(src)) {
       const { end, values, prefix: isPrefix } = readAssignments(src, i);
-      if (isPrefix) {
+      if (isPrefix || commandEnv) {
         const at = commandEnd(src, end);
         prefix = { end: at, values: { ...(prefix && prefix.end === at ? prefix.values : {}) } };
         for (const [name, text, append] of values) prefix.values[name] = append ? appendTo(lookup(name, false), valueOf(text)) : valueOf(text);
@@ -853,7 +861,7 @@ function expandVars(src, picks = [], counts = []) {
         take = 2;
       } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
       if (/[\s;&|()]/.test(c)) wordStart = true;
-      if (/[;&|(\n]/.test(c)) cmdStart = true;
+      if (/[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; }
       if (c === "\n" && docs.length > 0) {
         // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
         out += c;
@@ -1116,7 +1124,8 @@ function gitCall(argv, dir, ctx, state = {}, env = {}) {
   let cwd = dir;
   let gitDir;
   let config = null;
-  const aliases = { ...state.gitAliases };
+  const aliases = {};
+  const recordedIncludes = state.gitIncludes?.length ?? 0;
   const includes = [...(state.gitIncludes ?? [])];
   const pushConfig = [];
   let pushConfigUnknown = false;
@@ -1159,7 +1168,12 @@ function gitCall(argv, dir, ctx, state = {}, env = {}) {
     let alias = Object.hasOwn(aliases, name) ? aliases[name] : undefined;
     if (alias === undefined && ctx) {
       try {
-        alias = fileAlias(name, call, state.gitFileAliases ?? []) ?? configAlias(name, call, ctx);
+        const current = configAlias(name, { ...call, includes: includes.slice(recordedIncludes) }, ctx);
+        const pending = configAlias(name, call, ctx);
+        const changed = fileAlias(name, call, state.gitFileAliases ?? []);
+        const possibilities = new Set([current, pending, changed].filter((value) => value !== undefined));
+        if (possibilities.size > 1) throw new Error("current and same-command alias values conflict");
+        alias = possibilities.values().next().value;
       } catch (error) {
         return { ...call, argv: [argv[0]], error: `git ${rest[0]} may be an alias, and git config could not be read to check it (${error.message}); failing closed` };
       }
@@ -1229,11 +1243,21 @@ function fileAlias(name, call, recorded) {
   ]);
   const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], call);
   if (common.status === 0 && common.stdout.trim()) loaded.add(`${common.stdout.trim()}/config`);
+  const origins = runGit(["config", "--includes", "--null", "--show-origin", "--list"], call);
+  if (origins.status !== 0) throw new Error("loaded config origins cannot be read");
+  const fields = origins.stdout.split("\0");
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    if (fields[i].startsWith("file:")) loaded.add(fields[i].slice(5));
+  }
   const identity = (file) => {
-    try { return realpathSync(file); } catch { return file; }
+    const absolute = file.startsWith("/") ? file : `${pathOf(call.dir, ".")}/${file}`;
+    try { return realpathSync(absolute); } catch { return absolute; }
   };
   const loadedIdentities = new Set([...loaded].map(identity));
-  return candidates.findLast((r) => loadedIdentities.has(identity(r.file)))?.value;
+  if (candidates.some((r) => r.unknown)) throw new Error("alias mutation config target cannot be resolved");
+  const values = new Set(candidates.filter((r) => loadedIdentities.has(identity(r.file))).map((r) => r.value));
+  if (values.size > 1) throw new Error("same-command alias mutations have conflicting possible values");
+  return values.values().next().value;
 }
 
 /** The branch checked out in the call's directory. Throws when it cannot be resolved (detached HEAD included). */
@@ -2649,12 +2673,12 @@ function checkSegment(segment, state, dir, ctx, depth, substs) {
 }
 
 /**
- * Records an alias or include file that git config sets in this command, so a later git <alias> in it is expanded. An
- * alias written with --file is kept with its file and used only where git reads that file (fileAlias).
+ * Records possible alias values with the config targets git config can write. A later invocation checks both current
+ * and possible values: skipped writes and config precedence cannot turn an unsafe current alias into a safe one.
  */
-function recordGitAlias(argv, dir, state) {
+function recordGitAlias(argv, dir, state, env) {
   if (base(argv[0]) !== "git") return;
-  const git = gitCall(argv, dir, null, state);
+  const git = gitCall(argv, dir, null, state, env);
   const args = git.argv.slice(2);
   if (git.argv[1] !== "config" || args.some((w) => /^--(get|get-all|get-regexp|unset|unset-all|list|blob)(=|$)|^-l$/.test(w))) return;
   const fileAt = args.findIndex((w) => /^(-f|--file)(=|$)/.test(w));
@@ -2662,8 +2686,26 @@ function recordGitAlias(argv, dir, state) {
   const at = args.findIndex((w, i) => /^alias\.[^=]+$/i.test(w) && (fileAt < 0 || i !== fileAt + 1));
   if (at >= 0 && args[at + 1] !== undefined) {
     const name = args[at].slice(6).toLowerCase();
-    if (file === undefined) state.gitAliases[name] = args[at + 1];
-    else if (!file.includes(SUB) && !file.includes("$")) state.gitFileAliases.push({ file: pathOf(git.dir, file.replace(/^~(?=\/|$)/, process.env.HOME ?? "~")), name, value: args[at + 1] });
+    const configEnv = { ...process.env, ...git.configEnv };
+    let targets;
+    if (file !== undefined) targets = [file.replace(/^~(?=\/|$)/, process.env.HOME ?? "~")];
+    else if (args.includes("--global")) targets = configEnv.GIT_CONFIG_GLOBAL !== undefined
+      ? [configEnv.GIT_CONFIG_GLOBAL]
+      : [`${process.env.HOME ?? ""}/.gitconfig`, `${process.env.XDG_CONFIG_HOME || `${process.env.HOME ?? ""}/.config`}/git/config`];
+    else if (args.includes("--system")) targets = [configEnv.GIT_CONFIG_SYSTEM ?? "/etc/gitconfig"];
+    else {
+      const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], git);
+      targets = common.status === 0 && common.stdout.trim() ? [`${common.stdout.trim()}/config`] : [];
+      if (args.includes("--worktree")) {
+        const local = runGit(["rev-parse", "--absolute-git-dir"], git);
+        if (local.status === 0 && local.stdout.trim()) targets.push(`${local.stdout.trim()}/config.worktree`);
+      }
+    }
+    if (targets.length === 0 || targets.some((target) => target.includes(SUB) || target.includes("$"))) {
+      state.gitFileAliases.push({ name, unknown: true });
+    } else for (const target of targets) state.gitFileAliases.push({
+      file: target.startsWith("/") ? target : `${pathOf(git.dir, ".")}/${target}`, name, value: args[at + 1],
+    });
   }
   const include = args.findIndex((w) => GIT_INCLUDE_KEY.test(w));
   if (include >= 0 && args[include + 1] !== undefined) state.gitIncludes.push(`${args[include]}=${args[include + 1]}`);
@@ -2718,25 +2760,34 @@ function checkExpanded(text, dir, ctx, depth, report) {
     const reason = report(checkCommand(inner, dir, ctx, depth + 1));
     if (reason) return reason;
   }
-  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitAliases: {}, gitIncludes: [], gitFileAliases: [], oldDir: undefined };
+  const state = { decoded: false, env: {}, prevArgs: [], inTest: false, gitIncludes: [], gitFileAliases: [], oldDir: undefined };
   // Each command text checked gets its own number, so a branch change and a push are known to be in the same text.
   // lastCd is the index of the last segment that changed directory, compound the depth of if, while, for, case and { }.
   Object.assign(state, { inv: ctx.invocations++, segments, index: 0, lastCd: -1, compound: 0 });
   // A subshell gets a copy of the directory; a cd inside it does not change the directory after it.
   const outer = [];
   state.dirStack = [];
+  let conditionalDirs = [];
   for (const [index, segment] of segments.entries()) {
-    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: [...state.dirStack] });
-    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: state.dirStack } = outer.pop());
+    while (outer.length < segment.depth) outer.push({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: [...state.dirStack], conditionalDirs: [...conditionalDirs] });
+    while (outer.length > segment.depth) ({ dir, oldDir: state.oldDir, lastCd: state.lastCd, dirStack: state.dirStack, conditionalDirs } = outer.pop());
     state.index = index;
     // A pipeline negated with ! succeeds when its command fails, so a creation there never stops a push after it.
     state.negated = false;
+    let splitBody = false;
     for (const w of segment.words) {
+      if (w === "else" || w === "elif" || w === ";;") splitBody = true;
       if (COMPOUND_OPEN.has(w)) state.compound++;
       else if (COMPOUND_CLOSE.has(w)) state.compound = Math.max(0, state.compound - 1);
       else if (w === "!") state.negated = true;
       else if (!COMPOUND_INNER.has(w)) break;
     }
+    const joined = conditionalDirs.filter((entry) => state.compound < entry.depth || splitBody || (entry.chain && segment.op !== "&&"));
+    if (joined.length > 0) dir = [...joined[0].before, "$CONDITIONAL_CD"];
+    conditionalDirs = conditionalDirs.flatMap((entry) => {
+      if (!joined.includes(entry)) return [entry];
+      return entry.depth > 0 && state.compound >= entry.depth ? [{ ...entry, chain: false }] : [];
+    });
     const { argv, env } = unwrap(segment.words);
     const cmd = base(argv[0]);
     if (argv.length === 0 || cmd === "export") {
@@ -2760,13 +2811,17 @@ function checkExpanded(text, dir, ctx, depth, report) {
       else if (cmd === "pushd" && (target === undefined || /^[+-]\d+$/.test(target))) next = [...dir, "$DIRSTACK"];
       else next = cdTarget(dir, target, state.oldDir);
       if (cmd === "pushd" && !piped) state.dirStack.push(dir);
+      if (segment.op === "||") next = [...dir, "$CONDITIONAL_CD"];
+      if (state.compound > 0 || segment.op === "&&" || segment.op === "||") {
+        conditionalDirs.push({ before: dir, depth: state.compound, chain: segment.op === "&&" || segment.op === "||" });
+      }
       [dir, state.oldDir] = [next, dir];
       state.lastCd = index;
       continue;
     }
     const reason = report(checkSegment(segment, state, dir, ctx, depth, substs));
     if (reason) return reason;
-    recordGitAlias(argv, dir, state);
+    recordGitAlias(argv, dir, state, { ...state.env, ...env });
     recordBranch(argv, dir, state, ctx, { ...state.env, ...env });
     state.prevArgs = argv.slice(1);
   }
@@ -2777,6 +2832,8 @@ function checkExpanded(text, dir, ctx, depth, report) {
 export function sqlReason(sql) {
   if (typeof sql !== "string") return "execute_sql has no query string; failing closed";
   if (/(^|[^\w$])"?pgmq"?\s*\.\s*"?[\w$]+"?\s*\(/i.test(sql)) return "execute_sql calls a pgmq function, which changes queue state";
+  const identifier = (name) => /^[a-z_][a-z0-9_$]*$/.test(name)
+    ? name : `q_${Buffer.from(name, "utf8").toString("hex")}`;
   let text = "";
   for (let i = 0; i < sql.length; ) {
     const rest = sql.slice(i);
@@ -2811,11 +2868,10 @@ export function sqlReason(sql) {
       if (i >= sql.length) return "execute_sql has an unterminated quote; failing closed";
       const inner = sql.slice(start, i).replaceAll('""', '"');
       i++;
-      // A quoted identifier called as a function keeps its name so side effect functions are still caught.
-      // A quoted identifier called as a function, or naming a schema before a dot, keeps its name.
+      // Preserve known side-effect names and keep arbitrary quoted function/schema names as single identifiers.
       if (quote === "'") text += " '' ";
-      else if (/^\s*\(/.test(sql.slice(i))) text += ` ${inner}`;
-      else text += /^\s*\./.test(sql.slice(i)) ? ` ${inner.replace(/[^\w$]/g, "_") || "q"}` : " q ";
+      else if (/^\s*\(/.test(sql.slice(i))) text += ` ${identifier(inner)}`;
+      else text += /^\s*\./.test(sql.slice(i)) ? ` ${identifier(inner)}` : " q ";
     } else if (dollar && !/\w$/.test(sql.slice(0, i))) {
       const end = sql.indexOf(dollar[0], i + dollar[0].length);
       if (end < 0) return "execute_sql has an unterminated dollar quote; failing closed";
