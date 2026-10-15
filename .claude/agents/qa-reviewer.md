@@ -15,3 +15,5 @@ Evaluate acceptance criteria coverage and regression risk before merge.
 
 ## Preferred skill preload
 - `.agents/skills/qa-regression-check/SKILL.md`
+
+Your pass verdict is one of the gates for low-risk auto-merge (see AGENTS.md, "Approval timing and low-risk auto-merge"). State clearly whether the PR touches any sensitive path; if it does, it must wait for Blaine's explicit OK.

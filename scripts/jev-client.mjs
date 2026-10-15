@@ -1,10 +1,13 @@
 /**
  * Minimal advisory Jev (TypeSafe System One) client for agent-side decisions.
  *
- * Authentication: the Claude Code agent proxy injects the TypeSafe credential
- * for api.typesafe.ai. This client reads no key, from the environment or
- * anywhere else, and sends no Authorization header of its own; outside a proxy
- * that injects auth the call fails and returns an advisory-unavailable result.
+ * Authentication: inside the Claude Code agent proxy, the proxy injects the
+ * TypeSafe credential for api.typesafe.ai and this client sends no
+ * Authorization header. Outside it, set TYPESAFE_API_KEY (non empty) and the
+ * client sends "Authorization: Bearer <key>". With neither, the call fails and
+ * returns an advisory-unavailable result (http_403). The key is read only to
+ * build that one header; it is never logged, printed, or placed in a result,
+ * and results carry only fixed reason codes and sanitized tokens.
  * Node fetch only honors HTTPS_PROXY when run with NODE_USE_ENV_PROXY=1.
  *
  * Every call returns a result object and never throws, so callers can fall
@@ -21,7 +24,10 @@ export const JEV_MODEL = "jev-1.13.0";
 
 /** Bound a service- or caller-supplied value to a short printable token (null when not a string). */
 export function sanitizeToken(value) {
-  return typeof value === "string" ? value.replace(/[^\w.-]/g, "_").slice(0, 64) : null;
+  if (typeof value !== "string") return null;
+  const key = process.env.TYPESAFE_API_KEY?.trim();
+  if (key && (value.includes(key) || value.replace(/[^\w.-]/g, "_").includes(key.replace(/[^\w.-]/g, "_")))) return "redacted";
+  return value.replace(/[^\w.-]/g, "_").slice(0, 64);
 }
 
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -39,7 +45,7 @@ export function isValidAnswer(question, answer) {
 
 function networkReason(error) {
   if (error?.name === "TimeoutError" || error?.name === "AbortError") return "timeout";
-  return `network_${error?.cause?.code ?? error?.name ?? "error"}`;
+  return `network_${sanitizeToken(String(error?.cause?.code ?? error?.name ?? "error"))}`;
 }
 
 export async function askJev(state, questions, options) {
@@ -53,10 +59,13 @@ export async function askJev(state, questions, options) {
     // A BigInt or circular input is a caller error, not a network failure; never sent.
     return { ok: false, reason: "invalid_request", latencyMs: latency() };
   }
+  const headers = { "Content-Type": "application/json" };
+  const apiKey = process.env.TYPESAFE_API_KEY?.trim();
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: payload,
       signal: AbortSignal.timeout(timeoutMs),
     });

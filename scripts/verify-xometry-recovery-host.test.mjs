@@ -53,6 +53,7 @@ const EXPECTED = {
   serviceAccount: "worker@synthetic-project.iam.gserviceaccount.com",
   instance: "overdrafter-xometry-auth-recovery",
   machineType: "n2-standard-2",
+  bootDiskType: "pd-balanced",
   preemptible: false,
   provisioningModel: "STANDARD",
   instanceTerminationAction: null,
@@ -386,6 +387,7 @@ function compliantEvidence(expectations = EXPECTED) {
         boot: true,
         autoDelete: true,
         mode: "READ_WRITE",
+        source: resource(`zones/${expectations.zone}/disks`, expectations.instance, expectations.project),
         licenses: [resource("global/licenses", expectations.hostLicense, "ubuntu-os-cloud")],
       },
     ],
@@ -448,10 +450,18 @@ function compliantEvidence(expectations = EXPECTED) {
   };
   const iapService = [{ config: { name: expectations.iapService }, state: "ENABLED" }];
   const startupStatus = { stage: "ready", exitCode: 0 };
+  const bootDisk = {
+    name: expectations.instance,
+    type: resource(`zones/${expectations.zone}/diskTypes`, expectations.bootDiskType, expectations.project),
+    sizeGb: "20",
+    users: [resource(`zones/${expectations.zone}/instances`, expectations.instance, expectations.project)],
+  };
   const evidence = {
     stable: compliantStable(expectations, retainedImage),
     instance,
     confirmInstance: structuredClone(instance),
+    bootDisk: structuredClone(bootDisk),
+    confirmBootDisk: structuredClone(bootDisk),
     instanceInventory,
     confirmInstanceInventory: structuredClone(instanceInventory),
     firewall,
@@ -909,6 +919,112 @@ describe("recovery-host CLI", () => {
     }
   });
 
+  it("accepts only the allowlisted capacity-fallback zones for startup status", async () => {
+    for (const [zone, expectedCode] of [
+      ["us-west1-a", 0],
+      ["us-west1-c", 0],
+      ["us-west2-a", 2],
+      ["us-west1-z", 2],
+    ]) {
+      let seenZone;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_ZONE: zone },
+        output,
+        collectStartupStatus: async (expectations) => {
+          seenZone = expectations.zone;
+          return { stage: "ready", exitCode: 0 };
+        },
+      });
+      expect(code).toBe(expectedCode);
+      if (expectedCode === 0) expect(seenZone).toBe(zone);
+      else expect(seenZone).toBeUndefined();
+    }
+  });
+
+  it("rejects recovery-host expectations outside the fallback zone allowlist", () => {
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, zone: "us-west1-c" })).toBe(true);
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, zone: "us-west1-z" })).toBe(false);
+  });
+
+  it("runs the full verifier for an allowlisted fallback zone and rejects others", async () => {
+    for (const [zone, collects] of [["us-west1-c", true], ["us-west2-a", false]]) {
+      let seen;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      await runCli({
+        args: [],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_ZONE: zone },
+        output,
+        collectEvidence: async (expectations) => { seen = expectations.zone; throw new Error("stop"); },
+      });
+      if (collects) {
+        expect(seen).toBe(zone);
+        expect(output.value).not.toContain("configuration is invalid");
+      } else {
+        expect(seen).toBeUndefined();
+        expect(output.value).toContain("configuration is invalid");
+      }
+    }
+  });
+
+  it("accepts n4-standard-2 only with a hyperdisk-balanced boot disk", () => {
+    const n4 = { ...EXPECTED, machineType: "n4-standard-2", bootDiskType: "hyperdisk-balanced" };
+    expect(validateRecoveryHostExpectations(n4)).toBe(true);
+    expect(evaluateRecoveryHostEvidence(compliantEvidence(n4), n4).failures).toEqual([]);
+    expect(validateRecoveryHostExpectations({ ...n4, bootDiskType: "pd-balanced" })).toBe(false);
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, bootDiskType: "hyperdisk-balanced" })).toBe(false);
+    for (const machineType of ["e2-standard-2", "n4-standard-4", "n2-standard-4"]) {
+      expect(validateRecoveryHostExpectations({ ...EXPECTED, machineType })).toBe(false);
+    }
+    const wrongDisk = compliantEvidence(n4);
+    wrongDisk.bootDisk.type = wrongDisk.bootDisk.type.replace("hyperdisk-balanced", "pd-balanced");
+    wrongDisk.confirmBootDisk = structuredClone(wrongDisk.bootDisk);
+    expect(evaluateRecoveryHostEvidence(wrongDisk, n4).failures).toContain(
+      "recovery_instance_boot_disk_hardware_invalid",
+    );
+    const bigDisk = compliantEvidence();
+    bigDisk.bootDisk.sizeGb = "50";
+    bigDisk.confirmBootDisk = structuredClone(bigDisk.bootDisk);
+    expect(evaluateRecoveryHostEvidence(bigDisk, EXPECTED).failures).toContain(
+      "recovery_instance_boot_disk_hardware_invalid",
+    );
+    const gpu = compliantEvidence(n4);
+    gpu.instance.guestAccelerators = [{ acceleratorCount: 1 }];
+    gpu.confirmInstance = structuredClone(gpu.instance);
+    expect(evaluateRecoveryHostEvidence(gpu, n4).failures).toContain(
+      "recovery_instance_accelerator_present",
+    );
+  });
+
+  it("selects the machine type from the environment only from the hardware allowlist", async () => {
+    for (const [machineType, collects] of [["n4-standard-2", true], ["e2-standard-2", false]]) {
+      let seen;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      await runCli({
+        args: [],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_MACHINE_TYPE: machineType },
+        output,
+        collectEvidence: async (expectations) => { seen = expectations; throw new Error("stop"); },
+      });
+      if (collects) {
+        expect(seen.machineType).toBe("n4-standard-2");
+        expect(seen.bootDiskType).toBe("hyperdisk-balanced");
+      } else {
+        expect(seen).toBeUndefined();
+        expect(output.value).toContain("configuration is invalid");
+      }
+      const statusOutput = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_MACHINE_TYPE: machineType },
+        output: statusOutput,
+        collectStartupStatus: async () => ({ stage: "ready", exitCode: 0 }),
+      });
+      expect(code).toBe(collects ? 0 : 2);
+    }
+  });
+
   it("fails before collection when one fixed name drifts", async () => {
     let collected = false;
     const output = { value: "", write(chunk) { this.value += chunk; } };
@@ -951,6 +1067,133 @@ describe("recovery-host CLI", () => {
       expect(output.value).toBe(
         "Recovery-host verifier configuration is invalid; failing closed.\n",
       );
+    }
+  });
+
+  function failingCollector(failWhen, failure) {
+    const stable = compliantEvidence(OVD410_RECOVERY_HOST_CONTRACT);
+    return (expectations, options) =>
+      collectRecoveryHostEvidence(expectations, {
+        ...options,
+        collectStableEvidence: async () => stable.stable,
+        readStartupScript: async () => stable.startupScriptSource,
+        readRecoveryEgressControl: async () => stable.recoveryEgressControlSource,
+        runCommand: async (_bin, args) => {
+          if (failWhen(args)) throw failure();
+          return {};
+        },
+      });
+  }
+
+  async function runFailingCli(collectEvidence) {
+    const output = { value: "", write(chunk) { this.value += chunk; } };
+    const code = await runCli({ env: productionEnv(), output, collectEvidence });
+    return { code, lines: output.value.split("\n") };
+  }
+
+  it("names the failing lookup and its exit code without echoing command text", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) => args[1] === "firewall-rules" && args[2] === "describe",
+        () =>
+          Object.assign(new Error("secret-message gcloud failed"), {
+            code: 1,
+            signal: null,
+            killed: false,
+            stdout: "secret-stdout",
+            stderr: "ERROR: secret-stderr token=abc",
+          }),
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines).toEqual([
+      "Recovery-host metadata collection failed; failing closed.",
+      "Recovery-host collection diagnostic: step=firewall reason=exit exit=1 signal=none timedOut=false",
+      "",
+    ]);
+  });
+
+  it("reports an execFile timeout as timedOut=true on the egress runtime step", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) =>
+          args[1] === "ssh" &&
+          args.some((arg) =>
+            arg.includes(OVD410_RECOVERY_HOST_CONTRACT.recoveryEgressEvidencePath),
+          ),
+        () =>
+          Object.assign(new Error("secret-message timed out"), {
+            code: null,
+            signal: "SIGTERM",
+            killed: true,
+            stdout: "",
+            stderr: "secret-stderr",
+          }),
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines[1]).toBe(
+      "Recovery-host collection diagnostic: step=recoveryEgressRuntime reason=timeout exit=none signal=SIGTERM timedOut=true",
+    );
+  });
+
+  it("reports unparseable command output as reason=invalid-json", async () => {
+    const { code, lines } = await runFailingCli(
+      failingCollector(
+        (args) => args[0] === "iam",
+        () => {
+          try {
+            JSON.parse("secret-stdout: not json");
+          } catch (error) {
+            return error;
+          }
+          throw new Error("expected JSON.parse to fail");
+        },
+      ),
+    );
+    expect(code).toBe(2);
+    expect(lines[1]).toBe(
+      "Recovery-host collection diagnostic: step=serviceAccountPolicy reason=invalid-json exit=none signal=none timedOut=false",
+    );
+  });
+
+  it("never prints stdout, stderr, messages, or command args from a failed step", async () => {
+    const failures = [
+      failingCollector(
+        (args) => args[0] === "compute" && args[1] === "instances",
+        () =>
+          Object.assign(new Error("secret-message"), {
+            code: 7,
+            stdout: "secret-stdout",
+            stderr: "secret-stderr",
+            cmd: "gcloud secret-args",
+          }),
+      ),
+      failingCollector(
+        (args) => args[1] === "ssh",
+        () =>
+          Object.assign(new SyntaxError("Unexpected token secret-stdout"), {
+            stderr: "secret-stderr",
+          }),
+      ),
+      async () => {
+        throw Object.assign(new Error("secret-message untagged"), {
+          stdout: "secret-stdout",
+          stderr: "secret-stderr",
+        });
+      },
+    ];
+    for (const collectEvidence of failures) {
+      const { code, lines } = await runFailingCli(collectEvidence);
+      expect(code).toBe(2);
+      expect(lines[0]).toBe("Recovery-host metadata collection failed; failing closed.");
+      expect(lines[1]).toMatch(
+        /^Recovery-host collection diagnostic: step=[A-Za-z]+ reason=[a-z-]+ exit=(\d+|none) signal=(\w+|none) timedOut=(true|false)$/,
+      );
+      expect(lines).toHaveLength(3);
+      expect(lines.join("\n")).not.toContain("secret");
+      expect(lines.join("\n")).not.toContain("gcloud");
+      expect(lines.join("\n")).not.toContain("--project");
     }
   });
 });
@@ -1026,6 +1269,7 @@ describe("recovery-host metadata collection", () => {
     const expectedEvidence = compliantEvidence();
     const responses = [
       expectedEvidence.instance,
+      expectedEvidence.bootDisk,
       expectedEvidence.firewall,
       expectedEvidence.instanceInventory,
       expectedEvidence.firewallInventory,
@@ -1039,6 +1283,7 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.recoveryEgressControlAttestation,
       expectedEvidence.recoveryEgressRuntime,
       expectedEvidence.confirmInstance,
+      expectedEvidence.confirmBootDisk,
       expectedEvidence.confirmFirewall,
       expectedEvidence.confirmInstanceInventory,
       expectedEvidence.confirmFirewallInventory,
@@ -1078,7 +1323,8 @@ describe("recovery-host metadata collection", () => {
     });
 
     expect(evidence).toEqual(expectedEvidence);
-    expect(calls).toHaveLength(27);
+    expect(calls).toHaveLength(29);
+    expect(calls.filter((call) => call.args[1] === "disks")).toHaveLength(2);
     expect(calls.every((call) => call.bin === "synthetic-gcloud")).toBe(true);
     expect(calls.filter((call) => call.args[1] === "instances")).toHaveLength(4);
     expect(
@@ -1119,16 +1365,27 @@ describe("recovery-host metadata collection", () => {
     expect(runtimeCalls).toHaveLength(2);
     expect(attestationCalls).toHaveLength(2);
     expect(startupStatusCalls).toHaveLength(2);
-    expect(
-      startupStatusCalls.every(
-        (call) =>
-          call.args.includes("--ssh-flag=-oBatchMode=yes") &&
-          call.args.includes("--ssh-flag=-oConnectTimeout=10") &&
-          call.args.includes("--ssh-flag=-oConnectionAttempts=1") &&
-          call.args.includes("--ssh-flag=-oServerAliveInterval=5") &&
-          call.args.includes("--ssh-flag=-oServerAliveCountMax=1"),
-      ),
-    ).toBe(true);
+    const boundedSshPrefix = [
+      "compute",
+      "ssh",
+      EXPECTED.instance,
+      "--project",
+      EXPECTED.project,
+      "--zone",
+      EXPECTED.zone,
+      "--tunnel-through-iap",
+      "--quiet",
+      "--ssh-flag=-oBatchMode=yes",
+      "--ssh-flag=-oConnectTimeout=10",
+      "--ssh-flag=-oConnectionAttempts=1",
+      "--ssh-flag=-oServerAliveInterval=5",
+      "--ssh-flag=-oServerAliveCountMax=1",
+      "--command",
+    ];
+    for (const call of [...runtimeCalls, ...attestationCalls, ...startupStatusCalls]) {
+      expect(call.args.slice(0, boundedSshPrefix.length)).toEqual(boundedSshPrefix);
+      expect(call.args).toHaveLength(boundedSshPrefix.length + 1);
+    }
     expect(
       runtimeCalls.every((call) =>
         call.args.includes(
@@ -2082,7 +2339,24 @@ exit 99
     expect(provisioningBlock).toContain(
       'if [[ "${OVD410_TOKEN_BINDING_ADDED:-FALSE}" == \'TRUE\' ]]',
     );
-    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
+    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(1);
+    expect(section.match(/for _attempt in \$\(seq 1 24\)/g)).toHaveLength(1);
+    expect(section.indexOf("OVD410_WORKER_BINDING_REMOVED='TRUE'\ngcloud storage buckets remove-iam-policy-binding"))
+      .toBeGreaterThan(-1);
+    expect(provisioningBlock).toContain(
+      'if [[ "${OVD410_WORKER_BINDING_REMOVED:-FALSE}" == \'TRUE\' ]]',
+    );
+    expect(provisioningBlock).toContain('"$worker_binding_restore_code" -ne 0 ||');
+    expect(section.indexOf("restore_ovd410_worker_binding() {")).toBeLessThan(
+      section.indexOf("trap 'cleanup_ovd410_recovery_ceremony \"$?\"' EXIT"),
+    );
+    expect(section.lastIndexOf("OVD410_WORKER_BINDING_REMOVED='FALSE'")).toBeGreaterThan(
+      section.lastIndexOf("gcloud storage buckets get-iam-policy"),
+    );
+    for (const line of section.split("\n").filter((l) => l.includes("worker-revocation-check"))) {
+      expect(line).not.toContain("OVD410_WORKER_TOKEN");
+      expect(line).not.toContain("XOMETRY_PROFILE_SNAPSHOT");
+    }
     expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
     expect(section).toContain("for _attempt in $(seq 1 12)");
     expect(section).toContain("sleep 5");
@@ -2093,6 +2367,38 @@ exit 99
       section.indexOf("gcloud storage rm --all-versions"),
     );
   }, 20_000);
+
+  it("retries the worker revocation proof until a 403 and fails closed without echoing the token", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const start = source.indexOf("# IAM grants and revocations propagate asynchronously.");
+    const end = source.indexOf("unset OVD410_WORKER_TOKEN OVD410_BUCKET_ENCODED", start);
+    expect(start).toBeGreaterThan(-1);
+    const loop = source.slice(start, end);
+    const run = (statuses) => {
+      const script = [
+        "set -euo pipefail",
+        "sleep() { :; }",
+        'counter="$(mktemp)"; printf 0 > "$counter"',
+        `statuses=(${statuses.join(" ")})`,
+        "gcloud() { printf '%s' 'synthetic-secret-token'; }",
+        'curl() { cat >/dev/null; local n; n="$(cat "$counter")"; printf \'%s\' $((n+1)) > "$counter"; printf \'%s\' "${statuses[$n]:-200}"; }',
+        "OVD410_BUCKET_ENCODED=b OVD410_OBJECT_ENCODED=o",
+        loop,
+        "echo passed",
+      ].join("\n");
+      return spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    };
+    const ok = run(["200", "200", "403"]);
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("passed");
+    expect(ok.stderr).toContain("worker-revocation-check attempt=1/24 reason=status-200");
+    expect(ok.stderr).not.toContain("synthetic-secret-token");
+    const fail = run(Array(30).fill("200"));
+    expect(fail.status).toBe(1);
+    expect(fail.stdout).not.toContain("passed");
+    expect(fail.stderr).toContain("STOP: worker-revocation-check failed after 24 attempts; last=200");
+    expect(fail.stderr).not.toContain("synthetic-secret-token");
+  });
 
   it("rejects metadata-only image trust and launches only the approved digest", async () => {
     const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");

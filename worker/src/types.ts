@@ -1,3 +1,4 @@
+import type { ProviderUploadCapabilityDecision, ProviderUploadCapabilityObserved } from "./providerUploadCapabilityTypes.js";
 import type { ValueSource } from "./extractedValue.js";
 import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 
@@ -23,7 +24,9 @@ export type QueueTaskType =
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
-  | "repair_adapter_candidate";
+  | "repair_adapter_candidate"
+  // OVD-723 scan only export marking rescan (expand draft adds the enum value).
+  | "export_marking_rescan";
 
 export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type VendorName =
@@ -316,6 +319,22 @@ export type VendorQuoteAdapterInput = {
   /** Required for production generic-provider launches (OVD-381/673); never set by live evaluation. */
   providerDispatchAuthorization?: ProviderDispatchAuthorization;
   /**
+   * OVD-723: set by withExportControlDispatchRecheck. Adapters await it right
+   * before the first file upload (after navigation and page classification);
+   * it throws when the export-control gate no longer allows the dispatch.
+   */
+  beforeProviderDisclosure?: () => Promise<void>;
+  /**
+   * OVD-414: re-resolves the shared upload capability decision from a bounded
+   * observation of the approved upload surface. The Xometry adapter awaits it
+   * immediately before file selection and selects nothing unless the decision
+   * is a passing classification covering every staged extension. A throw is a
+   * denial.
+   */
+  uploadCapabilityCheckpoint?: (
+    observation: ProviderUploadCapabilityObserved,
+  ) => Promise<ProviderUploadCapabilityDecision>;
+  /**
    * OVD-722 kill-switch checkpoint bound by the production dispatch path.
    * Adapters call it before each provider-facing navigation or mutation; it
    * rejects (fail-closed) when the switch is engaged or unreadable.
@@ -323,6 +342,11 @@ export type VendorQuoteAdapterInput = {
   providerKillSwitchCheckpoint?: (
     checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
   ) => Promise<void>;
+  /**
+   * OVD-748: aborted when the dispatch permit expires or the session lease is
+   * lost. Adapters stop at their next checkpoint by throwing ProviderAbortedError.
+   */
+  signal?: AbortSignal;
 };
 
 export type StagedFile = {

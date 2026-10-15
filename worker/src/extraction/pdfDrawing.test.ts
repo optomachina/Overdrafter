@@ -181,8 +181,8 @@ describe("pdfDrawing", () => {
     expect(tesseractPageCalls()).toHaveLength(PDF_OCR_MAX_PAGES);
     expect(result?.pages.slice(0, PDF_OCR_MAX_PAGES).every((page) => page.ocrStatus === "ok")).toBe(true);
     expect(result?.pages.slice(PDF_OCR_MAX_PAGES)).toEqual([
-      { page: PDF_OCR_MAX_PAGES + 1, text: "", ocrText: "", ocrStatus: "not_read" },
-      { page: PDF_OCR_MAX_PAGES + 2, text: "", ocrText: "", ocrStatus: "not_read" },
+      { page: PDF_OCR_MAX_PAGES + 1, text: "", ocrText: "", ocrStatus: "not_read", ocrLimit: "page_cap" },
+      { page: PDF_OCR_MAX_PAGES + 2, text: "", ocrText: "", ocrStatus: "not_read", ocrLimit: "page_cap" },
     ]);
   });
 
@@ -501,6 +501,7 @@ describe("pdfDrawing", () => {
     const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
     expect(result?.pages.map((page) => page.ocrStatus)).toEqual(["failed"]);
+    expect(result?.pages.map((page) => page.ocrLimit)).toEqual(["pixel_cap"]);
     expect(mockExecFileAsync.mock.calls.some(([command]) => command === "pdftoppm")).toBe(false);
   });
 
@@ -521,6 +522,8 @@ describe("pdfDrawing", () => {
     const result = await extractPdfText(TEST_INPUT_PDF_PATH);
 
     expect(result?.pages.map((page) => page.ocrStatus)).toEqual(["ok", "failed"]);
+    // A timeout is not a fixed limit: a recheck of the same bytes may read it.
+    expect(result?.pages.map((page) => page.ocrLimit)).toEqual([undefined, undefined]);
   });
 
   it("bounds pdfinfo and pdftotext with a timeout", async () => {

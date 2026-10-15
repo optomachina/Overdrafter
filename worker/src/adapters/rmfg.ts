@@ -9,6 +9,7 @@ import {
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
+import { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
 import { createRmfgHttpTransport, RMFG_DAILY_QUOTE_CAP, type RmfgBlockReason } from "./rmfgHttpTransport.js";
 import {
   runRmfgQuoteOnly,
@@ -36,7 +37,6 @@ import {
  * challenge response latches for the process and is never retried.
  */
 export const RMFG_ADAPTER_REVISION = "rmfg-live-adapter.v1" as const;
-export const RMFG_DISPATCH_ENVELOPE = Object.freeze({ id: "rmfg-quote-envelope", version: 1 });
 /** Environment variable the worker mounts the RMFG API key into. The name only; the value is never logged. */
 export const RMFG_API_KEY_ENV = "RMFG_API_KEY" as const;
 

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VendorAdapter } from "./adapters/base.js";
+import { EXPORT_CONTROL_DENIAL_CODES } from "./exportControl.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -26,6 +27,8 @@ const BOUNDED_DENIAL_REASON_CODES = new Set([
   "dispatch_provider_configuration_changed",
   "dispatch_staged_scope_changed",
   "dispatch_current_scope_changed",
+  // OVD-723: export-control gate applied by the preflight wrapper.
+  ...EXPORT_CONTROL_DENIAL_CODES,
   // OVD-722: the Xometry or global kill switch is engaged. Terminal.
   "provider_kill_switch_engaged",
 ]);

@@ -74,6 +74,36 @@ for (const image of [IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image]) {
     assert.equal(s.receipts[0].status, 'running'); assert.equal(s.receipts[0].attempts.length, 1);
   });
 }
+test('skipLoaded skips the pull and receipts "cached" when docker image inspect succeeds', async () => {
+  const digested = { ...ok, stdout: `["${IMAGE.split(':')[0]}@sha256:${'a'.repeat(64)}"]` };
+  const s = simulation([digested], { settings: { skipLoaded: true } });
+  assert.equal(await s.run(), digested);
+  assert.deepEqual(s.calls.map(call => [call.command, ...call.args]), [['docker', 'image', 'inspect', '--format', '{{json .RepoDigests}}', IMAGE]]);
+  assert.deepEqual(s.waits, []); assert.equal(s.receipts.at(-1).status, 'cached');
+  assert.deepEqual(s.receipts.at(-1).attempts, [{ attempt: 0, status: 'cached' }]);
+});
+test('skipLoaded still pulls an image loaded from a tarball without RepoDigests', async () => {
+  const undigested = { ...ok, stdout: '[]' };
+  const s = simulation([undigested, ok], { settings: { skipLoaded: true } });
+  assert.equal(await s.run(), ok);
+  assert.deepEqual(s.calls.map(call => call.args[0] + ' ' + call.args.at(-1)), ['image ' + IMAGE, 'pull ' + IMAGE]);
+  assert.equal(s.receipts.at(-1).status, 'passed');
+});
+test('skipLoaded falls through to the retried pull when the image is not loaded', async () => {
+  const missing = { status: 1, stdout: '', stderr: 'Error: No such image', failure: null };
+  const s = simulation([missing, throttle, ok], { settings: { skipLoaded: true } });
+  assert.equal(await s.run(), ok);
+  assert.deepEqual(s.calls.map(call => call.args.slice(0, 2).join(' ')), ['image inspect', 'pull ' + IMAGE, 'pull ' + IMAGE]);
+  assert.equal(s.receipts.at(-1).status, 'passed'); assert.equal(s.receipts.at(-1).attempts.length, 2);
+});
+test('the inspect probe is off by default and enabled by the CLI and both fixture call sites', () => {
+  const s = simulation([ok]); return s.run().then(() => assert.equal(s.calls[0].args[0], 'pull'));
+});
+test('CLI pullImages skips images that are already loaded', async () => {
+  const out = [], seen = [];
+  assert.equal(await pullImages([IMAGE], { call: async (_c, args) => { seen.push(args[0]); return { ...ok, stdout: `["x@sha256:${'b'.repeat(64)}"]` }; }, out: line => out.push(JSON.parse(line)) }), 0);
+  assert.deepEqual(seen, ['image']); assert.equal(out[0].status, 'cached');
+});
 test('first success makes one attempt and no wait', async () => {
   const s = simulation([ok]); await s.run(); assert.equal(s.calls.length, 1); assert.deepEqual(s.waits, []);
 });
@@ -203,7 +233,8 @@ test('spawnCall maps timeout, output-limit, spawn and abort failures', async () 
 });
 test('CLI pullImages pulls each image, prints settled receipts and reports failures with a non-zero code', async () => {
   const auth = PLATFORMS.auth.image, out = [], err = [], pulled = [];
-  const call = async (command, args) => { pulled.push(args[1]); return ok; };
+  const call = async (command, args) =>
+    args[0] === 'image' ? { ...ok, status: 1, stderr: 'Error: No such image' } : (pulled.push(args[1]), ok);
   assert.equal(await pullImages([IMAGE, auth], { call, out: line => out.push(line), err: line => err.push(line) }), 0);
   assert.deepEqual(pulled, [IMAGE, auth]);
   const receipts = out.map(line => JSON.parse(line));

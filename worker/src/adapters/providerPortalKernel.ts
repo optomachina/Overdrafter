@@ -20,9 +20,11 @@ import {
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -1219,8 +1221,8 @@ export async function runIntentionalPortalRetry<T>(input: {
     try {
       return await input.operation();
     } catch (error) {
-      // OVD-722: a kill-switch refusal is final; never retry past it.
-      if (error instanceof ProviderKillSwitchError) throw error;
+      // OVD-722: a kill-switch refusal is final; never retry past it. OVD-748: nor an abort.
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
       lastError = error;
     }
   }
@@ -1321,6 +1323,13 @@ async function uploadAuthorizedPortalFiles(
   // OVD-722: re-read after the awaited locator lookup so a switch engaged in
   // that window still stops the upload. A request already sent cannot be recalled.
   await input.providerKillSwitchCheckpoint?.("before_upload");
+  // OVD-723: the export-control gate is asked again here, after navigation
+  // and classification and right before the first byte reaches the provider.
+  // A denial is rethrown unchanged by runProviderPortalKernel (never
+  // translated into a portal failure) and the lane is held; nothing has been
+  // uploaded.
+  await input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
@@ -1341,6 +1350,10 @@ async function uploadAuthorizedDrawing(
     return terminalResult("selector_drift", "drawing_upload_selector_missing", session.page, [], true);
   }
   await input.providerKillSwitchCheckpoint?.("before_upload");
+  // OVD-723: the drawing is a separate disclosure, so the export-control gate
+  // is asked again right before it, as in Xometry's drawing fallback.
+  await input.beforeProviderDisclosure?.();
+  assertPortalBoundary(definition, session.page, session.boundary);
   await drawingInput.setInputFiles(files.drawing);
   assertPortalBoundary(definition, session.page, session.boundary);
   return null;
@@ -1459,6 +1472,8 @@ function translatePortalKernelError(
   boundary: PortalBoundaryState,
   error: unknown,
 ): VendorAutomationError | ProviderKillSwitchError {
+  // Dispatch authorization and export-control decisions are rethrown
+  // unchanged by the caller before translation (isDispatchDecisionError).
   // OVD-722: a kill-switch refusal is never re-labelled as a provider failure.
   if (error instanceof ProviderKillSwitchError) return error;
   if (error instanceof VendorAutomationError) {
@@ -1517,6 +1532,9 @@ export async function runProviderPortalKernel(
         provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
     return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
+    if (isDispatchDecisionError(error)) {
+      throw error;
+    }
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
     const translated = translatePortalKernelError(definition, boundary, error);
     if (translated instanceof ProviderKillSwitchError) throw translated;

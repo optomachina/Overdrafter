@@ -49,6 +49,12 @@ import {
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
+import type {
+  ProviderUploadCapabilityDecision,
+  ProviderUploadCapabilityObserved,
+} from "../providerUploadCapabilityTypes.js";
+import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
@@ -1560,6 +1566,96 @@ async function submitApprovedQuoteModal(
   });
 }
 
+/** null means not enforced: only the explicit operator live evaluation path. */
+type UploadCapabilityGate = {
+  checkpoint:
+    | ((observation: ProviderUploadCapabilityObserved) => Promise<ProviderUploadCapabilityDecision>)
+    | undefined;
+};
+
+const PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS: ReadonlySet<string> = new Set([
+  "matches_policy",
+  "reviewed_missing_accept_xometry",
+]);
+
+function buildUploadCapabilityObservation(
+  target: ApprovedUploadTarget,
+  observedAccept: string | null,
+): ProviderUploadCapabilityObserved {
+  const entries = (observedAccept ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLocaleLowerCase())
+    .filter(Boolean);
+  const acceptAttributePresent = entries.length > 0;
+  return {
+    state: "fresh",
+    provider: "xometry",
+    route: target.route,
+    surface: target.allowMissingAccept
+      ? "account_quote_modal"
+      : target.route === "quote_home"
+        ? "dashboard_upload"
+        : "standalone_upload",
+    revision: target.allowMissingAccept
+      ? "xometry-account-quote-modal.v1"
+      : "xometry-upload-surface.v1",
+    acceptAttributePresent,
+    ...(acceptAttributePresent
+      ? {
+          extensions: entries
+            .filter((entry) => entry.startsWith("."))
+            .map((entry) => entry.slice(1)),
+          mimeTypes: entries.filter((entry) => entry.includes("/")),
+        }
+      : {}),
+  };
+}
+
+/**
+ * OVD-414: re-resolves the shared capability decision right before file
+ * selection. Anything but a passing classification that covers every staged
+ * extension, including a missing or throwing checkpoint, selects no files.
+ * Only the classification is carried in the denial, never provider evidence.
+ */
+async function assertUploadCapabilityAllowsSelection(
+  page: Page,
+  target: ApprovedUploadTarget,
+  observedAccept: string | null,
+  filePaths: string[],
+  checkpoint:
+    | ((observation: ProviderUploadCapabilityObserved) => Promise<ProviderUploadCapabilityDecision>)
+    | undefined,
+) {
+  const deny = (classification: string): never => {
+    throw new VendorAutomationError(
+      "Xometry's upload capability decision does not permit file selection.",
+      "upload_failure",
+      {
+        vendor: "xometry",
+        reason: "upload_capability_denied",
+        classification,
+        route: classifyXometryRoute(page.url()),
+        stateId: target.stateId,
+      },
+    );
+  };
+  if (!checkpoint) return deny("decision_missing");
+  let decision: ProviderUploadCapabilityDecision;
+  try {
+    decision = await checkpoint(buildUploadCapabilityObservation(target, observedAccept));
+  } catch {
+    return deny("decision_unavailable");
+  }
+  if (!PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS.has(decision?.classification)) {
+    return deny(String(decision?.classification ?? "decision_malformed").slice(0, 64));
+  }
+  const allowed = new Set(decision.allowedExtensions ?? []);
+  const permitsEveryFile = filePaths.every((filePath) =>
+    allowed.has(path.extname(filePath).toLocaleLowerCase().replace(/^\./, "")),
+  );
+  if (!permitsEveryFile) deny("extension_not_allowed");
+}
+
 async function setFilesOnApprovedUploadTarget(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
@@ -1567,6 +1663,8 @@ async function setFilesOnApprovedUploadTarget(
   target: ApprovedUploadTarget,
   runDir: string,
   beforeMutation: () => Promise<void> = async () => undefined,
+  beforeProviderDisclosure?: () => Promise<void>,
+  uploadCapabilityGate: UploadCapabilityGate | null = null,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
   const targetStillApproved = async () => {
@@ -1589,12 +1687,14 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
-  await waitForDashboardUploadReadiness(
+  const observedAccept = await waitForDashboardUploadReadiness(
     page,
     target.locator,
     filePaths,
     target.allowMissingAccept,
   );
+  // OVD-723: the export-control gate is asked again right before the upload.
+  await beforeProviderDisclosure?.();
   if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target changed before file selection.",
@@ -1605,6 +1705,31 @@ async function setFilesOnApprovedUploadTarget(
         route: classifyXometryRoute(page.url()),
         stateId: target.stateId,
       },
+    );
+  }
+  if (uploadCapabilityGate) {
+    const currentAccept = await target.locator
+      .getAttribute("accept", { timeout: XOMETRY_UPLOAD_READINESS_POLL_MS })
+      .catch(() => null);
+    if ((currentAccept ?? "").trim() !== (observedAccept ?? "").trim()) {
+      throw new VendorAutomationError(
+        "Xometry's upload accept list changed before file selection.",
+        "upload_failure",
+        {
+          vendor: "xometry",
+          reason: "upload_capability_denied",
+          classification: "accept_changed",
+          route: classifyXometryRoute(page.url()),
+          stateId: target.stateId,
+        },
+      );
+    }
+    await assertUploadCapabilityAllowsSelection(
+      page,
+      target,
+      currentAccept,
+      filePaths,
+      uploadCapabilityGate.checkpoint,
     );
   }
   // OVD-722: readiness polling can take many seconds; re-read the switch
@@ -2298,7 +2423,7 @@ async function attachDrawingFallback(
       if (attempt.outcome === "verified") return attempt.result;
       if (attempt.outcome === "terminal_failure") return null;
     } catch (error) {
-      if (error instanceof ProviderKillSwitchError) throw error;
+      if (error instanceof ProviderKillSwitchError || error instanceof ProviderAbortedError) throw error;
       // Try the next drawing-specific input.
     }
   }
@@ -2764,6 +2889,8 @@ export class XometryAdapter extends VendorAdapter {
     let drawingUploadVerification: string | null = null;
     let quoteResult: VendorQuoteAdapterOutput | null = null;
     let pendingError: VendorAutomationError | null = null;
+    // OVD-723: a gate denial raised before an upload, rethrown unchanged after teardown.
+    let dispatchDecisionError: Error | null = null;
     // OVD-722: a kill-switch refusal is surfaced as-is, never as a provider failure.
     let killSwitchError: ProviderKillSwitchError | null = null;
     let snapshotError: VendorAutomationError | null = null;
@@ -2890,6 +3017,8 @@ export class XometryAdapter extends VendorAdapter {
         uploadTarget,
         runDir,
         async () => input.providerKillSwitchCheckpoint?.("before_upload"),
+        input.beforeProviderDisclosure,
+        isLiveEvaluation ? null : { checkpoint: input.uploadCapabilityCheckpoint },
       );
       uploadSelector = uploadResult.selector;
       if (input.stagedDrawingFile) {
@@ -3027,6 +3156,7 @@ export class XometryAdapter extends VendorAdapter {
           );
         }
         await input.providerKillSwitchCheckpoint?.("before_upload");
+        await input.beforeProviderDisclosure?.();
         const drawingFallbackResult = await attachDrawingFallback(
           page,
           liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
@@ -3293,9 +3423,13 @@ export class XometryAdapter extends VendorAdapter {
         }),
       };
     } catch (error) {
-      if (this.operationalJev) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
+      // An export-control or dispatch decision is a hold, not an operational
+      // failure, so it is not reported to Jev (as in the portal kernel).
+      if (this.operationalJev && !isDispatchDecisionError(error)) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
         provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
-      if (error instanceof ProviderKillSwitchError) {
+      if (isDispatchDecisionError(error)) {
+        dispatchDecisionError = error;
+      } else if (error instanceof ProviderKillSwitchError) {
         killSwitchError = error;
       } else if (error instanceof VendorAutomationError) {
         pendingError = new VendorAutomationError(
@@ -3382,6 +3516,7 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (dispatchDecisionError) throw dispatchDecisionError;
     if (killSwitchError) throw killSwitchError;
     if (pendingError) {
       // The quote failure is the primary cause; a teardown snapshot failure is

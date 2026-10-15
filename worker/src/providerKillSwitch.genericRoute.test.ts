@@ -95,6 +95,11 @@ vi.mock("./files.js", async (original) => ({
   cleanupPaths: vi.fn(async () => undefined),
 }));
 vi.mock("./scoringIntegration.js", () => ({ computeAndStoreRoutingScores: vi.fn(async () => undefined) }));
+// OVD-723: the staged STEP header is read for the export-control scan; a clean header records a clean scan.
+vi.mock("./exportControl.js", async (original) => ({
+  ...await original<typeof import("./exportControl.js")>(),
+  readStagedStepHeaderPrefix: vi.fn(async () => new TextEncoder().encode("ISO-10303-21;\nHEADER;\nENDSEC;\n")),
+}));
 
 const task = { id: ENVELOPE.task.workQueueTaskId, organization_id: ENVELOPE.subject.organizationId,
   quote_run_id: ENVELOPE.task.quoteRunId, part_id: "part", job_id: "job", task_type: "run_vendor_quote", attempts: 1,
@@ -119,6 +124,8 @@ function database() {
   const writes: Record<string, unknown>[] = [];
   // Set when the task was settled elsewhere: a requeue then matches zero rows.
   const queue = { settledElsewhere: false };
+  // OVD-723: answers to api_check_export_control_dispatch, in call order; the last one repeats.
+  const exportControl = { answers: [{ allowed: true }] as unknown[], calls: 0 };
   const from = (table: string) => {
     let columns = ""; let mutation = false; let patch: Record<string, unknown> = {};
     const response = (list = false) => {
@@ -153,6 +160,9 @@ function database() {
     const data = name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.fictiv, globalEngaged: switches.global }
       : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
+        : name === "api_record_export_control_clean_scan" ? "export-scan"
+        : name === "api_check_export_control_dispatch"
+          ? exportControl.answers[Math.min(exportControl.calls++, exportControl.answers.length - 1)]
         : name === "api_get_worker_sourcing_intent" ? { activeDeadline: null, destination: { state: "confirmed",
           confirmationRevision: "1", street: "s", city: "c", region: "WA", postalCode: "z", country: "US" } } : null;
     const result = Promise.resolve({ data, error: null });
@@ -161,7 +171,7 @@ function database() {
   const rpcNames = () => writes.flatMap((write) => (typeof write.rpc === "string" ? [write.rpc] : []));
   const updates = (table: string) => writes.flatMap((write) =>
     write.table === table && write.update ? [write.update as Record<string, unknown>] : []);
-  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, updates, queue };
+  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, updates, queue, exportControl };
 }
 
 const cancelledTask = expect.objectContaining({
@@ -322,6 +332,53 @@ describe("handleVendorQuoteTask on the generic provider route with the kill swit
     expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "failed" }),
       expect.objectContaining({ status: "manual_vendor_followup" }),
+    ]));
+  });
+});
+
+/** OVD-723 with OVD-722 on the generic route: inside the pipeline's adapter step both gates run before adapter.quote. */
+describe("handleVendorQuoteTask on the generic provider route with both gates", () => {
+  it("an export blocked job is refused with the kill switch off: the before_launch read passes, the export recheck denies, no adapter", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote");
+    const db = database();
+    // Cleared at the first gate and before the route; blocked at the recheck right before adapter.quote.
+    db.exportControl.answers = [{ allowed: true }, { allowed: true }, { allowed: false, reasonCode: "export_review_pending" }];
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(runGenericProviderTask).toHaveBeenCalledOnce();
+    expect(quote).not.toHaveBeenCalled();
+    const names = db.rpcNames();
+    expect(names.filter((name) => name === "api_worker_provider_kill_switch_state")).toHaveLength(2);
+    expect(names.lastIndexOf("api_worker_provider_kill_switch_state")).toBeLessThan(names.lastIndexOf("api_check_export_control_dispatch"));
+    expect(db.exportControl.calls).toBe(3);
+    expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([expect.objectContaining({
+      status: "failed",
+      raw_payload: expect.objectContaining({ exportControlHold: true, exportControlReasonCode: "export_review_pending",
+        requiresManualVendorFollowUp: false }),
+    })]));
+    expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([cancelledTask]));
+    expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "queued" })]));
+  });
+
+  it("an engaged kill switch refuses an export cleared job before launch: cancelled_provider_disabled, no export recheck, no adapter", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote");
+    const db = database();
+    let reads = 0;
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
+      if (name === "api_worker_provider_kill_switch_state" && ++reads === 2) db.switches.fictiv = true;
+      return rpc(name, args);
+    }) as typeof rpc;
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(quote).not.toHaveBeenCalled();
+    // The export checks before the route cleared the job; the switch read first in the adapter step refused it.
+    expect(db.exportControl.calls).toBe(2);
+    expect(db.updates("work_queue")).toEqual([cancelledTask]);
+    expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ raw_payload: expect.objectContaining({ exportControlHold: true }) }),
     ]));
   });
 });
