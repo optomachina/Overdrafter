@@ -116,7 +116,7 @@ export const PROVIDER_TASK_MAX_CLAIMS = PROVIDER_TASK_MAX_ADAPTER_REQUEUES + 1;
 
 // --------------------------------------------------------------------------- lease port
 
-/** Result shape of OVD-462 `runWithLease`, kept structural until that module lands on main. */
+/** Result shape of OVD-462 `runWithLease`, kept structural so tests can fake the lease; wired in `providerTaskLeasePort.ts`. */
 export type ProviderTaskLeaseRunResult<T> =
   | { kind: "completed"; value: T }
   | { kind: "lease_lost"; outcome: string }
