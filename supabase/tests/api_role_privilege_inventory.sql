@@ -1,4 +1,8 @@
--- OVD-602: catalog wide privilege inventory for the API roles.
+-- OVD-602: privilege inventory for the API roles in the application schemas.
+--
+-- Scope: SECURITY DEFINER functions in public, private and engineering_private;
+-- tables, policies and grants in public. Platform schemas (graphql, net,
+-- supabase_functions, auth, storage, extensions) are out of scope.
 --
 -- Characterization only: this file revokes nothing. Each check compares the
 -- live catalog with a reviewed allowlist, so any new grant to PUBLIC, anon or
