@@ -1,0 +1,24 @@
+{
+  "format": "ovd602.diff.v1",
+  "added": {
+    "relations": [
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "engineering_private.native_artifact_inputs",
+        "rls": true
+      },
+      {
+        "force_rls": false,
+        "grants": {},
+        "kind": "r",
+        "name": "engineering_private.native_artifact_outputs",
+        "rls": true
+      }
+    ]
+  },
+  "removed": {},
+  "changed": {},
+  "flags": []
+}

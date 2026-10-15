@@ -1,0 +1,25 @@
+{
+  "status": "passed",
+  "stage": "window2_chain",
+  "fixtureId": "5f9f959c-3c81-4507-8678-c82d7fbeb9f4",
+  "sourceRevision": "83d0a57a02f828d8c4e26e9f66dba05ce978819f",
+  "sourceManifestSha256": null,
+  "runnerSha256": "43858f7058bbf0a0b502b1f01c3cbf8151289b2df1a124b006020a8c09996444",
+  "imageId": "sha256:965e2dfb5a23a0d6541b6106541e777b303656ebabd4e878746b189d550c0a66",
+  "migrationCount": 148,
+  "ledgerSuite": null,
+  "functionCount": 452,
+  "schemaCount": 10,
+  "policyCount": 132,
+  "relationCount": 158,
+  "sequenceCount": 12,
+  "catalogSha256": "2b7b63ce1bc4b7b56881a3bacd1244359607609cd3723a55c5ce4167093ebd52",
+  "cleanup": {
+    "container": "removed_owned",
+    "network": "removed_owned",
+    "storageSource": "removed_owned",
+    "authSource": "removed_owned"
+  },
+  "submittedInputsSha256": "8a252f66f42cc7abc92a66c5ff27b1f5bd6228231f2b725217bda59777b33eca",
+  "completedAt": "2026-10-12T20:12:46.347Z"
+}

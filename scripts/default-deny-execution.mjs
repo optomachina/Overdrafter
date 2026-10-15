@@ -26,6 +26,8 @@ export const DEFAULT_DENY_REGISTRAR_FUNCTION = "registerProductionPortalAuthoriz
 export const DEFAULT_DENY_VITEST_CONFIG = "scripts/default-deny-execution.vitest.config.mjs";
 export const DEFAULT_DENY_FILES_ENV = "OVD_DEFAULT_DENY_FILES";
 
+export const DEFAULT_DENY_FILE_STATUS_TITLE = "(test file)";
+
 const RUN_TIMEOUT_MS = 180_000;
 
 /**
@@ -105,6 +107,10 @@ export async function runDefaultDenySuites({ rootDir, files }) {
           title: assertion.title,
           status: assertion.status,
         })));
+        // A failed hook or suite level error can fail the file while every assertion passed.
+        if (result.status !== "passed") {
+          byFile.get(relative).push({ title: DEFAULT_DENY_FILE_STATUS_TITLE, status: String(result.status) });
+        }
       }
     }
     return byFile;
@@ -124,7 +130,24 @@ export function defaultDenyExecutionProblems({ key, file, expected, assertions }
       problems.push(`${key} default-deny test did not pass: "${name}" is ${statuses.join(", ")} (${file})`);
     }
   }
+  const failedFile = assertions.find((assertion) => assertion.title === DEFAULT_DENY_FILE_STATUS_TITLE);
+  if (problems.length === 0 && failedFile) {
+    problems.push(`${key} default-deny test file is ${failedFile.status} although its tests passed (${file})`);
+  }
   return problems;
+}
+
+/**
+ * Problems for a suite that names its own default-deny test (an adopted or API
+ * adapter): at least one test must run and every reported test must pass.
+ */
+export function fullSuiteExecutionProblems({ key, file, assertions }) {
+  if (assertions.length === 0) {
+    return [`${key} default-deny suite ran no tests (${file})`];
+  }
+  return assertions
+    .filter((assertion) => assertion.status !== "passed")
+    .map((assertion) => `${key} default-deny test did not pass: "${assertion.title}" is ${assertion.status} (${file})`);
 }
 
 /** Executes every suite and throws when any expected default-deny test did not pass. */
@@ -132,18 +155,26 @@ export async function assertDefaultDenyExecuted({ rootDir, suites }) {
   if (suites.length === 0) {
     return { executed: [] };
   }
-  const registrarSource = await fs.readFile(path.join(rootDir, DEFAULT_DENY_REGISTRAR_SOURCE), "utf8");
-  const expected = expectedDefaultDenyTestNames(registrarSource);
+  const expected = suites.some((suite) => !suite.requireAllPassed)
+    ? expectedDefaultDenyTestNames(await fs.readFile(path.join(rootDir, DEFAULT_DENY_REGISTRAR_SOURCE), "utf8"))
+    : [];
   const results = await runDefaultDenySuites({ rootDir, files: suites.map((suite) => suite.file) });
-  const problems = suites.flatMap((suite) => defaultDenyExecutionProblems({
-    ...suite,
-    expected,
-    assertions: results.get(suite.file) ?? [],
-  }));
+  const problems = suites.flatMap((suite) => {
+    const assertions = results.get(suite.file) ?? [];
+    return suite.requireAllPassed
+      ? fullSuiteExecutionProblems({ ...suite, assertions })
+      : defaultDenyExecutionProblems({ ...suite, expected, assertions });
+  });
   if (problems.length > 0) {
     throw new Error(problems.map((problem) => `provider:check: ${problem}`).join("\n"));
   }
-  return { executed: suites.map((suite) => ({ key: suite.key, file: suite.file, passed: expected.length })) };
+  return {
+    executed: suites.map((suite) => ({
+      key: suite.key,
+      file: suite.file,
+      passed: suite.requireAllPassed ? (results.get(suite.file) ?? []).length : expected.length,
+    })),
+  };
 }
 
 function runProcess(command, args, options) {

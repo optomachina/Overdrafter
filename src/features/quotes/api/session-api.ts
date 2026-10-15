@@ -53,7 +53,22 @@ async function fetchPlatformAdminAvailability(): Promise<PlatformAdminRpcResult>
   platformAdminRpcRequest = callRpc("api_get_is_platform_admin")
     .then((result) => {
       if (result.error) {
-        if (isNonRetriablePlatformAdminRpcError(result.status, result.error)) {
+        if (isPlatformAdminRpcPermissionDenied(result.status, result.error)) {
+          // A denial describes this call's credentials, not the RPC. An anon
+          // request (for example a stored session whose refresh failed) gets
+          // 42501, and caching that would hide admin mode from the next signed
+          // in fetch, so availability stays as it was and the next fetch asks again.
+          recordWorkspaceSessionDiagnostic(
+            "warn",
+            "session-api.fetch.platform-admin-permission-denied",
+            "Platform-admin RPC denied for this request's credentials; defaulting to non-admin mode for this request.",
+            {
+              code: result.error.code,
+              error: result.error.message,
+              status: result.status ?? null,
+            },
+          );
+        } else if (isNonRetriablePlatformAdminRpcError(result.status, result.error)) {
           markPlatformAdminRpcAvailability("unavailable");
           recordWorkspaceSessionDiagnostic(
             "warn",
@@ -93,8 +108,12 @@ async function fetchPlatformAdminAvailability(): Promise<PlatformAdminRpcResult>
   return platformAdminRpcRequest;
 }
 
+function isPlatformAdminRpcPermissionDenied(status: number, error: PostgrestError): boolean {
+  return error.code === "42501" || status === 401 || status === 403;
+}
+
 function isNonRetriablePlatformAdminRpcError(status: number, error: PostgrestError): boolean {
-  return status === 404 || status === 403 || error.code === "PGRST202" || error.code === "42501";
+  return status === 404 || error.code === "PGRST202";
 }
 
 function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {

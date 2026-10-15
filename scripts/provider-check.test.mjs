@@ -123,6 +123,7 @@ describe("checked-in provider manifests and projections", () => {
     expect(result.vendorKeys).toContain("rmfg");
     expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     expect(result.defaultDenyExecuted).toEqual([
+      { key: "fictiv", file: "worker/src/adapters/fictiv.test.ts", passed: expect.any(Number) },
       { key: "quickparts", file: "worker/src/adapters/quickpartsProductionPortal.test.ts", passed: 10 },
       { key: "weerg", file: "worker/src/adapters/weergProductionPortal.test.ts", passed: 10 },
     ]);
@@ -705,10 +706,11 @@ async function copyRepoReviewedEnvelopeInputs(rootDir) {
     .filter((name) => name.endsWith("DispatchFixture.ts"))
     .map((name) => `worker/test-support/${name}`);
   const defaultDenyTests = (await fs.readdir(path.join(repoRoot, "worker/src/adapters")))
-    .filter((name) => name.endsWith("ProductionPortal.test.ts"))
+    .filter((name) => name.endsWith("ProductionPortal.test.ts") || name.endsWith("ApiDispatch.test.ts"))
     .map((name) => `worker/src/adapters/${name}`);
   const relativePaths = [
     "worker/src/providerDispatchEnvelope.ts",
+    "worker/test-support/productionPortalDefaultDeny.ts",
     "worker/scripts/deploy-cloud-run.sh",
     "worker/src/runtimeSecrets.ts",
     "scripts/xometry-stable-egress-contract.mjs",
