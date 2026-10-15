@@ -1596,7 +1596,7 @@ test("named-branch push guidance preserves shell metacharacters as one source ar
     const reason = decide(inFixture(`git -c ${quote(config)} push origin ${quote(source)}`, "gitup"), { prFiles: fakePrFiles });
     assert.ok(reason, source);
     const hint = reason.split("for example ").at(-1).replace("<branch>", "destination");
-    const replay = spawnSync("sh", ["-c", `git() { printf '%s\\n' "$@"; }; ${hint}`], { encoding: "utf8" });
+    const replay = spawnSync("/bin/sh", ["-c", `git() { printf '%s\\n' "$@"; }; ${hint}`], { encoding: "utf8" });
     assert.equal(replay.status, 0, replay.stderr);
     assert.deepEqual(replay.stdout.trimEnd().split("\n"), ["push", "-u", "origin", `${source}:destination`]);
   }
@@ -1650,7 +1650,7 @@ test("unsupported redirect assignments block across Bash orderings and source po
         // Bash permits reversing these steps without a command name. Replay both orders explicitly.
         let protectedWrite = false;
         for (const ordering of [`${setup}; MIG=${target}; ${redirect}`, `${setup}; ${redirect}; MIG=${target}`]) {
-          const reference = spawnSync("bash", ["-c", ordering + '; printf %s "$MIG"'], { cwd: fixture, encoding: "utf8" });
+          const reference = spawnSync("/bin/bash", ["-c", ordering + '; printf %s "$MIG"'], { cwd: fixture, encoding: "utf8" });
           assert.equal(reference.status, 0, reference.stderr);
           assert.equal(reference.stderr, "", ordering);
           protectedWrite ||= reference.stdout === "supabase/migrations" || existsSync(join(fixture, "supabase/migrations/redirect.sql"));
@@ -1675,7 +1675,7 @@ test("side-effecting prefix values with redirects are unsupported", () => {
     try {
       mkdirSync(join(fixture, "supabase/migrations"), { recursive: true });
       const command = 'X=; >"./$X/x.sql" Y=${' + parameter + 'supabase/migrations} true';
-      const reference = spawnSync("bash", ["-c", command], { cwd: fixture, encoding: "utf8" });
+      const reference = spawnSync("/bin/bash", ["-c", command], { cwd: fixture, encoding: "utf8" });
       assert.equal(reference.status, 0, reference.stderr);
       assert.equal(reference.stderr, "");
       assert.ok(existsSync(join(fixture, "supabase/migrations/x.sql")) || existsSync(join(fixture, "x.sql")));
