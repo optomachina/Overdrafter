@@ -9,6 +9,8 @@ Usage: python assembly.py <request.json> <output_dir>
 
 import json
 import math
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -144,8 +146,15 @@ def render_png(parts, path):
 
 
 def main():
-    request_path, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
-    request = json.loads(request_path.read_text())
+    runs_root = Path(os.environ.get("JARVIS_DEMO_ROOT", Path.home() / "overnight" / "jarvis")).resolve() / "runs"
+    out_dir = Path(sys.argv[2]).resolve()
+    if out_dir.parent != runs_root or not re.fullmatch(r"jd-[\w-]+", out_dir.name):
+        print(f"output_dir must be a jd-* directory directly under {runs_root}", file=sys.stderr)
+        return 64
+    if Path(sys.argv[1]).resolve() != out_dir / "request.json":
+        print("request path must be <output_dir>/request.json", file=sys.stderr)
+        return 64
+    request = json.loads((out_dir / "request.json").read_text())
     params = request["params"]
     out_dir.mkdir(parents=True, exist_ok=True)
     parts, derived = build(params)

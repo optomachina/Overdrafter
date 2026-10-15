@@ -80,7 +80,11 @@ function work(root, python) {
     writeFileSync(requestPath, `${JSON.stringify({ ...request, state: "running" }, null, 2)}\n`);
     const script = join(dirname(fileURLToPath(import.meta.url)), "assembly.py");
     const started = Date.now();
-    const run = spawnSync(python, [script, requestPath, runDir], { encoding: "utf8", timeout: 300_000 });
+    const run = spawnSync(python, [script, requestPath, runDir], {
+      encoding: "utf8",
+      timeout: 300_000,
+      env: { ...process.env, JARVIS_DEMO_ROOT: root },
+    });
     state = run.status === 0 ? "verified" : run.status === 2 ? "checks_failed" : "failed";
     const outcome = { id: request.id, state, exitCode: run.status, durationMs: Date.now() - started, runDir };
     writeFileSync(join(runDir, "worker.log"), `${run.stdout ?? ""}\n--- stderr ---\n${run.stderr ?? ""}${run.error ? `\n${run.error}` : ""}`);
