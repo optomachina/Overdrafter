@@ -213,7 +213,10 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_prepare_organization_billing_session(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_prepare_part_intake(text,text)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_publish_quote_package(uuid,uuid,text,boolean)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_reconcile_job_parts(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
+  -- No verified-auth gate and any org member may rewrite parts. Delete this row
+  -- when the service_role-only block of docs/migration-drafts/ovd-766-c.sql is
+  -- applied (blocked today: the browser calls this RPC as authenticated).
+  ('public.api_reconcile_job_parts(uuid)', 'authenticated', 'known-debt', 'OVD-769'),
   ('public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_remove_job_from_project(uuid,uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_remove_project_member(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),

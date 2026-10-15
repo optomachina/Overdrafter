@@ -1,0 +1,105 @@
+-- OVD-766 (split child c): pending guard test for public.api_reconcile_job_parts.
+-- Pending: it asserts the state after BOTH sections of
+-- docs/migration-drafts/ovd-766-c.sql are applied, including the
+-- service_role-only block that is commented out today (BLOCKER: the browser
+-- calls this RPC as authenticated). Promote it to supabase/tests/ with that
+-- block, in the same PR that deletes the inventory row and row 6 of
+-- client_rpc_least_privilege.sql. Synthetic records only; everything rolls back.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+select plan(10);
+
+\set user_a 76c00000-0000-4000-8000-000000000001
+\set org_a 76c00000-0000-4000-8000-00000000000a
+\set policy_a 76c00000-0000-4000-8000-000000000010
+\set job_a 76c00000-0000-4000-8000-000000000011
+\set file_a 76c00000-0000-4000-8000-000000000012
+\set part_key 'ovd766-c-part'
+\set denied 'permission denied for function api_reconcile_job_parts'
+\set job_denied 'You do not have access to job ' :job_a
+
+-- Org A: verified client uA, the strongest legitimate browser caller today.
+insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
+values (:'user_a', 'authenticated', 'authenticated', 'ovd766-c-a@example.test',
+  timezone('utc', now()), '{"provider":"email"}'::jsonb);
+insert into public.organizations (id, name, slug)
+values (:'org_a', 'OVD-766 c org A', 'ovd766-c-org-a');
+insert into public.organization_memberships (organization_id, user_id, role)
+values (:'org_a', :'user_a', 'client');
+insert into public.pricing_policies (id, organization_id, version, markup_percent, currency_minor_unit)
+values (:'policy_a', :'org_a', 'ovd766-c', 20, 0.01);
+insert into public.jobs (id, organization_id, created_by, title, status, active_pricing_policy_id, requested_service_kinds)
+values (:'job_a', :'org_a', :'user_a', 'OVD-766 c reconcile', 'ready_to_quote', :'policy_a', '{manufacturing_quote}');
+-- One CAD file and no drawing: reconcile yields one part missing its drawing.
+insert into public.job_files (id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+  original_name, normalized_name, file_kind, mime_type, size_bytes)
+values (:'file_a', :'job_a', :'org_a', :'user_a', 'job-files', 'ovd766-c/part.step',
+  'part.step', :'part_key', 'cad', 'application/step', 100);
+
+create function pg_temp.act_as(p_user uuid, p_role text, p_aal text) returns void language sql as $$
+  select pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user::text, ''), true),
+    pg_catalog.set_config('request.jwt.claims',
+      pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
+        'sub', p_user, 'role', p_role, 'aal', p_aal))::text, true);
+$$;
+
+-- 1-2. Definition shape.
+select ok((select p.prosecdef from pg_catalog.pg_proc p
+  where p.oid = 'public.api_reconcile_job_parts(uuid)'::regprocedure),
+  'api_reconcile_job_parts is SECURITY DEFINER');
+select is((select p.proconfig from pg_catalog.pg_proc p
+  where p.oid = 'public.api_reconcile_job_parts(uuid)'::regprocedure),
+  array['search_path=""']::text[],
+  'api_reconcile_job_parts pins search_path to empty');
+
+-- 3-6. Grants: service_role only.
+select ok(not exists (
+    select 1
+    from pg_catalog.pg_proc p,
+      pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+    where p.oid = 'public.api_reconcile_job_parts(uuid)'::regprocedure
+      and a.grantee = 0 and a.privilege_type = 'EXECUTE'),
+  'PUBLIC has no EXECUTE on api_reconcile_job_parts');
+select ok(not has_function_privilege('anon', 'public.api_reconcile_job_parts(uuid)', 'EXECUTE'),
+  'anon cannot execute api_reconcile_job_parts');
+select ok(not has_function_privilege('authenticated', 'public.api_reconcile_job_parts(uuid)', 'EXECUTE'),
+  'authenticated cannot execute api_reconcile_job_parts');
+select ok(has_function_privilege('service_role', 'public.api_reconcile_job_parts(uuid)', 'EXECUTE'),
+  'service_role can execute api_reconcile_job_parts');
+
+-- 7. anon is denied before the body runs.
+select pg_temp.act_as(null, 'anon', null);
+set local role anon;
+select throws_ok(format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
+  '42501', :'denied', 'anon: api_reconcile_job_parts is permission denied');
+reset role;
+
+-- 8. A verified org member at AAL2, who passes the body's org check today, is
+--    denied by the grant: no authenticated JWT reaches the body any more.
+select pg_temp.act_as(:'user_a', 'authenticated', 'aal2');
+set local role authenticated;
+select throws_ok(format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
+  '42501', :'denied', 'authenticated org member: api_reconcile_job_parts is permission denied');
+reset role;
+
+-- 9. service_role passes the grant. With no user the unchanged body still
+--    refuses, because user_can_access_org reads auth.uid().
+select pg_temp.act_as(null, 'service_role', null);
+set local role service_role;
+select throws_ok(format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
+  'P0001', :'job_denied', 'service_role without a user reaches the body and hits the org check');
+reset role;
+
+-- 10. service_role acting for an org member (as a nested definer caller does)
+--     reconciles the job.
+select pg_temp.act_as(:'user_a', 'service_role', null);
+set local role service_role;
+select is(public.api_reconcile_job_parts(:'job_a'::uuid),
+  '{"totalParts": 1, "matchedPairs": 0, "missingDrawings": 1, "missingCad": 0}'::jsonb,
+  'service_role acting for an org member reconciles the job');
+reset role;
+
+select * from finish();
+rollback;
