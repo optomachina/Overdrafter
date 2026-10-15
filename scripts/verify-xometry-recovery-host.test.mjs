@@ -2339,7 +2339,24 @@ exit 99
     expect(provisioningBlock).toContain(
       'if [[ "${OVD410_TOKEN_BINDING_ADDED:-FALSE}" == \'TRUE\' ]]',
     );
-    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
+    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(1);
+    expect(section.match(/for _attempt in \$\(seq 1 24\)/g)).toHaveLength(1);
+    expect(section.indexOf("OVD410_WORKER_BINDING_REMOVED='TRUE'\ngcloud storage buckets remove-iam-policy-binding"))
+      .toBeGreaterThan(-1);
+    expect(provisioningBlock).toContain(
+      'if [[ "${OVD410_WORKER_BINDING_REMOVED:-FALSE}" == \'TRUE\' ]]',
+    );
+    expect(provisioningBlock).toContain('"$worker_binding_restore_code" -ne 0 ||');
+    expect(section.indexOf("restore_ovd410_worker_binding() {")).toBeLessThan(
+      section.indexOf("trap 'cleanup_ovd410_recovery_ceremony \"$?\"' EXIT"),
+    );
+    expect(section.lastIndexOf("OVD410_WORKER_BINDING_REMOVED='FALSE'")).toBeGreaterThan(
+      section.lastIndexOf("gcloud storage buckets get-iam-policy"),
+    );
+    for (const line of section.split("\n").filter((l) => l.includes("worker-revocation-check"))) {
+      expect(line).not.toContain("OVD410_WORKER_TOKEN");
+      expect(line).not.toContain("XOMETRY_PROFILE_SNAPSHOT");
+    }
     expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
     expect(section).toContain("for _attempt in $(seq 1 12)");
     expect(section).toContain("sleep 5");
@@ -2350,6 +2367,38 @@ exit 99
       section.indexOf("gcloud storage rm --all-versions"),
     );
   }, 20_000);
+
+  it("retries the worker revocation proof until a 403 and fails closed without echoing the token", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const start = source.indexOf("# IAM grants and revocations propagate asynchronously.");
+    const end = source.indexOf("unset OVD410_WORKER_TOKEN OVD410_BUCKET_ENCODED", start);
+    expect(start).toBeGreaterThan(-1);
+    const loop = source.slice(start, end);
+    const run = (statuses) => {
+      const script = [
+        "set -euo pipefail",
+        "sleep() { :; }",
+        'counter="$(mktemp)"; printf 0 > "$counter"',
+        `statuses=(${statuses.join(" ")})`,
+        "gcloud() { printf '%s' 'synthetic-secret-token'; }",
+        'curl() { cat >/dev/null; local n; n="$(cat "$counter")"; printf \'%s\' $((n+1)) > "$counter"; printf \'%s\' "${statuses[$n]:-200}"; }',
+        "OVD410_BUCKET_ENCODED=b OVD410_OBJECT_ENCODED=o",
+        loop,
+        "echo passed",
+      ].join("\n");
+      return spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    };
+    const ok = run(["200", "200", "403"]);
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("passed");
+    expect(ok.stderr).toContain("worker-revocation-check attempt=1/24 reason=status-200");
+    expect(ok.stderr).not.toContain("synthetic-secret-token");
+    const fail = run(Array(30).fill("200"));
+    expect(fail.status).toBe(1);
+    expect(fail.stdout).not.toContain("passed");
+    expect(fail.stderr).toContain("STOP: worker-revocation-check failed after 24 attempts; last=200");
+    expect(fail.stderr).not.toContain("synthetic-secret-token");
+  });
 
   it("rejects metadata-only image trust and launches only the approved digest", async () => {
     const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
