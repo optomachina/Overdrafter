@@ -157,6 +157,33 @@ async function input(extension = "step"): Promise<VendorQuoteAdapterInput> {
   return authorized;
 }
 
+type FakeRequest = {
+  url: string;
+  headers?: Record<string, string>;
+  body?: string;
+  navigation?: boolean;
+  resourceType?: string;
+  headersUnavailable?: boolean;
+};
+
+function fakeRoute(spec: FakeRequest, mainFrame: { parentFrame: () => null }) {
+  return {
+    request: () => ({
+      url: () => spec.url,
+      isNavigationRequest: () => spec.navigation === true,
+      frame: () => mainFrame,
+      allHeaders: async () => {
+        if (spec.headersUnavailable) throw new Error("target closed");
+        return spec.headers ?? {};
+      },
+      postDataBuffer: () => (spec.body === undefined ? null : Buffer.from(spec.body)),
+      resourceType: () => spec.resourceType ?? (spec.navigation ? "document" : "fetch"),
+    }),
+    abort: vi.fn(async () => undefined),
+    continue: vi.fn(async () => undefined),
+  };
+}
+
 function fakeBrowser(options: {
   redirectedUrl?: string;
   bodyText?: string;
@@ -168,7 +195,8 @@ function fakeBrowser(options: {
   navigateDuringRead?: string;
   popupDuringCountAt?: number;
   navigateDuringCountAt?: number;
-  requestDuringUpload?: string;
+  requestDuringUpload?: string | FakeRequest;
+  requestsDuringUpload?: FakeRequest[];
   webSocketDuringUpload?: string;
 } = {}) {
   let currentUrl = "about:blank";
@@ -179,21 +207,19 @@ function fakeBrowser(options: {
       listener(value);
     }
   };
-  let requestRouteHandler: ((route: {
-    request: () => { url: () => string };
-    abort: (reason: string) => Promise<void>;
-    continue: () => Promise<void>;
-  }) => Promise<void>) | null = null;
+  let requestRouteHandler: ((route: ReturnType<typeof fakeRoute>) => Promise<void>) | null = null;
   let webSocketRouteHandler: ((route: {
     url: () => string;
     close: (options: { code: number; reason: string }) => Promise<void>;
     connectToServer: () => unknown;
   }) => Promise<void>) | null = null;
-  const requestRoute = {
-    request: () => ({ url: () => options.requestDuringUpload ?? "https://quickquote.quickparts.com/upload" }),
-    abort: vi.fn(async () => undefined),
-    continue: vi.fn(async () => undefined),
-  };
+  const frameForRequests = { parentFrame: () => null };
+  const single = typeof options.requestDuringUpload === "string"
+    ? { url: options.requestDuringUpload }
+    : options.requestDuringUpload;
+  const requestSpecs = options.requestsDuringUpload ?? (single ? [single] : []);
+  const requestRoutes = requestSpecs.map((spec) => fakeRoute(spec, frameForRequests));
+  const requestRoute = requestRoutes[0] ?? fakeRoute({ url: "https://quickquote.quickparts.com/upload" }, frameForRequests);
   const webSocketRoute = {
     url: () => options.webSocketDuringUpload ?? "wss://quickquote.quickparts.com/socket",
     close: vi.fn(async () => undefined),
@@ -203,8 +229,8 @@ function fakeBrowser(options: {
     if (options.uploadFailure) {
       throw options.uploadFailure;
     }
-    if (options.requestDuringUpload && requestRouteHandler) {
-      await requestRouteHandler(requestRoute);
+    for (const route of requestRoutes) {
+      await requestRouteHandler?.(route);
     }
     if (options.webSocketDuringUpload && webSocketRouteHandler) {
       await webSocketRouteHandler(webSocketRoute);
@@ -311,6 +337,7 @@ function fakeBrowser(options: {
     page,
     popup,
     requestRoute,
+    requestRoutes,
     webSocketRoute,
     setInputFiles,
     fill,
@@ -587,7 +614,11 @@ describe("provider portal kernel admission", () => {
   });
 
   it("blocks an upload request to an origin outside the exact approval boundary", async () => {
-    const fake = fakeBrowser({ requestDuringUpload: "https://malicious.example/collect" });
+    const fake = fakeBrowser({ requestDuringUpload: {
+      url: "https://malicious.example/collect",
+      headers: { "content-type": "multipart/form-data; boundary=x" },
+      body: "--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"part.step\"\r\n\r\nauthorized-cad-bytes\r\n--x--",
+    } });
     await expect(runProviderPortalKernel(
       definition(),
       config(),
@@ -616,13 +647,157 @@ describe("provider portal kernel admission", () => {
         launchBrowser: vi.fn(async () => fake.browser),
         captureEvidence: async () => [],
       },
-    )).resolves.toMatchObject({ state: "offers_extracted" });
+    )).resolves.toMatchObject({ state: "offers_extracted", portalBoundary: { blockedOffhostCount: 0 } });
     expect(fake.requestRoute.continue).toHaveBeenCalledOnce();
     expect(fake.requestRoute.abort).not.toHaveBeenCalled();
     expect(fake.browser.newContext).toHaveBeenCalledWith(expect.objectContaining({
       serviceWorkers: "block",
     }));
   });
+
+  // OVD-773: real provider pages always load telemetry. Off-host page
+  // subresources are blocked so nothing leaves, but the run is not failed.
+  it("quietly blocks a Datadog CSP report and completes the run", async () => {
+    const fake = fakeBrowser({ requestDuringUpload: {
+      url: "https://csp-report.browser-intake-datadoghq.com/api/v2/logs?dd-api-key=pub123&ddsource=csp-report",
+      headers: { "content-type": "application/csp-report" },
+      body: JSON.stringify({ "csp-report": { "blocked-uri": "inline", "document-uri": "https://quickquote.quickparts.com/" } }),
+      resourceType: "csp_report",
+    } });
+    const captureEvidence = vi.fn(async () => []);
+    const result = await runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence,
+    });
+    expect(result).toMatchObject({
+      state: "offers_extracted",
+      portalBoundary: {
+        blockedOffhostCount: 1,
+        blockedOffhostByHost: { "csp-report.browser-intake-datadoghq.com": 1 },
+        blockedOffhostEvents: [{
+          event: "boundary.blocked_offhost",
+          host: "csp-report.browser-intake-datadoghq.com",
+          resourceType: "csp_report",
+        }],
+      },
+    });
+    expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(fake.requestRoute.continue).not.toHaveBeenCalled();
+    // Host and resource type only: no path, query string, or API key.
+    expect(JSON.stringify(result.portalBoundary)).not.toMatch(/dd-api-key|pub123|\/api\/v2/);
+    expect(captureEvidence).toHaveBeenCalledWith(expect.anything(), expect.anything(), "offers_extracted",
+      expect.anything(), expect.objectContaining({ blockedOffhostCount: 1 }));
+  });
+
+  it("quietly blocks analytics, font, and CDN subresources without a violation", async () => {
+    const fake = fakeBrowser({ requestsDuringUpload: [
+      { url: "https://www.googletagmanager.com/gtag/js?id=G-1", resourceType: "script" },
+      { url: "https://fonts.gstatic.com/s/inter/v1.woff2", resourceType: "font" },
+      { url: "https://fonts.gstatic.com/s/inter/v2.woff2", resourceType: "font" },
+      { url: "https://www.google-analytics.com/g/collect?v=2", resourceType: "image" },
+    ] });
+    const result = await runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result).toMatchObject({
+      state: "offers_extracted",
+      portalBoundary: {
+        blockedOffhostCount: 4,
+        blockedOffhostByHost: {
+          "www.googletagmanager.com": 1,
+          "fonts.gstatic.com": 2,
+          "www.google-analytics.com": 1,
+        },
+      },
+    });
+    for (const route of fake.requestRoutes) {
+      expect(route.abort).toHaveBeenCalledWith("blockedbyclient");
+      expect(route.continue).not.toHaveBeenCalled();
+    }
+  });
+
+  it("treats an off-host main-frame navigation as a violation", async () => {
+    const fake = fakeBrowser({ requestDuringUpload: {
+      url: "https://malicious.example/landing",
+      navigation: true,
+    } });
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({
+      payload: {
+        terminalState: "unexpected_origin",
+        reason: "unexpected_navigation:malicious.example",
+        portalBoundary: { blockedOffhostCount: 0 },
+      },
+    });
+    expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+  });
+
+  it.each([
+    ["a form POST body", { "content-type": "application/x-www-form-urlencoded" }, "quantity=5&material=6061"],
+    ["a JSON body", { "content-type": "application/json" }, "{\"quantity\":5}"],
+    ["a text/plain beacon", { "content-type": "text/plain" }, "authorized-cad-bytes"],
+    ["an oversized CSP report", { "content-type": "application/csp-report" }, "x".repeat(64 * 1024 + 1)],
+    ["an Authorization header", { authorization: "Bearer token" }, undefined],
+    ["a Cookie header", { cookie: "session=1" }, undefined],
+  ])("treats an off-host request carrying %s as a violation", async (_label, headers, body) => {
+    const fake = fakeBrowser({ requestDuringUpload: { url: "https://collector.example/ingest", headers, body } });
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({
+      payload: { terminalState: "unexpected_origin", reason: "unexpected_request:collector.example" },
+    });
+    expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(fake.requestRoute.continue).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an off-host request cannot be classified", async () => {
+    const fake = fakeBrowser({ requestDuringUpload: { url: "https://collector.example/x", headersUnavailable: true } });
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({ payload: { reason: "unexpected_request:collector.example" } });
+    expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+  });
+
+  it("continues subresource GETs to an allowlisted off-host host but keeps payloads to it a violation", async () => {
+    const allowlisted = definition({ offHostAllowlist: ["cdn.jsdelivr.net"] });
+    const passes = fakeBrowser({ requestDuringUpload: {
+      url: "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      resourceType: "script",
+    } });
+    await expect(runProviderPortalKernel(allowlisted, config(), await input(), {
+      launchBrowser: vi.fn(async () => passes.browser),
+      captureEvidence: async () => [],
+    })).resolves.toMatchObject({ state: "offers_extracted", portalBoundary: { blockedOffhostCount: 0 } });
+    expect(passes.requestRoute.continue).toHaveBeenCalledOnce();
+    expect(passes.requestRoute.abort).not.toHaveBeenCalled();
+
+    const payload = fakeBrowser({ requestDuringUpload: {
+      url: "https://cdn.jsdelivr.net/upload",
+      headers: { "content-type": "application/octet-stream" },
+      body: "authorized-cad-bytes",
+    } });
+    await expect(runProviderPortalKernel(allowlisted, config(), await input(), {
+      launchBrowser: vi.fn(async () => payload.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({ payload: { reason: "unexpected_request:cdn.jsdelivr.net" } });
+    expect(payload.requestRoute.continue).not.toHaveBeenCalled();
+  });
+
+  it.each([["*.jsdelivr.net"], ["CDN.example.com"], ["cdn.example.com:443"], ["localhost"]])(
+    "rejects an inexact off-host allowlist entry %s before launch",
+    async (host) => {
+      const launchBrowser = vi.fn();
+      await expect(runProviderPortalKernel(definition({ offHostAllowlist: [host] }), config(), await input(), {
+        launchBrowser,
+      })).rejects.toThrow(/inexact off-host allowlist/);
+      expect(launchBrowser).not.toHaveBeenCalled();
+    },
+  );
 
   it("blocks an upload WebSocket outside the exact approval boundary", async () => {
     const fake = fakeBrowser({ webSocketDuringUpload: "wss://malicious.example/collect" });

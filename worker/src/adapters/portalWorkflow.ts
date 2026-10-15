@@ -136,6 +136,18 @@ export function buildPortalWorkflowDefinition(
   };
 }
 
+/** OVD-773: the quietly blocked off-host summary (host and count only), when a browser session ran. */
+function portalBoundaryEvidence(result: ProviderPortalKernelResult): Record<string, unknown> {
+  return result.portalBoundary
+    ? {
+      portalBoundary: {
+        blockedOffhostCount: result.portalBoundary.blockedOffhostCount,
+        blockedOffhostByHost: result.portalBoundary.blockedOffhostByHost,
+      },
+    }
+    : {};
+}
+
 function terminalErrorCode(state: ProviderPortalTerminalState) {
   if (state === "login_required" || state === "missing_session") {
     return "login_required" as const;
@@ -274,6 +286,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
         offers: disposition.offers,
         artifacts: result.artifacts,
         providerMutationPossible: result.providerMutationPossible,
+        portalBoundary: result.portalBoundary,
       });
     }
     return {
@@ -302,6 +315,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
             currencyConversion: "none",
             offers: disposition.offers,
           },
+          ...portalBoundaryEvidence(result),
         },
       ),
     };
@@ -341,7 +355,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
           result.reason,
           "offers_extracted",
           result.providerMutationPossible,
-          { offers: result.offers },
+          { offers: result.offers, ...portalBoundaryEvidence(result) },
         ),
       };
     }
@@ -358,7 +372,8 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
         dfmIssues: [],
         notes: [`${this.workflow.displayName} accepted the upload but routed the quote to review.`],
         artifacts: result.artifacts,
-        rawPayload: this.payload(input, result.reason, result.state, result.providerMutationPossible),
+        rawPayload: this.payload(input, result.reason, result.state, result.providerMutationPossible,
+          portalBoundaryEvidence(result)),
       };
     }
 
@@ -374,6 +389,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       terminalErrorCode(result.state),
       this.payload(input, result.reason, result.state, result.providerMutationPossible, {
         url: result.url,
+        ...portalBoundaryEvidence(result),
       }),
       result.artifacts,
     );
@@ -403,6 +419,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
         reason,
         terminalState,
         result?.providerMutationPossible ?? false,
+        result ? portalBoundaryEvidence(result) : {},
       ),
     };
   }

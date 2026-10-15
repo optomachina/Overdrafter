@@ -315,13 +315,17 @@ export function registerSharedPortalBrowserRefusals(
       },
     },
     {
-      name: "blocks a third-party request and stops without disclosing the file",
+      // OVD-773: a third-party page subresource is blocked without failing the
+      // run; the file still goes only to the provider host.
+      name: "quietly blocks a third-party script and still completes on the provider host",
       page: pages.thirdParty,
       check: ({ output, error, observed }) => {
-        expect(output).toBeNull();
-        expect(error).toMatchObject({ payload: { terminalState: "unexpected_origin", providerMutationPossible: false } });
+        expect(error).toBeNull();
+        expect(output?.rawPayload).toMatchObject({
+          portalBoundary: { blockedOffhostByHost: { "cdn.example.com": 1 } },
+        });
         expect(observed.requests).toContain("GET https://cdn.example.com/tracker.js");
-        expect(observed.uploads).toEqual([]);
+        expect(observed.uploads.map((upload) => upload.toString("utf8"))).toEqual([session.cadBytes]);
       },
     },
   ];
