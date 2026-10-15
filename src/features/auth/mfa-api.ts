@@ -51,6 +51,21 @@ export async function listTotpFactors(): Promise<TotpFactor[]> {
 }
 
 /**
+ * True when the current session is already AAL2 (an authenticator code was
+ * verified in this session), so a step-up challenge can be skipped.
+ */
+export async function hasAal2Session(): Promise<boolean> {
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const level = requireData(
+    data,
+    error,
+    "The session assurance level was not returned.",
+  );
+
+  return level.currentLevel === "aal2";
+}
+
+/**
  * Starts enrollment for a new authenticator-app factor.
  */
 export async function beginTotpEnrollment(): Promise<TotpEnrollment> {
