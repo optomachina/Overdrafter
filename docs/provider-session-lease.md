@@ -270,3 +270,19 @@ provider route only builds it when `WORKER_PROVIDER_SESSION_LEASE=on`.
    generic provider route behind `WORKER_PROVIDER_SESSION_LEASE` (default off).
    Operator tooling alone uses `createProviderSessionLeaseOperatorRpcStore`.
    The contract phase (retention and sidecar-lock retirement) is a separate issue.
+
+### Cloud Run deploy (OVD-462)
+
+The namespace key lives in Secret Manager project `overdrafter-worker-9133` as
+`worker-provider-session-namespace-key` (32 random bytes, hex; created
+2026-10-15, readable by `overdrafter-worker-runner`). Deploy with:
+
+```bash
+WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME=worker-provider-session-namespace-key \
+WORKER_PROVIDER_SESSION_LEASE=on \
+./scripts/deploy-cloud-run.sh
+```
+
+`deploy-cloud-run.sh` uses `--set-env-vars`, so a deploy without
+`WORKER_PROVIDER_SESSION_LEASE=on` turns the lease off again. The script
+refuses `on` without the secret name.
