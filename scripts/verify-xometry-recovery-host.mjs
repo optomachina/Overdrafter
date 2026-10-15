@@ -140,6 +140,7 @@ export function validateRecoveryHostExpectations(expectations) {
     isRegion(expectations.region) &&
     ZONE_PATTERN.test(expectations.zone ?? "") &&
     expectations.zone.startsWith(`${expectations.region}-`) &&
+    OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone) &&
     [
       expectations.network,
       expectations.subnet,
@@ -1165,7 +1166,7 @@ async function runStartupStatusCli({ env, output, collectStartupStatus }) {
   };
   if (
     expectations.project !== OVD410_RECOVERY_HOST_CONTRACT.project ||
-    expectations.zone !== OVD410_RECOVERY_HOST_CONTRACT.zone
+    !OVD410_RECOVERY_HOST_CONTRACT.allowedZones.includes(expectations.zone)
   ) {
     output.write("Recovery-host startup status configuration is invalid; failing closed.\n");
     return 2;

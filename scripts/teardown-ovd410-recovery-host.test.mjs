@@ -60,6 +60,37 @@ describe("OVD-410 recovery compensating teardown", () => {
     expect(output.join("")).toContain("final readbacks are clean");
   });
 
+  it("deletes in the allowlisted fallback zone and reads back every allowed zone", async () => {
+    const calls = [];
+    const code = await teardownRecoveryHost({
+      env: testEnvironment({ XOMETRY_RECOVERY_ZONE: "us-west1-c" }),
+      output: { write: () => {} },
+      runCommand: async (args) => {
+        calls.push(args);
+        if (commandKind(args) === "repository-binding" && isReadback(args)) {
+          return JSON.stringify({ bindings: [] });
+        }
+        return "";
+      },
+    });
+    expect(code).toBe(0);
+    const del = calls.find((a) => a.includes("instances") && a.includes("delete"));
+    expect(del[del.indexOf("--zone") + 1]).toBe("us-west1-c");
+    const list = calls.find((a) => a.includes("instances") && a.includes("list"));
+    expect(list[list.indexOf("--zones") + 1]).toBe(CONTRACT.allowedZones.join(","));
+  });
+
+  it("fails closed on a recovery zone outside the allowlist", async () => {
+    const calls = [];
+    const code = await teardownRecoveryHost({
+      env: testEnvironment({ XOMETRY_RECOVERY_ZONE: "us-east1-b" }),
+      output: { write: () => {} },
+      runCommand: async (args) => { calls.push(args); return ""; },
+    });
+    expect(code).toBe(1);
+    expect(calls).toHaveLength(0);
+  });
+
   it("does not skip later cleanup when one deletion fails and fails on residue", async () => {
     const calls = [];
     const output = [];

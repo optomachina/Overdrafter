@@ -181,9 +181,11 @@ export async function teardownRecoveryHost({
 } = {}) {
   const contract = OVD410_RECOVERY_HOST_CONTRACT;
   const restorationMode = iapRestorationMode(env);
+  const zone = env.XOMETRY_RECOVERY_ZONE ?? contract.zone;
   if (
     env.GOOGLE_CLOUD_PROJECT !== contract.project ||
-    restorationMode === null
+    restorationMode === null ||
+    !contract.allowedZones.includes(zone)
   ) {
     output.write(
       "OVD-410 recovery teardown configuration is invalid; failing closed.\n",
@@ -204,7 +206,7 @@ export async function teardownRecoveryHost({
         "--project",
         contract.project,
         "--zone",
-        contract.zone,
+        zone,
         "--quiet",
       ],
     ],
@@ -282,8 +284,9 @@ export async function teardownRecoveryHost({
         "list",
         "--project",
         contract.project,
+        // Prove absence in every allowlisted zone, not only the one used.
         "--zones",
-        contract.zone,
+        contract.allowedZones.join(","),
         `--filter=name=${contract.instance}`,
         "--format=value(name)",
       ],
