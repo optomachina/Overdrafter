@@ -11,7 +11,7 @@ on:
   pull_request:
     paths:
       - 'docs/migration-drafts/ovd-766-*'
-      - 'docs/migration-drafts/ovd-771-*'
+      - 'docs/migration-drafts/ovd-771*'
       - 'supabase/tests/pending/ovd76*'
       - 'supabase/tests/pending/ovd77*'
       - '.github/workflows/ovd766-pending-pgtap.yml'
@@ -50,7 +50,7 @@ jobs:
         run: |
           shopt -s nullglob
           drafts=()
-          for f in docs/migration-drafts/ovd-766-*.sql docs/migration-drafts/ovd-771-*.sql; do
+          for f in docs/migration-drafts/ovd-766-*.sql docs/migration-drafts/ovd-771*.sql; do
             [[ "$f" == *.rollback.sql ]] || drafts+=("$f")
           done
           tests=(supabase/tests/pending/ovd76*.sql.pending supabase/tests/pending/ovd77*.sql.pending)
@@ -83,7 +83,7 @@ jobs:
       - name: Apply rollbacks (they must replay cleanly)
         run: |
           shopt -s nullglob
-          for f in docs/migration-drafts/ovd-766-*.rollback.sql docs/migration-drafts/ovd-771-*.rollback.sql; do
+          for f in docs/migration-drafts/ovd-766-*.rollback.sql docs/migration-drafts/ovd-771*.rollback.sql; do
             echo "::group::rollback $f"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
               psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -f "$f"
