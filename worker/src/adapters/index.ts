@@ -7,6 +7,7 @@ import {
 } from "../types.js";
 import { FictivAdapter } from "./fictiv.js";
 import { FabworksAdapter } from "./fabworks.js";
+import { RmfgAdapter } from "./rmfg.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
@@ -22,11 +23,22 @@ import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extend
 import { OperationalEvidenceCapture, type EvidenceUse } from "../jev/operationalEvidence.js";
 import { VendorAdapter } from "./base.js";
 import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
+import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import type { LocalEvaluationAdapter, LocalEvaluationResult } from "./localEvaluationResult.js";
 import {
   CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
   evaluateCandidateEvaluationPreflight,
 } from "./candidateEvaluationPreflight.js";
+
+/** Portal vendors whose live evaluation runs the local preflight kernel and never reaches the provider. */
+export const OFFLINE_EVALUATION_PORTAL_VENDORS: ReadonlySet<VendorName> = new Set<VendorName>([
+  "quickparts",
+  "weerg",
+  "geomiq",
+  "ponoko",
+  "protolabsnetwork",
+  "rapiddirect",
+]);
 
 class XometryLiveEvaluationAdapter extends XometryAdapter {
   override quote(input: Parameters<XometryAdapter["quote"]>[0]) {
@@ -44,6 +56,11 @@ class LiveEvaluationAdapter extends VendorAdapter {
 
   override async quote(input: VendorQuoteAdapterInput) {
     return this.delegate.quote(await this.authorize(input));
+  }
+
+  /** Portal delegates run the local preflight kernel; every other delegate evaluates through its live quote(). */
+  get evaluateLocallyReachesProvider(): boolean {
+    return !(this.delegate instanceof PortalQuoteWorkflowAdapter);
   }
 
   /** Explicit standalone operation; it does not widen the production quote() return contract. */
@@ -147,6 +164,9 @@ function buildRegistry(
       }),
     ),
     fabworks: evaluationAdapter(new FabworksAdapter(config)),
+    // Default off: quotes only in live mode with rmfg in WORKER_LIVE_ADAPTERS
+    // and a dispatch authorization for its unreviewed envelope (OVD-678).
+    rmfg: evaluationAdapter(new RmfgAdapter(config)),
   };
 
   if (config.workerMode !== "live") {
@@ -176,7 +196,9 @@ class OperationalAdvisoryAdapter extends VendorAdapter {
     this.delegate.operationalProviderObserver = capture?.observe;
     try { return await this.delegate.quote(input); }
     catch (error) {
-      await observeBoundOperationalFailure(this.binding, actualScope, error);
+      // OVD-723: a dispatch or export-control decision is a hold, not an
+      // operational failure, so it is not reported to Jev (as in the adapters).
+      if (!isDispatchDecisionError(error)) await observeBoundOperationalFailure(this.binding, actualScope, error);
       throw error;
     } finally {
       this.delegate.operationalProviderObserver = undefined;
@@ -227,6 +249,13 @@ export {
 } from "./providerAdapterContract.js";
 export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
 export { runRmfgQuoteOnly, RMFG_QUOTE_TRANSPORT_REVISION } from "./rmfgQuoteTransport.js";
+export {
+  evaluateRmfgEligibility,
+  RMFG_ADAPTER_REVISION,
+  RMFG_API_KEY_ENV,
+  RmfgAdapter,
+} from "./rmfg.js";
+export { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
 export type {
   RmfgQuoteInput,
   RmfgQuoteOffer,

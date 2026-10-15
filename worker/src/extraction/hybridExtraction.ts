@@ -8,6 +8,7 @@ import type {
   SupportedReviewField,
   WorkerConfig,
 } from "../types.js";
+import { isExportControlModelStop } from "../exportControl.js";
 import {
   extractDrawingFieldsWithModel,
   isParserSignalStrong,
@@ -199,6 +200,8 @@ export async function runHybridExtraction(
     config?: WorkerConfig;
     forceModelFallback?: boolean;
     spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
+    /** OVD-723: passed to the model extractor and run before each model attempt. */
+    beforeModelAttempt?: () => Promise<void>;
   },
   dependencies: {
     extractWithModel?: typeof extractDrawingFieldsWithModel;
@@ -239,8 +242,14 @@ export async function runHybridExtraction(
         drawingSignals,
         pagePreviewPath: input.previewPagePath ?? null,
         spend: input.spend,
+        beforeModelAttempt: input.beforeModelAttempt,
       });
     } catch (error) {
+      // OVD-723: an export-control denial or failed lookup is not a model
+      // failure to degrade around. It stops the task.
+      if (isExportControlModelStop(error)) {
+        throw error;
+      }
       // A budget refusal is not a failure of the extractor, and saying so would
       // send someone debugging the wrong thing. Either way the pipeline
       // continues on deterministic parser output alone: fields the parser

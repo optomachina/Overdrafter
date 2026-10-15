@@ -109,6 +109,9 @@ const PROMOTION_FAILURE_CODES = new Set([
 const LIVE_USAGE =
   "usage: node scripts/run-ovd419-live-release.mjs --execute --authorization-file <private.json> --bundle-file <bundle.json> --evidence-file <private.json>\n";
 
+const OBSERVATION_READBACK_ATTEMPTS = 4;
+const OBSERVATION_READBACK_RETRY_MS = 5_000;
+
 class LiveReleaseError extends Error {
   constructor(code) {
     super(`OVD-419 live release ${code}`);
@@ -955,6 +958,7 @@ export function createOvd419LiveOperations({
   now = () => performance.now(),
   waitFor = (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  diagnosticWriter = process.stderr,
 } = {}) {
   if (
     typeof fetchImpl !== "function" ||
@@ -1036,28 +1040,63 @@ export function createOvd419LiveOperations({
     }
   };
 
+  const diagnosticOutput =
+    env.OVD419_OBSERVATION_DIAGNOSTIC === "1" ? diagnosticWriter : null;
+  const diagnose = (phase, part, error) => {
+    if (!diagnosticOutput) return;
+    // Bounded: component label plus a fixed code or error class only, never
+    // command lines, resource names, provider text, or secrets.
+    const detail =
+      error instanceof LiveReleaseError
+        ? error.code
+        : `${error?.name ?? "Error"}${Number.isSafeInteger(error?.code) ? ` exit=${error.code}` : ""}${error?.killed ? " killed" : ""}`;
+    diagnosticOutput.write(`ovd419 observe ${phase}: ${part} failed (${detail})\n`);
+  };
+
+  const readObservationParts = async (phase) => {
+    const parts = [
+      ["envelope", () => collectEnvelopeFresh()],
+      ["stable_egress", () => collectStableEgress(expectations, { gcloudBin, runCommand })],
+      ["execution_inventory", () => reader.executionInventory()],
+      ["snapshot", () => collectSnapshotFresh()],
+      ["job_readback", () => reader.readResource("job")],
+      ["service_readback", () => reader.readResource("service")],
+    ];
+    const settled = await Promise.allSettled(parts.map(([, read]) => read()));
+    const rejected = settled.findIndex((result) => result.status === "rejected");
+    if (rejected !== -1) {
+      settled.forEach((result, index) => {
+        if (result.status === "rejected") diagnose(phase, parts[index][0], result.reason);
+      });
+      throw settled[rejected].reason;
+    }
+    return settled.map((result) => result.value);
+  };
+
   const observe = async ({ phase }) => {
-    const [envelope, stable, inventory, snapshot, currentJob, currentService] =
-      await Promise.all([
-        collectEnvelopeFresh(),
-        collectStableEgress(expectations, { gcloudBin, runCommand }),
-        reader.executionInventory(),
-        collectSnapshotFresh(),
-        reader.readResource("job"),
-        reader.readResource("service"),
-      ]);
+    let envelope, stable, inventory, snapshot, currentJob, currentService;
+    // Right after a replace, Cloud Run's controller updates status (Ready,
+    // observedGeneration), which bumps resourceVersion between the two
+    // independent readbacks below. Re-read a bounded number of times until both
+    // readbacks agree; any other failure still throws immediately.
+    for (let attempt = 1; ; attempt += 1) {
+      [envelope, stable, inventory, snapshot, currentJob, currentService] =
+        await readObservationParts(phase);
+      const consistent =
+        stable.job?.metadata?.resourceVersion ===
+          currentJob?.metadata?.resourceVersion &&
+        stable.service?.metadata?.resourceVersion ===
+          currentService?.metadata?.resourceVersion &&
+        resourceImage(stable.job, "job") === resourceImage(currentJob, "job") &&
+        resourceImage(stable.service, "service") ===
+          resourceImage(currentService, "service");
+      if (consistent) break;
+      diagnose(phase, "readback_consistency", new LiveReleaseError("live_resource_readback_mismatch"));
+      if (attempt >= OBSERVATION_READBACK_ATTEMPTS) fail("live_resource_readback_mismatch");
+      await waitFor(OBSERVATION_READBACK_RETRY_MS);
+    }
     const jobImage = resourceImage(currentJob, "job");
     const serviceImage = resourceImage(currentService, "service");
-    if (
-      stable.job?.metadata?.resourceVersion !==
-        currentJob?.metadata?.resourceVersion ||
-      stable.service?.metadata?.resourceVersion !==
-        currentService?.metadata?.resourceVersion ||
-      resourceImage(stable.job, "job") !== jobImage ||
-      resourceImage(stable.service, "service") !== serviceImage
-    ) {
-      fail("live_resource_readback_mismatch");
-    }
     if (phase === "before-job") rollbackImage = serviceImage;
     if (phase === "before-job") {
       expectedContainmentSnapshot = snapshot;

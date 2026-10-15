@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "claude/**": false,
+      "codex/**": false,
+      "cursor/**": false
+    }
+  },
   "functions": {
     "api/mobile-auth.ts": {
       "maxDuration": 60

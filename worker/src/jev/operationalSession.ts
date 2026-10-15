@@ -8,6 +8,7 @@ import type { SpendReservation } from "../spendGuard.js";
 import { VendorAutomationError, type ApprovedRequirementRecord, type VendorName } from "../types.js";
 import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight.js";
 import { XometryDispatchAuthorizationError } from "../xometryDispatchPreflight.js";
+import { ExportControlLookupError } from "../exportControl.js";
 
 export const OPERATIONAL_JEV_REVISION = "jev-operational-source.v1";
 export const OPERATIONAL_JEV_USES = ["quote_evidence", "catalog_mapping", "clarification", "relevance", "recovery", "exception_routing"] as const;
@@ -377,7 +378,7 @@ export class OperationalJevObservations {
 /** Capture closed-vocabulary words before an asynchronous caller can mutate the original error. */
 export function captureOperationalFailure(error: unknown): unknown {
   if (error instanceof VendorAutomationError || error instanceof XometryDispatchAuthorizationError
-    || error instanceof ProviderDispatchAuthorizationError
+    || error instanceof ProviderDispatchAuthorizationError || error instanceof ExportControlLookupError
     || (error !== null && typeof error === "object" && Object.getOwnPropertyDescriptor(error, "code") !== undefined)) {
     return Object.freeze({ code: "structured_error" });
   }

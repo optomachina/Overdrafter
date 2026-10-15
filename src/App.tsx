@@ -14,6 +14,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppErrorBoundary } from "@/components/debug/AppErrorBoundary";
 import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
 import { ExtractionLauncher } from "@/components/debug/ExtractionLauncher";
+import { ExportControlDeclarationDialogHost } from "@/components/quotes/ExportControlDeclarationDialog";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 import { canOpenEngineeringWorkbench } from "@/lib/engineering-workbench-access";
@@ -141,6 +142,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <ExportControlDeclarationDialogHost />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />

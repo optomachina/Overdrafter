@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LIVE_AUTOMATION_VENDORS } from "../types.js";
+import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope.js";
 import { createRmfgHttpTransport, resetRmfgProcessStateForTests, RMFG_API_ORIGIN } from "./rmfgHttpTransport.js";
 import { runRmfgQuoteOnly, type RmfgQuoteInput } from "./rmfgQuoteTransport.js";
 
@@ -151,7 +151,8 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: "https://example.com" })).toThrow("origin");
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: "http://api.rmfg.com" })).toThrow("origin");
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, baseUrl: RMFG_API_ORIGIN })).not.toThrow();
-    expect(LIVE_AUTOMATION_VENDORS).not.toContain("rmfg");
+    // OVD-678 lists rmfg for live automation; its dispatch envelope stays unreviewed.
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 
   it.each([NaN, -1, 0, 1.5, Infinity, 21, 1000])("rejects daily cap %s at construction", (dailyQuoteCap) => {

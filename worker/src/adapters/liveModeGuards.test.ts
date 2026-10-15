@@ -275,6 +275,7 @@ describe("buildAdapterRegistry", () => {
       "protolabsnetwork",
       "quickparts",
       "rapiddirect",
+      "rmfg",
       "sendcutsend",
       "weerg",
       "xometry",

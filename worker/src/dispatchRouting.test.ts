@@ -43,6 +43,12 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
   const rpc = vi.fn().mockResolvedValue(rpcResult);
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
   const onAuthorized = vi.fn();
+  const killSwitchReader = vi.fn(async (provider: VendorName) => ({
+    schema: "provider-kill-switch-state.v1",
+    provider,
+    engaged: false,
+    globalEngaged: false,
+  }));
   const run = (input: {
     vendor: VendorName;
     workerMode?: "live" | "simulate";
@@ -60,9 +66,10 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
       adapter: { quote },
       quoteInput: { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput,
       onAuthorized,
+      killSwitchReader,
     });
   };
-  return { rpc, quote, onAuthorized, run };
+  return { rpc, quote, onAuthorized, run, killSwitchReader };
 }
 
 const xometryAuthorized = {
@@ -196,5 +203,54 @@ describe("dispatch authorization failure classification", () => {
     const started = createProviderMutationPhase();
     started.started = true;
     expect(isRetryableVendorTaskError(new ProviderDispatchAuthorizationError("preflight_unavailable"), started)).toBe(false);
+  });
+});
+
+describe("dispatch routing upload capability checkpoint (OVD-414)", () => {
+  it("supplies the upload capability checkpoint to production Xometry dispatch and reads admission from the RPC", async () => {
+    const rpc = vi.fn(async (name: string) => {
+      if (name === XOMETRY_RPC) return { data: xometryAuthorized, error: null };
+      if (name === "api_worker_resolve_xometry_admission") return { data: null, error: { message: "db detail" } };
+      return { data: null, error: { message: "unexpected" } };
+    });
+    const quote = vi.fn(async (input: VendorQuoteAdapterInput) => {
+      const decision = await input.uploadCapabilityCheckpoint?.({
+        state: "fresh",
+        provider: "xometry",
+        route: "quote_home",
+        surface: "dashboard_upload",
+        revision: "xometry-upload-surface.v1",
+        acceptAttributePresent: true,
+        extensions: ["step"],
+      });
+      expect(decision?.classification).toBe("observation_missing");
+      return { artifacts: [] } as unknown as VendorQuoteAdapterOutput;
+    });
+    const task = genericTask();
+    await quoteWithRoutedDispatchPreflight({
+      supabase: { rpc } as unknown as SupabaseClient,
+      config: { workerMode: "live", workerName: "worker-1" },
+      task,
+      vendorQuoteResultId: task.vendorQuoteResultId,
+      claimedAt: "2026-10-03T12:04:00.000Z",
+      vendor: "xometry",
+      scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "xometry" },
+      adapter: { quote },
+      quoteInput: { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput,
+      killSwitchReader: async (provider) => ({
+        schema: "provider-kill-switch-state.v1",
+        provider,
+        engaged: false,
+        globalEngaged: false,
+      }),
+    });
+    expect(quote).toHaveBeenCalledWith(expect.objectContaining({ uploadCapabilityCheckpoint: expect.any(Function) }));
+    expect(rpc).toHaveBeenCalledWith("api_worker_resolve_xometry_admission");
+  });
+
+  it("does not attach the Xometry checkpoint to other providers", async () => {
+    const { quote, run } = harness({ data: admittedGenericResponse(), error: null });
+    await run({ vendor: "fictiv" });
+    expect(quote.mock.calls[0][0].uploadCapabilityCheckpoint).toBeUndefined();
   });
 });

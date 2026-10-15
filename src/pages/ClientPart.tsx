@@ -31,6 +31,7 @@ import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFun
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
+import { ExportControlStatusNotice } from "@/components/quotes/ExportControlStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
@@ -247,6 +248,7 @@ const ClientPart = () => {
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
     dispatchProvider,
+    providerFanout,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchScopeDenialCode,
@@ -547,6 +549,7 @@ const ClientPart = () => {
               </section>
             ) : null}
             <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+            <ExportControlStatusNotice jobId={jobId} />
             {quoteRequestViewModel ? (
               <ClientQuoteRequestStatusCard
                 status={quoteRequestViewModel.status}
@@ -645,6 +648,7 @@ const ClientPart = () => {
         declaredModelUnits={xometryDispatchUnits}
         onDeclaredModelUnitsChange={setXometryDispatchUnits}
         provider={dispatchProvider}
+        fanout={providerFanout}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
         isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}

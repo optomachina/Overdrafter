@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import { genericFictivEnvelope } from "../test-support/genericDispatchResponse";
 import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
+import { ProviderAbortedError } from "./providerAbort";
+import { ProviderKillSwitchError } from "./providerKillSwitch";
+import { createProviderSessionLeaseManager } from "./providerSessionLease";
+import { createProviderSessionLeaseMemoryStore } from "./providerSessionLeaseMemoryStore";
 import type { ProviderDispatchAuthorization, ProviderDispatchEnvelope } from "./providerDispatchTypes";
 import {
   createProviderAuthorizationConsumer,
@@ -211,7 +215,11 @@ const LEASE_OUTCOMES: Record<ProviderExecutionTerminalOutcome, string> = {
 
 function fakeLease(
   calls: Calls,
-  options: { acquire?: Exclude<ProviderTaskLeaseRunResult<never>, { kind: "completed" | "lease_lost" }>; loseBeforePersist?: boolean } = {},
+  options: {
+    acquire?: Exclude<ProviderTaskLeaseRunResult<never>, { kind: "completed" | "lease_lost" }>;
+    loseBeforePersist?: boolean;
+    onContext?: (controller: AbortController) => void;
+  } = {},
 ) {
   let blocked: string | null = null;
   const released = vi.fn();
@@ -239,6 +247,7 @@ function fakeLease(
           if (!held) throw new Error("lease lost");
         },
       };
+      options.onContext?.(controller);
       try {
         const value = await operation(context);
         calls.push("lease_release");
@@ -684,6 +693,89 @@ describe("retry authority", () => {
   });
 });
 
+describe("provider kill switch (OVD-722)", () => {
+  const engaged = (checkpoint: "before_launch" | "before_upload" | "before_configure") =>
+    new ProviderKillSwitchError("provider_kill_switch_engaged", "fictiv", checkpoint);
+
+  it("a server preflight denial for the switch ends cancelled_provider_disabled with zero adapter calls", async () => {
+    const h = harness({
+      authorize: async () => {
+        throw new ProviderDispatchAuthorizationError("provider_kill_switch_engaged");
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({
+      disposition: "cancelled_provider_disabled",
+      code: "cancelled_provider_disabled",
+      stage: "authorize",
+      adapterStarted: false,
+      retryAt: null,
+      killSwitch: { providerMutationPossible: false },
+    });
+    expect(outcome.killSwitch?.error.checkpoint).toBe("server_preflight");
+    expect(h.quote).not.toHaveBeenCalled();
+  });
+
+  it("an engaged checkpoint before any mutation: cancelled, no mutation possible, never requeued", async () => {
+    const h = harness({ quote: async () => { throw engaged("before_launch"); } });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({
+      disposition: "cancelled_provider_disabled",
+      stage: "adapter",
+      retryAt: null,
+      killSwitch: { providerMutationPossible: false },
+    });
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("a before_launch refusal records adapterStarted false on the outcome and the lane", async () => {
+    const h = harness({ quote: async () => { throw engaged("before_launch"); } });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "cancelled_provider_disabled", adapterStarted: false });
+    const record = providerTaskFailureRecord("fictiv", outcome, { retryCount: 0, requestedQuantity: 1 });
+    expect(record.raw_payload).toMatchObject({
+      adapterStarted: false,
+      providerMutationPossible: false,
+      killSwitchCheckpoint: "before_launch",
+    });
+  });
+
+  it("an engaged checkpoint after the upload started: cancelled with providerMutationPossible, never manual or requeued", async () => {
+    const h = harness({
+      quote: async () => {
+        markProviderMutationStarted();
+        throw engaged("before_configure");
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "cancelled_provider_disabled", retryAt: null, killSwitch: { providerMutationPossible: true } });
+    expect(outcome.killSwitch?.error.checkpoint).toBe("before_configure");
+    const record = providerTaskFailureRecord("fictiv", outcome, { retryCount: 0, requestedQuantity: 1 });
+    expect(record).toMatchObject({
+      status: "failed",
+      notes: ["Provider temporarily unavailable."],
+      raw_payload: {
+        failureCode: "cancelled_provider_disabled",
+        killSwitchCheckpoint: "before_configure",
+        providerMutationPossible: true,
+        requiresManualVendorFollowUp: false,
+        retryScheduledFor: null,
+      },
+    });
+  });
+
+  it("an unreadable switch is failed before a mutation and manual follow up after one, never requeued", async () => {
+    const unavailable = () => new ProviderKillSwitchError("provider_kill_switch_unavailable", "fictiv", "before_upload");
+    const before = await runProviderTaskPipeline(input(), harness({ quote: async () => { throw unavailable(); } }).deps);
+    expect(before).toMatchObject({ disposition: "failed", code: "provider_kill_switch_unavailable", retryAt: null, killSwitch: null });
+    const after = await runProviderTaskPipeline(
+      input(),
+      harness({ quote: async () => { markProviderMutationStarted(); throw unavailable(); } }).deps,
+    );
+    expect(after).toMatchObject({ disposition: "manual_follow_up", code: "provider_kill_switch_unavailable", retryAt: null });
+  });
+});
+
 describe("persistence and cleanup", () => {
   it("never requeues when persistence fails after the adapter ran (partial persistence injection)", async () => {
     const h = harness({
@@ -751,6 +843,112 @@ describe("persistence and cleanup", () => {
     const h = harness({ calls, lease: lease.port });
     const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
     expect(outcome).toMatchObject({ disposition: "failed", code: "lease_error" });
+  });
+});
+
+describe("abort signal into the adapter (OVD-748)", () => {
+  const leaseOn = (v: ProviderTaskPipelineInput) => {
+    v.leaseSetting = "on";
+  };
+
+  it("passes the adapter a live signal and leaves a run with no abort unchanged", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const h = harness({ quote: async (quoteInput) => { seen.push(quoteInput.signal); return quoteOutput(); } });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "persisted", code: "persisted" });
+    expect(seen[0]?.aborted).toBe(false);
+    expect(h.quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lease aborted before the adapter starts never launches it and is not a provider failure", async () => {
+    const calls: Calls = [];
+    const lease = fakeLease(calls, { onContext: (controller) => controller.abort() });
+    const h = harness({ calls, lease: lease.port });
+    const day = h.deps.daySwitch;
+    const outcome = await runProviderTaskPipeline(input(leaseOn), h.deps);
+    expect(h.quote).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", adapterStarted: false, retryAt: null, providerDisabledForDay: false });
+    expect(day.isDisabled("fictiv", NOW)).toBe(false);
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("an abort mid run stops at the next checkpoint, persists nothing, and is not retried or counted as a block", async () => {
+    const calls: Calls = [];
+    let abort: () => void = () => {};
+    const lease = fakeLease(calls, { onContext: (controller) => { abort = () => controller.abort(); } });
+    const reached: string[] = [];
+    const h = harness({
+      calls,
+      lease: lease.port,
+      quote: async (quoteInput) => {
+        await quoteInput.providerKillSwitchCheckpoint?.("before_navigation");
+        reached.push("navigation");
+        abort();
+        await quoteInput.providerKillSwitchCheckpoint?.("before_upload");
+        reached.push("upload");
+        return quoteOutput();
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(leaseOn), h.deps);
+    expect(reached).toEqual(["navigation"]);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", adapterStarted: true, retryAt: null, providerDisabledForDay: false });
+    expect(h.persist).not.toHaveBeenCalled();
+    expect(lease.isBlocked()).toBeNull();
+  });
+
+  it("an abort after a provider mutation began goes to an operator, never a retry", async () => {
+    const h = harness({
+      quote: async () => {
+        markProviderMutationStarted();
+        throw new ProviderAbortedError("before_save");
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input(), h.deps);
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null });
+  });
+});
+
+describe("abort under the real lease manager (OVD-748)", () => {
+  function realLeasePort(calls: Calls): ProviderTaskLeasePort {
+    const memory = createProviderSessionLeaseMemoryStore();
+    const manager = createProviderSessionLeaseManager({
+      store: { ...memory, renew: async () => ({ status: "lost", reason: "expired", outcome: null }) },
+      policy: { ttlSeconds: 30, maxRenewals: 5, maxDurationSeconds: 600, safetyMarginMs: 5_000, heartbeatIntervalMs: 5 },
+      log: () => undefined,
+    });
+    const base = fakeLease(calls).port;
+    return { ...base, runWithLease: (request, operation) => manager.runWithLease(request, operation) };
+  }
+
+  async function runUntilLeaseLost(mutate: boolean) {
+    const calls: Calls = [];
+    const h = harness({
+      calls,
+      lease: realLeasePort(calls),
+      quote: async (quoteInput) => {
+        if (mutate) markProviderMutationStarted();
+        await new Promise<void>((resolve) => {
+          const poll = () => (quoteInput.signal?.aborted ? resolve() : void setTimeout(poll, 2));
+          poll();
+        });
+        await quoteInput.providerKillSwitchCheckpoint?.("before_save");
+        return quoteOutput();
+      },
+    });
+    const outcome = await runProviderTaskPipeline(input((v) => (v.leaseSetting = "on")), h.deps);
+    return { outcome, h };
+  }
+
+  it("keeps manual follow up when the lease is lost after a provider mutation began", async () => {
+    const { outcome, h } = await runUntilLeaseLost(true);
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "provider_aborted", retryAt: null, adapterStarted: true });
+    expect(h.persist).not.toHaveBeenCalled();
+  });
+
+  it("fails a lease lost before any provider mutation without a retry", async () => {
+    const { outcome, h } = await runUntilLeaseLost(false);
+    expect(outcome).toMatchObject({ disposition: "failed", code: "provider_aborted", retryAt: null });
+    expect(h.persist).not.toHaveBeenCalled();
   });
 });
 
