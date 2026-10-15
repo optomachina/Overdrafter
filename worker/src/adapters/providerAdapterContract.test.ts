@@ -16,6 +16,7 @@ import {
 import type { ProviderPortalDefinition } from "./providerPortalKernel";
 import { normalizeSendCutSendOffers } from "./sendcutsend";
 import { parseXometryOfferSnapshots } from "./xometryOffers";
+import xometryT1Mismatch from "./fixtures/xometry-t1-saved-requirement-mismatch.json";
 
 const definition = {
   provider: "quickparts",
@@ -417,6 +418,60 @@ describe("provider adapter contract harness", () => {
       code,
       { terminalState },
     ))).toEqual({ ok: true, terminalState, violations: [] });
+  });
+
+  it("does not treat quote-page text offering checkout as a purchasing action", () => {
+    const pageText = "Lead Time: 10 Business Days\nEdit Specifications\nContinue to Checkout";
+    expect(evaluateProviderAdapterFailureContract(new VendorAutomationError(
+      "mismatch",
+      "unexpected_ui_state",
+      { terminalState: "configuration_required", bodyExcerpt: pageText, bodyText: pageText },
+    ))).toEqual({ ok: true, terminalState: "configuration_required", violations: [] });
+    const result = evaluateProviderAdapterContract({
+      definition,
+      adapterInput,
+      output: output({ rawPayload: { bodyExcerpt: pageText, notes: ["Continue to Checkout"] } }),
+    });
+    expect(result.violations).not.toEqual(expect.arrayContaining([
+      expect.stringMatching(/^purchasing_action_observed:/),
+    ]));
+  });
+
+  it.each([
+    [{ clickedActions: ["Continue to Checkout"] }, "clickedActions.0.value"],
+    [{ navigations: [{ url: "https://www.xometry.com/checkout/shipping" }] }, "navigations.0.url.value"],
+    [{ requests: [{ method: "POST", url: "https://www.xometry.com/api/orders/place-order" }] }, "requests.0.url.value"],
+    [{ url: "https://www.xometry.com/checkout" }, "url.value"],
+  ])("flags an observed checkout click, navigation, or request %#", (evidence, violationPath) => {
+    const failure = new VendorAutomationError("stopped", "unexpected_ui_state", {
+      terminalState: "configuration_required",
+      ...evidence,
+    });
+    expect(evaluateProviderAdapterFailureContract(failure).violations)
+      .toContain(`purchasing_action_observed:${violationPath}`);
+  });
+
+  it("accepts the replayed T1 Xometry quote-ready requirement mismatch", () => {
+    // Reconstructed from saved T1 evidence; see the fixture's _provenance.
+    expect(xometryT1Mismatch.payload).not.toHaveProperty("terminalState");
+    const failure = new VendorAutomationError(
+      xometryT1Mismatch.message,
+      xometryT1Mismatch.code as "unexpected_ui_state",
+      xometryT1Mismatch.payload,
+    );
+    expect(evaluateProviderAdapterFailureContract(failure)).toEqual({
+      ok: true,
+      terminalState: "configuration_required",
+      violations: [],
+    });
+  });
+
+  it("still requires a declared state when the page is not a settled quote", () => {
+    expect(evaluateProviderAdapterFailureContract(new VendorAutomationError(
+      "mismatch",
+      "unexpected_ui_state",
+      { bodyExcerpt: "Analyzing geometry" },
+    )).violations).toEqual(["finite_terminal_state_missing"]);
   });
 
   it("rejects unclassified or priced failures", () => {

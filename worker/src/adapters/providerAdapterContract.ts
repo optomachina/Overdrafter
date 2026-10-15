@@ -23,6 +23,20 @@ const SAFE_PROHIBITION_VALUES: Readonly<Record<string, unknown>> = {
   orderingProhibited: true,
   purchasingProhibited: true,
 };
+/**
+ * Key tokens that mark structured click, navigation, or network-request
+ * evidence. Purchasing is "observed" only when a prohibited value sits under
+ * one of these keys; page text such as `bodyExcerpt` merely shows what the
+ * portal rendered (a quote page always offers "Continue to Checkout").
+ */
+const ACTION_EVIDENCE_KEY_TOKENS = new Set([
+  "url", "urls", "uri", "href", "hrefs",
+  "navigation", "navigations", "navigate", "navigated", "redirect", "redirects",
+  "request", "requests", "endpoint", "endpoints", "route", "routes",
+  "click", "clicks", "clicked", "action", "actions",
+]);
+/** A settled quote page offers checkout; seeing it is a finite, quote-ready stop. */
+const QUOTE_READY_PAGE_PATTERN = /continue\s+to\s+checkout/i;
 
 export type ProviderAdapterContractResult = {
   revision: typeof PROVIDER_ADAPTER_CONTRACT_REVISION;
@@ -65,10 +79,8 @@ export function evaluateProviderAdapterFailureContract(error: unknown): {
       violations: ["failure_is_not_vendor_automation_error"],
     };
   }
-  const terminalState = typeof error.payload.terminalState === "string"
-    && FINITE_TERMINAL_STATES.has(error.payload.terminalState as ProviderPortalTerminalState)
-    ? error.payload.terminalState as ProviderPortalTerminalState
-    : null;
+  const terminalState = declaredFailureTerminalState(error.payload)
+    ?? quoteReadyFailureTerminalState(error.payload);
   if (!terminalState) {
     violations.push("finite_terminal_state_missing");
   }
@@ -79,7 +91,7 @@ export function evaluateProviderAdapterFailureContract(error: unknown): {
   ) {
     violations.push("failure_contains_publishable_price");
   }
-  const prohibitedAction = findProhibitedAction(error.payload);
+  const prohibitedAction = findObservedProhibitedAction(error.payload);
   if (prohibitedAction) {
     violations.push(`purchasing_action_observed:${prohibitedAction}`);
   }
@@ -90,6 +102,45 @@ export function evaluateProviderAdapterFailureContract(error: unknown): {
   };
 }
 
+function declaredFailureTerminalState(
+  payload: Readonly<Record<string, unknown>>,
+): ProviderPortalTerminalState | null {
+  return typeof payload.terminalState === "string"
+    && FINITE_TERMINAL_STATES.has(payload.terminalState as ProviderPortalTerminalState)
+    ? payload.terminalState as ProviderPortalTerminalState
+    : null;
+}
+
+/**
+ * An undeclared failure on a visible, settled quote page (one offering
+ * "Continue to Checkout") stopped before ordering because the saved
+ * configuration needs attention, so it is a finite configuration stop.
+ */
+function quoteReadyFailureTerminalState(
+  payload: Readonly<Record<string, unknown>>,
+): ProviderPortalTerminalState | null {
+  return payload.terminalState === undefined
+    && typeof payload.bodyExcerpt === "string"
+    && QUOTE_READY_PAGE_PATTERN.test(payload.bodyExcerpt)
+    ? "configuration_required"
+    : null;
+}
+
+function isActionEvidenceKey(key: string): boolean {
+  return key
+    .split(/[^a-zA-Z0-9]+|(?<=[a-z0-9])(?=[A-Z])/)
+    .some((token) => ACTION_EVIDENCE_KEY_TOKENS.has(token.toLowerCase()));
+}
+
+/**
+ * Finds purchasing evidence in an adapter result or failure payload. Unsafe
+ * purchasing flags and prohibited key names always count; prohibited string
+ * values count only under structured action, navigation, or request keys.
+ */
+function findObservedProhibitedAction(value: unknown): string | null {
+  return findProhibitedAction(value, [], 0, true);
+}
+
 function artifactRefs(artifacts: readonly VendorArtifact[]): string[] {
   return artifacts.map((artifact) => path.basename(artifact.localPath));
 }
@@ -98,31 +149,34 @@ function findProhibitedAction(
   value: unknown,
   pathSegments: readonly string[] = [],
   depth = 0,
+  observedOnly = false,
 ): string | null {
   if (depth > 6 || value === null || value === undefined) {
     return null;
   }
   if (typeof value === "string") {
-    return PROHIBITED_ACTION_PATTERN.test(value)
+    const isEvidence = !observedOnly || pathSegments.some(isActionEvidenceKey);
+    return isEvidence && PROHIBITED_ACTION_PATTERN.test(value)
       ? [...pathSegments, "value"].join(".")
       : null;
   }
   if (Array.isArray(value)) {
-    return findProhibitedArrayAction(value, pathSegments, depth);
+    return findProhibitedArrayAction(value, pathSegments, depth, observedOnly);
   }
   if (typeof value !== "object") {
     return null;
   }
-  return findProhibitedObjectAction(value as Record<string, unknown>, pathSegments, depth);
+  return findProhibitedObjectAction(value as Record<string, unknown>, pathSegments, depth, observedOnly);
 }
 
 function findProhibitedArrayAction(
   value: readonly unknown[],
   pathSegments: readonly string[],
   depth: number,
+  observedOnly: boolean,
 ): string | null {
   for (const [index, entry] of value.entries()) {
-    const violation = findProhibitedAction(entry, [...pathSegments, String(index)], depth + 1);
+    const violation = findProhibitedAction(entry, [...pathSegments, String(index)], depth + 1, observedOnly);
     if (violation) {
       return violation;
     }
@@ -134,13 +188,14 @@ function findProhibitedObjectAction(
   value: Readonly<Record<string, unknown>>,
   pathSegments: readonly string[],
   depth: number,
+  observedOnly: boolean,
 ): string | null {
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const keyViolation = prohibitedKeyViolation(key, entry, pathSegments);
     if (keyViolation) {
       return keyViolation;
     }
-    const violation = findProhibitedAction(entry, [...pathSegments, key], depth + 1);
+    const violation = findProhibitedAction(entry, [...pathSegments, key], depth + 1, observedOnly);
     if (violation) {
       return violation;
     }
@@ -293,7 +348,7 @@ function validateDefinitionAndOutput(
   if (prohibitedDefinitionAction) {
     violations.push(`purchasing_action_reachable:${prohibitedDefinitionAction}`);
   }
-  const prohibitedOutputAction = findProhibitedAction(output.rawPayload);
+  const prohibitedOutputAction = findObservedProhibitedAction(output.rawPayload);
   if (prohibitedOutputAction) {
     violations.push(`purchasing_action_observed:${prohibitedOutputAction}`);
   }
