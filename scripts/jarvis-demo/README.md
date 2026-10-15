@@ -22,4 +22,16 @@ uv pip install --python ~/overnight/jarvis/.venv/bin/python build123d matplotlib
 ```
 
 Phone trigger: the Hermes gateway on the Mac mini, with a local skill that runs
-`request` and then `work` and replies with the render.
+`jarvis-design` (`request`, then `work`) and replies with the render.
+
+Install on the Mac mini:
+
+```bash
+mkdir -p ~/overnight/jarvis/bin
+ln -sf "$PWD/scripts/jarvis-demo/jarvis-design.sh" ~/overnight/jarvis/bin/jarvis-design
+cp -R scripts/jarvis-demo/hermes/jarvis-workstation-design <hermes-skills-dir>/
+```
+
+The wrapper resolves this directory through the symlink (override with
+`JARVIS_DEMO_REPO`), prints the outcome plus the `result.json` and `assembly.png`
+paths, and exits nonzero if the request is refused or the run is not verified.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -46,6 +46,18 @@ test("a request still being written is never claimed", () =>
     mkdirSync(join(root, "queue", "pending"), { recursive: true });
     writeFileSync(join(root, "queue", "pending", ".jd-partial.tmp"), "{\"id\":");
     assert.equal(claimOldest(root), null);
+  }));
+
+test("the phone wrapper exits nonzero on a refused request and creates no run", () =>
+  withRoot((root) => {
+    const wrapper = join(process.cwd(), "scripts", "jarvis-demo", "jarvis-design.sh");
+    const run = spawnSync("bash", [wrapper, "design a gear"], {
+      encoding: "utf8",
+      env: { ...process.env, JARVIS_DEMO_ROOT: root },
+    });
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /refused/);
+    assert.equal(existsSync(join(root, "runs")), false);
   }));
 
 test("the CLI refuses to run unless the admin flag is on", () =>
