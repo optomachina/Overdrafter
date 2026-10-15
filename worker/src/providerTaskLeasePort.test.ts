@@ -24,7 +24,8 @@ describe("parseProviderSessionNamespaceKey", () => {
   });
 
   it("refuses missing, short, and malformed keys", () => {
-    for (const raw of [undefined, null, "", "ab".repeat(31), Buffer.alloc(16).toString("base64"), "not a key!"]) {
+    for (const raw of [undefined, null, "", "ab".repeat(31), "a".repeat(65), Buffer.alloc(16).toString("base64"),
+      Buffer.alloc(48, 7).toString("base64").slice(0, -1), "not a key!"]) {
       expect(parseProviderSessionNamespaceKey(raw)).toBeNull();
     }
   });

@@ -36,14 +36,20 @@ const LEASE_OUTCOMES: Readonly<Record<ProviderExecutionTerminalOutcome, Provider
   banned: "account_banned",
 };
 
-/** Decodes a hex or base64 namespace key; returns null unless it is at least 32 bytes. */
+/**
+ * Decodes a hex or base64 namespace key; returns null unless it is at least 32
+ * bytes. An all-hex string is only ever read as hex (odd length is refused), so
+ * replicas given the same key in either form cannot silently derive different
+ * bindings.
+ */
 export function parseProviderSessionNamespaceKey(raw: string | null | undefined): Uint8Array | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim();
   let bytes: Buffer;
-  if (/^[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0) {
+  if (/^[0-9a-fA-F]+$/.test(value)) {
+    if (value.length % 2 !== 0) return null;
     bytes = Buffer.from(value, "hex");
-  } else if (/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+  } else if (/^[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length % 4 === 0) {
     bytes = Buffer.from(value, "base64");
   } else {
     return null;

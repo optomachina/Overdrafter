@@ -242,6 +242,9 @@ provider route only builds it when `WORKER_PROVIDER_SESSION_LEASE=on`.
   binding. When the lease is on, the worker refuses to start without a valid
   key. If a config is built without one, no port is created and generic tasks
   stop with `session_lease_unavailable` before the preflight.
+- Rotating the key derives new bindings. Any block recorded under the old
+  bindings then no longer applies, so treat a rotation as an operator decision
+  to clear blocks.
 - Each provider has one storage-state slot per deployment, so the account
   material is the fixed slot label `default`. `accountRef` and
   `sessionBindingRef` are HMACs over provider, environment and slot, so they
