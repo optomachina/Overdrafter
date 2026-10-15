@@ -47,6 +47,8 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   project: OVD410_PRODUCTION_CONTRACT.project,
   region: OVD410_PRODUCTION_CONTRACT.region,
   zone: "us-west1-b",
+  // Capacity fallback zones (same region: the egress subnet, router and NAT are regional).
+  allowedZones: Object.freeze(["us-west1-b", "us-west1-a", "us-west1-c"]),
   network: OVD410_PRODUCTION_CONTRACT.network,
   subnet: OVD410_PRODUCTION_CONTRACT.subnet,
   subnetRange: OVD410_PRODUCTION_CONTRACT.subnetRange,

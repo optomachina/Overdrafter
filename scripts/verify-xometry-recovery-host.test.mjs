@@ -909,6 +909,35 @@ describe("recovery-host CLI", () => {
     }
   });
 
+  it("accepts only the allowlisted capacity-fallback zones for startup status", async () => {
+    for (const [zone, expectedCode] of [
+      ["us-west1-a", 0],
+      ["us-west1-c", 0],
+      ["us-west2-a", 2],
+      ["us-west1-z", 2],
+    ]) {
+      let seenZone;
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: { ...productionEnv(), XOMETRY_RECOVERY_ZONE: zone },
+        output,
+        collectStartupStatus: async (expectations) => {
+          seenZone = expectations.zone;
+          return { stage: "ready", exitCode: 0 };
+        },
+      });
+      expect(code).toBe(expectedCode);
+      if (expectedCode === 0) expect(seenZone).toBe(zone);
+      else expect(seenZone).toBeUndefined();
+    }
+  });
+
+  it("rejects recovery-host expectations outside the fallback zone allowlist", () => {
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, zone: "us-west1-c" })).toBe(true);
+    expect(validateRecoveryHostExpectations({ ...EXPECTED, zone: "us-west1-z" })).toBe(false);
+  });
+
   it("fails before collection when one fixed name drifts", async () => {
     let collected = false;
     const output = { value: "", write(chunk) { this.value += chunk; } };
