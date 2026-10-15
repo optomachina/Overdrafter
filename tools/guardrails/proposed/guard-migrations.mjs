@@ -241,7 +241,7 @@ function ansiC(src, i) {
  */
 function parse(src) {
   let depth = 0;
-  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], op, depth });
+  const newSegment = (op) => ({ words: [], outs: [], ins: [], heredocs: [], redirects: false, op, depth });
   const segments = [newSegment(null)];
   const substs = [];
   const pendingDocs = [];
@@ -298,11 +298,13 @@ function parse(src) {
     } else if ((c === "<" || c === ">") && next === "(") {
       i = subst(i, matchClose(src, i + 1, "(", ")"), 2);
     } else if (c === "<" && next === "<" && src[i + 2] !== "<") {
+      seg().redirects = true;
       flush();
       const m = /^<<-?\s*(['"]?)([\w.-]+)\1/.exec(src.slice(i));
       if (m) pendingDocs.push({ delim: m[2], quoted: m[1] !== "", segment: seg() });
       i += m ? m[0].length : 2;
     } else if (c === ">" || c === "<" || (c === "&" && next === ">")) {
+      seg().redirects = true;
       if (word !== null && /^\d+$/.test(word)) word = null;
       flush();
       const m = /^(&>>?|>>|>\||>&|<>|<&|<<<|>|<)/.exec(src.slice(i));
@@ -488,7 +490,7 @@ function readAssignments(src, i) {
     i = blank.lastIndex;
   }
   // Assignments before a command word apply to that command only and leave the shell variables as they were.
-  const next = parse(src.slice(i)).segments[0];
+  const next = parse(src.slice(i, commandEnd(src, i))).segments[0];
   const command = next?.op === null ? next.words.find((word) => !isAssignment(word)) : undefined;
   const prefix = values.length > 0 && command !== undefined;
   return { end: i, values, prefix, ambiguous: prefix && (command.includes("$") || command.includes(SUB)) };
@@ -527,6 +529,7 @@ const BODY_CLOSE = /^(fi|esac|done|\})$/;
 // The most variable value combinations checked for one command text; past it the command fails closed.
 const MAX_VARIANTS = 32;
 const TOO_MANY_VARIANTS = `the command expands to more than ${String(MAX_VARIANTS)} variants, so the guard cannot check it; split the loop into smaller loops or list the files explicitly`;
+const ASSIGNMENT_REDIRECTS = "assignment/redirection ordering cannot be checked; split assignments and redirections into separate commands in the intended order";
 // The most command readings (expanded texts, nested ones included) checked for one call; past it the call fails closed.
 const MAX_WORK = 400;
 // The placeholders that stand for a value the command made itself; a sourced file cannot set them.
@@ -590,9 +593,6 @@ function expandVars(src, picks = [], counts = []) {
   let declaration = false;
   let commandEnv = false;
   let redirectEnd = -1;
-  let inRedirect = false;
-  let redirectValues = new Map();
-  let redirectOrder = {};
   // One pick per variable state: every reference to the same value, or to the same unknown variable between two
   // assignments, takes the same pick, so a variable used many times is one choice, not one per reference.
   const memo = new Map();
@@ -606,8 +606,7 @@ function expandVars(src, picks = [], counts = []) {
     return memo.get(key);
   };
   const lookup = (name, child) => {
-    const raw = !child && inRedirect && redirectValues.has(name) && pick(redirectOrder, 2) === 0 ? redirectValues.get(name).value
-      : child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
+    const raw = child && prefix && name in prefix.values ? prefix.values[name] : vars[name];
     if (raw === undefined && vars[SOURCED_KEY] && !SOURCE_KEPT.has(name) && !INTERNAL_NAME.test(name)) return SOURCED_AT + name;
     return raw !== null && typeof raw === "object" ? raw.alts[pick(raw, raw.alts.length)] : raw;
   };
@@ -633,14 +632,6 @@ function expandVars(src, picks = [], counts = []) {
     scope.locals = undefined;
   };
   const assign = (name, value) => {
-    if (inRedirect && redirectValues.has(name)) {
-      const snapshot = redirectValues.get(name);
-      if (pick(redirectOrder, 2) === 0) {
-        snapshot.value = value;
-        if (snapshot.pending) return;
-      }
-      if (!snapshot.pending) value = union([vars[name], value]);
-    }
     // After || the next command may run whether or not the assignment did.
     if (lastOp === "||") return store(name, union([vars[name], value]));
     const scope = scopes.at(-1);
@@ -721,19 +712,16 @@ function expandVars(src, picks = [], counts = []) {
   const frames = [];
   const docs = [];
   const openFrame = (frame) => {
-    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd, redirectValues, redirectOrder });
-    if (inRedirect && redirectValues.size > 0 && pick(redirectOrder, 2) === 0) vars = { ...vars, ...Object.fromEntries([...redirectValues].map(([name, snapshot]) => [name, snapshot.value])) };
+    frames.push({ ...frame, vars: { ...vars }, scopes: scopes.length, lastOp, declaration, commandEnv, redirectEnd });
     lastOp = null;
     cmdStart = true;
     declaration = false;
     commandEnv = false;
     redirectEnd = -1;
-    redirectValues = new Map();
-    redirectOrder = {};
   };
   const closeFrame = () => {
     const frame = frames.pop();
-    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd, redirectValues, redirectOrder } = frame);
+    if (frame.vars) ({ vars, lastOp, declaration, commandEnv, redirectEnd } = frame);
     if (frame.vars) scopes = scopes.slice(0, frame.scopes);
     return frame.quote;
   };
@@ -747,7 +735,6 @@ function expandVars(src, picks = [], counts = []) {
     const c = src[i];
     const next = src[i + 1];
     if (quote === null && i >= redirectEnd && (/[<>&]/.test(c) || (wordStart && /\d/.test(c)))) redirectEnd = redirectEndAt(src, i);
-    inRedirect = i < redirectEnd;
     if (quote === null && wordStart && c === "#") {
       const eol = indexOrEnd(src, "\n", i);
       out += src.slice(i, eol);
@@ -818,7 +805,6 @@ function expandVars(src, picks = [], counts = []) {
           const previous = lookup(name, false);
           prefix.values[name] = append ? appendTo(previous, valueOf(text)) : valueOf(text);
           if (ambiguous) {
-            if (!redirectValues.has(name)) redirectValues.set(name, { value: vars[name], pending: false });
             assign(name, union([previous, prefix.values[name]]));
           }
         }
@@ -828,8 +814,6 @@ function expandVars(src, picks = [], counts = []) {
         const local = /(?:^|[\s;&|(){}])(?:local|declare|typeset)(?:[ \t]+[-+](?![A-Za-z]*g)[A-Za-z]+)*[ \t]+$/.test(src.slice(Math.max(0, i - 80), i));
         const body = local ? scopes.findLast((sc) => sc.fn) : undefined;
         for (const [name, text, append] of values) {
-          // With no command name, shells may apply assignments before or after redirects; check both orders.
-          if (!redirectValues.has(name)) redirectValues.set(name, { value: vars[name], pending: true });
           if (body) {
             body.locals ??= {};
             if (!(name in body.locals)) body.locals[name] = vars[name];
@@ -900,7 +884,7 @@ function expandVars(src, picks = [], counts = []) {
         take = 2;
       } else if (c === ";" || c === "\n" || (c === "&" && !/[<>]/.test(src[i - 1] ?? "") && next !== ">")) endList();
       if (/[\s;&|()]/.test(c)) wordStart = true;
-      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; redirectValues = new Map(); redirectOrder = {}; }
+      if (i >= redirectEnd && /[;&|(\n]/.test(c)) { cmdStart = true; declaration = false; commandEnv = false; }
       if (c === "\n" && docs.length > 0) {
         // Heredoc bodies are copied line by line with their references expanded and quotes not tracked.
         out += c;
@@ -2770,6 +2754,24 @@ function cdTarget(dir, target, oldDir) {
   return changeDir(dir, target);
 }
 
+/** Unsupported assignment timing is explicit; definite temporary prefixes and ordinary arguments remain supported. */
+function assignmentRedirectReason(src) {
+  const declarations = new Set(["export", "readonly", "local", "declare", "typeset"]);
+  const special = new Set([".", ":", "break", "continue", "eval", "exec", "exit", "return", "set", "shift", "times", "trap", "unset", "source", ...declarations]);
+  for (const segment of parse(src).segments) {
+    if (!segment.redirects) continue;
+    let words = segment.words;
+    while (PREFIX_KEYWORDS.has(words[0])) words = words.slice(1);
+    const { argv, env, wrappers } = unwrap(words);
+    const cmd = base(argv[0]);
+    const uncertain = !argv[0] || ["$", "*", "?", "[", SUB].some((part) => argv[0].includes(part));
+    const prefix = Object.keys(env).length > 0;
+    if ((prefix && (uncertain || special.has(cmd) || wrappers.has("exec"))) ||
+        (declarations.has(cmd) && argv.slice(1).some(isAssignment))) return ASSIGNMENT_REDIRECTS;
+  }
+  return null;
+}
+
 function checkCommand(src, dir, ctx, depth = 0) {
   if (depth > 6) return "command nests too deeply to check";
   // In collect mode (used by the tests to list every reason) a reason is recorded and checking goes on.
@@ -2778,9 +2780,17 @@ function checkCommand(src, dir, ctx, depth = 0) {
     ctx.collect.push(reason);
     return null;
   };
+  const unsupported = assignmentRedirectReason(src);
+  if (unsupported) return report(unsupported);
   const texts = expandVariants(src);
   if (texts === null) return report(TOO_MANY_VARIANTS);
   for (const text of texts) {
+    const unsupported = assignmentRedirectReason(text);
+    if (unsupported) {
+      const reason = report(unsupported);
+      if (reason) return reason;
+      continue;
+    }
     // Readings multiply across nested -c, eval and $( ) text; past the budget the command fails closed, also in collect mode.
     if (++ctx.work > MAX_WORK) {
       const reason = "the command has too many readings to check in time; failing closed";
@@ -3020,6 +3030,9 @@ async function main() {
  * destination that is not main, so its message says so; every other block says to stop and report.
  */
 export function blockMessage(reason) {
+  if (reason.includes(ASSIGNMENT_REDIRECTS)) {
+    return `guard-migrations blocked this call: ${reason}.\nThe intended fix is to split assignments and redirections into separate commands in the intended order; each command remains subject to the guard.\n`;
+  }
   if (reason.includes(NAME_DESTINATION)) {
     return (
       `guard-migrations blocked this call: ${reason}.\n` +

@@ -1602,7 +1602,7 @@ test("named-branch push guidance preserves shell metacharacters as one source ar
   }
 });
 
-test("assignments with redirects retain shell state and distinguish real command prefixes", () => {
+test("unsupported assignment redirects fail closed while definite temporary prefixes pass", () => {
   for (const command of [
     'MIG=docs; MIG=supabase/migrations >/dev/null; echo x > "$MIG/x.sql"',
     'MIG=supabase/migrations 2>/dev/null; cp a.sql "$MIG/"',
@@ -1617,16 +1617,23 @@ test("assignments with redirects retain shell state and distinguish real command
     'MIG=docs; MIG=supabase/migrations $MAY_BE_EMPTY; echo x > "$MIG/x.sql"',
     'MIG=docs; export MIG=supabase/migrations OTHER; echo x > "$MIG/x.sql"',
     'MIG=docs; MIG=supabase/migrations <<EOF\nignored\nEOF\necho x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; MIG=docs >/dev/null; echo x > "$MIG/x.sql"',
+    'MIG=supabase/migrations; >/dev/null MIG=docs; echo x > "$MIG/x.sql"',
+    'MIG=docs; >"$MIG/x.sql" MIG=supabase/migrations; echo ok',
+    'MIG=docs; OTHER=v >"$MIG/x.sql" MIG=supabase/migrations; echo ok',
+    'export MIG=docs >/dev/null',
+    'CMD=export; $CMD MIG=docs >/dev/null',
   ]) assert.ok(decide(inFixture(command), { prFiles: fakePrFiles }), command);
   for (const command of [
     'MIG=docs; MIG=supabase/migrations >/dev/null true; echo x > "$MIG/x.sql"',
-    'MIG=supabase/migrations; MIG=docs >/dev/null; echo x > "$MIG/x.sql"',
-    'MIG=supabase/migrations; >/dev/null MIG=docs; echo x > "$MIG/x.sql"',
     'MIG=docs; OTHER=v >/dev/null MIG=supabase/migrations true; echo x > "$MIG/x.sql"',
+    'MIG=docs; >/dev/null MIG=supabase/migrations true; echo x > "$MIG/x.sql"',
+    'echo MIG=supabase/migrations >docs/ordinary-argument.txt',
+    '>docs/bare-redirect.txt',
   ]) assert.equal(decide(inFixture(command), { prFiles: fakePrFiles }), null, command);
 });
 
-test("redirect assignment ordering agrees with Bash for default expansions", () => {
+test("unsupported redirect assignments block across Bash orderings and source positions", () => {
   for (const initial of [null, "", "docs", "supabase/migrations"]) for (const target of ["docs", "supabase/migrations"]) {
     for (const op of [":=", "=", ":-", "-"]) for (const nested of [false, true]) {
       const fixture = mkdtempSync(join(tmpdir(), "guard-redirect-order-"));
@@ -1637,7 +1644,6 @@ test("redirect assignment ordering agrees with Bash for default expansions", () 
         const path = nested ? '$(printf %s "' + expansion + '")' : expansion;
         const setup = initial === null ? "unset MIG" : `MIG=${initial}`;
         const redirect = `>"./${path}/redirect.sql"`;
-        const assignment = `${setup}; MIG=${target} ${redirect}`;
         // Bash permits reversing these steps without a command name. Replay both orders explicitly.
         let protectedWrite = false;
         for (const ordering of [`${setup}; MIG=${target}; ${redirect}`, `${setup}; ${redirect}; MIG=${target}`]) {
@@ -1646,9 +1652,13 @@ test("redirect assignment ordering agrees with Bash for default expansions", () 
           assert.equal(reference.stderr, "", ordering);
           protectedWrite ||= reference.stdout === "supabase/migrations" || existsSync(join(fixture, "supabase/migrations/redirect.sql"));
         }
-        const command = assignment + '; echo x > "./$MIG/x.sql"';
-        const reason = decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }, { prFiles: fakePrFiles });
-        assert.equal(reason !== null, protectedWrite, command);
+        for (const assignment of [`MIG=${target} ${redirect}`, `${redirect} MIG=${target}`, `OTHER=v ${redirect} MIG=${target}`]) {
+          const command = `${setup}; ${assignment}; echo x > "./$MIG/x.sql"`;
+          const reason = decide({ cwd: fixture, tool_name: "Bash", tool_input: { command } }, { prFiles: fakePrFiles });
+          assert.ok(reason, command);
+          if (!protectedWrite) assert.match(reason, /ordering cannot be checked/, command); // Deliberate benign restriction.
+          assert.match(blockMessage(reason), /separate commands in the intended order/);
+        }
       } finally {
         rmSync(fixture, { recursive: true, force: true });
       }
