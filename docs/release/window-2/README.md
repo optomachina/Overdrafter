@@ -45,7 +45,7 @@ Base: `main` at `26b0b76e` with 148 migrations, equal to the production ledger (
 
 1. **Packet head.** Hosted CI is green on the packet head, including `Disposable staged SQL proof`. Locally:
    ```
-   node scripts/ovd510-generate-migration-sql.mjs 82a28af7f355589c8ebc5a0d505d63606980a28c56048816f7e6b7015b2fc07c --check
+   node scripts/ovd510-generate-migration-sql.mjs be97ed54f5f3f97d4c25f1709a6ed415c6edc912a0237c36471c45e327d981a8 --check
    node scripts/native/stop-observer/sql/generate-restore-sql.mjs --check
    node --test scripts/window2-packet.node-test.mjs
    ```

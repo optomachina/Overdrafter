@@ -98,6 +98,12 @@ test("the run sheet lists the manifest order forward and exactly reversed", () =
   assert.deepEqual(paths("reverse-order"), reverse);
 });
 
+test("every OVD-558 generator command in the run sheet uses the manifest post change pin", () => {
+  const pins = [...read("docs/release/window-2/README.md").matchAll(/ovd510-generate-migration-sql\.mjs ([0-9a-f]{64})/g)].map((m) => m[1]);
+  assert.ok(pins.length > 0, "run sheet generator check");
+  for (const pin of pins) assert.equal(pin, manifest.ovd558.postchangeCatalogSha256);
+});
+
 test("a refusal counts only with its SQLSTATE", () => {
   const verbose = "psql:<stdin>:12: ERROR:  0A000: ovd649_restore_read_committed_required\nCONTEXT: x";
   assert.equal(refusedWith(verbose, "0A000", "ovd649_restore_read_committed_required"), true);
