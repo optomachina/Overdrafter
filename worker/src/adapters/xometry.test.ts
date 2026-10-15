@@ -1075,8 +1075,8 @@ function createAutoSelectionFlow(options: {
       },
       [XOMETRY_LOCATORS.priceText[0]]: {
         count: 1,
-        // The offer parser requires an explicit currency marker per amount.
-        text: "Least Expensive Arrives by Nov 6 USD $41.41 ea. USD $414.15",
+        // Real Xometry price-card markup (ovd774 r6 q11): bare "$", USD registry currency.
+        text: "Least Expensive Arrives by Nov 6 $41.41 ea. $414.15",
       },
     },
     optionTexts: offeredOptions,
