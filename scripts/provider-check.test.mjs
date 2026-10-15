@@ -121,11 +121,10 @@ describe("checked-in provider manifests and projections", () => {
     expect(result.providerCount).toBe(18);
     expect(result.vendorKeys).toHaveLength(18);
     expect(result.vendorKeys).toContain("rmfg");
-    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "rmfg", "weerg"]);
+    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     expect(result.defaultDenyExecuted).toEqual([
       { key: "fictiv", file: "worker/src/adapters/fictiv.test.ts", passed: expect.any(Number) },
       { key: "quickparts", file: "worker/src/adapters/quickpartsProductionPortal.test.ts", passed: 10 },
-      { key: "rmfg", file: "worker/src/adapters/rmfgApiDispatch.test.ts", passed: expect.any(Number) },
       { key: "weerg", file: "worker/src/adapters/weergProductionPortal.test.ts", passed: 10 },
     ]);
     for (const { manifest } of manifests) {
@@ -527,7 +526,7 @@ describe("reviewed envelope completeness", () => {
     const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-10-11" });
     const gaps = await collectReviewedEnvelopeGaps({ rootDir: repoRoot, today: "2026-10-11" });
 
-    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "rmfg", "weerg"]);
+    expect(result.reviewedProviders).toEqual(["fictiv", "quickparts", "weerg"]);
     expect(gaps).toEqual([]);
     expect(result.vendorKeys).toEqual(expect.arrayContaining(["fictiv", "quickparts", "weerg"]));
   });

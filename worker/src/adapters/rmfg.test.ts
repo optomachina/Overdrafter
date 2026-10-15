@@ -7,6 +7,7 @@ import fixture from "../../../test-fixtures/provider-dispatch-envelope/geomiq-v1
 import { buildProviderDispatchFixtureEnvelope, providerDispatchFixtureAuthorization } from "../../test-support/providerDispatchFixture";
 import { loadConfig } from "../config";
 import { sha256File } from "../liveEvaluationFiles";
+import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort";
 import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
 import {
   createProviderKillSwitchGuard,
@@ -23,10 +24,10 @@ import {
   evaluateRmfgEligibility,
   resetRmfgAdapterStateForTests,
   RMFG_API_KEY_ENV,
-  RMFG_DISPATCH_ENVELOPE,
   RmfgAdapter,
   type RmfgDispatchSeams,
 } from "./rmfg";
+import { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization";
 import { createRmfgHttpTransport, resetRmfgProcessStateForTests } from "./rmfgHttpTransport";
 
 /**
@@ -193,6 +194,30 @@ describe("RMFG live adapter", () => {
     expect(calls).toEqual(["/v1/analyze", "/v1/materials"]);
   });
 
+  it("OVD-748: sends no request when the run is aborted before start", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const controller = new AbortController();
+    controller.abort();
+    const error = await adapterWith(fetchImpl).quote(withProviderAbortSignal(
+      await authorizedInput(), controller.signal,
+    )).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderAbortedError);
+    expect(calls).toEqual([]);
+  });
+
+  it("OVD-748: stops before the next request when aborted mid quote, as an abort and not a provider failure", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const controller = new AbortController();
+    const adapterInput = await authorizedInput({
+      providerKillSwitchCheckpoint: async (checkpoint) => { if (checkpoint === "before_configure") controller.abort(); },
+    });
+    const error = await adapterWith(fetchImpl).quote(withProviderAbortSignal(adapterInput, controller.signal))
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderAbortedError);
+    expect(error).not.toBeInstanceOf(VendorAutomationError);
+    expect(calls).toEqual(["/v1/analyze", "/v1/materials"]);
+  });
+
   it("uploads nothing when the export control recheck denies", async () => {
     const { calls, fetchImpl } = fakeFetch(happyPath);
     const denied = new Error("export control hold");
@@ -262,8 +287,7 @@ describe("RMFG live adapter", () => {
 
   it("is listed for live automation but stays out of the default live registry", () => {
     expect(LIVE_AUTOMATION_VENDORS).toContain("rmfg");
-    // The envelope is reviewed in code (OVD-687), which admits nothing without a review row and the live registry.
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((envelope) => envelope.provider === "rmfg")).toBe(true);
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((envelope) => envelope.provider === "rmfg")).toBe(false);
     const defaults = loadConfig({ SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "synthetic",
       WORKER_MODE: "live" } as NodeJS.ProcessEnv);
     expect(defaults.workerLiveAdapters).not.toContain("rmfg");
