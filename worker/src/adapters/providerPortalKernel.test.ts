@@ -788,6 +788,28 @@ describe("provider portal kernel admission", () => {
     expect(payload.requestRoute.continue).not.toHaveBeenCalled();
   });
 
+  it.each([["application/csp-report"], ["application/reports+json"]])(
+    "never continues a %s POST with a body to an allowlisted off-host host",
+    async (contentType) => {
+      const fake = fakeBrowser({ requestDuringUpload: {
+        url: "https://cdn.jsdelivr.net/report",
+        headers: { "content-type": contentType },
+        body: "authorized-cad-bytes",
+        resourceType: "csp_report",
+      } });
+      await expect(runProviderPortalKernel(definition({ offHostAllowlist: ["cdn.jsdelivr.net"] }), config(),
+        await input(), {
+          launchBrowser: vi.fn(async () => fake.browser),
+          captureEvidence: async () => [],
+        })).resolves.toMatchObject({
+        state: "offers_extracted",
+        portalBoundary: { blockedOffhostCount: 1, blockedOffhostByHost: { "cdn.jsdelivr.net": 1 } },
+      });
+      expect(fake.requestRoute.continue).not.toHaveBeenCalled();
+      expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+    },
+  );
+
   it.each([["*.jsdelivr.net"], ["CDN.example.com"], ["cdn.example.com:443"], ["localhost"]])(
     "rejects an inexact off-host allowlist entry %s before launch",
     async (host) => {

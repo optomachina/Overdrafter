@@ -1138,6 +1138,16 @@ async function classifyOffHostRequest(request: Request): Promise<OffHostDisposit
   }
 }
 
+/** Fails closed: a request whose body cannot be read is treated as carrying one. */
+function carriesRequestBody(request: Request): boolean {
+  try {
+    const body = request.postDataBuffer();
+    return Boolean(body && body.length > 0);
+  } catch {
+    return true;
+  }
+}
+
 function safeResourceType(request: Request): string {
   try {
     return request.resourceType();
@@ -1167,7 +1177,9 @@ async function installPortalBoundaryGuards(
       await route.abort("blockedbyclient");
       return;
     }
-    if (isAllowedProviderUrl(requestUrl, offHostAllowlist)) {
+    // The allowlist only admits body-less subresources; a report beacon to an
+    // allowlisted host is still blocked so no body ever leaves the provider.
+    if (isAllowedProviderUrl(requestUrl, offHostAllowlist) && !carriesRequestBody(request)) {
       await route.continue();
       return;
     }
