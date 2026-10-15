@@ -203,7 +203,13 @@ export function resolveServiceSession(env, serviceKey) {
       "The service role key is not a service role secret (expected sb_secret_... or a service_role JWT). Nothing changed.",
     );
   }
-  return { url: url.replace(/\/+$/, ""), apiKey: serviceKey, accessToken: serviceKey };
+  return { url: trimTrailingSlashes(url), apiKey: serviceKey, accessToken: serviceKey };
+}
+
+function trimTrailingSlashes(value) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
 }
 
 const LIST_RPC = "api_service_list_provider_kill_switches";
@@ -335,7 +341,5 @@ export async function main(argv, { stderr = (text) => process.stderr.write(text)
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  });
+  process.exitCode = await main(process.argv.slice(2));
 }

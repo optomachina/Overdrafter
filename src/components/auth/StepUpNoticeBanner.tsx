@@ -11,13 +11,13 @@ export function StepUpNoticeBanner({
   }
 
   return (
-    <div className="space-y-2" role="status">
+    <output className="block space-y-2">
       <p className="text-sm text-destructive">{notice.message}</p>
       {notice.kind === "enroll" ? (
         <Button type="button" variant="outline" size="sm" onClick={onEnroll}>
           Set up authenticator
         </Button>
       ) : null}
-    </div>
+    </output>
   );
 }
