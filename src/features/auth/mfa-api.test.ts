@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   beginTotpEnrollment,
+  hasAal2Session,
   listTotpFactors,
   unenrollTotpFactor,
   verifyTotpCode,
@@ -9,6 +10,7 @@ import {
 const supabaseMock = vi.hoisted(() => ({
   challengeAndVerify: vi.fn(),
   enroll: vi.fn(),
+  getAuthenticatorAssuranceLevel: vi.fn(),
   listFactors: vi.fn(),
   unenroll: vi.fn(),
 }));
@@ -19,6 +21,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       mfa: {
         challengeAndVerify: supabaseMock.challengeAndVerify,
         enroll: supabaseMock.enroll,
+        getAuthenticatorAssuranceLevel: supabaseMock.getAuthenticatorAssuranceLevel,
         listFactors: supabaseMock.listFactors,
         unenroll: supabaseMock.unenroll,
       },
@@ -208,5 +211,26 @@ describe("mfa-api", () => {
     });
 
     await expect(unenrollTotpFactor("factor-1")).rejects.toBe(apiError);
+  });
+
+  it("reports an AAL2 session only when the current level is aal2", async () => {
+    supabaseMock.getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: "aal2", nextLevel: "aal2", currentAuthenticationMethods: [] },
+      error: null,
+    });
+    await expect(hasAal2Session()).resolves.toBe(true);
+
+    supabaseMock.getAuthenticatorAssuranceLevel.mockResolvedValueOnce({
+      data: { currentLevel: "aal1", nextLevel: "aal2", currentAuthenticationMethods: [] },
+      error: null,
+    });
+    await expect(hasAal2Session()).resolves.toBe(false);
+  });
+
+  it("propagates an assurance-level error", async () => {
+    const apiError = { message: "session missing" };
+    supabaseMock.getAuthenticatorAssuranceLevel.mockResolvedValueOnce({ data: null, error: apiError });
+
+    await expect(hasAal2Session()).rejects.toBe(apiError);
   });
 });
