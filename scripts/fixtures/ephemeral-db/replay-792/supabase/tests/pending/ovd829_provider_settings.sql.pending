@@ -1,0 +1,31 @@
+-- OVD-828 S1 (OVD-829): universal per-supplier settings (on/off + daily cap).
+--
+-- Targets the draft docs/migration-drafts/ovd-828-s1.sql,
+-- applied on top of 20261013043100_ovd722_provider_kill_switch.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd829_provider_settings.sql in the same change.
+-- Pre-apply observation: every assertion that references the new functions or
+-- columns fails with "does not exist".
+--
+-- Covers:
+--   * shape: daily_quote_cap has no default (null = unlimited), existing rows
+--     are not backfilled, <= 0 refused
+--   * pg_proc: SECURITY DEFINER, search_path = '', grants (admin RPC
+--     authenticated only; worker RPCs service_role only)
+--   * api_admin_set_provider_settings refuses anon, service_role, a non-admin,
+--     and an admin without AAL2; refuses cap <= 0; accepts null (unlimited);
+--     compare and set; writes one audit row with the cap
+--   * api_admin_set_provider_kill_switch now refuses an admin without AAL2 and
+--     preserves the cap
+--   * api_worker_reserve_provider_dispatch: refuses at cap + 1, null never
+--     refuses, engaged (supplier or global) returns provider_disabled whatever
+--     the cap and counts nothing; a corrupt cap (<= 0) reads as no cap; counts per
+--     UTC day (yesterday's spent cap does not carry over)
+--   * api_admin_list_provider_kill_switches returns dailyQuoteCap and usedToday
+--
+-- Not covered here (needs two sessions): concurrent reservations at cap - 1.
+-- The row lock that serializes them follows the ovd-722-race-check.sh pattern.
+-- [header-only snapshot of supabase/tests/pending/ovd829_provider_settings.sql.pending at d2b7981b (#792); body omitted]
+select 1;

@@ -1,0 +1,27 @@
+-- OVD-725 Stripe tier catalog: DRAFT ONLY. Not a migration.
+--
+-- Planned for migration window 2, not window 1. Do not copy into supabase/migrations/ or apply to
+-- any hosted project without the window's own review and Blaine's approval.
+-- The edge functions on PR #671 call these RPCs:
+--   billing-sessions -> public.api_configure_stripe_catalog_price
+--   stripe-events    -> public.api_disable_stripe_catalog_price
+-- Until this lands, Checkout stays refused (flags off, and the configure RPC is
+-- missing) and a failed webhook disable is logged, not retried.
+--
+-- Founding Team slots are capped at 8 (docs/business/business-model.md) and
+-- must match tiers.founding_team.maxTeams in
+-- supabase/functions/_shared/billingCatalogPrices.json. A slot belongs to one
+-- organization; claiming twice is a no-op and release frees it.
+--
+-- The Pro lookup key also mirrors into private.stripe_pro_price_allowlist via
+-- the existing api_configure_stripe_pro_price so subscription processing keeps
+-- granting Pro; disabling the key turns off checkout on that mirrored Price.
+-- Team, Founding Team, and Jarvis entitlement processing is not built here.
+--
+-- Proof: supabase/tests/ovd725_stripe_catalog_draft.sql runs this exact DDL in
+-- CI (scripts/run-supabase-policy-tests.mjs) inside a rolled back transaction.
+-- Regenerate both files together so they cannot drift.
+
+-- ===================== FORWARD =====================
+-- [header-only snapshot of docs/migration-drafts/ovd-725-stripe-catalog.sql at d2b7981b (#792); body omitted]
+select 1;
