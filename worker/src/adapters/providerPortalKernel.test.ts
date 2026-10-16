@@ -276,6 +276,7 @@ function fakeBrowser(options: {
     selectOption,
     click,
     filter,
+    locator: vi.fn(),
     allInnerTexts: vi.fn(async () => {
       triggerReadBoundaryChange();
       return ["offer"];
@@ -290,6 +291,7 @@ function fakeBrowser(options: {
     }),
   };
   filter.mockImplementation(() => uploadLocator);
+  (uploadLocator.locator as ReturnType<typeof vi.fn>).mockImplementation(() => uploadLocator);
   const mainFrame = { url: vi.fn(() => currentUrl) };
   const page = {
     goto: vi.fn(async (url: string) => {
@@ -1618,5 +1620,163 @@ describe("provider kill switch checkpoints inside the portal kernel (OVD-722)", 
     await expect(runIntentionalPortalRetry({ operation, maxAttempts: 2, providerMutationPossible: false }))
       .rejects.toBe(refusal);
     expect(operation).toHaveBeenCalledOnce();
+  });
+});
+
+// Blaine's standing rule (2026-10-15): an attempt that uploaded a test part
+// removes it once everything is captured, best-effort and never at the cost
+// of the attempt's own result or error.
+describe("provider portal post-capture cleanup", () => {
+  const cleanupSelectors = {
+    partRow: { selector: ".row" },
+    removePart: { selector: "button.remove", scope: ".row" },
+  };
+
+  function cleanupDefinition(
+    cleanup: NonNullable<ProviderPortalDefinition["hooks"]["cleanup"]>,
+    hooks: Partial<ProviderPortalDefinition["hooks"]> = {},
+  ): ProviderPortalDefinition {
+    return definition({
+      selectors: { ...definition().selectors, cleanup: cleanupSelectors },
+      hooks: { ...definition().hooks, extractOffers: async () => [candidate()], ...hooks, cleanup },
+    });
+  }
+
+  it("removes the uploaded part after the offers are read and reports it", async () => {
+    const fake = fakeBrowser();
+    const order: string[] = [];
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(cleanupDefinition(async (cleanup) => {
+      order.push("cleanup");
+      expect(await cleanup.click("removePart", "part.step")).toBe(true);
+      return { removed: 1, remaining: 0 };
+    }, { extractOffers: async () => { order.push("extract"); return [candidate()]; } }), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result).toMatchObject({
+      state: "offers_extracted",
+      cartCleanup: { status: "removed", removed: 1, remaining: 0, reason: null },
+    });
+    expect(order).toEqual(["extract", "cleanup"]);
+    expect(fake.filter).toHaveBeenCalledWith({ hasText: "part.step" });
+    expect(fake.click).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(info.mock.calls.at(-1)?.[0]))).toMatchObject({
+      source: "providerPortalCleanup", provider: "quickparts", status: "removed",
+    });
+  });
+
+  it("also cleans up after a failure that followed upload, keeping the original error", async () => {
+    const fake = fakeBrowser();
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const cleanup = vi.fn(async () => ({ removed: 1, remaining: 0 }));
+    await expect(runProviderPortalKernel(cleanupDefinition(cleanup, {
+      configure: async () => { throw new Error("portal broke"); },
+    }), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({
+      payload: {
+        terminalState: "selector_drift",
+        reason: "ambiguous_provider_mutation",
+        cartCleanup: { status: "removed", removed: 1 },
+      },
+    });
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a cleanup failure without changing the result", async () => {
+    const fake = fakeBrowser();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(cleanupDefinition(async () => {
+      throw new Error("remove control vanished");
+    }), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result).toMatchObject({
+      state: "offers_extracted",
+      offers: [expect.objectContaining({ providerOptionId: "economy-7d" })],
+      cartCleanup: { status: "failed", reason: "Error" },
+    });
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject({ level: "warn", status: "failed" });
+  });
+
+  it("bounds a hanging cleanup and reports it as failed", async () => {
+    const fake = fakeBrowser();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(cleanupDefinition(() => new Promise(() => undefined)), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+      cleanupTimeoutMs: 20,
+    });
+    expect(result).toMatchObject({ state: "offers_extracted", cartCleanup: { status: "failed", reason: "Error" } });
+  });
+
+  it("reports parts left behind as incomplete", async () => {
+    const fake = fakeBrowser();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(cleanupDefinition(async () => ({ removed: 0, remaining: 1 })), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toEqual({ status: "incomplete", removed: 0, remaining: 1, reason: null });
+  });
+
+  it("does not run when nothing was uploaded", async () => {
+    const fake = fakeBrowser({ uploadCount: 0 });
+    const cleanup = vi.fn(async () => ({ removed: 0, remaining: 0 }));
+    const result = await runProviderPortalKernel(cleanupDefinition(cleanup), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result).toMatchObject({ state: "selector_drift", reason: "cad_upload_selector_missing" });
+    expect(result.cartCleanup).toBeUndefined();
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  it("skips cleanup while the kill switch is engaged", async () => {
+    const fake = fakeBrowser();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const cleanup = vi.fn(async () => ({ removed: 1, remaining: 0 }));
+    let engaged = false;
+    const engagedAfterExtract = Object.assign(await input(), {
+      providerKillSwitchCheckpoint: async (checkpoint: "before_navigation" | "before_upload" | "before_configure") => {
+        if (engaged) throw new ProviderKillSwitchError("provider_kill_switch_engaged", "quickparts", checkpoint);
+      },
+    });
+    const result = await runProviderPortalKernel(cleanupDefinition(cleanup, {
+      extractOffers: async () => { engaged = true; return [candidate()]; },
+    }), config(), engagedAfterExtract, {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: "skipped_kill_switch" });
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an undeclared field", "checkoutButton", undefined],
+    ["checkout-like scope text", "removePart", "Proceed to checkout"],
+  ])("refuses a cleanup click on %s", async (_name, field, scopeText) => {
+    const fake = fakeBrowser();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const result = await runProviderPortalKernel(cleanupDefinition(async (cleanup) => {
+      await cleanup.click(field, scopeText);
+      return { removed: 1, remaining: 0 };
+    }), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    });
+    expect(result.cartCleanup).toMatchObject({ status: "failed", reason: "undeclared_cleanup_operation" });
+    expect(fake.click).not.toHaveBeenCalled();
+  });
+
+  it("refuses a definition whose cleanup selector aims at checkout", async () => {
+    const unsafe = definition({
+      selectors: { ...definition().selectors, cleanup: { removePart: { selector: "button.checkout" } } },
+    });
+    await expect(runProviderPortalKernel(unsafe, config(), await input(), { launchBrowser: vi.fn() }))
+      .rejects.toThrow(/prohibited cleanup selector/);
   });
 });

@@ -133,6 +133,28 @@ export type ProviderPortalConfigurationCapability = {
   click: (field: string, text?: string) => Promise<boolean>;
 };
 
+/**
+ * Post-capture removal of the uploaded test part (Blaine's standing rule,
+ * 2026-10-15). Only declared cleanup rules are reachable. A rule with a
+ * `scope` resolves inside the first scope element containing `scopeText`.
+ */
+export type ProviderPortalCleanupCapability = {
+  count: (field: string, scopeText?: string) => Promise<number>;
+  click: (field: string, scopeText?: string) => Promise<boolean>;
+};
+
+export type ProviderPortalCleanupOutcome = { removed: number; remaining: number };
+
+export type ProviderPortalCleanupReport = {
+  status: "removed" | "not_found" | "incomplete" | "failed" | "skipped_kill_switch";
+  removed: number;
+  remaining: number | null;
+  reason: string | null;
+};
+
+/** Upper bound for one cleanup pass; it never delays the result longer. */
+export const PROVIDER_PORTAL_CLEANUP_TIMEOUT_MS = 30_000;
+
 export type ProviderPortalDefinition = {
   provider: LiveAutomationVendorName;
   displayName: string;
@@ -167,6 +189,8 @@ export type ProviderPortalDefinition = {
       selector: string;
       operation: "fill" | "select" | "click";
     }>>;
+    /** Click/count-only rules reachable from `hooks.cleanup`. */
+    cleanup?: Readonly<Record<string, { selector: string; scope?: string }>>;
   };
   supportedFileExtensions: readonly string[];
   terminalSignals: {
@@ -206,6 +230,17 @@ export type ProviderPortalDefinition = {
       input: VendorQuoteAdapterInput,
     ) => Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>
       | Promise<Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>>;
+    /**
+     * Removes the uploaded part once everything is captured. The kernel runs
+     * it after the result or failure of any attempt that reached upload, in
+     * the same page, bounded by PROVIDER_PORTAL_CLEANUP_TIMEOUT_MS. It is
+     * best-effort: its failure is logged and reported, never thrown, and
+     * never changes the attempt's result or error.
+     */
+    cleanup?: (
+      cleanup: ProviderPortalCleanupCapability,
+      input: VendorQuoteAdapterInput,
+    ) => Promise<ProviderPortalCleanupOutcome>;
   };
 };
 
@@ -216,6 +251,8 @@ type ProviderPortalKernelResultBase = {
   providerMutationPossible: boolean;
   /** OVD-773: off-host requests the boundary quietly blocked; set once a browser session ran. */
   portalBoundary?: PortalBoundaryTelemetry;
+  /** Set when the definition declares cleanup and the attempt reached upload. */
+  cartCleanup?: ProviderPortalCleanupReport;
 };
 
 export type ProviderPortalKernelResult = ProviderPortalKernelResultBase & (
@@ -235,6 +272,8 @@ export type RunProviderPortalKernelDependencies = {
   /** Optional advisory exception categorization; never affects terminal state/retries. */
   failureTriage?: FailureTriageOptions;
   launchBrowser?: BrowserLauncher;
+  /** Test seam for the cleanup bound; defaults to PROVIDER_PORTAL_CLEANUP_TIMEOUT_MS. */
+  cleanupTimeoutMs?: number;
   captureEvidence?: (
     definition: ProviderPortalDefinition,
     config: WorkerConfig,
@@ -328,7 +367,15 @@ function assertProviderDefinition(definition: ProviderPortalDefinition): void {
       throw new Error(`${definition.provider} portal definition contains a prohibited configuration selector.`);
     }
   }
+  for (const rule of Object.values(definition.selectors.cleanup ?? {})) {
+    if (PROHIBITED_CLEANUP_SELECTOR.test(rule.selector) || PROHIBITED_CLEANUP_SELECTOR.test(rule.scope ?? "")) {
+      throw new Error(`${definition.provider} portal definition contains a prohibited cleanup selector.`);
+    }
+  }
 }
+
+/** Cleanup works inside the cart by design, but never near checkout or payment. */
+const PROHIBITED_CLEANUP_SELECTOR = /checkout|purchase|payment|place.?order|submit/i;
 
 const PROHIBITED_CONFIGURATION_SELECTOR = /checkout|order|purchase|payment|cart/i;
 
@@ -1380,6 +1427,111 @@ async function recoverMissingConfiguration(
   return true;
 }
 
+function buildCleanupCapability(
+  definition: ProviderPortalDefinition,
+  page: Page,
+  boundary: PortalBoundaryState,
+): ProviderPortalCleanupCapability {
+  const locate = (field: string, scopeText?: string): Locator => {
+    const rule = definition.selectors.cleanup?.[field];
+    if (!rule || (scopeText !== undefined && PROHIBITED_CLEANUP_SELECTOR.test(scopeText))) {
+      throw terminalError(definition, "configuration_required", "undeclared_cleanup_operation", {
+        providerMutationPossible: boundary.providerMutationPossible,
+      });
+    }
+    if (!rule.scope) return guardedLocator(definition, page, boundary, rule.selector);
+    const scopes = guardedLocator(definition, page, boundary, rule.scope);
+    const scoped = scopeText === undefined ? scopes : scopes.filter({ hasText: scopeText });
+    return scoped.locator(rule.selector);
+  };
+  return Object.freeze({
+    count: async (field: string, scopeText?: string) => {
+      const count = await locate(field, scopeText).count();
+      assertPortalBoundary(definition, page, boundary);
+      return count;
+    },
+    click: async (field: string, scopeText?: string) => {
+      const locator = locate(field, scopeText).first();
+      if (await locator.count() < 1) {
+        assertPortalBoundary(definition, page, boundary);
+        return false;
+      }
+      await locator.click();
+      assertPortalBoundary(definition, page, boundary);
+      return true;
+    },
+  });
+}
+
+function cleanupFailureReason(error: unknown): string {
+  if (error instanceof VendorAutomationError && typeof error.payload.reason === "string") return error.payload.reason;
+  return error instanceof Error ? error.name : "unknown";
+}
+
+/**
+ * Runs the definition's cleanup hook after an attempt that reached upload.
+ * Never throws; the structured log line is the operator's record either way.
+ */
+async function cleanUpProviderPortal(
+  definition: ProviderPortalDefinition,
+  input: VendorQuoteAdapterInput,
+  session: OpenProviderPortalSession,
+  timeoutMs: number = PROVIDER_PORTAL_CLEANUP_TIMEOUT_MS,
+): Promise<ProviderPortalCleanupReport | undefined> {
+  const hook = definition.hooks.cleanup;
+  if (!hook || !session.boundary.providerMutationPossible) return undefined;
+  let report: ProviderPortalCleanupReport;
+  // Accept a native confirm ("Remove this part?") only while cleanup runs.
+  const acceptDialog = (dialog: { accept: () => Promise<void> }) => { dialog.accept().catch(() => undefined); };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // OVD-722: an engaged kill switch stops every provider interaction, cleanup included.
+    await input.providerKillSwitchCheckpoint?.("before_configure");
+  } catch (error) {
+    report = { status: "skipped_kill_switch", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
+    logProviderPortalCleanup(definition, input, report);
+    return report;
+  }
+  try {
+    session.page.on("dialog", acceptDialog);
+    const outcome = await Promise.race([
+      hook(buildCleanupCapability(definition, session.page, session.boundary), input),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("CleanupTimeout")), timeoutMs);
+      }),
+    ]);
+    const removed = Number.isSafeInteger(outcome.removed) && outcome.removed > 0 ? outcome.removed : 0;
+    const remaining = Number.isSafeInteger(outcome.remaining) && outcome.remaining >= 0 ? outcome.remaining : null;
+    let status: ProviderPortalCleanupReport["status"] = "incomplete";
+    if (remaining === 0) status = removed > 0 ? "removed" : "not_found";
+    report = { status, removed, remaining, reason: null };
+  } catch (error) {
+    report = { status: "failed", removed: 0, remaining: null, reason: cleanupFailureReason(error) };
+  } finally {
+    clearTimeout(timer);
+    session.page.off?.("dialog", acceptDialog);
+  }
+  logProviderPortalCleanup(definition, input, report);
+  return report;
+}
+
+function logProviderPortalCleanup(
+  definition: ProviderPortalDefinition,
+  input: VendorQuoteAdapterInput,
+  report: ProviderPortalCleanupReport,
+): void {
+  const line = JSON.stringify({
+    level: report.status === "removed" ? "info" : "warn",
+    source: "providerPortalCleanup",
+    provider: definition.provider,
+    quoteRunId: input.quoteRunId ?? null,
+    executionContext: input.executionContext ?? "production_dispatch",
+    ...report,
+  });
+  if (report.status === "removed") console.info(line);
+  else console.warn(line);
+}
+
 function launchOptions(config: WorkerConfig): Parameters<typeof chromium.launch>[0] {
   return {
     headless: config.playwrightHeadless,
@@ -1714,13 +1866,25 @@ export async function runProviderPortalKernel(
   }
 
   let session: OpenProviderPortalSession | null = null;
+  let cleanupRan = false;
   try {
     session = await openProviderPortalSession(definition, config, storageState, { ...dependencies,
       operationalJev: dependencies.operationalJev ? { ...dependencies.operationalJev, scope: { ...dependencies.operationalJev.scope,
         provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
     const result = await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
-    return { ...result, portalBoundary: snapshotBoundaryTelemetry(session.boundary.telemetry) };
+    cleanupRan = true;
+    const cartCleanup = await cleanUpProviderPortal(definition, input, session, dependencies.cleanupTimeoutMs);
+    return {
+      ...result,
+      portalBoundary: snapshotBoundaryTelemetry(session.boundary.telemetry),
+      ...(cartCleanup ? { cartCleanup } : {}),
+    };
   } catch (error) {
+    // Cleanup also follows a failure after upload; it never replaces the error.
+    const cartCleanup = session && !cleanupRan && !(error instanceof ProviderKillSwitchError)
+      ? await cleanUpProviderPortal(definition, input, session, dependencies.cleanupTimeoutMs)
+      : undefined;
+    if (cartCleanup && error instanceof VendorAutomationError) error.payload.cartCleanup = cartCleanup;
     if (isDispatchDecisionError(error)) {
       throw error;
     }
@@ -1728,6 +1892,7 @@ export async function runProviderPortalKernel(
     const translated = translatePortalKernelError(definition, boundary, error);
     if (translated instanceof ProviderKillSwitchError) throw translated;
     if (session) translated.payload.portalBoundary = snapshotBoundaryTelemetry(session.boundary.telemetry);
+    if (cartCleanup) translated.payload.cartCleanup = cartCleanup;
     if (dependencies.operationalJev) {
       const { scope } = dependencies.operationalJev;
       await observeBoundOperationalFailure(dependencies.operationalJev, { ...scope, provider: definition.provider,
