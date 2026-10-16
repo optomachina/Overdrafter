@@ -6,7 +6,7 @@
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
     "exclude": "Globs; a path matching one is not in this entry.",
     "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
-    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too (set_config('row_security', ...)); false positives are accepted to fail closed. A token is a whole lower-cased word or one punctuation character, so 'row_security' does not match 'row_security_note'. Each rule has a unique id and a reason; both appear in the result's reasons. Every changed file except a removal is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer) or a class from docs/sensitive-paths.json (auth)."
+    "sql_content": "Token sequences matched in SQL after comments are removed. A double-quoted identifier is one lower-cased word, so SET \"row_security\" matches. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too (set_config('row_security', ...)); false positives are accepted to fail closed. A token is a whole lower-cased word or one punctuation character, so 'row_security' does not match 'row_security_note'. Each rule has a unique id and a reason; both appear in the result's reasons. Every changed file except a removal is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer) or a class from docs/sensitive-paths.json (auth)."
   },
   "sql_content": {
     "paths": ["**/*.{sql,pgsql,psql}"],
@@ -23,6 +23,7 @@
       { "id": "rls_set_session_row_security", "class": "rls", "tokens": ["set", "session", "row_security"], "reason": "SET SESSION row_security changes whether policies apply" },
       { "id": "rls_reset_row_security", "class": "rls", "tokens": ["reset", "row_security"], "reason": "RESET row_security changes whether policies apply" },
       { "id": "rls_set_config_row_security", "class": "rls", "tokens": ["set_config", "(", "row_security"], "reason": "set_config('row_security', ...) changes whether policies apply" },
+      { "id": "rls_row_security", "class": "rls", "tokens": ["row_security"], "reason": "Any mention of the row_security setting fails closed, since set_config and SET can name it in many forms" },
       { "id": "definer_security_definer", "class": "definer", "tokens": ["security", "definer"], "reason": "SECURITY DEFINER runs a function with its owner's privileges" },
       { "id": "auth_set_role", "class": "auth", "tokens": ["set", "role"], "reason": "SET ROLE switches the current role" },
       { "id": "auth_set_local_role", "class": "auth", "tokens": ["set", "local", "role"], "reason": "SET LOCAL ROLE switches the current role" },
@@ -30,7 +31,14 @@
       { "id": "auth_set_session_authorization", "class": "auth", "tokens": ["set", "session", "authorization"], "reason": "SET SESSION AUTHORIZATION switches the session user" },
       { "id": "auth_set_local_session_authorization", "class": "auth", "tokens": ["set", "local", "session", "authorization"], "reason": "SET LOCAL SESSION AUTHORIZATION switches the session user" },
       { "id": "auth_set_config_role", "class": "auth", "tokens": ["set_config", "(", "role"], "reason": "set_config('role', ...) switches the current role" },
-      { "id": "auth_set_config_session_authorization", "class": "auth", "tokens": ["set_config", "(", "session_authorization"], "reason": "set_config('session_authorization', ...) switches the session user" }
+      { "id": "auth_set_config_session_authorization", "class": "auth", "tokens": ["set_config", "(", "session_authorization"], "reason": "set_config('session_authorization', ...) switches the session user" },
+      { "id": "auth_set_config_paren_role", "class": "auth", "tokens": ["set_config", "(", "(", "role"], "reason": "set_config(('role'), ...) switches the current role" },
+      { "id": "auth_set_config_named_role", "class": "auth", "tokens": ["setting_name", "=", ">", "role"], "reason": "set_config(setting_name => 'role', ...) switches the current role" },
+      { "id": "auth_set_config_named_role_legacy", "class": "auth", "tokens": ["setting_name", ":", "=", "role"], "reason": "set_config(setting_name := 'role', ...) switches the current role" },
+      { "id": "auth_session_authorization", "class": "auth", "tokens": ["session_authorization"], "reason": "Any mention of the session_authorization setting fails closed, since set_config can name it in many forms" },
+      { "id": "auth_reset_role", "class": "auth", "tokens": ["reset", "role"], "reason": "RESET ROLE switches the current role back to the session user" },
+      { "id": "auth_reset_session_authorization", "class": "auth", "tokens": ["reset", "session", "authorization"], "reason": "RESET SESSION AUTHORIZATION switches the session user" },
+      { "id": "auth_reset_all", "class": "auth", "tokens": ["reset", "all"], "reason": "RESET ALL resets role, session authorization and row_security" }
     ]
   },
   "safe_categories": {
