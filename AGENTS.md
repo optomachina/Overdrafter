@@ -66,7 +66,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 - **migrations** (migrations): `supabase/migrations/**`
 - **auth** (auth, RLS, permissions, sessions): `**/*auth*{,/**}`, `**/{rls,*-rls,*_rls}*{,/**}`, `**/*permission*{,/**}`, `**/*session*{,/**}`
 - **payments** (payments, pricing, billing): `**/*payment*{,/**}`, `**/*billing*{,/**}`, `**/*stripe*{,/**}`, `**/*pricing*{,/**}`, `**/*invoice*{,/**}`, `**/*checkout*{,/**}`
-- **provider_dispatch** (provider dispatch): `**/*dispatch*{,/**}`, `worker/src/adapters/**`, `**/*provider-admission*{,/**}`, `**/*provider-upload*{,/**}`
+- **provider_dispatch** (provider dispatch): `**/*dispatch*{,/**}`, `worker/src/adapters/**`, `**/*provider-admission*{,/**}`, `**/*provider-upload*{,/**}`, `**/*providerAdmission*{,/**}`, `**/*providerUpload*{,/**}`, `**/*provider_admission*{,/**}`, `**/*provider_upload*{,/**}`
 - **secrets** (secrets and env): `**/*secret*{,/**}`, `**/*credential*{,/**}`, `**/*.pem`, `**/*.key`, `**/keys/**`, `**/token{,s}.{json,yaml,yml,ts,js}`, `**/*vault*{,/**}`, `**/.env*`, `**/env.{ts,js,json}`
 - **infra_ci** (infra, CI, deploy): `.github/workflows/**`, `.github/actions/**`, `**/{infra,terraform,deploy,k8s,helm,ops}/**`, `**/*.tf`, `**/Dockerfile*`, `**/docker-compose*`, `**/{vercel.json,netlify.toml,fly.toml}`, `scripts/deploy*{,/**}`, `scripts/release*{,/**}`
 - **deps** (new dependencies): `**/package.json`, `**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}`, `**/requirements*.txt`, `**/{pyproject.toml,uv.lock,poetry.lock}`, `**/{Cargo.toml,Cargo.lock,go.mod,go.sum}`

@@ -8,13 +8,18 @@
  * log with Jev's confidence and incident probability so rule changes can be
  * replayed over past decisions.
  *
- * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs <input.json> [log.jsonl]
+ * The sensitive-path list comes from --base-ref (the PR's base, for example
+ * origin/main) so a PR that narrows docs/sensitive-paths.json cannot lower its
+ * own tier; without it the working tree's copy is used. When the list cannot be
+ * loaded every PR screens "risky" (fail closed).
+ *
+ * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]
  * input.json: [{ pr, sha, title, files: [...], additions?, deletions?, deterministic: "low"|"normal"|"risky", notes? }]
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { askJev, gatedChoice, sanitizeToken } from "./jev-client.mjs";
-import { classifyPaths, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
+import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const DEFAULT_LOG = fileURLToPath(new URL("../docs/agent-log/jev-decisions.jsonl", import.meta.url));
@@ -59,12 +64,30 @@ export function finalTier(deterministic, gate) {
   return maxTier(base, jevTier);
 }
 
+/** Stands in for a sensitive-path list that could not be loaded: every PR then screens risky. */
+export const SENSITIVE_PATHS_UNAVAILABLE = Object.freeze({ unavailable: true });
+
+/**
+ * The list PRs are screened against: docs/sensitive-paths.json at baseRef (the
+ * PR's base), or in the working tree without one. A missing ref or a missing or
+ * invalid file gives SENSITIVE_PATHS_UNAVAILABLE (fail closed).
+ */
+export function loadScreenSensitivePaths({ root = REPO_ROOT, baseRef = null } = {}) {
+  try {
+    return loadSensitivePaths({ root, ref: baseRef });
+  } catch {
+    return SENSITIVE_PATHS_UNAVAILABLE;
+  }
+}
+
 /**
  * Deterministic tier: the declared tier (unknown counts as risky), raised to
- * risky when any file is on the shared sensitive-path list. Never lowers.
+ * risky when any file is on the shared sensitive-path list, or when the list
+ * could not be loaded. Never lowers.
  */
 export function deterministicTier(pr, sensitivePaths = null) {
   const declared = TIERS.includes(pr.deterministic) ? pr.deterministic : "risky";
+  if (sensitivePaths?.unavailable === true) return { tier: "risky", sensitiveClasses: null };
   if (!sensitivePaths || !Array.isArray(pr.files)) return { tier: declared, sensitiveClasses: null };
   const { sensitive, classes } = classifyPaths(pr.files.map(String), sensitivePaths);
   return { tier: sensitive ? "risky" : declared, sensitiveClasses: classes };
@@ -90,6 +113,7 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     },
     deterministic,
     sensitiveClasses,
+    sensitivePathsUnavailable: sensitivePaths?.unavailable === true,
     final: finalTier(deterministic, gate),
     latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
   };
@@ -106,7 +130,10 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
   });
 }
 
-export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths = loadSensitivePaths({ root: REPO_ROOT }) } = {}) {
+export async function screen(
+  prs,
+  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths = loadScreenSensitivePaths({ root, baseRef }) } = {},
+) {
   const results = [];
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
@@ -122,9 +149,43 @@ export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = ap
   return records;
 }
 
+const USAGE = "usage: jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]";
+
+/** CLI arguments: [--base-ref <ref>] <input.json> [log.jsonl]. Throws with the usage line. */
+export function parseScreenArgs(argv) {
+  const positional = [];
+  let baseRef = null;
+  for (let k = 0; k < argv.length; k += 1) {
+    if (argv[k] === "--base-ref") {
+      baseRef = argv[k + 1] ?? "";
+      if (baseRef === "" || baseRef.startsWith("-")) throw new Error(`--base-ref needs a ref; ${USAGE}`);
+      k += 1;
+    } else if (argv[k].startsWith("--")) {
+      throw new Error(`unknown option ${argv[k]}; ${USAGE}`);
+    } else {
+      positional.push(argv[k]);
+    }
+  }
+  if (positional.length < 1 || positional.length > 2) throw new Error(USAGE);
+  return { input: positional[0], log: positional[1] ?? DEFAULT_LOG, baseRef };
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const [input, log = DEFAULT_LOG] = process.argv.slice(2);
-  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log });
+  let args;
+  try {
+    args = parseScreenArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(`jev-pr-screen: ${error.message}`);
+    process.exit(2);
+  }
+  const { input, log, baseRef } = args;
+  const sensitivePaths = loadScreenSensitivePaths({ baseRef });
+  if (sensitivePaths === SENSITIVE_PATHS_UNAVAILABLE) {
+    console.error(`jev-pr-screen: ${SENSITIVE_PATHS_FILE} could not be loaded${baseRef ? ` at ${baseRef}` : ""}; every PR screens risky (fail closed)`);
+  } else if (!baseRef) {
+    console.error(`jev-pr-screen: no --base-ref, so the working tree's ${SENSITIVE_PATHS_FILE} is used; pass the PR base (for example --base-ref origin/main) so a PR cannot narrow its own list`);
+  }
+  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, sensitivePaths });
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}`);

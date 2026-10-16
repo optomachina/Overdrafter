@@ -11,22 +11,28 @@
  *
  * Globs follow picomatch semantics with {dot: true, nocase: true}: dotfiles
  * and dot directories match, and matching ignores case, so a list built for
- * review routing errs towards matching. The supported syntax is *, **, ? and
- * {a,b} (nesting allowed); anything else is rejected so the semantics stay
- * within what the tests check against picomatch. The module has no
- * dependencies because gates run the base checkout's copy without installing.
+ * review routing errs towards matching. One deliberate difference: ** also
+ * crosses names that contain a newline (picomatch's ** does not), so such a
+ * name cannot slip past. The supported syntax is *, **, ? and {a,b} (nesting
+ * allowed); anything else is rejected so the semantics stay within what the
+ * tests check against picomatch. The module has no dependencies because gates
+ * run the base checkout's copy without installing.
  *
  * Gates read the JSON from the base checkout. A change that removes, narrows
  * or reclassifies a glob, or deletes or breaks the file, is gate_loosening
  * (needs a Grok Bot countersign on top of Blaine's card); additions are free.
  * An edit to this module or its report runner (REPORT_RUNNER_PATH, run by
  * `npm run test:portable-node`) is flagged as well. Report only: it never
- * changes the exit code.
+ * changes the exit code. The report runner runs the head copy of this module;
+ * running the base copy is the job of the planned workflow (a card draft).
  *
  * Usage:
  *   npm run sensitive-paths:report   (HEAD^1..HEAD, what CI reports)
  *   node scripts/lib/sensitive-paths.mjs classify [--base-ref <ref>] [--json] <path> ...
- *   node scripts/lib/sensitive-paths.mjs report --changed-files-from <name-status.txt> --base-ref HEAD^1 [--json-out <path>]
+ *   node scripts/lib/sensitive-paths.mjs report --changed-files-from <name-status> --base-ref HEAD^1 [--json-out <path>]
+ * <name-status> is `git diff --name-status -z --no-renames <base> <head>` output
+ * (NUL-separated, so names git would quote come through as is); newline text
+ * with git's quoted names, or bare paths, is accepted too.
  * Options: --root <dir> (repository root, default cwd).
  * Exit codes: 0 (report mode), 2 usage or input error.
  */
@@ -144,7 +150,8 @@ function expansionSource(expansion) {
 export function compileGlob(glob) {
   const problem = globProblem(glob);
   if (problem) throw new Error(problem);
-  return new RegExp(`^(?:${expandBraces(glob).map(expansionSource).join("|")})$`, "i");
+  // "s": the .* that ** compiles to also crosses newlines in names.
+  return new RegExp(`^(?:${expandBraces(glob).map(expansionSource).join("|")})$`, "is");
 }
 
 /** Normalise a repository path: forward slashes, no leading ./ or /. */
@@ -182,6 +189,8 @@ export function parseSensitivePaths(input) {
 }
 
 function readRefFile(root, ref, file) {
+  // A ref that looks like an option would be read by git as one.
+  if (String(ref).startsWith("-")) return null;
   try {
     return execFileSync("/usr/bin/git", ["show", `${ref}:${file}`], {
       cwd: root,
@@ -344,7 +353,7 @@ export function findGateLoosening({ baseText = null, headText = null, changedFil
   const edited = new Map();
   for (const { status, file } of changedFiles) if (MATCHER_FILES.includes(file) && status !== "A") edited.set(file, status);
   for (const [file, status] of [...edited].sort(([a], [b]) => a.localeCompare(b))) {
-    reasons.push({ code: LOOSENING_MATCHER_CHANGED, file, status, message: `${file} ${status === "D" ? "deleted" : "edited"}; needs review (the base copy ran)` });
+    reasons.push({ code: LOOSENING_MATCHER_CHANGED, file, status, message: `${file} ${status === "D" ? "deleted" : "edited"}; needs review` });
   }
   return { detected: reasons.length > 0, reasons, requires: [...GATE_LOOSENING_REQUIRES] };
 }
@@ -353,18 +362,83 @@ export function findGateLoosening({ baseText = null, headText = null, changedFil
 // Report
 // ---------------------------------------------------------------------------
 
+const STATUS_FIELD = /^([A-Z])(?:\d{1,3})?$/;
 const NAME_STATUS_LINE = /^([A-Z])(?:\d{1,3})?\t(.+)$/;
+const QUOTE_ESCAPES = new Map([["a", 7], ["b", 8], ["t", 9], ["n", 10], ["v", 11], ["f", 12], ["r", 13], ['"', 34], ["\\", 92]]);
 
-/** Parse `git diff --name-status --no-renames` text into {status, file}; bare paths count as modified. */
-export function parseNameStatus(nameStatusText) {
+/** Undo git's C-style quoting of a path ("caf\303\251.yml", "tab\tname"); other text is returned as is. */
+export function unquoteGitPath(text) {
+  if (text.length < 2 || !text.startsWith('"') || !text.endsWith('"')) return text;
+  const encoder = new TextEncoder();
+  const bytes = [];
+  const body = text.slice(1, -1);
+  for (let k = 0; k < body.length; k += 1) {
+    if (body[k] !== "\\") {
+      const char = String.fromCodePoint(body.codePointAt(k));
+      bytes.push(...encoder.encode(char));
+      k += char.length - 1;
+      continue;
+    }
+    const octal = /^[0-3][0-7]{2}/.exec(body.slice(k + 1, k + 4));
+    if (octal) {
+      bytes.push(Number.parseInt(octal[0], 8));
+      k += 3;
+    } else if (QUOTE_ESCAPES.has(body[k + 1])) {
+      bytes.push(QUOTE_ESCAPES.get(body[k + 1]));
+      k += 1;
+    } else {
+      throw new Error(`bad escape in quoted path ${text}`);
+    }
+  }
+  return new TextDecoder().decode(Uint8Array.from(bytes));
+}
+
+// As --no-renames reports them: a rename is its source deleted plus its target added, a copy is its target added.
+function changesFor(status, paths) {
+  if (status === "R" && paths.length > 1) return [{ status: "D", file: paths[0] }, { status: "A", file: paths[1] }];
+  if (status === "C" && paths.length > 1) return [{ status: "A", file: paths[1] }];
+  return [{ status, file: paths.at(-1) }];
+}
+
+function parseNulFields(text) {
+  const fields = text.split("\0");
+  if (fields.at(-1) === "") fields.pop();
   const changes = [];
-  for (const raw of String(nameStatusText).split("\n")) {
-    const line = raw.replaceAll("\\", "/").trim();
-    if (!line) continue;
-    const match = NAME_STATUS_LINE.exec(line);
-    changes.push({ status: match ? match[1] : "M", file: normalizePath(match ? match[2].split("\t").pop() : line) });
+  for (let k = 0; k < fields.length; ) {
+    const status = STATUS_FIELD.exec(fields[k])?.[1];
+    if (!status) throw new Error(`name-status -z: expected a status at field ${k + 1}, got ${JSON.stringify(fields[k])}`);
+    const count = status === "R" || status === "C" ? 2 : 1;
+    const paths = fields.slice(k + 1, k + 1 + count);
+    if (paths.length < count) throw new Error(`name-status -z: ${status} at field ${k + 1} is missing its path`);
+    changes.push(...changesFor(status, paths));
+    k += 1 + count;
   }
   return changes;
+}
+
+function parseLines(text) {
+  const changes = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (!line.trim()) continue;
+    const match = NAME_STATUS_LINE.exec(line.trimStart());
+    if (match) changes.push(...changesFor(match[1], match[2].split("\t").map(unquoteGitPath)));
+    else changes.push({ status: "M", file: unquoteGitPath(line.trim()) });
+  }
+  return changes;
+}
+
+/**
+ * Parse `git diff --name-status -z --no-renames` output (NUL-separated: status,
+ * then the path, or two paths for R and C) into {status, file}. Text without a
+ * NUL is read as newline output, where git quotes names with non-ASCII, tab,
+ * newline, quote or backslash characters; those are unquoted, and a bare path
+ * counts as modified.
+ */
+export function parseNameStatus(nameStatusText) {
+  const text = String(nameStatusText);
+  const changes = text.includes("\0") ? parseNulFields(text) : parseLines(text);
+  return changes.map((change) => ({ ...change, file: normalizePath(change.file) })).filter((change) => change.file);
 }
 
 /**

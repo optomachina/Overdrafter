@@ -34,6 +34,10 @@
     { "glob": "worker/src/adapters/**", "class": "provider_dispatch" },
     { "glob": "**/*provider-admission*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider-upload*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*providerAdmission*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*providerUpload*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*provider_admission*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*provider_upload*{,/**}", "class": "provider_dispatch" },
 
     { "glob": "**/*secret*{,/**}", "class": "secrets" },
     { "glob": "**/*credential*{,/**}", "class": "secrets" },

@@ -3,7 +3,7 @@
  * reports without a workflow of its own (the dedicated workflow is a card draft,
  * see PLANNED_WORKFLOW_PATH in scripts/lib/sensitive-paths.mjs).
  *
- * Report mode: classifies `git diff --name-status --no-renames HEAD^1 HEAD`
+ * Report mode: classifies `git diff --name-status -z --no-renames HEAD^1 HEAD`
  * with the HEAD^1 copy of docs/sensitive-paths.json, prints the report and
  * never fails because of findings or report errors. On a pull_request run
  * HEAD is the merge commit, so HEAD^1 is the base; without a HEAD^1 (shallow
@@ -45,8 +45,10 @@ test("sensitive-paths report against HEAD^1 (report mode, never fails on finding
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const changed = join(dir, "changed-files.txt");
   try {
-    // --no-renames keeps a rename source as a deletion plus an addition.
-    writeFileSync(changed, git(["diff", "--name-status", "--no-renames", "HEAD^1", "HEAD"]));
+    // -z keeps names unquoted (git quotes non-ASCII, tab, newline, quote and
+    // backslash otherwise); --no-renames keeps a rename source as a deletion
+    // plus an addition.
+    writeFileSync(changed, git(["diff", "--name-status", "-z", "--no-renames", "HEAD^1", "HEAD"]));
   } catch (error) {
     console.log(`sensitive-paths: git diff HEAD^1 HEAD failed (${error.message}); report skipped`);
     return;

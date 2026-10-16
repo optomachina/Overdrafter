@@ -24,10 +24,13 @@ Rules the log encodes, and the review each tier gets:
   Oct 12: an Opus APPROVE on #699 missed a retry path that could create two
   provider quotes for one permit; Codex found it and skeptics reproduced it.
 
-Screen a batch:
+Screen a batch against the PR base's sensitive-path list, so a PR that narrows
+`docs/sensitive-paths.json` cannot lower its own tier (without `--base-ref` the
+working tree's copy is used; if the list cannot be loaded, every PR screens
+`risky`):
 
 ```bash
-NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs <input.json>
+NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs --base-ref origin/main <input.json>
 ```
 
 Replay a rule change over the log (for example a stricter confidence floor) with

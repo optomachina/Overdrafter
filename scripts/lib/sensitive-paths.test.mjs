@@ -27,8 +27,10 @@ import {
   globProblem,
   loadSensitivePaths,
   main,
+  parseNameStatus,
   parseSensitivePaths,
   triageRoute,
+  unquoteGitPath,
 } from "./sensitive-paths.mjs";
 import { decisionRecord } from "../jev-pr-screen.mjs";
 import { validateAgentContract } from "../validate-agent-contract.mjs";
@@ -61,6 +63,9 @@ const tempDir = (prefix) => {
 
 const picomatchClasses = (file, cfg = config) =>
   SENSITIVE_CLASSES.filter((name) => cfg.globs.some((entry) => entry.class === name && picomatch(entry.glob, PICOMATCH_OPTIONS)(file)));
+
+const git = (cwd, ...args) =>
+  execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
 
 const withGlobs = (mutate) => {
   const copy = JSON.parse(configText);
@@ -157,6 +162,92 @@ describe("matcher semantics", () => {
     expect(matcher.classify("src/StripeClient.ts")).toEqual(["payments"]);
     expect(matcher.classify("Package.JSON")).toEqual(["deps"]);
   });
+
+  it("matches camelCase and snake_case provider admission and upload paths", () => {
+    const matcher = createMatcher(config);
+    for (const file of ["worker/src/providerUploadCapability.ts", "worker/src/ProviderAdmissionGate.ts", "x/provider_upload/a.ts", "x/provider_admission.sql"]) {
+      expect(matcher.classify(file), file).toContain("provider_dispatch");
+    }
+  });
+
+  it("lets ** cross a newline in a name, where picomatch's does not (fail closed)", () => {
+    const matcher = createMatcher(config);
+    for (const [file, name] of [[".github/workflows/new\nline.yml", "infra_ci"], ["cfg/new\nline/.env", "secrets"], ["new\nline/a.sql", "schema"]]) {
+      expect(matcher.classify(file), JSON.stringify(file)).toContain(name);
+    }
+    expect(picomatch(".github/workflows/**", PICOMATCH_OPTIONS)(".github/workflows/new\nline.yml")).toBe(false);
+  });
+});
+
+describe("name-status parsing", () => {
+  it("reads NUL-separated -z output, including rename and copy pairs", () => {
+    expect(parseNameStatus("M\0db/caf\u00e9.sql\0A\0.github/workflows/tab\tname.yml\0R100\0scripts/lib/sensitive-paths.mjs\0x.mjs\0C75\0a.ts\0b.ts\0D\0q\"x.sql\0")).toEqual([
+      { status: "M", file: "db/caf\u00e9.sql" },
+      { status: "A", file: ".github/workflows/tab\tname.yml" },
+      { status: "D", file: MATCHER_PATH },
+      { status: "A", file: "x.mjs" },
+      { status: "A", file: "b.ts" },
+      { status: "D", file: 'q"x.sql' },
+    ]);
+    expect(() => parseNameStatus("M\0a.ts\0b.ts\0")).toThrow(/expected a status/);
+    expect(() => parseNameStatus("R100\0a.ts\0")).toThrow(/missing its path/);
+  });
+
+  it("unquotes the names git quotes in newline output", () => {
+    const quoted = [
+      'A\t".github/workflows/caf\\303\\251.yml"',
+      'A\t".github/workflows/tab\\tname.yml"',
+      'A\t"cfg/new\\nline/.env"',
+      'A\t"db/quote\\"name.sql"',
+      "M\tplain.txt",
+      "bare.md",
+    ].join("\n");
+    expect(parseNameStatus(quoted)).toEqual([
+      { status: "A", file: ".github/workflows/caf\u00e9.yml" },
+      { status: "A", file: ".github/workflows/tab\tname.yml" },
+      { status: "A", file: "cfg/new\nline/.env" },
+      { status: "A", file: 'db/quote"name.sql' },
+      { status: "M", file: "plain.txt" },
+      { status: "M", file: "bare.md" },
+    ]);
+    expect(unquoteGitPath('"a\\\\b"')).toBe("a\\b");
+    expect(() => unquoteGitPath('"a\\qb"')).toThrow(/bad escape/);
+  });
+
+  it("reports names git would quote as sensitive (end to end through git diff -z)", () => {
+    // Fixture paths with non-ASCII, tab or quote characters, plus a backslash and a newline name.
+    const special = [
+      ...fixture.filter((entry) => /[^\x20-\x7e]|"/.test(entry.path)),
+      { path: "db/back\\slash.sql", expect: "db/back/slash.sql", classes: ["schema"] },
+      { path: "cfg/new\nline/.env", classes: ["secrets"] },
+    ];
+    expect(special.length).toBeGreaterThanOrEqual(6);
+    const dir = tempDir("sensitive-quoted-");
+    git(dir, "init", "-q");
+    mkdirSync(join(dir, dirname(SENSITIVE_PATHS_FILE)), { recursive: true });
+    writeFileSync(join(dir, SENSITIVE_PATHS_FILE), configText);
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "base");
+    for (const { path } of special) {
+      mkdirSync(join(dir, dirname(path)), { recursive: true });
+      writeFileSync(join(dir, path), "x\n");
+    }
+    writeFileSync(join(dir, "plain.txt"), "x\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "head");
+    writeFileSync(join(dir, "changed.z"), git(dir, "diff", "--name-status", "-z", "--no-renames", "HEAD^1", "HEAD"));
+
+    expect(main(["report", "--root", dir, "--changed-files-from", "changed.z", "--base-ref", "HEAD^1", "--json-out", "report.json"], { stdout: () => {} })).toBe(0);
+    const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+    const classesOf = (file) => report.files.find((entry) => entry.path.normalize("NFC") === file.normalize("NFC"))?.classes;
+    for (const entry of special) expect(classesOf(entry.expect ?? entry.path), JSON.stringify(entry.path)).toEqual(entry.classes);
+    expect(classesOf("plain.txt")).toEqual([]);
+    expect(report.files).toHaveLength(special.length + 1);
+    // Newline output (git quotes these names there) gives the same files once unquoted.
+    writeFileSync(join(dir, "changed.txt"), git(dir, "diff", "--name-status", "--no-renames", "HEAD^1", "HEAD"));
+    expect(main(["report", "--root", dir, "--changed-files-from", "changed.txt", "--base-ref", "HEAD^1", "--json-out", "lines.json"], { stdout: () => {} })).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, "lines.json"), "utf8")).files).toEqual(report.files);
+  });
 });
 
 describe("AGENTS.md parity", () => {
@@ -227,7 +318,10 @@ describe("gate loosening", () => {
   });
 
   it("flags edits to the matcher but not its introduction", () => {
-    expect(codes(findGateLoosening({ changedFiles: [{ status: "M", file: MATCHER_PATH }] }))).toEqual([LOOSENING_MATCHER_CHANGED]);
+    const edited = findGateLoosening({ changedFiles: [{ status: "M", file: MATCHER_PATH }] });
+    expect(codes(edited)).toEqual([LOOSENING_MATCHER_CHANGED]);
+    // The report runner runs the head copy, so the message must not claim which copy ran.
+    expect(edited.reasons[0].message).toBe(`${MATCHER_PATH} edited; needs review`);
     expect(findGateLoosening({ changedFiles: [{ status: "A", file: MATCHER_PATH }] }).detected).toBe(false);
     expect(findGateLoosening({ baseText: null, headText: configText }).detected).toBe(false);
   });
@@ -243,8 +337,6 @@ describe("gate loosening", () => {
   });
 
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
-    const git = (cwd, ...args) =>
-      execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
     const dir = tempDir("sensitive-report-");
     git(dir, "init", "-q");
     mkdirSync(join(dir, dirname(SENSITIVE_PATHS_FILE)), { recursive: true });
@@ -257,7 +349,7 @@ describe("gate loosening", () => {
     writeFileSync(join(dir, ".env.local"), "PLACEHOLDER=1\n");
     git(dir, "add", "-A");
     git(dir, "commit", "-qm", "head");
-    writeFileSync(join(dir, "changed.txt"), git(dir, "diff", "--name-status", "--no-renames", "HEAD^1", "HEAD"));
+    writeFileSync(join(dir, "changed.txt"), git(dir, "diff", "--name-status", "-z", "--no-renames", "HEAD^1", "HEAD"));
 
     const lines = [];
     const exit = main(["report", "--root", dir, "--changed-files-from", "changed.txt", "--base-ref", "HEAD^1", "--json-out", "report.json"], { stdout: (line) => lines.push(line) });
