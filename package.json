@@ -40,6 +40,7 @@
     "test:live:fictiv": "RUN_FICTIV_LIVE_TEST=1 vitest run worker/src/adapters/fictiv.live.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "trust:metrics": "node ./scripts/trust-metrics.mjs",
     "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
     "migration:next": "node ./scripts/migration-timestamp.mjs",
     "verify:migration-lineage": "node ./scripts/verify-migration-lineage.mjs",
