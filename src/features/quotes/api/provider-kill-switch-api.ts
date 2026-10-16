@@ -13,8 +13,8 @@ import { ensureData } from "./shared/response";
  * example another admin engaged it). Engage never needs a version, so an
  * emergency stop always wins.
  *
- * OVD-829 (OVD-828 S1): each supplier row also carries a daily quote cap
- * (default 20, null = unlimited). Once the list returns it, every per-supplier
+ * OVD-829 (OVD-828 S1): each supplier row also carries an optional daily
+ * quote cap (null = unlimited, the default; an admin may set a positive cap). Once the list returns it, every per-supplier
  * write goes through `api_admin_set_provider_settings`, which sets the switch
  * and the cap together. Before that migration the list has no cap and the
  * per-supplier switch keeps using `api_admin_set_provider_kill_switch`.

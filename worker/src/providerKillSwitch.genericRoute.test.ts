@@ -122,6 +122,8 @@ const requirement = { id: "req", part_id: "part", description: "d", part_number:
 /** In-memory DB: kill-switch rows are mutable data and lane writes are compare and set. */
 function database() {
   const switches = { fictiv: false, global: false };
+  // OVD-829: the admin-set daily cap read through api_worker_provider_settings_state. Null is no cap (the default).
+  const settings = { cap: null as number | null };
   const writes: Record<string, unknown>[] = [];
   // Set when the task was settled elsewhere: a requeue then matches zero rows.
   const queue = { settledElsewhere: false };
@@ -162,6 +164,8 @@ function database() {
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.fictiv, globalEngaged: switches.global }
       : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
         : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
+        : name === "api_worker_provider_settings_state" ? { schema: "provider-settings-state.v1", provider: args.p_provider,
+          globalEngaged: switches.global, engaged: switches.fictiv, dailyQuoteCap: settings.cap, usedToday: 0 }
         : name === "api_record_export_control_clean_scan" ? "export-scan"
         : name === "api_check_export_control_dispatch"
           ? exportControl.answers[Math.min(exportControl.calls++, exportControl.answers.length - 1)]
@@ -173,7 +177,7 @@ function database() {
   const rpcNames = () => writes.flatMap((write) => (typeof write.rpc === "string" ? [write.rpc] : []));
   const updates = (table: string) => writes.flatMap((write) =>
     write.table === table && write.update ? [write.update as Record<string, unknown>] : []);
-  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, rpcNames, updates, queue, exportControl };
+  return { client: { from, rpc } as unknown as SupabaseClient, writes, switches, settings, rpcNames, updates, queue, exportControl };
 }
 
 const cancelledTask = expect.objectContaining({
@@ -400,7 +404,7 @@ describe("handleVendorQuoteTask on the generic provider route with the supplier 
     const quote = vi.spyOn(FictivAdapter.prototype, "quote");
     const db = database();
     withReservation(db, () => ({
-      data: providerDispatchReservation("fictiv", { allowed: false, reason: "provider_daily_cap_reached", cap: 20, used: 20 }),
+      data: providerDispatchReservation("fictiv", { allowed: false, reason: "provider_daily_cap_reached", cap: 5, used: 5 }),
       error: null,
     }));
 
@@ -420,9 +424,10 @@ describe("handleVendorQuoteTask on the generic provider route with the supplier 
     expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "queued" })]));
   });
 
-  it("an unreachable counter fails closed before launch: no adapter call, provider_dispatch_counter_unavailable", async () => {
+  it("an unreachable counter fails closed before launch for a capped supplier: no adapter call, provider_dispatch_counter_unavailable", async () => {
     const quote = vi.spyOn(FictivAdapter.prototype, "quote");
     const db = database();
+    db.settings.cap = 5;
     withReservation(db, () => ({ data: null, error: { message: "function does not exist" } }));
 
     await handleVendorQuoteTask(db.client, task, live);
@@ -431,6 +436,21 @@ describe("handleVendorQuoteTask on the generic provider route with the supplier 
     expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([expect.objectContaining({
       status: "failed",
       raw_payload: expect.objectContaining({ failureCode: "provider_dispatch_counter_unavailable", adapterStarted: false }),
+    })]));
+  });
+
+  it("an unreachable counter does not stop an uncapped supplier: there is no default cap", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote").mockImplementation(async () => {
+      throw new Error("adapter reached");
+    });
+    const db = database();
+    withReservation(db, () => ({ data: null, error: { message: "function does not exist" } }));
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(quote).toHaveBeenCalledOnce();
+    expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([expect.objectContaining({
+      raw_payload: expect.objectContaining({ failureCode: "provider_dispatch_counter_unavailable" }),
     })]));
   });
 

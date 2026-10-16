@@ -23,12 +23,6 @@ export function getConfiguredMultiProviderFanoutEnabled(): boolean {
 }
 
 /**
- * About 20 quotes per provider per day (docs/business/business-model.md). The
- * guards RPC applies it server side and returns only an at cap flag.
- */
-export const PROVIDER_DAILY_QUOTE_CAP = 20;
-
-/**
  * Providers the client plan never sends to, whatever the guards say: Weerg is
  * blocked and Geomiq moved to the 1.1 release. The server still refuses them
  * on its own; this keeps them out of the customer's disclosure too.
@@ -113,7 +107,7 @@ export function getProviderDisplayName(provider: VendorName): string {
 export type ProviderFanoutGuards = {
   killSwitchedProviders: readonly VendorName[];
   exportDeclaration: "clean" | "not_clean";
-  /** Providers at today's quote cap. The RPC exposes no counts. */
+  /** Providers at their admin-set daily quote cap; uncapped providers never appear. The RPC exposes no counts. */
   providersAtDailyCap: readonly VendorName[];
   /** The caller's quote request guardrail, or null when the org has it off. */
   quoteRequestBudget: QuoteRequestBudget | null;

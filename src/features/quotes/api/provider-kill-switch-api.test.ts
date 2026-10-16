@@ -83,11 +83,11 @@ describe("per-supplier settings admin API (OVD-829)", () => {
 
   it("parses the daily cap and today's usage when the database returns them", () => {
     expect(parseProviderKillSwitchList(list([
-      { provider: "fictiv", engaged: false, reason: null, changedBy: null, changedAt: null, version: 1, dailyQuoteCap: 20, usedToday: 3 },
+      { provider: "fictiv", engaged: false, reason: null, changedBy: null, changedAt: null, version: 1, dailyQuoteCap: 25, usedToday: 3 },
       { provider: "rmfg", engaged: false, reason: null, changedBy: null, changedAt: null, version: 2, dailyQuoteCap: null, usedToday: 41 },
       { provider: "weerg", engaged: false, reason: null, changedBy: null, changedAt: null, version: 0 },
     ])).providers.map((row) => row.settings)).toEqual([
-      { dailyQuoteCap: 20, usedToday: 3 },
+      { dailyQuoteCap: 25, usedToday: 3 },
       { dailyQuoteCap: null, usedToday: 41 },
       undefined,
     ]);
@@ -128,9 +128,9 @@ describe("per-supplier settings admin API (OVD-829)", () => {
 
   it("flips the switch through the settings RPC once the cap is known: engage is versionless, release keeps the cap", async () => {
     callUntypedRpcMock.mockResolvedValue({ data: { engaged: true }, error: null });
-    await setProviderKillSwitch({ provider: "fictiv", engaged: true, reason: "cease and desist", expectedVersion: 2, dailyQuoteCap: 20 });
+    await setProviderKillSwitch({ provider: "fictiv", engaged: true, reason: "cease and desist", expectedVersion: 2, dailyQuoteCap: 25 });
     expect(callUntypedRpcMock).toHaveBeenLastCalledWith("api_admin_set_provider_settings",
-      { p_provider: "fictiv", p_engaged: true, p_daily_quote_cap: 20, p_reason: "cease and desist" });
+      { p_provider: "fictiv", p_engaged: true, p_daily_quote_cap: 25, p_reason: "cease and desist" });
     await setProviderKillSwitch({ provider: "fictiv", engaged: false, reason: "counsel cleared it", expectedVersion: 3, dailyQuoteCap: null });
     expect(callUntypedRpcMock).toHaveBeenLastCalledWith("api_admin_set_provider_settings",
       { p_provider: "fictiv", p_engaged: false, p_daily_quote_cap: null, p_reason: "counsel cleared it", p_expected_version: 3 });

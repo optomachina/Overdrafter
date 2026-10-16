@@ -141,7 +141,7 @@ See `docs/checklists/provider-go-live-checklist.md`.
 
 - [ ] Per provider kill switch rehearsal (`npm run provider:kill`, `docs/runbooks/provider-cease-and-desist.md`). Evidence:
 - [ ] Provider is turned off the same day on a C&D, IP or bot block, CAPTCHA wall, or account ban. Evidence:
-- [ ] Traffic stays at about 20 quotes per provider per day. Evidence:
+- [ ] Traffic stays within the provider's admin-set daily quote cap, if one is set (no cap by default). Evidence:
 - [ ] Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:
 - [ ] No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:
 - [ ] ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:

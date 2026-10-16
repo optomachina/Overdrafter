@@ -10,7 +10,8 @@
 -- columns fails with "does not exist".
 --
 -- Covers:
---   * shape: daily_quote_cap defaults to 20, null allowed, <= 0 refused
+--   * shape: daily_quote_cap has no default (null = unlimited), existing rows
+--     are not backfilled, <= 0 refused
 --   * pg_proc: SECURITY DEFINER, search_path = '', grants (admin RPC
 --     authenticated only; worker RPCs service_role only)
 --   * api_admin_set_provider_settings refuses anon, service_role, a non-admin,
@@ -20,7 +21,7 @@
 --     preserves the cap
 --   * api_worker_reserve_provider_dispatch: refuses at cap + 1, null never
 --     refuses, engaged (supplier or global) returns provider_disabled whatever
---     the cap and counts nothing; a corrupt cap (<= 0) applies 20; counts per
+--     the cap and counts nothing; a corrupt cap (<= 0) reads as no cap; counts per
 --     UTC day (yesterday's spent cap does not carry over)
 --   * api_admin_list_provider_kill_switches returns dailyQuoteCap and usedToday
 --
@@ -66,15 +67,15 @@ insert into auth.users (id, aud, role, email, email_confirmed_at) values
 insert into private.platform_admin_emails (email) values ('ovd829-admin@example.test')
 on conflict do nothing;
 
--- Checked before the setup below touches any row: the migration gave every
--- existing supplier row the default cap.
+-- Checked before the setup below touches any row: there is no default cap, so
+-- the migration left every existing supplier row unlimited (no backfill).
 select ok(
   exists (select 1 from private.provider_kill_switches)
-    and not exists (select 1 from private.provider_kill_switches where daily_quote_cap is distinct from 20),
-  'existing supplier rows carry the default cap');
+    and not exists (select 1 from private.provider_kill_switches where daily_quote_cap is not null),
+  'existing supplier rows are not backfilled with a cap');
 
 -- Known starting point for the suppliers this suite uses.
-update private.provider_kill_switches set engaged = false, daily_quote_cap = 20
+update private.provider_kill_switches set engaged = false, daily_quote_cap = null
 where provider in ('fictiv', 'rmfg', 'quickparts');
 update private.provider_global_kill_switch set engaged = false where singleton;
 delete from private.provider_daily_quote_usage;
@@ -87,7 +88,7 @@ select is(
    from pg_catalog.pg_attrdef d
    join pg_catalog.pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum
    where d.adrelid = 'private.provider_kill_switches'::regclass and a.attname = 'daily_quote_cap'),
-  '20', 'daily_quote_cap defaults to 20');
+  null::text, 'daily_quote_cap has no default (null = unlimited)');
 select throws_ok(
   $$update private.provider_kill_switches set daily_quote_cap = 0 where provider = 'fictiv'$$,
   '23514', null, 'the table refuses a cap of 0');
@@ -212,7 +213,7 @@ select results_eq(
     from private.provider_kill_switch_audit
     where provider = 'fictiv' and actor::text = '00000000-0000-4000-8000-000000829001'
     order by id limit 1$$,
-  $$values (false, 50, 20, 'OVD-829 test: raise fictiv cap'::text)$$,
+  $$values (false, 50, null::integer, 'OVD-829 test: raise fictiv cap'::text)$$,
   'the cap change wrote one audit row with the new and previous cap');
 
 -- Emergency engage through the kill-switch RPC needs no version and keeps the cap.
@@ -271,8 +272,9 @@ select results_eq(
   $$values (-1, 2), (0, 1)$$,
   'today''s dispatch is counted on today''s UTC row; yesterday''s is untouched');
 
--- A corrupt stored cap (only possible without the check constraint) applies 20,
--- never unlimited. The constraint drop is undone by the suite's rollback.
+-- A corrupt stored cap (only possible without the check constraint) reads as no
+-- cap: there is no default cap, and the cap applies only when an admin set a
+-- positive integer. The constraint drop is undone by the suite's rollback.
 alter table private.provider_kill_switches drop constraint provider_kill_switches_daily_quote_cap_check;
 update private.provider_kill_switches set daily_quote_cap = 0, engaged = false where provider = 'geomiq';
 insert into private.provider_daily_quote_usage (provider, usage_date, count)
@@ -280,11 +282,11 @@ values ('geomiq', pg_catalog.timezone('UTC', pg_catalog.now())::date, 19);
 set local role service_role;
 select is(
   public.api_worker_reserve_provider_dispatch('geomiq') - 'schema',
-  '{"provider": "geomiq", "allowed": true, "reason": null, "cap": 20, "used": 20}'::jsonb,
-  'a corrupt cap of 0 reserves under the default cap of 20');
+  '{"provider": "geomiq", "allowed": true, "reason": null, "cap": null, "used": 20}'::jsonb,
+  'a corrupt cap of 0 reserves as no cap');
 select is(
-  public.api_worker_reserve_provider_dispatch('geomiq') ->> 'reason', 'provider_daily_cap_reached',
-  'a corrupt cap of 0 refuses at the default cap of 20');
+  public.api_worker_reserve_provider_dispatch('geomiq') ->> 'allowed', 'true',
+  'a corrupt cap of 0 never refuses as if a cap applied');
 reset role;
 
 update private.provider_kill_switches set engaged = false where provider = 'quickparts';

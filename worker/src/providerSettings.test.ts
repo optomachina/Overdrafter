@@ -7,7 +7,6 @@ import { dispatchAuthorizationFailure } from "./dispatchRouting";
 import { createProviderMutationPhase } from "./providerMutationPhase";
 import {
   assertProviderDispatchAllowed,
-  DEFAULT_PROVIDER_DAILY_QUOTE_CAP,
   getProviderSettings,
   guardProviderDispatch,
   PROVIDER_DAILY_CAP_REACHED,
@@ -39,7 +38,8 @@ import type { VendorName, VendorQuoteAdapterInput } from "./types";
 function settingsStore(initial: Partial<Record<VendorName, { engaged?: boolean; cap?: number | null }>> = {}) {
   const rows = new Map<VendorName, { engaged: boolean; cap: number | null }>();
   for (const [provider, row] of Object.entries(initial) as [VendorName, { engaged?: boolean; cap?: number | null }][]) {
-    rows.set(provider, { engaged: row.engaged ?? false, cap: row.cap === undefined ? DEFAULT_PROVIDER_DAILY_QUOTE_CAP : row.cap });
+    // No default cap: a row is uncapped unless the test sets one, like the column.
+    rows.set(provider, { engaged: row.engaged ?? false, cap: row.cap ?? null });
   }
   const usage = new Map<string, number>();
   const store = {
@@ -186,16 +186,16 @@ describe("universal supplier settings gate (OVD-829)", () => {
     expect(store.used(NEW_SUPPLIER)).toBe(120);
   });
 
-  it("a cap raised to 50 allows the 21st through 50th dispatch and refuses the 51st", async () => {
+  it("an admin cap of 50 allows the 50th dispatch and refuses the 51st", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap: 50 } });
     const { adapter, quote } = guarded(store);
     const outcomes = await dispatchMany(quote, 51);
-    expect(outcomes.slice(20, 50).every((outcome) => outcome === "ok")).toBe(true);
+    expect(outcomes.slice(0, 50).every((outcome) => outcome === "ok")).toBe(true);
     expect(outcomes[50]).toBe(PROVIDER_DAILY_CAP_REACHED);
     expect(adapter.calls).toBe(50);
   });
 
-  it.each([1, 5, 20])("cap %i refuses at cap + 1", async (cap) => {
+  it.each([1, 5, 25])("cap %i refuses at cap + 1", async (cap) => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap } });
     const { quote } = guarded(store);
     const outcomes = await dispatchMany(quote, cap + 1);
@@ -222,6 +222,60 @@ describe("universal supplier settings gate (OVD-829)", () => {
   });
 });
 
+describe("no default daily quote cap (OVD-829 scope change)", () => {
+  it.each(["xometry", "fictiv"] as VendorName[])("%s dispatches with no cap by default", async (provider) => {
+    const store = settingsStore({ [provider]: {} });
+    const { adapter, quote } = guarded(store, provider);
+    expect((await dispatchMany(quote, 100)).every((outcome) => outcome === "ok")).toBe(true);
+    expect(adapter.calls).toBe(100);
+  });
+
+  it("a brand new adapter has no cap but still respects its kill switch", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: {} });
+    const { adapter, quote } = guarded(store);
+    expect((await dispatchMany(quote, 50)).every((outcome) => outcome === "ok")).toBe(true);
+    store.rows.get(NEW_SUPPLIER)!.engaged = true;
+    expect(await dispatchMany(quote, 1)).toEqual([PROVIDER_KILL_SWITCH_ENGAGED]);
+    expect(adapter.calls).toBe(50);
+  });
+
+  it("an admin-set cap is enforced", async () => {
+    const store = settingsStore({ fictiv: {} });
+    const { quote } = guarded(store, "fictiv");
+    expect(await dispatchMany(quote, 3)).toEqual(["ok", "ok", "ok"]);
+    store.rows.get("fictiv")!.cap = 4;
+    expect(await dispatchMany(quote, 2)).toEqual(["ok", PROVIDER_DAILY_CAP_REACHED]);
+  });
+
+  it("a failed cap read is no cap, in either cap mode", async () => {
+    for (const capMode of ["durable", "process_local"] as const) {
+      const store = settingsStore({ xometry: { cap: 1 } });
+      store.port.readSettings.mockRejectedValue(new Error("rpc down"));
+      store.port.reserveDispatch.mockRejectedValue(new Error("rpc down"));
+      const adapter = new BrandNewSupplierAdapter();
+      const quote = guardProviderDispatch({
+        provider: "xometry", port: store.port, capMode, localCounter: new ProcessLocalDispatchCounter(),
+        quote: (input) => adapter.quote(input),
+      });
+      expect(await dispatchMany(quote, 5), capMode).toEqual(["ok", "ok", "ok", "ok", "ok"]);
+    }
+  });
+
+  it("a failed kill-switch read still blocks, in either cap mode", async () => {
+    for (const capMode of ["durable", "process_local"] as const) {
+      const store = settingsStore({ xometry: {} });
+      store.port.readKillSwitch.mockRejectedValue(new Error("rpc down"));
+      const adapter = new BrandNewSupplierAdapter();
+      const quote = guardProviderDispatch({
+        provider: "xometry", port: store.port, capMode, localCounter: new ProcessLocalDispatchCounter(),
+        quote: (input) => adapter.quote(input),
+      });
+      expect(await dispatchMany(quote, 1), capMode).toEqual([PROVIDER_KILL_SWITCH_UNAVAILABLE]);
+      expect(adapter.calls).toBe(0);
+    }
+  });
+});
+
 describe("fail closed reads (OVD-829)", () => {
   it("an unreadable on/off switch refuses before the counter is touched", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: {} });
@@ -240,18 +294,37 @@ describe("fail closed reads (OVD-829)", () => {
     ["allowed as a string", async () => ({ schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider: NEW_SUPPLIER, allowed: "true", reason: null, cap: 20, used: 1 })],
     ["an unknown reason", async () => ({ schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider: NEW_SUPPLIER, allowed: false, reason: "nope", cap: 20, used: 1 })],
     ["a zero cap", async () => ({ schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider: NEW_SUPPLIER, allowed: true, reason: null, cap: 0, used: 1 })],
-  ])("a counter answering with %s refuses provider_dispatch_counter_unavailable", async (_label, answer) => {
-    const store = settingsStore({ [NEW_SUPPLIER]: {} });
+  ])("a counter answering with %s refuses a capped supplier provider_dispatch_counter_unavailable", async (_label, answer) => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 5 } });
     store.port.reserveDispatch.mockImplementationOnce(answer as never);
     const { adapter, quote } = guarded(store);
     const error = await quote(INPUT).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ProviderDispatchRefusedError);
-    expect(error).toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, retryable: true });
+    expect(error).toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, dailyQuoteCap: 5, retryable: true });
     expect(adapter.calls).toBe(0);
   });
 
-  it("a counter slower than the timeout refuses", async () => {
+  it("a counter that cannot answer lets an uncapped supplier dispatch: there is no cap to enforce", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: {} });
+    store.port.reserveDispatch.mockRejectedValueOnce(new Error("rpc down"));
+    const { adapter, quote } = guarded(store);
+    await expect(quote(INPUT)).resolves.toBeDefined();
+    expect(adapter.calls).toBe(1);
+  });
+
+  it("a counter that cannot answer still refuses a supplier switched off since the first read", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: {} });
+    store.port.reserveDispatch.mockImplementationOnce(async () => {
+      store.rows.get(NEW_SUPPLIER)!.engaged = true;
+      throw new Error("rpc down");
+    });
+    const { adapter, quote } = guarded(store);
+    await expect(quote(INPUT)).rejects.toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_ENGAGED });
+    expect(adapter.calls).toBe(0);
+  });
+
+  it("a counter slower than the timeout refuses a capped supplier", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 5 } });
     store.port.reserveDispatch.mockImplementationOnce(() => new Promise(() => undefined));
     await expect(assertProviderDispatchAllowed(NEW_SUPPLIER, store.port, { timeoutMs: 10 }))
       .rejects.toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
@@ -269,24 +342,25 @@ describe("getProviderSettings (OVD-829)", () => {
     expect(store.port.reserveDispatch).not.toHaveBeenCalled();
   });
 
-  it("falls back to a cap of 20 when the cap read fails", async () => {
+  it("reads no cap when the cap read fails (there is no default cap)", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap: 50 } });
     store.port.readSettings.mockRejectedValueOnce(new Error("rpc down"));
     await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toEqual({
-      provider: NEW_SUPPLIER, enabled: true, disabledReason: null, dailyQuoteCap: 20, capSource: "default",
+      provider: NEW_SUPPLIER, enabled: true, disabledReason: null, dailyQuoteCap: null, capSource: "unavailable",
     });
   });
 
   it.each([
+    ["a corrupt zero cap", { dailyQuoteCap: 0 }],
     ["a malformed cap", { dailyQuoteCap: -1 }],
     ["a fractional cap", { dailyQuoteCap: 2.5 }],
     ["a wrong schema", { schema: "v0" }],
-  ])("falls back to a cap of 20 on %s", async (_label, patch) => {
+  ])("reads no cap on %s", async (_label, patch) => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap: 50 } });
     store.port.readSettings.mockImplementationOnce(async (provider: VendorName) => ({
       schema: PROVIDER_SETTINGS_STATE_SCHEMA, provider, globalEngaged: false, engaged: false, dailyQuoteCap: 50, usedToday: 0, ...patch,
     }));
-    await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toMatchObject({ dailyQuoteCap: 20, capSource: "default" });
+    await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toMatchObject({ dailyQuoteCap: null, capSource: "unavailable" });
   });
 
   it("reports a supplier off when the on/off read fails (fail closed)", async () => {
@@ -331,21 +405,21 @@ describe("deployment gate: process_local cap mode before the migration (OVD-829)
     expect(store.port.reserveDispatch).not.toHaveBeenCalled();
   });
 
-  it("falls back to a cap of 20 when the settings RPC is missing (pre-migration), refusing the 21st dispatch", async () => {
-    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+  it("applies no cap when the settings RPC is missing (pre-migration)", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 2 } });
     store.port.readSettings.mockRejectedValue(new Error("function api_worker_provider_settings_state does not exist"));
-    const { adapter, quote } = localGuarded(store);
-    const outcomes = await dispatchMany(quote, DEFAULT_PROVIDER_DAILY_QUOTE_CAP + 1);
-    expect(outcomes.slice(0, DEFAULT_PROVIDER_DAILY_QUOTE_CAP).every((outcome) => outcome === "ok")).toBe(true);
-    expect(outcomes.at(-1)).toBe(PROVIDER_DAILY_CAP_REACHED);
-    expect(adapter.calls).toBe(DEFAULT_PROVIDER_DAILY_QUOTE_CAP);
-  });
-
-  it("a null cap read from the database is unlimited", async () => {
-    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
-    const { adapter, quote } = localGuarded(store);
+    const { adapter, quote, localCounter } = localGuarded(store);
     expect((await dispatchMany(quote, 30)).every((outcome) => outcome === "ok")).toBe(true);
     expect(adapter.calls).toBe(30);
+    expect(localCounter.used(NEW_SUPPLIER)).toBe(0);
+  });
+
+  it("a null cap read from the database is unlimited and not counted in process", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+    const { adapter, quote, localCounter } = localGuarded(store);
+    expect((await dispatchMany(quote, 30)).every((outcome) => outcome === "ok")).toBe(true);
+    expect(adapter.calls).toBe(30);
+    expect(localCounter.used(NEW_SUPPLIER)).toBe(0);
   });
 
   it("keeps the kill switch fail closed: engaged and unreadable both refuse with nothing counted", async () => {
@@ -371,26 +445,37 @@ describe("deployment gate: process_local cap mode before the migration (OVD-829)
     expect(await dispatchMany(quote, 2)).toEqual(["ok", PROVIDER_DAILY_CAP_REACHED]);
   });
 
-  it("durable mode never treats a missing reserve RPC as allowed, even when the settings read works", async () => {
-    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+  it("durable mode with a missing reserve RPC refuses a supplier whose settings read shows a cap", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 3 } });
     store.port.reserveDispatch.mockRejectedValue(new Error("function api_worker_reserve_provider_dispatch does not exist"));
     const { adapter, quote } = guarded(store);
     await expect(quote(INPUT)).rejects.toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
     expect(adapter.calls).toBe(0);
+  });
+
+  it("durable mode with missing reserve and settings RPCs (pre-migration) applies no cap; the switch still gates", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: {} });
+    store.port.reserveDispatch.mockRejectedValue(new Error("function api_worker_reserve_provider_dispatch does not exist"));
+    store.port.readSettings.mockRejectedValue(new Error("function api_worker_provider_settings_state does not exist"));
+    const { adapter, quote } = guarded(store);
+    expect(await dispatchMany(quote, 3)).toEqual(["ok", "ok", "ok"]);
+    store.rows.get(NEW_SUPPLIER)!.engaged = true;
+    expect(await dispatchMany(quote, 1)).toEqual([PROVIDER_KILL_SWITCH_ENGAGED]);
+    expect(adapter.calls).toBe(3);
   });
 });
 
 describe("refusal outcomes (OVD-829)", () => {
   it("a spent cap goes to manual follow-up and a counter failure fails, both before any provider mutation", () => {
     const phase = createProviderMutationPhase();
-    expect(classifyProviderAdapterFailure(new ProviderDispatchRefusedError(PROVIDER_DAILY_CAP_REACHED, "fictiv", 20, 20), phase))
+    expect(classifyProviderAdapterFailure(new ProviderDispatchRefusedError(PROVIDER_DAILY_CAP_REACHED, "fictiv", 5, 5), phase))
       .toEqual({ failureClass: "manual_follow_up", code: PROVIDER_DAILY_CAP_REACHED });
     expect(classifyProviderAdapterFailure(new ProviderDispatchRefusedError(PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, "fictiv"), phase))
       .toEqual({ failureClass: "failed", code: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
   });
 
   it("the Xometry route reports the refusal as a provider_settings boundary failure", () => {
-    expect(dispatchAuthorizationFailure(new ProviderDispatchRefusedError(PROVIDER_DAILY_CAP_REACHED, "xometry", 20, 20)))
+    expect(dispatchAuthorizationFailure(new ProviderDispatchRefusedError(PROVIDER_DAILY_CAP_REACHED, "xometry", 5, 5)))
       .toEqual({ boundary: "provider_settings", reasonCode: PROVIDER_DAILY_CAP_REACHED, retryable: false });
     expect(dispatchAuthorizationFailure(new ProviderDispatchRefusedError(PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, "xometry")))
       .toEqual({ boundary: "provider_settings", reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, retryable: true });

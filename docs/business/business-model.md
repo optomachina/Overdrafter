@@ -56,9 +56,9 @@ explicit approval (OVD-228).
 quantities across the live providers. Failed runs and provider off errors are
 free. A fresh re quote counts; viewing history is free. Each provider gets at
 most one automatic retry per run, with no human mimicking pacing. The
-per-supplier daily quote cap defaults to 20 and is admin-configurable per
-supplier, including unlimited (OVD-828); usage control moves to per-caller
-metering (OVD-828 S4). There is **no overage**: notify at 80%, pause
+There is no quote cap by default: each supplier is unlimited unless an admin
+sets a per-supplier daily quote cap (OVD-828, OVD-829); usage control moves to
+per-caller metering (OVD-828 S4). There is **no overage**: notify at 80%, pause
 automation at 100%. If margin breaks, cut the cap before raising the price.
 
 **Founding offer:** 8 hand sold teams at $199/mo, rate held 12 months, billed

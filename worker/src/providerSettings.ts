@@ -5,10 +5,14 @@ import type { QueueTaskRecord, VendorName, VendorQuoteAdapterInput } from "./typ
 
 /**
  * OVD-829 (OVD-828 S1) universal per-supplier settings: the on/off switch and
- * the daily quote cap, both runtime data on the supplier's row in
+ * the optional daily quote cap, both runtime data on the supplier's row in
  * `private.provider_kill_switches`. Every live dispatch, whatever the adapter,
  * passes `assertProviderDispatchAllowed` once, immediately before launch (see
  * `guardProviderDispatch`). Adapters hold no cap or switch code of their own.
+ *
+ * There is no default cap. A supplier is capped only when an admin set a
+ * positive integer; null, an unreadable cap, a missing settings RPC, or a
+ * corrupt value all mean no cap. The kill switch still fails closed.
  *
  * OVD-722 worker side of the per-provider and global kill switch.
  *
@@ -362,8 +366,6 @@ export async function checkProviderKillSwitchAtClaim(input: {
 
 // --------------------------------------------------------------------------- settings (OVD-829)
 
-/** Cap used when the supplier's cap cannot be read. Matches the column default. */
-export const DEFAULT_PROVIDER_DAILY_QUOTE_CAP = 20;
 export const PROVIDER_SETTINGS_RPC = "api_worker_provider_settings_state";
 export const PROVIDER_SETTINGS_STATE_SCHEMA = "provider-settings-state.v1" as const;
 export const PROVIDER_DISPATCH_RESERVE_RPC = "api_worker_reserve_provider_dispatch";
@@ -383,10 +385,10 @@ export type ProviderSettings = {
   enabled: boolean;
   /** Why `enabled` is false: engaged, or unreadable (fail closed). Null when enabled. */
   disabledReason: ProviderKillSwitchReasonCode | null;
-  /** Null means unlimited. */
+  /** Null means no cap: none set by an admin, or the cap could not be read. */
   dailyQuoteCap: number | null;
-  /** "default" when the cap could not be read and the default applies. */
-  capSource: "database" | "default";
+  /** "unavailable" when the cap could not be read (no cap applies). */
+  capSource: "database" | "unavailable";
 };
 
 /** Raw RPC payload readers; each throws on any transport or SQL error. */
@@ -449,7 +451,10 @@ function isUsage(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** The cap from a v1 settings read, or undefined when the payload is not an exact match. */
+/**
+ * The cap from a v1 settings read, or undefined when the payload is not an
+ * exact match. Only a positive integer is a cap; null is no cap.
+ */
 export function parseProviderDailyQuoteCap(data: unknown, provider: VendorName): number | null | undefined {
   if (!isPlainRecord(data)) return undefined;
   if (data.schema !== PROVIDER_SETTINGS_STATE_SCHEMA || data.provider !== provider) return undefined;
@@ -476,14 +481,16 @@ export function parseProviderDispatchReservation(data: unknown, provider: Vendor
  * OVD-829 deployment gate. Which counter the dispatch gate uses:
  *   * "durable": one atomic reservation through
  *     `api_worker_reserve_provider_dispatch` per dispatch, shared by every
- *     worker and surviving restarts. A missing or failing RPC refuses
- *     (`provider_dispatch_counter_unavailable`); it never counts as allowed.
+ *     worker and surviving restarts. When that RPC is missing or failing, a
+ *     supplier with an admin-set cap is refused
+ *     (`provider_dispatch_counter_unavailable`); an uncapped supplier, or one
+ *     whose cap cannot be read either, dispatches uncounted (no cap).
  *   * "process_local": the pre-migration fallback. The kill switch is still
  *     read and fails closed; the cap comes from `getProviderSettings` (an
- *     unreadable cap, including a missing settings RPC, is
- *     `DEFAULT_PROVIDER_DAILY_QUOTE_CAP`) and dispatches are counted in this
- *     process only, so each worker process and each operator run has its own
- *     daily allowance and a restart resets it.
+ *     unreadable cap, including a missing settings RPC, is no cap) and
+ *     dispatches of a capped supplier are counted in this process only, so
+ *     each worker process and each operator run has its own daily allowance
+ *     and a restart resets it.
  * `WORKER_PROVIDER_DURABLE_DISPATCH_CAP=on` selects "durable". It must stay
  * off (the default) until docs/migration-drafts/ovd-828-s1.sql is applied, and
  * must be turned on in the same window once it is.
@@ -528,10 +535,14 @@ export class ProcessLocalDispatchCounter {
     return this.counts.get(provider) ?? 0;
   }
 
-  /** Synchronous check and increment, so two dispatches in this process cannot both take the last slot. */
+  /**
+   * Synchronous check and increment, so two dispatches in this process cannot
+   * both take the last slot. An uncapped supplier (null) is neither counted nor refused.
+   */
   reserve(provider: VendorName, cap: number | null): { allowed: boolean; used: number } {
     const used = this.used(provider);
-    if (cap !== null && used >= cap) return { allowed: false, used };
+    if (cap === null) return { allowed: true, used };
+    if (used >= cap) return { allowed: false, used };
     this.counts.set(provider, used + 1);
     return { allowed: true, used: used + 1 };
   }
@@ -541,9 +552,10 @@ const sharedProcessLocalDispatchCounter = new ProcessLocalDispatchCounter();
 
 /**
  * One supplier's settings, read fresh. The on/off read fails closed (an
- * unreadable switch is off, with `disabledReason` saying which); an unreadable
- * or invalid cap falls back to `DEFAULT_PROVIDER_DAILY_QUOTE_CAP`. Counts
- * nothing. The "process_local" dispatch gate reads the cap through this.
+ * unreadable switch is off, with `disabledReason` saying which). The cap does
+ * not: an unreadable, missing (pre-migration RPC), or invalid cap is no cap,
+ * because there is no default cap to fall back to. Counts nothing. The
+ * "process_local" dispatch gate reads the cap through this.
  */
 export async function getProviderSettings(
   provider: VendorName,
@@ -567,7 +579,7 @@ export async function getProviderSettings(
   }
   const enabled = disabledReason === null;
   return cap === undefined
-    ? { provider, enabled, disabledReason, dailyQuoteCap: DEFAULT_PROVIDER_DAILY_QUOTE_CAP, capSource: "default" }
+    ? { provider, enabled, disabledReason, dailyQuoteCap: null, capSource: "unavailable" }
     : { provider, enabled, disabledReason, dailyQuoteCap: cap, capSource: "database" };
 }
 
@@ -586,13 +598,16 @@ export type ProviderDispatchGateOptions = {
  * `ProviderKillSwitchError`, which ends the lane `cancelled_provider_disabled`),
  * then one atomic reservation against the durable daily counter. The counter
  * re-checks the switch under its row lock, so a flip between the two reads
- * still refuses as provider_disabled, and it applies the default cap itself
- * when the stored cap is unusable. A spent cap throws
- * `provider_daily_cap_reached`; an unreachable or malformed counter throws
- * `provider_dispatch_counter_unavailable`. Nothing is counted in process.
+ * still refuses as provider_disabled. A null cap (the default) is counted but
+ * never refused; a stored cap that is not a positive integer reads as no cap.
+ * A spent cap throws `provider_daily_cap_reached`. An unreachable or malformed
+ * counter throws `provider_dispatch_counter_unavailable` only when
+ * `getProviderSettings` reads a positive cap; otherwise there is no cap and
+ * the dispatch proceeds.
+ * Nothing is counted in process.
  *
- * "process_local": `getProviderSettings` (switch fails closed, cap falls back
- * to the default), then the in-process counter. See `ProviderDispatchCapMode`.
+ * "process_local": `getProviderSettings` (switch fails closed, an unreadable
+ * cap is no cap), then the in-process counter. See `ProviderDispatchCapMode`.
  */
 export async function assertProviderDispatchAllowed(
   provider: VendorName,
@@ -627,7 +642,19 @@ export async function assertProviderDispatchAllowed(
   } catch {
     reservation = null;
   }
-  if (!reservation) throw new ProviderDispatchRefusedError(PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, provider);
+  if (!reservation) {
+    // The counter could not answer. Refuse only a supplier an admin capped: an
+    // uncapped supplier, or one whose cap cannot be read either, has no cap to
+    // enforce. The kill switch above already failed closed.
+    const settings = await getProviderSettings(provider, port, timeoutMs);
+    if (settings.disabledReason !== null) {
+      throw new ProviderKillSwitchError(settings.disabledReason, provider, "before_launch");
+    }
+    if (settings.dailyQuoteCap !== null) {
+      throw new ProviderDispatchRefusedError(PROVIDER_DISPATCH_COUNTER_UNAVAILABLE, provider, settings.dailyQuoteCap);
+    }
+    return { dailyQuoteCap: null, usedToday: 0 };
+  }
   if (reservation.allowed) return { dailyQuoteCap: reservation.cap, usedToday: reservation.used };
   if (reservation.reason === "provider_disabled") {
     throw new ProviderKillSwitchError(PROVIDER_KILL_SWITCH_ENGAGED, provider, "before_launch");

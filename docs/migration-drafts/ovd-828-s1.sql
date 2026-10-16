@@ -2,8 +2,11 @@
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
 -- OVD-828 S1 (OVD-829): universal per-supplier settings. One row per supplier
--- in private.provider_kill_switches now carries both the on/off switch and the
--- daily quote cap, and the worker counts every dispatch durably against it.
+-- in private.provider_kill_switches now carries both the on/off switch and an
+-- optional daily quote cap, and the worker counts every dispatch durably.
+-- There is NO default cap (Blaine, 2026-10-16): the column defaults to null
+-- (unlimited) and existing rows are not backfilled. A supplier is capped only
+-- when an admin sets a positive integer.
 --
 -- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
 -- to any database outside a Blaine-approved migration window. When approved,
@@ -43,17 +46,19 @@
 --     private.provider_daily_quote_usage and the row cap before review.
 --
 -- Deploy gate (worker flag WORKER_PROVIDER_DURABLE_DISPATCH_CAP, default off):
---   * The OVD-829 worker may merge and deploy before this migration ONLY with
---     the flag off. Off keeps the kill switch (fail closed) and counts the cap
---     per worker process, using the cap read through
---     api_worker_provider_settings_state or the default 20 while that RPC does
---     not exist yet. It never calls api_worker_reserve_provider_dispatch.
---   * Turn the flag on (worker and operator tool env) only AFTER this migration
---     is applied, in the same window. With the flag on, every live dispatch
---     reserves through api_worker_reserve_provider_dispatch and fails closed
---     (provider_dispatch_counter_unavailable) when the RPC is missing, so
---     flag on before the migration stops every supplier. A missing RPC is
---     never treated as allowed.
+--   * The OVD-829 worker may merge and deploy before this migration with the
+--     flag off. Off keeps the kill switch (fail closed) and counts an
+--     admin-set cap per worker process, using the cap read through
+--     api_worker_provider_settings_state. While that RPC does not exist yet,
+--     or whenever the read fails, there is no cap (never a default). It never
+--     calls api_worker_reserve_provider_dispatch.
+--   * Turn the flag on (worker and operator tool env) AFTER this migration is
+--     applied, in the same window. With the flag on, every live dispatch
+--     reserves through api_worker_reserve_provider_dispatch. If that RPC is
+--     missing or failing, the worker re-reads the settings: a supplier with a
+--     readable positive cap is refused (provider_dispatch_counter_unavailable);
+--     otherwise there is no cap to enforce and the dispatch goes ahead
+--     uncounted. The kill switch fails closed in every case.
 --   * Rollback order is the reverse: flag off first, then the rollback file.
 --
 -- Not changed here: api_admin_set_global_kill_switch stays AAL1 until
@@ -67,8 +72,10 @@
 -- run slightly above real sends; it never runs below.
 --
 -- What changes:
---   * private.provider_kill_switches.daily_quote_cap: integer, default 20,
---     null = unlimited, otherwise > 0. Every existing row takes 20.
+--   * private.provider_kill_switches.daily_quote_cap: integer, default null
+--     (unlimited), otherwise > 0. No backfill: every existing row stays null.
+--     The check constraint refuses <= 0, so a cap is only ever a positive
+--     integer an admin set.
 --   * private.provider_kill_switch_audit gains daily_quote_cap and
 --     previous_daily_quote_cap (both null on global rows and on rows written
 --     before this migration).
@@ -89,8 +96,9 @@
 -- =====================================================================
 -- Settings columns
 -- =====================================================================
+-- No default and no backfill: null is unlimited.
 alter table private.provider_kill_switches
-  add column if not exists daily_quote_cap integer default 20;
+  add column if not exists daily_quote_cap integer;
 
 alter table private.provider_kill_switches
   drop constraint if exists provider_kill_switches_daily_quote_cap_check;
@@ -99,7 +107,7 @@ alter table private.provider_kill_switches
   check (daily_quote_cap is null or daily_quote_cap > 0);
 
 comment on column private.provider_kill_switches.daily_quote_cap is
-  'OVD-828: automated quote dispatches allowed per UTC day. Null means unlimited. Default 20.';
+  'OVD-828: automated quote dispatches allowed per UTC day, set by an admin. Null (the default) means unlimited.';
 
 -- ADD COLUMN with no volatile default rewrites nothing and fires no row
 -- trigger, so the append-only triggers on the audit table are untouched.
@@ -130,8 +138,8 @@ alter table private.provider_daily_quote_usage force row level security;
 --   1. global switch engaged, missing row, or supplier engaged -> refuse
 --      provider_disabled (fail closed, same rule as
 --      private.provider_kill_switch_engaged). Nothing is counted.
---   1a. a stored cap <= 0 (impossible under the check constraint) -> 20.
---   2. cap is null -> allowed, counted.
+--   1a. a stored cap <= 0 (impossible under the check constraint) -> null.
+--   2. cap is null (the default) -> allowed, counted (usedToday stays truthful).
 --   3. today's count >= cap -> refuse provider_daily_cap_reached, not counted.
 --   4. otherwise -> allowed, counted.
 -- A reservation is never refunded: a dispatch that then fails still counts.
@@ -169,10 +177,12 @@ begin
   end if;
 
   -- A stored cap that is not a positive integer can only be a corrupt row (the
-  -- check constraint forbids it). It must never read as unlimited: apply the
-  -- default of 20, the same fallback the worker uses when the cap is unreadable.
+  -- check constraint forbids it). There is no default cap, so it reads as no
+  -- cap, the same as the worker treats an unreadable or invalid cap. The kill
+  -- switch above is what stops a supplier; the cap applies only when an admin
+  -- set a positive integer.
   if v_cap is not null and v_cap <= 0 then
-    v_cap := 20;
+    v_cap := null;
   end if;
 
   select u.count into v_used

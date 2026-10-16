@@ -341,9 +341,10 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
     id: "rate-limit",
     group: "Legal stance",
-    text: "Traffic stays at about 20 quotes per provider per day. Evidence:",
-    label: "about 20 quotes per provider per day",
-    match: /about 20 quotes per provider per day/i,
+    text: "Traffic stays within the provider's admin-set daily quote cap, if one is set (no cap by default). Evidence:",
+    label: "traffic within the provider's admin-set daily quote cap, if one is set",
+    // OVD-829 removed the 20/day default; the old wording is still accepted so open PR bodies keep validating.
+    match: /daily quote cap|about 20 quotes per provider per day/i,
     na: false,
   },
   {

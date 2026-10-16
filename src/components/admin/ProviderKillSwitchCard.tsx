@@ -184,7 +184,8 @@ export function ProviderKillSwitchCard() {
               disabled={isBusy}
               onCheckedChange={(checked) => setDraft({
                 unlimited: checked === true,
-                value: checked === true ? draft.value : (draft.value || String(saved ?? 20)),
+                // No default cap to pre-fill: an admin types the number.
+                value: checked === true ? draft.value : (draft.value || (saved === null ? "" : String(saved))),
               })}
             />
             <Label htmlFor={unlimitedId} className="text-sm font-normal">Unlimited</Label>

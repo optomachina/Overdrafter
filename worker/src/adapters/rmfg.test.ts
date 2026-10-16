@@ -297,12 +297,12 @@ describe("RMFG live adapter", () => {
         readKillSwitch: async () => killSwitchState(false),
         readSettings: async () => null,
         reserveDispatch: async () => ({ schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider: "rmfg",
-          allowed: false, reason: PROVIDER_DAILY_CAP_REACHED, cap: 20, used: 20 }),
+          allowed: false, reason: PROVIDER_DAILY_CAP_REACHED, cap: 5, used: 5 }),
       },
       quote: (input) => adapter.quote(input),
     });
     await expect(quote(await authorizedInput())).rejects.toMatchObject({
-      name: "ProviderDispatchRefusedError", reasonCode: PROVIDER_DAILY_CAP_REACHED, dailyQuoteCap: 20,
+      name: "ProviderDispatchRefusedError", reasonCode: PROVIDER_DAILY_CAP_REACHED, dailyQuoteCap: 5,
     });
     expect(calls).toEqual([]);
   });

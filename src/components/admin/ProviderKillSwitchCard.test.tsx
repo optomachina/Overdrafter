@@ -240,7 +240,7 @@ describe("ProviderKillSwitchCard daily quote cap (OVD-829)", () => {
   const withCaps = {
     ...available,
     providers: [
-      { ...available.providers[0], settings: { dailyQuoteCap: 20, usedToday: 3 } },
+      { ...available.providers[0], settings: { dailyQuoteCap: 25, usedToday: 3 } },
       { ...available.providers[1], settings: { dailyQuoteCap: null, usedToday: 41 } },
     ],
   };
@@ -254,8 +254,8 @@ describe("ProviderKillSwitchCard daily quote cap (OVD-829)", () => {
   it("shows each supplier's cap and today's usage next to its switch", async () => {
     fetchMock.mockResolvedValue(withCaps);
     renderCard();
-    expect(await screen.findByLabelText("Daily quote cap for fictiv")).toHaveValue(20);
-    expect(screen.getByText("3 used today of 20")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Daily quote cap for fictiv")).toHaveValue(25);
+    expect(screen.getByText("3 used today of 25")).toBeInTheDocument();
     expect(screen.getByText("41 used today (unlimited)")).toBeInTheDocument();
     expect(screen.getByLabelText("Daily quote cap for xometry")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save daily cap for fictiv" })).toBeDisabled();
@@ -295,6 +295,17 @@ describe("ProviderKillSwitchCard daily quote cap (OVD-829)", () => {
     await confirmCap("fictiv");
     await waitFor(() => expect(settingsMock).toHaveBeenCalledOnce());
     expect(settingsMock.mock.calls[0][0]).toMatchObject({ provider: "fictiv", dailyQuoteCap: null });
+  });
+
+  it("unchecking Unlimited on an uncapped supplier pre-fills no default cap", async () => {
+    fetchMock.mockResolvedValue(withCaps);
+    renderCard();
+    await screen.findByLabelText("Daily quote cap for xometry");
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Unlimited" })[1]);
+    expect(screen.getByLabelText("Daily quote cap for xometry")).toHaveValue(null);
+    expect(screen.getByRole("button", { name: "Save daily cap for xometry" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Daily quote cap for xometry"), { target: { value: "8" } });
+    expect(screen.getByRole("button", { name: "Save daily cap for xometry" })).toBeEnabled();
   });
 
   it.each(["0", "-2", "1.5", ""])("does not offer to save a cap of %j", async (value) => {

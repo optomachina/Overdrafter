@@ -9,9 +9,10 @@
 -- Order: set WORKER_PROVIDER_DURABLE_DISPATCH_CAP=off on every worker and
 -- operator environment FIRST (or roll the worker back to a build without
 -- OVD-829). With the flag on, the worker reserves every dispatch through
--- api_worker_reserve_provider_dispatch and refuses every live dispatch
--- (provider_dispatch_counter_unavailable) once the function is gone. With the
--- flag off it reads the cap fail-safe (default 20) and counts in process.
+-- api_worker_reserve_provider_dispatch; once the function and the cap column
+-- are gone it falls back to the settings read, which then fails too, so every
+-- supplier runs uncapped. With the flag off a failed cap read is likewise no
+-- cap (there is no default cap). The kill switch fails closed either way.
 --
 -- Restores, byte for byte, the bodies, signatures and grants of
 -- api_admin_set_provider_kill_switch and api_admin_list_provider_kill_switches

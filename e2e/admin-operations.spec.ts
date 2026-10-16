@@ -124,10 +124,11 @@ test("@fixture non-platform session makes no operations request", async ({ page 
 
 // OVD-829 (OVD-828 S1): the per-supplier daily quote cap next to the on/off
 // switch. The "database" is an in-memory row set behind synthetic RPC routes.
+// There is no default cap: both suppliers start unlimited (null).
 test("@fixture supplier settings: set a cap, see it persist, set unlimited, switch the supplier off", async ({ page }) => {
   const rows = new Map([
-    ["fictiv", { engaged: false, reason: null as string | null, version: 3, dailyQuoteCap: 20 as number | null, usedToday: 4 }],
-    ["xometry", { engaged: false, reason: null as string | null, version: 1, dailyQuoteCap: 20 as number | null, usedToday: 0 }],
+    ["fictiv", { engaged: false, reason: null as string | null, version: 3, dailyQuoteCap: null as number | null, usedToday: 4 }],
+    ["xometry", { engaged: false, reason: null as string | null, version: 1, dailyQuoteCap: null as number | null, usedToday: 0 }],
   ]);
   const writes: Record<string, unknown>[] = [];
   const external: string[] = [];
@@ -169,9 +170,11 @@ test("@fixture supplier settings: set a cap, see it persist, set unlimited, swit
   };
   const fictivCap = page.getByLabel("Daily quote cap for fictiv", { exact: true });
 
-  // Raise the cap to 50.
-  await expect(fictivCap).toHaveValue("20");
-  await expect(page.getByText("4 used today of 20")).toBeVisible();
+  // Uncapped by default; an admin sets a cap of 50.
+  await expect(fictivCap).toBeDisabled();
+  await expect(page.getByText("4 used today (unlimited)")).toBeVisible();
+  await page.locator("#daily-cap-unlimited-fictiv").click();
+  await expect(fictivCap).toHaveValue("");
   await fictivCap.fill("50");
   await page.getByRole("button", { name: "Save daily cap for fictiv" }).click();
   await expect(page.getByText("Set the daily quote cap for fictiv to 50")).toBeVisible();
