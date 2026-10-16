@@ -10,8 +10,9 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     displayName: "OSH Cut",
     source: "oshcut-live-adapter",
     publicUrl: "https://www.oshcut.com/online-metal-fabrication/",
-    loginUrl: "https://app.oshcut.com/login",
-    uploadUrl: "https://app.oshcut.com/",
+    // `/login` only redirects to the cart; sign-in is a header modal there.
+    loginUrl: "https://app.oshcut.com/cart",
+    uploadUrl: "https://app.oshcut.com/cart",
     processFamily: "sheet_metal",
     supportedFileExtensions: [...OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions],
     officialNotes: [

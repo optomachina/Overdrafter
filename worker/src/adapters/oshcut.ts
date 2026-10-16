@@ -54,10 +54,10 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     productionAdmissionRequired: true,
     actionTimeDisclosurePermitRequired: true,
     immediatePreflightRequired: true,
-    currentProductionState: "default_off_pending_reviewed_dispatch_envelope_and_admission",
+    currentProductionState: "default_off_pending_admission",
   },
   geometryBoundary:
-    "Flat-sheet classification only; stock thickness, size, features, and final manufacturability remain provider-determined.",
+    "Flat-sheet classification only; stock thickness comes from the approved requirement (OSHCUT_SHEET_THICKNESS_RULE), and size, features, and final manufacturability remain provider-determined.",
   evidence: [
     {
       url: "https://www.oshcut.com/online-metal-fabrication/",
@@ -82,6 +82,32 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     checkoutAllowed: false,
   },
 } as const;
+
+/**
+ * OVD-677 reviewed thickness rule. The static envelope leaves stock thickness
+ * to the provider, but the OSH Cut cart prices nothing until a thickness is
+ * picked, and picking one silently would quote a different part. The approved
+ * requirement therefore states it as `spec_snapshot.sheetThicknessInch`: a
+ * positive inch value with at most three decimals inside the bounds below.
+ * The portal must then offer exactly that thickness filter (`0.125"`); any
+ * other value, or none, stops before upload.
+ */
+export const OSHCUT_SHEET_THICKNESS_RULE = Object.freeze({
+  field: "sheetThicknessInch",
+  minimumInch: 0.02,
+  maximumInch: 1,
+});
+
+/** Returns the reviewed OSH Cut thickness filter label, or null when unknown. */
+export function resolveOshcutThicknessLabel(input: Pick<VendorQuoteAdapterInput, "requirement">): string | null {
+  const snapshot = input.requirement.spec_snapshot;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const value = (snapshot as Record<string, unknown>)[OSHCUT_SHEET_THICKNESS_RULE.field];
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < OSHCUT_SHEET_THICKNESS_RULE.minimumInch || value > OSHCUT_SHEET_THICKNESS_RULE.maximumInch) return null;
+  if (Math.abs(Math.round(value * 1000) - value * 1000) > 1e-6) return null;
+  return `${value.toFixed(3)}"`;
+}
 
 export type OshcutOperationalState =
   | "eligible"
@@ -313,8 +339,8 @@ function finiteOutput(
  * interface. Live evaluation stays local evidence that is never a customer
  * offer. Production dispatch (OVD-677) is default-off: it reaches the
  * production portal only behind a current generic provider-dispatch
- * authorization for the OSH Cut envelope, and that envelope is not reviewed,
- * so no permit can name it yet.
+ * authorization for the reviewed OSH Cut envelope, which in turn needs an
+ * approved admission, and only for a requirement with a reviewed thickness.
  */
 export class OshcutAdapter extends VendorAdapter {
   private readonly evaluation: Pick<VendorAdapter, "quote">;
@@ -384,6 +410,23 @@ export class OshcutAdapter extends VendorAdapter {
           orderProhibited: true,
         },
       );
+    }
+    if (!resolveOshcutThicknessLabel(input)) {
+      const finite = finiteOutput(
+        input,
+        "manual_followup",
+        "thickness_confirmation_required",
+        "Record the sheet thickness in inches on the approved requirement before quoting OSH Cut; no request was sent.",
+      );
+      return {
+        ...finite,
+        rawPayload: {
+          ...finite.rawPayload,
+          terminalState: "configuration_required",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+        },
+      };
     }
     // OVD-748: a withdrawn run stops here, before the portal reads a session.
     throwIfProviderAborted(input.signal, "before_navigation");

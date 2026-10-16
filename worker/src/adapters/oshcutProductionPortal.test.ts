@@ -19,11 +19,18 @@ import { buildAdapterRegistry } from "./index";
 import { OSHCUT_DISPATCH_ENVELOPE, oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization";
 import {
   buildOshcutProductionPortalDefinition,
+  classifyOshcutPortalState,
+  configureOshcutCart,
   extractOshcutProductionOffers,
   OSHCUT_ALLOWED_HOSTS,
   OSHCUT_PRODUCTION_LOCATORS,
 } from "./oshcutProductionPortal";
-import { normalizeAnchoredProviderOffers, runProviderPortalKernel, type ProviderPortalReadCapability } from "./providerPortalKernel";
+import {
+  normalizeAnchoredProviderOffers,
+  runProviderPortalKernel,
+  type ProviderPortalConfigurationCapability,
+  type ProviderPortalReadCapability,
+} from "./providerPortalKernel";
 
 /**
  * OVD-677: the production OSH Cut branch is default-off. Without a current
@@ -44,7 +51,7 @@ const STORAGE_STATE = JSON.stringify({ cookies: [], origins: [] });
 /** The only package the OSH Cut envelope admits: flat-sheet laser cutting in 6061-T6. */
 const OSHCUT_REQUIREMENT = {
   material: "Aluminum 6061-T6",
-  spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet" },
+  spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet", sheetThicknessInch: 0.125 },
 };
 
 /** A live config whose session lookups are observable. */
@@ -157,60 +164,140 @@ describe("OSH Cut production branch default-deny (OVD-677)", () => {
   });
 });
 
-type Card = { id: string; label: string; quantity: string; unit: string; total: string; currency: string; lead?: string };
-
-/** A reader over synthetic cards addressed through the reviewed locator table. */
-function cardReader(cards: Card[]): ProviderPortalReadCapability {
-  const { card, fields, optionIdAttribute } = OSHCUT_PRODUCTION_LOCATORS;
-  const cardAt = (selector: string) => {
-    const match = new RegExp(`^${card.replace(/[[\]]/g, "\\$&")} >> nth=(\\d+)`).exec(selector);
-    return match ? cards[Number(match[1])] : undefined;
-  };
-  const fieldOf = (selector: string): keyof Card | null => {
-    const entry = Object.entries(fields).find(([, value]) => selector.endsWith(` >> ${value}`));
-    if (!entry) return null;
-    return ({ label: "label", quantity: "quantity", unitPrice: "unit", totalPrice: "total", currency: "currency", leadBusinessDays: "lead" } as const)[entry[0] as keyof typeof fields];
-  };
+/** A reader over synthetic cart price cells; each call advances through `frames`. */
+function cartReader(frames: Array<{ single: string[]; extended: string[] }>): ProviderPortalReadCapability & { reads: () => number } {
+  let reads = 0;
+  const frame = () => frames[Math.min(reads, frames.length - 1)];
   return {
-    count: async (selector) => (selector === card ? cards.length : 0),
-    readText: async (selector) => {
-      const current = cardAt(selector);
-      const field = fieldOf(selector);
-      return current && field ? current[field] ?? null : null;
+    count: async () => 0,
+    readText: async () => null,
+    readTexts: async (selector) => {
+      if (selector === OSHCUT_PRODUCTION_LOCATORS.singlePrice) return frame().single;
+      if (selector === OSHCUT_PRODUCTION_LOCATORS.extendedPrice) {
+        const texts = frame().extended;
+        reads += 1;
+        return texts;
+      }
+      return [];
     },
-    readTexts: async () => [],
-    readAttribute: async (selector, attribute) =>
-      attribute === optionIdAttribute ? cardAt(selector)?.id ?? null : null,
+    readAttribute: async () => null,
+    reads: () => reads,
   };
 }
 
-const STANDARD: Card = { id: "standard", label: "Standard", quantity: "3", unit: "$411.50", total: "$1,234.50", currency: "USD", lead: "4" };
+const priced = (single: string, extended: string) => ({ single: [single], extended: [extended] });
 
 describe("OSH Cut production offer extraction (OVD-677)", () => {
-  it("normalizes anchored USD cards into offers", async () => {
-    const candidates = await extractOshcutProductionOffers(cardReader([
-      STANDARD,
-      { id: "expedited", label: "Expedited", quantity: "3", unit: "616.67", total: "1850.00", currency: "USD" },
-    ]), 3);
+  it("normalizes the priced cart row into one USD offer", async () => {
+    const candidates = await extractOshcutProductionOffers(cartReader([priced("$411.50", "$1,234.50")]), 3, 0);
     const offers = normalizeAnchoredProviderOffers(candidates, { expectedQuantity: 3, allowedHosts: OSHCUT_ALLOWED_HOSTS });
     expect(offers.map((offer) => [offer.providerOptionId, offer.unitPriceUsd, offer.totalPriceUsd, offer.leadTimeBusinessDays]))
-      .toEqual([["standard", 411.5, 1234.5, 4], ["expedited", 616.67, 1850, null]]);
+      .toEqual([["cart", 411.5, 1234.5, null]]);
     expect(candidates[0].rawPayload).toEqual({
-      adapterRevision: "oshcut-production-adapter.v1",
-      locatorRevision: "oshcut-production-locators.v1",
+      adapterRevision: "oshcut-production-adapter.v2",
+      locatorRevision: "oshcut-production-locators.v2",
+    });
+  });
+
+  it("waits while the cells read '-' and then reads the price", async () => {
+    const reader = cartReader([priced("-", "-"), priced("-", "-"), priced("$5.00", "$15.00 USD")]);
+    const candidates = await extractOshcutProductionOffers(reader, 3, 5_000);
+    expect(candidates.map((candidate) => [candidate.unitPriceUsd.value, candidate.totalPriceUsd.value])).toEqual([[5, 15]]);
+    expect(reader.reads()).toBe(3);
+  });
+
+  it("never parses '-': a price still pending at the bound stops in selector drift", async () => {
+    await expect(extractOshcutProductionOffers(cartReader([priced("-", "-")]), 3, 300)).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: { terminalState: "selector_drift", reason: "oshcut_price_pending", providerMutationPossible: true },
     });
   });
 
   it.each([
-    ["a non-USD currency", { currency: "EUR" }],
-    ["a missing currency", { currency: "" }],
-    ["a total that disagrees with unit times quantity", { total: "$1,300.00" }],
-    ["another quantity", { quantity: "2" }],
-    ["a duplicate option id", { id: "standard" }],
-    ["an unpriced option", { unit: "Request quote" }],
-  ])("withholds every offer when one card carries %s", async (_name, change) => {
-    const second = { ...STANDARD, id: "second", ...change };
-    expect(await extractOshcutProductionOffers(cardReader([STANDARD, second]), 3)).toEqual([]);
+    ["no price cells", { single: [], extended: [] }],
+    ["more than one cart row", { single: ["$5.00", "$6.00"], extended: ["$15.00", "$18.00"] }],
+    ["a non-USD amount", priced("€5.00", "€15.00")],
+    ["a currency code other than USD", priced("$5.00 CAD", "$15.00 CAD")],
+    ["an extended price that disagrees with single times quantity", priced("$5.00", "$15.02")],
+    ["an extended price for another quantity", priced("$5.00", "$5.00")],
+    ["a non-price text", priced("Request quote", "$15.00")],
+  ])("withholds the offer for %s", async (_name, frame) => {
+    expect(await extractOshcutProductionOffers(cartReader([frame]), 3, 0)).toEqual([]);
+  });
+
+  it("accepts a one-cent rounding difference", async () => {
+    const candidates = await extractOshcutProductionOffers(cartReader([priced("$3.33", "$10.00")]), 3, 0);
+    expect(candidates).toHaveLength(1);
+  });
+});
+
+/** A configuration capability whose clicks succeed only for the listed field/text pairs. */
+function cartConfiguration(available: string[]): ProviderPortalConfigurationCapability & { clicks: string[] } {
+  const clicks: string[] = [];
+  return {
+    fill: vi.fn(async () => false),
+    select: vi.fn(async () => false),
+    click: async (field, text) => {
+      const key = text === undefined ? field : `${field}:${text}`;
+      if (!available.includes(key)) return false;
+      clicks.push(key);
+      return true;
+    },
+    clicks,
+  };
+}
+
+const ALL_CONTROLS = ["openMaterial", "materialFilter:6061 T6 Aluminum", 'thicknessFilter:0.125"'];
+
+describe("OSH Cut cart configuration (OVD-677)", () => {
+  it("opens the material slideover and checks the reviewed material and thickness filters", async () => {
+    const configuration = cartConfiguration(ALL_CONTROLS);
+    await configureOshcutCart(configuration, { requirement: OSHCUT_REQUIREMENT } as VendorQuoteAdapterInput, 0);
+    expect(configuration.clicks).toEqual(ALL_CONTROLS);
+  });
+
+  it.each([
+    ["the Select material link", "openMaterial", "oshcut_material_control_missing"],
+    ["the 6061 T6 Aluminum filter", "materialFilter:6061 T6 Aluminum", "oshcut_material_option_missing"],
+    ["the requested thickness filter", 'thicknessFilter:0.125"', "oshcut_thickness_option_missing"],
+  ])("stops in selector drift when %s is missing", async (_name, missing, reason) => {
+    const configuration = cartConfiguration(ALL_CONTROLS.filter((control) => control !== missing));
+    await expect(configureOshcutCart(configuration, { requirement: OSHCUT_REQUIREMENT } as VendorQuoteAdapterInput, 0))
+      .rejects.toMatchObject({ payload: { terminalState: "selector_drift", reason, providerMutationPossible: true } });
+  });
+
+  it("stops in configuration required, clicking nothing, when the thickness is unknown", async () => {
+    const configuration = cartConfiguration(ALL_CONTROLS);
+    const requirement = { ...OSHCUT_REQUIREMENT, spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet" } };
+    await expect(configureOshcutCart(configuration, { requirement } as unknown as VendorQuoteAdapterInput, 0))
+      .rejects.toMatchObject({ payload: { terminalState: "configuration_required", reason: "oshcut_thickness_unknown" } });
+    expect(configuration.clicks).toEqual([]);
+  });
+});
+
+describe("OSH Cut portal state (OVD-677)", () => {
+  const snapshot = (bodyText: string, url = "https://app.oshcut.com/cart") => ({ url, bodyText, passwordInputCount: 0 });
+
+  it.each([
+    ["the logged-out header Sign In control", "OSH Cut\nSign In\nUpload parts", "login_required"],
+    ["session expired text", "Your session expired", "login_required"],
+    ["a priced cart part", "Design check: Passed", "ready"],
+    ["an unpriced part", "part.dxf\nSelect material\nAll parts need selected material and units to checkout", "configuration_required"],
+    ["the open material slideover heading", "Select Material - part.dxf\n6061 T6 Aluminum\nSign out", "ready"],
+  ])("classifies %s", (_name, bodyText, state) => {
+    expect(classifyOshcutPortalState(snapshot(bodyText, "https://app.oshcut.com/cart/O-1f0e/P-2a3b"))).toBe(state);
+  });
+
+  it("refuses any other host", () => {
+    expect(classifyOshcutPortalState(snapshot("Upload parts", "https://www.oshcut.com/cart"))).toBe("unexpected_origin");
+  });
+
+  it("routes every leg to the cart, never /login", () => {
+    expect(Object.values(buildOshcutProductionPortalDefinition().routes)).toEqual([
+      "https://app.oshcut.com/cart",
+      "https://app.oshcut.com/cart",
+      "https://app.oshcut.com/cart",
+    ]);
   });
 });
 

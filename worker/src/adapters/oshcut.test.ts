@@ -24,6 +24,7 @@ import {
   assessOshcutEligibility,
   OSHCUT_ENVELOPE_REVISION,
   OSHCUT_PROVIDER_ENVELOPE,
+  resolveOshcutThicknessLabel,
   OshcutAdapter,
 } from "./oshcut";
 
@@ -84,6 +85,7 @@ function makeInput(
       spec_snapshot: {
         process: "Laser Cutting",
         geometryFamily: "flat_sheet",
+        sheetThicknessInch: 0.125,
       },
     },
     ...overrides,
@@ -191,7 +193,7 @@ describe("OSH Cut provider envelope", () => {
         productionAdmissionRequired: true,
         actionTimeDisclosurePermitRequired: true,
         immediatePreflightRequired: true,
-        currentProductionState: "default_off_pending_reviewed_dispatch_envelope_and_admission",
+        currentProductionState: "default_off_pending_admission",
       },
       guarantees: {
         quoteOnly: true,
@@ -460,7 +462,7 @@ describe("OshcutAdapter", () => {
       unitPriceUsd: 4.1,
       totalPriceUsd: 102.5,
       leadTimeBusinessDays: 3,
-      quoteUrl: "https://app.oshcut.com/",
+      quoteUrl: "https://app.oshcut.com/cart",
       dfmIssues: [],
       notes: [],
       artifacts: [],
@@ -475,6 +477,49 @@ describe("OshcutAdapter", () => {
       totalPriceUsd: 102.5,
     });
     expect(delegateQuote).toHaveBeenCalledExactlyOnceWith(input);
+  });
+
+  it.each([
+    ["no thickness", undefined],
+    ["a millimetre-scale number", 3.175],
+    ["more than three decimals", 0.0625],
+    ["a string", "0.125"],
+  ])("ends an authorized package with %s as configuration required before the production delegate", async (_name, thickness) => {
+    const delegateQuote = vi.fn();
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    const base = authorizedProductionInput();
+    const input = {
+      ...base,
+      requirement: {
+        ...base.requirement,
+        spec_snapshot: { process: "Laser Cutting", geometryFamily: "flat_sheet", sheetThicknessInch: thickness },
+      },
+    } as VendorQuoteAdapterInput;
+
+    await expect(adapter.quote(input)).resolves.toMatchObject({
+      status: "manual_vendor_followup",
+      rawPayload: {
+        reasonCode: "thickness_confirmation_required",
+        terminalState: "configuration_required",
+        providerInteractionAttempted: false,
+        providerMutationPossible: false,
+      },
+    });
+    expect(delegateQuote).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [0.125, '0.125"'],
+    [0.063, '0.063"'],
+    [0.5, '0.500"'],
+    [0.01, null],
+    [1.5, null],
+    [Number.NaN, null],
+  ])("maps a recorded thickness of %s inch to the reviewed filter label %s", (thickness, label) => {
+    const input = makeInput({
+      requirement: { ...makeInput().requirement, spec_snapshot: { sheetThicknessInch: thickness } },
+    });
+    expect(resolveOshcutThicknessLabel(input)).toBe(label);
   });
 
   it("stops an aborted authorized run before the production delegate (OVD-748)", async () => {
