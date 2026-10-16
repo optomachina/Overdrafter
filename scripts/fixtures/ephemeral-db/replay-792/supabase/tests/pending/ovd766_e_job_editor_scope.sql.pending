@@ -1,0 +1,3 @@
+-- Pending pgTAP for ovd-766-e (runs once the draft is applied).
+-- [header-only snapshot of supabase/tests/pending/ovd766_e_job_editor_scope.sql.pending at d2b7981b (#792); body omitted]
+select 1;

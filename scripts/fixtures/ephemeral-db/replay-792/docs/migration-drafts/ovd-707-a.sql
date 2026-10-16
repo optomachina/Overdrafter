@@ -1,0 +1,59 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-707 (PR 1 of 3, group a): providers as data. Provider definitions,
+-- their append-only revisions and audit log, and the admin transition RPCs.
+--
+-- DRAFT. NOT APPLIED. Do not copy into supabase/migrations/ or run against any
+-- database outside a Blaine-approved migration window. When approved, it ships
+-- as ONE migration (next timestamp from `npm run migration:new`) together with
+-- ovd-707-b-seed.sql, and supabase/tests/pending/ovd707_*.sql.pending are
+-- renamed to supabase/tests/ovd707_*.sql in the same change.
+-- Rollback: docs/migration-drafts/ovd-707-a.rollback.sql (run the seed
+-- rollback, ovd-707-b-seed.rollback.sql, first).
+-- Design notes and open questions: docs/migration-drafts/ovd-707-notes.md.
+--
+-- Requires (applied): 20261013043100_ovd722_provider_kill_switch.sql
+-- (private.provider_kill_switch_engaged_text) and the auth helpers
+-- public.require_verified_auth(), public.is_platform_admin(),
+-- public.current_user_has_aal2() and private.platform_admin_emails.
+--
+-- Transaction: no begin/commit of its own. The migration runner wraps it in
+-- one transaction. By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Expand only: every object here is new. Nothing reads these tables yet. The
+-- worker keeps resolving providers from provider-registry.v1.json until PR 2,
+-- and the kill switches (OVD-722/771) stay separate and always win: the only
+-- service read below excludes every provider whose switch, or the global
+-- switch, is engaged.
+--
+-- Lifecycle (every transition is one SECURITY DEFINER RPC that writes exactly
+-- one audit row in the same transaction):
+--   create              -> draft
+--   update draft        draft -> draft
+--   submit              draft -> pending_review      (snapshots a revision)
+--   approve             pending_review -> approved   (four-eyes, see below)
+--   reject              pending_review -> draft
+--   record dry run      approved -> approved         (four-eyes; records a check result)
+--   activate            approved | suspended -> active (four-eyes)
+--   suspend             active -> suspended          (single admin, never blocked)
+--   reopen              approved | suspended -> draft
+--   retire              draft | approved | active | suspended -> retired
+-- Four-eyes (ovd-707-notes.md, Q2): the approver, the admin who records the
+-- dry run and the admin who activates must not be one of the revision's
+-- contributors (its submitter and everyone who created or edited the draft
+-- since the last approval), and the activator must not be the admin who
+-- recorded the dry run. Violations raise 42501 four_eyes_required. The one
+-- exception is the single-admin override (Q1): p_override = true, the caller's
+-- email is in private.provider_definition_override_emails (Blaine only), the
+-- session is AAL2 (as for every RPC here) and the reason is at least 10
+-- characters. The override is audited as approve_override,
+-- record_dry_run_override or activate_override, and an approval override is
+-- also recorded on the revision.
+
+-- =====================================================================
+-- Types and validation helpers
+-- =====================================================================
+-- [header-only snapshot of docs/migration-drafts/ovd-707-a.sql at d2b7981b (#792); body omitted]
+select 1;

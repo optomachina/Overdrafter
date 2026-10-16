@@ -1,0 +1,14 @@
+{
+  "schema": "ovd847.rls-deny-baseline.v1",
+  "description": "Fixture baseline.",
+  "entries": [
+    {
+      "table": "public.legacy_items",
+      "policy": null
+    },
+    {
+      "table": "public.legacy_items",
+      "policy": "legacy_items_select_own"
+    }
+  ]
+}
