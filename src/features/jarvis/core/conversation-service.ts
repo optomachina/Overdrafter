@@ -85,7 +85,12 @@ export class ConversationService {
     return this.admit(adapter, message, settings);
   }
 
-  /** Graph events fan out to the web thread (always) and the run's originating channel. */
+  /**
+   * Graph events fan out to the web thread (always) and the run's originating channel. Replays are
+   * safe: the message row is keyed on the event's (runId, seq), decision writes are idempotent, and
+   * each (message, channel) delivery is claimed once, so a redelivered event or a retry after a
+   * partial fan-out never sends a channel the same message twice.
+   */
   async handleGraphEvent(event: GraphEvent): Promise<void> {
     const origin = await this.deps.repo.findRunOrigin(event.runId);
     if (!origin) return;
@@ -156,6 +161,7 @@ export class ConversationService {
       kind: message.action?.kind ?? "text",
       body: { text: message.text, action: message.action ?? null },
       graphRunId: null,
+      dedupeKey: null,
     });
     const origin = { userId: admitted.userId, conversationId: conversation.id, channel: adapter.id };
     return { ...admitted, origin, inbound };
@@ -236,6 +242,7 @@ export class ConversationService {
       kind: event.type,
       body: event,
       graphRunId: event.runId,
+      dedupeKey: `out:${event.runId}:${event.type === "run_accepted" ? "accepted" : event.seq}`,
     });
   }
 

@@ -27,6 +27,7 @@ export class InMemoryJarvisRepo implements JarvisRepo {
   readonly channelIdentities = new Map<string, ChannelIdentityRow>();
   readonly linkCodes = new Map<string, LinkCodeRow>();
   readonly messages: MessageRow[] = [];
+  private readonly messagesByDedupeKey = new Map<string, MessageRow>();
   readonly decisions = new Map<string, DecisionRow>();
   readonly controlCommands = new Map<string, ControlCommandRow>();
   readonly inboundEvents = new Map<string, InboundEventRow>();
@@ -89,8 +90,11 @@ export class InMemoryJarvisRepo implements JarvisRepo {
   }
 
   async appendMessage(message: Omit<MessageRow, "id">) {
+    const existing = message.dedupeKey === null ? undefined : this.messagesByDedupeKey.get(message.dedupeKey);
+    if (existing) return existing;
     const row = { ...message, id: this.nextId("msg") };
     this.messages.push(row);
+    if (row.dedupeKey !== null) this.messagesByDedupeKey.set(row.dedupeKey, row);
     return row;
   }
 

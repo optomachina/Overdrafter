@@ -37,6 +37,11 @@ export type MessageRow = {
   kind: string;
   body: unknown;
   graphRunId: string | null;
+  /**
+   * Event identity for idempotent appends: `out:<run_id>:<seq>` for graph events, so a replayed
+   * event maps to the row it already produced. Needs UNIQUE (dedupe_key) in the OVD-797 draft.
+   */
+  dedupeKey: string | null;
 };
 
 export type DecisionResolution = "chosen" | "skipped_best_guess" | "timeout_best_guess";
@@ -91,6 +96,7 @@ export interface JarvisRepo {
   consumeLinkCode(codeHash: string, channel: ChannelId, now: string): Promise<LinkCodeRow | null>;
   getAccessGrant(userId: UserId): Promise<AccessGrantRow | null>;
   getOrCreateConversation(userId: UserId): Promise<ConversationRow>;
+  /** Atomic insert-or-get on UNIQUE (dedupe_key) when it is set: a conflict returns the existing row. */
   appendMessage(message: Omit<MessageRow, "id">): Promise<MessageRow>;
   attachRun(messageId: string, runId: string): Promise<void>;
   findRunOrigin(runId: string): Promise<RunOrigin | null>;

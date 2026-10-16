@@ -267,6 +267,25 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(throwing.send).toHaveBeenCalledTimes(3);
   });
 
+  it("CS-8b a replayed graph event (same runId + seq) is stored and sent once", async () => {
+    const h = await linkedOwner({ test: { sendResults: [{ ok: true }, { ok: false, error: "503" }] } });
+    await h.service.handleInbound("test", request());
+    const decision = decisionEvent("run-1");
+    const status = statusEvent("run-1", "Modeling the plate");
+    for (const event of [decision, status, decision, status, { ...status }]) await h.service.handleGraphEvent(event);
+
+    const outbound = h.repo.messages.filter((message) => message.direction === "out");
+    expect(outbound.map((message) => message.kind)).toEqual(["run_accepted", "decision_requested", "status"]);
+    expect(h.repo.decisions.size).toBe(1);
+    expect(h.test.sent.map((send) => send.message.text)).toEqual(["Got it. Working on it.", "Which material?", "Modeling the plate"]);
+    expect(h.web.sent).toHaveLength(3);
+    expect(h.logs.filter((entry) => entry.outcome === "outbound_duplicate")).toHaveLength(6);
+
+    // A different seq is a different event, even with the same body.
+    await h.service.handleGraphEvent({ ...status, seq: status.seq + 1000 });
+    expect(h.web.sent).toHaveLength(4);
+  });
+
   it("CS-9 adding TestAdapter2 needs only a registry line (no core diff)", async () => {
     const testAdapter2 = createTestAdapter({ id: "test2" });
     const h = await linkedOwner({ extraAdapters: [testAdapter2] });

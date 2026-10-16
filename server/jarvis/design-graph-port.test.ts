@@ -72,12 +72,9 @@ async function setup() {
     now: () => new Date(idleClock.now()),
     log: () => undefined,
   });
-  const fed = new Map<string, number>();
-  /** Forwards graph events the core has not seen yet, in order, as the production relay would. */
+  /** Replays the run's whole event log every time; (runId, seq) dedupe makes that safe. */
   const relay = async (runId: string) => {
-    const events = graph.getEvents(runId);
-    for (const event of events.slice(fed.get(runId) ?? 0)) await service.handleGraphEvent(event);
-    fed.set(runId, events.length);
+    for (const event of graph.getEvents(runId)) await service.handleGraphEvent(event);
   };
   return { graph, port, repo, test, service, relay };
 }
@@ -105,6 +102,9 @@ describe("Jarvis DesignGraph port against the OVD-801 graph (OVD-798 M5)", () =>
 
     expect(h.repo.decisions.get(row!.id)).toMatchObject({ resolution: "skipped_best_guess", chosen: "6061-T6 aluminum", resolvedBy: "blaine" });
     expect(h.repo.decisions.get(row!.id)?.rationale).toContain("cheapest, most machinable default");
+    const events = h.graph.getEvents("run-1");
+    expect(h.repo.messages.filter((message) => message.direction === "out")).toHaveLength(events.length + 1);
+    expect(h.test.sent).toHaveLength(events.length + 1);
     const last = h.test.sent.at(-1)?.message;
     expect(last?.text).toMatch(/^Done: 4-inch/);
     expect(last?.model3dUrl).toMatch(/plate-101\.6mm\.glb$/);
