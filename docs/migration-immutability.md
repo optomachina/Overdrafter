@@ -1,0 +1,98 @@
+# Migration immutability (OVD-871)
+
+Applied migrations are history, so `supabase/migrations/` is append-only.
+`scripts/check-migration-immutability.mjs` checks every PR from
+`npm run test:portable-node`, which CI already runs (report mode). A dedicated
+`migration-immutability` CI job is drafted for a card (see "CI" below).
+
+## Rules
+
+The checker compares the base (`HEAD^1`) with the head (`HEAD`) using
+`git diff --raw -C100% --find-copies-harder` under `supabase/migrations/`.
+
+- Only git status `A` (added) passes.
+- `M` (modified), `D` (deleted), `R` (renamed), `C` (copied) and `T` (type
+  change) are violations. That includes a rename that keeps the bytes (`R100`),
+  an exact copy of an existing migration, and a mode-only change (for example
+  `chmod +x`, reported as `mode_changed`). A rename with edits shows up as a
+  delete plus an add; the delete is the violation.
+- Each added file must be named `<14-digit timestamp>_<name>.sql` directly
+  under `supabase/migrations/` (`invalid_name` otherwise).
+- Each added file's timestamp must sort strictly after the newest timestamp at
+  the base (`backdated` otherwise), and two added files cannot share one
+  (`duplicate_timestamp`). If `main` gains a newer migration while a PR is open,
+  the PR has to rename its file with a later timestamp.
+
+To change what an applied migration does, add a new, later migration.
+
+## Override: `migration-edit-approved`
+
+The label waives the violations only when all of these hold, per the PR
+timeline API (`GET /repos/{owner}/{repo}/issues/{n}/timeline`):
+
+- the label's most recent `labeled` / `unlabeled` event is `labeled`;
+- that event's actor is Blaine (GitHub login `optomachina`, the checker's
+  `DEFAULT_APPROVER`, `--approver` to override in tests);
+- it was created after the current head was pushed. The push time is the later
+  of the `pull_request` event's `updated_at` (set when the head was pushed, and
+  kept on re-runs) and any `head_ref_force_pushed` / `head_ref_restored` event.
+
+A new push voids the label: Blaine removes and re-applies it, then re-runs the
+job. A label from anyone else, or one applied before the latest push, is
+ignored. Outside `pull_request` runs, or when the timeline cannot be fetched,
+there is no override (fail closed).
+
+A waiver keeps the findings in the report (prefixed `WAIVED`), sets `ok` to
+true and is reported as `gate_loosening` (`override_used`).
+
+## gate_loosening
+
+Report only: it never changes `ok` or the exit code. It needs a Grok Bot
+countersign on top of Blaine's card. Reasons:
+
+- `override_used`: the label waived findings.
+- `checker_changed` / `checker_removed`: the script or its node:test wrapper
+  (`scripts/check-migration-immutability.node-test.mjs`) is edited or deleted.
+- `ci_job_changed` / `ci_job_removed`: the `migration-immutability` job or a
+  workflow line naming it changed or is gone.
+
+## CI
+
+### Today: `npm run test:portable-node`
+
+`scripts/check-migration-immutability.node-test.mjs` is part of
+`test:portable-node`, which the CI `test` job runs with full history. It
+compares `HEAD^1` with `HEAD` (on a `pull_request` merge commit, `HEAD^1` is
+the base), copies the checker from `HEAD^1` into a temp directory and runs that
+copy, so a PR cannot edit the checker to skip itself. When the base has no copy
+yet, the head copy runs. When `HEAD^1` does not exist (shallow clone, root
+commit) the test is skipped.
+
+Report mode: the report is printed as node:test diagnostics and findings never
+fail the test; only a checker that cannot run does. There is no PR timeline
+here, so the `migration-edit-approved` override is never applied (`missing`).
+Locally `HEAD^1` is just the parent commit; use `npm run
+migrations:immutability` to compare a branch with `origin/main`.
+
+### Card item: `migration-immutability` job in `ci.yml`
+
+The dedicated job is not in `.github/workflows/ci.yml`; adding it is a card
+item for Blaine (workflow edits are out of agent scope). The proposed job is
+`scripts/fixtures/migration-immutability/ci-job.draft.yml`, and the vitest
+suite runs its step script so the draft stays working. It checks out the merge
+commit with `fetch-depth: 2`, runs the base copy of the checker the same way,
+fetches the PR timeline with `gh api` so the override can apply, uploads the
+JSON report (`ovd871.migration-immutability.v1`) as the
+`migration-immutability` artifact and writes the human report to the step
+summary. It has `continue-on-error: true`, does not pass `--enforce` and is not
+in the `ci` aggregate. Once it lands, the node:test wrapper can be dropped.
+Enforcing it (adding it to `ci` and to required checks) is a separate step that
+needs Blaine.
+
+## Local use
+
+```sh
+npm run migrations:immutability
+node scripts/check-migration-immutability.mjs --base-ref origin/main --head-ref HEAD
+node scripts/check-migration-immutability.mjs --base-ref origin/main --head-ref HEAD --json --enforce
+```

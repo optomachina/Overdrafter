@@ -1,0 +1,87 @@
+# OVD-871 card draft: the proposed migration-immutability job for
+# .github/workflows/ci.yml (under jobs:). Not wired into CI; see
+# docs/migration-immutability.md. The vitest suite runs this job's step script.
+jobs:
+  # OVD-871: supabase/migrations is append-only (docs/migration-immutability.md).
+  # Only added files with a timestamp after the newest base migration pass;
+  # modified, deleted, renamed, copied and mode-only changes are violations.
+  # Report mode for now: the job never fails the build and is not in the `ci`
+  # aggregate below. Enforce later by passing --enforce and adding it to `ci`.
+  # The checker runs from the base copy (HEAD^1), so a PR cannot edit it to
+  # skip itself. When the base has no copy yet, the head copy runs.
+  # The migration-edit-approved label waives violations only when the PR
+  # timeline shows Blaine applied it after the head was pushed; that waiver and
+  # edits to the checker or this job are reported as gate_loosening.
+  migration-immutability:
+    name: migration-immutability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      # pull_request checks out the PR merged into the base tip, so HEAD^1 is
+      # the base as merged; push and merge_group commits have their base there too.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check migration immutability
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # The synchronize/opened payload's updated_at is at or after the push
+          # of this head, and re-runs keep the same payload.
+          PR_HEAD_PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/check-migration-immutability.mjs"
+          file=scripts/check-migration-immutability.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$checker"
+            echo "Checker taken from: base"
+          else
+            cp "$file" "$checker"
+            echo "Checker taken from: head"
+          fi
+          override=()
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${PR_NUMBER:-}" ]; then
+            timeline="$RUNNER_TEMP/migration-immutability-timeline.ndjson"
+            if gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline" --jq '.[]' > "$timeline" 2> /dev/null; then
+              override=(--timeline "$timeline")
+            else
+              override=(--timeline-error "gh api timeline request failed")
+            fi
+            override+=(--head-sha "$PR_HEAD_SHA" --head-pushed-at "$PR_HEAD_PUSHED_AT")
+          fi
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD "${override[@]}" \
+            --json-out "$RUNNER_TEMP/migration-immutability.json" | tee "$RUNNER_TEMP/migration-immutability.txt"
+          {
+            echo '### Migration immutability (report mode)'
+            # Report only (Plan §6): gate_loosening never fails this job.
+            if grep -q '^GATE LOOSENING' "$RUNNER_TEMP/migration-immutability.txt"; then
+              echo "**GATE LOOSENING: needs Grok Bot countersign + Blaine's card.**"
+              echo
+            fi
+            echo '```'
+            cat "$RUNNER_TEMP/migration-immutability.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload migration immutability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-immutability
+          path: ${{ runner.temp }}/migration-immutability.json
+          if-no-files-found: warn

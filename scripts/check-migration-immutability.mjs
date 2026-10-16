@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+/**
+ * OVD-871: migration immutability check.
+ *
+ * Applied migrations are history. Under supabase/migrations/ a PR may only add
+ * files (git status A). Everything else is a violation: modified (M), deleted
+ * (D), renamed (R, including a rename that keeps the bytes) and copied (C)
+ * files, mode-only changes and type changes. Each added file must be named
+ * <14-digit timestamp>_<name>.sql and its timestamp must sort after the newest
+ * timestamp at the base, so a new file cannot be backdated into history.
+ * The rules are documented in docs/migration-immutability.md.
+ *
+ * Override: the migration-edit-approved label waives the violations only when
+ * the PR timeline shows the approver (Blaine, GitHub login optomachina by
+ * default) applied it after the current head SHA was pushed. A new push voids
+ * it. A waiver is reported as gate_loosening.
+ *
+ * Usage:
+ *   --base-ref <ref> --head-ref <ref>  refs to compare (CI: HEAD^1 and HEAD).
+ *   --timeline <file>                  PR timeline events (JSON array, pages of
+ *                                      arrays, or one JSON object per line).
+ *   --timeline-error <message>         the timeline could not be fetched.
+ *   --head-sha <sha>                   the PR head SHA being checked.
+ *   --head-pushed-at <iso>             when that head was pushed (CI: the
+ *                                      pull_request event's updated_at).
+ *   --approver <login>                 override approver (default optomachina).
+ *
+ * Report mode is the default: findings are printed and the exit code is 0.
+ * --enforce exits 1 when there are unwaived findings. --json prints the JSON
+ * report on stdout instead of the human report; --json-out <file> writes it.
+ *
+ * gate_loosening (report only, never changes ok or the exit code) also covers
+ * edits to this script, its node:test wrapper or its CI job. CI runs the base
+ * copy of this script (via `npm run test:portable-node` today), so a PR cannot
+ * edit the checker to skip itself. The script reads git and the
+ * timeline file it is given; it never calls the network.
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+export const MIGRATIONS_DIR = "supabase/migrations";
+export const REPORT_SCHEMA = "ovd871.migration-immutability.v1";
+export const CHECKER_PATH = "scripts/check-migration-immutability.mjs";
+/** Runs the checker inside `npm run test:portable-node`. */
+export const NODE_TEST_PATH = "scripts/check-migration-immutability.node-test.mjs";
+export const WORKFLOWS_DIR = ".github/workflows";
+export const CI_JOB = "migration-immutability";
+export const OVERRIDE_LABEL = "migration-edit-approved";
+export const DEFAULT_APPROVER = "optomachina";
+export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
+export const MIGRATION_NAME = /^(\d{14})_[^/]+\.sql$/;
+/** Timeline events that move the head without a new SHA of its own. */
+const HEAD_MOVE_EVENTS = new Set(["head_ref_force_pushed", "head_ref_restored"]);
+
+const STATUS_KIND = { M: "modified", D: "deleted", R: "renamed", C: "copied", T: "type_changed" };
+
+// ---------------------------------------------------------------------------
+// Status rule
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse `git diff --raw -z` output into
+ * [{ status, score, oldMode, newMode, oldBlob, newBlob, path, oldPath? }].
+ * R and C entries carry two paths (source, then destination).
+ */
+export function parseRawDiff(raw) {
+  const parts = raw.split("\0");
+  const entries = [];
+  let i = 0;
+  while (i < parts.length) {
+    const head = parts[i];
+    if (!head.startsWith(":")) { i += 1; continue; }
+    const [oldMode, newMode, oldBlob, newBlob, code] = head.slice(1).split(" ");
+    const status = code[0];
+    const score = code.length > 1 ? Number(code.slice(1)) : null;
+    if (status === "R" || status === "C") {
+      entries.push({ status, score, oldMode, newMode, oldBlob, newBlob, oldPath: parts[i + 1], path: parts[i + 2] });
+      i += 3;
+    } else {
+      entries.push({ status, score, oldMode, newMode, oldBlob, newBlob, path: parts[i + 1] });
+      i += 2;
+    }
+  }
+  return entries;
+}
+
+const inMigrations = (path) => typeof path === "string" && path.startsWith(`${MIGRATIONS_DIR}/`);
+const baseName = (path) => path.slice(MIGRATIONS_DIR.length + 1);
+
+export function migrationTimestamp(path) {
+  const match = MIGRATION_NAME.exec(baseName(path));
+  return match ? match[1] : null;
+}
+
+function statusFinding(entry) {
+  const { status, path, oldPath } = entry;
+  const kind = status === "M" && entry.oldBlob === entry.newBlob && entry.oldMode !== entry.newMode
+    ? "mode_changed"
+    : STATUS_KIND[status] ?? "unknown_status";
+  const finding = { kind, status, path };
+  if (oldPath) finding.oldPath = oldPath;
+  const detail = {
+    modified: `${path} is modified.`,
+    mode_changed: `${path} changes mode ${entry.oldMode} -> ${entry.newMode} (content unchanged).`,
+    deleted: `${path} is deleted.`,
+    renamed: entry.score === 100 ? `${oldPath} is renamed to ${path} (content unchanged).` : `${oldPath} is renamed to ${path} and edited.`,
+    copied: `${path} is a copy of ${oldPath}.`,
+    type_changed: `${path} changes file type.`,
+    unknown_status: `${path} has git status ${status}.`,
+  }[kind];
+  finding.message = `${detail} Migrations are append-only: add a new, later migration instead.`;
+  return finding;
+}
+
+/** Timestamp and naming findings for added files, against the newest base timestamp. */
+function addedFindings(added, newestBase) {
+  const findings = [];
+  const seen = new Map();
+  for (const path of [...added].sort(compareCodeUnits)) {
+    const stamp = migrationTimestamp(path);
+    if (stamp == null) {
+      findings.push({ kind: "invalid_name", status: "A", path, message: `${path} is not named <14-digit timestamp>_<name>.sql directly under ${MIGRATIONS_DIR}/.` });
+      continue;
+    }
+    if (newestBase != null && stamp <= newestBase) {
+      findings.push({ kind: "backdated", status: "A", path, timestamp: stamp, newestBaseTimestamp: newestBase, message: `${path} has timestamp ${stamp}, not after the newest base migration ${newestBase}. New migrations cannot be backdated; rename it with a later timestamp.` });
+    }
+    if (seen.has(stamp)) {
+      findings.push({ kind: "duplicate_timestamp", status: "A", path, timestamp: stamp, message: `${path} reuses timestamp ${stamp} from ${seen.get(stamp)}.` });
+    } else {
+      seen.set(stamp, path);
+    }
+  }
+  return findings;
+}
+
+/**
+ * Status rule plus backdating. entries: parseRawDiff output limited to the
+ * migrations dir. baseFiles: every path under it at the base.
+ */
+export function evaluateStatus({ entries, baseFiles }) {
+  const findings = [];
+  const added = [];
+  for (const entry of entries) {
+    if (!inMigrations(entry.path) && !inMigrations(entry.oldPath)) continue;
+    if (entry.status === "A") added.push(entry.path);
+    else findings.push(statusFinding(entry));
+  }
+  const stamps = baseFiles.map(migrationTimestamp).filter(Boolean).sort(compareCodeUnits);
+  const newestBaseTimestamp = stamps.at(-1) ?? null;
+  findings.push(...addedFindings(added, newestBaseTimestamp));
+  return { findings, added: added.sort(compareCodeUnits), newestBaseTimestamp };
+}
+
+// ---------------------------------------------------------------------------
+// Override (migration-edit-approved, applied by the approver after the push)
+// ---------------------------------------------------------------------------
+
+/** Accept a JSON array, pages of arrays (gh --paginate --slurp) or NDJSON. */
+export function parseTimeline(text) {
+  const trimmed = text.trim();
+  if (trimmed === "") return [];
+  if (trimmed.startsWith("[")) return [JSON.parse(trimmed)].flat(2);
+  return trimmed.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+}
+
+const time = (iso) => {
+  const ms = Date.parse(iso ?? "");
+  return Number.isNaN(ms) ? null : ms;
+};
+
+/**
+ * Decide whether the override label counts. It counts only when:
+ * - the label is on the PR now (its last labeled/unlabeled event is labeled);
+ * - that last labeled event's actor is the approver (case-insensitive);
+ * - it was created strictly after the head was pushed. The push time is the
+ *   later of headPushedAt and any force-push / restore event in the timeline,
+ *   so a new push (or force push back to an older SHA) voids the label.
+ * Fails closed: no timeline, no head SHA or no push time means no override.
+ */
+export function evaluateOverride({ timeline = null, timelineError = null, headSha = null, headPushedAt = null, approver = DEFAULT_APPROVER, label = OVERRIDE_LABEL }) {
+  const base = { label, approver, headSha, headPushedAt: null, applied: false };
+  if (timelineError) return { ...base, status: "unavailable", reason: `timeline unavailable: ${timelineError}` };
+  if (timeline == null) return { ...base, status: "unavailable", reason: "no PR timeline (not a pull_request run)" };
+  if (!headSha) return { ...base, status: "unavailable", reason: "no PR head SHA given" };
+  if (time(headPushedAt) == null) return { ...base, status: "unavailable", reason: "no head push time given" };
+  const pushedAt = Math.max(time(headPushedAt), ...timeline.filter((event) => HEAD_MOVE_EVENTS.has(event?.event))
+    .map((event) => time(event.created_at)).filter((ms) => ms != null));
+  const pushed = { ...base, headPushedAt: new Date(pushedAt).toISOString() };
+  const labelEvents = timeline.filter((event) => (event?.event === "labeled" || event?.event === "unlabeled") && event.label?.name === label);
+  const last = labelEvents.reduce((latest, event) => (latest == null || (time(event.created_at) ?? 0) >= (time(latest.created_at) ?? 0) ? event : latest), null);
+  if (last == null || last.event !== "labeled") return { ...pushed, status: "not_applied", reason: `${label} is not on the PR` };
+  const actor = last.actor?.login ?? null;
+  const event = { actor, created_at: last.created_at };
+  if (actor == null || actor.toLowerCase() !== approver.toLowerCase()) {
+    return { ...pushed, event, status: "ignored", reason: `${label} was applied by ${actor ?? "an unknown actor"}, not ${approver}` };
+  }
+  if ((time(last.created_at) ?? -Infinity) <= pushedAt) {
+    return { ...pushed, event, status: "ignored", reason: `${label} was applied at ${last.created_at}, before the head ${headSha} was pushed (${pushed.headPushedAt}); a new push voids it` };
+  }
+  return { ...pushed, event, applied: true, status: "approved", reason: `${approver} applied ${label} at ${last.created_at}, after the head ${headSha} was pushed (${pushed.headPushedAt})` };
+}
+
+// ---------------------------------------------------------------------------
+// Gate loosening (Plan §6): base-to-head changes that weaken this gate
+// ---------------------------------------------------------------------------
+
+/**
+ * The checker's CI surface in a workflow file: the migration-immutability job
+ * block plus any non-comment line elsewhere that names it (needs:, other
+ * steps). Returns null when the workflow does not mention the checker at all.
+ */
+export function checkerWorkflowSurface(text) {
+  if (text == null) return null;
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => new RegExp(String.raw`^ {2}${CI_JOB}:\s*$`).test(line));
+  let end = start;
+  if (start !== -1) {
+    end = start + 1;
+    while (end < lines.length && !/^ {0,2}\S/.test(lines[end])) end += 1;
+  }
+  const job = start === -1 ? null : lines.slice(start, end).join("\n").trimEnd();
+  const mentions = lines.filter((line, i) => (start === -1 || i < start || i >= end) && !/^\s*#/.test(line) && line.includes(CI_JOB))
+    .map((line) => line.trim());
+  return job == null && mentions.length === 0 ? null : { job, mentions };
+}
+
+const sameSurface = (a, b) => a.job === b.job && JSON.stringify(a.mentions) === JSON.stringify(b.mentions);
+
+/**
+ * Report-only gate_loosening classification. Any of these needs a Grok Bot
+ * countersign on top of Blaine's card:
+ * - the override label waives violations;
+ * - the checker script or its node:test wrapper, or its CI job / workflow
+ *   references, changed or were removed.
+ * A file the base does not have is being introduced, not loosened.
+ * gateFiles: [{ path, kind: "script" | "workflow", base: string|null, head: string|null }].
+ */
+export function detectGateLoosening({ override = null, waived = [], gateFiles = [] }) {
+  const reasons = [];
+  if (override?.applied && waived.length > 0) {
+    reasons.push({ kind: "override_used", label: override.label, actor: override.event.actor, paths: waived.map((f) => f.path), message: `${override.label} (applied by ${override.event.actor} at ${override.event.created_at}) waives ${waived.length} migration immutability finding(s): ${[...new Set(waived.map((f) => f.path))].join(", ")}.` });
+  }
+  for (const { path, kind, base, head } of gateFiles) {
+    if (kind === "script") {
+      if (base == null || base === head) continue;
+      reasons.push(head == null
+        ? { kind: "checker_removed", path, message: `${path} is deleted.` }
+        : { kind: "checker_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` });
+    } else {
+      const before = checkerWorkflowSurface(base);
+      if (before == null) continue;
+      const after = checkerWorkflowSurface(head);
+      if (after == null || (before.job != null && after.job == null)) {
+        reasons.push({ kind: "ci_job_removed", path, message: `${path} no longer runs the ${CI_JOB} job.` });
+      } else if (!sameSurface(before, after)) {
+        reasons.push({ kind: "ci_job_changed", path, message: `${path} changes the ${CI_JOB} job or its references; needs review that it does not relax the check.` });
+      }
+    }
+  }
+  return { detected: reasons.length > 0, reasons, requires: GATE_LOOSENING_REQUIRES };
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation and report
+// ---------------------------------------------------------------------------
+
+export function evaluate({ entries, baseFiles, gateFiles = [], override: overrideInput = {} }) {
+  const { findings, added, newestBaseTimestamp } = evaluateStatus({ entries, baseFiles });
+  const override = evaluateOverride(overrideInput);
+  const waived = override.applied ? findings : [];
+  return {
+    schema: REPORT_SCHEMA,
+    ok: findings.length === 0 || override.applied,
+    findings,
+    waived: waived.length > 0,
+    added,
+    newestBaseTimestamp,
+    override,
+    gate_loosening: detectGateLoosening({ override, waived, gateFiles }),
+  };
+}
+
+export const GATE_LOOSENING_LINE = "GATE LOOSENING: needs Grok Bot countersign + Blaine's card (report only; does not fail the build).";
+
+export function formatHuman(result) {
+  const lines = [`Migration immutability: ${result.added.length} added migration(s), newest base timestamp ${result.newestBaseTimestamp ?? "none"}.`];
+  const prefix = result.waived ? "WAIVED" : "FAIL";
+  for (const finding of result.findings) lines.push(`${prefix} ${finding.message}`);
+  lines.push(`Override (${result.override.label}): ${result.override.status} — ${result.override.reason}.`);
+  if (result.findings.length === 0) lines.push("OK: supabase/migrations only gains new, later files.");
+  else if (result.waived) lines.push(`${result.findings.length} finding(s) waived by ${result.override.label}. See docs/migration-immutability.md.`);
+  else lines.push(`${result.findings.length} finding(s). See docs/migration-immutability.md.`);
+  if (result.gate_loosening?.detected) {
+    lines.push(GATE_LOOSENING_LINE);
+    for (const reason of result.gate_loosening.reasons) lines.push(`  - ${reason.message}`);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Input loading (git refs)
+// ---------------------------------------------------------------------------
+
+const git = (cwd, args) => execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+
+function gitShow(cwd, ref, path) {
+  try {
+    return git(cwd, ["show", `${ref}:${path}`]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * -C100% sets the shared rename/copy score to exact matches, so a pure rename
+ * or copy shows as R100 / C100 and an edited rename shows as D plus A (both
+ * still caught). --find-copies-harder also matches unmodified base files.
+ */
+export function loadStatusEntries(root, baseRef, headRef) {
+  const raw = git(root, ["-c", "diff.renameLimit=0", "diff", "--raw", "-z", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-C100%", "--find-copies-harder", baseRef, headRef, "--", MIGRATIONS_DIR]);
+  return parseRawDiff(raw);
+}
+
+/** The checker script, its node:test wrapper and every changed workflow file, at both refs. */
+function loadGateFiles(root, baseRef, headRef) {
+  const changed = git(root, ["diff", "--name-only", "--no-renames", baseRef, headRef, "--", CHECKER_PATH, NODE_TEST_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
+  return changed.map((path) => ({
+    path,
+    kind: path === CHECKER_PATH || path === NODE_TEST_PATH ? "script" : "workflow",
+    base: gitShow(root, baseRef, path),
+    head: gitShow(root, headRef, path),
+  }));
+}
+
+export function loadInputs(root, baseRef, headRef) {
+  return {
+    entries: loadStatusEntries(root, baseRef, headRef),
+    baseFiles: git(root, ["ls-tree", "-r", "--name-only", baseRef, "--", MIGRATIONS_DIR]).split("\n").filter(Boolean),
+    gateFiles: loadGateFiles(root, baseRef, headRef),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+export function parseArgs(argv) {
+  const args = { enforce: false, json: false, root: process.cwd(), approver: DEFAULT_APPROVER };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const value = () => {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) throw new Error(`${arg} needs a value`);
+      i += 1;
+      return next;
+    };
+    if (arg === "--enforce") args.enforce = true;
+    else if (arg === "--json") args.json = true;
+    else if (arg === "--json-out") args.jsonOut = value();
+    else if (arg === "--base-ref") args.baseRef = value();
+    else if (arg === "--head-ref") args.headRef = value();
+    else if (arg === "--root") args.root = resolve(value());
+    else if (arg === "--timeline") args.timeline = value();
+    else if (arg === "--timeline-error") args.timelineError = value();
+    else if (arg === "--head-sha") args.headSha = value();
+    else if (arg === "--head-pushed-at") args.headPushedAt = value();
+    else if (arg === "--approver") args.approver = value();
+    else throw new Error(`unknown argument: ${arg}`);
+  }
+  if (!(args.baseRef && args.headRef)) throw new Error("use --base-ref <ref> --head-ref <ref>");
+  return args;
+}
+
+function readOverrideInput(args) {
+  const input = { headSha: args.headSha ?? null, headPushedAt: args.headPushedAt ?? null, approver: args.approver, timelineError: args.timelineError ?? null };
+  if (args.timeline && !input.timelineError) {
+    try {
+      input.timeline = parseTimeline(readFileSync(args.timeline, "utf8"));
+    } catch (error) {
+      input.timelineError = `cannot read ${args.timeline}: ${error.message}`;
+    }
+  }
+  return input;
+}
+
+export function run(argv, { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let args;
+  try {
+    args = parseArgs(argv);
+  } catch (error) {
+    stderr.write(`check-migration-immutability: ${error.message}\n`);
+    return 2;
+  }
+  const result = evaluate({ ...loadInputs(args.root, args.baseRef, args.headRef), override: readOverrideInput(args) });
+  const json = `${JSON.stringify(result, null, 2)}\n`;
+  if (args.jsonOut) writeFileSync(args.jsonOut, json);
+  stdout.write(args.json ? json : `${formatHuman(result)}\n`);
+  if (!result.ok && !args.enforce) stdout.write(args.json ? "" : "Report mode: not failing the build (pass --enforce to fail).\n");
+  return !result.ok && args.enforce ? 1 : 0;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  process.exitCode = run(process.argv.slice(2));
+}
+
+function compareCodeUnits(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
