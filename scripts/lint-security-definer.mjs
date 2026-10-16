@@ -260,8 +260,8 @@ export function splitStatements(sql) {
 // Signature parsing and normalisation
 // ---------------------------------------------------------------------------
 
-const isWord = (token, ...values) => token?.type === "word" && (values.length === 0 || values.includes(token.value));
-const isPunct = (token, value) => token?.type === "punct" && token.value === value;
+export const isWord = (token, ...values) => token?.type === "word" && (values.length === 0 || values.includes(token.value));
+export const isPunct = (token, value) => token?.type === "punct" && token.value === value;
 
 const TYPE_ALIASES = new Map([
   ["int", "integer"],
@@ -297,8 +297,12 @@ const MULTIWORD_TYPE_CONTINUATIONS = new Map([
 
 const ARG_MODES = new Set(["in", "out", "inout", "variadic"]);
 
-/** Read a possibly schema-qualified name at index. Returns {schema, name, next} or null. */
-function readQualifiedName(tokens, index) {
+/**
+ * Read a possibly schema-qualified name at index. Unquoted parts are already
+ * lowercased by the tokenizer; quoted parts keep their case. Returns
+ * {schema, name, next} or null.
+ */
+export function readQualifiedName(tokens, index) {
   const part = (token) => {
     if (token?.type === "word") return token.value;
     if (token?.type === "ident") return token.value;
@@ -614,7 +618,7 @@ function statementTargets(event, definer, eventIndex) {
   return event.targets.some((reference) => referenceMatches(reference, definer));
 }
 
-function sha256(text) {
+export function sha256(text) {
   return createHash("sha256").update(text).digest("hex");
 }
 
@@ -992,7 +996,7 @@ function parseArgs(argv) {
   return options;
 }
 
-function readRefFile(root, ref, file) {
+export function readRefFile(root, ref, file) {
   try {
     return execFileSync("/usr/bin/git", ["show", `${ref}:${file}`], {
       cwd: root,
@@ -1077,7 +1081,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   process.exitCode = main();
 }
 
-function compareCodeUnits(a, b) {
+export function compareCodeUnits(a, b) {
   if (a === b) return 0;
   return a < b ? -1 : 1;
 }
