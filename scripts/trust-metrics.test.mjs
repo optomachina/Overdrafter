@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -61,8 +61,9 @@ describe("window and weeks", () => {
     expect(() => resolveWindow({ start: "2026-10-16", end: "2026-10-15" })).toThrow(/after/);
   });
 
-  it("keeps only PRs merged inside whole UTC window days", () => {
+  it("keeps only PRs merged into the base branch inside whole UTC window days", () => {
     expect(merged.map((pr) => pr.number)).toEqual([1, 2, 3, 4, 5, 9]);
+    expect(mergedInWindow(prs, window, "feature/ovd-10").map((pr) => pr.number)).toEqual([10]);
   });
 });
 
@@ -216,7 +217,7 @@ describe("snapshot", () => {
       schemaVersion: "trust-snapshot.v1",
       generatedAt: "2026-10-15T23:59:59Z",
       window: { start: "2026-09-28", end: "2026-10-15" },
-      sources: { repository: "optomachina/Overdrafter", harnessResultFiles: 1 },
+      sources: { repository: "optomachina/Overdrafter", baseBranch: "main", harnessResultFiles: 1 },
       bots: [],
     });
   });
@@ -238,6 +239,15 @@ describe("snapshot", () => {
 });
 
 describe("cli", () => {
+  const tempDirs = [];
+  const tempDir = (prefix) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  };
+  afterAll(() => {
+    for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
   const offlineArgs = (out) => [
     "--window-start", "2026-09-28", "--window-end", "2026-10-15",
     "--prs-json", fixture("prs.json"), "--comments-json", fixture("comments.json"),
@@ -248,7 +258,7 @@ describe("cli", () => {
   };
 
   it("writes byte-identical files on repeated offline runs without touching the network", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "trust-metrics-"));
+    const dir = tempDir("trust-metrics-");
     const outputs = ["a.json", "b.json"].map((name) => {
       const out = path.join(dir, name);
       expect(runCli(offlineArgs(out), { fetchInputs: noNetwork, log: () => undefined })).toBe(0);
@@ -259,7 +269,7 @@ describe("cli", () => {
   });
 
   it("reads every run's results.jsonl under an artifact root", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "trust-metrics-root-"));
+    const root = tempDir("trust-metrics-root-");
     fs.mkdirSync(path.join(root, "20261014T090000Z-1a2b3c4d"));
     fs.copyFileSync(fixture("results.jsonl"), path.join(root, "20261014T090000Z-1a2b3c4d", "results.jsonl"));
     const out = path.join(root, "out.json");

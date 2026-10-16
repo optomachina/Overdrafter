@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 export const SCHEMA_VERSION = "trust-snapshot.v1";
 export const HARNESS_SCHEMA_VERSION = "live-harness-run-artifacts.v1";
 export const DEFAULT_REPOSITORY = "optomachina/Overdrafter";
+export const DEFAULT_BASE_BRANCH = "main";
 export const QA_UNIT = "latest_verdict_per_merged_pr";
 export const DELIVERY_UNAVAILABLE_REASON = "not_captured_by_harness_v1";
 /** Adapter VendorStatus values that mean the provider returned a price. */
@@ -100,6 +101,7 @@ export function normalizePullRequest(raw) {
     createdAt: raw.created_at ?? raw.createdAt ?? null,
     mergedAt: raw.merged_at ?? raw.mergedAt ?? null,
     headRef: raw.head?.ref ?? raw.headRefName ?? "",
+    baseRef: raw.base?.ref ?? raw.baseRefName ?? null,
     labels: (raw.labels ?? []).map((label) => (typeof label === "string" ? label : label?.name))
       .filter((name) => typeof name === "string")
       .map((name) => name.toLowerCase()),
@@ -118,10 +120,13 @@ export function normalizeComment(raw) {
   };
 }
 
-/** Merged PRs whose merge instant falls inside the window, by merge time then number. */
-export function mergedInWindow(pullRequests, window) {
+/**
+ * PRs merged into the base branch inside the window, by merge time then number.
+ * Inputs without base information are kept.
+ */
+export function mergedInWindow(pullRequests, window, baseBranch = DEFAULT_BASE_BRANCH) {
   return pullRequests.map(normalizePullRequest)
-    .filter((pr) => inWindow(pr.mergedAt, window))
+    .filter((pr) => inWindow(pr.mergedAt, window) && (pr.baseRef === null || pr.baseRef === baseBranch))
     .sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt) || a.number - b.number);
 }
 
@@ -288,6 +293,7 @@ export function computeLiveQuotes(rows, window) {
 
 export function buildSnapshot({
   repository = DEFAULT_REPOSITORY,
+  baseBranch = DEFAULT_BASE_BRANCH,
   window: windowInput,
   generatedAt,
   pullRequests,
@@ -296,12 +302,12 @@ export function buildSnapshot({
   harnessResultFiles = 0,
 }) {
   const window = resolveWindow(windowInput);
-  const merged = mergedInWindow(pullRequests, window);
+  const merged = mergedInWindow(pullRequests, window, baseBranch);
   return {
     schemaVersion: SCHEMA_VERSION,
     generatedAt: normalizeGeneratedAt(generatedAt, window),
     window: { start: window.start, end: window.end },
-    sources: { repository, harnessResultFiles },
+    sources: { repository, baseBranch, harnessResultFiles },
     merges: computeMerges(merged, window),
     qa: computeQa(merged, comments, window),
     reverts: computeReverts(merged),
@@ -337,6 +343,7 @@ export function fetchGitHubInputs(repository, window) {
       created_at: pr.created_at,
       merged_at: pr.merged_at,
       head: { ref: pr.head?.ref ?? "" },
+      base: { ref: pr.base?.ref ?? null },
       labels: (pr.labels ?? []).map((label) => ({ name: label.name })),
     }));
   const since = new Date(window.startTime - COMMENT_LOOKBACK_DAYS * DAY_MS).toISOString();
@@ -365,6 +372,7 @@ const USAGE = `Usage: node scripts/trust-metrics.mjs --window-end YYYY-MM-DD [op
   --weeks N                   weeks in the default window (default 8)
   --generated-at ISO          snapshot generatedAt (default <window-end>T23:59:59Z)
   --repo owner/name           GitHub repository (default ${DEFAULT_REPOSITORY})
+  --base BRANCH               count PRs merged into this branch (default ${DEFAULT_BASE_BRANCH})
   --prs-json FILE             offline merged PR list instead of gh api
   --comments-json FILE        offline PR comments instead of gh api
   --results-jsonl FILE        harness results.jsonl (repeatable)
@@ -380,6 +388,7 @@ export function parseCliArgs(argv) {
     "--weeks": "weeks",
     "--generated-at": "generatedAt",
     "--repo": "repository",
+    "--base": "baseBranch",
     "--prs-json": "prsJson",
     "--comments-json": "commentsJson",
     "--artifact-root": "artifactRoot",
@@ -428,6 +437,7 @@ export function runCli(argv, { fetchInputs = fetchGitHubInputs, log = console.er
     log(`Skipped malformed results.jsonl line ${line} in ${path.basename(path.dirname(file))}.`)));
   const snapshot = buildSnapshot({
     repository,
+    baseBranch: options.baseBranch ?? DEFAULT_BASE_BRANCH,
     window: windowInput,
     generatedAt: options.generatedAt,
     pullRequests,
