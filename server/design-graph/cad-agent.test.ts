@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
   DomainAgentRegistry,
   StubCadAgent,
   createDefaultRegistry,
+  createJarvisWorkerRunner,
   validateDesignGraphEvent,
   type CadWorkerRunner,
   type DesignGraphEvent,
@@ -59,6 +60,8 @@ function fakeOutcome(params: PlateJobParams): PlateWorkerOutcome {
     },
   };
 }
+
+const plateParams = (): PlateJobParams => ({ recipe: "plate", edgeMm: 101.6, thicknessMm: 6.35, holePattern: "none", material: "6061-T6 aluminum" });
 
 function cadOnly(agent: CadAgent) {
   return new DomainAgentRegistry().register(agent, { enabled: true });
@@ -255,6 +258,8 @@ describe("OVD-802 CadAgent plate recipe", () => {
     const wrongSize = graph.submit({ prompt: "6 inch square plate, 0.25 in thick" });
     await graph.waitForTerminal(wrongSize);
     expect(graph.getEvents(wrongSize).at(-1)).toMatchObject({ type: "error", code: "agent_failed", message: expect.stringMatching(/only a 4\.000 in/) });
+    // The prompt text is not echoed into the reason.
+    expect(graph.getEvents(wrongSize).at(-1)).toMatchObject({ message: expect.not.stringContaining("6 inch") });
     expect(runner).not.toHaveBeenCalled();
 
     // The bounds themselves are accepted.
@@ -295,5 +300,30 @@ describe("OVD-802 CadAgent plate recipe", () => {
     const runId = graph.submit({ prompt: "4 inch square plate, 0.25 in thick, no holes" });
     expect(await graph.waitForTerminal(runId)).toMatchObject({ state: "failed" });
     expect(existsSync(path.join(root, "queue"))).toBe(false);
+  });
+
+  it("the default runner's Python timeout fires inside its outer timeout: no claim and no process outlives a timed-out job", async () => {
+    const root = tempRoot();
+    const mark = path.join(root, "mark");
+    const fakePython = path.join(root, "slow-python.sh");
+    writeFileSync(fakePython, `#!/usr/bin/env bash\n( sleep 1.5; touch "${mark}.grandchild" ) &\nsleep 1.5\ntouch "${mark}.child"\n`);
+    chmodSync(fakePython, 0o755);
+    const env = { JARVIS_CAD_AGENT_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: fakePython };
+    const outcome = await createJarvisWorkerRunner({ env, workerTimeoutMs: 300 })(plateParams());
+    // The inner (CLI) timeout reported, not the outer backstop, so the CLI's cleanup ran.
+    expect(outcome).toMatchObject({ ok: false, state: "failed", reason: "worker timed out after 300 ms" });
+    expect(readdirSync(path.join(root, "queue", "claimed"))).toEqual([]);
+    expect(readdirSync(path.join(root, "queue", "failed"))).toEqual([`${outcome.id}.json`]);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(existsSync(`${mark}.child`) || existsSync(`${mark}.grandchild`)).toBe(false);
+  }, 20_000);
+
+  it("the default runner runs nothing with the CAD flag off, even when called directly", async () => {
+    const root = tempRoot();
+    for (const flag of [undefined, "", "0", "true"]) {
+      const outcome = await createJarvisWorkerRunner({ env: { JARVIS_CAD_AGENT_ENABLED: flag, JARVIS_DEMO_ROOT: root } })(plateParams());
+      expect(outcome).toEqual({ ok: false, state: "disabled", reason: "CAD agent is off; set JARVIS_CAD_AGENT_ENABLED=1 to run the build123d worker" });
+    }
+    expect(readdirSync(root)).toEqual([]);
   });
 });

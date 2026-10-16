@@ -147,6 +147,9 @@ def watertight_report(path, tolerance=1e-7):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("usage: glb_check.py <file.glb>", file=sys.stderr)
+        sys.exit(64)
     report = watertight_report(sys.argv[1])
     print(json.dumps(report))
     sys.exit(0 if report["watertight"] else 1)

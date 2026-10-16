@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { claimById, claimOldest, createPlateRequest, createRequest, parseDesignRequest } from "./jarvis-demo.mjs";
+import { claimById, claimOldest, createPlateRequest, createRequest, parseDesignRequest, validatePlateParams } from "./jarvis-demo.mjs";
 
 const cli = join(process.cwd(), "scripts", "jarvis-demo", "jarvis-demo.mjs");
 
@@ -20,14 +20,29 @@ async function withRoot(fn) {
 
 const plate = (thicknessMm) => ({ recipe: "plate", edgeMm: 101.6, thicknessMm, holePattern: "none", material: "6061-T6 aluminum" });
 
-function runCli(args, env) {
+function runCli(args, env, onSpawn) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, ...args], { env: { ...process.env, ...env } });
+    onSpawn?.(child);
     let stdout = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.on("close", (status) => resolve({ status, out: JSON.parse(stdout) }));
   });
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Stand-in Python that runs for `seconds` and starts a grandchild of its own; each
+// leaves a marker if it is still alive at the end, so a surviving process shows up.
+function slowPython(root, seconds) {
+  const file = join(root, "slow-python.sh");
+  const mark = join(root, "mark");
+  writeFileSync(file, `#!/usr/bin/env bash\ntouch "${mark}.started"\n( sleep ${seconds}; touch "${mark}.grandchild" ) &\nsleep ${seconds}\ntouch "${mark}.child"\n`);
+  chmodSync(file, 0o755);
+  return { file, survivors: () => ["child", "grandchild"].filter((m) => existsSync(`${mark}.${m}`)), started: () => existsSync(`${mark}.started`) };
+}
+
+const queueOf = (root, dir) => (existsSync(join(root, "queue", dir)) ? readdirSync(join(root, "queue", dir)) : []);
 
 test("a bracket, plate and pin request reads the pin diameter", () => {
   assert.deepEqual(parseDesignRequest("Design a bracket on a base plate with an 8 mm pin").params.pinDiameterMm, 8);
@@ -112,7 +127,7 @@ test("P-5 a plate job is claimed exactly once under concurrent workers", () =>
     const fakePython = join(root, "fake-python.sh");
     writeFileSync(fakePython, `#!/usr/bin/env bash\necho "$$ $1" >> "${counter}"\nsleep 0.2\n`);
     chmodSync(fakePython, 0o755);
-    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: fakePython };
+    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_CAD_AGENT_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: fakePython };
     for (let round = 0; round < 3; round += 1) {
       const { id } = createPlateRequest(root, plate(6.35), "test").request;
       // Half the workers race for this id, half for "the oldest pending job".
@@ -132,3 +147,102 @@ test("P-5 a plate job is claimed exactly once under concurrent workers", () =>
       assert.deepEqual(readdirSync(join(root, "queue", "claimed")), []);
     }
   }), 60_000);
+
+test("a Python run past the worker timeout is killed with its process group and the claim moves to failed", () =>
+  withRoot(async (root) => {
+    const slow = slowPython(root, 1.5);
+    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_CAD_AGENT_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: slow.file, JARVIS_DEMO_WORKER_TIMEOUT_MS: "300" };
+    const { id } = createPlateRequest(root, plate(6.35), "test").request;
+    const { status, out } = await runCli(["work", "--id", id], env);
+    assert.equal(status, 1);
+    assert.deepEqual({ id: out.id, state: out.state, reason: out.reason }, { id, state: "failed", reason: "worker timed out after 300 ms" });
+    assert.deepEqual(queueOf(root, "claimed"), []);
+    assert.deepEqual(queueOf(root, "failed"), [`${id}.json`]);
+    assert.equal(JSON.parse(readFileSync(join(root, "runs", id, "outcome.json"), "utf8")).state, "failed");
+    await sleep(2000);
+    assert.deepEqual(slow.survivors(), []);
+  }), 20_000);
+
+test("SIGTERM to the CLI kills the running Python group and still moves the claim to failed", () =>
+  withRoot(async (root) => {
+    const slow = slowPython(root, 1.5);
+    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_CAD_AGENT_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: slow.file };
+    const { id } = createPlateRequest(root, plate(6.35), "test").request;
+    let cliProcess;
+    const done = runCli(["work", "--id", id], env, (child) => (cliProcess = child));
+    for (let i = 0; i < 200 && !slow.started(); i += 1) await sleep(10);
+    assert.ok(slow.started());
+    cliProcess.kill("SIGTERM");
+    const { status, out } = await done;
+    assert.equal(status, 1);
+    assert.deepEqual({ state: out.state, reason: out.reason }, { state: "failed", reason: "worker stopped" });
+    assert.deepEqual(queueOf(root, "claimed"), []);
+    assert.deepEqual(queueOf(root, "failed"), [`${id}.json`]);
+    await sleep(2000);
+    assert.deepEqual(slow.survivors(), []);
+  }), 20_000);
+
+test("a job with an unknown recipe fails with a structured result instead of crashing", () =>
+  withRoot(async (root) => {
+    const id = "jd-unknown-recipe";
+    mkdirSync(join(root, "queue", "pending"), { recursive: true });
+    writeFileSync(join(root, "queue", "pending", `${id}.json`), JSON.stringify({ id, params: { recipe: "gear" }, state: "pending" }));
+    const { status, out } = await runCli(["work", "--id", id], { JARVIS_DEMO_ENABLED: "1", JARVIS_DEMO_ROOT: root });
+    assert.equal(status, 1);
+    assert.deepEqual({ ok: out.ok, state: out.state, reason: out.reason }, { ok: false, state: "failed", reason: "unknown recipe" });
+    assert.equal(JSON.parse(readFileSync(join(root, "runs", id, "outcome.json"), "utf8")).reason, "unknown recipe");
+    assert.deepEqual(queueOf(root, "failed"), [`${id}.json`]);
+  }));
+
+test("plate jobs need the CAD agent flag: the plate command files nothing and work hands the job back", () =>
+  withRoot(async (root) => {
+    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_CAD_AGENT_ENABLED: "", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: "/nonexistent" };
+    const refused = await runCli(["plate", JSON.stringify(plate(6.35))], env);
+    assert.deepEqual({ status: refused.status, state: refused.out.state }, { status: 1, state: "disabled" });
+    assert.deepEqual(queueOf(root, "claimed"), []);
+    const { id } = createPlateRequest(root, plate(6.35), "test").request;
+    const handedBack = await runCli(["work", "--id", id], env);
+    assert.deepEqual({ state: handedBack.out.state, reason: handedBack.out.reason }, { state: "disabled", reason: "plate jobs need JARVIS_CAD_AGENT_ENABLED=1" });
+    assert.deepEqual(queueOf(root, "pending"), [`${id}.json`]);
+    assert.equal(existsSync(join(root, "runs")), false);
+  }));
+
+test("the plate command files its job already claimed, so a concurrent work never takes it", () =>
+  withRoot(async (root) => {
+    const fakePython = join(root, "fake-python.sh");
+    writeFileSync(fakePython, "#!/usr/bin/env bash\nsleep 0.1\n");
+    chmodSync(fakePython, 0o755);
+    const env = { JARVIS_DEMO_ENABLED: "1", JARVIS_CAD_AGENT_ENABLED: "1", JARVIS_DEMO_ROOT: root, JARVIS_DEMO_PYTHON: fakePython };
+    for (let round = 0; round < 3; round += 1) {
+      const [plateRun, ...workers] = await Promise.all([
+        runCli(["plate", JSON.stringify(plate(6.35))], env),
+        ...Array.from({ length: 6 }, () => runCli(["work"], env)),
+      ]);
+      assert.equal(plateRun.out.state, "verified", JSON.stringify(plateRun));
+      for (const worker of workers) assert.equal(worker.out.idle, true, JSON.stringify(worker));
+    }
+    assert.deepEqual(queueOf(root, "pending"), []);
+  }), 60_000);
+
+test("refusal reasons echo only numbers, never caller-supplied text", () => {
+  const secret = "SECRET free text";
+  for (const params of [{ ...plate(6.35), edgeMm: secret }, { ...plate(secret) }, { ...plate(6.35), holePattern: secret }]) {
+    const { ok, reason } = validatePlateParams(params);
+    assert.equal(ok, false);
+    assert.ok(!reason.includes("SECRET"), reason);
+  }
+  assert.match(validatePlateParams(plate(60)).reason, /got 60$/);
+  const pin = parseDesignRequest("bracket plate with a 0.5 SECRETinch pin");
+  assert.equal(pin.ok, false);
+  assert.ok(!pin.reason.toLowerCase().includes("secret"), pin.reason);
+});
+
+test.skipIf(!process.env.JARVIS_DEMO_PYTHON)("glb_check.py with no argument prints usage and exits 64 without a traceback", () => {
+  const run = spawnSync(process.env.JARVIS_DEMO_PYTHON, [join(process.cwd(), "scripts", "jarvis-demo", "glb_check.py")], {
+    encoding: "utf8",
+    cwd: tmpdir(),
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
+  assert.equal(run.status, 64);
+  assert.match(run.stderr, /^usage: glb_check\.py <file\.glb>\n$/);
+});

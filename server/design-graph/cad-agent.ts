@@ -126,45 +126,74 @@ export function defaultJarvisDemoScript(): string {
   return fileURLToPath(new URL("../../scripts/jarvis-demo/jarvis-demo.mjs", import.meta.url));
 }
 
-// Default runner: `node jarvis-demo.mjs plate <params>` files the job in
-// $JARVIS_DEMO_ROOT/queue/pending, claims it by id (atomic rename) and runs plate.py
-// with $JARVIS_DEMO_PYTHON. The CAD flag is the gate here, so the child gets the
-// demo flag it needs.
-export function createJarvisWorkerRunner(options: { env?: Env; script?: string; timeoutMs?: number } = {}): CadWorkerRunner {
+// The CLI's own Python timeout (JARVIS_DEMO_WORKER_TIMEOUT_MS) must fire first, so the
+// CLI kills the Python process group and moves the claim to failed/ itself. The outer
+// timeout is derived from it plus this grace and is only a backstop: SIGTERM, which the
+// CLI also turns into that same cleanup, then SIGKILL if it still has not exited.
+export const DEFAULT_WORKER_TIMEOUT_MS = 300_000;
+export const WORKER_TIMEOUT_GRACE_MS = 30_000;
+const KILL_AFTER_TERM_MS = 5_000;
+
+const CAD_AGENT_OFF = `CAD agent is off; set ${CAD_AGENT_FLAG}=1 to run the build123d worker`;
+
+function workerTimeoutMs(env: Env): number {
+  const ms = Number(env.JARVIS_DEMO_WORKER_TIMEOUT_MS);
+  return Number.isInteger(ms) && ms > 0 ? ms : DEFAULT_WORKER_TIMEOUT_MS;
+}
+
+// Default runner: `node jarvis-demo.mjs plate <params>` files the job straight into
+// $JARVIS_DEMO_ROOT/queue/claimed and runs plate.py with $JARVIS_DEMO_PYTHON. It runs
+// nothing unless JARVIS_CAD_AGENT_ENABLED=1 in env; with the CAD flag on, the child
+// gets the demo flag it needs.
+export function createJarvisWorkerRunner(options: { env?: Env; script?: string; workerTimeoutMs?: number } = {}): CadWorkerRunner {
   const env = options.env ?? process.env;
   const script = options.script ?? defaultJarvisDemoScript();
-  const timeoutMs = options.timeoutMs ?? 300_000;
-  return (params) =>
-    new Promise((resolve) => {
+  const innerTimeoutMs = options.workerTimeoutMs ?? workerTimeoutMs(env);
+  const outerTimeoutMs = innerTimeoutMs + WORKER_TIMEOUT_GRACE_MS;
+  return (params) => {
+    if (!isCadAgentEnabled(env)) return Promise.resolve({ ok: false, state: "disabled", reason: CAD_AGENT_OFF });
+    return new Promise((resolve) => {
       const child = spawn(process.execPath, [script, "plate", JSON.stringify(params)], {
         env: {
           ...process.env,
           ...env,
+          [CAD_AGENT_FLAG]: "1",
           JARVIS_DEMO_ENABLED: "1",
           JARVIS_DEMO_ROOT: env.JARVIS_DEMO_ROOT ?? path.join(homedir(), "overnight", "jarvis"),
           JARVIS_DEMO_SOURCE: "design-graph",
+          JARVIS_DEMO_WORKER_TIMEOUT_MS: String(innerTimeoutMs),
         },
         stdio: ["ignore", "pipe", "pipe"],
-        timeout: timeoutMs,
       });
       let stdout = "";
-      let stderr = "";
+      let timedOut = false;
+      let killTimer: NodeJS.Timeout | undefined;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_AFTER_TERM_MS);
+      }, outerTimeoutMs);
       child.stdout.on("data", (chunk) => (stdout += chunk));
-      child.stderr.on("data", (chunk) => (stderr += chunk));
-      child.on("error", (error) => resolve({ ok: false, state: "failed", reason: error.message }));
+      // The CLI's stderr is drained but never echoed into a reason.
+      child.stderr.resume();
+      child.on("error", () => resolve({ ok: false, state: "failed", reason: "worker could not start" }));
       child.on("close", (code) => {
+        clearTimeout(timer);
+        clearTimeout(killTimer);
         try {
           resolve(JSON.parse(stdout) as PlateWorkerOutcome);
         } catch {
-          resolve({ ok: false, state: "failed", reason: `worker exited ${code}: ${stderr.trim().slice(-500) || "no output"}` });
+          resolve({ ok: false, state: "failed", reason: timedOut ? `worker timed out after ${outerTimeoutMs} ms` : `worker exited ${code} without a result` });
         }
       });
     });
+  };
 }
 
 function refusal(prompt: string): string | undefined {
   const wrongSize = findWrongPlateSize(prompt);
-  if (wrongSize) return `this recipe builds only a 4.000 in (${CAD_PLATE_EDGE_MM} mm) square plate, got "${wrongSize}"`;
+  // The matched prompt text is not echoed back; the reason names only the fixed size.
+  if (wrongSize) return `this recipe builds only a 4.000 in (${CAD_PLATE_EDGE_MM} mm) square plate`;
   const thicknessMm = parseThicknessMm(prompt);
   if (thicknessMm !== undefined && !(thicknessMm >= CAD_PLATE_THICKNESS_MIN_MM && thicknessMm <= CAD_PLATE_THICKNESS_MAX_MM)) {
     return `plate thickness must be ${CAD_PLATE_THICKNESS_MIN_MM} to ${CAD_PLATE_THICKNESS_MAX_MM} mm, got ${Number(thicknessMm.toFixed(4))} mm`;
@@ -225,7 +254,7 @@ export class CadAgent implements DomainAgent {
   }
 
   async run(ctx: AgentContext, emit: AgentEmit): Promise<AgentOutput> {
-    if (!this.enabled) throw new Error(`CAD agent is off; set ${CAD_AGENT_FLAG}=1 to run the build123d worker`);
+    if (!this.enabled) throw new Error(CAD_AGENT_OFF);
     const params = this.plan(ctx);
     const { thicknessMm, holePattern, material } = params;
     emit({ type: "status", state: "info", message: `Filing plate job: ${CAD_PLATE_EDGE_MM} x ${CAD_PLATE_EDGE_MM} x ${thicknessMm} mm, ${holePattern} holes, ${material}` });
