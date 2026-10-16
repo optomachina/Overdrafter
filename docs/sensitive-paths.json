@@ -8,7 +8,7 @@
     "payments": { "label": "Payments, pricing, billing", "description": "payment, billing, Stripe, pricing, invoice and checkout paths" },
     "provider_dispatch": { "label": "Provider dispatch", "description": "dispatch, worker adapters, provider admission and upload" },
     "secrets": { "label": "Secrets and env", "description": "secrets, credentials, keys, tokens, vaults and env files" },
-    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts" },
+    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts, and the files that define and apply this list (the list, AGENTS.md, the matcher and its report, fixture, Jev screen and parity check)" },
     "deps": { "label": "Dependencies", "description": "package manifests and lockfiles" }
   },
   "globs": [
@@ -58,6 +58,14 @@
     { "glob": "**/{vercel.json,netlify.toml,fly.toml}", "class": "infra_ci" },
     { "glob": "scripts/deploy*{,/**}", "class": "infra_ci" },
     { "glob": "scripts/release*{,/**}", "class": "infra_ci" },
+    { "glob": "docs/sensitive-paths.json", "class": "infra_ci" },
+    { "glob": "AGENTS.md", "class": "infra_ci" },
+    { "glob": "scripts/lib/sensitive-paths*", "class": "infra_ci" },
+    { "glob": "scripts/sensitive-paths*", "class": "infra_ci" },
+    { "glob": "scripts/fixtures/sensitive-paths/**", "class": "infra_ci" },
+    { "glob": "scripts/jev-pr-screen*", "class": "infra_ci" },
+    { "glob": "scripts/jev-client*", "class": "infra_ci" },
+    { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },

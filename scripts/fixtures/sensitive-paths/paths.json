@@ -49,11 +49,26 @@
     { "path": "worker/package-lock.json", "classes": ["deps"] },
     { "path": "supabase/functions/deno.lock", "classes": ["deps"] },
     { "path": "services/py/requirements-dev.txt", "classes": ["deps"] },
+    { "path": ".env\\production", "classes": ["secrets"] },
+    { "path": "Dockerfile\\prod", "classes": ["infra_ci"] },
+    { "path": "docker-compose\\x.yml", "classes": ["infra_ci"] },
+    { "path": "requirements\\dev.txt", "classes": ["deps"] },
+    { "path": "docs/sensitive-paths.json", "classes": ["infra_ci"] },
+    { "path": "AGENTS.md", "classes": ["infra_ci"] },
+    { "path": "scripts/lib/sensitive-paths.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/lib/sensitive-paths.test.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/sensitive-paths-report.node-test.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/fixtures/sensitive-paths/paths.json", "classes": ["infra_ci"] },
+    { "path": "scripts/jev-pr-screen.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/jev-client.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/validate-agent-contract.mjs", "classes": ["infra_ci"] },
     { "path": "README.md", "classes": [] },
     { "path": "src/components/QuoteTable.tsx", "classes": [] },
     { "path": "src/lib/urls.ts", "classes": [] },
     { "path": "src/lib/environment.ts", "classes": [] },
     { "path": "src/lib/token-utils.ts", "classes": [] },
-    { "path": ".github/ISSUE_TEMPLATE/bug.md", "classes": [] }
+    { "path": ".github/ISSUE_TEMPLATE/bug.md", "classes": [] },
+    { "path": "scripts/jev-agent-decisions-eval.mjs", "classes": [] },
+    { "path": "docs/agents/README.md", "classes": [] }
   ]
 }

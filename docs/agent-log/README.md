@@ -26,8 +26,11 @@ Rules the log encodes, and the review each tier gets:
 
 Screen a batch against the PR base's sensitive-path list, so a PR that narrows
 `docs/sensitive-paths.json` cannot lower its own tier (without `--base-ref` the
-working tree's copy is used; if the list cannot be loaded, every PR screens
-`risky`):
+working tree's copy is used; if the list cannot be loaded, including a
+`--base-ref` that does not resolve, every PR screens `risky`). Each PR's
+`files` must be a non-empty list of paths, as strings or as the `{path}`
+objects `gh pr view --json files` returns; a missing, empty or malformed list
+screens `risky` and the record names it in `filesProblem`:
 
 ```bash
 NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs --base-ref origin/main <input.json>

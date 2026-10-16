@@ -18,13 +18,27 @@
  * tests check against picomatch. The module has no dependencies because gates
  * run the base checkout's copy without installing.
  *
+ * Paths are git's "/"-separated names; a backslash is a literal file-name
+ * character, never a separator, and reports keep the name as git spells it.
+ * A path is sensitive when the name as given or any of its other readings
+ * matches (pathCandidates: trimmed, backslashes read as separators, ./ and ..
+ * resolved, git's C-style quoting undone), so no spelling hides a file.
+ *
  * Gates read the JSON from the base checkout. A change that removes, narrows
  * or reclassifies a glob, or deletes or breaks the file, is gate_loosening
  * (needs a Grok Bot countersign on top of Blaine's card); additions are free.
- * An edit to this module or its report runner (REPORT_RUNNER_PATH, run by
- * `npm run test:portable-node`) is flagged as well. Report only: it never
- * changes the exit code. The report runner runs the head copy of this module;
- * running the base copy is the job of the planned workflow (a card draft).
+ * An edit to the code that applies the list (GATE_CODE_FILES: this module, its
+ * report runner, run by `npm run test:portable-node`, the Jev screen, the
+ * AGENTS.md parity check, the shared fixture and the planned workflow) is
+ * flagged as well. Report only: it never changes the exit code. The report
+ * runner runs the head copy of this module; running the base copy is the job
+ * of the planned workflow (a card draft). The list also covers these control
+ * files (infra_ci), so a PR that edits them is sensitive on its own.
+ *
+ * A base ref, when given (even as ""), must resolve to a commit or the call
+ * fails (BaseRefError, CLI exit 2); the head copy of the list is used only
+ * when the base commit exists and has no docs/sensitive-paths.json (the PR
+ * that introduces it), and the report then says "config from head".
  *
  * Usage:
  *   npm run sensitive-paths:report   (HEAD^1..HEAD, what CI reports)
@@ -34,7 +48,8 @@
  * (NUL-separated, so names git would quote come through as is); newline text
  * with git's quoted names, or bare paths, is accepted too.
  * Options: --root <dir> (repository root, default cwd).
- * Exit codes: 0 (report mode), 2 usage or input error.
+ * Exit codes: 0 (report mode), 2 usage or input error, including a --base-ref
+ * that does not resolve to a commit.
  */
 
 import { execFileSync } from "node:child_process";
@@ -64,7 +79,18 @@ export const LOOSENING_GLOB_RECLASSIFIED = "glob_reclassified";
 export const LOOSENING_CONFIG_REMOVED = "config_removed";
 export const LOOSENING_CONFIG_INVALID = "config_invalid";
 export const LOOSENING_MATCHER_CHANGED = "matcher_changed";
-const MATCHER_FILES = [MATCHER_PATH, REPORT_RUNNER_PATH, PLANNED_WORKFLOW_PATH];
+/** Code that applies the list; editing or deleting one is matcher_changed. */
+export const GATE_CODE_FILES = Object.freeze([
+  MATCHER_PATH,
+  REPORT_RUNNER_PATH,
+  PLANNED_WORKFLOW_PATH,
+  "scripts/jev-pr-screen.mjs",
+  "scripts/validate-agent-contract.mjs",
+  "scripts/fixtures/sensitive-paths/paths.json",
+]);
+/** Error code on a BaseRefError: an explicitly requested base ref cannot be read. */
+export const BASE_REF_UNAVAILABLE = "BASE_REF_UNAVAILABLE";
+const GIT = "/usr/bin/git";
 
 // ---------------------------------------------------------------------------
 // Globs
@@ -154,9 +180,40 @@ export function compileGlob(glob) {
   return new RegExp(`^(?:${expandBraces(glob).map(expansionSource).join("|")})$`, "is");
 }
 
-/** Normalise a repository path: forward slashes, no leading ./ or /. */
+/**
+ * The name reported for a path: git's spelling with any leading ./ or /
+ * removed. A backslash is a literal file-name character and stays.
+ */
 export function normalizePath(file) {
-  return String(file).trim().replaceAll("\\", "/").replace(/^(?:\.\/)+/, "").replace(/^\/+/, "");
+  return String(file).replace(/^(?:\.?\/)+/, "");
+}
+
+// path.posix.normalize resolves ., .. and repeated slashes; "" would become ".".
+const resolvedForm = (text) => (text === "" ? "" : normalizePath(path.posix.normalize(text)));
+
+/**
+ * Every spelling a path is matched under: the name as given, its reported
+ * form, trimmed, with backslashes read as separators, with ., .. and repeated
+ * slashes resolved, and with git's C-style quoting undone. A path is sensitive
+ * when any of them matches, so a spelling cannot hide a file (fail safe).
+ */
+export function pathCandidates(file) {
+  const raw = String(file);
+  const trimmed = raw.trim();
+  const bases = [raw, trimmed];
+  try {
+    const unquoted = unquoteGitPath(trimmed);
+    if (unquoted !== trimmed) bases.push(unquoted);
+  } catch {
+    // Not valid git quoting: the name is matched as given.
+  }
+  const out = new Set();
+  for (const base of bases) {
+    for (const form of [base, normalizePath(base), resolvedForm(base), resolvedForm(base.replaceAll("\\", "/"))]) {
+      if (form !== "") out.add(form);
+    }
+  }
+  return [...out];
 }
 
 // ---------------------------------------------------------------------------
@@ -188,26 +245,52 @@ export function parseSensitivePaths(input) {
   return config;
 }
 
-function readRefFile(root, ref, file) {
+/** An explicitly requested base ref that cannot be read; error.code is BASE_REF_UNAVAILABLE. */
+export class BaseRefError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BaseRefError";
+    this.code = BASE_REF_UNAVAILABLE;
+  }
+}
+
+const runGit = (root, args) => execFileSync(GIT, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+
+/** The commit a ref names. Throws BaseRefError for an empty, option-like or unresolvable ref. */
+export function resolveCommit(root, ref) {
+  if (typeof ref !== "string" || ref.trim() === "") throw new BaseRefError("base ref is empty (an unset variable?)");
   // A ref that looks like an option would be read by git as one.
-  if (String(ref).startsWith("-")) return null;
+  if (ref.startsWith("-")) throw new BaseRefError(`base ref ${JSON.stringify(ref)} looks like an option`);
+  let commit = "";
   try {
-    return execFileSync("/usr/bin/git", ["show", `${ref}:${file}`], {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    commit = runGit(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).trim();
   } catch {
-    return null;
+    commit = "";
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new BaseRefError(`base ref ${JSON.stringify(ref)} does not resolve to a commit in ${root}`);
+  return commit;
+}
+
+/** The file at a resolved commit, or null when the commit has no such file. Throws BaseRefError otherwise. */
+function readRefFile(root, ref, file) {
+  const commit = resolveCommit(root, ref);
+  try {
+    if (runGit(root, ["ls-tree", "--full-tree", "-z", commit, "--", file]) === "") return null;
+    return runGit(root, ["show", `${commit}:${file}`]);
+  } catch {
+    throw new BaseRefError(`cannot read ${file} at base ref ${JSON.stringify(ref)} (${commit})`);
   }
 }
 
 /**
  * Read the config text from the working tree, or from a git ref (the base
- * checkout for gates). Returns null when the file does not exist there.
+ * checkout for gates). Returns null when the file does not exist there. A ref
+ * that is given (any value but null or undefined, "" included) must resolve
+ * to a commit, or this throws BaseRefError; it never falls back to the
+ * working tree.
  */
 export function readSensitivePathsText({ root = process.cwd(), ref = null, file = SENSITIVE_PATHS_FILE } = {}) {
-  if (ref) return readRefFile(root, ref, file);
+  if (ref !== null && ref !== undefined) return readRefFile(root, ref, file);
   try {
     return readFileSync(path.resolve(root, file), "utf8");
   } catch (error) {
@@ -219,7 +302,7 @@ export function readSensitivePathsText({ root = process.cwd(), ref = null, file 
 /** Load and validate the config. Throws when it is missing or invalid. */
 export function loadSensitivePaths(options = {}) {
   const text = readSensitivePathsText(options);
-  if (text === null) throw new Error(`${options.file ?? SENSITIVE_PATHS_FILE} not found${options.ref ? ` at ${options.ref}` : ""}`);
+  if (text === null) throw new Error(`${options.file ?? SENSITIVE_PATHS_FILE} not found${options.ref == null ? "" : ` at ${options.ref}`}`);
   return parseSensitivePaths(text);
 }
 
@@ -230,16 +313,18 @@ export function loadSensitivePaths(options = {}) {
 /** Build a matcher from a validated config. */
 export function createMatcher(config) {
   const compiled = parseSensitivePaths(config).globs.map((entry) => ({ ...entry, regex: compileGlob(entry.glob) }));
+  // A glob matches when it matches any spelling of the path (pathCandidates).
   const match = (file) => {
-    const normalized = normalizePath(file);
-    return compiled.filter((entry) => entry.regex.test(normalized)).map(({ glob, class: name }) => ({ glob, class: name }));
+    const candidates = pathCandidates(file);
+    return compiled.filter((entry) => candidates.some((candidate) => entry.regex.test(candidate))).map(({ glob, class: name }) => ({ glob, class: name }));
   };
   const classify = (file) => SENSITIVE_CLASSES.filter((name) => match(file).some((entry) => entry.class === name));
   return { match, classify, isSensitive: (file) => match(file).length > 0 };
 }
 
 /**
- * Classify a set of paths.
+ * Classify a set of paths. Each file's path is its reported name (normalizePath);
+ * its classes come from every spelling of it (pathCandidates).
  * @returns {{sensitive: boolean, classes: string[], files: {path: string, classes: string[], globs: string[]}[]}}
  */
 export function classifyPaths(paths, config) {
@@ -351,7 +436,7 @@ export function findGateLoosening({ baseText = null, headText = null, changedFil
   }
   // Only files with a base copy: adding the matcher does not loosen it.
   const edited = new Map();
-  for (const { status, file } of changedFiles) if (MATCHER_FILES.includes(file) && status !== "A") edited.set(file, status);
+  for (const { status, file } of changedFiles) if (GATE_CODE_FILES.includes(file) && status !== "A") edited.set(file, status);
   for (const [file, status] of [...edited].sort(([a], [b]) => a.localeCompare(b))) {
     reasons.push({ code: LOOSENING_MATCHER_CHANGED, file, status, message: `${file} ${status === "D" ? "deleted" : "edited"}; needs review` });
   }
@@ -444,6 +529,9 @@ export function parseNameStatus(nameStatusText) {
 /**
  * Build the report: changed files classified with the base config, gate
  * loosening between base and head, and AGENTS.md parity at the head.
+ * baseText null means the base commit has no copy (the PR that introduces
+ * it), so the head copy classifies and config_source is "head"; a base that
+ * could not be read must fail before this (readSensitivePathsText throws).
  */
 export function buildReport({ changedFiles, baseText, headText, agentsText = null }) {
   const configText = baseText ?? headText;
@@ -515,10 +603,11 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
     const options = parseArgs(argv);
     const root = path.resolve(options.root ?? process.cwd());
     const headText = readSensitivePathsText({ root });
-    const baseText = options.baseRef ? readSensitivePathsText({ root, ref: options.baseRef }) : null;
+    // An explicit --base-ref, even "" from an unset variable, must resolve (BaseRefError, exit 2).
+    const baseText = options.baseRef === undefined ? null : readSensitivePathsText({ root, ref: options.baseRef });
     if (options.command === "classify") {
       const result = classifyPaths(options.paths, parseSensitivePaths(baseText ?? headText ?? "null"));
-      if (options.json) stdout(JSON.stringify(result, null, 2));
+      if (options.json) stdout(JSON.stringify({ config_source: baseText === null ? "head" : "base", ...result }, null, 2));
       else for (const file of result.files) stdout(`${file.path}: ${file.classes.join(", ") || "-"}`);
       return 0;
     }

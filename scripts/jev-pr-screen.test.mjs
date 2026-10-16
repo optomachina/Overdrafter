@@ -7,6 +7,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
+  FILES_EMPTY,
+  FILES_ENTRY_INVALID,
+  FILES_MISSING,
+  FILES_NOT_ARRAY,
   SENSITIVE_PATHS_UNAVAILABLE,
   decisionRecord,
   deterministicTier,
@@ -14,6 +18,7 @@ import {
   loadScreenSensitivePaths,
   maxTier,
   parseScreenArgs,
+  prFilePaths,
   replay,
   screen,
 } from "./jev-pr-screen.mjs";
@@ -47,6 +52,9 @@ const withoutGlob = (glob) => {
 };
 
 const accepted = (choice, confidence = 0.9) => ({ status: "accepted", choice, confidence });
+/** Jev confidently answers low, so only the deterministic tier can make a PR risky. */
+const askLow = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
+const MIGRATION_SQL = ["supabase", "migrations", "x.sql"].join("/");
 
 describe("jev PR screen", () => {
   it("lets Jev raise the tier but never lower it", () => {
@@ -122,10 +130,54 @@ describe("jev PR screen", () => {
   it("raises the declared tier to risky for sensitive paths from the shared list, never lowers it", () => {
     const sensitivePaths = loadSensitivePaths({ root: fileURLToPath(new URL("..", import.meta.url)) });
     expect(deterministicTier({ deterministic: "low", files: ["README.md", ".github/workflows/ci.yml"] }, sensitivePaths))
-      .toEqual({ tier: "risky", sensitiveClasses: ["infra_ci"] });
-    expect(deterministicTier({ deterministic: "normal", files: ["README.md"] }, sensitivePaths)).toEqual({ tier: "normal", sensitiveClasses: [] });
+      .toEqual({ tier: "risky", sensitiveClasses: ["infra_ci"], filesProblem: null });
+    expect(deterministicTier({ deterministic: "normal", files: ["README.md"] }, sensitivePaths)).toEqual({ tier: "normal", sensitiveClasses: [], filesProblem: null });
     expect(deterministicTier({ deterministic: "Risky", files: ["README.md"] }, sensitivePaths).tier).toBe("risky");
-    expect(deterministicTier({ deterministic: "low" })).toEqual({ tier: "low", sensitiveClasses: null });
+    // No list passed: no path check (tier-logic tests only; screen() always loads one).
+    expect(deterministicTier({ deterministic: "low" })).toEqual({ tier: "low", sensitiveClasses: null, filesProblem: null });
+  });
+
+  it("accepts gh's {path} file objects and fails closed to risky on a missing, empty or malformed list", async () => {
+    const sensitivePaths = loadSensitivePaths({ root: repoRoot });
+    // gh pr view --json files gives [{path, additions, deletions}].
+    expect(deterministicTier({ deterministic: "low", files: [{ path: MIGRATION_SQL, additions: 1, deletions: 0 }] }, sensitivePaths))
+      .toEqual({ tier: "risky", sensitiveClasses: ["schema", "migrations"], filesProblem: null });
+    expect(deterministicTier({ deterministic: "low", files: [{ path: "README.md" }, "docs/x.md"] }, sensitivePaths))
+      .toEqual({ tier: "low", sensitiveClasses: [], filesProblem: null });
+    expect(prFilePaths([{ path: "a.md" }, "b.md"])).toEqual({ paths: ["a.md", "b.md"], problem: null });
+    // A git-quoted name is matched unquoted as well.
+    expect(deterministicTier({ deterministic: "low", files: ['"db/caf\\303\\251.sql"'] }, sensitivePaths)).toMatchObject({ tier: "risky", sensitiveClasses: ["schema"] });
+    const malformed = [
+      [undefined, FILES_MISSING],
+      [null, FILES_MISSING],
+      ["README.md", FILES_NOT_ARRAY],
+      [{ path: "README.md" }, FILES_NOT_ARRAY],
+      [[], FILES_EMPTY],
+      [[1], FILES_ENTRY_INVALID],
+      [[null], FILES_ENTRY_INVALID],
+      [[""], FILES_ENTRY_INVALID],
+      [["  "], FILES_ENTRY_INVALID],
+      [[["README.md"]], FILES_ENTRY_INVALID],
+      [[{}], FILES_ENTRY_INVALID],
+      [[{ path: 3 }], FILES_ENTRY_INVALID],
+      [["README.md", { name: "x" }], FILES_ENTRY_INVALID],
+    ];
+    for (const [files, problem] of malformed) {
+      const pr = { pr: 8, sha: "g", deterministic: "low", files };
+      expect(deterministicTier(pr, sensitivePaths), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
+      expect(deterministicTier(pr, SENSITIVE_PATHS_UNAVAILABLE), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
+      const [record] = await screen([pr], { ask: askLow, append: () => {} });
+      expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: problem, final: "risky" });
+    }
+  });
+
+  it("screens a PR that edits only the list's control files as risky", async () => {
+    for (const file of ["scripts/lib/sensitive-paths.mjs", SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/jev-pr-screen.mjs", "scripts/validate-agent-contract.mjs", "scripts/fixtures/sensitive-paths/paths.json"]) {
+      const [record] = await screen([{ pr: 10, sha: "h", deterministic: "low", files: [file] }], { ask: askLow, append: () => {} });
+      expect(record, file).toMatchObject({ deterministic: "risky", sensitiveClasses: ["infra_ci"], filesProblem: null, final: "risky" });
+    }
+    const [both] = await screen([{ pr: 11, sha: "i", deterministic: "low", files: [SENSITIVE_PATHS_FILE, "AGENTS.md"] }], { ask: askLow, append: () => {} });
+    expect(both).toMatchObject({ deterministic: "risky", final: "risky" });
   });
 
   it("appends one JSONL line per PR", async () => {
@@ -138,6 +190,9 @@ describe("jev PR screen", () => {
     // The default screen reads docs/sensitive-paths.json, so a declared-low PR touching a lockfile is risky.
     const [lockfile] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: "x.jsonl", append: () => {} });
     expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
+    // sensitivePaths: null is not an opt-out of the path check.
+    const [optOut] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: "x.jsonl", append: () => {}, sensitivePaths: null });
+    expect(optOut).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
   });
 
   it("screens against the base ref's list, so a PR that narrows the list cannot lower its own tier", async () => {
@@ -150,6 +205,12 @@ describe("jev PR screen", () => {
     // The working tree (the PR's own list) is what --base-ref replaces.
     const [fromHead] = await screen([pr], { ask, root: dir, append: () => {} });
     expect(fromHead).toMatchObject({ deterministic: "low", sensitiveClasses: [], final: "low" });
+    // A base ref that cannot be read is never replaced by the head list: "" (an unset $BASE) included.
+    for (const baseRef of ["no-such-ref", "", "HEAD~9"]) {
+      expect(loadScreenSensitivePaths({ root: dir, baseRef }), JSON.stringify(baseRef)).toBe(SENSITIVE_PATHS_UNAVAILABLE);
+      const [record] = await screen([pr], { ask, root: dir, baseRef, append: () => {} });
+      expect(record, JSON.stringify(baseRef)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+    }
   });
 
   it("fails closed to risky when the base list cannot be loaded", async () => {
@@ -159,14 +220,14 @@ describe("jev PR screen", () => {
     // git would read "--output=<out>:docs/sensitive-paths.json" as an option and write that file.
     const output = join(broken, "out");
     mkdirSync(`${output}:docs`);
-    for (const baseRef of ["no-such-ref", "HEAD^1", `--output=${output}`]) {
+    for (const baseRef of ["no-such-ref", "", "HEAD^1", `--output=${output}`]) {
       expect(loadScreenSensitivePaths({ root: broken, baseRef }), baseRef).toBe(SENSITIVE_PATHS_UNAVAILABLE);
       const [record] = await screen([pr], { ask, root: broken, baseRef, append: () => {} });
       expect(record, baseRef).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
     // An option-like ref is never handed to git.
     expect(existsSync(`${output}:${SENSITIVE_PATHS_FILE}`)).toBe(false);
-    expect(deterministicTier({ deterministic: "low" }, SENSITIVE_PATHS_UNAVAILABLE)).toEqual({ tier: "risky", sensitiveClasses: null });
+    expect(deterministicTier({ deterministic: "low", files: ["README.md"] }, SENSITIVE_PATHS_UNAVAILABLE)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: null });
   });
 
   it("parses --base-ref on the command line", () => {

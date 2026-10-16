@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -8,6 +8,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BASE_REF_UNAVAILABLE,
+  BaseRefError,
+  GATE_CODE_FILES,
   LOOSENING_CONFIG_INVALID,
   LOOSENING_CONFIG_REMOVED,
   LOOSENING_GLOB_NARROWED,
@@ -27,8 +30,11 @@ import {
   globProblem,
   loadSensitivePaths,
   main,
+  normalizePath,
   parseNameStatus,
   parseSensitivePaths,
+  pathCandidates,
+  readSensitivePathsText,
   triageRoute,
   unquoteGitPath,
 } from "./sensitive-paths.mjs";
@@ -170,6 +176,41 @@ describe("matcher semantics", () => {
     }
   });
 
+  it("keeps a backslash as a file-name character and also matches it read as a separator", () => {
+    const matcher = createMatcher(config);
+    // Git names are "/"-separated, so these are single file names at the root.
+    for (const [file, name] of [[".env\\production", "secrets"], ["Dockerfile\\prod", "infra_ci"], ["docker-compose\\x.yml", "infra_ci"], ["requirements\\dev.txt", "deps"]]) {
+      expect(matcher.classify(file), file).toEqual([name]);
+      expect(picomatchClasses(file), `picomatch ${file}`).toEqual([name]);
+      expect(classifyPaths([file], config).files[0], file).toMatchObject({ path: file, classes: [name] });
+    }
+    // Read with "\\" as separators too: a superset of picomatch on the raw name.
+    const windowsMigration = [...MIGRATIONS_DIR.split("/"), "x.sql"].join("\\");
+    expect(picomatchClasses(windowsMigration)).toEqual(["schema"]);
+    expect(matcher.classify(windowsMigration)).toEqual(["schema", "migrations"]);
+    expect(normalizePath(".env\\production")).toBe(".env\\production");
+    expect(normalizePath("./a/b")).toBe("a/b");
+    expect(normalizePath("/.//a")).toBe("a");
+    expect(pathCandidates("a\\b\\.env")).toEqual(expect.arrayContaining(["a\\b\\.env", "a/b/.env"]));
+  });
+
+  it("matches every other reading of a path (trimmed, resolved, git-quoted)", () => {
+    const matcher = createMatcher(config);
+    for (const [file, name] of [
+      [" .env", "secrets"],
+      [".github//workflows/ci.yml", "infra_ci"],
+      ["x/../.github/workflows/ci.yml", "infra_ci"],
+      ["./.github/./workflows/ci.yml", "infra_ci"],
+      ['"db/caf\\303\\251.sql"', "schema"],
+      ['".github/workflows/tab\\tname.yml"', "infra_ci"],
+    ]) {
+      expect(matcher.classify(file), JSON.stringify(file)).toContain(name);
+    }
+    // Text that is not valid git quoting is matched as given.
+    expect(matcher.classify('"a\\qb.sql"')).toEqual([]);
+    expect(matcher.classify("src/lib/urls.ts")).toEqual([]);
+  });
+
   it("lets ** cross a newline in a name, where picomatch's does not (fail closed)", () => {
     const matcher = createMatcher(config);
     for (const [file, name] of [[".github/workflows/new\nline.yml", "infra_ci"], ["cfg/new\nline/.env", "secrets"], ["new\nline/a.sql", "schema"]]) {
@@ -215,13 +256,15 @@ describe("name-status parsing", () => {
   });
 
   it("reports names git would quote as sensitive (end to end through git diff -z)", () => {
-    // Fixture paths with non-ASCII, tab or quote characters, plus a backslash and a newline name.
+    // Fixture paths with non-ASCII, tab, quote or backslash characters, plus a newline name.
+    // A backslash is part of the name (git separates with "/"), so the report keeps it.
     const special = [
-      ...fixture.filter((entry) => /[^\x20-\x7e]|"/.test(entry.path)),
-      { path: "db/back\\slash.sql", expect: "db/back/slash.sql", classes: ["schema"] },
+      ...fixture.filter((entry) => /[^\x20-\x7e]|["\\]/.test(entry.path)),
+      { path: "db/back\\slash.sql", classes: ["schema"] },
+      { path: [...MIGRATIONS_DIR.split("/"), "x.sql"].join("\\"), classes: ["schema", "migrations"] },
       { path: "cfg/new\nline/.env", classes: ["secrets"] },
     ];
-    expect(special.length).toBeGreaterThanOrEqual(6);
+    expect(special.filter((entry) => entry.path.includes("\\")).length).toBeGreaterThanOrEqual(6);
     const dir = tempDir("sensitive-quoted-");
     git(dir, "init", "-q");
     mkdirSync(join(dir, dirname(SENSITIVE_PATHS_FILE)), { recursive: true });
@@ -240,7 +283,7 @@ describe("name-status parsing", () => {
     expect(main(["report", "--root", dir, "--changed-files-from", "changed.z", "--base-ref", "HEAD^1", "--json-out", "report.json"], { stdout: () => {} })).toBe(0);
     const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
     const classesOf = (file) => report.files.find((entry) => entry.path.normalize("NFC") === file.normalize("NFC"))?.classes;
-    for (const entry of special) expect(classesOf(entry.expect ?? entry.path), JSON.stringify(entry.path)).toEqual(entry.classes);
+    for (const entry of special) expect(classesOf(entry.path), JSON.stringify(entry.path)).toEqual(entry.classes);
     expect(classesOf("plain.txt")).toEqual([]);
     expect(report.files).toHaveLength(special.length + 1);
     // Newline output (git quotes these names there) gives the same files once unquoted.
@@ -326,14 +369,32 @@ describe("gate loosening", () => {
     expect(findGateLoosening({ baseText: null, headText: configText }).detected).toBe(false);
   });
 
-  it("flags edits to the report runner and the planned workflow", () => {
+  it("flags edits to the report runner, Jev screen, parity check, fixture and planned workflow", () => {
     expect(existsSync(join(repoRoot, REPORT_RUNNER_PATH))).toBe(true);
     // The workflow is a future card item, not in the repository yet.
     expect(existsSync(join(repoRoot, PLANNED_WORKFLOW_PATH))).toBe(false);
-    for (const file of [REPORT_RUNNER_PATH, PLANNED_WORKFLOW_PATH]) {
-      expect(codes(findGateLoosening({ changedFiles: [{ status: "M", file }] }))).toEqual([LOOSENING_MATCHER_CHANGED]);
-      expect(findGateLoosening({ changedFiles: [{ status: "A", file }] }).detected).toBe(false);
+    expect(GATE_CODE_FILES).toEqual(expect.arrayContaining([MATCHER_PATH, REPORT_RUNNER_PATH, PLANNED_WORKFLOW_PATH, "scripts/jev-pr-screen.mjs", "scripts/validate-agent-contract.mjs"]));
+    for (const file of GATE_CODE_FILES) {
+      if (file !== PLANNED_WORKFLOW_PATH) expect(existsSync(join(repoRoot, file)), file).toBe(true);
+      expect(codes(findGateLoosening({ changedFiles: [{ status: "M", file }] })), file).toEqual([LOOSENING_MATCHER_CHANGED]);
+      expect(codes(findGateLoosening({ changedFiles: [{ status: "D", file }] })), file).toEqual([LOOSENING_MATCHER_CHANGED]);
+      expect(findGateLoosening({ changedFiles: [{ status: "A", file }] }).detected, file).toBe(false);
     }
+  });
+
+  it("puts the files that control the list on the list, so editing any of them is sensitive", () => {
+    const matcher = createMatcher(config);
+    for (const file of [...GATE_CODE_FILES, SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths.test.mjs", "scripts/jev-client.mjs", "scripts/validate-agent-contract.node-test.mjs"]) {
+      expect(matcher.classify(file), file).toContain("infra_ci");
+    }
+    // A PR that edits only the matcher (or only the list and AGENTS.md) is sensitive.
+    expect(classifyPaths([MATCHER_PATH], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
+    expect(classifyPaths([SENSITIVE_PATHS_FILE, "AGENTS.md"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
+    // Adding these globs (OVD-873 round 3) did not loosen anything.
+    const controlGlobs = [SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths*", "scripts/sensitive-paths*", "scripts/fixtures/sensitive-paths/**", "scripts/jev-pr-screen*", "scripts/jev-client*", "scripts/validate-agent-contract*"];
+    expect(config.globs.filter((entry) => controlGlobs.includes(entry.glob))).toEqual(controlGlobs.map((glob) => ({ glob, class: "infra_ci" })));
+    const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !controlGlobs.includes(entry.glob))));
+    expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });
   });
 
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
@@ -360,6 +421,71 @@ describe("gate loosening", () => {
     expect(report.gate_loosening).toMatchObject({ detected: true, reasons: [expect.objectContaining({ code: LOOSENING_GLOB_REMOVED, glob: "**/.env*" })] });
     expect(report.parity_errors).toEqual([expect.stringMatching(/\*\*\/\.env\* \(secrets\) is in the AGENTS\.md list but not in/)]);
     expect(lines.join("\n")).toMatch(/^GATE LOOSENING: needs Grok Bot countersign \+ Blaine's card \(report only, does not block\)/);
+  });
+
+  it("never falls back to the head list when an explicit --base-ref cannot be read", () => {
+    // Base holds the list; the head drops the .env glob and adds a .env file.
+    const dir = tempDir("sensitive-base-ref-");
+    git(dir, "init", "-q");
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, SENSITIVE_PATHS_FILE), configText);
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "base");
+    writeFileSync(join(dir, SENSITIVE_PATHS_FILE), withGlobs((globs) => globs.splice(globs.findIndex((entry) => entry.glob === "**/.env*"), 1)));
+    writeFileSync(join(dir, ".env.production"), "PLACEHOLDER=1\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "head");
+    writeFileSync(join(dir, "changed.z"), git(dir, "diff", "--name-status", "-z", "--no-renames", "HEAD^1", "HEAD"));
+
+    // Library: an unresolvable, empty or option-like ref throws BaseRefError.
+    for (const ref of ["no-such-ref", "", "  ", "-x", "HEAD~5"]) {
+      expect(() => readSensitivePathsText({ root: dir, ref }), JSON.stringify(ref)).toThrow(BaseRefError);
+      expect(() => loadSensitivePaths({ root: dir, ref }), JSON.stringify(ref)).toThrow(expect.objectContaining({ code: BASE_REF_UNAVAILABLE }));
+    }
+    expect(readSensitivePathsText({ root: dir, ref: "HEAD^1" })).toBe(configText);
+
+    for (const ref of ["no-such-ref", ""]) {
+      // classify: exit 2, nothing classified with the head list.
+      const out = [];
+      const err = [];
+      expect(main(["classify", "--root", dir, "--base-ref", ref, ".env.production"], { stdout: (line) => out.push(line), stderr: (line) => err.push(line) }), JSON.stringify(ref)).toBe(2);
+      expect(out).toEqual([]);
+      expect(err.join("\n")).toMatch(ref ? /does not resolve to a commit/ : /base ref is empty/);
+      // report: exit 2, no report written.
+      expect(main(["report", "--root", dir, "--changed-files-from", "changed.z", "--base-ref", ref, "--json-out", "bad.json"], { stdout: (line) => out.push(line), stderr: () => {} }), JSON.stringify(ref)).toBe(2);
+      expect(out).toEqual([]);
+      expect(existsSync(join(dir, "bad.json"))).toBe(false);
+    }
+    // As a process (an unset $BASE_SHA passes ""): exit 2.
+    const proc = spawnSync(process.execPath, [libPath, "classify", "--root", dir, "--base-ref", "", ".env.production"], { encoding: "utf8" });
+    expect(proc.status).toBe(2);
+    expect(proc.stdout).toBe("");
+
+    // A base that resolves classifies with the base list.
+    const json = [];
+    expect(main(["classify", "--root", dir, "--base-ref", "HEAD^1", "--json", ".env.production"], { stdout: (line) => json.push(line) })).toBe(0);
+    expect(JSON.parse(json.join("\n"))).toMatchObject({ config_source: "base", classes: ["secrets"] });
+  });
+
+  it("uses the head list only when the base commit exists and has no list (the PR that adds it)", () => {
+    const dir = tempDir("sensitive-introduce-");
+    git(dir, "init", "-q");
+    writeFileSync(join(dir, "README.md"), "x\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "base without the list");
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, SENSITIVE_PATHS_FILE), configText);
+    writeFileSync(join(dir, ".env.local"), "PLACEHOLDER=1\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "head adds the list");
+    writeFileSync(join(dir, "changed.z"), git(dir, "diff", "--name-status", "-z", "--no-renames", "HEAD^1", "HEAD"));
+    expect(readSensitivePathsText({ root: dir, ref: "HEAD^1" })).toBeNull();
+    const lines = [];
+    expect(main(["report", "--root", dir, "--changed-files-from", "changed.z", "--base-ref", "HEAD^1", "--json-out", "report.json"], { stdout: (line) => lines.push(line) })).toBe(0);
+    const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8"));
+    expect(report.config_source).toBe("head");
+    expect(report.files.find((file) => file.path === ".env.local").classes).toEqual(["secrets"]);
+    expect(lines.join("\n")).toMatch(/config from head/);
   });
 
   it("returns 2 on usage errors", () => {
