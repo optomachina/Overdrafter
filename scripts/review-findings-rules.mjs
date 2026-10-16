@@ -151,10 +151,14 @@ function readJson(path) {
 }
 
 export function main(argv = process.argv.slice(2), io = { log: console.log, error: console.error }) {
-  const args = { findings: null, ledger: null, json: false, failOnNeedsTask: false };
+  const args = { findings: null, ledger: null, ledgerGiven: false, json: false, failOnNeedsTask: false };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--findings") args.findings = argv[++i];
-    else if (argv[i] === "--ledger") args.ledger = argv[++i];
+    else if (argv[i] === "--ledger") {
+      // Track the flag itself: a trailing `--ledger` (value undefined) must still fail closed, not fall back to the default.
+      args.ledgerGiven = true;
+      args.ledger = argv[++i];
+    }
     else if (argv[i] === "--json") args.json = true;
     else if (argv[i] === "--fail-on-needs-task") args.failOnNeedsTask = true;
     else {
@@ -170,7 +174,7 @@ export function main(argv = process.argv.slice(2), io = { log: console.log, erro
   let ledger;
   try {
     findings = readJson(args.findings);
-    ledger = readJson(args.ledger ?? resolveDefaultLedgerPath());
+    ledger = readJson(args.ledgerGiven ? args.ledger : resolveDefaultLedgerPath());
   } catch (error) {
     io.error(`cannot read input: ${error.message}`);
     return 2;

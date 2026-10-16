@@ -172,6 +172,14 @@ describe("review findings to rules", () => {
       });
     });
 
+    it("exits 2 on a trailing --ledger with no value instead of falling back to the default ledger", () => {
+      withFiles([finding(1, "performance")], emptyLedger, (f) => {
+        const result = run(["--findings", f, "--ledger"]);
+        expect(result.code).toBe(2);
+        expect(result.text).toContain("cannot read input");
+      });
+    });
+
     it("finds the default ledger from a repo subdirectory", () => {
       withFiles([finding(1, "performance")], emptyLedger, (f) => {
         const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/review-findings-rules.mjs"), "--findings", f], {
