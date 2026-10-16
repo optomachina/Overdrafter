@@ -13,7 +13,11 @@ name: Proof check
 # a summary note.
 #
 # PROOF_CHECK_MODE=report always exits 0 and marks the result in the job
-# summary. Switch it to enforce to fail the job on a missing proof.
+# summary; any non-zero exit of the script (bad arguments, an uncaught error)
+# becomes a warning annotation and an ERROR line in the summary, via
+# scripts/proof-check-run.sh or, when the base lacks it, an inline copy of the
+# same logic. Switch it to enforce to fail the job on a missing proof or an
+# error.
 
 on:
   pull_request:
@@ -69,4 +73,16 @@ jobs:
             [ "$PROOF_CHECK_MODE" = enforce ] && exit 1
             exit 0
           fi
+          # The wrapper is read from the base checkout like the script; when the
+          # base has no copy yet, the inline fallback applies the same policy.
+          if [ -f scripts/proof-check-run.sh ]; then
+            exec bash scripts/proof-check-run.sh node scripts/proof-check.mjs --changed-files "$changed"
+          fi
           node scripts/proof-check.mjs --changed-files "$changed"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=Proof check::proof-check exited $rc (report mode, not failing the job)"
+            printf '### Proof check: ERROR\n\nproof-check exited %s.\n' "$rc" >> "$GITHUB_STEP_SUMMARY"
+            [ "$PROOF_CHECK_MODE" = enforce ] && exit "$rc"
+          fi
+          exit 0

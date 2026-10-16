@@ -29,7 +29,7 @@ describe("checkJourneyTest", () => {
     const result = checkJourneyTest(body("- Screenshot: https://example.com/table.png"), uiFiles);
     expect(result.status).toBe("fail");
     expect(result.reasons[0]).toMatch(/no journey test reference/);
-    expect(result.reasons).toContain("user-facing files: src/components/QuoteTable.tsx, src/index.css");
+    expect(result.reasons).toContain("user-facing files: `src/components/QuoteTable.tsx`, `src/index.css`");
   });
 
   it("fails a UI change with no Proof section", () => {
@@ -57,7 +57,7 @@ describe("checkJourneyTest", () => {
     expect(checkJourneyTest(body("- Test: `e2e/journeys/quote-request.spec.ts`"), uiFiles)).toEqual({
       rule: "journey-test",
       status: "pass",
-      reasons: ["journey spec: e2e/journeys/quote-request.spec.ts"],
+      reasons: ["journey spec: `e2e/journeys/quote-request.spec.ts`"],
     });
   });
 
@@ -65,7 +65,7 @@ describe("checkJourneyTest", () => {
     const proof = "- Test: e2e/journeys/quote-request.spec.ts";
     const missing = checkJourneyTest(body(proof), uiFiles, { existsInRepo: () => false });
     expect(missing.status).toBe("fail");
-    expect(missing.reasons).toContain('journey spec "e2e/journeys/quote-request.spec.ts" is not in the diff or the repository');
+    expect(missing.reasons).toContain('journey spec `e2e/journeys/quote-request.spec.ts` is not in the diff or the repository');
 
     const inDiff = checkJourneyTest(body(proof), [...uiFiles, "e2e/journeys/quote-request.spec.ts"], { existsInRepo: () => false });
     expect(inDiff.status).toBe("pass");
@@ -75,7 +75,7 @@ describe("checkJourneyTest", () => {
     expect(checkJourneyTest(body(`- Live: ${runUrl} (journey e2e run)`), uiFiles)).toEqual({
       rule: "journey-test",
       status: "pass",
-      reasons: [`journey run: ${runUrl}`],
+      reasons: [`journey run: \`${runUrl}\``],
     });
     expect(checkJourneyTest(body("- Live: https://github.com/someone/else/actions/runs/1"), uiFiles).status).toBe("fail");
   });

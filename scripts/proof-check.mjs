@@ -31,6 +31,29 @@ function stripHtmlComments(text) {
   return text.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
 }
 
+const INLINE_MAX_LENGTH = 200;
+
+/**
+ * Renders untrusted text (PR body values, file names) as one markdown code
+ * span: control characters become spaces, the value is cut to 200 characters,
+ * and the backtick fence is longer than any backtick run inside the value.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function safeInline(value) {
+  let text = String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ");
+  const chars = [...text];
+  if (chars.length > INLINE_MAX_LENGTH) text = `${chars.slice(0, INLINE_MAX_LENGTH).join("")}…`;
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const ticks = "`".repeat(longest + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${ticks}${pad}${text}${pad}${ticks}`;
+}
+
+function safeInlineList(values) {
+  return values.map(safeInline).join(", ");
+}
+
 function normalizePath(file) {
   return String(file).trim().replace(/^\.\//, "");
 }
@@ -141,8 +164,8 @@ function parseItems(section, context) {
     if (kind === "Test") {
       const file = normalizePath(value.split(/\s+/)[0] ?? "");
       if (isTemplateValue(file)) rejected.push("Test item has no path");
-      else if (context.changedFiles.has(file) || context.existsInRepo?.(file) === true) accepted.push({ kind, label: `Test: ${file}` });
-      else rejected.push(`Test path "${file}" is not in the diff or the repository`);
+      else if (context.changedFiles.has(file) || context.existsInRepo?.(file) === true) accepted.push({ kind, label: `Test: ${safeInline(file)}` });
+      else rejected.push(`Test path ${safeInline(file)} is not in the diff or the repository`);
     } else if (kind === "Command") {
       if (isTemplateValue(value)) {
         rejected.push("Command item has no command");
@@ -150,14 +173,14 @@ function parseItems(section, context) {
       }
       const block = fencedBlockAfter(lines, index);
       if (!block || block.content.trim() === "" || isTemplateValue(block.content.trim())) {
-        rejected.push(`Command "${value}" has no fenced output block`);
+        rejected.push(`Command ${safeInline(value)} has no fenced output block`);
         continue;
       }
-      accepted.push({ kind, label: `Command: ${value}` });
+      accepted.push({ kind, label: `Command: ${safeInline(value)}` });
       index = block.end;
     } else if (kind === "Live") {
       const url = URL_PATTERN.exec(value);
-      if (url) accepted.push({ kind, label: `Live: ${url[0]}` });
+      if (url) accepted.push({ kind, label: `Live: ${safeInline(url[0])}` });
       else rejected.push("Live item has no http(s) URL");
     } else {
       // GitHub drops an uploaded image on its own line, so look one line ahead
@@ -219,7 +242,7 @@ export function checkProof(prBody, changedFiles, options = {}) {
 
   const uiFiles = files.filter(isUiFile);
   if (uiFiles.length > 0 && !accepted.some((item) => item.kind === "Screenshot")) {
-    reasons.push(`UI files changed without a Screenshot item: ${uiFiles.join(", ")}`);
+    reasons.push(`UI files changed without a Screenshot item: ${safeInlineList(uiFiles)}`);
   }
 
   if (reasons.length > 0) return { status: "fail", reasons };
@@ -267,7 +290,7 @@ export function checkJourneyTest(prBody, changedFiles, options = {}) {
     return {
       rule,
       status: "pass",
-      reasons: [...new Set(found)].map((spec) => `journey spec: ${spec}`).concat(run ? [`journey run: ${run[0]}`] : []),
+      reasons: [...new Set(found)].map((spec) => `journey spec: ${safeInline(spec)}`).concat(run ? [`journey run: ${safeInline(run[0])}`] : []),
     };
   }
 
@@ -277,9 +300,9 @@ export function checkJourneyTest(prBody, changedFiles, options = {}) {
       : `user-facing change has no journey test reference (e2e/journeys/<name>.spec.ts or an Actions run URL) in "## ${PROOF_HEADING}"`,
   ];
   for (const spec of specs.filter((candidate) => !found.includes(candidate))) {
-    reasons.push(`journey spec "${spec}" is not in the diff or the repository`);
+    reasons.push(`journey spec ${safeInline(spec)} is not in the diff or the repository`);
   }
-  reasons.push(`user-facing files: ${uiFiles.join(", ")}`);
+  reasons.push(`user-facing files: ${safeInlineList(uiFiles)}`);
   return { rule, status: "fail", reasons };
 }
 
