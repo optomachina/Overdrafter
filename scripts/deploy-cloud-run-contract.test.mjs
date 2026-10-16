@@ -134,6 +134,8 @@ async function runDeployScript({
     "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
     "OPENAI_API_KEY_SECRET_NAME",
     "ANTHROPIC_API_KEY_SECRET_NAME",
+    "WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME",
+    "WORKER_PROVIDER_SESSION_LEASE",
     "WORKER_MODE",
     "WORKER_LIVE_ADAPTERS",
     "WORKER_POLL_INTERVAL_MS",
@@ -585,6 +587,7 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
       "XOMETRY_PROFILE_SNAPSHOT_BUCKET=synthetic-bucket",
       "XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/synthetic.tgz",
       "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES=268435456",
+      "WORKER_PROVIDER_SESSION_LEASE=on",
     ].join("@");
     const expectedArgv = [
       "run", "deploy", "overdrafter-cad-worker",
@@ -601,7 +604,7 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
       "--no-cpu-throttling",
       "--no-allow-unauthenticated",
       "--set-env-vars", `^@^${envVars}`,
-      "--update-secrets", `SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,FICTIV_STORAGE_STATE_JSON=${FICTIV_SECRET}:latest`,
+      "--update-secrets", `SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,FICTIV_STORAGE_STATE_JSON=${FICTIV_SECRET}:latest,WORKER_PROVIDER_SESSION_NAMESPACE_KEY=worker-provider-session-namespace-key:latest`,
       "--service-account", "worker@synthetic-project.iam.gserviceaccount.com",
       "--network", "synthetic-network",
       "--subnet", "synthetic-subnet",
@@ -702,11 +705,13 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     "XOMETRY_PROFILE_SNAPSHOT_BUCKET=synthetic-bucket",
     "XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/synthetic.tgz",
     "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES=268435456",
+    "WORKER_PROVIDER_SESSION_LEASE=on",
   ].join(",");
 
   // The governed Xometry-only stable-egress deploy exactly as the
   // pre-OVD-674 script issued it, with the only additions being removal of
-  // any stale Quickparts (OVD-674) and Weerg (OVD-675) session mounts.
+  // any stale Quickparts (OVD-674) and Weerg (OVD-675) session mounts and the
+  // default-on OVD-462 session lease flag and namespace-key binding.
   const XOMETRY_ONLY_ARGV = [
     "run", "deploy", "overdrafter-cad-worker",
     "--project", "synthetic-project",
@@ -722,7 +727,7 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     "--no-cpu-throttling",
     "--no-allow-unauthenticated",
     "--set-env-vars", PRE_OVD674_ENV_VARS,
-    "--update-secrets", "SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest",
+    "--update-secrets", "SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,WORKER_PROVIDER_SESSION_NAMESPACE_KEY=worker-provider-session-namespace-key:latest",
     "--service-account", "worker@synthetic-project.iam.gserviceaccount.com",
     "--network", "synthetic-network",
     "--subnet", "synthetic-subnet",
@@ -739,7 +744,7 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     ].join(","),
   ];
 
-  it("leaves the Xometry-only deploy unchanged except for stripping stale Quickparts and Weerg mounts", async () => {
+  it("leaves the Xometry-only deploy unchanged except for stale-mount stripping and the session lease defaults", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
       envOverrides: { WORKER_BUILD_VERSION: "pinned", ...STABLE_EGRESS_ENV },
@@ -1042,5 +1047,82 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(output).toContain(
       "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
     );
+  });
+});
+
+describe("deploy-cloud-run.sh provider session lease contract (OVD-462)", () => {
+  const NAMESPACE_KEY_SECRET = "worker-provider-session-namespace-key";
+
+  // Throws unless the deploy turns the lease on and binds its namespace key by
+  // Secret Manager name. --set-env-vars replaces the whole set, so a deploy
+  // that omits the flag silently turns the lease off.
+  function expectSessionLeaseDeployed(deployCall, secretName = NAMESPACE_KEY_SECRET) {
+    expect(deployCall).toBeDefined();
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_PROVIDER_SESSION_LEASE).toBe("on");
+    expect(envVars).not.toHaveProperty("WORKER_PROVIDER_SESSION_NAMESPACE_KEY");
+    const updateSecrets = parseAssignments(optionValue(deployCall, "--update-secrets"));
+    expect(updateSecrets.WORKER_PROVIDER_SESSION_NAMESPACE_KEY).toBe(`${secretName}:latest`);
+  }
+
+  it("deploys the lease on with the namespace key bound by secret name by default", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    expectSessionLeaseDeployed(findCall(calls, ["run", "deploy"]));
+  });
+
+  it("keeps the lease defaults in the multi-adapter alternate-delimiter form", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "xometry,fictiv", FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state" },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    expect(optionValue(deployCall, "--set-env-vars").startsWith("^@^")).toBe(true);
+    expectSessionLeaseDeployed(deployCall);
+  });
+
+  it("honors an overridden namespace key secret name", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME: "synthetic-namespace-key" },
+    });
+    expect(failure).toBeNull();
+    expectSessionLeaseDeployed(findCall(calls, ["run", "deploy"]), "synthetic-namespace-key");
+  });
+
+  it("fails the contract for a deploy that disables the lease", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_PROVIDER_SESSION_LEASE: "off" },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    expect(parseAssignments(optionValue(deployCall, "--set-env-vars")).WORKER_PROVIDER_SESSION_LEASE).toBe("off");
+    expect(() => expectSessionLeaseDeployed(deployCall)).toThrow();
+  });
+
+  it("fails the contract for deploy argv missing the lease flag or the namespace key binding", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const strip = (flag, key) => {
+      const call = [...deployCall];
+      const index = call.indexOf(flag) + 1;
+      call[index] = call[index].split(",").filter((pair) => !pair.startsWith(`${key}=`)).join(",");
+      return call;
+    };
+    expect(() => expectSessionLeaseDeployed(strip("--set-env-vars", "WORKER_PROVIDER_SESSION_LEASE"))).toThrow();
+    expect(() => expectSessionLeaseDeployed(strip("--update-secrets", "WORKER_PROVIDER_SESSION_NAMESPACE_KEY"))).toThrow();
+  });
+
+  it("rejects an invalid lease value before invoking gcloud", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: false,
+      envOverrides: { WORKER_PROVIDER_SESSION_LEASE: "yes" },
+    });
+    expect(failure).not.toBeNull();
+    expect(failure.stderr).toContain("WORKER_PROVIDER_SESSION_LEASE must be on or off.");
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 });
