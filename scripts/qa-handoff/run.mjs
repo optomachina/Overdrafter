@@ -42,9 +42,21 @@ const MODES = new Set(["report", "apply"]);
 
 // A backtick fence is only closed by a backtick fence at least as long as the
 // opener, so a fence strictly longer than the longest backtick run in the
-// content (minimum 3) cannot be closed by PR-derived text.
+// content (minimum 3) cannot be closed by PR-derived text. The scan is a single
+// pass with no spread or intermediate array, so it holds for any content size
+// (spreading hundreds of thousands of runs into Math.max overflows the stack).
 export function codeFence(content) {
-  const longest = Math.max(0, ...(String(content).match(/`+/g) ?? []).map((run) => run.length));
+  const text = String(content);
+  let longest = 0;
+  let run = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 96) {
+      run += 1;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+  }
   return "`".repeat(Math.max(3, longest + 1));
 }
 
@@ -52,6 +64,32 @@ export function stepSummary(mode, lines) {
   const body = lines.join("\n");
   const fence = codeFence(body);
   return `### QA handoff (${mode} mode)\n\n${fence}\n${body}\n${fence}\n`;
+}
+
+// Constant apart from the validated mode, so building it cannot fail on
+// PR-derived content.
+function fallbackSummary(mode) {
+  return `### QA handoff (${mode} mode)\n\nThe detailed job summary could not be rendered; see this step's log for the full output.\n`;
+}
+
+// The summary is a convenience view of the log, so it must never change the
+// job's result: a failure while building it falls back to a short constant
+// summary, and a failure while writing it is reported on stderr. Never throws.
+// Returns "full", "fallback" or "failed" for the summary that reached the file.
+export function writeStepSummary({ path, mode, lines, build = stepSummary, append = appendFileSync, warn = console.error }) {
+  const attempts = [
+    ["full", () => build(mode, lines)],
+    ["fallback", () => fallbackSummary(mode)],
+  ];
+  for (const [kind, render] of attempts) {
+    try {
+      append(path, render());
+      return kind;
+    } catch (error) {
+      warn(`qa-handoff: could not write ${kind} step summary: ${sanitizeLog(error?.message, 500)}`);
+    }
+  }
+  return "failed";
 }
 
 export function parseArgs(argv) {
@@ -295,39 +333,49 @@ export async function run({ args, api, env = {}, log = console.log, lock }) {
   return results;
 }
 
-async function main() {
+// Dependencies are injectable so tests can drive the whole CLI path in
+// process: argv, env, the API client, the summary builder, and exit/out/err.
+export async function main({
+  argv = process.argv.slice(2),
+  env = process.env,
+  api: injectedApi,
+  buildSummary = stepSummary,
+  exit = (code) => process.exit(code),
+  out = console.log,
+  err = console.error,
+} = {}) {
   const lines = [];
   // Fields are sanitized where they are formatted; the sink strips any
   // remaining control characters without truncating the composed line.
   const log = (line) => {
     const safe = sanitizeLog(line, Number.POSITIVE_INFINITY);
     lines.push(safe);
-    console.log(safe);
+    out(safe);
   };
   let args;
   try {
-    args = parseArgs(process.argv.slice(2));
+    args = parseArgs(argv);
   } catch (error) {
-    console.error(`qa-handoff: ${sanitizeLog(error.message)}`);
-    process.exit(2);
+    err(`qa-handoff: ${sanitizeLog(error.message)}`);
+    return exit(2);
   }
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (!token) {
-    console.error("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
-    process.exit(2);
+    err("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
+    return exit(2);
   }
-  const api = createGithubApi({ token, repo: args.repo });
+  const api = injectedApi ?? createGithubApi({ token, repo: args.repo });
   let status = 0;
   try {
-    await run({ args, api, env: process.env, log });
+    await run({ args, api, env, log });
   } catch (error) {
     log(`ERROR: ${sanitizeLog(error.message, 500)}`);
     status = 1;
   }
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, stepSummary(args.mode, lines));
+  if (env.GITHUB_STEP_SUMMARY) {
+    writeStepSummary({ path: env.GITHUB_STEP_SUMMARY, mode: args.mode, lines, build: buildSummary, warn: err });
   }
-  process.exit(status);
+  return exit(status);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
