@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
 import type { VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types.js";
 import type { SupplierPauseSwitch } from "./pause.js";
-import { checkQuote, FIXTURE_SANITY_VERSION, type SanityInput, type SanityOffer, type SanityVerdict } from "./sanity.js";
+import {
+  checkQuote,
+  FIXTURE_SANITY_VERSION,
+  normalizeMaterial,
+  type SanityInput,
+  type SanityOffer,
+  type SanityVerdict,
+} from "./sanity.js";
 import type { SanityHistoryReader } from "./sanityHistory.js";
 
 /**
@@ -30,7 +38,12 @@ export type FixtureSanityContext = {
   vendorQuoteResultId: string;
   quoteRunId: string;
   requestedQuantity: number;
-  requirement: { material: string | null; spec_snapshot?: unknown } | null;
+  requirement: {
+    material: string | null;
+    finish?: string | null;
+    tightest_tolerance_inch?: number | null;
+    spec_snapshot?: unknown;
+  } | null;
   /** sha256 package identity of the disclosed files, or null when none could be derived. */
   packageId: string | null;
   internalTestQuote: boolean;
@@ -64,6 +77,26 @@ function requestedThicknessIn(spec: unknown): number | null {
   const fields = record(spec);
   if (!fields) return null;
   return finiteNumber(fields.thicknessIn) ?? finiteNumber(fields.thickness_in) ?? finiteNumber(fields.thicknessInch);
+}
+
+/**
+ * What makes two quotes of the same package comparable: the requested
+ * material, finish, process, tolerance and thickness. The history and peer
+ * baselines match on it, so re-quoting the same CAD in another material or
+ * finish is a new baseline, not an outlier. Null when no material is known.
+ */
+export function requirementKey(requirement: FixtureSanityContext["requirement"]): string | null {
+  const material = text(requirement?.material);
+  if (!requirement || !material) return null;
+  const spec = record(requirement.spec_snapshot);
+  const fields = [
+    normalizeMaterial(material),
+    normalizeMaterial(text(requirement.finish) ?? ""),
+    normalizeMaterial(text(spec?.process) ?? ""),
+    finiteNumber(requirement.tightest_tolerance_inch),
+    requestedThicknessIn(requirement.spec_snapshot),
+  ];
+  return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }
 
 /**
@@ -162,7 +195,14 @@ export function applySanityVerdict(
   };
   const reason = holdReason(verdict, context, supplierPaused);
   const held = reason !== null;
-  const fixtureSanity = { ...verdict, packageId: context.packageId, checkedAt, held, holdReason: reason };
+  const fixtureSanity = {
+    ...verdict,
+    packageId: context.packageId,
+    requirementKey: requirementKey(context.requirement),
+    checkedAt,
+    held,
+    holdReason: reason,
+  };
   // Set only from the verified task context, never from the adapter result.
   const fixtureHeal = context.internalTestQuote ? { fixtureHeal: { v: 1, internal: true } } : {};
   if (!held) {
@@ -208,6 +248,7 @@ export function failClosedSanityOutput(
     verdict: carriesPrice(output) ? "hold" : "skip",
     findings: [],
     ratios: { history: null, peer: null },
+    cheapestUnitUsd: null,
     pause: false,
   };
   const applied = applySanityVerdict(output, verdict, context, checkedAt);
@@ -230,6 +271,7 @@ export function createFixtureSanityGate(deps: {
           .history({
             provider: context.provider,
             packageId: context.packageId,
+            requirementKey: requirementKey(context.requirement),
             requestedQuantity: context.requestedQuantity,
             excludeResultId: context.vendorQuoteResultId,
             nowMs,

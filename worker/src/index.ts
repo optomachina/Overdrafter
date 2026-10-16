@@ -1926,14 +1926,12 @@ export async function handleVendorQuoteTask(
         quoteRunId: task.quote_run_id,
         requestedQuantity: currentResult.requested_quantity,
         requirement: context.requirement,
-        packageId: null,
+        // Computed before the gate runs, so a fail-closed hold keeps the package identity too.
+        packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
         internalTestQuote,
       };
       try {
-        sanity = await fixtureSanityGateFor(supabase)(result, {
-          ...sanityContext,
-          packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
-        });
+        sanity = await fixtureSanityGateFor(supabase)(result, sanityContext);
       } catch (sanityError) {
         console.warn(
           JSON.stringify({

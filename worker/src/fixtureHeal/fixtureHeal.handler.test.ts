@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fixtureHealSupplierPause, handleVendorQuoteTask } from "../index";
 import { XometryAdapter } from "../adapters/xometry";
+import { HISTORY_COLUMNS } from "./sanityHistory";
 import { computeAndStoreRoutingScores } from "../scoringIntegration";
 import type { QueueTaskRecord, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
 
@@ -33,10 +34,9 @@ const requirement = { id: "req", part_id: "part", description: "d", part_number:
 const xometryAuthorized = { authorized: true, reasonCode: null, permitId: "00000000-0000-4000-8000-000000003680",
   provider: "xometry", scopeFingerprint: "a".repeat(64), envelopeRevision: "xometry-controlled-beta-envelope.v1",
   nonExportControlled: true };
-const HISTORY_COLUMNS = "vendor, unit_price_usd, created_at";
 
 /** In-memory DB; `events` records the history read, the atomic finalize and routing scores in order. */
-function database(options: { historyError?: boolean; laneSettled?: boolean } = {}) {
+function database(options: { historyError?: boolean; laneSettled?: boolean; material?: string } = {}) {
   const events: string[] = [];
   const rpcArgs: Record<string, Record<string, unknown>> = {};
   const writes: Record<string, unknown>[] = [];
@@ -58,7 +58,7 @@ function database(options: { historyError?: boolean; laneSettled?: boolean } = {
         return options.historyError ? { data: null, error: { message: "history read failed" } } : { data: [], error: null };
       }
       const data = table === "parts" ? part : table === "job_files" ? [cad]
-        : table === "approved_part_requirements" ? requirement
+        : table === "approved_part_requirements" ? { ...requirement, material: options.material ?? requirement.material }
           : table === "vendor_quote_results" ? (columns === "status" ? [{ status: "manual_review_pending" }] : { id: "result", requested_quantity: 1 })
             : table === "jobs" ? { organization_id: "org", status: "internal_review" }
               : table === "quote_runs" ? { status: "received", quote_requests: { status: "requesting" } } : null;
@@ -137,6 +137,21 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
       raw_payload: { fixtureSanity: { verdict: "pass", held: false, packageId: expect.stringMatching(/^[a-f0-9]{64}$/) } },
     });
     expect(finalize.p_offers).toHaveLength(1);
+    expect(fixtureHealSupplierPause.isPaused("xometry")).toBe(false);
+  });
+
+  it("xometry_stainless_summary_label_passes", async () => {
+    // Xometry's saved summary for 304 is "Stainless Steel 304/304L" (xometryConstraints MATERIAL_SUMMARY_MAPPINGS).
+    vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue(xometryOutput("Stainless Steel 304/304L"));
+    const db = database({ material: "304 Stainless" });
+    scoringRecordsInto(db.events);
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(db.rpcArgs.reconcile_vendor_quote_offers.p_result).toMatchObject({
+      status: "instant_quote_received",
+      raw_payload: { fixtureSanity: { verdict: "pass", held: false, findings: [] } },
+    });
     expect(fixtureHealSupplierPause.isPaused("xometry")).toBe(false);
   });
 
@@ -246,6 +261,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
       unit_price_usd: null,
       total_price_usd: null,
       raw_payload: { fixtureSanity: { held: true, holdReason: "fixture_sanity_failed",
+        packageId: expect.stringMatching(/^[a-f0-9]{64}$/),
         withheldResult: { unitPriceUsd: 45.56, totalPriceUsd: 45.56 } } },
     });
     expect(warn.mock.calls.some(([line]) => String(line).includes("fixture_sanity_failed"))).toBe(true);

@@ -10,16 +10,23 @@
  * replaced "pause on the second outlier" with "pause on the first".
  */
 
-export const FIXTURE_SANITY_VERSION = 1;
+/** v2: verdicts carry `cheapestUnitUsd`, and the gate records the requirement key the history matches on. */
+export const FIXTURE_SANITY_VERSION = 2;
 
-export type SanityCodeClass = "hard" | "outlier" | "unavailable" | "info";
+/**
+ * hard and outlier are supplier drift: hold and pause. suspect and
+ * unavailable hold the quote but do not pause the supplier. info is recorded only.
+ */
+export type SanityCodeClass = "hard" | "outlier" | "suspect" | "unavailable" | "info";
 
 export const SANITY_CODES = {
   price_missing: "hard",
   price_zero: "hard",
-  price_floor: "hard",
+  /** Small laser-cut parts can legitimately cost under $1 each: hold for review, but not drift. */
+  price_floor: "suspect",
   arithmetic: "hard",
-  qty_echo: "hard",
+  /** A quantity break or a wrong echoed quantity: the quote is held, so nothing unsafe is shown; not drift. */
+  qty_echo: "suspect",
   material_echo: "hard",
   thickness_echo: "hard",
   history_outlier: "outlier",
@@ -32,7 +39,7 @@ export const SANITY_CODES = {
 
 export type SanityCode = keyof typeof SANITY_CODES;
 
-/** Unit price below this is never a real sheet or CNC quote (T1 evidence floor was $8.22/unit). */
+/** Unit price below this is held for review (T1 evidence floor was $8.22/unit). */
 export const SANITY_PRICE_FLOOR_USD = 1;
 /** Accepted band around the median of this supplier's own accepted quotes (ESTIMATED; retune after 30 days). */
 export const HISTORY_BAND = { low: 0.67, high: 1.5 } as const;
@@ -67,9 +74,9 @@ export type SanityInput = {
 export type PriceHistory =
   | {
       available: true;
-      /** Unit prices of this supplier's accepted quotes for the same package and quantity (90 days). */
+      /** Cheapest-offer unit prices of this supplier's accepted quotes for the same package, requirement and quantity (90 days). */
       history: readonly number[];
-      /** Cheapest unit price per other supplier for the same package and quantity (30 days). */
+      /** Cheapest unit price per other supplier for the same package, requirement and quantity (30 days). */
       peers: readonly number[];
     }
   | { available: false; reason: string };
@@ -82,6 +89,8 @@ export type SanityVerdict = {
   findings: SanityFinding[];
   /** Cheapest-offer unit price over the history or peer median; kept so the bands can be retuned. */
   ratios: { history: number | null; peer: number | null };
+  /** Cheapest purchasable unit price; the next quote's history compares against this, so lead-time options compare like for like. */
+  cheapestUnitUsd: number | null;
   /** True when a finding is supplier drift (hard or outlier): the supplier must be paused. */
   pause: boolean;
 };
@@ -105,30 +114,55 @@ export function normalizeMaterial(value: string): string {
 }
 
 /**
- * Alloy or grade designators (three or more digits): 6061, 5052, 304, 174 for
- * 17-4. Temper suffixes right after the alloy digits (T651, T7351, H32) are
- * dropped first, so a temper is never read as an alloy number.
+ * Alloy or grade families (three or more digits): 6061, 5052, 304, 174 for
+ * 17-4. Read per word of the raw label, so "304/304L" is one family (304), not
+ * the number 304304. A suffix after the digits is a temper or variant of the
+ * same family and is dropped: 6061-T6 and 6061 match, 304L is 304, 17-4 PH is
+ * 174. An optional designator prefix is dropped too (AL6061, C360, SS316).
  */
-function alloyTokens(normalized: string): Set<string> {
-  return new Set(normalized.replace(/(?<=\d)[th]\d+/g, "").match(/\d{3,}/g) ?? []);
+export function alloyFamilies(value: string): Set<string> {
+  const words = value
+    .toLowerCase()
+    .replace(/\b(1[57])-([45])(?!\d)/g, "$1$2")
+    .split(/[^a-z0-9]+/);
+  const families = new Set<string>();
+  for (const word of words) {
+    const match = /^(?:aa|al|aisi|c|ss|sus|uns)?(\d{3,})(?:[a-z][a-z0-9]*)?$/.exec(word);
+    if (match) families.add(match[1]);
+  }
+  return families;
+}
+
+/** Base metal named by the label, when it names one. "Stainless" wins over the "steel" in "Stainless Steel". */
+export function materialBase(value: string): string | null {
+  const words = new Set(value.toLowerCase().split(/[^a-z]+/));
+  if (words.has("stainless") || words.has("ss")) return "stainless";
+  if (words.has("aluminum") || words.has("aluminium")) return "aluminum";
+  if (words.has("titanium")) return "titanium";
+  if (words.has("brass") || words.has("copper") || words.has("bronze")) return "copper";
+  if (words.has("steel")) return "steel";
+  return null;
 }
 
 /**
  * True when the echoed material is not the requested one. One label
- * containing the other is a match ("6061-T6" in "Aluminum 6061-T6"). Without
- * containment, the requested alloy designators must all appear in the echo;
- * when either side has none, the labels are not comparable and nothing is
- * claimed (the echo stays recorded on the verdict input).
+ * containing the other is a match ("6061-T6" in "Aluminum 6061-T6"). Otherwise
+ * a mismatch is two different named base metals (aluminum against steel), or a
+ * requested alloy family missing from the echo (304 against 316, 6061 against
+ * 7075). Labels with nothing comparable claim nothing (the echo stays recorded).
  */
 export function materialEchoMismatch(requested: string, echoed: string): boolean {
   const want = normalizeMaterial(requested);
   const got = normalizeMaterial(echoed);
   if (!want || !got) return false;
   if (want.includes(got) || got.includes(want)) return false;
-  const wantTokens = alloyTokens(want);
-  const gotTokens = alloyTokens(got);
-  if (wantTokens.size === 0 || gotTokens.size === 0) return false;
-  return [...wantTokens].some((token) => !gotTokens.has(token));
+  const wantBase = materialBase(requested);
+  const gotBase = materialBase(echoed);
+  if (wantBase && gotBase && wantBase !== gotBase) return true;
+  const wantFamilies = alloyFamilies(requested);
+  const gotFamilies = alloyFamilies(echoed);
+  if (wantFamilies.size === 0 || gotFamilies.size === 0) return false;
+  return [...wantFamilies].some((family) => !gotFamilies.has(family));
 }
 
 function priceFindings(input: SanityInput): SanityFinding[] {
@@ -183,10 +217,12 @@ function ratio(value: number, base: number | null): number | null {
   return base === null ? null : Math.round((value / base) * 10_000) / 10_000;
 }
 
-/** Runs every rule; the verdict holds on any hard, outlier or unavailable finding. */
+/** Runs every rule; the verdict holds on any finding but info, and pauses only on hard or outlier ones. */
 export function checkQuote(input: SanityInput, history: PriceHistory): SanityVerdict {
   const ratios: SanityVerdict["ratios"] = { history: null, peer: null };
-  if (!input.priced) return { v: FIXTURE_SANITY_VERSION, verdict: "skip", findings: [], ratios, pause: false };
+  if (!input.priced) {
+    return { v: FIXTURE_SANITY_VERSION, verdict: "skip", findings: [], ratios, cheapestUnitUsd: null, pause: false };
+  }
 
   const findings = [...priceFindings(input), ...echoFindings(input)];
   const cheapest = cheapestUnitPrice(input.offers);
@@ -205,5 +241,5 @@ export function checkQuote(input: SanityInput, history: PriceHistory): SanityVer
 
   const holds = findings.some((entry) => entry.class !== "info");
   const pause = findings.some((entry) => entry.class === "hard" || entry.class === "outlier");
-  return { v: FIXTURE_SANITY_VERSION, verdict: holds ? "hold" : "pass", findings, ratios, pause };
+  return { v: FIXTURE_SANITY_VERSION, verdict: holds ? "hold" : "pass", findings, ratios, cheapestUnitUsd: cheapest, pause };
 }

@@ -16,10 +16,10 @@ import {
   type ProviderTaskPipelineInput,
 } from "../providerTaskPipeline";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types";
-import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE } from "./gate";
+import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE, requirementKey, type FixtureSanityContext } from "./gate";
 import { createSupplierPauseSwitch, isInternalTestQuote, logFixtureHealPage, type FixtureHealPage } from "./pause";
 import { checkQuote, materialEchoMismatch, type PriceHistory, type SanityInput } from "./sanity";
-import { createSupabaseSanityHistoryReader, type SanityHistoryReader } from "./sanityHistory";
+import { createSupabaseSanityHistoryReader, summarizeSanityHistory, type SanityHistoryReader } from "./sanityHistory";
 
 // --------------------------------------------------------------------------- pure fixtures
 
@@ -201,6 +201,12 @@ describe("OVD-813 fixture sanity gate", () => {
     expect(codes(sanityInput({ offers: [{ unitPriceUsd: null, totalPriceUsd: 12, quantity: 1 }] }))).toEqual(["price_missing"]);
     expect(codes(sanityInput({ offers: [] }))).toEqual(["price_missing"]);
     expect(codes(sanityInput({ offers: [{ unitPriceUsd: 0.4, totalPriceUsd: 0.4, quantity: 1 }] }))).toEqual(["price_floor"]);
+    // A shim at $0.40 each can be real: held for review, but the supplier is not paused.
+    expect(checkQuote(sanityInput({ offers: [{ unitPriceUsd: 0.4, totalPriceUsd: 0.4, quantity: 1 }] }), NO_HISTORY)).toMatchObject({
+      verdict: "hold",
+      pause: false,
+      findings: [{ code: "price_floor", class: "suspect" }],
+    });
     for (const offers of [[{ unitPriceUsd: 0, totalPriceUsd: 0 }], []]) {
       const verdict = checkQuote(sanityInput({ offers }), NO_HISTORY);
       expect(verdict).toMatchObject({ verdict: "hold", pause: true });
@@ -250,6 +256,55 @@ describe("OVD-813 fixture sanity gate", () => {
     expect(codes(sanityInput({ offers: [{ unitPriceUsd: 12, totalPriceUsd: 120, quantity: 10 }] }))).toEqual(["qty_echo"]);
     const verdict = checkQuote(sanityInput({ echo: { material: "6061-T6", thicknessIn: 0.25, quantity: 10 } }), NO_HISTORY);
     expect(verdict).toMatchObject({ verdict: "hold", pause: true });
+    // A quantity mismatch alone holds the quote but does not pause the supplier.
+    for (const input of [
+      sanityInput({ echo: { material: "6061-T6", thicknessIn: 0.125, quantity: 10 } }),
+      sanityInput({ offers: [{ unitPriceUsd: 12, totalPriceUsd: 12, quantity: 1 }, { unitPriceUsd: 10, totalPriceUsd: 100, quantity: 10 }] }),
+    ]) {
+      expect(checkQuote(input, NO_HISTORY)).toMatchObject({ verdict: "hold", pause: false, findings: [{ code: "qty_echo", class: "suspect" }] });
+    }
+  });
+
+  it("sanity_material_echo_matches_alloy_families (real Xometry labels)", () => {
+    // Xometry's saved summary labels (xometryConstraints MATERIAL_SUMMARY_MAPPINGS) against requested labels used in this repo.
+    for (const [requested, echoed] of [
+      ["304 Stainless", "Stainless Steel 304/304L"],
+      ["SS 316", "Stainless Steel 316/316L"],
+      ["AISI 304", "Stainless Steel 304/304L"],
+      ["304-2B stainless steel", "Stainless Steel 304/304L"],
+      ["316L Stainless", "Stainless Steel 316/316L"],
+      ["303 Stainless", "Stainless Steel 303"],
+      ["17-4 PH", "Stainless Steel 17-4"],
+      ["Aluminum 6061", "6061-T6"],
+      ["6061-T6", "6061-T6x"],
+      ["Aluminum 7075-T651", "7075-T6"],
+      ["2024-T3 Aluminum", "2024-T3"],
+      ["1018 Steel", "Steel 1018"],
+      ["4140 Alloy Steel", "Steel 4140"],
+      ["Brass 360", "Copper C360 (Brass)"],
+    ]) {
+      expect(materialEchoMismatch(requested, echoed), `${requested} vs ${echoed}`).toBe(false);
+    }
+    for (const [requested, echoed] of [
+      ["304 Stainless", "Stainless Steel 316/316L"],
+      ["SS 316", "Stainless Steel 304/304L"],
+      ["303 Stainless", "Stainless Steel 304/304L"],
+      ["Aluminum 6061-T6", "7075-T6"],
+      ["7075-T651", "6061-T6"],
+      ["Aluminum 6061", "Stainless Steel 304/304L"],
+      ["Aluminum", "Steel 1018"],
+      ["Stainless Steel", "Steel 4140"],
+      ["17-4 PH", "Stainless Steel 304/304L"],
+    ]) {
+      expect(materialEchoMismatch(requested, echoed), `${requested} vs ${echoed}`).toBe(true);
+    }
+    // The real 304 readback holds nothing and pauses nothing.
+    const stainless = sanityInput({
+      provider: "xometry",
+      requested: { material: "304 Stainless", thicknessIn: null },
+      echo: { material: "Stainless Steel 304/304L", thicknessIn: null, quantity: null },
+    });
+    expect(checkQuote(stainless, NO_HISTORY)).toMatchObject({ verdict: "pass", pause: false, findings: [] });
   });
 
   it("sanity_arithmetic_unit_total_mismatch_holds", () => {
@@ -464,10 +519,80 @@ describe("OVD-813 fixture sanity gate", () => {
     };
     const reader = createSupabaseSanityHistoryReader({ from } as unknown as SupabaseClient);
 
-    const history = await reader({ provider: "xometry", packageId: "c".repeat(64), requestedQuantity: 1, excludeResultId: "r", nowMs: day });
+    const history = await reader({ provider: "xometry", packageId: "c".repeat(64), requirementKey: "d".repeat(64), requestedQuantity: 1, excludeResultId: "r", nowMs: day });
 
     expect(vendorFilters.sort()).toEqual(["eq", "neq"]);
     expect(history).toEqual({ available: true, history: [12], peers: [30, 30] });
+  });
+
+  it("history_matches_requirement_so_new_material_is_not_an_outlier", async () => {
+    // The same CAD was quoted in 6061 at ~$12 by this supplier; now the customer re-quotes it in 316 stainless.
+    const packageId = "c".repeat(64);
+    const aluminum = { material: "Aluminum 6061-T6", finish: null, tightest_tolerance_inch: null, spec_snapshot: {} };
+    const stainless = { ...aluminum, material: "316 Stainless" };
+    const anodized = { ...aluminum, finish: "Anodize Type II" };
+    const aluminumKey = requirementKey(aluminum);
+    expect(aluminumKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(requirementKey(stainless)).not.toBe(aluminumKey);
+    expect(requirementKey(anodized)).not.toBe(aluminumKey);
+    expect(requirementKey({ ...aluminum, material: null })).toBeNull();
+    const stored = [12, 12.5, 11.8].map((unit) => ({
+      vendor: "fictiv", unit_price_usd: unit, cheapest_unit_usd: String(unit), created_at: "2026-10-01T00:00:00Z",
+      packageId, requirementKey: aluminumKey,
+    }));
+    const from = () => {
+      const filters: Array<(row: (typeof stored)[number]) => boolean> = [];
+      const query = {
+        select: () => query, in: () => query, gte: () => query, order: () => query, limit: () => query,
+        eq(column: string, value: string) {
+          if (column === "vendor") filters.push((row) => row.vendor === value);
+          if (column === "raw_payload->fixtureSanity->>packageId") filters.push((row) => row.packageId === value);
+          if (column === "raw_payload->fixtureSanity->>requirementKey") filters.push((row) => row.requirementKey === value);
+          return query;
+        },
+        neq(column: string, value: string) {
+          if (column === "vendor") filters.push((row) => row.vendor !== value);
+          return query;
+        },
+        then: (resolve: (value: unknown) => unknown) => resolve({ data: stored.filter((row) => filters.every((keep) => keep(row))), error: null }),
+      };
+      return query;
+    };
+    const pause = createSupplierPauseSwitch({ page: () => {} });
+    const gate = createFixtureSanityGate({ history: createSupabaseSanityHistoryReader({ from } as unknown as SupabaseClient), pause, now: () => NOW });
+    const context = (requirement: FixtureSanityContext["requirement"]): FixtureSanityContext => ({
+      provider: "fictiv", vendorQuoteResultId: "result", quoteRunId: "run", requestedQuantity: QTY, requirement, packageId, internalTestQuote: false,
+    });
+
+    // Stainless at 3x the aluminum price: a different requirement, so no baseline and no outlier.
+    const requoted = await gate(quoteOutput(36), context(stainless));
+    expect(requoted.verdict).toMatchObject({ verdict: "pass", pause: false, ratios: { history: null } });
+    expect(requoted.output.rawPayload.fixtureSanity).toMatchObject({ requirementKey: requirementKey(stainless), packageId });
+    expect(pause.isPaused("fictiv")).toBe(false);
+
+    // The same 3x price in the same aluminum requirement is still the first outlier.
+    const drifted = await gate(quoteOutput(36, { supplierEcho: { material: "6061-T6" } }), context(aluminum));
+    expect(drifted.verdict).toMatchObject({ verdict: "hold", pause: true, findings: [{ code: "history_outlier", class: "outlier" }] });
+    expect(pause.isPaused("fictiv")).toBe(true);
+  });
+
+  it("history_compares_cheapest_offer_like_for_like", () => {
+    // Stored rows carry the summary (standard lead time) price and the cheapest offer the gate saw (economy).
+    const query = { provider: "fictiv", packageId: "c".repeat(64), requirementKey: "d".repeat(64), requestedQuantity: 1, excludeResultId: "r",
+      nowMs: Date.parse("2026-10-10T00:00:00Z") };
+    const rows = [
+      { vendor: "fictiv", unit_price_usd: 20, cheapest_unit_usd: "12", created_at: "2026-10-01T00:00:00Z" },
+      { vendor: "oshcut", unit_price_usd: 40, cheapest_unit_usd: "25", created_at: "2026-10-01T00:00:00Z" },
+      // A row without the v2 field falls back to its summary price.
+      { vendor: "oshcut", unit_price_usd: 30, cheapest_unit_usd: null, created_at: "2026-10-02T00:00:00Z" },
+    ];
+    expect(summarizeSanityHistory(rows, query)).toEqual({ available: true, history: [12], peers: [25] });
+    // The verdict records the cheapest offer, so the next quote compares against the same measure.
+    const verdict = checkQuote(sanityInput({ offers: [
+      { unitPriceUsd: 18, totalPriceUsd: 18, quantity: 1 },
+      { unitPriceUsd: 12.5, totalPriceUsd: 12.5, quantity: 1 },
+    ] }), { available: true, history: [12], peers: [] });
+    expect(verdict).toMatchObject({ verdict: "pass", cheapestUnitUsd: 12.5, ratios: { history: 1.0417 } });
   });
 
   it("pause_page_says_restart_clears_it", () => {
