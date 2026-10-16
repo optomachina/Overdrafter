@@ -86,6 +86,9 @@ export type GraphArtifactKind = "png" | "glb" | "step";
 export type GraphStatusState = "started" | "completed" | "info";
 export type GraphSkipCause = "skip" | "timeout";
 export type GraphErrorCode = "agent_not_enabled" | "no_agent" | "agent_failed" | "verify_failed" | "internal_error";
+export type GraphActiveControlKind = "pause" | "cancel";
+export type GraphCheckpointKind = "node_boundary" | "agent" | "decision";
+export type GraphControlRejectReason = "terminal" | "duplicate" | "cancel_pending" | "superseded";
 
 interface GraphEventEnvelope {
   runId: string;
@@ -147,6 +150,30 @@ export interface GraphErrorEvent extends GraphEventEnvelope {
   agentId?: DomainAgentId;
 }
 
+export interface GraphControlRequestedEvent extends GraphEventEnvelope {
+  type: "control_requested";
+  commandId: string;
+  nodeId: GraphNodeId;
+  kind: GraphActiveControlKind;
+  actorId: string;
+  idempotencyKey: string;
+}
+
+export type GraphControlAppliedEvent = GraphEventEnvelope & {
+  type: "control_applied";
+  commandId: string;
+  nodeId: GraphNodeId;
+  checkpoint: GraphCheckpointKind;
+} & ({ kind: "pause"; state: "paused" } | { kind: "cancel"; state: "cancelled"; kept: { kind: GraphArtifactKind; uri: string }[] });
+
+export interface GraphControlRejectedEvent extends GraphEventEnvelope {
+  type: "control_rejected";
+  commandId: string;
+  nodeId: GraphNodeId;
+  kind: GraphActiveControlKind;
+  reason: GraphControlRejectReason;
+}
+
 /** Mirror of OVD-801 `DesignGraphEvent`. Every event carries `(runId, seq)`, its identity. */
 export type GraphEvent =
   | GraphStatusEvent
@@ -154,7 +181,10 @@ export type GraphEvent =
   | GraphDecisionResolvedEvent
   | GraphArtifactEvent
   | GraphResultEvent
-  | GraphErrorEvent;
+  | GraphErrorEvent
+  | GraphControlRequestedEvent
+  | GraphControlAppliedEvent
+  | GraphControlRejectedEvent;
 
 /** Mirror of OVD-801 `DesignRequest`. */
 export interface GraphDesignRequest {

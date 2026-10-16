@@ -156,6 +156,20 @@ describe("Jarvis DesignGraph port against the OVD-801 graph (OVD-798 M5)", () =>
     expect(h.test.sent.at(-1)?.message.text).toBe(NO_AGENT_REPLY);
   });
 
+  it("OVD-810 the graph's control events reach the shared thread through the service", async () => {
+    const h = await setup();
+    const accepted = await h.service.handleInbound("test", request({ text: "hello there" }));
+    const runId = "runId" in accepted ? accepted.runId : "";
+    await h.graph.waitForTerminal(runId);
+    const admin = { userId: "admin-1", isAdmin: true, aal: "aal2" } as const;
+    expect(await h.graph.control(runId, { kind: "cancel", idempotencyKey: "c-1" }, admin)).toMatchObject({ outcome: "rejected", reason: "terminal" });
+    await h.relay(runId);
+
+    const control = h.graph.getEvents(runId).filter((event) => event.type.startsWith("control_"));
+    expect(control.every((event) => validateDesignGraphEvent(event).ok)).toBe(true);
+    expect(h.test.sent.slice(-2).map((send) => send.message.text)).toEqual(["Cancel requested.", "Cancel rejected: terminal."]);
+  });
+
   it("dedupes submit on the idempotency key and reports control as unsupported", async () => {
     const h = await setup();
     const context = { userId: "blaine", conversationId: "conv-1", idempotencyKey: "test:evt-x" };

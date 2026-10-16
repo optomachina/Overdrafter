@@ -47,6 +47,17 @@ function renderError(event: Extract<GraphEvent, { type: "error" }>, link: string
   return { text: RUN_FAILED_REPLY, link };
 }
 
+const CONTROL_VERB = { pause: "Pause", cancel: "Cancel" } as const;
+
+// Control commands render in the shared thread on every channel, so each one reads as a short line.
+function renderControl(event: Extract<GraphEvent, { type: `control_${string}` }>): RenderedMessage {
+  if (event.type === "control_requested") return { text: `${CONTROL_VERB[event.kind]} requested.` };
+  if (event.type === "control_rejected") return { text: `${CONTROL_VERB[event.kind]} rejected: ${event.reason.replace("_", " ")}.` };
+  if (event.kind === "pause") return { text: "Run paused." };
+  const kept = event.kept.map((artifact) => artifact.kind).join(", ");
+  return { text: kept ? `Run cancelled. Kept: ${kept}.` : "Run cancelled." };
+}
+
 function renderBody(event: OutboundEvent, caps: ChannelCapabilities, link: string): RenderedMessage {
   switch (event.type) {
     case "run_accepted":
@@ -63,6 +74,10 @@ function renderBody(event: OutboundEvent, caps: ChannelCapabilities, link: strin
       return renderResult(event, caps, link);
     case "error":
       return renderError(event, link);
+    case "control_requested":
+    case "control_applied":
+    case "control_rejected":
+      return renderControl(event);
   }
 }
 
