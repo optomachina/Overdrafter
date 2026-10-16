@@ -126,21 +126,27 @@ export function sanityInputFromOutput(output: VendorQuoteAdapterOutput, context:
   };
 }
 
-/** The result as persisted: unchanged plus the verdict on a pass; prices and offers withheld on a hold. */
+function holdReason(verdict: SanityVerdict, context: FixtureSanityContext, supplierPaused: boolean) {
+  if (verdict.verdict === "hold") return "sanity";
+  if (context.internalTestQuote) return "internal_test_quote";
+  return supplierPaused ? "supplier_paused" : null;
+}
+
+/**
+ * The result as persisted: unchanged plus the verdict on a pass; prices and
+ * offers withheld on a hold. `supplierPaused` holds a passing result whose
+ * supplier was paused while it was in flight (by another lane).
+ */
 export function applySanityVerdict(
   output: VendorQuoteAdapterOutput,
   verdict: SanityVerdict,
   context: FixtureSanityContext,
   checkedAt: string,
+  supplierPaused = false,
 ): { output: VendorQuoteAdapterOutput; held: boolean } {
-  const held = verdict.verdict === "hold" || context.internalTestQuote;
-  const fixtureSanity = {
-    ...verdict,
-    packageId: context.packageId,
-    checkedAt,
-    held,
-    holdReason: verdict.verdict === "hold" ? "sanity" : context.internalTestQuote ? "internal_test_quote" : null,
-  };
+  const reason = holdReason(verdict, context, supplierPaused);
+  const held = reason !== null;
+  const fixtureSanity = { ...verdict, packageId: context.packageId, checkedAt, held, holdReason: reason };
   const fixtureHeal = context.internalTestQuote ? { fixtureHeal: { v: 1, internal: true } } : {};
   if (!held) {
     return { output: { ...output, rawPayload: { ...output.rawPayload, fixtureSanity, ...fixtureHeal } }, held };
@@ -199,7 +205,11 @@ export function createFixtureSanityGate(deps: {
         nowMs,
       });
     }
-    const applied = applySanityVerdict(output, verdict, context, new Date(nowMs).toISOString());
+    // A supplier paused after this lane was admitted (another lane found the
+    // drift while this one was quoting) shows nothing either: only internal
+    // test quotes run on a paused supplier.
+    const supplierPaused = input.priced && !context.internalTestQuote && deps.pause.isPaused(context.provider);
+    const applied = applySanityVerdict(output, verdict, context, new Date(nowMs).toISOString(), supplierPaused);
     return { ...applied, verdict, paused: verdict.pause };
   };
 }

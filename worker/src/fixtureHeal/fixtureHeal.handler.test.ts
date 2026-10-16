@@ -175,6 +175,28 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     ]));
   });
 
+  it("xometry_pause_while_in_flight_holds_the_result", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Admitted at claim; another Xometry lane pauses the supplier while this one quotes.
+    vi.spyOn(XometryAdapter.prototype, "quote").mockImplementation(async () => {
+      fixtureHealSupplierPause.pause({ provider: "xometry", codes: ["material_echo"], runId: "other", vendorQuoteResultId: "other", nowMs: Date.now() });
+      return xometryOutput("6061-T6");
+    });
+    const db = database();
+    scoringRecordsInto(db.events);
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
+    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    expect(finalize.p_offers).toEqual([]);
+    expect(finalize.p_result).toMatchObject({
+      status: "manual_review_pending",
+      unit_price_usd: null,
+      raw_payload: { fixtureSanity: { verdict: "pass", held: true, holdReason: "supplier_paused" } },
+    });
+  });
+
   it("xometry_priced_manual_review_result_is_gated", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     // Manual review flagged, but the price locator still matched: the result carries a price.

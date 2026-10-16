@@ -130,6 +130,8 @@ function pipeline(options: {
   pause?: ReturnType<typeof createSupplierPauseSwitch>;
   authorize?: () => Promise<ProviderDispatchAuthorization>;
   requirementMaterial?: string;
+  /** Runs inside the adapter call, after the lane was admitted. */
+  onQuote?: () => void;
 }) {
   const pages: FixtureHealPage[] = [];
   const pause = options.pause ?? createSupplierPauseSwitch({ page: (page) => pages.push(page) });
@@ -138,6 +140,7 @@ function pipeline(options: {
   const gate = createFixtureSanityGate({ history, pause, now: () => NOW });
   const quote = vi.fn(async () => {
     calls.push("adapter");
+    options.onQuote?.();
     return options.output ?? quoteOutput(12);
   });
   const persist = vi.fn(async (_output: VendorQuoteAdapterOutput) => {
@@ -381,6 +384,33 @@ describe("OVD-813 fixture sanity gate", () => {
     });
     // Running it did not release the pause.
     expect(pause.isPaused("fictiv")).toBe(true);
+  });
+
+  it("pause_while_in_flight_holds_the_result", async () => {
+    // Another lane in this process pauses the supplier after this lane was admitted.
+    const pause = createSupplierPauseSwitch({ page: () => {} });
+    const run = pipeline({
+      pause,
+      onQuote: () => pause.pause({ provider: "fictiv", codes: ["material_echo"], runId: "other", vendorQuoteResultId: "other", nowMs: NOW }),
+    });
+
+    const outcome = await runProviderTaskPipeline(pipelineInput(false), run.deps);
+
+    expect(run.calls).toEqual(["adapter", "sanity", "persist"]);
+    expect(outcome).toMatchObject({ disposition: "persisted", persisted: { status: "manual_review_pending", offerCount: 0, held: true } });
+    const persisted = run.persist.mock.calls[0][0];
+    expect(persisted).toMatchObject({ unitPriceUsd: null, totalPriceUsd: null, offers: [] });
+    // Its own check passed; it is held only because the supplier is paused.
+    expect(persisted.rawPayload.fixtureSanity).toMatchObject({
+      verdict: "pass",
+      held: true,
+      holdReason: "supplier_paused",
+      withheldResult: { unitPriceUsd: 12 },
+    });
+
+    // Without a pause the same quote passes.
+    const clear = pipeline({});
+    expect((await runProviderTaskPipeline(pipelineInput(false), clear.deps)).persisted).toMatchObject({ held: false });
   });
 
   it("kill_switch_engaged_blocks_even_internal_quote", async () => {
