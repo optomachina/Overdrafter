@@ -18,4 +18,10 @@ if [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then
   export GH_TOKEN
 fi
 
+# Markers the backstop writes are authored by this gh user, so trust them
+# alongside github-actions[bot]; markers from anyone else are ignored.
+login="$(gh api user --jq .login)"
+QA_HANDOFF_TRUSTED_MARKER_AUTHORS="${QA_HANDOFF_TRUSTED_MARKER_AUTHORS:+${QA_HANDOFF_TRUSTED_MARKER_AUTHORS},}${login}"
+export QA_HANDOFF_TRUSTED_MARKER_AUTHORS
+
 exec node scripts/qa-handoff/run.mjs --repo "$repo" --mode "$mode"

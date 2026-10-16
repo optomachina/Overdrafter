@@ -6,8 +6,8 @@ import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_REQUIRED_CHECKS } from "./gate.mjs";
 
-const source = readFileSync(new URL("../../.github/workflows/qa-handoff.yml", import.meta.url), "utf8");
-const workflow = yaml.load(source);
+const loadWorkflow = (name) => yaml.load(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8"));
+const workflow = loadWorkflow("qa-handoff.yml");
 const steps = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
 
 describe("qa-handoff.yml", () => {
@@ -42,6 +42,20 @@ describe("qa-handoff.yml", () => {
     }
   });
 
+  it("runs only for workflow_run events triggered by pull_request", () => {
+    for (const job of Object.values(workflow.jobs)) {
+      expect(job.if).toBe("github.event.workflow_run.event == 'pull_request'");
+    }
+  });
+
+  it("never fetches or checks out PR refs in a run step", () => {
+    for (const step of steps.filter((item) => item.run)) {
+      expect(step.run).not.toContain("gh pr checkout");
+      expect(step.run).not.toContain("refs/pull");
+      expect(step.run).not.toContain("git fetch");
+    }
+  });
+
   it("passes event values through env, not inline into run scripts", () => {
     for (const step of steps.filter((item) => item.run)) {
       expect(step.run).not.toContain("${{");
@@ -52,5 +66,11 @@ describe("qa-handoff.yml", () => {
     const job = workflow.jobs["qa-handoff"];
     expect(job.env.QA_HANDOFF_MODE).toBe("report");
     expect(job.env.REQUIRED_CHECKS.split(",")).toEqual([...DEFAULT_REQUIRED_CHECKS]);
+  });
+});
+
+describe("pr-body-gate.yml", () => {
+  it("re-runs on draft to ready so a workflow_run reaches qa-handoff", () => {
+    expect(loadWorkflow("pr-body-gate.yml").on.pull_request.types).toContain("ready_for_review");
   });
 });

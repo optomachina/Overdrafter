@@ -1,12 +1,23 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { decide, dedupeKey, evaluateGate, hasMarker, markerFor, parseRequiredChecks } from "./gate.mjs";
+import {
+  decide,
+  dedupeKey,
+  duplicateMarkers,
+  evaluateGate,
+  hasMarker,
+  markerFor,
+  parseRequiredChecks,
+  trustedMarkerAuthors,
+} from "./gate.mjs";
 import { GithubApiError, handoffPr, parseArgs, resolveRequiredChecks, run } from "./run.mjs";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
 const REQUIRED = ["ci", "provider-go-live"];
+const BOT = "github-actions[bot]";
+const BACKSTOP = "mini-operator";
 
 function pr(overrides = {}) {
   return { number: 7, state: "open", draft: false, base: { ref: "main" }, head: { sha: SHA_A }, ...overrides };
@@ -16,9 +27,23 @@ function green(names = REQUIRED, startId = 1) {
   return names.map((name, index) => ({ id: startId + index, name, status: "completed", conclusion: "success" }));
 }
 
+function comment(id, body, login = BOT) {
+  return { id, body, user: { login } };
+}
+
 // In-memory GitHub. Every call yields to the event loop so concurrent runs
-// interleave the way two workflow jobs would.
-function fakeApi({ prs = [pr()], checkRuns = { [SHA_A]: green() }, statuses = {}, protection = REQUIRED } = {}) {
+// interleave the way two workflow jobs would. `branch` and `protection` are the
+// required-check lists the two endpoints return (an Error is thrown instead).
+// Comments are written as `login`; asAuthor() gives a second writer that
+// shares the same state.
+function fakeApi({
+  prs = [pr()],
+  checkRuns = { [SHA_A]: green() },
+  statuses = {},
+  branch = REQUIRED,
+  protection = REQUIRED,
+  login = BOT,
+} = {}) {
   const state = {
     prs: new Map(prs.map((item) => [item.number, structuredClone(item)])),
     checkRuns: structuredClone(checkRuns),
@@ -26,6 +51,7 @@ function fakeApi({ prs = [pr()], checkRuns = { [SHA_A]: green() }, statuses = {}
     comments: new Map(),
     labels: new Map(),
     writes: [],
+    nextCommentId: 100,
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
   const api = {
@@ -38,7 +64,12 @@ function fakeApi({ prs = [pr()], checkRuns = { [SHA_A]: green() }, statuses = {}
       await tick();
       return [...state.prs.values()].filter((item) => item.state === "open").map((item) => structuredClone(item));
     },
-    async getRequiredChecks() {
+    async getBranchRequiredChecks() {
+      await tick();
+      if (branch instanceof Error) throw branch;
+      return branch;
+    },
+    async getProtectionRequiredChecks() {
       await tick();
       if (protection instanceof Error) throw protection;
       return protection;
@@ -55,12 +86,18 @@ function fakeApi({ prs = [pr()], checkRuns = { [SHA_A]: green() }, statuses = {}
       await tick();
       return structuredClone(state.comments.get(number) ?? []);
     },
-    async createComment(number, body) {
+    createComment: (number, body) => writeComment(login, number, body),
+    async deleteComment(id, author = login) {
       await tick();
-      const list = state.comments.get(number) ?? [];
-      list.push({ id: list.length + 1, body });
-      state.comments.set(number, list);
-      state.writes.push({ type: "comment", number, body });
+      for (const [number, list] of state.comments) {
+        const index = list.findIndex((item) => item.id === id);
+        if (index !== -1) {
+          list.splice(index, 1);
+          state.writes.push({ type: "delete", number, id, login: author });
+          return null;
+        }
+      }
+      throw new GithubApiError(404, `/issues/comments/${id}`, "Not Found");
     },
     async addLabels(number, labels) {
       await tick();
@@ -69,7 +106,23 @@ function fakeApi({ prs = [pr()], checkRuns = { [SHA_A]: green() }, statuses = {}
       state.labels.set(number, set);
       state.writes.push({ type: "label", number, labels });
     },
+    asAuthor(other) {
+      return {
+        ...api,
+        createComment: (number, body) => writeComment(other, number, body),
+        deleteComment: (id) => api.deleteComment(id, other),
+      };
+    },
   };
+  async function writeComment(author, number, body) {
+    await tick();
+    const list = state.comments.get(number) ?? [];
+    const created = comment(state.nextCommentId++, body, author);
+    list.push(created);
+    state.comments.set(number, list);
+    state.writes.push({ type: "comment", number, body, login: author });
+    return structuredClone(created);
+  }
   return api;
 }
 
@@ -95,8 +148,8 @@ describe("gate", () => {
   it("formats the marker and dedupe key per sha", () => {
     expect(markerFor(SHA_A)).toBe(`<!-- qa-handoff sha=${SHA_A} -->`);
     expect(dedupeKey(7, SHA_A)).toBe(`qa-handoff:7:${SHA_A}`);
-    expect(hasMarker([{ body: `x\n${markerFor(SHA_A)}` }], SHA_A)).toBe(true);
-    expect(hasMarker([{ body: markerFor(SHA_A) }], SHA_B)).toBe(false);
+    expect(hasMarker([comment(1, `x\n${markerFor(SHA_A)}`)], SHA_A)).toBe(true);
+    expect(hasMarker([comment(1, markerFor(SHA_A))], SHA_B)).toBe(false);
     expect(parseRequiredChecks(" ci, provider-go-live,,ci ")).toEqual(["ci", "provider-go-live"]);
   });
 
@@ -149,8 +202,44 @@ describe("gate", () => {
   });
 
   it("is a no-op when the marker for this sha exists", () => {
-    const result = decide({ event: { headSha: SHA_A }, pr: pr(), checkRuns: green(), statuses: [], requiredChecks: REQUIRED, comments: [{ body: markerFor(SHA_A) }] });
+    const result = decide({ event: { headSha: SHA_A }, pr: pr(), checkRuns: green(), statuses: [], requiredChecks: REQUIRED, comments: [comment(1, markerFor(SHA_A))] });
     expect(result).toMatchObject({ handoff: false, reason: "already-handed-off", key: dedupeKey(7, SHA_A) });
+  });
+
+  it("counts only markers from trusted authors", () => {
+    const pasted = [comment(1, markerFor(SHA_A), "someone-else"), comment(2, markerFor(SHA_A))];
+    expect(hasMarker([pasted[0]], SHA_A)).toBe(false);
+    expect(hasMarker([{ id: 3, body: markerFor(SHA_A) }], SHA_A)).toBe(false);
+    expect(hasMarker(pasted, SHA_A)).toBe(true);
+    expect(hasMarker([comment(4, markerFor(SHA_A), BACKSTOP)], SHA_A)).toBe(false);
+    expect(hasMarker([comment(4, markerFor(SHA_A), BACKSTOP)], SHA_A, trustedMarkerAuthors(` ${BACKSTOP} ,`))).toBe(true);
+    expect(trustedMarkerAuthors(undefined)).toEqual([BOT]);
+    expect(trustedMarkerAuthors(`${BACKSTOP},${BOT}`)).toEqual([BOT, BACKSTOP]);
+  });
+
+  it("picks every trusted marker above the lowest id as a duplicate", () => {
+    const comments = [
+      comment(30, markerFor(SHA_A), BACKSTOP),
+      comment(10, markerFor(SHA_A), "someone-else"),
+      comment(20, markerFor(SHA_A)),
+      comment(40, markerFor(SHA_B)),
+      comment(50, markerFor(SHA_A)),
+    ];
+    expect(duplicateMarkers(comments, SHA_A, [BOT, BACKSTOP]).map((item) => item.id)).toEqual([30, 50]);
+    expect(duplicateMarkers(comments, SHA_B, [BOT, BACKSTOP])).toEqual([]);
+  });
+
+  it("only counts required check runs from GitHub Actions when the app is present", () => {
+    const base = { event: { headSha: SHA_A }, pr: pr(), statuses: [], requiredChecks: REQUIRED };
+    const spoofed = [
+      { id: 1, name: "ci", status: "completed", conclusion: "failure", app: { slug: "github-actions" } },
+      { id: 2, name: "ci", status: "completed", conclusion: "success", app: { slug: "some-other-app" } },
+      { id: 3, name: "provider-go-live", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
+    ];
+    expect(evaluateGate({ ...base, checkRuns: spoofed }).reason).toBe("check-fail");
+    expect(evaluateGate({ ...base, checkRuns: spoofed.slice(1) }).reason).toBe("check-missing");
+    const statuses = [{ context: "ci", state: "success" }];
+    expect(evaluateGate({ ...base, checkRuns: spoofed.slice(1), statuses }).handoff).toBe(true);
   });
 });
 
@@ -225,6 +314,38 @@ describe("handoffPr", () => {
     expect(markers(api)).toHaveLength(1);
   });
 
+  it("ignores a marker pasted by an untrusted author and honors a trusted one", async () => {
+    const api = fakeApi();
+    api.state.comments.set(7, [comment(1, markerFor(SHA_A), "someone-else")]);
+    expect(await apply(api, { eventSha: SHA_A })).toMatchObject({ action: "handoff" });
+    expect(markers(api).map((item) => item.user.login)).toEqual(["someone-else", BOT]);
+
+    const trusted = fakeApi();
+    trusted.state.comments.set(7, [comment(1, markerFor(SHA_A), BACKSTOP)]);
+    const result = await apply(trusted, { eventSha: SHA_A, trustedAuthors: trustedMarkerAuthors(BACKSTOP) });
+    expect(result).toMatchObject({ action: "noop", reason: "already-handed-off" });
+    expect(trusted.state.writes).toEqual([]);
+  });
+
+  it("backstop and workflow racing outside one lock leave exactly one marker", async () => {
+    const api = fakeApi();
+    const trustedAuthors = trustedMarkerAuthors(BACKSTOP);
+    // No shared lock: both pass the in-lock re-read, both write, and the
+    // post-write re-list deletes the higher-id marker.
+    const results = await Promise.all([
+      apply(api, { eventSha: SHA_A, trustedAuthors }),
+      apply(api.asAuthor(BACKSTOP), { eventSha: SHA_A, trustedAuthors }),
+    ]);
+    expect(results.map((result) => result.action)).toEqual(["handoff", "handoff"]);
+    expect(api.state.writes.filter((write) => write.type === "comment")).toHaveLength(2);
+    expect(api.state.writes.filter((write) => write.type === "delete")).toHaveLength(1);
+    expect(markers(api)).toHaveLength(1);
+    // Comment ids start at 100, so the survivor is the first marker written.
+    expect(markers(api)[0].id).toBe(100);
+    expect(results.reduce((sum, result) => sum + result.duplicatesRemoved, 0)).toBe(1);
+    expect(await apply(api, { eventSha: SHA_A, trustedAuthors })).toMatchObject({ action: "noop", reason: "already-handed-off" });
+  });
+
   it("report mode logs the would-be handoff and writes nothing", async () => {
     const api = fakeApi();
     const lines = [];
@@ -236,17 +357,55 @@ describe("handoffPr", () => {
 });
 
 describe("run", () => {
-  it("falls back to REQUIRED_CHECKS when protection is unreadable and logs it", async () => {
-    const api = fakeApi({ protection: new GithubApiError(403, "/protection", "Resource not accessible") });
+  const unreadable = (status) => new GithubApiError(status, "/branches/main", "Resource not accessible");
+
+  it("reads required checks from the branch endpoint first", async () => {
+    const api = fakeApi({ branch: ["ci", "e2e"], protection: unreadable(403) });
     const lines = [];
-    expect(await resolveRequiredChecks(api, { REQUIRED_CHECKS: "ci" }, (line) => lines.push(line))).toEqual(["ci"]);
-    expect(lines.join("\n")).toMatch(/unreadable \(403\).*\n.*REQUIRED_CHECKS env/);
-    expect(await resolveRequiredChecks(api, {}, () => {})).toEqual(REQUIRED);
+    expect(await resolveRequiredChecks(api, { REQUIRED_CHECKS: "x" }, (line) => lines.push(line))).toEqual(["ci", "e2e"]);
+    expect(lines).toEqual(["required checks (GET branches/main): ci, e2e"]);
   });
 
-  it("rethrows protection errors other than 403/404", async () => {
-    const api = fakeApi({ protection: new GithubApiError(500, "/protection", "boom") });
-    await expect(resolveRequiredChecks(api, {}, () => {})).rejects.toThrow("500");
+  it("falls back to the protection endpoint when the branch read fails or lists nothing", async () => {
+    for (const branch of [unreadable(404), []]) {
+      const api = fakeApi({ branch, protection: ["ci"] });
+      const lines = [];
+      expect(await resolveRequiredChecks(api, {}, (line) => lines.push(line))).toEqual(["ci"]);
+      expect(lines.at(-1)).toBe("required checks (GET branches/main/protection/required_status_checks): ci");
+    }
+  });
+
+  it("falls back to REQUIRED_CHECKS, then the default, when both endpoints fail, and logs it", async () => {
+    const api = fakeApi({ branch: unreadable(404), protection: unreadable(403) });
+    const lines = [];
+    expect(await resolveRequiredChecks(api, { REQUIRED_CHECKS: "ci" }, (line) => lines.push(line))).toEqual(["ci"]);
+    expect(lines).toEqual([
+      "GET branches/main unreadable (404)",
+      "GET branches/main/protection/required_status_checks unreadable (403)",
+      "required checks (REQUIRED_CHECKS env): ci",
+    ]);
+    const defaults = [];
+    expect(await resolveRequiredChecks(api, {}, (line) => defaults.push(line))).toEqual(REQUIRED);
+    expect(defaults.at(-1)).toBe("required checks (DEFAULT_REQUIRED_CHECKS): ci, provider-go-live");
+  });
+
+  it("rethrows required-check errors other than 403/404", async () => {
+    await expect(resolveRequiredChecks(fakeApi({ branch: unreadable(500) }), {}, () => {})).rejects.toThrow("500");
+    await expect(
+      resolveRequiredChecks(fakeApi({ branch: [], protection: unreadable(500) }), {}, () => {}),
+    ).rejects.toThrow("500");
+  });
+
+  it("trusts QA_HANDOFF_TRUSTED_MARKER_AUTHORS from the env", async () => {
+    const api = fakeApi();
+    api.state.comments.set(7, [comment(1, markerFor(SHA_A), BACKSTOP)]);
+    const args = { repo: "o/r", mode: "apply", pr: 7, sha: SHA_A };
+    const lines = [];
+    const trusted = await run({ args, api, env: { QA_HANDOFF_TRUSTED_MARKER_AUTHORS: BACKSTOP }, log: (line) => lines.push(line) });
+    expect(trusted).toEqual([expect.objectContaining({ action: "noop", reason: "already-handed-off" })]);
+    expect(lines).toContain(`trusted marker authors: ${BOT}, ${BACKSTOP}`);
+    const untrusted = await run({ args, api, env: {}, log: () => {} });
+    expect(untrusted).toEqual([expect.objectContaining({ action: "handoff" })]);
   });
 
   it("finds the PR by sha when the event carries no PR number", async () => {

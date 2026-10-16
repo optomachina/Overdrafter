@@ -13,10 +13,13 @@
 // comments through the API; the caller's sha and PR number are lookup keys
 // only. report mode logs what it would hand off and writes nothing to GitHub.
 // apply mode adds the qa:ready label and then posts the hidden marker comment,
-// after re-reading the head sha and comments inside the critical section.
+// after re-reading the head sha and comments inside the critical section, and
+// then deletes any duplicate trusted marker a racing writer posted.
 //
-// Token: GITHUB_TOKEN or GH_TOKEN. Required checks: branch protection, else the
-// REQUIRED_CHECKS env (comma separated), else DEFAULT_REQUIRED_CHECKS.
+// Token: GITHUB_TOKEN or GH_TOKEN. Required checks: GET branches/main, else the
+// branch protection endpoint, else the REQUIRED_CHECKS env (comma separated),
+// else DEFAULT_REQUIRED_CHECKS. Marker authors: github-actions[bot] plus the
+// QA_HANDOFF_TRUSTED_MARKER_AUTHORS env (comma separated logins).
 
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -25,9 +28,11 @@ import {
   QA_READY_LABEL,
   BASE_BRANCH,
   decide,
+  duplicateMarkers,
   hasMarker,
   markerFor,
   parseRequiredChecks,
+  trustedMarkerAuthors,
 } from "./gate.mjs";
 
 const MODES = new Set(["report", "apply"]);
@@ -102,32 +107,52 @@ export function createGithubApi({ token, repo, fetchImpl = fetch, baseUrl = "htt
   return {
     getPr: async (number) => (await request("GET", `${r}/pulls/${number}`)).data,
     listOpenPrs: () => paginate(`${r}/pulls?state=open&base=${BASE_BRANCH}`),
-    getRequiredChecks: async () => {
-      const { data } = await request("GET", `${r}/branches/${BASE_BRANCH}/protection/required_status_checks`);
-      const names = [...(data.contexts ?? []), ...(data.checks ?? []).map((check) => check.context)];
-      return [...new Set(names)];
-    },
+    // GET branches/main carries protection.required_status_checks and is often
+    // readable where the protection endpoint (admin scope) is not.
+    getBranchRequiredChecks: async () =>
+      requiredCheckNames((await request("GET", `${r}/branches/${BASE_BRANCH}`)).data?.protection?.required_status_checks),
+    getProtectionRequiredChecks: async () =>
+      requiredCheckNames((await request("GET", `${r}/branches/${BASE_BRANCH}/protection/required_status_checks`)).data),
     listCheckRuns: (sha) => paginate(`${r}/commits/${sha}/check-runs?filter=latest`, (data) => data.check_runs),
     listStatuses: async (sha) => (await request("GET", `${r}/commits/${sha}/status`)).data.statuses ?? [],
     listComments: (number) => paginate(`${r}/issues/${number}/comments`),
     createComment: async (number, body) => (await request("POST", `${r}/issues/${number}/comments`, { body })).data,
+    deleteComment: async (id) => (await request("DELETE", `${r}/issues/comments/${id}`)).data,
     addLabels: async (number, labels) => (await request("POST", `${r}/issues/${number}/labels`, { labels })).data,
   };
 }
 
-// Branch protection is the source of truth. GITHUB_TOKEN cannot read it
-// (403/404), so fall back to the documented list and say so in the log.
+function requiredCheckNames(requiredStatusChecks) {
+  const names = [
+    ...(requiredStatusChecks?.contexts ?? []),
+    ...(requiredStatusChecks?.checks ?? []).map((check) => check.context),
+  ];
+  return [...new Set(names)];
+}
+
+const isUnreadable = (error) => error instanceof GithubApiError && (error.status === 403 || error.status === 404);
+
+// Branch protection is the source of truth: first the branch endpoint, then
+// the protection endpoint. A 403/404 or an empty list moves to the next
+// source; when neither yields names, fall back to the documented list. The log
+// names the source used.
 export async function resolveRequiredChecks(api, env, log) {
-  try {
-    const names = await api.getRequiredChecks();
-    if (names.length > 0) {
-      log(`required checks (branch protection): ${names.join(", ")}`);
-      return names;
+  const sources = [
+    [`GET branches/${BASE_BRANCH}`, () => api.getBranchRequiredChecks()],
+    [`GET branches/${BASE_BRANCH}/protection/required_status_checks`, () => api.getProtectionRequiredChecks()],
+  ];
+  for (const [label, read] of sources) {
+    try {
+      const names = await read();
+      if (names.length > 0) {
+        log(`required checks (${label}): ${names.join(", ")}`);
+        return names;
+      }
+      log(`${label} lists no required checks`);
+    } catch (error) {
+      if (!isUnreadable(error)) throw error;
+      log(`${label} unreadable (${error.status})`);
     }
-    log("branch protection lists no required checks; using fallback");
-  } catch (error) {
-    if (!(error instanceof GithubApiError) || (error.status !== 403 && error.status !== 404)) throw error;
-    log(`branch protection unreadable (${error.status}); using fallback`);
   }
   const fromEnv = parseRequiredChecks(env.REQUIRED_CHECKS);
   const names = fromEnv.length > 0 ? fromEnv : [...DEFAULT_REQUIRED_CHECKS];
@@ -145,7 +170,16 @@ const noLock = (_key, fn) => fn();
 
 // Evaluate one PR and, in apply mode, hand it off. eventSha defaults to the
 // PR's current head (backstop); a workflow passes the workflow_run head_sha.
-export async function handoffPr({ api, prNumber, eventSha, mode, requiredChecks, lock = noLock, log = () => {} }) {
+export async function handoffPr({
+  api,
+  prNumber,
+  eventSha,
+  mode,
+  requiredChecks,
+  trustedAuthors = trustedMarkerAuthors(),
+  lock = noLock,
+  log = () => {},
+}) {
   const pr = await api.getPr(prNumber);
   const headSha = eventSha ?? pr?.head?.sha;
   const event = { headSha, prNumber };
@@ -153,7 +187,7 @@ export async function handoffPr({ api, prNumber, eventSha, mode, requiredChecks,
   const [checkRuns, statuses, comments] = sha
     ? await Promise.all([api.listCheckRuns(sha), api.listStatuses(sha), api.listComments(prNumber)])
     : [[], [], []];
-  const decision = decide({ event, pr, checkRuns, statuses, requiredChecks, comments });
+  const decision = decide({ event, pr, checkRuns, statuses, requiredChecks, comments, trustedAuthors });
   if (!decision.handoff) {
     log(`#${prNumber} ${decision.key}: no-op (${decision.reason})${formatChecks(decision.checks)}`);
     return { ...decision, action: "noop" };
@@ -170,7 +204,7 @@ export async function handoffPr({ api, prNumber, eventSha, mode, requiredChecks,
       log(`#${prNumber} ${decision.key}: no-op (changed before handoff)`);
       return { ...decision, handoff: false, reason: "changed-before-handoff", action: "noop" };
     }
-    if (hasMarker(await api.listComments(prNumber), headSha)) {
+    if (hasMarker(await api.listComments(prNumber), headSha, trustedAuthors)) {
       log(`#${prNumber} ${decision.key}: no-op (already-handed-off)`);
       return { ...decision, handoff: false, reason: "already-handed-off", action: "noop" };
     }
@@ -178,9 +212,27 @@ export async function handoffPr({ api, prNumber, eventSha, mode, requiredChecks,
     // last so a failure in between is retried rather than recorded as done.
     await api.addLabels(prNumber, [QA_READY_LABEL]);
     await api.createComment(prNumber, handoffComment(headSha));
-    log(`#${prNumber} ${decision.key}: handed off`);
-    return { ...decision, action: "handoff" };
+    const removed = await dedupeMarkers({ api, prNumber, headSha, trustedAuthors });
+    log(`#${prNumber} ${decision.key}: handed off${removed > 0 ? ` (removed ${removed} duplicate marker(s))` : ""}`);
+    return { ...decision, action: "handoff", duplicatesRemoved: removed };
   });
+}
+
+// The backstop is outside the workflow's concurrency group, so both can pass
+// the in-lock re-read and write a marker for the same sha. Re-list after the
+// write and delete every trusted marker above the lowest id. Both writers
+// pick the same survivor; a 404 means the other writer deleted it first.
+async function dedupeMarkers({ api, prNumber, headSha, trustedAuthors }) {
+  let removed = 0;
+  for (const comment of duplicateMarkers(await api.listComments(prNumber), headSha, trustedAuthors)) {
+    try {
+      await api.deleteComment(comment.id);
+      removed += 1;
+    } catch (error) {
+      if (!(error instanceof GithubApiError && error.status === 404)) throw error;
+    }
+  }
+  return removed;
 }
 
 function formatChecks(checks) {
@@ -199,11 +251,13 @@ export async function selectTargets(api, { pr, sha }) {
 export async function run({ args, api, env = {}, log = console.log, lock }) {
   log(`qa-handoff mode=${args.mode} repo=${args.repo}${args.pr ? ` pr=${args.pr}` : ""}${args.sha ? ` sha=${args.sha}` : ""}`);
   const requiredChecks = await resolveRequiredChecks(api, env, log);
+  const trustedAuthors = trustedMarkerAuthors(env.QA_HANDOFF_TRUSTED_MARKER_AUTHORS);
+  log(`trusted marker authors: ${trustedAuthors.join(", ")}`);
   const targets = await selectTargets(api, args);
   if (targets.length === 0) log("no matching open PR");
   const results = [];
   for (const target of targets) {
-    results.push(await handoffPr({ api, ...target, mode: args.mode, requiredChecks, lock, log }));
+    results.push(await handoffPr({ api, ...target, mode: args.mode, requiredChecks, trustedAuthors, lock, log }));
   }
   return results;
 }
