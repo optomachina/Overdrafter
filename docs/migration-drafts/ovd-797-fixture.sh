@@ -118,6 +118,8 @@ PGHOST="$WORK" PGPORT=54797 PGUSER=postgres PGDATABASE=postgres \
 echo "== DM-3 / DM-9 concurrent double insert (two sessions)"
 "${PSQL[@]}" <<'SQL'
 insert into auth.users (id, email) values ('00000000-0000-4000-8000-000000797e01', 'ovd797-race@example.test');
+insert into public.jarvis_conversations (id, user_id)
+values ('00000000-0000-4000-8000-0000007970e1', '00000000-0000-4000-8000-000000797e01');
 SQL
 race() {
   # label, INSERT ... ON CONFLICT DO NOTHING, count query, row reset target
@@ -154,7 +156,7 @@ race "DM-3 inbound (slack, Ev797race)" \
   "select count(*) from public.jarvis_inbound_events where channel = 'slack' and idempotency_key = 'Ev797race'" \
   "public.jarvis_inbound_events where idempotency_key = 'Ev797race'"
 race "DM-9 control (run ...e9, key race-1)" \
-  "insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key) values ('00000000-0000-4000-8000-0000007979e9', 'pause', '00000000-0000-4000-8000-000000797e01', 'race-1') on conflict do nothing" \
+  "insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key) values ('00000000-0000-4000-8000-0000007970e1', '00000000-0000-4000-8000-0000007979e9', 'pause', '00000000-0000-4000-8000-000000797e01', 'race-1') on conflict do nothing" \
   "select count(*) from public.jarvis_control_commands where graph_run_id = '00000000-0000-4000-8000-0000007979e9' and idempotency_key = 'race-1'" \
   "public.jarvis_control_commands where idempotency_key = 'race-1'"
 

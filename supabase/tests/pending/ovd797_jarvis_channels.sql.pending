@@ -15,7 +15,8 @@
 --   * DM-3  a duplicate (channel, idempotency_key) inbound event is rejected;
 --           an on-conflict replay leaves one row
 --   * DM-4  a duplicate (channel, external_id_hash) is rejected
---   * DM-5  cross-user RLS: A sees 0 of B's rows; updates are denied
+--   * DM-5  cross-user RLS: A sees 0 of B's rows; updates are denied; a run id
+--           carried by both users' messages leaks no control command either way
 --   * DM-6  a non-admin (and an admin without AAL2) cannot read or write
 --           grants or channel settings
 --   * DM-7  anon is denied on every table
@@ -31,7 +32,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(74);
+select plan(80);
 
 create function pg_temp.ovd797_as(p_user_id uuid, p_role text, p_aal text)
 returns void
@@ -91,9 +92,9 @@ insert into public.jarvis_channel_identities (user_id, channel, external_id_hash
   ('00000000-0000-4000-8000-000000797a01', 'telegram', pg_catalog.repeat('a', 64)),
   ('00000000-0000-4000-8000-000000797b01', 'telegram', pg_catalog.repeat('b', 64));
 
-insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key) values
-  ('00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1'),
-  ('00000000-0000-4000-8000-0000007979b9', 'pause', '00000000-0000-4000-8000-000000797b01', 'b-pause-1');
+insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key) values
+  ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1'),
+  ('00000000-0000-4000-8000-0000007970b1', '00000000-0000-4000-8000-0000007979b9', 'pause', '00000000-0000-4000-8000-000000797b01', 'b-pause-1');
 
 -- ---------------------------------------------------------------------
 -- DM-1 shape, privileges and seed
@@ -186,18 +187,26 @@ select throws_ok(
   '23503', null, 'an identity on an unknown channel is rejected');
 
 select throws_ok(
-  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
-    values ('00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')$$,
+  $$insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')$$,
   '23505', null, 'DM-9 a duplicate (graph_run_id, idempotency_key) is rejected');
-insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
-values ('00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')
+insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+values ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')
 on conflict (graph_run_id, idempotency_key) do nothing;
 select is((select pg_catalog.count(*)::int from public.jarvis_control_commands where idempotency_key = 'a-pause-1'),
   1, 'DM-9 a replayed control command leaves exactly one row');
 select throws_ok(
-  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
-    values ('00000000-0000-4000-8000-0000007979a9', 'reboot', '00000000-0000-4000-8000-000000797a01', 'a-reboot-1')$$,
+  $$insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-0000007979a9', 'reboot', '00000000-0000-4000-8000-000000797a01', 'a-reboot-1')$$,
   '23514', null, 'an unknown control kind is rejected');
+select throws_ok(
+  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007979a9', 'resume', '00000000-0000-4000-8000-000000797a01', 'a-resume-1')$$,
+  '23502', null, 'a control command must name its conversation (NOT NULL)');
+select throws_ok(
+  $$insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007970ff', '00000000-0000-4000-8000-0000007979a9', 'resume', '00000000-0000-4000-8000-000000797a01', 'a-resume-1')$$,
+  '23503', null, 'a control command on an unknown conversation is rejected');
 select throws_ok(
   $$update public.jarvis_control_commands set status = 'applied' where idempotency_key = 'a-pause-1'$$,
   '23514', null, 'an applied control command must name its checkpoint');
@@ -276,12 +285,12 @@ select throws_ok(
 -- DM-8 control commands: no client insert path; guard verdicts
 -- ---------------------------------------------------------------------
 select throws_ok(
-  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
-    values ('00000000-0000-4000-8000-0000007979b9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-b')$$,
+  $$insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007970b1', '00000000-0000-4000-8000-0000007979b9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-b')$$,
   '42501', null, 'DM-8 A has no client insert path for a control command on B''s run');
 select throws_ok(
-  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
-    values ('00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-a')$$,
+  $$insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-a')$$,
   '42501', null, 'DM-8 A has no client insert path even on its own run');
 select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979b9', 'cancel'),
   'not_owner', 'DM-8 the guard returns not_owner for B''s run');
@@ -295,14 +304,32 @@ select is(public.jarvis_control_command_guard(null, 'pause'),
   'invalid_command', 'the guard rejects a null run');
 reset role;
 
--- A run that also appears in B's conversation is not A's alone.
+-- A run that also appears in B's conversation is not A's alone. B's message
+-- also carries run ...a9, and B has a command filed on ...a9 too: control
+-- command visibility follows conversation_id, not the shared run id.
 insert into public.jarvis_messages (conversation_id, direction, channel, kind, graph_run_id)
 values ('00000000-0000-4000-8000-0000007970b1', 'outbound', 'web', 'status', '00000000-0000-4000-8000-0000007979a9');
+insert into public.jarvis_control_commands (conversation_id, graph_run_id, kind, actor_user_id, idempotency_key, payload)
+values ('00000000-0000-4000-8000-0000007970b1', '00000000-0000-4000-8000-0000007979a9', 'steer', '00000000-0000-4000-8000-000000797b01', 'b-steer-a9', '{"text":"b only"}');
 set local role authenticated;
 select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797a01', 'authenticated', 'aal2');
 select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'pause'),
   'not_owner', 'DM-8 a run that also appears in another user''s conversation is not owned');
+select is((select pg_catalog.count(*)::int from public.jarvis_control_commands where actor_user_id = '00000000-0000-4000-8000-000000797b01'),
+  0, 'DM-5 shared run: A sees 0 of B''s control commands');
+select results_eq(
+  $$select idempotency_key from public.jarvis_control_commands order by idempotency_key$$,
+  $$values ('a-pause-1')$$,
+  'DM-5 shared run: A sees exactly its own control command');
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797b01', 'authenticated', 'aal2');
+select is((select pg_catalog.count(*)::int from public.jarvis_control_commands where actor_user_id = '00000000-0000-4000-8000-000000797a01'),
+  0, 'DM-5 shared run: B sees 0 of A''s control commands (a-pause-1 on run ...a9)');
+select results_eq(
+  $$select idempotency_key from public.jarvis_control_commands order by idempotency_key$$,
+  $$values ('b-pause-1'), ('b-steer-a9')$$,
+  'DM-5 shared run: B sees exactly its own control commands');
 reset role;
+delete from public.jarvis_control_commands where idempotency_key = 'b-steer-a9';
 delete from public.jarvis_messages where conversation_id = '00000000-0000-4000-8000-0000007970b1' and kind = 'status';
 
 -- A revoked grant blocks control even on the owner's own run.

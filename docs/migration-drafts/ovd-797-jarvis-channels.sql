@@ -23,7 +23,7 @@
 --   * RLS is enabled on every table. anon has no grant on any table.
 --   * authenticated has SELECT only, and only on its own rows: its
 --     conversation, that conversation's messages and decisions, its channel
---     identities, and control commands for runs in its conversation.
+--     identities, and control commands filed under its conversation.
 --     Grants and channel settings are readable by a platform admin at AAL2.
 --     Link codes, inbound events and outbound deliveries are server only.
 --   * There is no INSERT, UPDATE or DELETE grant or policy for any client
@@ -157,6 +157,7 @@ comment on table public.jarvis_decisions is
 
 create table public.jarvis_control_commands (
   id uuid primary key default pg_catalog.gen_random_uuid(),
+  conversation_id uuid not null references public.jarvis_conversations (id) on delete cascade,
   graph_run_id uuid not null,
   kind text not null check (kind in ('pause', 'resume', 'cancel', 'steer')),
   payload jsonb not null default '{}'::jsonb check (pg_catalog.jsonb_typeof(payload) = 'object'),
@@ -170,8 +171,10 @@ create table public.jarvis_control_commands (
   constraint jarvis_control_commands_checkpoint_when_applied
     check ((status = 'applied') = (applied_at_checkpoint is not null))
 );
+create index jarvis_control_commands_conversation_id_idx
+  on public.jarvis_control_commands (conversation_id);
 comment on table public.jarvis_control_commands is
-  'OVD-797: run control (pause/resume/cancel/steer), idempotent per (graph_run_id, idempotency_key). Applied at safe checkpoints.';
+  'OVD-797: run control (pause/resume/cancel/steer), idempotent per (graph_run_id, idempotency_key). Applied at safe checkpoints. conversation_id is the run owner''s conversation, filled by the server after the guard says ok.';
 
 -- =====================================================================
 -- Webhook idempotency and outbound delivery (server only)
@@ -303,18 +306,17 @@ using (
   )
 );
 
--- Run ownership: a run belongs to the user whose conversation carries it.
-create policy jarvis_control_commands_select_own_run
+-- A command is visible only in the conversation it was filed under, never
+-- through whichever messages happen to carry its graph_run_id.
+create policy jarvis_control_commands_select_own
 on public.jarvis_control_commands
 for select
 to authenticated
 using (
   exists (
     select 1
-    from public.jarvis_messages message
-    join public.jarvis_conversations conversation
-      on conversation.id = message.conversation_id
-    where message.graph_run_id = jarvis_control_commands.graph_run_id
+    from public.jarvis_conversations conversation
+    where conversation.id = jarvis_control_commands.conversation_id
       and conversation.user_id = (select auth.uid())
   )
 );
@@ -324,7 +326,10 @@ using (
 -- =====================================================================
 -- Verdict for the calling user (auth.uid()) issuing a control command on a
 -- run. It writes nothing. Server code calls it with the user's session, then
--- inserts into jarvis_control_commands with the service role only on 'ok'.
+-- inserts into jarvis_control_commands with the service role only on 'ok',
+-- setting conversation_id to the conversation that carries the run (on the
+-- owner path that is the caller's own conversation, since 'ok' means every
+-- message carrying the run is in it).
 --   'ok'                the caller owns the run and holds an active grant,
 --                       or the caller is a platform admin at AAL2
 --   'not_authenticated' no auth.uid()

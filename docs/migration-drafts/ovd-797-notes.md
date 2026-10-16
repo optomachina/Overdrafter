@@ -7,7 +7,7 @@ Files:
 - `docs/migration-drafts/ovd-797-jarvis-channels.sql`: ten `public.jarvis_*` tables, one `public.jarvis_tier` domain (`owner|beta|paid`, shared by `tier` and `min_tier`), RLS on each, seven SELECT policies, explicit grants, seed rows for four channels (all disabled), and one read only guard function.
 - `docs/migration-drafts/ovd-797-jarvis-channels.rollback.sql`: drops the function, the ten tables (children first) and the domain, all `if exists`. It deletes all Jarvis data.
 - `docs/migration-drafts/ovd-797-fixture.sh`: disposable local Postgres fixture (DM-1..DM-11, DM-1R, policy listing). It starts its own cluster on a unix socket in a temp dir and never connects to a hosted database.
-- `supabase/tests/pending/ovd797_jarvis_channels.sql.pending`: pgTAP, 74 assertions.
+- `supabase/tests/pending/ovd797_jarvis_channels.sql.pending`: pgTAP, 80 assertions.
 - `.github/workflows/ovd797-pending-pgtap.yml`: same structure as `ovd766-pending-pgtap.yml`. It runs in a throwaway local Supabase DB on the runner: apply draft, DM-1R dump diff, re-apply, pending pgTAP, rollback twice.
 
 The architect comment names the files `ovd-795-*`. They are `ovd-797-*` here so they key to this issue, like every other draft in this directory.
@@ -23,7 +23,7 @@ The architect comment names the files `ovd-795-*`. They are `ovd-797-*` here so 
 | `jarvis_link_codes` | `code_hash` PK; `expires_at <= created_at + 10 min` CHECK | none (server only) |
 | `jarvis_messages` | `conversation_id` FK; `body` must be a JSON object | own conversation |
 | `jarvis_decisions` | `message_id` UNIQUE; `best_guess` NOT NULL; resolution shape CHECK | own conversation |
-| `jarvis_control_commands` | UNIQUE `(graph_run_id, idempotency_key)`; kind `pause\|resume\|cancel\|steer`; status `queued\|applied\|rejected` | runs in own conversation |
+| `jarvis_control_commands` | `conversation_id` FK; UNIQUE `(graph_run_id, idempotency_key)`; kind `pause\|resume\|cancel\|steer`; status `queued\|applied\|rejected` | own conversation |
 | `jarvis_inbound_events` | PK `(channel, idempotency_key)` | none (server only) |
 | `jarvis_outbound_deliveries` | UNIQUE `(message_id, channel)` | none (server only) |
 
@@ -32,12 +32,14 @@ Every `channel` column references `jarvis_channel_settings(channel)`, so a chann
 ## Access model
 
 - RLS is enabled on all ten tables. `anon` has no privilege on any of them (revoked from `public`, `anon` and `authenticated` first, so Supabase's default ACL does not leak through).
-- `authenticated` gets SELECT on seven tables. The policies limit it to its own rows: `auth.uid()` matches the conversation owner or the identity owner, or the control command's run appears in its conversation. Grants and channel settings need `public.is_platform_admin() and public.current_user_has_aal2()`.
+- `authenticated` gets SELECT on seven tables. The policies limit it to its own rows: `auth.uid()` matches the owner of the row's conversation (messages, decisions, control commands) or the identity owner. Grants and channel settings need `public.is_platform_admin() and public.current_user_has_aal2()`.
 - No client role has INSERT, UPDATE, DELETE or TRUNCATE on any table, and there is no write policy. All writes go through `service_role` in server code (it has BYPASSRLS on Supabase). Admin changes to grants and switches go through server endpoints that check AAL2, not direct table writes.
 
 ### Run ownership
 
-There is no runs table yet (the graph is OVD-801). A run belongs to the user whose conversation carries it, meaning a `jarvis_messages` row with that `graph_run_id`. The guard is stricter: it counts a run as owned only when every message that carries it is in the caller's conversation.
+There is no runs table yet (the graph is OVD-801). The guard counts a run as the caller's only when every message that carries its `graph_run_id` is in the caller's conversation.
+
+Control command visibility does not use run ownership at all. Each command carries `conversation_id` (NOT NULL, FK to `jarvis_conversations`, `on delete cascade`), and the SELECT policy is a direct `conversation.user_id = auth.uid()` lookup on it. Nothing stops a `graph_run_id` from appearing in two users' conversations, so a policy keyed on "any message carries the run" would show both users each other's commands, including `steer` payloads and `actor_user_id`. The server fills `conversation_id` when it inserts after a guard `ok`: on the owner path that is the caller's own conversation (one per user, and `ok` means every message carrying the run is in it); on the admin path it is the conversation that carries the run. The guard keeps its `text` verdict; it does not return the conversation. pgTAP covers the shared case: B's message also carries A's run `…a9` and B files a command on it, and A sees 0 of B's commands while B sees 0 of A's `a-pause-1`.
 
 ## The one function: `public.jarvis_control_command_guard(uuid, text)`
 
@@ -86,7 +88,7 @@ It needs Postgres 17 binaries (`PG_BIN`, default `/usr/lib/postgresql/<latest>/b
 Steps and expected lines:
 
 - DM-1: `ok - DM-1 the draft applies cleanly to a fresh fixture`, `tables: 10, rls on: 10`.
-- DM-2..DM-11: pgTAP `1..74`, `Result: PASS`.
+- DM-2..DM-11: pgTAP `1..80`, `Result: PASS`.
 - DM-3 / DM-9 concurrency: two real sessions. The first inserts and holds its transaction for 2 s. The second's `on conflict do nothing` waits on it, then inserts nothing, leaving 1 row. A plain concurrent duplicate gets `unique_violation`.
 - RLS policy listing: `pg_policies`, the table ACLs and the guard ACL.
 - DM-1R: the `pg_dump --schema-only` diff against the pre-draft dump is empty after rollback, and still empty after re-apply, rollback and a rollback replay. A rollback mutated to leave the guard behind makes the fixture exit 1 with the leftover `CREATE FUNCTION` in the diff.

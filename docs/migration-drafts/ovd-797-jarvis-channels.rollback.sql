@@ -15,7 +15,8 @@ set local lock_timeout = '5s';
 
 drop function if exists public.jarvis_control_command_guard(uuid, text);
 
--- Children first, so no drop depends on cascade.
+-- Children first, so no drop depends on cascade (jarvis_control_commands
+-- references jarvis_conversations, so it goes before it).
 drop table if exists public.jarvis_outbound_deliveries;
 drop table if exists public.jarvis_inbound_events;
 drop table if exists public.jarvis_control_commands;
