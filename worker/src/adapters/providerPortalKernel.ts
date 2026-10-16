@@ -1071,6 +1071,15 @@ function enterProviderMutation(boundary: PortalBoundaryState): void {
   markProviderMutationStarted();
 }
 
+/**
+ * OVD-826: the first boundary violation is the one that explains the stop. A
+ * blocked off-host navigation commits Chromium's error page next, and that
+ * later `chrome-error://` navigation must not overwrite the real host.
+ */
+function recordBoundaryViolation(boundary: PortalBoundaryState, violation: string): void {
+  boundary.violation ??= violation;
+}
+
 function safeObservedHost(rawUrl: string): string {
   try {
     return new URL(rawUrl).hostname;
@@ -1173,7 +1182,7 @@ async function installPortalBoundaryGuards(
     const host = safeObservedHost(requestUrl);
     const disposition = await classifyOffHostRequest(request);
     if (disposition !== "subresource") {
-      boundary.violation = `${disposition}:${host}`;
+      recordBoundaryViolation(boundary, `${disposition}:${host}`);
       await route.abort("blockedbyclient");
       return;
     }
@@ -1189,7 +1198,7 @@ async function installPortalBoundaryGuards(
   await context.routeWebSocket("**/*", async (webSocketRoute) => {
     const socketUrl = webSocketRoute.url();
     if (!isAllowedProviderWebSocketUrl(socketUrl, definition.allowedHosts)) {
-      boundary.violation = `unexpected_websocket:${safeObservedHost(socketUrl)}`;
+      recordBoundaryViolation(boundary, `unexpected_websocket:${safeObservedHost(socketUrl)}`);
       await webSocketRoute.close({ code: 1008, reason: "unexpected_origin" });
       return;
     }
@@ -1201,7 +1210,7 @@ async function installPortalBoundaryGuards(
       return;
     }
     unexpectedPages.add(unexpectedPage);
-    boundary.violation = `unexpected_page:${safeObservedHost(unexpectedPage.url())}`;
+    recordBoundaryViolation(boundary, `unexpected_page:${safeObservedHost(unexpectedPage.url())}`);
     void unexpectedPage.close().catch(() => undefined);
   };
   context.on("page", rejectUnexpectedPage);
@@ -1212,7 +1221,7 @@ async function installPortalBoundaryGuards(
       && frame.url() !== "about:blank"
       && !isAllowedProviderUrl(frame.url(), definition.allowedHosts)
     ) {
-      boundary.violation = `unexpected_navigation:${safeObservedHost(frame.url())}`;
+      recordBoundaryViolation(boundary, `unexpected_navigation:${safeObservedHost(frame.url())}`);
     }
   });
 }
