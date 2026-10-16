@@ -258,6 +258,8 @@ export class CadAgent implements DomainAgent {
     const params = this.plan(ctx);
     const { thicknessMm, holePattern, material } = params;
     emit({ type: "status", state: "info", message: `Filing plate job: ${CAD_PLATE_EDGE_MM} x ${CAD_PLATE_EDGE_MM} x ${thicknessMm} mm, ${holePattern} holes, ${material}` });
+    // Last safe point before the worker runs; a queued cancel never files a job.
+    await ctx.checkpoint();
 
     const outcome = await this.runner(params);
     const result = outcome.result;
@@ -277,9 +279,13 @@ export class CadAgent implements DomainAgent {
     const uri = (file: string) => pathToFileURL(path.join(outcome.runDir as string, file)).href;
     const dimensionsMm = { ...measured };
     emit({ type: "status", state: "info", message: `Worker ${outcome.id} verified: STEP measures ${measured.x} x ${measured.y} x ${measured.z} mm` });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "step", name: result.files.step, mimeType: "model/step", uri: uri(result.files.step), dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "glb", name: result.files.glb, mimeType: "model/gltf-binary", uri: uri(result.files.glb), dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "png", name: result.files.iso, mimeType: "image/png", uri: uri(result.files.iso) });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "png", name: result.files.top, mimeType: "image/png", uri: uri(result.files.top) });
     return {
       summary: `4.000 in (${CAD_PLATE_EDGE_MM} mm) square plate, ${thicknessMm} mm thick, ${holePattern} holes, ${material}; STEP measures ${measured.x} x ${measured.y} x ${measured.z} mm`,

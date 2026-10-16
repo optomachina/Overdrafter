@@ -283,6 +283,23 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(webArtifact.model3dUrl).toBe("https://cdn.example/plate.glb");
   });
 
+  it("OVD-810 control events render as one short line in the shared thread on every channel", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    const control = { commandId: "run-1:cmd-1", nodeId: "domain_agent" } as const;
+    const events: GraphEvent[] = [
+      { ...envelope("run-1"), ...control, type: "control_requested", kind: "pause", actorId: "blaine", idempotencyKey: "k-1" },
+      { ...envelope("run-1"), ...control, type: "control_applied", kind: "pause", state: "paused", checkpoint: "agent" },
+      { ...envelope("run-1"), ...control, type: "control_applied", kind: "cancel", state: "cancelled", checkpoint: "decision", kept: [{ kind: "step", uri: "s" }, { kind: "glb", uri: "g" }] },
+      { ...envelope("run-1"), ...control, type: "control_rejected", kind: "cancel", reason: "cancel_pending" },
+    ];
+    for (const event of events) await h.service.handleGraphEvent(event);
+
+    const expected = ["Pause requested.", "Run paused.", "Run cancelled. Kept: step, glb.", "Cancel rejected: cancel pending."];
+    expect(h.test.sent.slice(1).map((send) => send.message)).toEqual(expected.map((text) => ({ text })));
+    expect(h.web.sent.slice(1).map((send) => send.message.text)).toEqual(expected);
+  });
+
   it("CS-8 send failures retry with backoff, never duplicate, and mark failed after N attempts", async () => {
     const h = await linkedOwner({ test: { sendResults: [{ ok: false, error: "503" }, { ok: false, error: "503" }] } });
     await h.service.handleInbound("test", request());
