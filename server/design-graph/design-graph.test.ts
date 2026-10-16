@@ -50,7 +50,9 @@ function setup(options: { registry?: DomainAgentRegistry; decisionTimeoutMs?: nu
   const clock = new ManualClock();
   const all: DesignGraphEvent[] = [];
   let n = 0;
-  const graph = new DesignGraph({ ...options, clock, createRunId: () => `run-${++n}`, onEvent: (e) => all.push(e) });
+  // env: {} keeps JARVIS_CAD_AGENT_ENABLED out, so cad is the hermetic stub here.
+  const registry = options.registry ?? createDefaultRegistry({ env: {} });
+  const graph = new DesignGraph({ ...options, registry, clock, createRunId: () => `run-${++n}`, onEvent: (e) => all.push(e) });
   return { graph, clock, all };
 }
 
@@ -90,7 +92,7 @@ describe("DesignGraph slice 1", () => {
   });
 
   it("G-1 routing: default registry has cad enabled and other domains registered but disabled", () => {
-    const registry = createDefaultRegistry();
+    const registry = createDefaultRegistry({ env: {} });
     expect(registry.ids()).toEqual(["optics", "electronics", "analysis", "cad"]);
     expect(registry.ids().filter((id) => registry.isEnabled(id))).toEqual(["cad"]);
   });
@@ -98,7 +100,7 @@ describe("DesignGraph slice 1", () => {
   it("G-2 optics request emits 'agent not enabled', runs nothing, and ends the run", async () => {
     const listener = vi.fn();
     const cadRun = vi.spyOn(StubCadAgent.prototype, "run");
-    const registry = createDefaultRegistry();
+    const registry = createDefaultRegistry({ env: {} });
     const { graph } = setup({ registry });
     const runId = graph.submit({ prompt: "Design a 25 mm achromatic lens mount" });
     graph.subscribe(runId, listener);

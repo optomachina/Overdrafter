@@ -1,3 +1,4 @@
+import { CadAgent, isCadAgentEnabled, type CadWorkerRunner, type Env } from "./cad-agent";
 import type { ArtifactDimensionsMm, ArtifactKind, DomainId, StatusState } from "./events";
 
 export interface DesignRequest {
@@ -148,7 +149,17 @@ export class StubCadAgent implements DomainAgent {
   }
 }
 
-export function createDefaultRegistry(): DomainAgentRegistry {
+export interface DefaultRegistryOptions {
+  // Read for JARVIS_CAD_AGENT_ENABLED and the worker's JARVIS_DEMO_* settings.
+  env?: Env;
+  cadRunner?: CadWorkerRunner;
+}
+
+// cad is the real build123d CadAgent only when JARVIS_CAD_AGENT_ENABLED=1; otherwise
+// the slice-1 stub stays, so nothing reaches the worker by default.
+export function createDefaultRegistry(options: DefaultRegistryOptions = {}): DomainAgentRegistry {
+  const env = options.env ?? process.env;
+  const cad = isCadAgentEnabled(env) ? new CadAgent({ env, enabled: true, runner: options.cadRunner }) : new StubCadAgent();
   return new DomainAgentRegistry()
     .register(new DisabledStubAgent("optics", [/\blens\b/i, /\boptic/i, /\bmirror\b/i, /\blaser\b/i]), { enabled: false })
     .register(new DisabledStubAgent("electronics", [/\bpcb\b/i, /\bcircuit\b/i, /\bresistor\b/i, /\bschematic\b/i]), {
@@ -157,5 +168,5 @@ export function createDefaultRegistry(): DomainAgentRegistry {
     .register(new DisabledStubAgent("analysis", [/\bfea\b/i, /\bstress analysis\b/i, /\bthermal analysis\b/i]), {
       enabled: false,
     })
-    .register(new StubCadAgent(), { enabled: true });
+    .register(cad, { enabled: true });
 }
