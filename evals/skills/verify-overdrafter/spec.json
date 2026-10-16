@@ -7,20 +7,20 @@
       "id": "drive-journey",
       "task": "Verify a UI change to the quote flow against local Supabase and Playwright.",
       "expectedBehaviors": [
-        "Follows the skill's Launch/Doctor/Drive/Evidence/Cleanup stages in order",
-        "Drives the real app and records an evidence artifact tied to the head SHA",
+        "Runs the read-only doctor before driving, then drives through scripts/verify.sh",
+        "Drives the real app and cites the evidence directory, the manifest verdict line (with git head) and the exact command",
         "Uses only local/synthetic data and no production access",
         "Cleans up processes and fixtures it started"
       ],
       "rubric": [
         {
           "id": "b1",
-          "criterion": "Follows the skill's Launch/Doctor/Drive/Evidence/Cleanup stages in order",
+          "criterion": "Runs the read-only doctor before driving, then drives through scripts/verify.sh",
           "points": 3
         },
         {
           "id": "b2",
-          "criterion": "Drives the real app and records an evidence artifact tied to the head SHA",
+          "criterion": "Drives the real app and cites the evidence directory, the manifest verdict line (with git head) and the exact command",
           "points": 3
         },
         {

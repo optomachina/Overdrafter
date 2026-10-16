@@ -6,12 +6,15 @@
  * See docs/skill-evals.md.
  */
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const GIT_BIN = "/usr/bin/git";
+// Absolute path so git is not resolved through a writable PATH entry
+// (SonarCloud S4036); fall back to PATH lookup where git lives elsewhere.
+export const GIT_BIN = fs.existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
 export const SKILL_ROOTS = [".agents/skills", ".codex/skills", ".claude/skills", ".cursor/skills"];
 export const SPEC_ROOT = "evals/skills";
 export const SPEC_FILE = "spec.json";
@@ -20,27 +23,91 @@ export const MAX_SCORE = 10;
 const SKILL_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 export function normalizeModel(id) {
-  return String(id ?? "").trim().toLowerCase();
+  return typeof id === "string" ? id.trim().toLowerCase() : "";
 }
 
-/** Throws unless a runner and judge model are both named and differ. */
+/**
+ * Reduce a model id to its base model so aliases of one model compare equal:
+ * drops provider/region prefixes (`anthropic/`, `us.anthropic.`), Vertex
+ * `@date` and Bedrock `-v1:0` suffixes, `-latest`, and dated snapshots.
+ */
+export function canonicalModel(id) {
+  let m = normalizeModel(id);
+  m = m.slice(m.lastIndexOf("/") + 1);
+  m = m.replace(/^(?:[a-z]+\.)+/, "");
+  m = m.replace(/@.*$/, "");
+  m = m.replace(/-v\d+(?::\d+)?$/, "");
+  m = m.replace(/-latest$/, "");
+  m = m.replace(/-\d{8}$/, "");
+  m = m.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  return m;
+}
+
+/** Throws unless a runner and judge model are both named and are different base models. */
 export function assertDistinctJudge(runner, judge) {
-  const r = normalizeModel(runner);
-  const j = normalizeModel(judge);
-  if (!r || !j) throw new Error("runner and judge model ids are both required");
+  const r = canonicalModel(runner);
+  const j = canonicalModel(judge);
+  if (!r || !j) throw new Error("runner and judge model ids are both required (non-empty strings)");
   if (r === j) throw new Error(`judge must be a different model than the runner (both "${r}")`);
 }
 
+function isGitCheckout(root) {
+  return fs.existsSync(path.join(root, ".git"));
+}
+
+function gitLsFiles(root, paths) {
+  const out = execFileSync(GIT_BIN, ["ls-files", "-z", "--", ...paths], { cwd: root, encoding: "utf8" });
+  return out.split("\0").filter(Boolean);
+}
+
+/**
+ * Skill name -> repo-relative dir. In a git checkout only tracked skills count,
+ * so locally installed (gitignored) third-party skills are not picked up.
+ */
 export function skillDirs(root) {
   const found = new Map();
+  const tracked = isGitCheckout(root) ? gitLsFiles(root, SKILL_ROOTS) : null;
   for (const base of SKILL_ROOTS) {
-    const dir = path.join(root, base);
-    if (!fs.existsSync(dir)) continue;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && !found.has(entry.name)) found.set(entry.name, path.posix.join(base, entry.name));
+    for (const name of skillNamesUnder(root, base, tracked)) {
+      if (!found.has(name)) found.set(name, path.posix.join(base, name));
     }
   }
   return found;
+}
+
+function skillNamesUnder(root, base, tracked) {
+  if (tracked) {
+    const prefix = `${base}/`;
+    const names = tracked.filter((f) => f.startsWith(prefix) && f.indexOf("/", prefix.length) > 0)
+      .map((f) => f.slice(prefix.length).split("/")[0]);
+    return [...new Set(names)].sort(compareCodeUnits);
+  }
+  const dir = path.join(root, base);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(compareCodeUnits);
+}
+
+function walkFiles(root, rel) {
+  const abs = path.join(root, rel);
+  if (!fs.existsSync(abs)) return [];
+  if (!fs.statSync(abs).isDirectory()) return [rel];
+  return fs.readdirSync(abs).flatMap((name) => walkFiles(root, path.posix.join(rel, name)));
+}
+
+/**
+ * Content hash of a skill (its skill dir plus its eval spec). A judge result
+ * records it as `skillHash` so a score cannot outlive the skill it judged.
+ */
+export function skillHash(root, name, dirs = skillDirs(root)) {
+  const rels = [dirs.get(name), path.posix.join(SPEC_ROOT, name)].filter(Boolean);
+  const files = isGitCheckout(root) ? gitLsFiles(root, rels) : rels.flatMap((r) => walkFiles(root, r));
+  const hash = crypto.createHash("sha256");
+  for (const file of [...new Set(files)].sort(compareCodeUnits)) {
+    const abs = path.join(root, file);
+    if (!fs.existsSync(abs)) continue;
+    hash.update(`${file}\0`).update(fs.readFileSync(abs)).update("\0");
+  }
+  return hash.digest("hex").slice(0, 16);
 }
 
 export function validateSpec(spec, expectedSkill) {
@@ -162,12 +229,12 @@ export function changedSkills(root, base, head) {
   for (const ref of [base, head]) {
     if (!ref || ref.startsWith("-")) throw new Error(`invalid git ref: ${ref}`);
   }
-  const out = execFileSync(GIT_BIN, ["diff", "--name-only", `${base}...${head}`], { cwd: root, encoding: "utf8" });
+  const out = execFileSync(GIT_BIN, ["diff", "--name-only", "--no-renames", `${base}...${head}`], { cwd: root, encoding: "utf8" });
   return changedSkillsFromPaths(out.split("\n").filter(Boolean));
 }
 
 /**
- * Judge result shape: { skill, case, runner, judge, scores: [{ id, points }] }.
+ * Judge result shape: { skill, case, skillHash, runner, judge, scores: [{ id, points }] }.
  * Returns a per-case result with a validated total.
  */
 export function scoreResult(result, spec) {
@@ -208,66 +275,120 @@ function caseStatus(problems, total, passScore) {
   return total >= passScore ? "pass" : "fail";
 }
 
-export function buildReport(specs, results) {
+function reportCase(c, spec, mine, currentHash) {
+  if (mine.length === 0) return { id: c.id, status: "unscored", total: null, problems: ["no judge result"] };
+  // Only results for the current skill content count; among those the last
+  // one wins so a re-run replaces earlier attempts.
+  const current = currentHash ? mine.filter((r) => r.skillHash === currentHash) : mine;
+  if (current.length === 0) {
+    const problems = [`no judge result for current skillHash ${currentHash} (re-run and re-judge)`];
+    return { id: c.id, status: "stale", total: null, problems };
+  }
+  const latest = current.at(-1);
+  const { total, problems } = scoreResult(latest, spec);
+  const status = caseStatus(problems, total, spec.passScore);
+  return { id: c.id, status, total, problems, runner: latest.runner, judge: latest.judge };
+}
+
+/**
+ * Options: `present` (set of skill names in the checkout; specs for other
+ * skills are skipped, not failed), `hashes` (skill -> current skillHash; when
+ * given, results must carry a matching skillHash), `only` (skill names in scope).
+ */
+export function buildReport(specs, results, { present = null, hashes = null, only = null } = {}) {
   const skills = [];
-  for (const [name, spec] of [...specs].sort(([a], [b]) => a.localeCompare(b))) {
-    const cases = spec.cases.map((c) => {
-      const mine = results.filter((r) => r.skill === name && r.case === c.id);
-      if (mine.length === 0) return { id: c.id, status: "unscored", total: null, problems: ["no judge result"] };
-      // Latest result wins so a re-run replaces earlier attempts.
-      const latest = mine[mine.length - 1];
-      const { total, problems } = scoreResult(latest, spec);
-      const status = caseStatus(problems, total, spec.passScore);
-      return { id: c.id, status, total, problems, runner: latest.runner, judge: latest.judge };
-    });
+  for (const [name, spec] of [...specs].sort(([a], [b]) => compareCodeUnits(a, b))) {
+    if (only && !only.includes(name)) continue;
+    if (present && !present.has(name)) {
+      skills.push({ skill: name, status: "skipped", reason: "skill absent", cases: [] });
+      continue;
+    }
+    const hash = hashes?.get(name) ?? null;
+    const cases = spec.cases.map((c) =>
+      reportCase(c, spec, results.filter((r) => r.skill === name && r.case === c.id), hash));
     skills.push({ skill: name, status: cases.every((c) => c.status === "pass") ? "pass" : "fail", cases });
   }
-  return { ok: skills.every((s) => s.status === "pass"), skills };
+  return { ok: skills.every((s) => s.status !== "fail"), skills };
+}
+
+function cell(value) {
+  return String(value).replaceAll("|", String.raw`\|`).replaceAll(/\r?\n/g, " ");
 }
 
 export function renderReport(report) {
   const lines = ["# Skill eval report", "", `Overall: ${report.ok ? "PASS" : "NOT 10/10"}`, ""];
   lines.push("| Skill | Case | Score | Status | Notes |", "| --- | --- | --- | --- | --- |");
   for (const s of report.skills) {
+    if (s.status === "skipped") lines.push(`| ${cell(s.skill)} | - | - | skipped (${s.reason}) | |`);
     for (const c of s.cases) {
-      lines.push(`| ${s.skill} | ${c.id} | ${c.total ?? "-"}/${MAX_SCORE} | ${c.status} | ${c.problems.join("; ")} |`);
+      lines.push(`| ${cell(s.skill)} | ${cell(c.id)} | ${c.total ?? "-"}/${MAX_SCORE} | ${c.status} | ${cell(c.problems.join("; "))} |`);
     }
   }
   return `${lines.join("\n")}\n`;
 }
 
-function readResults(files) {
+export function readResults(files) {
   const results = [];
   for (const file of files) {
-    const data = JSON.parse(fs.readFileSync(file, "utf8"));
-    results.push(...(Array.isArray(data) ? data : [data]));
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (e) {
+      throw new Error(`${file}: cannot read score JSON (${e.message})`);
+    }
+    const list = Array.isArray(data) ? data : [data];
+    list.forEach((r, i) => {
+      if (!r || typeof r !== "object" || Array.isArray(r) || typeof r.skill !== "string" || typeof r.case !== "string") {
+        throw new Error(`${file}[${i}]: result must be an object with string "skill" and "case"`);
+      }
+    });
+    results.push(...list);
   }
   return results;
 }
 
 const BOOLEAN_FLAGS = new Set(["json"]);
+const REPEATABLE_FLAGS = new Set(["skill"]);
 
-function parseFlags(argv) {
+export function parseFlags(argv) {
   const flags = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a.startsWith("--")) {
-      const next = argv[i + 1];
-      if (BOOLEAN_FLAGS.has(a.slice(2)) || next === undefined || next.startsWith("--")) flags[a.slice(2)] = true;
-      else {
-        flags[a.slice(2)] = next;
-        i += 1;
-      }
-    } else flags._.push(a);
+    if (!a.startsWith("--")) {
+      flags._.push(a);
+      continue;
+    }
+    const name = a.slice(2);
+    const next = argv[i + 1];
+    let value = true;
+    if (!BOOLEAN_FLAGS.has(name) && next !== undefined && !next.startsWith("--")) {
+      value = next;
+      i += 1;
+    }
+    if (REPEATABLE_FLAGS.has(name)) (flags[name] ??= []).push(value);
+    else flags[name] = value;
   }
   return flags;
+}
+
+/** `--skill a --skill b,c` -> ["a", "b", "c"], or null when absent. */
+function skillScope(values, specs) {
+  if (values === undefined) return null;
+  const names = values.flatMap((v) => (typeof v === "string" ? v.split(",") : [""])).map((v) => v.trim());
+  if (names.some((n) => !n)) throw new Error("--skill needs a skill name");
+  const unknown = names.filter((n) => !specs.has(n));
+  if (unknown.length) throw new Error(`--skill: no eval spec for ${unknown.join(", ")}`);
+  return [...new Set(names)];
 }
 
 const USAGE = `Usage: node scripts/skill-evals.mjs <command>
   validate                          validate all eval specs and skill coverage
   changed --base <ref> --head <ref> list skills whose dir or eval spec changed
-  check-judge --runner <m> --judge <m>   fail unless the judge model differs
-  report [--json] <scores.json>...  aggregate judge results (exit 1 unless all 10/10)`;
+  check-judge --runner <m> --judge <m>   fail unless the judge is a different base model
+  hash <skill>...                   print the skillHash a judge result must carry
+  report [--json] [--skill <name>]... <scores.json>...
+                                    aggregate judge results (exit 1 unless every
+                                    present, in-scope skill is 10/10)`;
 
 function runValidate(f, root, out) {
   const r = validateAll(root);
@@ -285,8 +406,21 @@ function runChanged(f, root, out) {
 }
 
 function runCheckJudge(f, _root, out) {
+  if (!isNonEmptyString(f.runner) || !isNonEmptyString(f.judge)) {
+    throw new Error("--runner and --judge both need a non-empty model id");
+  }
   assertDistinctJudge(f.runner, f.judge);
   out(`ok: judge ${normalizeModel(f.judge)} differs from runner ${normalizeModel(f.runner)}\n`);
+  return 0;
+}
+
+function runHash(f, root, out) {
+  if (f._.length === 0) throw new Error("at least one skill name is required");
+  const dirs = skillDirs(root);
+  for (const name of f._) {
+    if (!dirs.has(name)) throw new Error(`skill "${name}" is not present in this checkout`);
+    out(`${name} ${skillHash(root, name, dirs)}\n`);
+  }
   return 0;
 }
 
@@ -294,7 +428,11 @@ function runReport(f, root, out) {
   if (f._.length === 0) throw new Error("at least one scores file is required");
   const { specs, errors } = loadSpecs(root);
   if (errors.length) throw new Error(`invalid specs: ${errors.join("; ")}`);
-  const report = buildReport(specs, readResults(f._));
+  const only = skillScope(f.skill, specs);
+  const dirs = skillDirs(root);
+  const present = new Set(dirs.keys());
+  const hashes = new Map([...present].filter((n) => specs.has(n)).map((n) => [n, skillHash(root, n, dirs)]));
+  const report = buildReport(specs, readResults(f._), { present, hashes, only });
   out(f.json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report));
   return report.ok ? 0 : 1;
 }
@@ -303,6 +441,7 @@ const COMMANDS = new Map([
   ["validate", runValidate],
   ["changed", runChanged],
   ["check-judge", runCheckJudge],
+  ["hash", runHash],
   ["report", runReport],
 ]);
 

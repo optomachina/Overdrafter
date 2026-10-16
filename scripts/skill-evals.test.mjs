@@ -9,10 +9,16 @@ import {
   GIT_BIN,
   assertDistinctJudge,
   buildReport,
+  canonicalModel,
   changedSkills,
   changedSkillsFromPaths,
   main,
+  parseFlags,
+  readResults,
+  renderReport,
+  skillDirs,
   skillForPath,
+  skillHash,
   validateAll,
   validateSpec,
 } from "./skill-evals.mjs";
@@ -42,6 +48,11 @@ const goodSpec = (skill = "demo") => ({
     rubric: [{ id: "r1", criterion: "a", points: 6 }, { id: "r2", criterion: "b", points: 4 }],
   }],
 });
+const initGit = (root) => {
+  const git = (...a) => execFileSync(GIT_BIN, ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: root, encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  return git;
+};
 const run = (root, ...argv) => {
   let text = "";
   const code = main(argv, { root, out: (s) => (text += s) });
@@ -85,6 +96,17 @@ describe("validateAll", () => {
     expect(r.errors).toEqual([".codex/skills/no-spec: skill has no eval spec at evals/skills/no-spec/spec.json"]);
     expect(r.absent).toEqual(["verify-overdrafter"]);
   });
+  it("only counts git-tracked skills in a git checkout", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".agents/skills/tracked/SKILL.md", "x");
+    write(root, ".agents/skills/local-install/SKILL.md", "x");
+    write(root, "evals/skills/tracked/spec.json", JSON.stringify(goodSpec("tracked")));
+    git("add", "-f", ".agents/skills/tracked", "evals");
+    git("commit", "-qm", "base");
+    expect([...skillDirs(root).keys()]).toEqual(["tracked"]);
+    expect(validateAll(root).errors).toEqual([]);
+  });
   it("reports invalid JSON", () => {
     const root = tmp();
     write(root, "evals/skills/bad/spec.json", "{");
@@ -102,8 +124,7 @@ describe("changed skills", () => {
   });
   it("diffs two git refs", () => {
     const root = tmp();
-    const git = (...a) => execFileSync(GIT_BIN, ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: root, encoding: "utf8" });
-    git("init", "-q", "-b", "main");
+    const git = initGit(root);
     write(root, ".agents/skills/a/SKILL.md", "1");
     write(root, ".agents/skills/b/SKILL.md", "1");
     git("add", "-A");
@@ -116,6 +137,18 @@ describe("changed skills", () => {
     expect(() => changedSkills(root, "--output=x", "HEAD")).toThrow(/invalid git ref/);
     expect(run(root, "changed", "--base", "HEAD~1", "--head", "HEAD")).toEqual({ code: 0, text: "b\n" });
   });
+  it("lists both sides of a rename and a deleted skill", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".agents/skills/old-name/SKILL.md", "same content");
+    write(root, ".codex/skills/gone/SKILL.md", "1");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    git("mv", ".agents/skills/old-name", ".agents/skills/new-name");
+    git("rm", "-q", "-r", ".codex/skills/gone");
+    git("commit", "-qm", "rename+delete");
+    expect(changedSkills(root, "HEAD~1", "HEAD")).toEqual(["gone", "new-name", "old-name"]);
+  });
 });
 
 describe("judge != runner", () => {
@@ -124,9 +157,41 @@ describe("judge != runner", () => {
     expect(() => assertDistinctJudge("a", "")).toThrow(/required/);
     expect(() => assertDistinctJudge("model-a", "model-b")).not.toThrow();
   });
+  it("rejects non-string model ids", () => {
+    expect(() => assertDistinctJudge(true, "x")).toThrow(/required/);
+    expect(() => assertDistinctJudge("x", undefined)).toThrow(/required/);
+  });
+  it("treats aliases, snapshots and provider prefixes of one model as the same model", () => {
+    for (const alias of [
+      "claude-opus-5-5-latest",
+      "claude-opus-5-5-20260101",
+      "us.anthropic.claude-opus-5-5-20260101-v1:0",
+      "anthropic/claude-opus-5-5",
+      "claude-opus-5-5@20260101",
+    ]) {
+      expect(canonicalModel(alias)).toBe("claude-opus-5-5");
+      expect(() => assertDistinctJudge("claude-opus-5-5", alias)).toThrow(/different model/);
+    }
+    expect(canonicalModel("gpt-4o-2024-08-06")).toBe("gpt-4o");
+    expect(canonicalModel("gemini-2.5-pro")).toBe("gemini-2.5-pro");
+    expect(() => assertDistinctJudge("claude-opus-5-5", "claude-sonnet-5-5")).not.toThrow();
+  });
   it("cli exit codes", () => {
     expect(run(repoRoot, "check-judge", "--runner", "x", "--judge", "y").code).toBe(0);
     expect(run(repoRoot, "check-judge", "--runner", "x", "--judge", "x").code).toBe(2);
+  });
+  it.each([
+    ["valueless --judge", ["--runner", "x", "--judge"]],
+    ["valueless --runner", ["--runner", "--judge", "x"]],
+    ["missing --judge", ["--runner", "x"]],
+    ["missing both", []],
+    ["empty --judge", ["--runner", "x", "--judge", ""]],
+    ["whitespace --runner", ["--runner", "   ", "--judge", "x"]],
+  ])("cli rejects %s with exit 2", (_label, args) => {
+    const r = run(repoRoot, "check-judge", ...args);
+    expect(r.code).toBe(2);
+    expect(r.text).toMatch(/--runner and --judge both need a non-empty model id/);
+    expect(r.text).not.toMatch(/^ok/);
   });
 });
 
@@ -159,10 +224,84 @@ describe("report", () => {
     expect(r.ok).toBe(false);
     expect(r.skills[0].cases[0].status).toBe("unscored");
   });
+  it("skips specs for absent skills and still fails unscored present skills", () => {
+    const specs2 = new Map([["demo", goodSpec()], ["verify-overdrafter", goodSpec("verify-overdrafter")]]);
+    const skipped = buildReport(specs2, [result()], { present: new Set(["demo"]) });
+    expect(skipped.ok).toBe(true);
+    expect(skipped.skills.find((s) => s.skill === "verify-overdrafter")).toMatchObject({ status: "skipped", reason: "skill absent" });
+    expect(renderReport(skipped)).toMatch(/\| verify-overdrafter \| - \| - \| skipped \(skill absent\)/);
+    const unscored = buildReport(specs2, [result()], { present: new Set(["demo", "verify-overdrafter"]) });
+    expect(unscored.ok).toBe(false);
+  });
+  it("scopes to --only skills", () => {
+    const specs2 = new Map([["demo", goodSpec()], ["other", goodSpec("other")]]);
+    const r = buildReport(specs2, [result()], { only: ["demo"] });
+    expect(r.ok).toBe(true);
+    expect(r.skills.map((s) => s.skill)).toEqual(["demo"]);
+  });
+  it("ignores results judged against an older skillHash", () => {
+    const hashes = new Map([["demo", "new"]]);
+    const stale = buildReport(specs, [result({ skillHash: "old" })], { hashes }).skills[0].cases[0];
+    expect(stale.status).toBe("stale");
+    const low = result({ skillHash: "new", scores: [{ id: "r1", points: 0 }, { id: "r2", points: 4 }] });
+    // An old passing file listed after a current failing one must not hide the failure.
+    expect(buildReport(specs, [low, result({ skillHash: "old" })], { hashes }).ok).toBe(false);
+    expect(buildReport(specs, [result({ skillHash: "new" })], { hashes }).ok).toBe(true);
+  });
+  it("escapes table cells", () => {
+    const r = buildReport(specs, [result({ scores: [{ id: "a|b\nc", points: 1 }] })]);
+    const row = renderReport(r).split("\n").find((l) => l.startsWith("| demo"));
+    expect(row).toContain(String.raw`a\|b c`);
+    expect(row.split(/(?<!\\)\|/).length).toBe(7);
+  });
+  it("rejects malformed score files with file and index", () => {
+    const root = tmp();
+    write(root, "null.json", JSON.stringify([result(), null]));
+    expect(() => readResults([path.join(root, "null.json")])).toThrow(/null\.json\[1\]: result must be an object/);
+    write(root, "num.json", "42");
+    expect(() => readResults([path.join(root, "num.json")])).toThrow(/num\.json\[0\]/);
+    write(root, "bad.json", "{");
+    expect(() => readResults([path.join(root, "bad.json")])).toThrow(/bad\.json: cannot read score JSON/);
+  });
+  it("parses repeatable --skill flags", () => {
+    expect(parseFlags(["--skill", "a", "--skill", "b,c", "x.json"])).toEqual({ _: ["x.json"], skill: ["a", "b,c"] });
+    expect(parseFlags(["--runner", "--judge", "x"])).toEqual({ _: [], runner: true, judge: "x" });
+  });
+  it("cli: absent verify-overdrafter is skipped, present-but-unscored fails, --skill scopes", () => {
+    const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
+    write(root, ".agents/skills/other/SKILL.md", "x");
+    for (const n of ["demo", "other", "verify-overdrafter"]) write(root, `evals/skills/${n}/spec.json`, JSON.stringify(goodSpec(n)));
+    const scored = (n) => result({ skill: n, skillHash: skillHash(root, n) });
+    write(root, "all.json", JSON.stringify([scored("demo"), scored("other")]));
+    const full = run(root, "report", path.join(root, "all.json"));
+    expect(full.code).toBe(0);
+    expect(full.text).toMatch(/verify-overdrafter \| - \| - \| skipped \(skill absent\)/);
+
+    write(root, ".agents/skills/verify-overdrafter/SKILL.md", "x");
+    const present = run(root, "report", path.join(root, "all.json"));
+    expect(present.code).toBe(1);
+    expect(present.text).toMatch(/verify-overdrafter \| c1 \| -\/10 \| unscored/);
+
+    write(root, "demo.json", JSON.stringify([scored("demo")]));
+    expect(run(root, "report", path.join(root, "demo.json")).code).toBe(1);
+    const scoped = run(root, "report", "--skill", "demo", path.join(root, "demo.json"));
+    expect(scoped.code).toBe(0);
+    expect(scoped.text).not.toMatch(/other/);
+    expect(run(root, "report", "--skill", "demo,other", path.join(root, "demo.json")).code).toBe(1);
+    expect(run(root, "report", "--skill", "demo", "--skill", "other", path.join(root, "all.json")).code).toBe(0);
+    expect(run(root, "report", "--skill", "nope", path.join(root, "demo.json"))).toMatchObject({ code: 2 });
+    expect(run(root, "report", path.join(root, "demo.json"), "--skill").code).toBe(2);
+
+    write(root, ".agents/skills/demo/SKILL.md", "changed");
+    expect(run(root, "report", "--skill", "demo", path.join(root, "demo.json")).text).toMatch(/stale/);
+    expect(run(root, "hash", "demo").text).toBe(`demo ${skillHash(root, "demo")}\n`);
+  });
   it("cli aggregates score files", () => {
     const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
     write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
-    write(root, "scores.json", JSON.stringify([result()]));
+    write(root, "scores.json", JSON.stringify([result({ skillHash: skillHash(root, "demo") })]));
     const ok = run(root, "report", path.join(root, "scores.json"));
     expect(ok.code).toBe(0);
     expect(ok.text).toMatch(/\| demo \| c1 \| 10\/10 \| pass/);

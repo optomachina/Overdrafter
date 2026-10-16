@@ -4,15 +4,15 @@ Repo skills are tested like code: each skill has a spec of tasks, expected behav
 
 ## Where things live
 
-- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. `verify-overdrafter` lives at `.agents/skills/verify-overdrafter/` (OVD-842, PR 801). Its spec ships here first and the tooling tolerates the skill being absent.
+- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. In a git checkout only git-tracked skill directories count, so locally installed third-party skills (these roots are gitignored) are ignored. `verify-overdrafter` lives at `.agents/skills/verify-overdrafter/` (OVD-842, merged in #801). Checkouts from before that merge do not have it, and the tooling tolerates its absence: `validate` notes it and `report` skips it.
 - Specs: `evals/skills/<skill>/spec.json`, one per skill. Each case has `id`, `task`, `expectedBehaviors[]` and `rubric[]` (`{id, criterion, points}`, integer points summing to exactly 10). `passScore` is 10.
 - Tooling: `scripts/skill-evals.mjs` (offline, no model API calls). Tests: `scripts/skill-evals.test.mjs`.
 
 ## The loop
 
 1. **Run (model A).** For each case in scope, give the runner model the skill and the case `task`, in a clean session, and capture its output.
-2. **Judge (model B).** A different model gets the case, its `expectedBehaviors` and `rubric`, plus the runner output. It scores each rubric item from 0 to that item's `points` and writes a result: `{ "skill", "case", "runner", "judge", "scores": [{ "id", "points" }] }`. Run `check-judge` first, because judge and runner must differ.
-3. **Aggregate.** `report` totals the scores. A case passes only at 10/10.
+2. **Judge (model B).** A different model gets the case, its `expectedBehaviors` and `rubric`, plus the runner output. It scores each rubric item from 0 to that item's `points` and writes a result: `{ "skill", "case", "skillHash", "runner", "judge", "scores": [{ "id", "points" }] }`. `skillHash` comes from `hash <skill>`, taken when the runner ran. Run `check-judge` first, because judge and runner must be different models. Record canonical model ids (for example `claude-opus-5-5`, not an alias). The check also strips provider and region prefixes (`anthropic/`, `us.anthropic.`), `-latest`, dated snapshots, and Vertex `@date` and Bedrock `-v1:0` suffixes, so two aliases of one model are rejected. It cannot catch unrelated nicknames.
+3. **Aggregate.** `report` totals the scores. A case passes only at 10/10. For a per-skill re-run, scope it with `--skill <name>` (repeatable, or a comma list) so skills you did not re-run are not reported as `unscored`.
 4. **Loop.** For any case below 10, fix the skill (or the spec if the rubric was wrong), then re-run and re-judge. Stop at 10/10 everywhere, or stop after a bounded number of rounds and attach the report with the remaining gaps. Never lower a rubric or edit a score to get green.
 
 ## Re-run trigger
@@ -23,17 +23,32 @@ Re-run a skill's evals on any change under its skill directory, or under `evals/
 node scripts/skill-evals.mjs changed --base origin/main --head HEAD
 ```
 
-It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired.
+It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Feed the list to the loop and to `report --skill`:
+
+```bash
+skills=$(node scripts/skill-evals.mjs changed --base origin/main --head HEAD | paste -sd, -)
+node scripts/skill-evals.mjs report --skill "$skills" scores/*.json
+```
+
+The `skillHash` enforces the trigger. `report` only counts results whose `skillHash` matches the current skill directory plus spec. Older results show as `stale`, so a score cannot outlive the skill version it judged.
 
 ## Commands
 
 ```bash
 node scripts/skill-evals.mjs validate                  # specs are well formed; every present skill has one
 node scripts/skill-evals.mjs check-judge --runner <model-a> --judge <model-b>
-node scripts/skill-evals.mjs report scores/*.json      # markdown; add --json for JSON
+node scripts/skill-evals.mjs hash <skill>...            # skillHash to put on each judge result
+node scripts/skill-evals.mjs report [--skill <name>]... scores/*.json   # markdown; add --json for JSON
 ```
 
-`report` accepts files holding one result or an array. The latest result for a case wins, so a re-run replaces earlier attempts. It exits 1 unless every case is 10/10. Missing, unknown, duplicated or out-of-range scores mark the case `invalid`, and a judge equal to the runner (case-insensitive) is also invalid.
+`check-judge` exits 2 when either flag is missing, empty or whitespace, or has no value (for example `--runner $A` with `A` unset).
+
+`report` accepts files that hold one result or an array. A result that is not an object with string `skill` and `case` fields stops the run (exit 2) and names its file and index. Among the results with the current `skillHash`, the last one for a case (in argument order) wins, so a re-run replaces earlier attempts. Results for an older `skillHash` are ignored. `report` exits 1 unless every in-scope skill present in the checkout is 10/10.
+
+- A spec whose skill directory is absent from the checkout is listed as `skipped (skill absent)` and is left out of the pass/fail decision.
+- A present skill with no result is `unscored`, and it fails.
+- Missing, unknown, duplicated or out-of-range scores mark the case `invalid`. A judge that is the same base model as the runner also marks the case `invalid`.
+- `--skill` with an unknown name, or with no value, exits 2.
 
 ## Adding or changing a skill
 
