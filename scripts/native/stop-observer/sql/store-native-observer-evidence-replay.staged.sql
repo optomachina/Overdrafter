@@ -6,7 +6,19 @@
 -- same-attempt insertion serialization, actor lock, admission row locks and
 -- the READ COMMITTED requirement are added.
 -- Runtime integration requires this replacement to pass the SQL fixture gate.
+-- One transaction: READ COMMITTED, then the shared window 2 lock (510, 2) that
+-- every staged forward and reverse takes first, then the replacement.
 
+begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '10s';
+do $ovd649_replay_isolation$
+begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'ovd649_replay_read_committed_required' using errcode = '0A000';
+  end if;
+end $ovd649_replay_isolation$;
+select pg_advisory_xact_lock(510, 2);
 create or replace function engineering_private.store_native_observer_evidence(
   p_profile uuid,p_manifest bytea,p_journal bytea
 ) returns uuid language plpgsql security definer set search_path = '' as $$
@@ -499,3 +511,4 @@ begin
   return v_id;
 end;
 $$;
+commit;

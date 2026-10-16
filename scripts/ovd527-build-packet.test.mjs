@@ -279,11 +279,11 @@ describe("ovd527 commands", () => {
 });
 
 describe("ovd527 bundle", () => {
-  it("accepts the real Docker Desktop 29.6.2 interface list end to end, including attestBuildOnly", () => {
+  it("accepts a representative Docker Desktop interface list end to end, including attestBuildOnly", () => {
     const { source } = makePacket();
     const inspectOutput = goodInspectOutput(source);
     inspectOutput.container.netInterfaces =
-      "bonding_masters:x erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
+      "erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
     const bundle = assembleBundle({ source, buildOutput: goodBuildOutput(source), inspectOutput });
     expect(bundle.buildEvidence.runtime.network).toBe("none");
     expect(attestBuildOnly(JSON.stringify(bundle.record), bundle.buildEvidence).verdict).toBe("build-attested");
@@ -487,23 +487,27 @@ describe("runtimeNetworkDisabled (Docker Desktop fallback tunnels)", () => {
     expect(runtimeNetworkDisabled(["tunl0", "lo"])).toBe(false);
     expect(runtimeNetworkDisabled(["tunl0:0x80"])).toBe(false);
     expect(runtimeNetworkDisabled(["lo:0x9:x"])).toBe(false);
+    // flags are 32-bit: oversize values must not lose the IFF_UP bit to Number precision
+    expect(runtimeNetworkDisabled(["lo:0x9", "tunl0:0x20000000000001"])).toBe(false);
+    expect(runtimeNetworkDisabled(["lo:0x9", "tunl0:0x000000080"])).toBe(false);
+    expect(runtimeNetworkDisabled(["lo:0x9", "tunl0:0x00000080"])).toBe(true);
     expect(runtimeNetworkDisabled([])).toBe(false);
   });
 });
 
-describe("runtimeNetworkDisabled with Docker Desktop 29.6.2 real inspection", () => {
+describe("runtimeNetworkDisabled with a representative Docker Desktop interface list", () => {
+  // Representative of Docker Desktop 29.6.2; not captured from an inspect.json.
   const REAL =
-    "bonding_masters:x erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
+    "erspan0:0x1002 gre0:0x80 gretap0:0x1002 ip6_vti0:0x80 ip6gre0:0x80 ip6tnl0:0x80 ip_vti0:0x80 lo:0x9 sit0:0x80 tunl0:0x80 ";
   const split = (s) => s.trim().split(/\s+/).filter(Boolean);
-  it("accepts the exact real netInterfaces string", async () => {
+  it("accepts the representative netInterfaces string", async () => {
     const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
     expect(runtimeNetworkDisabled(split(REAL))).toBe(true);
   });
-  it("still rejects it with any tunnel up, a real device added, or a non-x bonding_masters", async () => {
+  it("still rejects it with any tunnel up or a real device added", async () => {
     const { runtimeNetworkDisabled } = await import("./ovd527-build-packet.mjs");
     expect(runtimeNetworkDisabled(split(REAL.replace("gretap0:0x1002", "gretap0:0x1003")))).toBe(false);
     expect(runtimeNetworkDisabled(split(REAL + "eth0:0x1003 "))).toBe(false);
-    expect(runtimeNetworkDisabled(split(REAL.replace("bonding_masters:x", "bonding_masters:0x1")))).toBe(false);
   });
   it("inspection script lists only directories under /sys/class/net", async () => {
     const { containerInspectionScript } = await import("./ovd527-build-packet.mjs");

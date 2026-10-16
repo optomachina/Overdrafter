@@ -1,7 +1,8 @@
 -- Least-privilege characterization for 15 client-facing SECURITY DEFINER RPCs.
--- Each RPC is called by an anonymous caller, by a verified client of another
--- organization using org A's ids, and by an unverified member of org A, then
--- once by an authorized org A caller as a positive control. Expected outcomes
+-- Each RPC is called by an anonymous caller (denied by privilege since
+-- OVD-736), by a verified client of another organization using org A's ids,
+-- and by an unverified member of org A, then once by an authorized org A
+-- caller as a positive control. Expected outcomes
 -- were recorded from the current definitions. Where today's behavior is a gap
 -- it is pinned as-is and labelled "KNOWN GAP" or "GAP-B5": characterized here,
 -- deliberately not fixed. Synthetic records only; everything rolls back.
@@ -9,7 +10,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(67);
+select plan(69);
 
 \set user_a c15a0000-0000-4000-8000-000000000001
 \set user_b c15a0000-0000-4000-8000-000000000002
@@ -35,7 +36,6 @@ select plan(67);
 \set raised P0001
 \set empty_list '[]'
 \set job_a_rows '[{"jobId": "' :job_a '"}]'
-\set signed_in 'You must be signed in to perform this action.'
 \set unverified 'Verify your email or sign in with Google, Microsoft, or Apple before performing this action.'
 \set edit_denied 'You do not have permission to edit job ' :job_a '.'
 \set job_denied 'You do not have access to job ' :job_a
@@ -156,8 +156,6 @@ create temporary table rpc_case (
   ordinal integer primary key,
   rpc text not null,
   call_sql text not null,
-  anon_state char(5),
-  anon_outcome text not null,
   cross_org_state char(5),
   cross_org_outcome text not null,
   unverified_state char(5),
@@ -167,68 +165,70 @@ create temporary table rpc_case (
 insert into rpc_case values
   (1, 'api_update_client_part_request',
     format('select public.api_update_client_part_request(p_job_id => %L::uuid, p_material => %L)', :'job_a', :'material'),
-    :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'), -- NOSONAR: psql variable references, not repeated string literals
+    :'raised', :'edit_denied', :'raised', :'unverified'), -- NOSONAR: psql variable references, not repeated string literals
   (2, 'api_reset_client_part_property_overrides',
     format('select public.api_reset_client_part_property_overrides(%L::uuid, %L::text[])', :'job_a', '{material}'),
-    :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'),
+    :'raised', :'edit_denied', :'raised', :'unverified'),
+  -- OVD-736: internal helper, reached only through other SECURITY DEFINER
+  -- functions. Its body is checked as the owner in section 2b.
   (3, 'load_editable_project_part_context',
     format('select (context.part).id from public.load_editable_project_part_context(%L::uuid) context', :'job_a'),
-    :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'),
+    '42501', 'permission denied for function load_editable_project_part_context',
+    '42501', 'permission denied for function load_editable_project_part_context'),
   (4, 'api_approve_job_requirements',
     format('select public.api_approve_job_requirements(%L::uuid, %L::jsonb)', :'job_a',
       jsonb_build_array(jsonb_build_object('partId', :'part_a', 'material', :'material', 'applicableVendors', array['xometry']))),
-    :'raised', :'signed_in', :'raised', format('Only internal users can approve requirements for job %s', :'job_a'),
+    :'raised', format('Only internal users can approve requirements for job %s', :'job_a'),
     :'raised', :'unverified'),
   -- GAP-B5: the request row is read FOR UPDATE before permission is checked,
   -- so the cross-org "forbidden" payload discloses A's job id and status.
   (5, 'api_cancel_quote_request',
     format('select public.api_cancel_quote_request(%L::uuid)', :'request_a'),
-    :'raised', :'signed_in', null, jsonb_build_object('jobId', :'job_a', 'accepted', false, 'canceled', false,
+    null, jsonb_build_object('jobId', :'job_a', 'accepted', false, 'canceled', false,
       'quoteRequestId', :'request_a', 'quoteRunId', null, 'status', 'queued', 'reasonCode', 'forbidden',
       'reason', 'You do not have permission to cancel this quote request.')::text, :'raised', :'unverified'),
-  -- No verified-auth gate: anon is stopped only by the org-membership check.
+  -- No verified-auth gate: an unverified member passes (section 5).
   (6, 'api_reconcile_job_parts',
     format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
-    :'raised', :'job_denied', :'raised', :'job_denied', null, null), -- NOSONAR: psql variable references, not repeated string literals
+    :'raised', :'job_denied', null, null), -- NOSONAR: psql variable references, not repeated string literals
   (7, 'api_request_extraction',
     format('select public.api_request_extraction(%L::uuid)', :'job_a'),
-    :'raised', :'signed_in', :'raised', :'job_denied', :'raised', :'unverified'),
+    :'raised', :'job_denied', :'raised', :'unverified'),
   (8, 'api_request_debug_extraction',
     format('select public.api_request_debug_extraction(%L::uuid)', :'part_a'),
-    :'raised', :'signed_in', :'raised', format('You do not have access to debug extraction for part %s', :'part_a'),
+    :'raised', format('You do not have access to debug extraction for part %s', :'part_a'),
     :'raised', :'unverified'),
   -- No verified-auth gate: every non-internal caller hits the internal-only check.
   (9, 'api_get_quote_run_readiness',
     format('select public.api_get_quote_run_readiness(%L::uuid)', :'run_a'),
-    :'raised', :'readiness_denied', :'raised', :'readiness_denied', :'raised', :'readiness_denied'), -- NOSONAR: psql variable references, not repeated string literals
+    :'raised', :'readiness_denied', :'raised', :'readiness_denied'), -- NOSONAR: psql variable references, not repeated string literals
   (10, 'api_start_quote_run',
     format('select public.api_start_quote_run(%L::uuid)', :'job_a'),
-    :'raised', :'signed_in', :'raised', format('Only internal users can start quote runs for job %s', :'job_a'),
+    :'raised', format('Only internal users can start quote runs for job %s', :'job_a'),
     :'raised', :'unverified'),
   (11, 'api_publish_quote_package',
     format('select public.api_publish_quote_package(%L::uuid, %L::uuid, null, true)', :'job_a', :'run_a'),
-    :'raised', :'signed_in', :'raised', 'Only internal users can publish quote packages.', :'raised', :'unverified'),
-  -- Anonymous EXECUTE is revoked, but the body has no verified-auth gate.
+    :'raised', 'Only internal users can publish quote packages.', :'raised', :'unverified'),
+  -- The body has no verified-auth gate (section 5).
   (12, 'api_select_quote_option',
     format('select public.api_select_quote_option(%L::uuid, %L::uuid, %L)', :'package_a', :'option_a', 'least privilege'),
-    '42501', 'permission denied for function api_select_quote_option',
     :'raised', format('You do not have access to package %s', :'package_a'), null, null),
   (13, 'api_list_client_part_metadata',
     format('select public.api_list_client_part_metadata(array[%L::uuid])', :'job_a'),
-    null, :'empty_list', null, :'empty_list', null, null), -- NOSONAR: psql variable references, not repeated string literals
+    null, :'empty_list', null, null), -- NOSONAR: psql variable references, not repeated string literals
   (14, 'api_list_client_quote_workspace',
     format('select public.api_list_client_quote_workspace(array[%L::uuid])', :'job_a'),
-    null, :'empty_list', null, :'empty_list', null, null),
+    null, :'empty_list', null, null),
   (15, 'api_list_client_activity_events',
     format('select public.api_list_client_activity_events(array[%L::uuid], 6)', :'job_a'),
-    null, :'empty_list', null, :'empty_list', null, null);
+    null, :'empty_list', null, null);
 
 grant select on table pg_temp.rpc_case to anon, authenticated;
 
--- 1. Anonymous callers.
+-- 1. Anonymous callers: OVD-736 revoked anon EXECUTE on all 15.
 select pg_temp.act_as(null);
 set local role anon;
-select pg_temp.expect(c.call_sql, c.anon_state, c.anon_outcome, 'anon: ' || c.rpc)
+select throws_ok(c.call_sql, '42501', 'permission denied for function ' || c.rpc, 'anon: ' || c.rpc || ' is not executable')
 from pg_temp.rpc_case c order by c.ordinal asc;
 reset role;
 
@@ -244,10 +244,19 @@ from pg_temp.rpc_case c order by c.ordinal asc;
 select is(pg_temp.run(replace(c.call_sql, :'request_a', :'absent_id'))::jsonb ->> 'reasonCode', 'not_found', -- NOSONAR: psql variable references, not repeated string literals
   'GAP-B5: api_cancel_quote_request answers not_found for an absent id but forbidden for org A''s id')
 from pg_temp.rpc_case c where c.ordinal = 5;
+reset role;
+
+-- 2b. load_editable_project_part_context body, run as its owner the way the
+-- SECURITY DEFINER callers reach it, with each caller's claims.
+select pg_temp.act_as(:'user_b');
+select throws_ok(c.call_sql, :'raised', :'edit_denied', 'owner path, org B client: load_editable_project_part_context')
+from pg_temp.rpc_case c where c.ordinal = 3;
 select throws_ok(replace(c.call_sql, :'job_a', :'absent_id'), :'raised', format('Job %s not found.', :'absent_id'),
   'GAP-B5: load_editable_project_part_context reports a missing job before checking edit permission')
 from pg_temp.rpc_case c where c.ordinal = 3;
-reset role;
+select pg_temp.act_as(:'user_u');
+select throws_ok(c.call_sql, :'raised', :'unverified', 'owner path, unverified org A member: load_editable_project_part_context')
+from pg_temp.rpc_case c where c.ordinal = 3;
 select ok((select q.xmax::text <> b.request_xmax from public.quote_requests q, baseline b where q.id = :'request_a'),
   'GAP-B5: the denied cross-org cancel still locked org A''s quote request row (xmax changed)');
 
@@ -283,9 +292,9 @@ reset role;
 
 -- 6. Positive controls: the same calls succeed for org A's verified client.
 select pg_temp.act_as(:'user_a');
-set local role authenticated;
-select is(pg_temp.run(c.call_sql), :'part_a', 'org A client loads its editable part context')
+select is(pg_temp.run(c.call_sql), :'part_a', 'owner path, org A client loads its editable part context')
 from pg_temp.rpc_case c where c.ordinal = 3;
+set local role authenticated;
 select is(pg_temp.run(c.call_sql), :'job_a', 'org A client updates its part request')
 from pg_temp.rpc_case c where c.ordinal = 1;
 select is(pg_temp.run(c.call_sql), :'job_a', 'org A client resets its part property overrides')

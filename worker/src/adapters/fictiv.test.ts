@@ -362,6 +362,18 @@ describe("Fictiv helpers", () => {
         url: FICTIV_URLS.login,
       }),
     ).toBe("login_required");
+    expect(
+      detectBlockingStateSignal({
+        text: "Email address\nPassword\nSign in",
+        url: "https://app.fictiv.com/signin",
+      }),
+    ).toBe("login_required");
+    expect(
+      detectBlockingStateSignal({
+        text: "To access advanced quoting, Update your account with a company email address",
+        url: "https://app.fictiv.com/pages/quotes/sample-quote",
+      }),
+    ).toBeNull();
   });
 });
 
@@ -1586,6 +1598,97 @@ describe("FictivAdapter", () => {
       selectedEndUse: "Prototype",
       selectedEndUseSource: "assumed_default",
       openedConfigurationDrawer: false,
+    });
+  });
+
+  describe("create-a-quote page states observed live on 2026-10-15", () => {
+    const LANDING = "1 Select a process How to configure for multiple processes 2 Upload your parts";
+    const UPLOADING = "Create a quote Uploading files (0/0) 0% Creating new quote...";
+    const AWAITING_CLASSIFICATION =
+      "Please configure all parts and select if these parts are for prototype or commercial use to receive a quote and lead times.";
+    const ANALYZING = `Analyzing parts (0/1) 50% 1093-SAMPLE.step Analyzing geometry... ${AWAITING_CLASSIFICATION} Hang tight! Your parts are being analyzed & configured...`;
+    const CONFIGURED_FROM_DRAWING = `Parts have been configured based on your drawings! CNC 6061 Aluminum Edit configuration Please request a quote ${AWAITING_CLASSIFICATION}`;
+
+    async function runQuote(bodyTextSequence: string[], extraSelectors: Record<string, LocatorBehavior> = {}) {
+      const workerTempDir = await makeTempDir();
+      const uploadSpy = vi.fn();
+      const page = createFakePage({
+        bodyTextSequence,
+        selectorBehaviors: {
+          [FICTIV_LOCATORS.selectedProcessRadios[0]]: { count: 1, text: "CNC Machining" },
+          [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: uploadSpy },
+          ...extraSelectors,
+        },
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const adapter = new FictivAdapter(
+        "fictiv",
+        makeConfig({
+          workerTempDir,
+          fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+        }),
+      );
+      const result = await adapter.quote(makeInput());
+      return { result, uploadSpy };
+    }
+
+    it("waits through upload, analysis, and the transient classification prompt to the priced quote", async () => {
+      const { result, uploadSpy } = await runQuote(
+        [
+          LANDING,
+          UPLOADING,
+          ANALYZING,
+          CONFIGURED_FROM_DRAWING,
+          CONFIGURED_FROM_DRAWING,
+          CONFIGURED_FROM_DRAWING,
+          "Select regional preference Prototype 4 production days (USA or Mexico) $412.30 Fastest",
+        ],
+        {
+          [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $412.30" },
+          [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "4 production days (USA or Mexico)" },
+          [FICTIV_LOCATORS.quoteLinkAnchors[0]]: { count: 1, href: "/pages/quotes/sample-quote" },
+        },
+      );
+
+      expect(uploadSpy).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.totalPriceUsd).toBe(412.3);
+      expect(result.leadTimeBusinessDays).toBe(4);
+      expect(result.rawPayload).toMatchObject({ resultClassification: "instant_quote" });
+    });
+
+    it("classifies the account-gated instant quote refusal as capability limited instead of timing out", async () => {
+      const { result } = await runQuote([
+        LANDING,
+        UPLOADING,
+        ANALYZING,
+        CONFIGURED_FROM_DRAWING,
+        "Prototype 4 production days (USA or Mexico) $ -- Fastest Summary We\u2019re unable to provide an instant quote based on your current specifications. To access advanced quoting, Update your account with a company email address Request quote",
+      ]);
+
+      expect(result.status).toBe("manual_review_pending");
+      expect(result.totalPriceUsd).toBeNull();
+      expect(result.rawPayload).toMatchObject({
+        detectedFlow: "manual_review",
+        resultClassification: "capability_limited",
+        portalStateSignal: "to access advanced quoting",
+      });
+    });
+
+    it("returns configuration_required once the unconfigured-part prompt persists", async () => {
+      const { result } = await runQuote([
+        LANDING,
+        UPLOADING,
+        ANALYZING,
+        "1093-SAMPLE.step Configure Summary Please configure all parts in order to receive a quote and lead time options. Request quote",
+      ]);
+
+      expect(result.status).toBe("manual_review_pending");
+      expect(result.rawPayload).toMatchObject({
+        detectedFlow: "configuration_required",
+        resultClassification: "configuration_required",
+        portalStateSignal: "configure all parts",
+      });
     });
   });
 

@@ -542,6 +542,19 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
+const cleanUploadDeclarationResponse = {
+  data: {
+    declarationId: "declaration-1",
+    answer: "not_controlled",
+    termsVersion: "ovd-beta-export-control.v1",
+    uploadAllowed: true,
+    reasonCode: null,
+  },
+  error: null,
+};
+
+const cleanUploadOptions = { exportControlAnswer: "not_controlled" as const };
+
 function createMockFile(contents: string, name: string, options: { type?: string } = {}): File {
   const bytes = new TextEncoder().encode(contents);
 
@@ -2196,6 +2209,7 @@ describe("quotes api helpers", () => {
   });
 
   it("uploads job files through prepare/finalize RPCs and returns a summary", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.storageUpload.mockResolvedValue({ error: null });
     supabaseMock.rpc
       .mockResolvedValueOnce({
@@ -2222,7 +2236,7 @@ describe("quotes api helpers", () => {
       createMockFile("drawing", "bracket.pdf", { type: "application/pdf" }),
     ];
 
-    await expect(uploadFilesToJob("job-123", files)).resolves.toEqual({
+    await expect(uploadFilesToJob("job-123", files, cleanUploadOptions)).resolves.toEqual({
       uploadedCount: 2,
       reusedCount: 0,
       duplicateNames: [],
@@ -2242,15 +2256,16 @@ describe("quotes api helpers", () => {
       files[1],
       { upsert: false },
     );
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_prepare_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_prepare_job_file_upload", {
       p_job_id: "job-123",
       p_original_name: "bracket.step",
       p_file_kind: "cad",
       p_mime_type: "model/step",
       p_size_bytes: files[0].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_finalize_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_finalize_job_file_upload", {
       p_job_id: "job-123",
       p_storage_bucket: "job-files",
       p_storage_path: "org-sha256/org-1/hash-a/bracket.step",
@@ -2259,16 +2274,18 @@ describe("quotes api helpers", () => {
       p_mime_type: "model/step",
       p_size_bytes: files[0].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_prepare_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_prepare_job_file_upload", {
       p_job_id: "job-123",
       p_original_name: "bracket.pdf",
       p_file_kind: "drawing",
       p_mime_type: "application/pdf",
       p_size_bytes: files[1].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_finalize_job_file_upload", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(5, "api_finalize_job_file_upload", {
       p_job_id: "job-123",
       p_storage_bucket: "job-files",
       p_storage_path: "org-sha256/org-1/hash-b/bracket.pdf",
@@ -2277,10 +2294,12 @@ describe("quotes api helpers", () => {
       p_mime_type: "application/pdf",
       p_size_bytes: files[1].size,
       p_content_sha256: expect.any(String),
+      p_export_declaration_id: "declaration-1",
     });
   });
 
   it("stops when file storage upload fails", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "upload_required",
@@ -2294,13 +2313,14 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "bad.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "bad.step", { type: "model/step" })], cleanUploadOptions),
     ).rejects.toThrow("Storage down");
 
-    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
   });
 
   it("skips same-job duplicates reported by the prepare RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "duplicate_in_job",
@@ -2309,7 +2329,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "duplicate.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "duplicate.step", { type: "model/step" })], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 0,
       reusedCount: 0,
@@ -2321,6 +2341,7 @@ describe("quotes api helpers", () => {
   });
 
   it("reuses org-scoped duplicates without uploading the blob again", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc.mockResolvedValueOnce({
       data: {
         status: "reused",
@@ -2330,7 +2351,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(
-      uploadFilesToJob("job-123", [createMockFile("x", "reused.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "reused.step", { type: "model/step" })], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 0,
       reusedCount: 1,
@@ -2342,6 +2363,7 @@ describe("quotes api helpers", () => {
   });
 
   it("skips duplicate content within a selected batch before hitting the network twice", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce(cleanUploadDeclarationResponse);
     supabaseMock.rpc
       .mockResolvedValueOnce({
         data: {
@@ -2359,14 +2381,14 @@ describe("quotes api helpers", () => {
       uploadFilesToJob("job-123", [
         createMockFile(duplicateContent, "first.step", { type: "model/step" }),
         createMockFile(duplicateContent, "second.step", { type: "model/step" }),
-      ]),
+      ], cleanUploadOptions),
     ).resolves.toEqual({
       uploadedCount: 1,
       reusedCount: 0,
       duplicateNames: ["second.step"],
     });
 
-    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(3);
     expect(toastMock.error).toHaveBeenCalledWith("second.step is duplicated in this upload batch and was skipped.");
   });
 
@@ -3219,6 +3241,10 @@ describe("quotes api helpers", () => {
         });
       }
 
+      if (fn === "api_declare_job_export_status") {
+        return Promise.resolve(cleanUploadDeclarationResponse);
+      }
+
       if (fn === "api_finalize_job_file_upload") {
         return Promise.resolve({ data: "file-1", error: null });
       }
@@ -3243,6 +3269,7 @@ describe("quotes api helpers", () => {
       createJobsFromUploadFiles({
         files,
         prompt: "I need 10 of these by April 15",
+        exportControlAnswer: "not_controlled",
       }),
     ).resolves.toEqual({
       jobIds: ["job-1", "job-2"],
@@ -3268,11 +3295,11 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(8, "api_prepare_part_intake", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_prepare_part_intake", {
       p_cad_content_sha256: createHash("sha256").update("b").digest("hex"),
       p_drawing_content_sha256: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(10, "api_create_client_draft", {
       p_title: "beta",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
@@ -4032,6 +4059,93 @@ describe("quotes api helpers", () => {
       authState: "authenticated",
     });
 
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again after a platform admin lookup that ran without a signed in session was denied (OVD-736 R2)", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    // First lookup reaches PostgREST as anon (stored session whose refresh failed)
+    // and gets 42501 once anon EXECUTE is revoked; the next fetch runs signed in.
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42501",
+          details: null,
+          hint: null,
+          message: "permission denied for function api_get_is_platform_admin",
+        },
+        status: 401,
+      })
+      .mockResolvedValueOnce({
+        data: true,
+        error: null,
+        status: 200,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      isPlatformAdmin: false,
+      authState: "authenticated",
+    });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_get_is_platform_admin", undefined);
+  });
+
+  it("asks again after a platform admin lookup denied with 403 for a signed in role", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42501",
+          details: null,
+          hint: null,
+          message: "permission denied for function api_get_is_platform_admin",
+        },
+        status: 403,
+      })
+      .mockResolvedValueOnce({
+        data: true,
+        error: null,
+        status: 200,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({ isPlatformAdmin: false });
+    await expect(fetchAppSessionData()).resolves.toMatchObject({ isPlatformAdmin: true });
     expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
   });
 

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OSH Cut instant quote (synthetic OVD-773 fixture)</title>
+  <!--
+    Synthetic, offline replay of what a real provider page loads beside the
+    quote form: web fonts, an analytics tag, a RUM agent, an analytics pixel,
+    and a Datadog CSP report. None of these hosts is ever contacted; the
+    portal kernel blocks them and the test serves only the provider host.
+  -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+  <style>
+    @font-face { font-family: "FixtureSans"; src: url("https://fonts.gstatic.com/s/inter/v13/inter-latin.woff2") format("woff2"); }
+    body { font-family: "FixtureSans", sans-serif; }
+  </style>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-FIXTURE"></script>
+  <script src="https://www.datadoghq-browser-agent.com/us1/v5/datadog-rum.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Instant laser cutting quote</h1>
+    <label for="cad">CAD file</label>
+    <input type="file" id="cad">
+    <label>Quantity <input name="quantity" type="number" value="1"></label>
+    <div id="result"></div>
+  </main>
+  <script>
+    const sendCspReport = () => fetch(
+      "https://csp-report.browser-intake-datadoghq.com/api/v2/logs?dd-api-key=pubfixture&dd-evp-origin=content-security-policy&ddsource=csp-report",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/csp-report" },
+        body: JSON.stringify({
+          "csp-report": {
+            "document-uri": location.origin + "/",
+            "violated-directive": "img-src",
+            "effective-directive": "img-src",
+            "blocked-uri": "inline",
+          },
+        }),
+      },
+    ).catch(() => undefined);
+    sendCspReport();
+    new Image().src = "https://www.google-analytics.com/g/collect?v=2&tid=G-FIXTURE&en=page_view";
+
+    const cad = document.getElementById("cad");
+    cad.addEventListener("change", async () => {
+      await fetch("/api/upload", { method: "POST", body: cad.files[0] });
+      sendCspReport();
+      document.getElementById("result").innerHTML = `
+        <section data-option-id="laser-standard">
+          <h3 data-option-label>Standard</h3>
+          <span data-quantity>5</span>
+          <span data-unit-price>$12.00</span>
+          <span data-total-price>$60.00</span>
+          <span data-lead-days>3</span>
+        </section>`;
+    });
+  </script>
+</body>
+</html>

@@ -31,6 +31,12 @@ import {
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
+import {
+  liveHarnessArtifactOptions,
+  openLiveHarnessRunArtifacts,
+  type LiveHarnessArtifactOptions,
+  type LiveHarnessRunArtifacts,
+} from "./liveHarnessArtifacts.js";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
@@ -48,6 +54,7 @@ import {
   type VendorName,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOffer,
+  type VendorQuoteAdapterOutput,
   type WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
@@ -149,6 +156,8 @@ type EvaluationBatchDependencies = {
   prepareConfig?: typeof prepareRuntimeSecrets;
   stageFiles?: typeof stageLiveEvaluationFiles;
   killSwitchReader?: ProviderKillSwitchReader;
+  /** OVD-779: operator-local run artifacts; the CLI enables them, library callers opt in. */
+  runArtifacts?: LiveHarnessArtifactOptions;
 };
 
 function usage() {
@@ -1384,17 +1393,17 @@ function isLiveProviderVendor(vendor: VendorName): boolean {
   return vendor !== "sendcutsend";
 }
 
-export async function runQuote(
-  config: WorkerConfig,
+/**
+ * Revalidates provider-specific admission before registry construction or any
+ * adapter/provider call.
+ */
+async function assertQuoteAdmission(
   args: SmokeArgs,
   vendor: LiveAutomationVendorName,
   quantity: number,
   stagedFiles: StagedEvaluationFiles,
-  buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
-  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
-  providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
-  killSwitchReader?: ProviderKillSwitchReader,
-): Promise<SmokeRow> {
+  sendCutSendManifest: SendCutSendEvaluationManifest | null,
+): Promise<void> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
     assertExactOshcutPackageMetadata(args.oshcutPackage);
@@ -1411,6 +1420,38 @@ export async function runQuote(
       throw new Error("SendCutSend adapter invocation denied: quantity is not manifest-bound.");
     }
   }
+}
+
+/** A contract failure still links the artifacts the adapter returned. */
+async function recordFailedRunArtifacts(
+  runArtifacts: LiveHarnessRunArtifacts | null,
+  row: SmokeRow,
+  adapterResult: VendorQuoteAdapterOutput | null,
+  error: unknown,
+): Promise<void> {
+  const vendorError = isVendorAutomationError(error) ? error : null;
+  const errorUrl = vendorError?.payload.url;
+  await recordRunArtifacts(
+    runArtifacts,
+    row,
+    adapterResult?.quoteUrl ?? (typeof errorUrl === "string" ? errorUrl : null),
+    adapterResult?.artifacts ?? vendorError?.artifacts ?? [],
+  );
+}
+
+export async function runQuote(
+  config: WorkerConfig,
+  args: SmokeArgs,
+  vendor: LiveAutomationVendorName,
+  quantity: number,
+  stagedFiles: StagedEvaluationFiles,
+  buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
+  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
+  killSwitchReader?: ProviderKillSwitchReader,
+  runArtifacts: LiveHarnessRunArtifacts | null = null,
+): Promise<SmokeRow> {
+  await assertQuoteAdmission(args, vendor, quantity, stagedFiles, sendCutSendManifest);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
@@ -1442,6 +1483,7 @@ export async function runQuote(
   process.stdout.write(`\n>>> Quoting ${vendor} qty ${quantity}... `);
 
   let row: SmokeRow;
+  let adapterResult: VendorQuoteAdapterOutput | null = null;
   try {
     const adapterInput = makeInput({
         vendor,
@@ -1457,6 +1499,8 @@ export async function runQuote(
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
+    const harnessPriceCaptureHook = runArtifacts?.screenshotHook(vendor, quantity);
+    if (harnessPriceCaptureHook) adapterInput.harnessPriceCaptureHook = harnessPriceCaptureHook;
     const evaluate = (input: VendorQuoteAdapterInput) => adapter.evaluateLocally
       ? adapter.evaluateLocally(input)
       : adapter.quote(input);
@@ -1465,6 +1509,7 @@ export async function runQuote(
     const result = reachesProvider
       ? await guardOperatorQuote(vendor, evaluate, killSwitchReader)(adapterInput)
       : await evaluate(adapterInput);
+    if (!isLocalNativeCurrencyResult(result)) adapterResult = result;
     if (isLocalNativeCurrencyResult(result)) {
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
@@ -1515,6 +1560,7 @@ export async function runQuote(
         validityTerms: result.validityTerms,
       }),
     };
+    await recordRunArtifacts(runArtifacts, row, result.quoteUrl, result.artifacts);
   } catch (error) {
     console.log("FAILED");
     if (error instanceof ProviderKillSwitchError) throw error;
@@ -1530,9 +1576,33 @@ export async function runQuote(
         accountMode,
       },
     );
+    await recordFailedRunArtifacts(runArtifacts, row, adapterResult, error);
   }
 
   return row;
+}
+
+/** Links one row to its operator-local artifacts; a linking failure never masks the quote row. */
+async function recordRunArtifacts(
+  runArtifacts: LiveHarnessRunArtifacts | null,
+  row: SmokeRow,
+  rawQuoteUrl: string | null,
+  rawArtifacts: readonly VendorArtifact[],
+) {
+  if (!runArtifacts) return;
+  try {
+    await runArtifacts.recordResult({
+      provider: row.vendor,
+      requestedQuantity: row.quantity,
+      quoteUrl: rawQuoteUrl,
+      status: row.status,
+      errorCode: row.errorCode,
+      totalPriceUsd: row.totalPriceUsd,
+      artifacts: rawArtifacts,
+    });
+  } catch (error) {
+    console.warn(`Live harness artifact linking failed (${error instanceof Error ? error.name : "unknown"}).`);
+  }
 }
 
 /**
@@ -1555,6 +1625,12 @@ export async function runEvaluationBatch(
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
   const stageFiles = dependencies.stageFiles ?? stageLiveEvaluationFiles;
+  const runArtifacts = dependencies.runArtifacts
+    ? await openLiveHarnessRunArtifacts(dependencies.runArtifacts)
+    : null;
+  if (runArtifacts) {
+    console.log(`  Run artifacts: ${runArtifacts.runId} (screenshots ${dependencies.runArtifacts?.screenshots ? "on" : "off"})`);
+  }
   const runtimeBaseDir = process.env.WORKER_TEMP_DIR ?? os.tmpdir();
   await fs.mkdir(runtimeBaseDir, { recursive: true, mode: 0o700 });
   const batchRuntimeDir = await fs.mkdtemp(
@@ -1608,6 +1684,7 @@ export async function runEvaluationBatch(
           sendCutSendManifest,
           providerPortalApproval,
           dependencies.killSwitchReader,
+          runArtifacts,
         );
         rows.push(row);
       }
@@ -1697,7 +1774,7 @@ async function main() {
   const args = parseSmokeArgs(process.argv.slice(2));
 
   writeEvaluationStartupSummary(args);
-  const rows = await runEvaluationBatch(args);
+  const rows = await runEvaluationBatch(args, { runArtifacts: liveHarnessArtifactOptions(process.env) });
 
   console.log("\nEvaluation results:");
   for (const row of rows) {

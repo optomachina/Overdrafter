@@ -12,6 +12,7 @@ import { projectDeliveredCostAndArrival } from "../../shared/delivered-cost-arri
 import type { AdapterOfferInput } from "./providerResultValidation.js";
 import type { LocalNativeCurrencyEvaluationResult } from "./adapters/localEvaluationResult.js";
 import type { VendorName, VendorQuoteAdapterOutput } from "./types.js";
+import { parseXometryOfferSnapshots } from "./adapters/xometryOffers.js";
 
 const NOW = "2026-10-12T12:00:00.000Z";
 const COLLECTED = "2026-10-12T11:55:00.000Z";
@@ -140,6 +141,40 @@ describe("synthetic live provider payloads", () => {
     expect(out.value.offers.every((o) => o.derivedFromSummary === false)).toBe(true);
     expect(out.value.provenance).toMatchObject({ provider: "xometry", runId: "run-1", envelopeRevision: "env-2026-10-01" });
     expect(Object.isFrozen(out.value)).toBe(true);
+  });
+
+  it("accepts the real Xometry offer parser output under the shared contract (OVD-381)", () => {
+    const quoteUrl = "https://www.xometry.com/quoting/quote/Q-FIXTURE";
+    const offers = parseXometryOfferSnapshots({
+      requestedQuantity: 10,
+      quoteUrl,
+      snapshots: [
+        {
+          selector: ".price-tier",
+          text: "Domestic Economy - Lead Time: 8 business days\nMade in USA\nUSD $12.00 ea.\nUSD $120.00",
+          attributes: { "data-option-id": "domestic-economy" },
+        },
+        {
+          selector: ".price-tier",
+          text: "Standard - Lead Time: 10 business days\nMade Internationally\nUSD $9.00 ea.\nUSD $90.00",
+          attributes: { "data-option-id": "foreign-standard" },
+        },
+      ],
+    });
+    const c = candidate("xometry", {
+      offers,
+      quoteUrl,
+      unitPriceUsd: 9,
+      totalPriceUsd: 90,
+      leadTimeBusinessDays: 10,
+      rawPayload: { requestedQuantity: 10, offerCount: offers.length },
+    });
+    const out = validateProviderResult(c, expectation("xometry"));
+    expect(out.ok ? [] : out.rejection.issues).toEqual([]);
+    if (!out.ok) return;
+    expect(out.value.offers.map((o) => o.providerOptionId)).toEqual(["domestic-economy", "foreign-standard"]);
+    expect(out.value.offers.map((o) => o.geographicOrigin)).toEqual(["domestic", "foreign"]);
+    expect(out.value.provenance).toMatchObject({ provider: "xometry", runId: "run-1" });
   });
 
   it("accepts Fictiv total priced options", () => {

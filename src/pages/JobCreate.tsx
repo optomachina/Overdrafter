@@ -31,7 +31,11 @@ import {
 } from "@/features/quotes/api/jobs-api";
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import { resendSignupConfirmation } from "@/features/quotes/api/session-access";
-import { inferFileKind, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import {
+  inferFileKind,
+  resolveCleanExportControlAnswer,
+  uploadFilesToJob,
+} from "@/features/quotes/api/uploads-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
@@ -121,6 +125,9 @@ const JobCreate = () => {
         throw new Error("Founding Beta new-part access is required.");
       }
 
+      // OVD-723: ask before the job exists so a blocked answer creates nothing.
+      const exportControlAnswer = files.length > 0 ? await resolveCleanExportControlAnswer({}) : null;
+
       const jobId = await createJob({
         organizationId: activeMembership.organizationId,
         title,
@@ -129,7 +136,7 @@ const JobCreate = () => {
         tags: parseJobTags(tagInput),
       });
 
-      const uploadSummary = await uploadFilesToJob(jobId, files);
+      const uploadSummary = await uploadFilesToJob(jobId, files, { exportControlAnswer });
       const summary =
         uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0
           ? await reconcileJobParts(jobId)

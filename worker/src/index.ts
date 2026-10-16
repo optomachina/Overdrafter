@@ -140,6 +140,7 @@ import {
   providerTaskOutcomeNote,
   runGenericProviderTask,
 } from "./providerTaskRoute.js";
+import { createSupabaseProviderTaskLeasePort } from "./providerTaskLeasePort.js";
 
 // OVD-464: process wide state for the generic provider route. The replay
 // record is keyed by permit and fingerprint, so one permit dispatches at most
@@ -1698,9 +1699,13 @@ export async function handleVendorQuoteTask(
         environment: isProductionEnvironment() ? "production" : "development",
         adapterRevision: `${vendor}@${config.workerBuildVersion}`.slice(0, 80),
         leaseSetting: config.providerSessionLease ?? "off",
-        // No lease port: the OVD-462 lease manager is not on main yet, so
-        // with the setting on the pipeline fails closed with
-        // session_lease_unavailable.
+        // OVD-381: with the setting on, the OVD-462 lease is held around the
+        // adapter call. Without a namespace key no port is built, so the
+        // pipeline stops with session_lease_unavailable before the preflight.
+        lease:
+          config.providerSessionLease === "on" && config.providerSessionNamespaceKey
+            ? createSupabaseProviderTaskLeasePort(supabase, config.providerSessionNamespaceKey)
+            : undefined,
         quoteInput,
         // OVD-722: the kill switch is read again immediately before the
         // launch, inside the pipeline's adapter step, and the same guard goes

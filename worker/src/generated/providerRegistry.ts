@@ -17,6 +17,7 @@ export type ProviderRegistryEntry = {
   readonly sessionSecrets: readonly ProviderRegistrySessionSecret[];
   readonly egress: ProviderRegistryEgress;
   readonly sessionlessJustification?: string;
+  readonly offHostAllowlist?: readonly string[];
 };
 
 export const PROVIDER_REGISTRY = {

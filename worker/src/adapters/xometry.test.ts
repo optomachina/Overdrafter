@@ -91,8 +91,10 @@ import { OperationalJevSession, OperationalJevObservations } from "../jev/operat
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
+import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
 import {
   XometryAdapter,
+  chooseOptionByTerms,
   detectBlockingStateSignal,
   hasVisibleFilename,
   isManualReviewText,
@@ -300,6 +302,7 @@ type FakePageOptions = {
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[] | (() => string[]);
   onOptionWait?: (name?: RegExp) => Promise<void> | void;
+  onOptionClick?: (text: string) => void;
   dashboardRedirectUrl?: string;
   dashboardNavigationFails?: boolean;
   gotoRedirectUrl?: string;
@@ -683,6 +686,7 @@ function createFakePage(options: FakePageOptions) {
         waitFor: async () => {
           await options.onOptionWait?.(input.name);
         },
+        click: () => options.onOptionClick?.(findOptionText()),
       });
     },
     async waitForFunction(callback: unknown, argument?: unknown) {
@@ -884,6 +888,15 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
   const openFinishOptions = vi.fn(() => {
     finishOptionsOpen = true;
   });
+  // Live Xometry comboboxes show "No options" until a search term is typed.
+  let materialSearch = "";
+  let finishSearch = "";
+  const searchMaterial = vi.fn((value: string) => {
+    materialSearch = value;
+  });
+  const searchFinish = vi.fn((value: string) => {
+    finishSearch = value;
+  });
   const clickMaterialControl = vi.fn();
   const clickFinishControl = vi.fn();
   const hiddenMaterialControl = vi.fn();
@@ -892,6 +905,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
   const instantQuoteUpload = vi.fn();
   const toolLibraryUpload = vi.fn();
   let instantQuoteUploadReady = false;
+  let lineItemQuantity = "";
   startNewQuote.mockImplementation(async () => {
     await fs.writeFile(
       input.stagedCadFile!.localPath,
@@ -906,7 +920,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
       "Material: Aluminum 6061-T6x",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive USD $120.00 Lead time 5 business days",
+      "Least Expensive USD $60.00 ea. USD $120.00 Lead time 5 business days",
     ].join(" "),
     uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
     saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
@@ -925,8 +939,11 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
       },
       [XOMETRY_LOCATORS.quantityInputs[0]]: {
         count: 1,
-        fill: vi.fn(),
+        fill: (value: string) => {
+          lineItemQuantity = value;
+        },
         press: vi.fn(),
+        inputValue: () => lineItemQuantity,
       },
       [XOMETRY_LOCATORS.materialButtons[0]]: {
         count: 1,
@@ -942,6 +959,7 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
           return name === "aria-expanded" ? "true" : null;
         },
         press: openMaterialOptions,
+        fill: searchMaterial,
         click: clickMaterialControl,
       },
       [XOMETRY_LOCATORS.finishButtons[0]]: {
@@ -955,11 +973,12 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
         },
         getAttribute: (name) => (name === "role" ? "combobox" : null),
         press: openFinishOptions,
+        fill: searchFinish,
         click: clickFinishControl,
       },
       [XOMETRY_LOCATORS.priceText[0]]: {
         count: 1,
-        text: "Least Expensive 5 business days USD $120.00",
+        text: "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
       },
       [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
         count: 1,
@@ -971,8 +990,10 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
       },
     },
     optionTexts: () => {
-      if (finishOptionsOpen && finishOptionsRendered) return ["Black Anodize"];
-      if (materialOptionsOpen && materialOptionsRendered) return ["6061-T6"];
+      if (finishOptionsOpen && finishOptionsRendered && finishSearch) return ["Black Anodize"];
+      if (materialOptionsOpen && materialOptionsRendered && materialSearch === "6061-T6") {
+        return ["Aluminum 6061-T6x (Best Available)", "Aluminum 6061-T651, Plate"];
+      }
       return [];
     },
     onOptionWait: (name) => {
@@ -981,12 +1002,155 @@ function createLiveConfigureFlow(input: VendorQuoteAdapterInput) {
     },
   });
   return {
-    page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
+    page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish, clickMaterialControl,
     clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
   };
 }
 
+type XometryAutoSelection = { process: string; material: string; finish: string };
+
+/**
+ * OVD-777 fixtures from the T1 overnight Xometry run. The summary layout and
+ * the 1093-05589-02 values follow the saved quote summary text; the plate's
+ * auto-selected Sheet Cutting / Aluminum 5052-H32 come from the T1 run log.
+ * Quote ids are placeholders.
+ */
+function createAutoSelectionFlow(options: {
+  partFileName: string;
+  measurement?: string;
+  uploaded: XometryAutoSelection;
+  offered: { process: string[]; material: Record<string, string[]>; finish: string[] };
+  drawing?: { name: string; derived: Partial<XometryAutoSelection> };
+}) {
+  const selection = { ...options.uploaded };
+  let drawingAttached = false;
+  const saveConfiguration = vi.fn();
+  const quoteSummary = () =>
+    [
+      "1 Part Uploaded",
+      options.partFileName,
+      drawingAttached ? options.drawing?.name : "",
+      "Quantity",
+      "Edit Configuration",
+      `Process: ${selection.process}`,
+      `Material: ${selection.material}`,
+      options.measurement ? `Measurement: ${options.measurement}` : "",
+      "Preferred Subprocess: No Preference",
+      `Finish: ${selection.finish}`,
+      "Threads and Tapped Holes: 0",
+      "Inserts: 0",
+      "Precision Tolerance: ±.005″ (±0.13mm)",
+      "Inspection: Standard Inspection",
+      "Price and Lead Time",
+      "Least Expensive Arrives by Nov 6 $41.41 ea. $414.15",
+    ].join("\n");
+  const offeredOptions = () => [
+    ...options.offered.process,
+    ...(options.offered.material[selection.process] ?? []),
+    ...options.offered.finish,
+  ];
+  const page = createFakePage({
+    bodyText: quoteSummary,
+    postSaveBodyText: quoteSummary,
+    uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-AUTO-0001/part-1",
+    saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-AUTO-0001#part-part-1",
+    visibleFilenames: options.drawing ? [options.drawing.name] : [],
+    responseWaitDelayMs: options.drawing ? 20 : undefined,
+    selectorBehaviors: {
+      [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+      [XOMETRY_LOCATORS.quantityInputs[0]]: {
+        count: 1,
+        inputValue: () => "10",
+        fill: vi.fn(),
+        press: vi.fn(),
+      },
+      [XOMETRY_LOCATORS.processButtons[0]]: { count: 1 },
+      [XOMETRY_LOCATORS.materialButtons[0]]: { count: 1 },
+      [XOMETRY_LOCATORS.finishButtons[0]]: { count: 1 },
+      [XOMETRY_LOCATORS.toleranceOptions.standard]: { count: 1, click: vi.fn() },
+      [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: { count: 1, click: saveConfiguration },
+      [XOMETRY_LOCATORS.drawingInputs[0]]: {
+        count: options.drawing ? 1 : 0,
+        setInputFiles: () => {
+          // Xometry re-derives requirements from the drawing ("Matches your drawing").
+          drawingAttached = true;
+          Object.assign(selection, options.drawing?.derived);
+        },
+      },
+      [XOMETRY_LOCATORS.priceText[0]]: {
+        count: 1,
+        // Real Xometry price-card markup (ovd774 r6 q11): bare "$", USD registry currency.
+        text: "Least Expensive Arrives by Nov 6 $41.41 ea. $414.15",
+      },
+    },
+    optionTexts: offeredOptions,
+    onOptionClick: (text) => {
+      if (options.offered.process.includes(text)) selection.process = text;
+      else if (options.offered.finish.includes(text)) selection.finish = text;
+      else if (text) selection.material = text;
+    },
+  });
+  return { page, selection, saveConfiguration };
+}
+
+function makeT1Input(overrides: Partial<VendorQuoteAdapterInput["requirement"]>, withDrawing: boolean) {
+  const baseInput = withDrawing ? makeInputWithDrawing() : makeInput();
+  return {
+    ...baseInput,
+    requestedQuantity: 10,
+    requirement: { ...baseInput.requirement, quantity: 10, quote_quantities: [10], ...overrides },
+  };
+}
+
+const T1_PART_WITH_DRAWING = {
+  partFileName: "1093-05589-02.STEP",
+  measurement: "46.99 mm × 33.39 mm × 33.39 mm, 12161.69 mm³ ｜ 1.850 in × 1.314 in × 1.314 in, 0.742 in³",
+  uploaded: { process: "CNC Machining", material: "Aluminum 6061-T6x (Best Available)", finish: "Standard" },
+  drawing: { name: "part.pdf", derived: { finish: "Black Anodize" } },
+};
+
+const T1_SAMPLE_PLATE = {
+  partFileName: "sample-plate.STEP",
+  uploaded: { process: "Sheet Cutting", material: "Aluminum 5052-H32", finish: "Standard" },
+};
+
 describe("Xometry helpers", () => {
+  it("types each search term into a searchable combobox and fails as finite selector drift", async () => {
+    const typed: string[] = [];
+    const searchInput = { fill: vi.fn(async (value: string) => { typed.push(value); }) };
+    const page = {
+      getByRole: () => ({
+        first: () => ({ waitFor: () => Promise.reject(new Error("No options")) }),
+      }),
+      locator: () => ({
+        filter: () => ({ first: () => ({ count: async () => 0 }) }),
+        innerText: async () => "No options",
+      }),
+      url: () => "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
+    };
+
+    const failure = await chooseOptionByTerms(
+      page as never,
+      ["6061-T6", "6061"],
+      XOMETRY_LOCATORS.materialOptions,
+      "material",
+      XOMETRY_LOCATORS.materialButtons[0],
+      undefined,
+      searchInput as never,
+    ).catch((error: unknown) => error);
+
+    expect(typed).toEqual(["6061-T6", "6061"]);
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(failure).toMatchObject({
+      code: "selector_failure",
+      payload: { terminalState: "selector_drift", requestedTerms: ["6061-T6", "6061"] },
+    });
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+      ok: true,
+      terminalState: "selector_drift",
+    });
+  });
+
   it("prefers the current searchable material and finish comboboxes", () => {
     expect(XOMETRY_LOCATORS.uploadInputs[0]).toContain("Start A New Instant Quote");
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
@@ -1237,7 +1401,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x (Best Available)",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Least Expensive 5 business days USD $120.00",
+        "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
       ].join(" ");
       const page = createFakePage({
         bodyText: summaryText,
@@ -1576,10 +1740,11 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
     const {
-      page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, clickMaterialControl,
-      clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
+      page, saveConfiguration, setTolerance, openMaterialOptions, openFinishOptions, searchMaterial, searchFinish,
+      clickMaterialControl, clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
     } = createLiveConfigureFlow(input);
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const screenshot = vi.spyOn(page, "screenshot");
 
     const adapter = makeLiveEvaluationAdapter(
       makeConfig({
@@ -1591,6 +1756,8 @@ describe("XometryAdapter", () => {
     );
 
     const result = await adapter.quote(input);
+    // OVD-779: without an injected harness hook the adapter never screenshots.
+    expect(screenshot).not.toHaveBeenCalled();
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
@@ -1623,6 +1790,8 @@ describe("XometryAdapter", () => {
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
     expect(openMaterialOptions).toHaveBeenCalledWith("ArrowDown");
     expect(openFinishOptions).toHaveBeenCalledWith("ArrowDown");
+    expect(searchMaterial).toHaveBeenCalledWith("6061-T6");
+    expect(searchFinish).toHaveBeenCalledWith("Black Anodize");
     expect(playwrightLaunchMock).toHaveBeenCalledTimes(1);
     expect(launchMock).not.toHaveBeenCalled();
     expect(clickMaterialControl).not.toHaveBeenCalled();
@@ -1630,10 +1799,11 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    // OVD-611: screenshots are no longer captured, so only the 5 HTML snapshots remain.
+    // OVD-611: screenshots are not captured; OVD-779 adds the redacted price-capture DOM.
     expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
-      Array(5).fill("html_snapshot"),
+      Array(6).fill("html_snapshot"),
     );
+    expect(result.artifacts.map((artifact) => artifact.label)).toContain("price-capture-dom");
 
     // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
     const browser = await playwrightLaunchMock.mock.results[0]?.value;
@@ -1654,6 +1824,31 @@ describe("XometryAdapter", () => {
     await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
   });
 
+  it("calls an injected harness capture hook once at price capture on the live-evaluation path", async () => {
+    const workerTempDir = await makeTempDir();
+    const harnessPriceCaptureHook = vi.fn(async () => [{
+      kind: "screenshot" as const,
+      label: "price-capture-screenshot",
+      localPath: path.join(workerTempDir, "harness.png"),
+      contentType: "image/png",
+    }]);
+    const input = { ...(await makeLiveEvaluationInput()), harnessPriceCaptureHook };
+    const { page } = createLiveConfigureFlow(input);
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(input);
+
+    expect(harnessPriceCaptureHook).toHaveBeenCalledOnce();
+    expect(harnessPriceCaptureHook).toHaveBeenCalledWith(expect.objectContaining({ label: "price-capture" }));
+    expect(result.artifacts.filter((artifact) => artifact.kind === "screenshot")).toHaveLength(1);
+  });
   it("engaged during the last configuration step: Save Configuration is never clicked (OVD-722)", async () => {
     const workerTempDir = await makeTempDir();
     const reads: string[] = [];
@@ -1694,7 +1889,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const switchState = () => {
       const state = { engaged: false, reads: [] as string[] };
@@ -2017,7 +2212,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2067,7 +2262,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const input = makeInput();
     input.requirement = { ...input.requirement, updated_at: "2026-10-02T00:00:00Z", spec_snapshot: { process: "CNC" } };
-    const summary = "Quantity: 2 Material: Aluminum 6061-T6x Finish: Black Anodize Precision Tolerance: ±.005 Least Expensive 5 business days USD $120.00";
+    const summary = "Quantity: 2 Material: Aluminum 6061-T6x Finish: Black Anodize Precision Tolerance: ±.005 Least Expensive 5 business days USD $60.00 ea. USD $120.00";
     const source = "Least Expensive\nUSD $120.00\n5 business days\nFirm total USD 120.00 quantity: 2 revision: A\nReference: secret-full-source";
     const config = makeConfig({ workerTempDir, workerLiveAdapters: ["xometry"],
       xometryStorageStatePath: path.join(workerTempDir, "state.json"), xometryBrowserEngine: "playwright" });
@@ -2155,7 +2350,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2214,7 +2409,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2278,7 +2473,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2339,7 +2534,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2408,7 +2603,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2488,7 +2683,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2720,7 +2915,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: () => {
@@ -2790,7 +2985,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3203,7 +3398,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3270,7 +3465,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: `${summaryText} Upload 3D Files`,
@@ -3358,7 +3553,7 @@ describe("XometryAdapter", () => {
             "Material: Aluminum 6061-T6x (Best Available)",
             "Finish: Black Anodize",
             "Precision Tolerance: ±.005",
-            "Least Expensive 5 business days USD $120.00",
+            "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
           ].join(" "),
         },
       },
@@ -3772,7 +3967,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3807,6 +4002,132 @@ describe("XometryAdapter", () => {
       payload: {
         field: "material",
       },
+    });
+  });
+
+  describe("OVD-776 line-item quantity guard before price capture", () => {
+    // Saved T1 quote page text (/workspace/ovd774-evidence/xometry-explore-r6-q11.txt)
+    // with a placeholder quote id. The summary "Quantity" row is a bare label.
+    // Prices carry a USD marker because bare "$" amounts are untrusted on main
+    // (OVD-778); the amounts are the T1 page's ten-piece prices.
+    const t1QuotePageText = (each: string, total: string, summaryQuantity: string) => [
+      "Dashboard / Quotes / Q00-TEST-0901",
+      "Q00-TEST-0901",
+      "1 Part Uploaded",
+      "1",
+      "part.step",
+      "Revise CAD",
+      "Remove Part",
+      "Repeat Part",
+      summaryQuantity,
+      " Edit Configuration",
+      "Process: CNC Machining",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Measurement: 46.99 mm × 33.39 mm × 33.39 mm",
+      "Preferred Subprocess: No Preference",
+      "Finish: Black Anodize",
+      "Threads and Tapped Holes: 0",
+      "Inserts: 0",
+      "Precision Tolerance: ±.005″ (±0.13mm)",
+      "Inspection: Standard Inspection",
+      "Price and Lead Time",
+      " Least Expensive",
+      "Arrives by Nov 6",
+      `USD $${each} ea.`,
+      `USD $${total}`,
+      "Continue to CheckoutForward to Purchaser",
+    ].join("\n");
+
+    async function quoteT1Page(input: {
+      each: string;
+      total: string;
+      lineItemQuantity?: string;
+      strayQuantity?: string;
+      summaryQuantity?: string;
+    }) {
+      const workerTempDir = await makeTempDir();
+      const bodyText = t1QuotePageText(input.each, input.total, input.summaryQuantity ?? "Quantity");
+      const selectorBehaviors: Record<string, LocatorBehavior> = {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: `Least Expensive\nArrives by Nov 6\nUSD $${input.each} ea.\nUSD $${input.total}`,
+        },
+      };
+      if (input.lineItemQuantity !== undefined) {
+        selectorBehaviors[XOMETRY_LOCATORS.lineItemQuantityInputs[0]] = {
+          count: 1,
+          inputValue: () => input.lineItemQuantity ?? "",
+        };
+      }
+      if (input.strayQuantity !== undefined) {
+        // A generic number input elsewhere on the page. The pre-OVD-776
+        // summary fallback read the first visible input of this kind.
+        selectorBehaviors['input[type="number"]'] = {
+          count: 1,
+          inputValue: () => input.strayQuantity ?? "",
+          fill: vi.fn(),
+          press: vi.fn(),
+        };
+      }
+      const page = createFakePage({
+        bodyText,
+        uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0901",
+        selectorBehaviors,
+      });
+      launchMock.mockResolvedValue(createFakeBrowser(page));
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      );
+      return adapter.quote(makeInput({ requestedQuantity: 1 }));
+    }
+
+    it("captures a qty-1 price when the line-item input reads back 1 under a blank summary row", async () => {
+      const result = await quoteT1Page({ each: "41.41", total: "41.41", lineItemQuantity: "1", strayQuantity: "10" });
+
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.totalPriceUsd).toBe(41.41);
+      expect(result.unitPriceUsd).toBe(41.41);
+    });
+
+    it("refuses the T1 ten-piece price for a qty-1 run even when the line item reads 1", async () => {
+      const failure = await quoteT1Page({ each: "41.41", total: "414.15", lineItemQuantity: "1" })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: { reason: "quantity_mismatch", requestedQuantity: 1, observedQuantity: 10 },
+      });
+    });
+
+    it("trusts the line-item input over a summary label that claims the requested quantity", async () => {
+      const failure = await quoteT1Page({
+        each: "41.41",
+        total: "414.15",
+        lineItemQuantity: "10",
+        strayQuantity: "1",
+        summaryQuantity: "Quantity: 1",
+      })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        payload: { reason: "quantity_mismatch", observedLineItemQuantities: [10] },
+      });
+      expect((failure as VendorAutomationError).artifacts.map((artifact) => artifact.label))
+        .toContain("quantity-unverified-dom");
+    });
+
+    it("fails closed with no price when no line-item quantity input can be read", async () => {
+      const failure = await quoteT1Page({ each: "41.41", total: "41.41", strayQuantity: "1", summaryQuantity: "Quantity: 1" })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(VendorAutomationError);
+      expect(failure).toMatchObject({
+        payload: { reason: "quantity_unverified", observedLineItemQuantities: [] },
+      });
     });
   });
 
@@ -4212,7 +4533,7 @@ describe("XometryAdapter", () => {
       "Finish: Type III Hard Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: Black Anodize",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4255,7 +4576,7 @@ describe("XometryAdapter", () => {
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: supplier code 303",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4307,7 +4628,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T651",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4377,7 +4698,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4467,7 +4788,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4564,7 +4885,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4618,7 +4939,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4678,7 +4999,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days USD $120.00",
+      "Least Expensive 5 business days USD $60.00 ea. USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4847,6 +5168,7 @@ describe("XometryAdapter", () => {
           count: 1,
           fill: vi.fn(),
           press: vi.fn(),
+          inputValue: () => "2",
         },
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
@@ -5313,6 +5635,111 @@ describe("XometryAdapter", () => {
         reason: "saved_requirement_mismatch",
         requirementMismatches: expect.arrayContaining(["quantity", "finish", "tolerance"]),
       },
+    });
+  });
+
+  describe("OVD-777 overwrites Xometry's auto-selected requirements", () => {
+    async function quoteT1(
+      flow: ReturnType<typeof createAutoSelectionFlow>,
+      input: VendorQuoteAdapterInput,
+    ) {
+      const workerTempDir = await makeTempDir();
+      launchMock.mockResolvedValue(createFakeBrowser(flow.page));
+      const adapter = new XometryAdapter(
+        "xometry",
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      );
+      return adapter.quote(input);
+    }
+
+    const cncCatalog = {
+      process: ["CNC Machining", "Sheet Cutting"],
+      material: {
+        "CNC Machining": ["Aluminum 6061-T6x (Best Available)"],
+        "Sheet Cutting": ["Aluminum 5052-H32"],
+      },
+      finish: ["As Machined", "Black Anodize"],
+    };
+
+    it("clears a drawing-applied Black Anodize when the saved finish is as machined", async () => {
+      const flow = createAutoSelectionFlow({ ...T1_PART_WITH_DRAWING, offered: cncCatalog });
+
+      const result = await quoteT1(flow, makeT1Input({ finish: "as machined" }, true));
+
+      expect(flow.selection).toEqual({
+        process: "CNC Machining",
+        material: "Aluminum 6061-T6x (Best Available)",
+        finish: "As Machined",
+      });
+      expect(flow.saveConfiguration).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.totalPriceUsd).toBe(414.15);
+      expect(result.rawPayload).toMatchObject({
+        drawingUploadMode: "fallback",
+        selectedFinish: "As Machined",
+        requirementsVerified: true,
+      });
+    });
+
+    it("clears an auto-applied Black Anodize read back after upload", async () => {
+      const flow = createAutoSelectionFlow({
+        ...T1_PART_WITH_DRAWING,
+        drawing: undefined,
+        uploaded: { ...T1_PART_WITH_DRAWING.uploaded, finish: "Black Anodize" },
+        offered: cncCatalog,
+      });
+
+      const result = await quoteT1(flow, makeT1Input({ finish: "as machined" }, false));
+
+      expect(flow.selection.finish).toBe("As Machined");
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.rawPayload).toMatchObject({ selectedFinish: "As Machined", requirementsVerified: true });
+    });
+
+    it("moves an auto-selected Sheet Cutting / 5052-H32 plate to CNC Machining and 6061", async () => {
+      const flow = createAutoSelectionFlow({ ...T1_SAMPLE_PLATE, offered: cncCatalog });
+
+      const result = await quoteT1(flow, makeT1Input({ material: "6061 aluminum", finish: null }, false));
+
+      expect(flow.selection).toEqual({
+        process: "CNC Machining",
+        material: "Aluminum 6061-T6x (Best Available)",
+        finish: "Standard",
+      });
+      expect(result.status).toBe("instant_quote_received");
+      expect(result.rawPayload).toMatchObject({ selectedMaterial: "6061-T6", requirementsVerified: true });
+    });
+
+    it("still fails closed when Xometry offers no As Machined finish to select", async () => {
+      const flow = createAutoSelectionFlow({
+        ...T1_PART_WITH_DRAWING,
+        offered: { ...cncCatalog, finish: ["Black Anodize"] },
+      });
+
+      await expect(quoteT1(flow, makeT1Input({ finish: "as machined" }, true))).rejects.toMatchObject({
+        code: "unexpected_ui_state",
+        payload: { reason: "saved_requirement_mismatch", requirementMismatches: ["finish"] },
+      });
+      expect(flow.selection.finish).toBe("Black Anodize");
+    });
+
+    it("still fails closed when Xometry offers no CNC Machining process to select", async () => {
+      const flow = createAutoSelectionFlow({
+        ...T1_SAMPLE_PLATE,
+        offered: {
+          ...cncCatalog,
+          process: ["Sheet Cutting"],
+          material: { "Sheet Cutting": ["Aluminum 5052-H32", "Aluminum 6061-T6"] },
+        },
+      });
+
+      await expect(
+        quoteT1(flow, makeT1Input({ material: "6061 aluminum", finish: null }, false)),
+      ).rejects.toMatchObject({
+        code: "unexpected_ui_state",
+        payload: { reason: "saved_requirement_mismatch", requirementMismatches: ["process"] },
+      });
+      expect(flow.selection.process).toBe("Sheet Cutting");
     });
   });
 

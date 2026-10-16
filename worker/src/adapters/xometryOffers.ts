@@ -4,6 +4,7 @@ import {
   type GeographicOrigin,
   type VendorQuoteAdapterOffer,
 } from "../types.js";
+import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
 import {
   createXometryQuoteObservation,
@@ -77,11 +78,25 @@ function parseCurrencyValue(value: string) {
 }
 
 /** USD-only offer fields require currency evidence on every anchored amount.
+ * A bare `$` amount is USD only when the provider manifest's reviewed quote
+ * currency is USD; any explicit or conflicting marker still decides first.
  * Foreign/ambiguous observations stay in error evidence, never USD comparisons.
  */
 const CURRENCY_CODES = new Set(Intl.supportedValuesOf("currency"));
+const DOLLAR_AMOUNT_SOURCE = String.raw`\$\s*([\d,]+(?:\.\d{2})?)`;
+const USD_CODE_AMOUNT_SOURCE = String.raw`\bUSD[^\S\r\n]*([\d,]+(?:\.\d{2})?)`;
+/** Savings/discount amounts are not offer prices; drop them before anchoring. */
+const SAVINGS_AMOUNT = /\b(?:you\s+)?sav(?:e|es|ing|ings)\b[^\S\r\n]*(?:of\s*)?(?:\$|USD)[^\S\r\n]*[\d,]+(?:\.\d{2})?|(?:\$|USD)[^\S\r\n]*[\d,]+(?:\.\d{2})?[^\S\r\n]*off\b/gi;
+function withoutSavings(text: string) {
+  return text.replace(SAVINGS_AMOUNT, "");
+}
+/** `$` amounts; symbol-less `USD 41.41` amounts count only when no `$` amount exists. */
+function amountSource(text: string) {
+  return new RegExp(DOLLAR_AMOUNT_SOURCE).test(text) ? DOLLAR_AMOUNT_SOURCE : USD_CODE_AMOUNT_SOURCE;
+}
 
-function currencyEvidence(text: string) {
+function currencyEvidence(rawText: string, registryCurrency: string | null) {
+  const text = withoutSavings(rawText);
   const observed = new Set<string>();
   const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
   let trusted = true;
@@ -95,7 +110,8 @@ function currencyEvidence(text: string) {
       if (!codes.length) observed.add("unknown");
     }
   }
-  const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
+  const amounts = [...text.matchAll(new RegExp(amountSource(text), "g"))];
+  let bareAmountUnverified = false;
   for (const amount of amounts) {
     const start = amount.index ?? 0;
     const prefix = /(?:\b([A-Z]{3})[^\S\r\n]*|\b(US|CA|AU|NZ|HK|SG|C|A|S))$/i.exec(text.slice(0, start));
@@ -119,27 +135,36 @@ function currencyEvidence(text: string) {
     const prefixCode = prefix?.[1] && CURRENCY_CODES.has(prefix[1].toUpperCase()) ? prefix[1] : undefined;
     const codes = [prefixCode, prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
       .map((code) => aliases[code.toUpperCase()] ?? code.toUpperCase());
-    if (!codes.length) { observed.add("unknown"); trusted = false; }
+    if (amount[0].startsWith("USD")) codes.push("USD");
+    if (!codes.length) {
+      if (registryCurrency === "USD") codes.push("USD");
+      else { observed.add("unknown"); trusted = false; bareAmountUnverified = true; }
+    }
     for (const code of [...codes, ...lineCodes]) { observed.add(code); if (code !== "USD") trusted = false; }
   }
   for (const [symbol, code] of [["€", "EUR"], ["£", "GBP"], ["¥", "JPY_or_CNY"]]) {
     if (text.includes(symbol)) { observed.add(code); trusted = false; }
   }
-  return { trusted: trusted && amounts.length > 0, observedCurrencies: [...observed] };
+  // Bare amounts mixed only with USD markers are unverified; foreign markers stay untrusted.
+  const unverified = bareAmountUnverified && [...observed].every((code) => code === "USD" || code === "unknown");
+  return { trusted: trusted && amounts.length > 0, unverified, observedCurrencies: [...observed] };
 }
 
-function parsePrices(text: string, requestedQuantity: number) {
-  const currencyMatches = [...text.matchAll(/\$\s*([\d,]+(?:\.\d{2})?)/g)];
+function parsePrices(rawText: string, requestedQuantity: number) {
+  const text = withoutSavings(rawText);
+  const source = amountSource(text);
+  const currencyMatches = [...text.matchAll(new RegExp(source, "g"))];
   if (currencyMatches.length === 0) return null;
 
-  const unitMatch = /\$\s*([\d,]+(?:\.\d{2})?)\s*(?:ea\.?|each|\/\s*ea\.?)/i.exec(text);
+  // Case-insensitive unit suffix without making the USD anchor case-insensitive.
+  const unitMatch = new RegExp(String.raw`${source}\s*(?:\/\s*)?[Ee][Aa](?:[Cc][Hh])?\b\.?`).exec(text);
   if (unitMatch?.index !== undefined) {
     const unitPriceUsd = parseCurrencyValue(unitMatch[1]);
     const unitMatchEnd = unitMatch.index + unitMatch[0].length;
     const extendedMatch = currencyMatches.find((match) => (match.index ?? 0) >= unitMatchEnd);
     const totalPriceUsd = extendedMatch ? parseCurrencyValue(extendedMatch[1]) : null;
     if (unitPriceUsd === null || totalPriceUsd === null) return null;
-    return { unitPriceUsd, totalPriceUsd };
+    return { unitPriceUsd, totalPriceUsd, unitPriceExplicit: true };
   }
 
   if (currencyMatches.length !== 1) return null;
@@ -148,7 +173,41 @@ function parsePrices(text: string, requestedQuantity: number) {
   return {
     unitPriceUsd: Math.round((totalPriceUsd / requestedQuantity) * 100) / 100,
     totalPriceUsd,
+    unitPriceExplicit: false,
   };
+}
+
+/**
+ * OVD-776: a tier price is only trusted for the requested quantity. Any
+ * quantity the option states must match, and total ÷ each must equal the
+ * requested quantity within per-piece cent rounding. A lone price without a
+ * stated quantity cannot show which quantity it covers unless one piece was
+ * requested.
+ */
+export function xometryOfferQuantityFailure(
+  text: string,
+  prices: { unitPriceUsd: number; totalPriceUsd: number; unitPriceExplicit: boolean },
+  requestedQuantity: number,
+): { reason: "quantity_mismatch" | "quantity_unverified"; observedQuantity: number | null } | null {
+  const statedQuantities = [
+    ...text.matchAll(/\b(?:qty|quantity)\b\s*[:x]?\s*(\d+)\b/gi),
+    ...text.matchAll(/\b(\d+)\s*(?:pcs|pieces|parts|units)\b/gi),
+  ].map((match) => Number.parseInt(match[1], 10));
+  const stated = statedQuantities.find((quantity) => quantity !== requestedQuantity);
+  if (stated !== undefined) return { reason: "quantity_mismatch", observedQuantity: stated };
+
+  if (!prices.unitPriceExplicit) {
+    return requestedQuantity === 1 || statedQuantities.length > 0
+      ? null
+      : { reason: "quantity_unverified", observedQuantity: null };
+  }
+  if (prices.unitPriceUsd <= 0) return { reason: "quantity_unverified", observedQuantity: null };
+  const impliedQuantity = prices.totalPriceUsd / prices.unitPriceUsd;
+  const roundingToleranceUsd = 0.005 * requestedQuantity + 0.005;
+  if (Math.abs(prices.unitPriceUsd * requestedQuantity - prices.totalPriceUsd) > roundingToleranceUsd) {
+    return { reason: "quantity_mismatch", observedQuantity: Math.round(impliedQuantity) };
+  }
+  return null;
 }
 
 function parseLeadTime(text: string) {
@@ -277,10 +336,25 @@ export function parseXometryOfferSnapshots(input: {
   snapshots: XometryOfferSnapshot[];
   requestedQuantity: number;
   quoteUrl: string;
+  /** Manifest quote currency; bare `$` amounts fail closed unless it is USD. */
+  registryCurrency?: string | null;
 }): VendorQuoteAdapterOffer[] {
+  const registryCurrency = input.registryCurrency === undefined
+    ? PROVIDER_CATALOG.xometry.quoteCurrency
+    : input.registryCurrency;
   const availableSnapshots = input.snapshots.filter((snapshot) => !isExplicitlyUnavailable(snapshot));
   const offers = availableSnapshots.map((snapshot, index) => {
-    const currency = currencyEvidence(snapshot.text);
+    const currency = currencyEvidence(snapshot.text, registryCurrency);
+    if (currency.unverified) {
+      throw new VendorAutomationError(
+        "A Xometry option used bare dollar prices without a USD registry currency.",
+        "unexpected_ui_state",
+        { vendor: "xometry", reason: "price_currency_unverified",
+          containerSelector: snapshot.selector, optionIndex: index, registryCurrency,
+          observedCurrencies: currency.observedCurrencies,
+          providerText: snapshot.text.slice(0, 1000) },
+      );
+    }
     if (!currency.trusted && currency.observedCurrencies.length > 0) {
       throw new VendorAutomationError(
         "A Xometry option did not establish exclusively USD prices.",
@@ -299,6 +373,25 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_price_missing",
+          containerSelector: snapshot.selector,
+          optionIndex: index,
+        },
+      );
+    }
+    const quantityFailure = xometryOfferQuantityFailure(snapshot.text, prices, input.requestedQuantity);
+    if (quantityFailure) {
+      throw new VendorAutomationError(
+        quantityFailure.reason === "quantity_mismatch"
+          ? "A Xometry option price is for a different quantity than requested."
+          : "A Xometry option price did not establish the requested quantity.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason: quantityFailure.reason,
+          requestedQuantity: input.requestedQuantity,
+          observedQuantity: quantityFailure.observedQuantity,
+          observedUnitPriceUsd: prices.unitPriceExplicit ? prices.unitPriceUsd : null,
+          observedTotalPriceUsd: prices.totalPriceUsd,
           containerSelector: snapshot.selector,
           optionIndex: index,
         },

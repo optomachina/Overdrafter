@@ -77,6 +77,16 @@ test('OVD-684 pgTAP fixture is a byte copy of the migration it exercises', () =>
     readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url))));
 });
 
+test('OVD-736 pgTAP fixtures are byte copies of the migration draft and its rollback', () => {
+  for (const [fixture, draft] of [
+    ['ovd736_anon_definer_privileges.inc', 'ovd-736.sql'],
+    ['ovd736_anon_definer_privileges_rollback.inc', 'ovd-736.rollback.sql'],
+  ]) {
+    assert.deepEqual(readFileSync(join(source, 'fixtures', fixture)),
+      readFileSync(fileURLToPath(new URL(`../docs/migration-drafts/${draft}`, import.meta.url))));
+  }
+});
+
 test('successful pg_prove summary must cover every selected file with real assertions', () => {
   const pass = 'All tests successful.\nFiles=53, Tests=2245, 27 wallclock secs\nResult: PASS\n';
   assert.deepEqual(admitPgProve(pass, 53), { files: 53, assertions: 2245, result: 'PASS' });

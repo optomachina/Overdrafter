@@ -139,3 +139,33 @@ OSH Cut paid automated quoting is not matrix-cleared. The row is
 and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
 A cease-and-desist uses the OVD-722 kill switch as step one
 ([playbook](../runbooks/provider-cease-and-desist.md)).
+
+## Authenticated capture (2026-10-15)
+
+One read-only capture of the authenticated quote app (account session stored as
+`oshcut-storage-state` in Secret Manager, project `overdrafter-worker-9133`).
+A 50 x 30 mm DXF test plate was uploaded to the cart; no material was committed,
+no checkout was opened and no order was placed.
+
+Routes
+- `https://app.oshcut.com/login` redirects to `/` → `/cart`; sign-in is a modal
+  (`#email-input` name=username, `#password-input` name=password), no CAPTCHA, no 2FA.
+- Upload lands on `/cart/O-<uuid>`; each part has `/cart/O-<uuid>/P-<uuid>`.
+- All hosts observed: `app.oshcut.com` only.
+
+Selector findings (the v1 locator table does NOT match the live DOM)
+- `cadUpload` `input[type='file']`: matches (hidden input, `accept` lists dxf/svg/ai/step/...).
+- `quantity`: no `name`/`aria-label`; live control is `.cartQuantity input.input` (type=text).
+- Material: there is no `<select name=material>`. "Select material" (`.cartInformationArea span.error.link`)
+  opens a slideover (`.Slideover`, `h1` "Select Material - <file>") with category tiles and
+  filter checkboxes (`.filterItem` labels). The option label is **"6061 T6 Aluminum"**;
+  there is no `aluminum-6061-t6` option value. Thickness is a separate filter (e.g. `0.125"`).
+- Price: no `data-oshcut-quote-option-*` attributes exist. Per-part prices render in
+  `.cartSinglePrice` / `.cartExtendedPrice` (both `-` until material and thickness are set).
+  Only `data-testid="button"`/`"content"` test ids are present (checkout button).
+- Text signals: "All parts need selected material and units to checkout",
+  "Design check: Passed".
+
+Consequence: the `configure` hook and `OSHCUT_PRODUCTION_LOCATORS` need a new revision
+(material slideover + thickness pick, cart-row price cells) before certification; with the
+current table every live attempt ends in `selector_drift`, never an inferred price.

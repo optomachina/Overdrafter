@@ -1,0 +1,130 @@
+{
+  "sourceRevision": "working-tree",
+  "server": "17.11 (Ubuntu 17.11-1.pgdg24.04+2)",
+  "results": [
+    {
+      "name": "560_reverse_concurrent_registration",
+      "reverseExit": 3,
+      "refusal": "ovd560_reverse_requires_empty_exact_registry",
+      "rows": 1,
+      "bindingRetained": true,
+      "safe": true
+    },
+    {
+      "name": "560_reverse_repeatable_read_refused",
+      "reverseExit": 3,
+      "refusal": "ovd560_reverse_requires_read_committed",
+      "safe": true
+    },
+    {
+      "name": "560_reverse_empty_positive_control",
+      "reverseExit": 0,
+      "safe": true
+    },
+    {
+      "name": "560_reverse_registry_first_registration_control",
+      "writerExit": 0,
+      "reverseExit": 3,
+      "deadlock": true,
+      "lostCommittedRow": false,
+      "refusal": null,
+      "rows": 1,
+      "bindingRetained": true,
+      "reproduced": true,
+      "safe": true
+    },
+    {
+      "name": "560_reverse_storage_first_registration_control",
+      "writerExit": 0,
+      "reverseExit": 3,
+      "deadlock": true,
+      "lostCommittedRow": false,
+      "refusal": null,
+      "rows": 1,
+      "bindingRetained": true,
+      "reproduced": true,
+      "safe": true
+    },
+    {
+      "name": "560_reverse_lock_timeout_with_idle_registration",
+      "reverseExit": 3,
+      "lockTimeout": true,
+      "safe": true
+    },
+    {
+      "name": "560_reverse_attempts_first_concurrent_registration",
+      "writerExit": 0,
+      "reverseExit": 3,
+      "deadlock": false,
+      "lostCommittedRow": false,
+      "refusal": "ovd560_reverse_requires_empty_exact_registry",
+      "rows": 1,
+      "bindingRetained": true,
+      "safe": true
+    },
+    {
+      "name": "563_reverse_stale_repeatable_read_snapshot",
+      "reverseExit": 3,
+      "refusal": "ovd563_reverse_requires_read_committed",
+      "table": "engineering_private.native_step_reviews",
+      "rows": 1,
+      "safe": true
+    },
+    {
+      "name": "563_reverse_concurrent_writer_read_committed",
+      "reverseExit": 3,
+      "refusal": "ovd563_review_history_present",
+      "table": "engineering_private.native_step_reviews",
+      "rows": 1,
+      "safe": true
+    },
+    {
+      "name": "563_reverse_empty_positive_control",
+      "reverseExit": 0,
+      "safe": true
+    },
+    {
+      "name": "reader_admission_revocation_repeatable_read",
+      "admitExit": 3,
+      "refusal": "native_result_binding_read_committed_required",
+      "bindings": 0,
+      "safe": true
+    },
+    {
+      "name": "reader_admission_revocation_read_committed",
+      "admitExit": 3,
+      "refusal": "native_result_binding_unqualified",
+      "bindings": 0,
+      "safe": true
+    },
+    {
+      "name": "reader_admission_membership_removal_repeatable_read",
+      "admitExit": 3,
+      "refusal": "native_result_binding_read_committed_required",
+      "bindings": 0,
+      "safe": true
+    },
+    {
+      "name": "reader_admission_membership_removal_read_committed",
+      "admitExit": 3,
+      "refusal": "native_result_binding_unqualified",
+      "bindings": 0,
+      "safe": true
+    },
+    {
+      "name": "reader_forward_preflight",
+      "refusals": [
+        true,
+        true
+      ],
+      "safe": true
+    },
+    {
+      "name": "reader_admission_positive_control",
+      "process": "{\"helperPid\": 102, \"nativePid\": 101, \"candidateRoot\": \"C:\\\\out\", \"nativeStartTicks\": \"9001\"}",
+      "replayMatches": true,
+      "bindings": 1,
+      "safe": true
+    }
+  ]
+}

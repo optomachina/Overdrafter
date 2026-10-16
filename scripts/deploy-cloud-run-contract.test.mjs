@@ -14,6 +14,8 @@ import {
   validateProviderRegistry,
 } from "./provider-registry.mjs";
 
+import { STABLE_EGRESS_LIVE_ADAPTER_VALUES } from "./xometry-stable-egress-contract.mjs";
+
 const execFileAsync = promisify(execFile);
 const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh");
 const TARGET_PROJECT_NUMBER = "123456789012";
@@ -795,12 +797,12 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     expect(JSON.parse(parseAssignments(rawEnv).QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({ quickparts: QUICKPARTS_MOUNT });
   });
 
-  it("accepts on the stable egress exactly the adapter values the egress contract allows", async () => {
-    const { STABLE_EGRESS_LIVE_ADAPTER_VALUES } = await import("./xometry-stable-egress-contract.mjs");
-    expect(STABLE_EGRESS_LIVE_ADAPTER_VALUES).toEqual(
-      expect.arrayContaining(["xometry,quickparts", "xometry,fictiv,quickparts"]),
-    );
-    for (const adapters of [...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "quickparts", "quickparts,xometry", "fictiv,quickparts"]) {
+  it.each([...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "quickparts", "quickparts,xometry", "fictiv,quickparts"])(
+    "accepts on the stable egress exactly the allowed adapter value %s",
+    async (adapters) => {
+      expect(STABLE_EGRESS_LIVE_ADAPTER_VALUES).toEqual(
+        expect.arrayContaining(["xometry,quickparts", "xometry,fictiv,quickparts"]),
+      );
       const { failure, calls } = await runDeployScript({
         snapshot: true,
         envOverrides: {
@@ -817,8 +819,8 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
       if (allowed) {
         expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
       }
-    }
-  }, STABLE_EGRESS_SWEEP_TIMEOUT_MS);
+    },
+  );
 
   it.each([
     [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts" }],
@@ -905,34 +907,27 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
     expect(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS).toBe(`{"quickparts":"${QUICKPARTS_MOUNT}"}`);
   });
 
-  it("accepts on the stable egress exactly the adapter values the egress contract allows", async () => {
-    const { STABLE_EGRESS_LIVE_ADAPTER_VALUES } = await import("./xometry-stable-egress-contract.mjs");
-    expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
-      "xometry",
-      "xometry,fictiv",
-      "xometry,oshcut",
-      "xometry,fictiv,oshcut",
-      "xometry,quickparts",
-      "xometry,fictiv,quickparts",
-      "xometry,oshcut,quickparts",
-      "xometry,fictiv,oshcut,quickparts",
-      "xometry,weerg",
-      "xometry,fictiv,weerg",
-      "xometry,oshcut,weerg",
-      "xometry,fictiv,oshcut,weerg",
-      "xometry,quickparts,weerg",
-      "xometry,fictiv,quickparts,weerg",
-      "xometry,oshcut,quickparts,weerg",
-      "xometry,fictiv,oshcut,quickparts,weerg",
-    ]);
-    for (const adapters of [
-      ...STABLE_EGRESS_LIVE_ADAPTER_VALUES,
-      "weerg",
-      "weerg,xometry",
-      "xometry,weerg,quickparts",
-      "xometry,weerg,fictiv",
-      "quickparts,weerg",
-    ]) {
+  it.each([...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,fictiv", "quickparts,weerg"])(
+    "accepts on the stable egress exactly the allowed adapter value %s",
+    async (adapters) => {
+      expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
+        "xometry",
+          "xometry,fictiv",
+          "xometry,oshcut",
+          "xometry,fictiv,oshcut",
+          "xometry,quickparts",
+          "xometry,fictiv,quickparts",
+          "xometry,oshcut,quickparts",
+          "xometry,fictiv,oshcut,quickparts",
+          "xometry,weerg",
+          "xometry,fictiv,weerg",
+          "xometry,oshcut,weerg",
+          "xometry,fictiv,oshcut,weerg",
+          "xometry,quickparts,weerg",
+          "xometry,fictiv,quickparts,weerg",
+          "xometry,oshcut,quickparts,weerg",
+          "xometry,fictiv,oshcut,quickparts,weerg",
+        ]);
       const { failure, calls } = await runDeployScript({
         snapshot: true,
         envOverrides: {
@@ -949,8 +944,8 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
       if (allowed) {
         expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
       }
-    }
-  }, STABLE_EGRESS_SWEEP_TIMEOUT_MS);
+    },
+  );
 
   it.each([
     [{ WORKER_LIVE_ADAPTERS: "xometry,weerg" }],

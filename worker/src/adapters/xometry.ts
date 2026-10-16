@@ -21,6 +21,7 @@ import {
 } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
+  type HarnessPriceCaptureHook,
   type VendorArtifact,
   type VendorQuoteAdapterOffer,
   type LiveEvaluationUploadFile,
@@ -73,6 +74,8 @@ import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
+  XOMETRY_AS_MACHINED_FINISH_TERMS,
+  XOMETRY_CNC_PROCESS_TERMS,
   XOMETRY_LOCATORS,
   XOMETRY_URLS,
 } from "./xometryConstraints.js";
@@ -479,6 +482,37 @@ async function appendArtifacts(
   label: string,
 ) {
   artifacts.push(...(await capturePageArtifacts(page, runDir, label)));
+}
+
+/**
+ * OVD-779: the price-capture DOM goes through the same redactor as every other
+ * snapshot. The adapter never screenshots (OVD-611); only a hook injected by
+ * the live-evaluation harness may, and a hook failure never fails the quote.
+ */
+export async function capturePriceArtifacts(
+  page: Page,
+  runDir: string,
+  harnessHook: HarnessPriceCaptureHook | null,
+): Promise<VendorArtifact[]> {
+  const artifacts = await capturePageArtifacts(page, runDir, "price-capture");
+  if (!harnessHook) return artifacts;
+  try {
+    artifacts.push(...(await harnessHook({ page, label: "price-capture" })));
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.harness_capture_failed",
+        message: "Live-evaluation harness capture hook failed.",
+        context: {
+          vendor: "xometry",
+          error: error instanceof Error ? error.name : "unknown",
+        },
+      }),
+    );
+  }
+  return artifacts;
 }
 
 async function firstWorkingLocator(page: Page, selectors: readonly string[]) {
@@ -1749,10 +1783,12 @@ async function setFilesOnApprovedUploadTarget(
   return { selector: target.selector };
 }
 
+type XometryOptionField = "process" | "material" | "finish";
+
 async function findButtonAndOpen(
   page: Page,
   selectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
 ) {
   const preferredSelector = selectors[0];
   const preferredLocator = page.locator(`${preferredSelector}:visible`).first();
@@ -1777,6 +1813,7 @@ async function findButtonAndOpen(
       {
         vendor: "xometry",
         field,
+        terminalState: "selector_drift",
         failedSelector: selectors[0],
         attemptedSelectors: [...selectors],
         nearbyAttributes: [...selectors],
@@ -1790,23 +1827,30 @@ async function findButtonAndOpen(
     .getAttribute("aria-expanded")
     .then((value) => value === "true")
     .catch(() => false);
-  if (match.isPreferred && controlRole === "combobox") {
+  // Xometry's searchable comboboxes render "No options" until a search term
+  // is typed, so the caller fills each term into the returned search input.
+  const searchable = match.isPreferred && controlRole === "combobox";
+  if (searchable) {
     await match.locator.press("ArrowDown");
   } else if (!alreadyExpanded) {
     await match.locator.click();
   }
-  return match.selector;
+  return { selector: match.selector, searchInput: searchable ? match.locator : null };
 }
 
 export async function chooseOptionByTerms(
   page: Page,
   terms: string[],
   optionSelectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
   controlSelector: string,
   observer?: XometryProviderObserver,
+  searchInput: Locator | null = null,
 ) {
+  // The engineering catalog observes material and finish options only.
+  const catalogField = field === "process" ? null : field;
   for (const term of terms) {
+    if (searchInput) await searchInput.fill(term);
     const roleOption = page
       .getByRole("option", { name: new RegExp(escapeRegex(term), "i") })
       .first();
@@ -1817,8 +1861,8 @@ export async function chooseOptionByTerms(
       .catch(() => false);
 
     if (roleOptionVisible) {
-      const observation = observer
-        ? await captureCatalogOption(roleOption, field, controlSelector, "role=option", term)
+      const observation = observer && catalogField
+        ? await captureCatalogOption(roleOption, catalogField, controlSelector, "role=option", term)
           .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
         : null;
       try { await roleOption.click(); } finally {
@@ -1834,8 +1878,8 @@ export async function chooseOptionByTerms(
         .first();
 
       if ((await option.count().catch(() => 0)) > 0) {
-        const observation = observer
-          ? await captureCatalogOption(option, field, controlSelector, selector, term)
+        const observation = observer && catalogField
+          ? await captureCatalogOption(option, catalogField, controlSelector, selector, term)
             .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
           : null;
         try { await option.click(); } finally {
@@ -1852,6 +1896,7 @@ export async function chooseOptionByTerms(
     {
       vendor: "xometry",
       field,
+      terminalState: "selector_drift",
       failedSelector: optionSelectors[0],
       attemptedSelectors: [...optionSelectors],
       nearbyAttributes: [...optionSelectors],
@@ -1896,11 +1941,66 @@ async function configureRequiredOption(
   terms: string[],
   controlSelectors: readonly string[],
   optionSelectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
   observer?: XometryProviderObserver,
 ) {
-  const controlSelector = await findButtonAndOpen(page, controlSelectors, field);
-  return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector, observer);
+  const control = await findButtonAndOpen(page, controlSelectors, field);
+  return chooseOptionByTerms(
+    page, terms, optionSelectors, field, control.selector, observer, control.searchInput,
+  );
+}
+
+// OVD-777: Xometry auto-selects process, material and finish from the CAD
+// geometry or an attached drawing. Process goes first because changing it
+// reloads the material and finish catalogs.
+const AUTO_SELECTED_FIELDS = ["process", "material", "finish"] as const;
+type AutoSelectedField = (typeof AUTO_SELECTED_FIELDS)[number];
+
+const AUTO_SELECTED_FIELD_CONTROLS = {
+  process: {
+    label: "Process",
+    buttons: XOMETRY_LOCATORS.processButtons,
+    options: XOMETRY_LOCATORS.processOptions,
+  },
+  material: {
+    label: "Material",
+    buttons: XOMETRY_LOCATORS.materialButtons,
+    options: XOMETRY_LOCATORS.materialOptions,
+  },
+  finish: {
+    label: "Finish",
+    buttons: XOMETRY_LOCATORS.finishButtons,
+    options: XOMETRY_LOCATORS.finishOptions,
+  },
+} as const;
+
+/**
+ * Overwrites the listed auto-selected fields with the saved requirement. A
+ * control or option Xometry does not offer is left in place so the saved
+ * summary read-back reports it as saved_requirement_mismatch.
+ */
+async function overwriteAutoSelectedRequirements(
+  page: Page,
+  fields: readonly AutoSelectedField[],
+  terms: Record<AutoSelectedField, string[]>,
+  beforeConfigure: () => Promise<void>,
+  observer?: XometryProviderObserver,
+) {
+  const selections: Partial<Record<AutoSelectedField, string | null>> = {};
+  for (const field of AUTO_SELECTED_FIELDS) {
+    if (!fields.includes(field)) continue;
+    await beforeConfigure();
+    const controls = AUTO_SELECTED_FIELD_CONTROLS[field];
+    selections[field] = await configureRequiredOption(
+      page, terms[field], controls.buttons, controls.options, field, observer,
+    ).catch((error: unknown) => {
+      if (error instanceof VendorAutomationError && error.code === "selector_failure") {
+        return null;
+      }
+      throw error;
+    });
+  }
+  return selections;
 }
 
 async function saveConfiguration(
@@ -2042,8 +2142,46 @@ export async function setQuantity(
 }
 
 /**
+ * OVD-776: reads the part row's quantity input values from the first
+ * row-scoped selector with a visible match. Every visible match is returned,
+ * so a second row or a stray widget with another value cannot hide behind
+ * the first one. Unparseable values are returned as null.
+ */
+async function readLineItemQuantities(page: Page) {
+  for (const selector of XOMETRY_LOCATORS.lineItemQuantityInputs) {
+    const locator = page.locator(selector);
+    const count = Math.min(await locator.count().catch(() => 0), 10);
+    const values: Array<number | null> = [];
+    for (let index = 0; index < count; index += 1) {
+      const input = locator.nth(index);
+      if (!(await input.isVisible().catch(() => false))) continue;
+      const value = (await input.inputValue().catch(() => "")).trim();
+      values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
+    }
+    if (values.length > 0) return { selector, values };
+  }
+  return { selector: null, values: [] as Array<number | null> };
+}
+
+/**
+ * Fails closed unless every visible line-item quantity input reads back the
+ * requested quantity. The summary `Quantity` row is never trusted for this:
+ * the T1 page rendered it as a bare label with no number.
+ */
+async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
+  const readback = await readLineItemQuantities(page);
+  if (readback.values.length === 0 || readback.values.includes(null)) {
+    return { reason: "quantity_unverified" as const, ...readback };
+  }
+  if (readback.values.some((value) => value !== requestedQuantity)) {
+    return { reason: "quantity_mismatch" as const, ...readback };
+  }
+  return null;
+}
+
+/**
  * Reads Xometry's quote summary and, only when it exposes no explicit quantity,
- * appends one synthetic `Quantity:` line from the first visible quantity input.
+ * appends one synthetic `Quantity:` line from the line-item quantity input.
  * Explicit summary quantities always take precedence, including contradictory
  * values, so callers can use the result for fail-closed verification.
  */
@@ -2056,14 +2194,10 @@ async function readQuoteSummaryText(page: Page) {
     return bodyText;
   }
 
-  for (const selector of XOMETRY_LOCATORS.quantityInputs) {
-    const locator = page.locator(selector).first();
-    if ((await locator.count().catch(() => 0)) < 1) continue;
-    if (!(await locator.isVisible().catch(() => false))) continue;
-    const value = await locator.inputValue().catch(() => "");
-    if (/^\d+$/.test(value)) {
-      return `${bodyText}\nQuantity: ${value}`;
-    }
+  const readback = await readLineItemQuantities(page);
+  const [value] = readback.values;
+  if (value !== undefined && value !== null && readback.values.every((candidate) => candidate === value)) {
+    return `${bodyText}\nQuantity: ${value}`;
   }
 
   return bodyText;
@@ -2433,6 +2567,7 @@ async function attachDrawingFallback(
 
 type SavedRequirementCheck = {
   quantity: number;
+  processTerms: string[];
   materialTerms: string[];
   finishTerms: string[];
   toleranceTier: string | null;
@@ -2441,6 +2576,7 @@ type SavedRequirementCheck = {
 
 const QUOTE_SUMMARY_FIELD_LABELS = [
   "Quantity",
+  "Process",
   "Material",
   "Finish",
   "Measurement",
@@ -2518,6 +2654,14 @@ function verifySavedRequirements(
   ) {
     mismatches.push("quantity");
   }
+  // OVD-777: an explicit Process field must name the requested process.
+  const processSummary = readQuoteSummaryField(bodyText, "Process");
+  if (
+    processSummary !== null &&
+    !findExactTermMatch(processSummary, expected.processTerms)
+  ) {
+    mismatches.push("process");
+  }
   const materialSummary = readQuoteSummaryField(bodyText, "Material");
   if (
     !materialSummary ||
@@ -2552,6 +2696,23 @@ function verifySavedRequirements(
   }
 
   return mismatches;
+}
+
+/**
+ * OVD-777: the process, material and finish mismatches where the summary
+ * visibly shows a value Xometry selected on its own, so the adapter can
+ * overwrite it. A missing field is left to saved-requirement verification.
+ */
+function autoSelectedRequirementMismatches(
+  bodyText: string,
+  expected: SavedRequirementCheck,
+): AutoSelectedField[] {
+  const mismatches = verifySavedRequirements(bodyText, expected);
+  return AUTO_SELECTED_FIELDS.filter(
+    (field) =>
+      mismatches.includes(field) &&
+      readQuoteSummaryField(bodyText, AUTO_SELECTED_FIELD_CONTROLS[field].label) !== null,
+  );
 }
 
 async function detectBlockingState(page: Page, runDir: string) {
@@ -3054,18 +3215,35 @@ export class XometryAdapter extends VendorAdapter {
       const requestedTolerance = selectToleranceTier(
         input.requirement.tightest_tolerance_inch,
       );
+      const configuredRequirementCheck: SavedRequirementCheck = {
+        quantity: normalizedQuantity(input),
+        processTerms: XOMETRY_CNC_PROCESS_TERMS,
+        materialTerms: materialSummaryTerms,
+        finishTerms: finishTerms ?? [],
+        toleranceTier: requestedTolerance.tier,
+        drawingName: null,
+      };
+      // OVD-777: an empty finish request is as-machined, so an auto-applied
+      // finish is cleared by selecting As Machined.
+      const overwriteTerms: Record<AutoSelectedField, string[]> = {
+        process: XOMETRY_CNC_PROCESS_TERMS,
+        material: materialTerms,
+        finish: finishTerms && finishTerms.length > 0
+          ? finishTerms
+          : XOMETRY_AS_MACHINED_FINISH_TERMS,
+      };
+      const configureCheckpoint = async () =>
+        input.providerKillSwitchCheckpoint?.("before_configure");
       const uploadedSummaryText = await readQuoteSummaryText(page);
       const uploadedSummaryMismatches = verifySavedRequirements(
         uploadedSummaryText,
-        {
-          quantity: normalizedQuantity(input),
-          materialTerms: materialSummaryTerms,
-          finishTerms: finishTerms ?? [],
-          toleranceTier: requestedTolerance.tier,
-          drawingName: null,
-        },
+        configuredRequirementCheck,
       );
       const uploadedSummaryMatches = uploadedSummaryMismatches.length === 0;
+      const uploadedAutoSelections = autoSelectedRequirementMismatches(
+        uploadedSummaryText,
+        configuredRequirementCheck,
+      );
 
       if (uploadedSummaryMatches) {
         const observedMaterial = readQuoteSummaryField(
@@ -3094,6 +3272,15 @@ export class XometryAdapter extends VendorAdapter {
           scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
         async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
+        // OVD-777: plate-like geometry can auto-select Sheet Cutting, whose
+        // catalog has no CNC material options.
+        await overwriteAutoSelectedRequirements(
+          page,
+          uploadedAutoSelections.filter((field) => field === "process"),
+          overwriteTerms,
+          configureCheckpoint,
+        );
+
         await input.providerKillSwitchCheckpoint?.("before_configure");
         selectedMaterial = await configureRequiredOption(
           page,
@@ -3114,6 +3301,15 @@ export class XometryAdapter extends VendorAdapter {
             "finish",
             this.providerObserver ?? this.operationalProviderObserver,
           );
+        } else if (uploadedAutoSelections.includes("finish")) {
+          const overwritten = await overwriteAutoSelectedRequirements(
+            page,
+            ["finish"],
+            overwriteTerms,
+            configureCheckpoint,
+            this.providerObserver ?? this.operationalProviderObserver,
+          );
+          selectedFinish = overwritten.finish ?? null;
         }
 
         await input.providerKillSwitchCheckpoint?.("before_configure");
@@ -3180,6 +3376,36 @@ export class XometryAdapter extends VendorAdapter {
         drawingUploadSelector = drawingFallbackResult.selector;
         drawingUploadVerification = drawingFallbackResult.verification;
         drawingUploadMode = "fallback";
+
+        // OVD-777: Xometry re-derives process, material and finish from the
+        // attached drawing ("Matches your drawing"). Overwrite them once and
+        // save; the read-back below still fails closed on any remainder.
+        await page.waitForLoadState("networkidle").catch(() => undefined);
+        const drawingAutoSelections = autoSelectedRequirementMismatches(
+          await readQuoteSummaryText(page),
+          configuredRequirementCheck,
+        );
+        if (drawingAutoSelections.length > 0) {
+          await configureCheckpoint();
+          await openPartConfigurationIfNeeded(
+            page,
+            this.config.browserTimeoutMs,
+          );
+          const overwritten = await overwriteAutoSelectedRequirements(
+            page,
+            drawingAutoSelections,
+            overwriteTerms,
+            configureCheckpoint,
+            this.providerObserver ?? this.operationalProviderObserver,
+          );
+          if (overwritten.material !== undefined) selectedMaterial = overwritten.material;
+          if (overwritten.finish !== undefined) selectedFinish = overwritten.finish;
+          saveConfigurationSelector = await saveConfiguration(
+            page,
+            this.config.browserTimeoutMs,
+            async () => input.providerKillSwitchCheckpoint?.("before_save"),
+          );
+        }
       }
 
       await page.waitForLoadState("networkidle").catch(() => undefined);
@@ -3224,9 +3450,7 @@ export class XometryAdapter extends VendorAdapter {
       const bodyText = await readQuoteSummaryText(page);
       const manualReviewResult = await detectManualReview(page, bodyText);
       const requirementMismatches = verifySavedRequirements(bodyText, {
-        quantity: normalizedQuantity(input),
-        materialTerms: materialSummaryTerms,
-        finishTerms: finishTerms ?? [],
+        ...configuredRequirementCheck,
         toleranceTier: selectedTolerance,
         drawingName:
           input.stagedDrawingFile &&
@@ -3245,6 +3469,7 @@ export class XometryAdapter extends VendorAdapter {
             reason: "saved_requirement_mismatch",
             requirementMismatches,
             requestedQuantity: normalizedQuantity(input),
+            requestedProcessTerms: XOMETRY_CNC_PROCESS_TERMS,
             requestedMaterialTerms: materialSummaryTerms,
             requestedFinishTerms: finishTerms ?? [],
             requestedToleranceInch: input.requirement.tightest_tolerance_inch,
@@ -3253,6 +3478,28 @@ export class XometryAdapter extends VendorAdapter {
             bodyExcerpt: excerptText(bodyText),
           },
           await capturePageArtifacts(page, runDir, "requirement-mismatch"),
+        );
+      }
+      // OVD-776: no price is captured until the part row itself reads back
+      // the requested quantity. A manual-review page withholds its price instead.
+      const quantityFailure = await lineItemQuantityFailure(page, normalizedQuantity(input));
+      if (quantityFailure && !manualReviewResult.manualReview) {
+        throw new VendorAutomationError(
+          quantityFailure.reason === "quantity_mismatch"
+            ? "Xometry line-item quantity does not match the requested quantity."
+            : "Xometry line-item quantity could not be read back before price capture.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: quantityFailure.reason,
+            requestedQuantity: normalizedQuantity(input),
+            observedLineItemQuantities: quantityFailure.values,
+            lineItemQuantitySelector: quantityFailure.selector,
+            attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+            url: page.url(),
+            bodyExcerpt: excerptText(bodyText),
+          },
+          await capturePageArtifacts(page, runDir, "quantity-unverified"),
         );
       }
       const offers = manualReviewResult.manualReview
@@ -3289,12 +3536,17 @@ export class XometryAdapter extends VendorAdapter {
             bodyText,
           );
       const priceGate = gateVendorPrice(priceResult);
-      const totalPrice = priceGate.trusted ? priceResult.value : null;
+      const totalPrice = priceGate.trusted && !quantityFailure ? priceResult.value : null;
       const leadTime = gateLeadTime(leadTimeResult, priceGate);
       // A drifted adapter must never publish a price, so the lane routes to
       // review instead of quoting whatever currency string the page happened
       // to contain. See gateVendorPrice for the reasoning.
       const manualReview = manualReviewResult.manualReview || priceGate.locatorDriftDetected;
+      artifacts.push(...(await capturePriceArtifacts(
+        page,
+        runDir,
+        isLiveEvaluation ? input.harnessPriceCaptureHook ?? null : null,
+      )));
 
       if (offers.length === 0 && priceGate.trusted && !manualReviewResult.manualReview) {
         throw new VendorAutomationError(
