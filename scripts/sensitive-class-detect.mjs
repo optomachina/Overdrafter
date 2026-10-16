@@ -317,6 +317,10 @@ export function classifyPath(path, config) {
 
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 const MAX_SQL_DEPTH = 8;
+/** SQL bodies longer than this many whitespace-separated words are not scanned; they fail closed. */
+export const MAX_SQL_WORDS = 100_000;
+
+const countWords = (text) => (String(text).match(/\S+/g) ?? []).length;
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
@@ -432,6 +436,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
   if (!Array.isArray(files)) allErrors.push("the changed-file list is not an array");
   else if (files.length === 0 && !allowEmpty) allErrors.push("the changed-file list is empty, but the PR does not report zero changed files");
   const results = [];
+  const notices = [];
   for (const [index, file] of list.entries()) {
     const problem = fileProblem(file);
     if (problem) {
@@ -454,9 +459,19 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     if (readsHead(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
       try {
         if (!readHeadFile) throw new Error("no head reader");
-        const sql = classifySql(await readHeadFile(file.filename), config);
-        for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
-        reasons.push(...sql.reasons);
+        const body = await readHeadFile(file.filename);
+        const wordCount = countWords(body);
+        if (wordCount > MAX_SQL_WORDS) {
+          // Too large to scan: treat as every class the SQL scan could have found.
+          const message = `SQL body ${file.filename} rejected for size: ${wordCount} words exceeds the limit of ${MAX_SQL_WORDS}; manual review is required`;
+          for (const rule of config.sqlContent.rules) if (!classes.includes(rule.class)) classes.push(rule.class);
+          reasons.push(`sql:oversized:${wordCount}>${MAX_SQL_WORDS}`);
+          notices.push(message);
+        } else {
+          const sql = classifySql(body, config);
+          for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
+          reasons.push(...sql.reasons);
+        }
       } catch (error) {
         allErrors.push(`could not read ${file.filename} at head: ${messageOf(error)}`);
       }
@@ -486,6 +501,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     files: results,
     unclassified: results.filter((file) => file.classes.includes(UNCLASSIFIED)).map((file) => file.path),
     errors: allErrors,
+    ...(notices.length ? { manual_review: notices } : {}),
   };
 }
 
@@ -795,6 +811,8 @@ export function formatSummary(result) {
   lines.push(`Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  for (const notice of result.manual_review ?? []) lines.push(`- manual review: ${safeInline(notice)}`);
+  if (result.manual_review?.length) lines.push("");
   if (result.gate_loosening?.detected) {
     lines.push(GATE_LOOSENING_LINE);
     for (const reason of result.gate_loosening.reasons) lines.push(`- ${safeInline(reason.message)}`);
