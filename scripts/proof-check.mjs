@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, appendFileSync, writeFileSync } from "node:fs";
+import { readFileSync, appendFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -138,35 +138,79 @@ function afterDoubleDash(args) {
   return index === -1 ? [] : args.slice(index + 1);
 }
 
+// Flags whose next argument is a value (a module, pattern, or reporter), not a file to check.
+const NODE_VALUE_FLAGS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader", "--env-file", "-C", "--conditions", "--input-type", "--title"]);
+const NODE_EVAL_FLAGS = new Set(["-e", "--eval", "-p", "--print", "-c", "--check"]);
+const BASH_VALUE_FLAGS = new Set(["-o", "+o", "-O", "+O", "--rcfile", "--init-file"]);
+const TEST_VALUE_FLAGS = new Set([
+  "-t", "--testNamePattern", "--reporter", "-c", "--config", "-r", "--root", "--dir", "--project", "--environment",
+  "--outputFile", "--pool", "--shard", "--exclude", "--mode", "--workspace", "--coverage.include", "--coverage.exclude",
+  "--coverage.reporter", "--coverage.reportsDirectory",
+]);
+
+/**
+ * Splits args into operands, skipping the value after flags known to take one.
+ * An operand right after an unknown bare flag may be that flag's value, so it
+ * is marked uncertain: if it does not exist the command is unverifiable, not
+ * rejected.
+ * @returns {{ arg: string, index: number, certain: boolean }[]}
+ */
+function operands(args, valueFlags) {
+  const result = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("-") || arg === "-") {
+      result.push({ arg, index, certain: index === 0 || !isBareFlag(args[index - 1], valueFlags) });
+    } else if (valueFlags.has(arg)) {
+      index += 1;
+    }
+  }
+  return result;
+}
+
+function isBareFlag(arg, valueFlags) {
+  return arg.startsWith("-") && arg !== "-" && !arg.includes("=") && !valueFlags.has(arg);
+}
+
+function pathOperands(args, valueFlags) {
+  return operands(args, valueFlags)
+    .filter(({ arg }) => looksLikePath(arg))
+    .map(({ arg, certain }) => ({ path: arg, certain }));
+}
+
 /**
  * Parses one command (no &&) into the npm scripts and files it refers to, or
  * null when the shape is not one the check knows how to verify.
  * @param {string} segment
- * @returns {{ scripts: string[], files: string[] } | null}
+ * @returns {{ scripts: string[], files: { path: string, certain: boolean }[] } | null}
  */
 function parseCommandSegment(segment) {
   const tokens = tokenize(segment);
   while (tokens.length > 0 && /^[A-Za-z_]\w*=/.test(tokens[0])) tokens.shift();
   const [head, ...args] = tokens;
-  const firstOperand = args.find((arg) => !arg.startsWith("-"));
 
   if (head === "npm" && args[0] === "run") {
     const name = args[1];
     if (!name || name.startsWith("-")) return null;
-    return { scripts: [name], files: afterDoubleDash(args).filter(looksLikePath) };
+    return { scripts: [name], files: pathOperands(afterDoubleDash(args), TEST_VALUE_FLAGS) };
   }
   if (head === "npm" && args[0] === "test") {
-    return { scripts: ["test"], files: afterDoubleDash(args).filter(looksLikePath) };
+    return { scripts: ["test"], files: pathOperands(afterDoubleDash(args), TEST_VALUE_FLAGS) };
   }
   if (head === "npx" && args[0] === "vitest" && args[1] === "run") {
-    return { scripts: [], files: args.slice(2).filter(looksLikePath) };
+    return { scripts: [], files: pathOperands(args.slice(2), TEST_VALUE_FLAGS) };
   }
   if (head === "node" || head === "bash") {
-    if (args.includes("-c") || args.includes("-e") || args.includes("--eval") || !firstOperand) return null;
-    return { scripts: [], files: [firstOperand] };
+    const evalFlags = head === "node" ? NODE_EVAL_FLAGS : new Set(["-c"]);
+    const valueFlags = head === "node" ? NODE_VALUE_FLAGS : BASH_VALUE_FLAGS;
+    // Flags after the script belong to the script, so only scan up to it.
+    const script = operands(args, valueFlags)[0];
+    const interpreterArgs = script ? args.slice(0, script.index) : args;
+    if (!script || interpreterArgs.some((arg) => evalFlags.has(arg.split("=")[0]))) return null;
+    return { scripts: [], files: [{ path: script.arg, certain: script.certain }] };
   }
   if (head && /^(?:\.\/)?scripts\/\S+$/.test(head)) {
-    return { scripts: [], files: [head] };
+    return { scripts: [], files: [{ path: head, certain: true }] };
   }
   return null;
 }
@@ -178,7 +222,8 @@ function parseCommandSegment(segment) {
 function verifyCommand(value, context) {
   const label = `Command: ${safeInline(value)}`;
   const segments = value.split(/\s+&&\s+/);
-  const parsed = segments.map((segment) => (/[|;<>`]|\$\(/.test(segment) ? null : parseCommandSegment(segment)));
+  // A single & left after splitting on && backgrounds a second command the check would ignore.
+  const parsed = segments.map((segment) => (/[|;<>&`]|\$\(/.test(segment) ? null : parseCommandSegment(segment)));
   if (parsed.some((entry) => entry === null)) {
     return { status: "unverifiable", message: `${label} — unverifiable command shape (recognised: ${COMMAND_SHAPES})` };
   }
@@ -190,9 +235,12 @@ function verifyCommand(value, context) {
       if (!source) return { status: "rejected", message: `${label} — no such script ${safeInline(name)} in package.json` };
       evidence.push({ kind: "npm-script", ref: name, source });
     }
-    for (const raw of files) {
+    for (const { path: raw, certain } of files) {
       const file = normalizePath(raw);
       const source = context.fileSource(file);
+      if (!source && !certain) {
+        return { status: "unverifiable", message: `${label} — cannot tell whether ${safeInline(file)} is a file or an option value` };
+      }
       if (!source) return { status: "rejected", message: `${label} — ${safeInline(file)} does not exist in the repo or this PR` };
       evidence.push({ kind: "file", ref: file, source });
     }
@@ -462,7 +510,7 @@ export function buildJsonReport(proof, journey, mode) {
     },
     items: proof.items,
     accepted,
-    evidenceKinds: [...new Set(accepted.flatMap((item) => item.evidence.map((evidence) => evidence.kind)))].sort(),
+    evidenceKinds: [...new Set(accepted.flatMap((item) => item.evidence.map((evidence) => evidence.kind)))].sort((a, b) => a.localeCompare(b)),
   };
 }
 
@@ -535,7 +583,8 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const repoRoot = path.resolve(options["repo-root"] ?? process.cwd());
   const existsInRepo = (file) => {
     const resolved = path.resolve(repoRoot, file);
-    return resolved.startsWith(`${repoRoot}${path.sep}`) && existsSync(resolved);
+    // A directory is not proof: `node scripts` must not count as a real file.
+    return resolved.startsWith(`${repoRoot}${path.sep}`) && statSync(resolved, { throwIfNoEntry: false })?.isFile() === true;
   };
 
   const headPackageJson = options["head-package-json"] ?? env.PROOF_CHECK_HEAD_PACKAGE_JSON;

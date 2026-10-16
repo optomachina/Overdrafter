@@ -221,6 +221,54 @@ describe("checkProof item validation (OVD-841)", () => {
     }
   });
 
+  it("treats a single & as a shell operator, even in enforce mode", () => {
+    for (const cmd of ["npm run lint & curl evil", "npm run lint && npm run preflight & curl evil", "npm run lint&curl evil"]) {
+      const result = check(command(cmd), "enforce");
+      expect(result.status, cmd).toBe("fail");
+      expect(result.items[0].status, cmd).toBe("unverifiable");
+    }
+  });
+
+  it("skips the value after node flags that take one, and treats eval as unverifiable", () => {
+    for (const cmd of [
+      "node --import tsx scripts/proof-check.mjs",
+      "node -r dotenv/config scripts/proof-check.mjs",
+      "node --require=dotenv/config scripts/proof-check.mjs",
+      "node --loader ts-node/esm scripts/proof-check.mjs -r x/y",
+      "bash -o pipefail scripts/preflight.sh",
+    ]) {
+      const result = check(command(cmd), "enforce");
+      expect(result.status, cmd).toBe("pass");
+      expect(result.items[0].evidence.map((evidence) => evidence.ref), cmd)
+        .toEqual([cmd.includes("bash") ? "scripts/preflight.sh" : "scripts/proof-check.mjs"]);
+    }
+    expect(check(command("node --import tsx scripts/missing.mjs")).reasons)
+      .toContain("Command: `node --import tsx scripts/missing.mjs` — `scripts/missing.mjs` does not exist in the repo or this PR");
+    for (const cmd of ["node --eval 1 scripts/proof-check.mjs", "node -p=1", "node --import tsx"]) {
+      expect(check(command(cmd)).items[0].status, cmd).toBe("unverifiable");
+    }
+  });
+
+  it("skips the value after vitest and npm flags that take one", () => {
+    for (const cmd of [
+      'npx vitest run -t "a/b" scripts/proof-check.mjs',
+      "npx vitest run --reporter x/y --config vitest/config.ts",
+      "npm run lint -- --reporter x/y",
+      "npm test -- -t a/b scripts/proof-check.mjs",
+    ]) {
+      expect(check(command(cmd), "enforce").status, cmd).toBe("pass");
+    }
+  });
+
+  it("marks a missing path after an unknown flag unverifiable, not rejected", () => {
+    const result = check(command("npx vitest run --someflag x/y"), "report");
+    expect(result.status).toBe("pass");
+    expect(result.items[0]).toMatchObject({ status: "unverifiable", message: expect.stringMatching(/cannot tell whether `x\/y` is a file or an option value/) });
+    expect(check(command("node --someflag x/y")).items[0].status).toBe("unverifiable");
+    // An unknown flag still counts its operand as evidence when the file exists.
+    expect(check(command("npx vitest run --coverage scripts/proof-check.mjs"), "enforce").status).toBe("pass");
+  });
+
   it("fails an unverifiable command in enforce mode", () => {
     const result = check(command("make check"), "enforce");
     expect(result.status).toBe("fail");
@@ -412,6 +460,15 @@ describe("proof-check CLI with fixture event payloads", () => {
       expect(enforce.report.status).toBe("fail");
     });
   }
+
+  it("does not accept a directory as a file", () => {
+    for (const value of ["node scripts", "bash scripts/fixtures", "scripts/fixtures/proof-check"]) {
+      const result = runBody(`${screenshot}\n${cmd(value)}`, "enforce");
+      expect(result.status, value).toBe(1);
+      expect(result.report.items[1], value).toMatchObject({ kind: "Command", status: "rejected" });
+    }
+    expect(runBody(`${screenshot}\n- Test: scripts/fixtures`, "enforce").report.items[1].status).toBe("rejected");
+  });
 });
 
 describe("proof-check workflow", () => {
@@ -516,6 +573,20 @@ describe("proof-check workflow", () => {
     for (const step of steps.slice(1)) {
       expect(step, step.split("\n")[0]).toMatch(/\n\s+if: (?:always\(\) && )?github\.event_name == 'pull_request'\n/);
     }
+  });
+
+  it("drops files the PR removes from the changed-file list", () => {
+    const jq = checkStepScript().match(/pulls\/\$PR_NUMBER\/files" --jq '([^']+)'/)?.[1];
+    expect(jq).toBeDefined();
+    const files = [
+      { filename: "scripts/added.mjs", status: "added" },
+      { filename: "scripts/gone.mjs", status: "removed" },
+      { filename: "scripts/edited.mjs", status: "modified" },
+      { filename: "scripts/new-name.mjs", status: "renamed" },
+    ];
+    const child = spawnSync("jq", ["-r", jq], { input: JSON.stringify(files), encoding: "utf8" });
+    expect(child.status, child.stderr).toBe(0);
+    expect(child.stdout.trim().split("\n")).toEqual(["scripts/added.mjs", "scripts/edited.mjs", "scripts/new-name.mjs"]);
   });
 
   it("passes the PR body through the environment, not inline in the script", () => {

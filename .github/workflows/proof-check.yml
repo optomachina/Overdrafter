@@ -89,7 +89,8 @@ jobs:
             exit 0
           fi
           changed="$RUNNER_TEMP/proof-check-changed-files.txt"
-          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$changed"; then
+          # Files the PR deletes are not proof that anything exists.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[] | select(.status != "removed") | .filename' > "$changed"; then
             printf '### Proof check: ERROR\n\nCould not list the changed files for this PR.\n' >> "$GITHUB_STEP_SUMMARY"
             [ "$PROOF_CHECK_MODE" = enforce ] && exit 1
             exit 0
