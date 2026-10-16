@@ -218,8 +218,29 @@ and race past the stop guard.
    tree. Or, after `main` moved, its patch-id is identical and its tree
    equals the verified head rebased onto the merge commit's parent. A commit
    with the verified head's tree on top of any other parent fails, because it
-   would silently revert what landed in between. For a single merge, use
+   would silently revert what landed in between. In both cases the verified
+   base must be an ancestor of the verified head
+   (`git merge-base --is-ancestor`). If it is not, the read-back fails with
+   `verified-base-not-ancestor-of-head`, including when the base comes from a
+   `verified_base` or `--verified-base` override. This catches a base set to
+   the current `main` tip instead of the commit the branch started from, which
+   would otherwise pass a squash that reverts `main` since that start. For the
+   bottom PR, the script also warns on stderr and in the row's `result` when the
+   verified base is not `git merge-base <head> <main>`. The warning does not
+   stop the run, but check the base before you rely on the row.
+
+   For a single merge, use
    `readback --repo . --main origin/main --merge-sha <sha> --verified-head <sha> --log <tsv> --plan plan.json --pr <n>`.
+   Only the plan-bound read-back (`readback-run`, or `readback` with `--log`,
+   `--plan`, and `--pr`) counts as proof that a merge landed. `readback`
+   without `--log` is a diagnostic: it does not check plan order, writes no
+   row, and accepts any `--verified-base`.
+
+   A restacked PR has a new head SHA, so it needs a fresh verdict and a fresh
+   plan. Re-derive its verified base from the new branch, usually
+   `git merge-base <new head> origin/main` once the PR below has squashed in.
+   Do not copy the old `verified_base` or the old head of the PR below: that
+   commit is no longer an ancestor of the new head, so the read-back fails.
 4. **Stop on `tree_match=false`.** The run stops at that row (exit 1) and later
    merges are not reported as landed. Flag it to Grok Bot, who brings it to
    Blaine. Do not auto-revert. While the log's latest failed read-back is

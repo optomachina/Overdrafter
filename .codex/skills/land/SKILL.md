@@ -82,7 +82,7 @@ done
 ```
 
    - If required checks fail, the PR closes without merging, or the bounded wait expires, stop and report the blocker.
-12. Read the merge back. `MERGED` is PR state, not proof. Run `git fetch origin main`, then run `node scripts/merge-readback.mjs readback --repo . --main origin/main --merge-sha <squash sha> --verified-head <verified head sha> --log <stack tsv> --plan <plan json> --pr "$PR_NUMBER"` as described in [the merge plan procedure](../../../docs/recurring-workflows.md#release-bot-merge-plan-and-decision-log). If it exits non-zero (`tree_match=false`, or a refusal because the PR is not in the plan at that SHA or an earlier stop is unacknowledged), stop, flag it to Grok Bot, and do not auto-revert.
+12. Read the merge back. `MERGED` is PR state, not proof. Run `git fetch origin main`, then run `node scripts/merge-readback.mjs readback --repo . --main origin/main --merge-sha <squash sha> --verified-head <verified head sha> --log <stack tsv> --plan <plan json> --pr "$PR_NUMBER"` as described in [the merge plan procedure](../../../docs/recurring-workflows.md#release-bot-merge-plan-and-decision-log). Only this plan-bound form counts as proof; `readback` without `--log` is a diagnostic. If it exits non-zero (`tree_match=false`, including `verified-base-not-ancestor-of-head`, or a refusal because the PR is not in the plan at that SHA or an earlier stop is unacknowledged), stop, flag it to Grok Bot, and do not auto-revert.
 13. After merge and read-back, report:
    - PR URL
    - merge method
