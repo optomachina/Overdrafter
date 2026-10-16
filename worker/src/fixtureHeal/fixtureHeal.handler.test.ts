@@ -128,8 +128,8 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
 
     await handleVendorQuoteTask(db.client, task, live);
 
-    // Gate (history read) first, then the atomic finalize, then routing scores.
-    expect(db.events).toEqual(["sanity_history", "finalize", "routing_scores"]);
+    // Gate (own and peer history reads) first, then the atomic finalize, then routing scores.
+    expect(db.events).toEqual(["sanity_history", "sanity_history", "finalize", "routing_scores"]);
     const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
     expect(finalize.p_result).toMatchObject({
       status: "instant_quote_received",
@@ -149,7 +149,7 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     await handleVendorQuoteTask(db.client, task, live);
 
     // Held: finalized without prices or offers, and no routing scores computed from it.
-    expect(db.events).toEqual(["sanity_history", "finalize"]);
+    expect(db.events).toEqual(["sanity_history", "sanity_history", "finalize"]);
     expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
     const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
     expect(finalize.p_offers).toEqual([]);

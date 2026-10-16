@@ -3,8 +3,9 @@ import type { PriceHistory } from "./sanity.js";
 
 /**
  * OVD-813: the history and peer read behind the outlier rules (design §3.4).
- * One service-role select on `public.vendor_quote_results`, no migration: it
- * keys on the part package identity the gate records in
+ * Two service-role selects on `public.vendor_quote_results` (this supplier's
+ * own rows and the other suppliers' rows, each limited), no migration: both
+ * key on the part package identity the gate records in
  * `raw_payload.fixtureSanity.packageId` (or the pipeline's
  * `raw_payload.providerResultProvenance.packageId`) and the requested quantity.
  * Only accepted statuses with a price count, so a held, failed or internal
@@ -58,22 +59,29 @@ export function createSupabaseSanityHistoryReader(supabase: SupabaseClient): San
     if (query.packageId === null) return { available: true, history: [], peers: [] };
     // The id is interpolated into a PostgREST filter, so only a bare sha256 is accepted.
     if (!PACKAGE_ID.test(query.packageId)) return { available: false, reason: "package_id_malformed" };
-    try {
-      const { data, error } = await supabase
+    const packageId = query.packageId;
+    // Two limited reads, so other suppliers' rows can never crowd this supplier's own history out of the limit.
+    const read = async (own: boolean, windowDays: number) => {
+      const base = supabase
         .from("vendor_quote_results")
         .select("vendor, unit_price_usd, created_at")
         .eq("requested_quantity", query.requestedQuantity)
         .in("status", [...ACCEPTED_STATUSES])
-        .neq("id", query.excludeResultId)
-        .gte("created_at", new Date(query.nowMs - HISTORY_WINDOW_DAYS * DAY_MS).toISOString())
+        .neq("id", query.excludeResultId);
+      const { data, error } = await (own ? base.eq("vendor", query.provider) : base.neq("vendor", query.provider))
+        .gte("created_at", new Date(query.nowMs - windowDays * DAY_MS).toISOString())
         .or(
-          `raw_payload->fixtureSanity->>packageId.eq.${query.packageId},` +
-            `raw_payload->providerResultProvenance->>packageId.eq.${query.packageId}`,
+          `raw_payload->fixtureSanity->>packageId.eq.${packageId},` +
+            `raw_payload->providerResultProvenance->>packageId.eq.${packageId}`,
         )
         .order("created_at", { ascending: false })
         .limit(HISTORY_ROW_LIMIT);
-      if (error || !Array.isArray(data)) return { available: false, reason: "history_read_failed" };
-      return summarizeSanityHistory(data as SanityHistoryRow[], query);
+      if (error || !Array.isArray(data)) throw new Error("history_read_failed");
+      return data as SanityHistoryRow[];
+    };
+    try {
+      const [own, peers] = await Promise.all([read(true, HISTORY_WINDOW_DAYS), read(false, PEER_WINDOW_DAYS)]);
+      return summarizeSanityHistory([...own, ...peers], query);
     } catch {
       return { available: false, reason: "history_read_failed" };
     }

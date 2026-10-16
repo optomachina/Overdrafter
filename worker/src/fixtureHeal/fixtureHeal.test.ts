@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { createHash } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { genericFictivEnvelope } from "../../test-support/genericDispatchResponse";
 import { fingerprintProviderDispatchEnvelope } from "../providerDispatchEnvelope";
@@ -18,7 +19,7 @@ import type { VendorQuoteAdapterInput, VendorQuoteAdapterOffer, VendorQuoteAdapt
 import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE } from "./gate";
 import { createSupplierPauseSwitch, isInternalTestQuote, type FixtureHealPage } from "./pause";
 import { checkQuote, materialEchoMismatch, type PriceHistory, type SanityInput } from "./sanity";
-import type { SanityHistoryReader } from "./sanityHistory";
+import { createSupabaseSanityHistoryReader, type SanityHistoryReader } from "./sanityHistory";
 
 // --------------------------------------------------------------------------- pure fixtures
 
@@ -443,6 +444,30 @@ describe("OVD-813 fixture sanity gate", () => {
     // A verified internal test quote carries the gate's own marker, never the adapter's.
     const internal = await gate(spoofed(), context(true));
     expect(internal.output.rawPayload.fixtureHeal).toEqual({ v: 1, internal: true });
+  });
+
+  it("history_reads_own_rows_separately_from_peers", async () => {
+    // 50 newer peer rows would fill a single shared limit; the supplier's own rows must still be read.
+    const day = Date.parse("2026-10-10T00:00:00.000Z");
+    const peerRows = Array.from({ length: 50 }, (_, i) => ({ vendor: i % 2 ? "oshcut" : "fictiv", unit_price_usd: 30, created_at: "2026-10-09T00:00:00Z" }));
+    const ownRows = [{ vendor: "xometry", unit_price_usd: 12, created_at: "2026-09-01T00:00:00Z" }];
+    const vendorFilters: string[] = [];
+    const from = () => {
+      let own: boolean | null = null;
+      const query = {
+        select: () => query, in: () => query, gte: () => query, or: () => query, order: () => query, limit: () => query,
+        eq(column: string) { if (column === "vendor") { own = true; vendorFilters.push("eq"); } return query; },
+        neq(column: string) { if (column === "vendor") { own = false; vendorFilters.push("neq"); } return query; },
+        then: (resolve: (value: unknown) => unknown) => resolve({ data: own ? ownRows : peerRows, error: null }),
+      };
+      return query;
+    };
+    const reader = createSupabaseSanityHistoryReader({ from } as unknown as SupabaseClient);
+
+    const history = await reader({ provider: "xometry", packageId: "c".repeat(64), requestedQuantity: 1, excludeResultId: "r", nowMs: day });
+
+    expect(vendorFilters.sort()).toEqual(["eq", "neq"]);
+    expect(history).toEqual({ available: true, history: [12], peers: [30, 30] });
   });
 
   it("pause_while_in_flight_holds_the_result", async () => {
