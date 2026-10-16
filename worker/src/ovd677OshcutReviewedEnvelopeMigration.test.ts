@@ -4,12 +4,14 @@ import { describe } from "vitest";
 import { registerReviewedEnvelopeMigrationChecks } from "../test-support/reviewedEnvelopeMigration";
 import { OSHCUT_DISPATCH_ENVELOPE } from "./providerDispatchEnvelope";
 
-describe("OVD-677 OSH Cut reviewed dispatch envelope migration", () => {
+// The migration is a draft (docs/migration-drafts) pending a Blaine-approved window.
+describe("OVD-677 OSH Cut reviewed dispatch envelope migration (draft)", () => {
   registerReviewedEnvelopeMigrationChecks({
     provider: "oshcut",
     envelope: OSHCUT_DISPATCH_ENVELOPE,
     migration: "20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql",
     evidence: "OVD-677",
+    draft: true,
     afterMigrations: [
       "20261003160000_ovd458_generic_provider_dispatch_permits.sql",
       "20261004130000_ovd628_generic_admission_nowait.sql",
