@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -220,6 +220,24 @@ describe("migration-edit-approved override", () => {
     expect(decide(timeline, { headPushedAt: "not a date" }).status).toBe("unavailable");
   });
 
+  it("fails closed on a force-push or restore event with no usable created_at", () => {
+    const approved = labeled("optomachina", "2026-10-10T09:00:00Z");
+    expect(decide([approved]).status).toBe("approved");
+    for (const event of ["head_ref_force_pushed", "head_ref_restored"]) {
+      for (const undated of [{ event }, { event, created_at: null }, { event, created_at: "not a date" }]) {
+        const result = decide([approved, undated]);
+        expect(result).toMatchObject({ status: "unavailable", applied: false });
+        expect(result.reason).toContain(`${event} event has no usable created_at`);
+      }
+    }
+    const dir = overlayRepo({}, { [OLD]: "-- edited\n" });
+    const timeline = join(dir, "timeline.ndjson");
+    writeFileSync(timeline, [approved, { event: "head_ref_force_pushed" }].map((event) => JSON.stringify(event)).join("\n"));
+    const { code, report } = check(dir, ["--enforce", "--timeline", timeline, "--head-sha", HEAD, "--head-pushed-at", PUSHED_AT]);
+    expect(code).toBe(1);
+    expect(report).toMatchObject({ ok: false, waived: false, override: { status: "unavailable" } });
+  });
+
   it("waives findings end to end and reports the waiver as gate_loosening", () => {
     const dir = overlayRepo({}, { [OLD]: "-- edited\n" });
     const timeline = join(dir, "timeline.ndjson");
@@ -356,6 +374,66 @@ describe("CI step runs the base copy of the checker", () => {
     expect(stale.report).toMatchObject({ ok: false, override: { status: "ignored", headSha: "b".repeat(40) } });
     writeFileSync(events, `${JSON.stringify({ event: "labeled", created_at: "2026-10-10T09:00:00Z", actor: { login: "optomachina" }, label: { name: OVERRIDE_LABEL } })}\n`);
     expect(runStep(dir, env).report).toMatchObject({ ok: true, waived: true, override: { status: "approved" } });
+  });
+});
+
+describe("invoked directly through a symlink", () => {
+  // Node resolves symlinks in import.meta.url but not in process.argv[1]. On
+  // macOS the temp dir (/var/folders) is itself a symlink, so a checker copied
+  // there used to print nothing and exit 0 (silent fail-open).
+  const realChecker = readFileSync(join(repoRoot, CHECKER_PATH), "utf8");
+
+  function scratch() {
+    const dir = mkdtempSync(join(tmpdir(), "migration-immutability-link-"));
+    temps.push(dir);
+    return dir;
+  }
+
+  function runChecker(checkerPath, root, extra = []) {
+    return spawnSync(process.execPath, [checkerPath, "--root", root, "--base-ref", "HEAD^1", "--head-ref", "HEAD", ...extra], { encoding: "utf8" });
+  }
+
+  it("runs and reports when the checker's directory is reached through a symlink", () => {
+    const realDir = join(scratch(), "real");
+    mkdirSync(realDir);
+    writeFileSync(join(realDir, "check-migration-immutability.mjs"), realChecker);
+    const linkDir = join(scratch(), "link");
+    symlinkSync(realDir, linkDir, "dir");
+    const violating = overlayRepo({}, { [OLD]: "-- edited\n" });
+    const clean = overlayRepo({}, { [LATER]: "select 1;\n" });
+
+    const direct = runChecker(join(realDir, "check-migration-immutability.mjs"), violating, ["--enforce"]);
+    const viaLink = runChecker(join(linkDir, "check-migration-immutability.mjs"), violating, ["--enforce"]);
+    expect(viaLink.stderr).toBe("");
+    expect(viaLink.stdout).toMatch(/^Migration immutability: /);
+    expect(viaLink.stdout).toContain(`FAIL ${OLD} is modified.`);
+    expect(viaLink.status).toBe(1);
+    expect(viaLink.stdout).toBe(direct.stdout);
+    expect(viaLink.status).toBe(direct.status);
+
+    const ok = runChecker(join(linkDir, "check-migration-immutability.mjs"), clean, ["--enforce"]);
+    expect(ok.stdout).toMatch(/^Migration immutability: /);
+    expect(ok.status).toBe(0);
+  });
+
+  it("runs and reports when the checker file itself is a symlink", () => {
+    const realDir = scratch();
+    writeFileSync(join(realDir, "check-migration-immutability.mjs"), realChecker);
+    const linkFile = join(scratch(), "checker-link.mjs");
+    symlinkSync(join(realDir, "check-migration-immutability.mjs"), linkFile, "file");
+    const result = runChecker(linkFile, overlayRepo({}, { [OLD]: "-- edited\n" }), ["--enforce"]);
+    expect(result.stdout).toContain(`FAIL ${OLD} is modified.`);
+    expect(result.status).toBe(1);
+  });
+
+  it("is still inert when imported rather than run", () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "check-migration-immutability.mjs"), realChecker);
+    const importer = join(dir, "importer.mjs");
+    writeFileSync(importer, 'import { MIGRATIONS_DIR } from "./check-migration-immutability.mjs";\nconsole.log(MIGRATIONS_DIR);\n');
+    const result = spawnSync(process.execPath, [importer], { encoding: "utf8" });
+    expect(result.stdout).toBe("supabase/migrations\n");
+    expect(result.status).toBe(0);
   });
 });
 

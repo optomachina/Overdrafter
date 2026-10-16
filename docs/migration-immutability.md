@@ -48,8 +48,10 @@ timeline API (`GET /repos/{owner}/{repo}/issues/{n}/timeline`):
 
 A new push voids the label: Blaine removes and re-applies it, then re-runs the
 job. A label from anyone else, or one applied before the latest push, is
-ignored. Outside `pull_request` runs, or when the timeline cannot be fetched,
-there is no override (fail closed).
+ignored. Outside `pull_request` runs, when the timeline cannot be fetched, or
+when a `head_ref_force_pushed` / `head_ref_restored` event has no usable
+`created_at` (the push time would be unknown), there is no override (fail
+closed).
 
 A waiver keeps the findings in the report (prefixed `WAIVED`), sets `ok` to
 true and is reported as `gate_loosening` (`override_used`).

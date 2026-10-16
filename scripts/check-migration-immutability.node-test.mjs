@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +32,9 @@ test("migration immutability report (HEAD^1..HEAD, report mode)", (t) => {
     t.skip(`${BASE_REF} is not available (shallow clone or root commit)`);
     return;
   }
-  const dir = mkdtempSync(join(tmpdir(), "migration-immutability-"));
+  // Real path: the base copy may predate the checker's symlink-safe "run
+  // directly" guard, and macOS tmpdir() is a symlink (/var -> /private/var).
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), "migration-immutability-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const fromBase = gitOk(["cat-file", "-e", `${BASE_REF}:${CHECKER}`]);
   const checker = fromBase ? join(dir, "check-migration-immutability.mjs") : join(root, CHECKER);

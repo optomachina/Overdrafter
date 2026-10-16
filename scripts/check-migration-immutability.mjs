@@ -39,9 +39,9 @@
  * a temp directory and runs it there, where relative imports do not resolve.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const MIGRATIONS_DIR = "supabase/migrations";
 export const REPORT_SCHEMA = "ovd871.migration-immutability.v1";
@@ -183,7 +183,9 @@ const time = (iso) => {
  * - it was created strictly after the head was pushed. The push time is the
  *   later of headPushedAt and any force-push / restore event in the timeline,
  *   so a new push (or force push back to an older SHA) voids the label.
- * Fails closed: no timeline, no head SHA or no push time means no override.
+ * Fails closed: no timeline, no head SHA, no push time, or a force-push /
+ * restore event without a usable created_at (the head may have moved after
+ * the label, and we cannot tell) means no override.
  */
 export function evaluateOverride({ timeline = null, timelineError = null, headSha = null, headPushedAt = null, approver = DEFAULT_APPROVER, label = OVERRIDE_LABEL }) {
   const base = { label, approver, headSha, headPushedAt: null, applied: false };
@@ -191,8 +193,10 @@ export function evaluateOverride({ timeline = null, timelineError = null, headSh
   if (timeline == null) return { ...base, status: "unavailable", reason: "no PR timeline (not a pull_request run)" };
   if (!headSha) return { ...base, status: "unavailable", reason: "no PR head SHA given" };
   if (time(headPushedAt) == null) return { ...base, status: "unavailable", reason: "no head push time given" };
-  const pushedAt = Math.max(time(headPushedAt), ...timeline.filter((event) => HEAD_MOVE_EVENTS.has(event?.event))
-    .map((event) => time(event.created_at)).filter((ms) => ms != null));
+  const headMoves = timeline.filter((event) => HEAD_MOVE_EVENTS.has(event?.event));
+  const undated = headMoves.find((event) => time(event.created_at) == null);
+  if (undated) return { ...base, status: "unavailable", reason: `timeline ${undated.event} event has no usable created_at, so the push time is unknown` };
+  const pushedAt = Math.max(time(headPushedAt), ...headMoves.map((event) => time(event.created_at)));
   const pushed = { ...base, headPushedAt: new Date(pushedAt).toISOString() };
   const labelEvents = timeline.filter((event) => (event?.event === "labeled" || event?.event === "unlabeled") && event.label?.name === label);
   const last = labelEvents.reduce((latest, event) => (latest == null || (time(event.created_at) ?? 0) >= (time(latest.created_at) ?? 0) ? event : latest), null);
@@ -424,5 +428,20 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
   return args.enforce && !result.ok ? 1 : 0;
 }
 
-const invokedDirectly = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
-if (invokedDirectly) process.exitCode = run(process.argv.slice(2));
+/**
+ * True when node was started on this very file. Node resolves symlinks in
+ * import.meta.url but leaves process.argv[1] as given, so compare real paths:
+ * on macOS a checker reached through /var/folders (a symlink to /private/var)
+ * would otherwise never run, printing nothing and exiting 0 (a silent
+ * fail-open). If a path cannot be resolved, fall back to the literal compare.
+ */
+function isInvokedDirectly(argv1 = process.argv[1], moduleUrl = import.meta.url) {
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return moduleUrl === pathToFileURL(resolve(argv1)).href;
+  }
+}
+
+if (isInvokedDirectly()) process.exitCode = run(process.argv.slice(2));
