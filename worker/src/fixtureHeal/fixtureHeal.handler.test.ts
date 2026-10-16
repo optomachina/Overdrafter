@@ -36,7 +36,7 @@ const xometryAuthorized = { authorized: true, reasonCode: null, permitId: "00000
 const HISTORY_COLUMNS = "vendor, unit_price_usd, created_at";
 
 /** In-memory DB; `events` records the history read, the atomic finalize and routing scores in order. */
-function database(options: { historyError?: boolean } = {}) {
+function database(options: { historyError?: boolean; laneSettled?: boolean } = {}) {
   const events: string[] = [];
   const rpcArgs: Record<string, Record<string, unknown>> = {};
   const writes: Record<string, unknown>[] = [];
@@ -44,7 +44,15 @@ function database(options: { historyError?: boolean } = {}) {
     let columns = "";
     let mutation = false;
     const response = () => {
-      if (mutation) return { data: table === "work_queue" ? [{ id: "task" }] : null, error: null };
+      if (mutation) {
+        if (table === "work_queue") return { data: [{ id: "task" }], error: null };
+        // A compare-and-set lane write matches the row unless the lane was settled elsewhere.
+        if (table === "vendor_quote_results") return { data: options.laneSettled ? [] : [{ id: "result" }], error: null };
+        return { data: null, error: null };
+      }
+      if (table === "vendor_quote_results" && columns === "status" && options.laneSettled) {
+        return { data: { status: "failed" }, error: null };
+      }
       if (table === "vendor_quote_results" && columns === HISTORY_COLUMNS) {
         events.push("sanity_history");
         return options.historyError ? { data: null, error: { message: "history read failed" } } : { data: [], error: null };
@@ -244,6 +252,21 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
     expect(db.writes).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "completed" }) }),
     ]));
+  });
+
+  it("xometry_paused_claim_write_is_compare_and_set", async () => {
+    fixtureHealSupplierPause.pause({ provider: "xometry", codes: ["material_echo"], runId: "r", vendorQuoteResultId: "r", nowMs: Date.now() });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote");
+    const db = database({ laneSettled: true });
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    // The lane was settled elsewhere: it is not overwritten as completed; the task fails with a stable code.
+    expect(quote).not.toHaveBeenCalled();
+    const queueUpdates = db.writes.filter((write) => write.table === "work_queue").map((write) => write.update);
+    expect(queueUpdates).toEqual([expect.objectContaining({ status: "failed" })]);
+    expect(JSON.stringify(queueUpdates)).toContain("lane_already_settled");
   });
 
   it("xometry_priced_manual_review_result_is_gated", async () => {

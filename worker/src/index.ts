@@ -1294,20 +1294,23 @@ export async function handleVendorQuoteTask(
     internalTestQuotePolicyFromEnv(process.env),
   );
   if (config.workerMode === "live" && !fixtureHealSupplierPause.admits(vendor, { internalTestQuote })) {
-    await supabase
-      .from("vendor_quote_results")
-      .update({
-        status: "manual_vendor_followup",
-        notes: [`${vendor} is paused while its quoting is re-verified; manual vendor follow-up is required.`],
-        raw_payload: {
-          requiresManualVendorFollowUp: true,
-          manualFollowUpReason: PROVIDER_PAUSED_FIXTURE_HEAL,
-          failureCode: PROVIDER_PAUSED_FIXTURE_HEAL,
-          requestedQuantity: currentResult.requested_quantity,
-          retryCount,
-        },
-      })
-      .eq("id", currentResult.id);
+    // Compare and set like every other terminal lane write: a lane already
+    // settled elsewhere is left as is and the task fails with a stable code.
+    const pauseWrite = await writeUnsettledVendorQuoteResult(supabase, currentResult.id, {
+      status: "manual_vendor_followup",
+      notes: [`${vendor} is paused while its quoting is re-verified; manual vendor follow-up is required.`],
+      raw_payload: {
+        requiresManualVendorFollowUp: true,
+        manualFollowUpReason: PROVIDER_PAUSED_FIXTURE_HEAL,
+        failureCode: PROVIDER_PAUSED_FIXTURE_HEAL,
+        requestedQuantity: currentResult.requested_quantity,
+        retryCount,
+      },
+    });
+    if (pauseWrite !== "written") {
+      await settleUnwrittenProviderOutcome(supabase, task, pauseWrite, false);
+      return;
+    }
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
       vendorStatus: "manual_vendor_followup",
