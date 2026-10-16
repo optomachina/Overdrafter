@@ -104,9 +104,13 @@ export function normalizeMaterial(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-/** Alloy or grade designators (three or more digits): 6061, 5052, 304, 174 for 17-4. */
+/**
+ * Alloy or grade designators (three or more digits): 6061, 5052, 304, 174 for
+ * 17-4. Temper suffixes right after the alloy digits (T651, T7351, H32) are
+ * dropped first, so a temper is never read as an alloy number.
+ */
 function alloyTokens(normalized: string): Set<string> {
-  return new Set(normalized.match(/\d{3,}/g) ?? []);
+  return new Set(normalized.replace(/(?<=\d)[th]\d+/g, "").match(/\d{3,}/g) ?? []);
 }
 
 /**

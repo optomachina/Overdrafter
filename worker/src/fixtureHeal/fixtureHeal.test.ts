@@ -17,7 +17,7 @@ import {
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "../types";
 import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE } from "./gate";
 import { createSupplierPauseSwitch, isInternalTestQuote, type FixtureHealPage } from "./pause";
-import { checkQuote, type PriceHistory, type SanityInput } from "./sanity";
+import { checkQuote, materialEchoMismatch, type PriceHistory, type SanityInput } from "./sanity";
 import type { SanityHistoryReader } from "./sanityHistory";
 
 // --------------------------------------------------------------------------- pure fixtures
@@ -220,6 +220,18 @@ describe("OVD-813 fixture sanity gate", () => {
     for (const echoed of ["6061-T6", "6061", "Aluminum 6061-T6", "aluminum 6061 t6"]) {
       expect(codes({ ...xometry, echo: { ...xometry.echo, material: echoed } })).toEqual([]);
     }
+    // A temper suffix is not an alloy number: T651 against T6 of the same alloy passes.
+    for (const [requested, echoed] of [
+      ["Aluminum 6061-T651", "6061-T6 Aluminum"],
+      ["Aluminum 6061-T651", "Aluminum 6061-T6"],
+      ["7075-T651", "7075-T6"],
+      ["Aluminum 7075-T651", "7075-T7351 Aluminum"],
+    ]) {
+      expect(materialEchoMismatch(requested, echoed)).toBe(false);
+    }
+    // A different alloy still fails whatever the temper.
+    expect(materialEchoMismatch("Aluminum 6061-T651", "5052-H32 Aluminum")).toBe(true);
+    expect(materialEchoMismatch("7075-T651", "6061-T651")).toBe(true);
     // No echo is recorded, not held, in slice 1.
     const silent = checkQuote({ ...xometry, echo: { material: null, thicknessIn: null, quantity: null } }, NO_HISTORY);
     expect(silent).toMatchObject({ verdict: "pass", findings: [{ code: "echo_unavailable", class: "info", detail: "material" }] });
