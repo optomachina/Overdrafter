@@ -38,8 +38,8 @@ drop function if exists public.api_admin_list_provider_definitions();
 drop function if exists public.api_admin_retire_provider_definition(uuid, text);
 drop function if exists public.api_admin_reopen_provider_definition(uuid, text);
 drop function if exists public.api_admin_suspend_provider_definition(uuid, text);
-drop function if exists public.api_admin_activate_provider_definition(uuid, text);
-drop function if exists public.api_admin_record_provider_dry_run(uuid, boolean, text, text);
+drop function if exists public.api_admin_activate_provider_definition(uuid, text, boolean);
+drop function if exists public.api_admin_record_provider_dry_run(uuid, boolean, text, text, boolean);
 drop function if exists public.api_admin_reject_provider_definition(uuid, text);
 drop function if exists public.api_admin_approve_provider_definition(uuid, text, boolean);
 drop function if exists public.api_admin_submit_provider_definition(uuid, text);
@@ -51,6 +51,7 @@ begin
   -- These take the table row type, so they go before the tables.
   if pg_catalog.to_regtype('private.provider_definitions') is not null then
     drop function if exists private.move_provider_definition(uuid, uuid, text, private.provider_status[], private.provider_status, text);
+    drop function if exists private.provider_approved_contributors(private.provider_definitions);
     drop function if exists private.require_provider_status(private.provider_definitions, private.provider_status[], text);
     drop function if exists private.lock_provider_definition(uuid);
     drop function if exists private.provider_definition_state(private.provider_definitions);
@@ -59,6 +60,7 @@ begin
 end;
 $helpers$;
 
+drop function if exists private.require_provider_four_eyes(uuid, boolean, boolean);
 drop function if exists private.write_provider_audit(uuid, uuid, text, jsonb, jsonb, text);
 drop function if exists private.provider_request_id();
 drop function if exists private.provider_definition_check_input(jsonb);
