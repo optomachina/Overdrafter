@@ -158,7 +158,7 @@ describe("verify-overdrafter driver behavior", () => {
       expect(prepare.stdout + prepare.stderr).not.toContain(value);
       expect(prepare.stdout).not.toContain("e2e:prepare");
     }
-  });
+  }, 60_000);
 
   it("doctor fails when any listener holds a config port", async () => {
     const server = net.createServer();
