@@ -1,0 +1,206 @@
+-- OVD-771: service_role path for the provider kill switch (the CLI brake).
+--
+-- Targets the draft docs/migration-drafts/ovd-771.sql,
+-- applied on top of 20261013043100_ovd722_provider_kill_switch.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd771_service_kill_switch.sql in the same change.
+-- Pre-apply observation: every assertion that references the new functions or
+-- the new audit columns fails with "does not exist".
+--
+-- Covers:
+--   * pg_proc: SECURITY DEFINER, search_path = '', EXECUTE for service_role only
+--   * anon and authenticated (even a platform admin) are denied
+--   * service_role is allowed; operator and >= 10 character reason required
+--   * each service flip writes one audit row: actor 'cli:service_role', the
+--     operator and the reason; the audit stays append-only
+--   * the audit check constraint allows only a user id with no operator, or
+--     'cli:service_role' with an operator
+--   * release is compare and set (versionless release refused)
+--   * the worker read sees the flip at once; the admin RPC path still audits
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(27);
+
+create function pg_temp.ovd771_as(p_user_id uuid, p_role text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role, 'aal', 'aal2')::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+grant execute on function pg_temp.ovd771_as(uuid, text) to anon, authenticated, service_role;
+
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000771001', 'authenticated', 'authenticated', 'ovd771-admin@example.test', pg_catalog.now());
+insert into private.platform_admin_emails (email) values ('ovd771-admin@example.test')
+on conflict do nothing;
+
+-- ---------------------------------------------------------------------
+-- Shape and grants
+-- ---------------------------------------------------------------------
+select ok(
+  (select bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
+   from pg_catalog.pg_proc p
+   where p.oid in (
+     'public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint)'::regprocedure,
+     'public.api_service_set_global_kill_switch(boolean, text, text, bigint)'::regprocedure,
+     'public.api_service_list_provider_kill_switches()'::regprocedure)),
+  'every service RPC is SECURITY DEFINER with search_path = ''''');
+
+select ok(
+  not has_function_privilege('public', 'public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_service_set_provider_kill_switch(public.vendor_name, boolean, text, text, bigint)', 'EXECUTE'),
+  'the provider service RPC is service_role only');
+select ok(
+  not has_function_privilege('public', 'public.api_service_set_global_kill_switch(boolean, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_service_set_global_kill_switch(boolean, text, text, bigint)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.api_service_set_global_kill_switch(boolean, text, text, bigint)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_service_set_global_kill_switch(boolean, text, text, bigint)', 'EXECUTE'),
+  'the global service RPC is service_role only');
+select ok(
+  not has_function_privilege('public', 'public.api_service_list_provider_kill_switches()', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.api_service_list_provider_kill_switches()', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.api_service_list_provider_kill_switches()', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.api_service_list_provider_kill_switches()', 'EXECUTE'),
+  'the service list RPC is service_role only');
+select ok(
+  not has_table_privilege('service_role', 'private.provider_kill_switch_audit', 'INSERT')
+    and not has_table_privilege('service_role', 'private.provider_kill_switches', 'UPDATE')
+    and not has_table_privilege('service_role', 'private.provider_global_kill_switch', 'UPDATE'),
+  'service_role still holds no direct table privilege; the RPCs are the only path');
+
+-- ---------------------------------------------------------------------
+-- Denials: anon and authenticated
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd771_as(null, 'anon');
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', true, 'anon should never flip this', 'anon')$$,
+  '42501', null, 'anon is denied the provider service RPC');
+select throws_ok(
+  $$select public.api_service_set_global_kill_switch(true, 'anon should never flip this', 'anon')$$,
+  '42501', null, 'anon is denied the global service RPC');
+reset role;
+
+set local role authenticated;
+select pg_temp.ovd771_as('00000000-0000-4000-8000-000000771001', 'authenticated');
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', true, 'admin must use the admin RPC', 'admin')$$,
+  '42501', null, 'authenticated (even a platform admin) is denied the provider service RPC');
+select throws_ok(
+  $$select public.api_service_set_global_kill_switch(true, 'admin must use the admin RPC', 'admin')$$,
+  '42501', null, 'authenticated is denied the global service RPC');
+select throws_ok(
+  $$select public.api_service_list_provider_kill_switches()$$,
+  '42501', null, 'authenticated is denied the service list RPC');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- service_role: validation
+-- ---------------------------------------------------------------------
+set local role service_role;
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', true, 'OVD-771 drill reason', null)$$,
+  '22023', 'operator_required', 'a missing operator is refused');
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', true, 'OVD-771 drill reason', '  ')$$,
+  '22023', 'operator_required', 'a blank operator is refused');
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', true, 'too short', 'oncall-blaine')$$,
+  '22023', 'reason_required_min_10_chars', 'a reason under 10 characters is refused');
+reset role;
+
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit where actor = 'cli:service_role'),
+  0, 'denied and refused calls wrote no audit rows');
+
+-- ---------------------------------------------------------------------
+-- service_role: engage, audit, fresh worker read
+-- ---------------------------------------------------------------------
+set local role service_role;
+select is(
+  public.api_service_set_provider_kill_switch('fictiv', true, 'OVD-771 test: cease-and-desist drill', 'oncall-blaine') ->> 'engaged',
+  'true', 'service_role engages the fictiv switch');
+select is(
+  public.api_worker_provider_kill_switch_state('fictiv') ->> 'engaged', 'true',
+  'the next worker read reports fictiv engaged');
+reset role;
+
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider = 'fictiv' and engaged and actor = 'cli:service_role'
+     and operator = 'oncall-blaine' and reason = 'OVD-771 test: cease-and-desist drill'),
+  1, 'the service flip wrote exactly one audit row with actor cli:service_role, operator and reason');
+select ok(
+  exists (select 1 from private.provider_kill_switches
+          where provider = 'fictiv' and engaged and engaged_by is null and engaged_at is not null),
+  'the switch row records the time and no user actor');
+
+set local role service_role;
+select is(
+  (select (p ->> 'changedBy') || ' / ' || (p ->> 'operator')
+   from pg_catalog.jsonb_array_elements(public.api_service_list_provider_kill_switches() -> 'providers') p
+   where p ->> 'provider' = 'fictiv'),
+  'cli:service_role / oncall-blaine', 'the service list attributes the flip to cli:service_role and its operator');
+
+-- Release is compare and set, exactly like the admin RPC.
+select throws_ok(
+  $$select public.api_service_set_provider_kill_switch('fictiv', false, 'OVD-771 test: release drill', 'oncall-blaine')$$,
+  'P0001', 'kill_switch_version_conflict', 'a versionless release is refused');
+select is(
+  public.api_service_set_provider_kill_switch('fictiv', false, 'OVD-771 test: release drill', 'oncall-blaine',
+    (select (p ->> 'version')::bigint
+     from pg_catalog.jsonb_array_elements(public.api_service_list_provider_kill_switches() -> 'providers') p
+     where p ->> 'provider' = 'fictiv')) ->> 'engaged',
+  'false', 'a release naming the current version succeeds');
+
+select is(
+  public.api_service_set_global_kill_switch(true, 'OVD-771 test: global drill', 'oncall-blaine') ->> 'engaged',
+  'true', 'service_role engages the global switch');
+reset role;
+
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider is null and engaged and actor = 'cli:service_role' and operator = 'oncall-blaine'),
+  1, 'the global service flip wrote one audit row with actor cli:service_role and the operator');
+
+-- ---------------------------------------------------------------------
+-- Audit integrity
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$update private.provider_kill_switch_audit set operator = 'someone-else' where actor = 'cli:service_role'$$,
+  '42501', null, 'service audit rows are append-only');
+select throws_ok(
+  $$insert into private.provider_kill_switch_audit (actor, provider, engaged, reason)
+    values ('cli:service_role', 'fictiv', true, 'cli row without an operator')$$,
+  '23514', null, 'a cli:service_role audit row requires an operator');
+select throws_ok(
+  $$insert into private.provider_kill_switch_audit (actor, provider, engaged, reason, operator)
+    values ('someone', 'fictiv', true, 'free-text actor is not allowed', 'oncall-blaine')$$,
+  '23514', null, 'any other actor must be a user id with no operator');
+
+-- The admin path is unchanged and still writes rows with the admin's user id.
+set local role authenticated;
+select pg_temp.ovd771_as('00000000-0000-4000-8000-000000771001', 'authenticated');
+select public.api_admin_set_provider_kill_switch('weerg', true, 'OVD-771 test: admin path still audits');
+reset role;
+select is(
+  (select pg_catalog.count(*)::int from private.provider_kill_switch_audit
+   where provider = 'weerg' and operator is null
+     and actor = '00000000-0000-4000-8000-000000771001'),
+  1, 'the admin RPC still writes an audit row with its user id as actor');
+
+select * from finish();
+
+rollback;
