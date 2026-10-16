@@ -1,0 +1,39 @@
+-- OVD-768 (OVD-766 group b): require verified auth on the four platform admin
+-- list RPCs.
+--
+-- Authored as a DRAFT in docs/migration-drafts/ovd-766-b.sql: NOT APPLIED until
+-- a Blaine-approved migration window, where it is promoted unchanged with a
+-- single git mv to supabase/migrations/<timestamp>_ovd768_admin_list_guards.sql.
+-- Plain SQL, no psql meta-commands, no transaction control (the migration
+-- runner wraps it). Rollback: docs/migration-drafts/ovd-766-b.rollback.sql.
+-- pgTAP: supabase/tests/pending/ovd768_admin_list_guards.sql.pending, moved to
+-- supabase/tests/ovd768_admin_list_guards.sql in the promoting change.
+--
+-- Functions (latest definitions: 20260325120000_add_platform_admin_god_mode.sql):
+--   public.api_admin_list_organizations()
+--   public.api_admin_list_all_users()
+--   public.api_admin_list_all_jobs()
+--   public.api_admin_list_all_projects()
+--
+-- Signatures (no arguments) and return types (jsonb) are unchanged, so
+-- create or replace keeps each function's OID and existing grants.
+--
+-- What changes:
+--   * public.require_verified_auth() is the first statement, before the existing
+--     public.is_platform_admin() check, so a platform admin with no confirmed
+--     email and no OAuth provider is refused, as in the other internal-role
+--     admin RPCs (for example api_admin_get_founding_beta_enrollment). No AAL2
+--     check: these are read-only lists.
+--   * search_path is pinned to '' and every reference is schema qualified.
+--   * EXECUTE is revoked from PUBLIC and anon and granted to authenticated only.
+--     This is idempotent with the OVD-736 anon revoke: whichever lands first,
+--     the other's revoke is a no-op.
+--
+-- Unchanged for legitimate callers: result shape, ordering, filters, the
+-- non-admin error text ('Platform admin access required.'), volatility and
+-- SECURITY DEFINER. When applied, drop the PUBLIC and anon OVD-736 rows for
+-- these four signatures from supabase/tests/api_role_privilege_inventory.sql in
+-- the same change.
+
+-- [header-only snapshot of docs/migration-drafts/ovd-766-b.sql at d2b7981b (#792); body omitted]
+select 1;

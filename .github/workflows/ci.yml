@@ -256,6 +256,68 @@ jobs:
       - name: Build private sample UI
         run: npm run build:sample-plate
 
+  # OVD-847: every changed RLS policy needs tagged anon / other_user /
+  # role_boundary deny tests (docs/rls-deny-coverage.md). Report mode for now:
+  # the job never fails the build and is not in the `ci` aggregate below.
+  # Enforce later by passing --enforce and adding it to `ci`.
+  # The checker runs from the base copy (HEAD^1), so a PR cannot edit it to
+  # skip itself. When the base has no copy yet, the head copy runs.
+  # Baseline growth and edits to the checker or this job are reported as
+  # gate_loosening (Grok Bot countersign + Blaine's card); report only.
+  rls-deny-coverage:
+    name: rls-deny-coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+
+    steps:
+      # pull_request checks out the PR merged into the base tip, so HEAD^1 is
+      # the base as merged; push and merge_group commits have their base there too.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check RLS deny coverage
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/check-rls-deny-coverage.mjs"
+          file=scripts/check-rls-deny-coverage.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$checker"
+            echo "Checker taken from: base"
+          else
+            cp "$file" "$checker"
+            echo "Checker taken from: head"
+          fi
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD \
+            --json-out "$RUNNER_TEMP/rls-deny-coverage.json" | tee "$RUNNER_TEMP/rls-deny-coverage.txt"
+          {
+            echo '### RLS deny coverage (report mode)'
+            # Report only (Plan §6): gate_loosening never fails this job.
+            if jq -e '.gate_loosening.detected == true' "$RUNNER_TEMP/rls-deny-coverage.json" > /dev/null 2>&1; then
+              echo "**GATE LOOSENING: needs Grok Bot countersign + Blaine's card.**"
+              jq -r '.gate_loosening.reasons[] | "- " + .message' "$RUNNER_TEMP/rls-deny-coverage.json"
+              echo
+            fi
+            echo '```'
+            cat "$RUNNER_TEMP/rls-deny-coverage.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload RLS deny coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rls-deny-coverage
+          path: ${{ runner.temp }}/rls-deny-coverage.json
+          if-no-files-found: warn
+
   verify-worker:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -280,9 +342,19 @@ jobs:
   # Pre-merge regression gate on extraction quality. Runs only when a corpus
   # exists and a provider key is available, and reports "skipped" otherwise so
   # an empty corpus never reads as a passing quality signal.
+  # Each gate step emits one machine line EXTRACTION_GATE_RESULT=pass|fail|error
+  # (eval:gate exit 0 / 1 / anything else) and the `ci` job decides from it per
+  # EXTRACTION_GATE_MODE (OVD-869). Only a clean quality fail (exit 1) leaves
+  # this job green for the mode to decide; a crash (any other exit) still fails
+  # the job after emitting its line, and so does any non-gate step, which fails
+  # ci in every mode.
   extraction-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    outputs:
+      corpus: ${{ steps.corpus.outputs.present }}
+      result-line: ${{ steps.gate-parser.outputs.line }}${{ steps.gate-full.outputs.line }}
 
     # Declared at job level on purpose: a step's own `env` block is not in scope
     # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
@@ -346,16 +418,35 @@ jobs:
       # rather than left to depend on which secrets happen to be set, so the run
       # is reproducible.
       - name: Run extraction gate (parser only)
+        id: gate-parser
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
         env:
           DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
         run: |
           echo "::notice::No provider key configured; gating the deterministic parser only. Model-fallback fields are not measured."
+          set +e
           npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
       - name: Run extraction gate (full production path)
+        id: gate-full
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
-        run: npm --prefix worker run eval:gate
+        run: |
+          set +e
+          npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
   ovd420-recovery-egress-network:
     runs-on: ubuntu-latest
@@ -443,3 +534,31 @@ jobs:
           if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
             exit 1
           fi
+
+      - name: Checkout extraction gate decision script
+        if: ${{ always() }}
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/extraction-gate-decision.mjs
+          sparse-checkout-cone-mode: false
+
+      # EXTRACTION_GATE_MODE comes from the repository variable
+      # vars.EXTRACTION_GATE_MODE, which only sets the default mode. It does not
+      # stop a PR from changing the mode: on pull_request runs this workflow and
+      # scripts/extraction-gate-decision.mjs are taken from the PR head, so a PR
+      # can hardcode a mode here or edit the decision script. Protecting those
+      # two files is a review control (CODEOWNERS plus required code-owner
+      # review), not something the variable provides.
+      # Values: report (default; unset or anything else) or enforce. Flipping
+      # the variable to enforce requires Blaine's approval. The mode governs
+      # only the parsed result line (fail/error: warning in report, fail in
+      # enforce); a failed extraction-gate job fails ci above in every mode.
+      - name: Decide extraction gate
+        if: ${{ always() }}
+        env:
+          EXTRACTION_GATE_MODE: ${{ vars.EXTRACTION_GATE_MODE }}
+          EXTRACTION_GATE_OUTPUT: ${{ needs.extraction-gate.outputs.result-line }}
+          EXTRACTION_GATE_CORPUS: ${{ needs.extraction-gate.outputs.corpus }}
+          EXTRACTION_GATE_JOB_RESULT: ${{ needs.extraction-gate.result }}
+        run: node scripts/extraction-gate-decision.mjs

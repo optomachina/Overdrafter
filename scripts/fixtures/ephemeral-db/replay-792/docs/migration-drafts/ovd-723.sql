@@ -1,0 +1,113 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-723: block ITAR/EAR controlled or uncertain uploads at upload time.
+-- EXPAND migration (window 1). The CONTRACT migration is a separate draft,
+-- ovd-723-contract.sql, for a later window (window 2, about Nov 9).
+--
+-- This file is a DRAFT. It is not under supabase/migrations/ and is not part
+-- of migration lineage. Promote it only inside a Blaine-approved migration
+-- window. Rollback: ovd-723.rollback.sql (guarded; refuses while the
+-- contract migration is applied).
+--
+-- Expand is additive only. It creates new tables, functions, and one new
+-- Storage policy, adds one value to public.queue_task_type (1.0), and
+-- backfills rows into its own new table. It does not change, move, replace,
+-- or revoke any existing function or policy:
+--   - the legacy 6- and 8-argument upload RPCs keep working unchanged;
+--   - "job_files_storage_insert" stays; a second permissive policy is added
+--     alongside, which changes nothing until the contract drops the old one;
+--   - both provider preflights are unchanged; the new worker calls the new
+--     api_check_export_control_dispatch before every preflight.
+--
+-- What holds after expand (window 1):
+--   Upload. The new client declares, then uses the 7- and 9-argument
+--     overloads: the job's latest declaration must be not_controlled and
+--     unblocked (checked under a shared per-job lock). Prepare issues a
+--     single-use grant bound to the exact object (bucket and path, SHA-256,
+--     size, user, job, declaration); finalize admits only an object this user
+--     owns at that path, written before the grant expired, with that size.
+--     An old client, or a direct call to the legacy RPCs, is NOT blocked
+--     until the contract migration.
+--   Content. The worker verifies the SHA-256 of the bytes it stages; a clean
+--     scan is recorded only for bytes whose hash equals the claimed one.
+--   Dispatch. The new worker asks api_check_export_control_dispatch before
+--     every preflight and stops on any denial: a missing, controlled, or
+--     unsure latest declaration (every pre-existing job is backfilled to
+--     missing), an open or confirmed marking block, a file without a verified
+--     hash and a clean scan bound to its job and content, or a foreign or
+--     unknown provider without a clean, unblocked job. An old worker is NOT
+--     gated until the contract migration wraps the preflights.
+--   Extraction. The new worker asks api_check_export_control_extraction
+--     before any CAD or drawing content goes to an extraction model, and
+--     again before each model attempt, and sends nothing unless the job's
+--     latest declaration is not_controlled with no open or confirmed block. A
+--     drawing with any page that yields no text gets no clean scan and is not
+--     sent to a model.
+--   Rescan. A clean declaration queues a scan only rescan (task
+--     export_marking_rescan, 1.16c) for every drawing or STEP file without a
+--     scan of its current bytes, so parts extracted before this migration can
+--     be released without extraction. The worker task never calls a model,
+--     and it retries transient failures on the finite schedule. A file left
+--     without a scan (a rescan that failed for good) shows as scanState
+--     missing on the part page, whose "Recheck files" action calls
+--     api_request_export_marking_rescan (owner, clean declaration only).
+--     The worker deploy must precede or accompany the client deploy: an old
+--     worker fails the new task type ("Unhandled task type").
+--   Review. An admin clearance of a false positive records an admin cleared
+--     scan bound to the file, its content hash, and the cleared patterns
+--     (1.12a); a later hit on the same bytes and patterns resolves to it, and
+--     a new hash or pattern opens a new block.
+--
+-- What the contract migration adds (server side, any client or worker): the
+-- legacy upload RPCs refuse, the old Storage INSERT policy is dropped so only
+-- the grant policy remains, and both preflights are wrapped by the export
+-- gate. The server side block is complete only after the contract.
+--
+-- Deploy order: this migration, then the worker and the web client. The
+-- contract migration follows once the deployed client uses the declaring
+-- overloads and the worker calls the dispatch check.
+--
+-- Verified names this draft binds to (see ovd-723-notes.md):
+--   upload RPCs : public.api_prepare_job_file_upload(uuid, text, job_file_kind, text, bigint, text)
+--                 public.api_finalize_job_file_upload(uuid, text, text, text, job_file_kind, text, bigint, text)
+--                 (current bodies: 20261004110000_reject_empty_job_file_uploads.sql)
+--   bucket      : 'job-files', object name org-sha256/<org uuid>/<sha256>/<basename>
+--   storage RLS : storage.objects policy "job_files_storage_insert"
+--                 (20260815093000_enforce_founding_beta_file_boundaries.sql)
+--   preflights  : public.api_authorize_provider_worker_dispatch (20261003170000)
+--                 public.api_authorize_xometry_beta_worker_dispatch (20261002182910)
+--
+-- Model. Declarations attach to the job (the part request), because the
+-- upload happens before public.parts rows exist (reconcileJobParts runs after
+-- upload). part_id is recorded when known. Every gate fails closed: a missing,
+-- unknown, non-latest, or non-clean declaration, an open marking block, or a
+-- lookup error denies the upload or the dispatch.
+--
+-- Reason codes (stable, shared with worker/src/exportControl.ts and
+-- src/features/quotes/export-control.ts):
+--   export_declaration_missing
+--   export_declaration_not_clean
+--   export_declaration_stale
+--   export_review_pending
+--   export_foreign_provider_requires_clean_declaration
+--   export_control_lookup_failed
+--   export_scan_missing
+--
+-- pgTAP: supabase/tests/pending/ovd723_export_control_upload_block.sql.pending
+-- (parked; rename to supabase/tests/ovd723_export_control_upload_block.sql in
+-- the same change that promotes this draft).
+
+-- =====================================================================
+-- WINDOW 1: EXPAND (additive only; no existing object is changed or revoked)
+-- =====================================================================
+
+-- 1.0 Task type for the scan only rescan (1.16c). Adding an enum value is
+-- additive: no existing value, row, or function changes. PostgreSQL cannot
+-- drop an enum value, so the rollback leaves it in place (unused). The value
+-- is not used in this transaction; the functions below name it only as text
+-- (task_type::text) or through a runtime cast
+-- ('export_marking_rescan'::text::public.queue_task_type), which is resolved
+-- when they run, never when they are created.
+-- [header-only snapshot of docs/migration-drafts/ovd-723.sql at d2b7981b (#792); body omitted]
+select 1;

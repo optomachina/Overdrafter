@@ -1,0 +1,29 @@
+-- OVD-707 (group b): providers as data, lifecycle, four-eyes, audit and the
+-- service read.
+--
+-- Targets the drafts docs/migration-drafts/ovd-707-a.sql and
+-- docs/migration-drafts/ovd-707-b-seed.sql.
+-- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
+-- file carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the drafts are promoted and this file
+-- is renamed to supabase/tests/ovd707_b_lifecycle.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers:
+--   * draft -> pending_review -> approved -> active, suspend/resume, reopen,
+--     reject back to draft, retire; invalid transitions are refused
+--   * four-eyes: approval, dry-run recording and activation by any contributor
+--     (editor or submitter) refused, and activation by the dry-run recorder
+--     refused (42501 four_eyes_required); the single-admin override needs
+--     Blaine (the only override-listed email) and a reason, and is audited;
+--     suspend stays single-admin, even for a contributor
+--   * activation needs the OVD-723 export fields and a dry-run pass for the
+--     current version
+--   * input validation: credential_ref is a secret name, admission shape
+--   * every successful transition writes exactly one audit row (actor, action)
+--   * audit log, revisions and definitions are append-only / never deleted
+--   * the service read returns only active rows and kill switches win
+--   * the registry seed: only liveAdapter: true providers, all approved and
+--     none active, and an override list holding only Blaine
+-- [header-only snapshot of supabase/tests/pending/ovd707_b_lifecycle.sql.pending at d2b7981b (#792); body omitted]
+select 1;

@@ -1,0 +1,24 @@
+-- OVD-678 durable per provider daily quote cap: DRAFT ONLY. Not a migration.
+--
+-- SUPERSEDED by docs/migration-drafts/ovd-828-s1.sql (OVD-829): the cap is
+-- per-supplier data with no default (null = unlimited), and the RMFG
+-- in-process cap of 20 described below has been removed from the worker. Do
+-- not apply this draft; it is kept as history only.
+--
+-- Do not copy into supabase/migrations/ or apply to any hosted project without
+-- its own review and Blaine's approval. No CI test runs this draft yet.
+--
+-- Today the RMFG cap (20 quote attempts per UTC day) lives in the worker
+-- process (worker/src/adapters/rmfgHttpTransport.ts). Two workers, or one
+-- restart, could each spend 20. This draft moves the count into the database
+-- so every worker shares it. The worker would call the reserve function once
+-- per quote attempt, before the analyze upload, and refuse the attempt with
+-- provider_daily_cap_reached when it returns false. Nothing is refunded: a
+-- reserved attempt counts even if the provider call then fails.
+--
+-- Not wired: the worker change that calls this RPC is a follow up once this is
+-- applied. Until then the process cap is the only cap.
+
+-- ===================== FORWARD =====================
+-- [header-only snapshot of docs/migration-drafts/ovd-678-provider-daily-quote-cap.sql at d2b7981b (#792); body omitted]
+select 1;

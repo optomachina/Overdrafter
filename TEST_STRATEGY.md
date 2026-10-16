@@ -573,6 +573,7 @@ Minimum CI target:
 - typecheck
 - automated tests
 - pgTAP database tests when `supabase/tests/` contains database-policy coverage
+- RLS deny-case coverage for changed policies (`rls-deny-coverage`, report mode; see `docs/rls-deny-coverage.md`)
 - build
 - worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`
