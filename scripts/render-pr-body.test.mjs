@@ -135,7 +135,7 @@ describe("renderPrBody", () => {
     const evidence = "https://github.com/optomachina/Overdrafter/pull/690";
     const full = () =>
       Object.fromEntries(
-        PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [
+        PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.auto).map((item) => [
           item.id,
           item.na && item.id === "egress"
             ? { na: "this stage does not change egress" }
@@ -153,18 +153,29 @@ describe("renderPrBody", () => {
       expect(rendered).toContain("### Legal stance");
       expect(rendered).toContain(`- [x] provider:check green. Evidence: ${evidence}`);
       expect(rendered).toContain("N/A: this stage does not change egress");
+      expect(rendered).toContain(`- [x] Per-supplier on/off switch in the admin dashboard`);
+    });
+
+    it("fills the envelope review item automatically, pre-checked and signed", () => {
+      const rendered = renderPrBody({ ...buildInput(), providerGoLive: full() });
+      expect(rendered).toContain(
+        "- [x] Envelope reviewed (automatic). Signed: Grok Bot under Blaine Wilson standing authority.",
+      );
+      expect(() =>
+        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "envelope-reviewer": { evidence } } }),
+      ).toThrow("providerGoLive.envelope-reviewer is filled automatically");
     });
 
     it("rejects an unknown item, a missing item, and N/A on a legal stance item", () => {
       expect(() => renderPrBody({ ...buildInput(), providerGoLive: { bogus: { evidence } } })).toThrow(
         "providerGoLive.bogus is not a checklist item",
       );
-      const { "kill-switch": _omitted, ...partial } = full();
+      const { "supplier-switch": _omitted, ...partial } = full();
       expect(() => renderPrBody({ ...buildInput(), providerGoLive: partial })).toThrow(
-        "providerGoLive.kill-switch must be an object",
+        "providerGoLive.supplier-switch must be an object",
       );
       expect(() =>
-        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "kill-switch": { na: "does not apply here" } } }),
+        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "supplier-switch": { na: "does not apply here" } } }),
       ).toThrow("N/A is not allowed");
     });
 

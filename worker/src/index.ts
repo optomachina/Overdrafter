@@ -119,6 +119,7 @@ import {
   quoteWithRoutedDispatchPreflight,
   withExportControlDispatchRecheck,
 } from "./dispatchRouting.js";
+import { supabaseProviderDailyQuoteCapReader } from "./providerDailyQuoteCap.js";
 import {
   cancelVendorTaskForDisabledProvider,
   checkProviderKillSwitchAtClaim,
@@ -1687,6 +1688,8 @@ export async function handleVendorQuoteTask(
         stagedDrawingFile,
         requirement: context.requirement,
         requestedQuantity: currentResult.requested_quantity,
+        // OVD-828: the per-supplier daily cap is read fresh at this dispatch.
+        providerDailyQuoteCapReader: supabaseProviderDailyQuoteCapReader(supabase),
       };
       const outcome = await runGenericProviderTask({
         supabase,

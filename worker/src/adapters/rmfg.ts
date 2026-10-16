@@ -10,7 +10,8 @@ import {
 import { VendorAdapter } from "./base.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
 import { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
-import { createRmfgHttpTransport, RMFG_DAILY_QUOTE_CAP, type RmfgBlockReason } from "./rmfgHttpTransport.js";
+import { createRmfgHttpTransport, RMFG_DEFAULT_DAILY_QUOTE_CAP, type RmfgBlockReason } from "./rmfgHttpTransport.js";
+import { resolveProviderDailyQuoteCap, type ProviderDailyQuoteCap } from "../providerDailyQuoteCap.js";
 import {
   runRmfgQuoteOnly,
   type RmfgQuoteInput,
@@ -58,8 +59,11 @@ export type RmfgDispatchSeams = {
   beforeProviderDisclosure?: () => Promise<void>;
 };
 
-/** Transport factory; the default is the pinned RMFG HTTP client. */
-export type RmfgTransportFactory = (apiKey: string) => RmfgQuoteTransport & {
+/**
+ * Transport factory; the default is the pinned RMFG HTTP client. It receives
+ * the daily cap the adapter read for this dispatch (OVD-828).
+ */
+export type RmfgTransportFactory = (apiKey: string, dailyQuoteCap: ProviderDailyQuoteCap) => RmfgQuoteTransport & {
   blockedReason?: () => RmfgBlockReason | null;
 };
 
@@ -200,7 +204,7 @@ export class RmfgAdapter extends VendorAdapter {
     super("rmfg", config);
     this.env = options.env ?? process.env;
     this.createTransport = options.createTransport
-      ?? ((apiKey) => createRmfgHttpTransport({ apiKey, dailyQuoteCap: RMFG_DAILY_QUOTE_CAP }));
+      ?? ((apiKey, dailyQuoteCap) => createRmfgHttpTransport({ apiKey, dailyQuoteCap }));
   }
 
   async quote(baseInput: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
@@ -240,7 +244,13 @@ export class RmfgAdapter extends VendorAdapter {
     if (!apiKey) {
       throw refusal("rmfg_api_key_missing", `RMFG needs an API key mounted at ${RMFG_API_KEY_ENV}; nothing was sent.`);
     }
-    const transport = this.createTransport(apiKey);
+    // OVD-828: the per-supplier admin cap, read fresh for this dispatch.
+    const { cap: dailyQuoteCap } = await resolveProviderDailyQuoteCap({
+      reader: input.providerDailyQuoteCapReader,
+      provider: "rmfg",
+      fallback: RMFG_DEFAULT_DAILY_QUOTE_CAP,
+    });
+    const transport = this.createTransport(apiKey, dailyQuoteCap);
 
     let seamError: { error: unknown } | null = null;
     let stop: StopOutcome = null;
@@ -276,7 +286,7 @@ export class RmfgAdapter extends VendorAdapter {
     const capturedStop = stop as StopOutcome;
     if (capturedStop === "daily_cap") {
       throw refusal("provider_daily_cap_reached",
-        `RMFG reached its daily cap of ${RMFG_DAILY_QUOTE_CAP} quotes; nothing was sent.`);
+        `RMFG reached its daily cap of ${dailyQuoteCap} quotes; nothing was sent.`);
     }
     if (capturedStop) throw stopError(capturedStop, { providerInteractionAttempted: true });
     return this.fromResult(input, result);

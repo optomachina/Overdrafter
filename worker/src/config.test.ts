@@ -6,12 +6,17 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 
 describe("loadConfig", () => {
-  it("caps OSH Cut at 20 quotes per UTC day by default and only accepts 1 to 20", () => {
+  it("defaults the OSH Cut daily cap fallback to 20 and accepts any positive integer or unlimited", () => {
     const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
     expect(loadConfig(base).oshcutDailyQuoteCap).toBe(20);
     expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "5" }).oshcutDailyQuoteCap).toBe(5);
-    expect(() => loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "21" })).toThrow();
-    expect(() => loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "0" })).toThrow();
+    // OVD-828: the env var is only the fallback default, with no upper bound.
+    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "21" }).oshcutDailyQuoteCap).toBe(21);
+    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "100000" }).oshcutDailyQuoteCap).toBe(100000);
+    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "unlimited" }).oshcutDailyQuoteCap).toBe("unlimited");
+    for (const invalid of ["0", "-1", "1.5", "lots"]) {
+      expect(() => loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: invalid })).toThrow();
+    }
   });
 
   it("applies defaults for optional worker settings", () => {

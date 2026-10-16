@@ -275,6 +275,38 @@ describe("handleVendorQuoteTask with the provider kill switch (OVD-722)", () => 
     expect(quote).toHaveBeenCalledOnce();
   });
 
+  // Provider go-live checklist item "Per-supplier on/off switch in the admin dashboard" (Blaine, Oct 16, 2026).
+  // The admin card writes the same switch row this fake holds; the worker reads it on every job.
+  it("GO-LIVE: turning a supplier off in the admin switch stops dispatch within one job", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const quote = vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue({ artifacts: [] } as never);
+    const db = database();
+    const runJob = async (n: number) => {
+      db.queueRow.status = "running";
+      const before = db.writes.length;
+      await handleVendorQuoteTask(db.client, { ...task, id: `task-${n}` } as QueueTaskRecord, live).catch(() => undefined);
+      return db.writes.slice(before);
+    };
+
+    // Jobs 1 and 2 dispatch while the switch is on.
+    await runJob(1);
+    await runJob(2);
+    expect(quote).toHaveBeenCalledTimes(2);
+
+    // Switched off between job 2 and job 3: job 3 and every later job never reach the adapter.
+    db.switches.xometry = true;
+    for (const n of [3, 4, 5]) {
+      expect(await runJob(n), `job ${n}`).toEqual(expect.arrayContaining([unavailableResultWrite, cancelledTaskWrite]));
+    }
+    expect(quote).toHaveBeenCalledTimes(2);
+
+    // Switched back on: the next job dispatches again, with no worker restart.
+    db.switches.xometry = false;
+    await runJob(6);
+    expect(quote).toHaveBeenCalledTimes(3);
+  });
+
   const spentTask = { ...task, attempts: 4 } as QueueTaskRecord;
   const resultWrites = (db: ReturnType<typeof database>) => db.writes.filter((write) => write.table === "vendor_quote_results");
 

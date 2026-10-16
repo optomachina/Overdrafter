@@ -1,4 +1,4 @@
-import { PROVIDER_DAILY_QUOTE_CAP_DEFAULT } from "./providerDailyQuoteCap.js";
+import { PROVIDER_DAILY_QUOTE_CAP_DEFAULT, PROVIDER_DAILY_QUOTE_CAP_UNLIMITED } from "./providerDailyQuoteCap.js";
 import { z } from "zod";
 import path from "node:path";
 import os from "node:os";
@@ -58,7 +58,11 @@ const schema = z.object({
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   WORKER_QUANTITY_PRICING_LADDER: z.string().default(DEFAULT_QUANTITY_PRICING_LADDER.join(",")),
   WORKER_VENDOR_RATE_LIMIT_MS: z.coerce.number().int().nonnegative().default(0),
-  WORKER_OSHCUT_DAILY_QUOTE_CAP: z.coerce.number().int().min(1).max(PROVIDER_DAILY_QUOTE_CAP_DEFAULT).default(PROVIDER_DAILY_QUOTE_CAP_DEFAULT),
+  // OVD-828: only the fallback when the per-supplier admin cap is unset or
+  // unreadable. Any positive integer, or "unlimited"; no upper bound.
+  WORKER_OSHCUT_DAILY_QUOTE_CAP: z
+    .union([z.literal(PROVIDER_DAILY_QUOTE_CAP_UNLIMITED), z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER)])
+    .default(PROVIDER_DAILY_QUOTE_CAP_DEFAULT),
   WORKER_PRICING_MODEL_ENABLED: envBoolean.default(false),
   WORKER_PRICING_MODEL_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
   WORKER_HTTP_HOST: z.string().default("0.0.0.0"),

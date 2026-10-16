@@ -17,6 +17,7 @@ import {
   supabaseProviderKillSwitchReader,
   type ProviderKillSwitchReader,
 } from "./providerKillSwitch.js";
+import { supabaseProviderDailyQuoteCapReader } from "./providerDailyQuoteCap.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -101,17 +102,21 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   // OVD-414: production Xometry dispatch always supplies the upload capability
   // checkpoint, which reads its admission decision from the database. Set on
   // the same object, never a copy, like beforeProviderDisclosure below.
-  const innerAdapter: Pick<VendorAdapter, "quote"> =
-    input.vendor === "xometry"
-      ? {
-          quote: (quoteInput) => {
-            quoteInput.uploadCapabilityCheckpoint ??= createXometryUploadCapabilityCheckpoint(
-              supabaseXometryAdmissionReader(input.supabase),
-            );
-            return input.adapter.quote(quoteInput);
-          },
-        }
-      : input.adapter;
+  // OVD-828: in live mode every vendor also gets the per-supplier daily cap
+  // reader, which a capped adapter reads fresh at this dispatch.
+  const innerAdapter: Pick<VendorAdapter, "quote"> = {
+    quote: (quoteInput) => {
+      if (input.config.workerMode === "live") {
+        quoteInput.providerDailyQuoteCapReader ??= supabaseProviderDailyQuoteCapReader(input.supabase);
+      }
+      if (input.vendor === "xometry") {
+        quoteInput.uploadCapabilityCheckpoint ??= createXometryUploadCapabilityCheckpoint(
+          supabaseXometryAdmissionReader(input.supabase),
+        );
+      }
+      return input.adapter.quote(quoteInput);
+    },
+  };
   const guard =
     input.config.workerMode === "live"
       ? createProviderKillSwitchGuard(

@@ -1,6 +1,7 @@
 import type { ProviderUploadCapabilityDecision, ProviderUploadCapabilityObserved } from "./providerUploadCapabilityTypes.js";
 import type { ValueSource } from "./extractedValue.js";
 import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
+import type { ProviderDailyQuoteCap, ProviderDailyQuoteCapReader } from "./providerDailyQuoteCap.js";
 
 /** Per-extraction model spend, recorded so cost and latency stay attributable. */
 export type ModelUsageSummary = {
@@ -343,6 +344,12 @@ export type VendorQuoteAdapterInput = {
     checkpoint: "before_navigation" | "before_upload" | "before_configure" | "before_save",
   ) => Promise<void>;
   /**
+   * OVD-828: reads the per-supplier daily quote cap admin setting. Bound by
+   * the production dispatch path; adapters with a daily cap call it once per
+   * dispatch, never cached. Absent or unreadable, the env default applies.
+   */
+  providerDailyQuoteCapReader?: ProviderDailyQuoteCapReader;
+  /**
    * OVD-748: aborted when the dispatch permit expires or the session lease is
    * lost. Adapters stop at their next checkpoint by throwing ProviderAbortedError.
    */
@@ -516,8 +523,11 @@ export type WorkerConfig = {
   pollIntervalMs: number;
   quantityPricingLadder: number[];
   vendorRateLimitMs: number;
-  /** OSH Cut quotes per UTC day per worker process; defaults to 20 when absent. */
-  oshcutDailyQuoteCap?: number;
+  /**
+   * Env fallback for the OSH Cut daily quote cap (per UTC day, per worker
+   * process) when the OVD-828 admin setting is unset or unreadable; 20 when absent.
+   */
+  oshcutDailyQuoteCap?: ProviderDailyQuoteCap;
   pricingModelEnabled: boolean;
   pricingModelMinConfidence: number;
   httpHost: string;

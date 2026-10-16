@@ -285,6 +285,32 @@ describe("RMFG live adapter", () => {
     expect(calls.filter((call) => call === "/v1/analyze")).toHaveLength(1);
   });
 
+  it("reads the per-supplier daily cap setting at each dispatch and hands it to the transport (OVD-828)", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const now = () => new Date("2026-10-13T12:00:00Z");
+    const caps: unknown[] = [];
+    const adapter = new RmfgAdapter(liveConfig(), { env: { [RMFG_API_KEY_ENV]: SYNTHETIC_KEY },
+      createTransport: (apiKey, dailyQuoteCap) => {
+        caps.push(dailyQuoteCap);
+        return createRmfgHttpTransport({ apiKey, fetchImpl, now, dailyQuoteCap });
+      } });
+    const settings = [21, "unlimited", 1];
+    const reader = vi.fn(async () => {
+      const next = settings.shift();
+      return { schema: "provider-daily-quote-cap.v1", provider: "rmfg",
+        dailyQuoteCap: next === "unlimited" ? null : next, unlimited: next === "unlimited" };
+    });
+    await expect(adapter.quote(await authorizedInput({ providerDailyQuoteCapReader: reader })))
+      .resolves.toMatchObject({ status: "instant_quote_received" });
+    await expect(adapter.quote(await authorizedInput({ providerDailyQuoteCapReader: reader })))
+      .resolves.toMatchObject({ status: "instant_quote_received" });
+    await expect(adapter.quote(await authorizedInput({ providerDailyQuoteCapReader: reader })))
+      .rejects.toMatchObject({ payload: { reason: "provider_daily_cap_reached" } });
+    expect(caps).toEqual([21, "unlimited", 1]);
+    expect(reader).toHaveBeenCalledTimes(3);
+    expect(calls.filter((call) => call === "/v1/analyze")).toHaveLength(2);
+  });
+
   it("is listed for live automation but stays out of the default live registry", () => {
     expect(LIVE_AUTOMATION_VENDORS).toContain("rmfg");
     expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((envelope) => envelope.provider === "rmfg")).toBe(false);

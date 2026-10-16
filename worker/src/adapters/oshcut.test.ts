@@ -499,6 +499,73 @@ describe("OshcutAdapter", () => {
     expect(delegateQuote).toHaveBeenCalledTimes(2);
   });
 
+  const capSetting = (dailyQuoteCap: number | null, unlimited = false) => ({
+    schema: "provider-daily-quote-cap.v1", provider: "oshcut", dailyQuoteCap, unlimited,
+  });
+
+  it("allows more than 20 production quotes once the admin cap is raised above 20 (OVD-828)", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
+      leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    const input = { ...authorizedProductionInput(), providerDailyQuoteCapReader: async () => capSetting(22) };
+
+    for (let i = 0; i < 22; i += 1) await adapter.quote(input);
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      payload: { reason: "provider_daily_cap_reached", cap: 22, quotesToday: 22, capSource: "admin_setting" },
+    });
+    expect(delegateQuote).toHaveBeenCalledTimes(22);
+  });
+
+  it("never denies with an unlimited admin cap (OVD-828)", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
+      leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live", oshcutDailyQuoteCap: 1 }));
+    const input = { ...authorizedProductionInput(), providerDailyQuoteCapReader: async () => capSetting(null, true) };
+
+    for (let i = 0; i < 60; i += 1) await adapter.quote(input);
+    expect(delegateQuote).toHaveBeenCalledTimes(60);
+  });
+
+  it("re-reads the admin cap at every dispatch, so a change applies to the next quote (OVD-828)", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
+      leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
+    let current = capSetting(1);
+    const reader = vi.fn(async () => current);
+    const input = { ...authorizedProductionInput(), providerDailyQuoteCapReader: reader };
+
+    await adapter.quote(input);
+    await expect(adapter.quote(input)).rejects.toMatchObject({ payload: { reason: "provider_daily_cap_reached", cap: 1 } });
+    current = capSetting(3);
+    await adapter.quote(input);
+    expect(reader).toHaveBeenCalledTimes(3);
+    expect(reader).toHaveBeenCalledWith("oshcut");
+    expect(delegateQuote).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the env default when the cap setting RPC is missing (OVD-828)", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
+      leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live", oshcutDailyQuoteCap: 1 }));
+    const input = {
+      ...authorizedProductionInput(),
+      providerDailyQuoteCapReader: async () => { throw new Error("provider daily quote cap read failed"); },
+    };
+
+    await adapter.quote(input);
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      payload: { reason: "provider_daily_cap_reached", cap: 1, capSource: "env_default" },
+    });
+  });
+
   it.each([
     ["no thickness", undefined],
     ["a millimetre-scale number", 3.175],

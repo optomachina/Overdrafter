@@ -8,7 +8,7 @@ import {
   type WorkerConfig,
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
-import { claimProviderDailyQuote, PROVIDER_DAILY_QUOTE_CAP_DEFAULT } from "../providerDailyQuoteCap.js";
+import { claimProviderDailyQuote, resolveProviderDailyQuoteCap } from "../providerDailyQuoteCap.js";
 import { oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization.js";
 import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS } from "./oshcutCartCleanup.js";
 import {
@@ -448,11 +448,14 @@ export class OshcutAdapter extends VendorAdapter {
     }
     // OVD-748: a withdrawn run stops here, before the portal reads a session.
     throwIfProviderAborted(input.signal, "before_navigation");
-    // Go-live item 5: about 20 OSH Cut quotes per UTC day, claimed before dispatch.
-    const capDenial = claimProviderDailyQuote(
-      "oshcut",
-      this.config.oshcutDailyQuoteCap ?? PROVIDER_DAILY_QUOTE_CAP_DEFAULT,
-    );
+    // Go-live item 5 (OVD-828): the per-supplier admin cap, read fresh for this
+    // dispatch and claimed before it. Unreadable falls back to the env default.
+    const { cap, source: capSource } = await resolveProviderDailyQuoteCap({
+      reader: input.providerDailyQuoteCapReader,
+      provider: "oshcut",
+      fallback: this.config.oshcutDailyQuoteCap,
+    });
+    const capDenial = claimProviderDailyQuote("oshcut", cap);
     if (capDenial) {
       throw new VendorAutomationError(
         `OSH Cut reached its daily cap of ${capDenial.cap} quotes for ${capDenial.utcDay} (UTC); nothing was sent.`,
@@ -460,6 +463,7 @@ export class OshcutAdapter extends VendorAdapter {
         {
           vendor: "oshcut",
           ...capDenial,
+          capSource,
           retryable: false,
           envelopeRevision: OSHCUT_ENVELOPE_REVISION,
           providerInteractionAttempted: false,

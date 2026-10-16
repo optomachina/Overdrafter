@@ -14,6 +14,7 @@ import {
 import {
   PROVIDER_GO_LIVE_GROUPS,
   PROVIDER_GO_LIVE_HEADING,
+  PROVIDER_GO_LIVE_AUTO_SIGNATURE,
   PROVIDER_GO_LIVE_REQUIRED_ITEMS,
   collectGoLiveEvidenceLinks,
   enablesProvider,
@@ -383,6 +384,9 @@ function evidenceFor(item, index) {
 }
 
 function itemLine(item, index, overrides = {}) {
+  if (item.auto) {
+    return `- [x] ${item.text}`;
+  }
   if (overrides.na !== undefined) {
     const base = item.text.replace(/:$/, "").replace(/\s*Evidence$/, "");
     return `- [x] ${base} N/A: ${overrides.na}`;
@@ -406,6 +410,7 @@ function buildGoLiveSection(overridesById = {}) {
 }
 
 const ENABLING = ENABLE_REGISTRY;
+const MANUAL_ITEMS = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.auto);
 
 function validate(section, options = ENABLING) {
   return validatePrBody(`${buildValidPrBody()}${section}`, options);
@@ -500,8 +505,26 @@ describe("validatePrBody", () => {
   });
 
   it("rejects unchecked boxes", () => {
-    const result = validate(buildGoLiveSection({ "kill-switch": { checked: false } }));
-    expect(result.errors).toContain('check "per provider kill switch rehearsal"');
+    const result = validate(buildGoLiveSection({ "supplier-switch": { checked: false } }));
+    expect(result.errors).toContain('check "per-supplier on/off switch in the admin dashboard"');
+  });
+
+  it("requires an evidence link on the per-supplier on/off switch item", () => {
+    const result = validate(buildGoLiveSection({ "supplier-switch": { evidence: "tested locally" } }));
+    expect(result.errors).toEqual([
+      'add an evidence link (a GitHub PR, run, or commit URL in optomachina/Overdrafter, or a full Linear OVD issue URL) for "per-supplier on/off switch in the admin dashboard"',
+    ]);
+  });
+
+  it("treats the envelope review item as automatic: signed, unsigned, or absent, it never fails", () => {
+    const auto = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => item.auto);
+    expect(auto.map((item) => item.id)).toEqual(["envelope-reviewer"]);
+    expect(auto[0].text).toContain(PROVIDER_GO_LIVE_AUTO_SIGNATURE);
+    expect(PROVIDER_GO_LIVE_AUTO_SIGNATURE).toBe("Grok Bot under Blaine Wilson standing authority");
+    expect(validate(buildGoLiveSection())).toEqual({ ok: true, errors: [] });
+    expect(validate(buildGoLiveSection({ "envelope-reviewer": null }))).toEqual({ ok: true, errors: [] });
+    const unchecked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+    expect(validate(unchecked)).toEqual({ ok: true, errors: [] });
   });
 
   it("rejects a placeholder URL on every item", () => {
@@ -510,7 +533,7 @@ describe("validatePrBody", () => {
     );
     const result = validate(buildGoLiveSection(overrides));
     expect(result.ok).toBe(false);
-    expect(result.errors).toHaveLength(PROVIDER_GO_LIVE_REQUIRED_ITEMS.length);
+    expect(result.errors).toHaveLength(MANUAL_ITEMS.length);
   });
 
   it("rejects links to other repos, bare github.com, and non-evidence paths", () => {
@@ -542,7 +565,7 @@ describe("validatePrBody", () => {
     const overrides = Object.fromEntries(PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [item.id, { evidence: "OVD-1" }]));
     const result = validate(buildGoLiveSection(overrides));
     expect(result.ok).toBe(false);
-    expect(result.errors).toHaveLength(PROVIDER_GO_LIVE_REQUIRED_ITEMS.length);
+    expect(result.errors).toHaveLength(MANUAL_ITEMS.length);
     expect(result.errors.every((error) => error.startsWith("add an evidence link"))).toBe(true);
   });
 
@@ -557,11 +580,9 @@ describe("validatePrBody", () => {
     expect(validate(buildGoLiveSection(overrides))).toEqual({ ok: true, errors: [] });
   });
 
-  it("rejects N/A on the envelope, rollback, kill switch, and legal stance items", () => {
-    const naIds = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.na).map((item) => item.id);
-    expect(naIds).toEqual(
-      expect.arrayContaining(["provider-check", "rollback", "kill-switch", "same-day-off", "rate-limit", "no-evasion", "no-passwords"]),
-    );
+  it("rejects N/A on the provider:check, per-supplier switch, and legal stance items", () => {
+    const naIds = MANUAL_ITEMS.filter((item) => !item.na).map((item) => item.id);
+    expect(naIds).toEqual(["provider-check", "supplier-switch", "rate-limit"]);
     for (const id of naIds) {
       const result = validate(buildGoLiveSection({ [id]: { na: "this does not apply to the stage" } }));
       expect(result.errors.some((error) => error.startsWith("N/A is not allowed")), id).toBe(true);
@@ -590,8 +611,8 @@ describe("validatePrBody", () => {
   });
 
   it("rejects missing items and unchecked extra items", () => {
-    const missing = validate(buildGoLiveSection({ "no-passwords": null }));
-    expect(missing.errors).toContain('missing Provider go-live item "no stored customer passwords, encrypted session tokens, one click revoke"');
+    const missing = validate(buildGoLiveSection({ "supplier-switch": null }));
+    expect(missing.errors).toContain('missing Provider go-live item "per-supplier on/off switch in the admin dashboard"');
     const extra = validate(`${buildGoLiveSection()}\n- [ ] Extra attestation\n`);
     expect(extra.errors).toContain('check "Extra attestation"');
   });
@@ -696,7 +717,7 @@ describe("provider go-live docs and workflows", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
     expect(template).toContain(`## ${PROVIDER_GO_LIVE_HEADING}`);
     for (const item of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
-      expect(template, item.id).toContain(`- [ ] ${item.text}`);
+      expect(template, item.id).toContain(`- [${item.auto ? "x" : " "}] ${item.text}`);
       expect(item.match.test(checklist), item.label).toBe(true);
     }
     expect(template).toContain("never committed by a generator");
@@ -717,8 +738,15 @@ describe("provider go-live docs and workflows", () => {
 
   it("covers the provider legal stance in the checklist", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
-    for (const phrase of ["provider:kill", "provider-cease-and-desist.md", "same day", "20 quotes", "rotate IPs", "CAPTCHA", "customer passwords", "one click", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
-      expect(checklist, phrase).toContain(phrase);
+    for (const phrase of ["Blaine Wilson, October 16, 2026", PROVIDER_GO_LIVE_AUTO_SIGNATURE, "ProviderKillSwitchCard.tsx",
+      "api_admin_set_provider_kill_switch", "GO-LIVE: turning a supplier off", "20 quotes", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
+      expect(checklist.replace(/\s+/g, " "), phrase).toContain(phrase);
+    }
+    const goLiveItems = (text) => text.slice(text.indexOf("## Envelope")).split(/\n(?=- \[)/).filter((line) => line.startsWith("- ["));
+    for (const text of [checklist, read(".github", "pull_request_template.md")]) {
+      for (const item of goLiveItems(text)) {
+        expect(item).not.toMatch(/CAPTCHA|rotate IPs|stored customer passwords|named reviewer/i);
+      }
     }
   });
 

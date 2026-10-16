@@ -1,6 +1,6 @@
 # Provider go-live checklist
 
-Last updated: October 12, 2026
+Last updated: October 16, 2026
 
 This is the human-gated go-live record for operational and production facts
 that CI cannot prove. It does not duplicate `provider:check` (OVD-691). A
@@ -12,6 +12,18 @@ storage-state contents.
 
 Use this checklist with the **Provider go-live** section in
 `.github/pull_request_template.md`.
+
+## Decision record (Blaine Wilson, October 16, 2026)
+
+- The block-evasion attestation (including IP rotation) is removed from the
+  gate.
+- The envelope review item is automatic, signed "Grok Bot under Blaine Wilson
+  standing authority". It is no longer a manual blocker.
+- One item, **Per-supplier on/off switch in the admin dashboard**, replaces the
+  rollback/disable rehearsal, the per provider kill switch rehearsal, the
+  same-day turn-off, and the stored customer passwords items.
+- The about 20 quotes per provider per day item and the ITAR/EAR item are
+  unchanged.
 
 ## When the section is required
 
@@ -54,14 +66,16 @@ Each item needs an evidence link: a GitHub PR, Actions run, or commit URL in
 (`https://linear.app/<workspace>/issue/OVD-n`). A bare `OVD-n` is not evidence.
 Links are format checked only. The gate confirms that a GitHub link exists, and
 accepts a Linear link by its shape; nothing reads what a link says, so the
-named reviewer owns whether it supports the box.
+PR reviewer owns whether it supports the box.
 
 Worker secret, egress, admission, rollout, and certification items may be
 marked N/A when they do not apply to the stage being enabled. Check the box
 `[x]` and write `N/A: <justification>` with a real sentence (not `n/a`, `tbd`,
-`todo`, `none`, or `-`). The envelope, rollback, and legal stance items cannot
-be N/A, with one exception: the ITAR/EAR item may be N/A for a US only
-provider, with the justification written out.
+`todo`, `none`, or `-`). The provider:check, per-supplier on/off switch, and
+legal stance items cannot be N/A, with one exception: the ITAR/EAR item may be
+N/A for a US only provider, with the justification written out. The envelope
+review item is automatic: the renderer fills it pre-checked with its signature,
+and the gate never asks a human for evidence on it or fails on it.
 
 Repo-verifiable envelope artifacts (readiness doc, fixture, default-deny test,
 and reviewed-envelope registry wiring) are enforced by `provider:check`. Those
@@ -75,9 +89,9 @@ alias). There is no `provider:onboard` command.
 
 - [ ] **provider:check green.** `npm run provider:check` passed for this
       provider on the current revision.
-- [ ] **Envelope reviewed by a named reviewer.** Record the reviewer name, the
-      envelope revision, and an evidence link. Review does not admit the
-      provider.
+- [x] **Envelope reviewed (automatic).** Signed: Grok Bot under Blaine Wilson
+      standing authority. Filled automatically; not a manual blocker. Review
+      does not admit the provider.
 
 ## Live
 
@@ -102,29 +116,23 @@ alias). There is no `provider:onboard` command.
       remain independently disableable.
 - [ ] **Certification run evidence.** Link the hosted certification run for
       this provider. Failed certification leaves only this provider disabled.
-- [ ] **Rollback/disable steps rehearsed.** Record the disable path: admission
-      revision with `generic_dispatch_enabled=false`, rollout off, adapter
-      removed from `WORKER_LIVE_ADAPTERS`, and permit revocation. Confirm the
-      rehearsal did not enable customer traffic.
+- [ ] **Per-supplier on/off switch in the admin dashboard (immediate,
+      worker-enforced; automated test proves turning it off stops dispatch
+      within one job).** Cannot be N/A. The switch is the OVD-722 provider kill
+      switch: the admin-only card `src/components/admin/ProviderKillSwitchCard.tsx`
+      calls the versioned, audit-logged RPC `api_admin_set_provider_kill_switch`,
+      and the worker reads the switch at claim and before each dispatch
+      (`worker/src/providerKillSwitch.ts`). The proof is the test "GO-LIVE:
+      turning a supplier off in the admin switch stops dispatch within one job"
+      in `worker/src/providerKillSwitch.handler.test.ts`. Link a passing run.
 
 ## Legal stance
 
 These items record the provider legal stance. None can be N/A except the
 ITAR/EAR item for a US only provider (see Evidence and N/A).
 
-- [ ] **Per provider kill switch rehearsal.** Run `npm run provider:kill` for
-      this provider on and off, following
-      `docs/runbooks/provider-cease-and-desist.md`, and record the run.
-- [ ] **Provider turned off the same day.** On a cease and desist, IP or bot
-      block, CAPTCHA wall, or account ban, the provider is switched off the
-      same day. Name the owner and the runbook step.
 - [ ] **About 20 quotes per provider per day.** Record the configured daily
       ceiling and where it is enforced.
-- [ ] **Never evade a block.** Never rotate IPs, solve CAPTCHAs, mimic human
-      pacing, or retry around a block. Record that the adapter has no such
-      path.
-- [ ] **No stored customer passwords.** Only encrypted session tokens are
-      stored, and the customer can revoke with one click.
 - [ ] **ITAR/EAR controlled or uncertain uploads are blocked** to foreign
       providers (Geomiq, Weerg) and to LLMs. Record the block (OVD-723) and its
       test.

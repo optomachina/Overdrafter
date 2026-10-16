@@ -155,12 +155,12 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 
-  it.each([NaN, -1, 0, 1.5, Infinity, 21, 1000])("rejects daily cap %s at construction", (dailyQuoteCap) => {
+  it.each([NaN, -1, 0, 1.5, Infinity])("rejects daily cap %s at construction", (dailyQuoteCap) => {
     expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).toThrow("daily quote cap");
   });
 
-  it("accepts daily caps from 1 to 20", () => {
-    for (const dailyQuoteCap of [1, 20]) {
+  it("accepts any positive integer daily cap or unlimited, with no upper bound (OVD-828)", () => {
+    for (const dailyQuoteCap of [1, 20, 21, 1000, "unlimited" as const]) {
       expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).not.toThrow();
     }
   });
