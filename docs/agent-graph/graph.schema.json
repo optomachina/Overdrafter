@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "overdrafter.agent-graph/v1",
+  "type": "object",
+  "required": ["schema", "version", "root", "nodes", "predicates", "edge_semantics", "edges", "verdicts", "merge_gate", "protected", "adapters"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"enum": ["overdrafter.agent-graph/v1"]},
+    "version": {"type": "string"},
+    "note": {"type": "string"},
+    "root": {"type": "string"},
+    "nodes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/node"}},
+    "predicates": {"type": "object", "additionalProperties": {"type": "string"}},
+    "edge_semantics": {"type": "string"},
+    "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "verdicts": {"type": "object", "additionalProperties": {"type": "object", "required": ["values"], "properties": {"values": {"type": "array", "items": {"type": "string"}}}}},
+    "merge_gate": {"type": "object", "required": ["requires", "rules"], "properties": {"requires": {"type": "array", "items": {"type": "string"}}, "rules": {"type": "array", "items": {"type": "string"}}}},
+    "protected": {"type": "object", "additionalProperties": {"type": "string"}},
+    "adapters": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["role"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {"enum": ["root", "router", "writer", "reviewer", "verifier", "gate", "release"]},
+        "family": {"type": "string"},
+        "does": {"type": "array", "items": {"type": "string"}},
+        "runtimes": {"type": "array", "items": {"type": "string"}},
+        "must_not_author": {"type": "boolean"},
+        "note": {"type": "string"}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "when": {"type": "array", "items": {"type": "string"}},
+        "unless": {"type": "array", "items": {"type": "string"}},
+        "else": {"type": "string"}
+      }
+    }
+  }
+}

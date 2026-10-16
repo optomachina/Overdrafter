@@ -110,19 +110,12 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
 - A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
 - Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch [sensitive paths](#sensitive-paths-single-shared-list) or provider/customer data. Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks.
-- Reviewers come from different model families: Sonnet/Opus plus Codex as the second family; Grok is overflow and a council seat. A finding raised by two families is the strongest signal. Review the diff, never an abstract plan.
+- Reviewer families and routing: see the [agent graph spec](docs/agent-graph/graph.v1.yaml).
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
-## Merge gate (pstack rules, 2026-10-16)
+## Merge gate
 
-- Green CI and an approving bot review are not verdicts. Each PR needs one PASS / PASS+NOTES / FAIL verdict from an independent verifier (QA or another agent) that did not write the code. The QA verdict in auto-merge means this verdict.
-- The verdict names the head SHA. A new SHA voids it; after a rebase, reuse it only if `git patch-id` matches.
-- Readiness is a typed verdict (conflicts, unresolved threads, checks, merge gate) produced by a script, not prose; it is the input to automerge eligibility (OVD-845).
-- Land only the contiguous verified run, bottom-up, and read each merge back on `main`. A queued merge or armed auto-merge is not a merge.
-- Babysitting (rebases, threads, CI reruns) never authorizes a merge. Classify a CI failure before retrying: one fresh build for a flake, never blind retries.
-- `verify-overdrafter` (Launch / Doctor / Drive / Evidence / Cleanup plus a feature map) is the first verification investment; verifiers use it once it exists.
-- Any change that loosens a gate, review rule or the auto-merge allowlist needs a countersign from the root agent (Grok Bot) and Blaine's OK.
-- Live database changes (production migrations, RLS, data fixes) stay manual and are never part of an automated merge.
+The merge gate, verdict types, reviewer families and landing rules are owned by [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml). This file owns approvals, the auto-merge allowlist and sensitive paths. Changes that loosen the gate need a countersign from the root agent and Blaine's OK.
 
 ## Completion and failure
 
