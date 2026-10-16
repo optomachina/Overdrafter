@@ -28,7 +28,7 @@ Promotion follows the three stages in `docs/provider-integration.md` and the
 
 | Layer | Behavior |
 | --- | --- |
-| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/providerDispatchEnvelope.ts`, re-exported from `oshcutDispatchAuthorization.ts`) is listed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` with `requiredAdmission: "generic_dispatch"`. Migration `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` records it with a 7,200-second permit TTL; it admits nothing and leaves the OSH Cut admission `disabled`. It is pinned in the free-quote CI profile and in `supabase/tests/provider_dispatch_permits.sql`. Review-only admit files are in `provider-integrations/oshcut/admit/`. |
+| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/providerDispatchEnvelope.ts`, re-exported from `oshcutDispatchAuthorization.ts`) is listed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` with `requiredAdmission: "generic_dispatch"`. The review row is a **draft pending Blaine window**: `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` records it with a 7,200-second permit TTL; it admits nothing and leaves the OSH Cut admission `disabled`. It is not in `supabase/migrations`, not in the free-quote CI manifest, and its pgTAP checks wait in `supabase/tests/pending/ovd677_oshcut_reviewed_envelope.sql.pending`. Until it is applied, no OSH Cut permit can be minted, so dispatch fails closed. Review-only admit files are in `provider-integrations/oshcut/admit/`. |
 | Adapter production branch | `OshcutAdapter` (`worker/src/adapters/oshcut.ts`) first applies the static OSH Cut envelope: flat-sheet laser cutting, Aluminum 6061-T6, one CAD file in a listed format, no drawing, quantities 1 to 10,000. A package outside it ends as a finite `unsupported` or `manual_vendor_followup` result. An eligible production package is then checked with the shared `providerDispatchAuthorizationDenial` (provider, envelope, unexpired permit, exact quantity, exact staged CAD bytes); a denial throws a terminal `unsupported` with `providerInteractionAttempted: false`. |
 | Thickness rule | The envelope leaves stock thickness to the provider, but the cart prices nothing until one is picked. The approved requirement must state `spec_snapshot.sheetThicknessInch` (`OSHCUT_SHEET_THICKNESS_RULE`): a number of inches from 0.020 to 1.000 with at most three decimals, rendered as the filter label (`0.125"`). If it is missing or invalid, the adapter returns `manual_vendor_followup` with `terminalState: "configuration_required"` (`thickness_confirmation_required`) **before** any session read or upload. |
 | Abort signal (OVD-748) | After authorization and the thickness rule, `throwIfProviderAborted(input.signal, "before_navigation")`. |
@@ -50,8 +50,10 @@ A new OSH Cut quote needs switches 1 to 5 on.
    `oshcut` stays `disabled` until the reviewed revision in
    `provider-integrations/oshcut/admit/oshcut_admission_revision.sql.review`
    is recorded (`approved`, `generic_dispatch_enabled = true`).
-2. **Reviewed envelope.** Done in code; the review row exists once migration
-   `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` is applied.
+2. **Reviewed envelope.** Done in code; the review row is a draft pending
+   Blaine window (`docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`).
+   It exists only after Blaine approves a window and the draft is promoted
+   into `supabase/migrations` and applied. Until then permits are refused.
 3. **Rollout.** The shared `automatic_quote_collection` rollout control.
 4. **Organization enablement.** The organization has OSH Cut enabled, and the
    part lists OSH Cut as applicable.
@@ -83,9 +85,12 @@ launches. Revoke a specific permit with `private.revoke_provider_dispatch_permit
 
 ## Inputs only Blaine can provide
 
-1. **Merge and migration apply.** Approve the PR and the production apply of
-   `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` as separate
-   actions.
+1. **Merge and migration window.** Approve the PR, then a migration window
+   that promotes the draft
+   `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`
+   into `supabase/migrations` (with the free-quote CI manifest entry and the
+   pending pgTAP file renamed into `supabase/tests`) and applies it, as
+   separate actions.
 2. **Admission revision.** Approve recording
    `oshcut_admission_revision.sql.review` with a reviewer UUID and policy date.
 3. **Deploy.** Approve a worker deploy that lists `oshcut` and names the

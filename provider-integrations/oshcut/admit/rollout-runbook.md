@@ -14,6 +14,9 @@ tasks before the browser launches.
    `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, then move
    `20261015084957_oshcut_reviewed_dispatch_envelope.sql.review` into a
    reviewed migration (re-check the timestamp). Withdraw with `withdrawn_at`.
+   Status: drafted as
+   `docs/migration-drafts/20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql`,
+   draft pending Blaine window; not in `supabase/migrations`.
 2. **Admission policy.** Apply the reviewed values from
    `oshcut_admission_revision.sql.review` (`approved`,
    `generic_dispatch_enabled = true`) through the audited registry revision.
