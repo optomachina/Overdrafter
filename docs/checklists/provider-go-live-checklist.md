@@ -118,9 +118,8 @@ ITAR/EAR item for a US only provider (see Evidence and N/A).
 - [ ] **Provider turned off the same day.** On a cease and desist, IP or bot
       block, CAPTCHA wall, or account ban, the provider is switched off the
       same day. Name the owner and the runbook step.
-- [ ] **Daily quote cap, if one is set.** There is no default cap (OVD-829).
-      Record whether an admin set a per-supplier daily quote cap on the admin
-      page, its value, and that the shared supplier settings gate enforces it.
+- [ ] **About 20 quotes per provider per day.** Record the configured daily
+      ceiling and where it is enforced.
 - [ ] **Never evade a block.** Never rotate IPs, solve CAPTCHAs, mimic human
       pacing, or retry around a block. Record that the adapter has no such
       path.

@@ -717,7 +717,7 @@ describe("provider go-live docs and workflows", () => {
 
   it("covers the provider legal stance in the checklist", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
-    for (const phrase of ["provider:kill", "provider-cease-and-desist.md", "same day", "daily quote cap", "rotate IPs", "CAPTCHA", "customer passwords", "one click", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
+    for (const phrase of ["provider:kill", "provider-cease-and-desist.md", "same day", "20 quotes", "rotate IPs", "CAPTCHA", "customer passwords", "one click", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
       expect(checklist, phrase).toContain(phrase);
     }
   });
