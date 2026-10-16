@@ -280,9 +280,16 @@ jobs:
   # Pre-merge regression gate on extraction quality. Runs only when a corpus
   # exists and a provider key is available, and reports "skipped" otherwise so
   # an empty corpus never reads as a passing quality signal.
+  # The gate steps never fail this job: each emits one machine line
+  # EXTRACTION_GATE_RESULT=pass|fail|error (eval:gate exit 0 / 1 / anything
+  # else) and the `ci` job decides from it per EXTRACTION_GATE_MODE (OVD-869).
   extraction-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    outputs:
+      corpus: ${{ steps.corpus.outputs.present }}
+      result-line: ${{ steps.gate-parser.outputs.line }}${{ steps.gate-full.outputs.line }}
 
     # Declared at job level on purpose: a step's own `env` block is not in scope
     # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
@@ -346,16 +353,33 @@ jobs:
       # rather than left to depend on which secrets happen to be set, so the run
       # is reproducible.
       - name: Run extraction gate (parser only)
+        id: gate-parser
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
         env:
           DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
         run: |
           echo "::notice::No provider key configured; gating the deterministic parser only. Model-fallback fields are not measured."
+          set +e
           npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
 
       - name: Run extraction gate (full production path)
+        id: gate-full
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
-        run: npm --prefix worker run eval:gate
+        run: |
+          set +e
+          npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
 
   ovd420-recovery-egress-network:
     runs-on: ubuntu-latest
@@ -438,8 +462,21 @@ jobs:
             exit 1
           fi
 
-          # The gate legitimately skips when no corpus or provider key exists,
-          # but a real failure must block the merge.
-          if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
-            exit 1
-          fi
+      - name: Checkout extraction gate decision script
+        if: ${{ always() }}
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/extraction-gate-decision.mjs
+          sparse-checkout-cone-mode: false
+
+      # EXTRACTION_GATE_MODE is a repository variable (base repo setting), not a
+      # workflow value, so a PR editing this file cannot flip its own mode.
+      # Values: report (default; unset or anything else) or enforce. Flipping
+      # the variable to enforce requires Blaine's approval.
+      - name: Decide extraction gate
+        if: ${{ always() }}
+        env:
+          EXTRACTION_GATE_MODE: ${{ vars.EXTRACTION_GATE_MODE }}
+          EXTRACTION_GATE_OUTPUT: ${{ needs.extraction-gate.outputs.result-line }}
+          EXTRACTION_GATE_CORPUS: ${{ needs.extraction-gate.outputs.corpus }}
+        run: node scripts/extraction-gate-decision.mjs
