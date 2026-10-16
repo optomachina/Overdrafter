@@ -76,6 +76,15 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   symlinks) to a file inside the working directory or the OS temp directory.
   `git` and `gh` are run by absolute path from `/usr/bin`, `/bin` or
   `/usr/local/bin` with `PATH` pinned to those directories.
+- `GH_BIN` optionally overrides the `gh` binary only (never `git`). Unset or
+  empty means the strict lookup above. When set it must be an absolute path;
+  the script resolves it with `realpath` and requires the result to be an
+  existing regular file, owned by the current user or root, not group- or
+  world-writable, and executable. Any failed check is a hard error naming
+  `GH_BIN` and the reason; the script never falls back to the `PATH` lookup
+  after a bad override. Setup note: on the Mac mini (Apple Silicon Homebrew,
+  where `gh` lives outside the fixed directories) set
+  `GH_BIN=/opt/homebrew/bin/gh`.
 - `sha` comes from `git rev-parse --verify --end-of-options <head>^{commit}`.
   Head is resolved once, and `patch_id` is computed from that same SHA, so the
   two always describe the same commit.

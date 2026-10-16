@@ -14,6 +14,8 @@
  * characters), --pr must be a plain positive integer, and --findings must be a
  * file inside the working directory or the OS temp directory. git and gh run
  * from a fixed system directory with a fixed PATH, never the caller's PATH.
+ * The one exception is an explicit GH_BIN override for gh, which must pass
+ * resolveGhBin's ownership and permission checks or the script fails closed.
  *
  *   node scripts/emit-verdict.mjs --role verifier --verdict PASS \
  *     --base origin/main --head HEAD \
@@ -25,7 +27,7 @@
  * See docs/verdict-format.md.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +43,36 @@ export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync 
   const found = dirs.map((dir) => join(dir, name)).find((candidate) => exists(candidate));
   if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
   return found;
+}
+
+/**
+ * The gh binary to run. With GH_BIN unset or empty this is the strict
+ * SAFE_BIN_DIRS lookup. Otherwise GH_BIN must be an absolute path whose
+ * realpath is a regular, executable file owned by the current user or root and
+ * not group- or world-writable. Any failed check throws; there is no fallback
+ * to the PATH lookup after a bad override.
+ */
+export function resolveGhBin(env = process.env, { lookup = resolveBinary } = {}) {
+  const override = env.GH_BIN;
+  if (override === undefined || override === "") return lookup("gh");
+  const fail = (reason) => new Error(`GH_BIN ${reason} (got ${JSON.stringify(override)})`);
+  if (!isAbsolute(override)) throw fail("must be an absolute path");
+  let target;
+  try {
+    target = realpathSync(override);
+  } catch {
+    throw fail("does not exist");
+  }
+  const stat = statSync(target);
+  if (!stat.isFile()) throw fail("is not a regular file");
+  if (stat.uid !== 0 && stat.uid !== process.getuid?.()) throw fail("must be owned by the current user or root");
+  if ((stat.mode & 0o022) !== 0) throw fail("is group- or world-writable");
+  try {
+    accessSync(target, fsConstants.X_OK);
+  } catch {
+    throw fail("is not executable");
+  }
+  return target;
 }
 
 const git = (args, { cwd, input } = {}) =>
@@ -156,7 +188,7 @@ export function formatComment(verdict) {
 export function postComment({ pr, body, cwd, run = spawnSync, gh }) {
   const prNumber = String(pr ?? "");
   if (!/^[1-9]\d{0,9}$/.test(prNumber)) throw new Error("--post requires --pr <positive integer>");
-  const result = run(gh ?? resolveBinary("gh"), ["pr", "comment", prNumber, "--body-file", "-"], {
+  const result = run(gh ?? resolveGhBin(), ["pr", "comment", prNumber, "--body-file", "-"], {
     cwd,
     input: body,
     env: SAFE_ENV,

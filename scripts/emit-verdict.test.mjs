@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertRev, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveInputFile, resolveSha } from "./emit-verdict.mjs";
+import { assertRev, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveGhBin, resolveInputFile, resolveSha } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -214,5 +214,48 @@ describe("posting", () => {
     const exists = (p) => p === "/usr/local/bin/gh";
     expect(resolveBinary("gh", { exists })).toBe("/usr/local/bin/gh");
     expect(() => resolveBinary("gh", { exists: () => false })).toThrow(/gh not found in \/usr\/bin, \/bin, \/usr\/local\/bin/);
+  });
+});
+
+describe("GH_BIN override", () => {
+  let dir;
+  const fakeGh = (name, mode) => {
+    const file = join(dir, name);
+    writeFileSync(file, "#!/bin/sh\n");
+    chmodSync(file, mode);
+    return file;
+  };
+  const lookup = vi.fn(() => "/usr/bin/gh");
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "ovd851-ghbin-"));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("uses the strict PATH lookup when GH_BIN is unset or empty", () => {
+    expect(resolveGhBin({}, { lookup })).toBe("/usr/bin/gh");
+    expect(resolveGhBin({ GH_BIN: "" }, { lookup })).toBe("/usr/bin/gh");
+    expect(lookup).toHaveBeenCalledWith("gh");
+    const exists = (p) => p === "/bin/gh";
+    expect(resolveGhBin({}, { lookup: (name) => resolveBinary(name, { exists }) })).toBe("/bin/gh");
+  });
+
+  it("accepts an absolute, owner-only-writable executable and returns its realpath", () => {
+    const file = fakeGh("gh", 0o755);
+    const link = join(dir, "gh-link");
+    symlinkSync(file, link);
+    expect(resolveGhBin({ GH_BIN: file }, { lookup })).toBe(realpathSync(file));
+    expect(resolveGhBin({ GH_BIN: link }, { lookup })).toBe(realpathSync(file));
+  });
+
+  it("fails closed on a bad override and never falls back to PATH", () => {
+    const strict = vi.fn(() => "/usr/bin/gh");
+    expect(() => resolveGhBin({ GH_BIN: "bin/gh" }, { lookup: strict })).toThrow(/GH_BIN must be an absolute path/);
+    expect(() => resolveGhBin({ GH_BIN: join(dir, "missing") }, { lookup: strict })).toThrow(/GH_BIN does not exist/);
+    expect(() => resolveGhBin({ GH_BIN: fakeGh("gh-777", 0o777) }, { lookup: strict })).toThrow(/GH_BIN is group- or world-writable/);
+    expect(() => resolveGhBin({ GH_BIN: fakeGh("gh-775", 0o775) }, { lookup: strict })).toThrow(/GH_BIN is group- or world-writable/);
+    expect(() => resolveGhBin({ GH_BIN: fakeGh("gh-644", 0o644) }, { lookup: strict })).toThrow(/GH_BIN is not executable/);
+    expect(() => resolveGhBin({ GH_BIN: dir }, { lookup: strict })).toThrow(/GH_BIN is not a regular file/);
+    expect(strict).not.toHaveBeenCalled();
   });
 });
