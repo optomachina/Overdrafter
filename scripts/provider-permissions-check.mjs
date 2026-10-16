@@ -23,6 +23,9 @@ export const PLAYBOOK_MANUAL_FALLBACK_HEADING = "## Manual fallback";
 export const OVD722_KILL_CLI_RELATIVE_PATH = "scripts/provider-kill.mjs";
 export const OVD722_RPC_CLIENT_RELATIVE_PATH = "src/features/quotes/api/provider-kill-switch-api.ts";
 export const OVD722_RPC_NAME = "api_admin_set_provider_kill_switch";
+// OVD-771: the CLI is the MFA-independent brake and calls the service_role RPC;
+// the admin page (RPC client) keeps the admin RPC.
+export const OVD771_CLI_RPC_NAME = "api_service_set_provider_kill_switch";
 export const WORKER_CLOUD_RUN_PROJECT = "overdrafter-worker-9133";
 export const WORKER_CLOUD_RUN_REGION = "us-west1";
 export const ADMISSION_FOLLOW_UP_PHRASE = "reviewed migration";
@@ -645,8 +648,8 @@ export async function assertOvd722KillSwitchShipped(rootDir) {
   if (![...cliLiterals].some((value) => value.includes("provider:kill"))) {
     throw new Error("kill_switch_shipped is true but scripts/provider-kill.mjs does not implement provider:kill");
   }
-  if (!cliLiterals.has(OVD722_RPC_NAME)) {
-    throw new Error(`kill_switch_shipped is true but scripts/provider-kill.mjs does not call ${OVD722_RPC_NAME}`);
+  if (!cliLiterals.has(OVD771_CLI_RPC_NAME)) {
+    throw new Error(`kill_switch_shipped is true but scripts/provider-kill.mjs does not call ${OVD771_CLI_RPC_NAME}`);
   }
 
   const rpcSource = await readRegularFile(

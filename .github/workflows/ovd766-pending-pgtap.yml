@@ -1,0 +1,95 @@
+name: OVD-766 draft pgTAP (ephemeral CI database)
+
+# Proves the parked OVD-766/OVD-771 migration drafts and their pending pgTAP in a
+# throwaway local Supabase database on the runner. It applies the drafts on top
+# of supabase/migrations inside the runner's own Docker, runs the pending tests,
+# then applies the rollbacks. It never connects to a real Supabase project and
+# uses no secrets. Non-required and path-scoped; delete it once the drafts are
+# promoted into supabase/migrations in a Blaine-approved window.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/migration-drafts/ovd-766-*'
+      - 'docs/migration-drafts/ovd-771*'
+      - 'supabase/tests/pending/ovd76*'
+      - 'supabase/tests/pending/ovd77*'
+      - '.github/workflows/ovd766-pending-pgtap.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  draft-pgtap:
+    name: Draft migrations + pending pgTAP (ephemeral DB)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
+        with:
+          version: 2.78.1
+
+      - name: Start local database and apply supabase/migrations
+        run: supabase db start
+
+      - name: Select drafts and pending tests
+        id: select
+        run: |
+          shopt -s nullglob
+          drafts=()
+          for f in docs/migration-drafts/ovd-766-*.sql docs/migration-drafts/ovd-771*.sql; do
+            [[ "$f" == *.rollback.sql ]] || drafts+=("$f")
+          done
+          tests=(supabase/tests/pending/ovd76*.sql.pending supabase/tests/pending/ovd77*.sql.pending)
+          printf 'draft: %s\n' "${drafts[@]}"
+          printf 'test: %s\n' "${tests[@]}"
+          [ "${#drafts[@]}" -gt 0 ] && [ "${#tests[@]}" -gt 0 ] || { echo "::error::no drafts or pending tests selected"; exit 1; }
+          echo "drafts=${drafts[*]}" >> "$GITHUB_OUTPUT"
+          echo "tests=${tests[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Apply drafts to the ephemeral database
+        run: |
+          for f in ${{ steps.select.outputs.drafts }}; do
+            echo "::group::apply $f"
+            docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Run pending pgTAP against the drafts
+        run: |
+          stage="$(mktemp -d)"
+          for f in ${{ steps.select.outputs.tests }}; do
+            cp "$f" "$stage/$(basename "${f%.pending}")"
+          done
+          ls -l "$stage"
+          supabase test db --local --debug "$stage" | tee pgtap.txt
+          grep -q '^Result: PASS' pgtap.txt
+          ! grep -Eq '^not ok|# (SKIP|TODO)' pgtap.txt
+
+      - name: Apply rollbacks (they must replay cleanly)
+        run: |
+          shopt -s nullglob
+          for f in docs/migration-drafts/ovd-766-*.rollback.sql docs/migration-drafts/ovd-771*.rollback.sql; do
+            echo "::group::rollback $f"
+            docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Stop local database
+        if: always()
+        run: supabase stop --no-backup || true
