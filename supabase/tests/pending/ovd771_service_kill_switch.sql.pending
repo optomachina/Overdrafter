@@ -32,15 +32,15 @@ set search_path = pg_catalog
 as $$
 begin
   perform pg_catalog.set_config('request.jwt.claims',
-    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role)::text, true);
+    pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role, 'aal', 'aal2')::text, true);
   perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
 end;
 $$;
 
 grant execute on function pg_temp.ovd771_as(uuid, text) to anon, authenticated, service_role;
 
-insert into auth.users (id, aud, role, email) values
-  ('00000000-0000-4000-8000-000000771001', 'authenticated', 'authenticated', 'ovd771-admin@example.test');
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000771001', 'authenticated', 'authenticated', 'ovd771-admin@example.test', pg_catalog.now());
 insert into private.platform_admin_emails (email) values ('ovd771-admin@example.test')
 on conflict do nothing;
 
