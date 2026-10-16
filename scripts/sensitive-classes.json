@@ -89,7 +89,13 @@
         "scripts/ovd{462,510,518,520,561,570,576,577,591}-*",
         "scripts/quote-selection-expiry-rehearsal.mjs",
         "scripts/selection-publication-rehearsal.mjs",
-        "scripts/window-1/ovd602-*"
+        "scripts/window-1/ovd602-*",
+        "scripts/lint-security-definer.mjs",
+        "scripts/security-definer-baseline.json",
+        "scripts/ephemeral-db-apply.mjs",
+        "scripts/supabase-target-guard.mjs",
+        "scripts/check-rls-deny-coverage.mjs",
+        "scripts/rls-deny-baseline.json"
       ]
     },
     "infra": {
