@@ -15,6 +15,7 @@ import {
   compileConfig,
   detect,
   fetchPullRequest,
+  formatSummary,
   githubClient,
   globToRegExp,
   loadConfig,
@@ -386,6 +387,170 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     });
     expect(read).toEqual([]);
     expect(result.files[0]).toMatchObject({ classes: [], category: "docs" });
+  });
+});
+
+describe("classifySql: role attributes, role grants and test SET ROLE scope (OVD-878)", () => {
+  const sql = (text, file = null) => classifySql(text, config, file);
+  const reasonFor = (id) => `auth:sql:${id}: ${rawConfig.sql_content.rules.find((rule) => rule.id === id).reason}`;
+
+  it.each([
+    ["ALTER ROLE x SUPERUSER;", "auth_role_superuser", 1],
+    ["create user y with createrole login;", "auth_role_createrole", 1],
+    ["ALTER ROLE z REPLICATION;", "auth_role_replication", 1],
+    ["alter user z with replication;", "auth_role_replication", 1],
+    ["GRANT service_role TO x;", "auth_grant_service_role", 1],
+    ["grant postgres to app;", "auth_grant_postgres", 1],
+    ["grant supabase_admin to app;", "auth_grant_supabase_admin", 1],
+    ["grant anon, authenticator to app;", "auth_grant_authenticator", 1],
+    ["select 1;\n\nCreate\n  Role\n  Admin\n  SuperUser\n  LOGIN;", "auth_role_superuser", 6],
+    ["DO $$\nBEGIN\n  ALTER ROLE x WITH CreateRole;\nEND $$;", "auth_role_createrole", 3],
+    ["do $$ begin execute 'grant service_role to app'; end $$;", "auth_grant_service_role", 1],
+  ])("%s -> auth (%s) on line %i", (text, id, line) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, class: "auth", line, sensitive: true }));
+  });
+
+  it.each([
+    ["supabase/migrations/20261001000000_x.sql"],
+    ["scripts/window-1/setup.sql"],
+    ["worker/sql/setup.sql"],
+    [".github/sql/setup.sql"],
+    ["docs/migration-drafts/x.sql"],
+    ["e2e/fixtures/x.sql"],
+  ])("SET LOCAL ROLE authenticated stays sensitive outside supabase/tests: %s", (file) => {
+    const result = sql("set local role authenticated;", file);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([{ id: "auth_set_local_role", class: "auth", path: file, line: 1, sensitive: true, target: "authenticated" }]);
+  });
+
+  it.each([
+    ["set local role service_role;", "auth_set_local_role", "service_role"],
+    ["SET ROLE postgres;", "auth_set_role", "postgres"],
+    ["set role to supabase_admin;", "auth_set_role", "supabase_admin"],
+    ["set session role = authenticator;", "auth_set_session_role", "authenticator"],
+    ["set local role app_writer;", "auth_set_local_role", "app_writer"],
+    ["set session authorization postgres;", "auth_set_session_authorization", "postgres"],
+    ["do $$ begin execute 'set local role service_role'; end $$;", "auth_set_local_role", "service_role"],
+  ])("supabase/tests keeps a privileged switch sensitive: %s", (text, id, target) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, target, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+
+  it.each([
+    ["set local role authenticated;", "auth_set_local_role", "tests_set_role_unprivileged"],
+    ["set local role anon;", "auth_set_local_role", "tests_set_role_unprivileged"],
+    ["SET ROLE \"authenticated\";", "auth_set_role", "tests_set_role_unprivileged"],
+    ["set role to 'anon';", "auth_set_role", "tests_set_role_unprivileged"],
+    ["reset role;", "auth_reset_role", "tests_reset_role"],
+  ])("supabase/tests exempts %s as gate_loosening", (text, id, exemption) => {
+    const result = sql(text, "supabase/tests/rls_x.test.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id, path: "supabase/tests/rls_x.test.sql", line: 1, sensitive: false, exemption, gate_loosening: true })]);
+  });
+
+  it("keeps a privileged switch sensitive next to exempt ones in the same test file", () => {
+    const text = "begin;\nset local role authenticated;\nreset role;\nset local role service_role;\nreset role;\nrollback;";
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toEqual([reasonFor("auth_set_local_role")]);
+    expect(result.hits.map((hit) => [hit.line, hit.id, hit.sensitive])).toEqual([
+      [2, "auth_set_local_role", false],
+      [3, "auth_reset_role", false],
+      [4, "auth_set_local_role", true],
+      [5, "auth_reset_role", false],
+    ]);
+  });
+
+  it.each([
+    ["ALTER ROLE x NOSUPERUSER;", "auth_role_nosuperuser"],
+    ["create role r nocreaterole;", "auth_role_nocreaterole"],
+    ["alter user u noreplication;", "auth_role_noreplication"],
+  ])("tightening attribute is informational only: %s", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual([]);
+    expect(result.reasons).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id, line: 1, sensitive: false, informational: true })]);
+  });
+
+  it.each([
+    ["-- ALTER ROLE x SUPERUSER;\nselect 1;"],
+    ["/* grant service_role to x; set role postgres; */ select 1;"],
+    ["alter table t add column superuser_flag boolean;"],
+    ["create table t (superuser boolean, replication text);"],
+    ["select rolsuper, rolcreaterole, rolreplication from pg_roles;"],
+    ["grant usage on schema app to service_role;"],
+    ["grant select on table t to anon, authenticated, service_role;"],
+    ["grant authenticated to app;"],
+    ["revoke service_role from app;"],
+    ["create publication p for table t;"],
+  ])("no false positive: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+});
+
+describe("compileConfig: SQL exemptions (OVD-878)", () => {
+  const withExemption = (change) => {
+    const raw = structuredClone(rawConfig);
+    change(raw.sql_content.exemptions[0]);
+    return compileConfig(raw).errors;
+  };
+
+  it("requires every exemption to be marked gate_loosening and to name known, non-informational rules", () => {
+    expect(rawConfig.sql_content.exemptions.every((entry) => entry.gate_loosening === true && entry.reason)).toBe(true);
+    expect(withExemption((entry) => delete entry.gate_loosening)).toContain("sql_content.exemptions[0]: gate_loosening must be true");
+    expect(withExemption((entry) => entry.rules.push("nope_rule"))).toContain('sql_content.exemptions[0]: unknown rule "nope_rule"');
+    expect(withExemption((entry) => entry.rules.push("auth_role_nosuperuser"))).toContain('sql_content.exemptions[0]: rule "auth_role_nosuperuser" is informational');
+    expect(withExemption((entry) => (entry.extra = 1))).toContain('sql_content.exemptions[0]: unknown key "extra"');
+    expect(withExemption((entry) => (entry.reason = ""))).toContain("sql_content.exemptions[0]: reason must be a non-empty string");
+  });
+
+  it("scopes the SET ROLE exemption to supabase/tests and the anon and authenticated targets", () => {
+    const entry = rawConfig.sql_content.exemptions.find((candidate) => candidate.id === "tests_set_role_unprivileged");
+    expect(entry).toMatchObject({ paths: ["supabase/tests/**"], targets: ["anon", "authenticated"], gate_loosening: true });
+  });
+});
+
+describe("detect: SQL hits and gate_loosening (OVD-878)", () => {
+  const files = {
+    "supabase/tests/roles.sql": "select 1;\nset local role authenticated;\nreset role;\nSET ROLE postgres;",
+    "supabase/migrations/20261001000000_roles.sql": "alter role x nosuperuser;\nset local role authenticated;",
+  };
+  const readHeadFile = async (file) => files[file];
+
+  it("reports every hit with rule id, path and line, and lists exempt hits as gate_loosening", async () => {
+    const result = await detect({ files: Object.keys(files).map(modified), readHeadFile, config });
+    const [tests, migration] = result.files;
+    expect(tests.classes).toEqual(["auth"]);
+    expect(tests.sql_hits.map(({ id, path: file, line, sensitive }) => [id, file, line, sensitive])).toEqual([
+      ["auth_set_local_role", "supabase/tests/roles.sql", 2, false],
+      ["auth_reset_role", "supabase/tests/roles.sql", 3, false],
+      ["auth_set_role", "supabase/tests/roles.sql", 4, true],
+    ]);
+    expect(migration.classes).toEqual(["migration", "auth"]);
+    expect(migration.sql_hits).toEqual([
+      expect.objectContaining({ id: "auth_role_nosuperuser", line: 1, informational: true, sensitive: false }),
+      expect.objectContaining({ id: "auth_set_local_role", line: 2, sensitive: true, target: "authenticated" }),
+    ]);
+    expect(result.gate_loosening).toEqual([
+      expect.objectContaining({ id: "auth_set_local_role", path: "supabase/tests/roles.sql", line: 2, exemption: "tests_set_role_unprivileged", gate_loosening: true }),
+      expect.objectContaining({ id: "auth_reset_role", path: "supabase/tests/roles.sql", line: 3, exemption: "tests_reset_role", gate_loosening: true }),
+    ]);
+  });
+
+  it("shows hit locations and gate loosening in the job summary", async () => {
+    const result = await detect({ files: Object.keys(files).map(modified), readHeadFile, config });
+    const summary = formatSummary(result);
+    expect(summary).toContain("Gate loosening: 2 SQL hit(s) exempted by tests_set_role_unprivileged, tests_reset_role");
+    expect(summary).toContain("| auth_set_local_role | `supabase/tests/roles.sql:2` | auth | exempt (gate_loosening: tests_set_role_unprivileged) |");
+    expect(summary).toContain("| auth_set_role | `supabase/tests/roles.sql:4` | auth | sensitive |");
+    expect(summary).toContain("| auth_role_nosuperuser | `supabase/migrations/20261001000000_roles.sql:1` | auth | informational |");
   });
 });
 

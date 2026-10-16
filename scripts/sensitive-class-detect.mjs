@@ -36,8 +36,9 @@ const PER_PAGE = 100;
 const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "classes", "safe_categories"]);
 const CLASS_KEYS = new Set(["description", "areas", "signals", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
-const SQL_KEYS = new Set(["paths", "rules"]);
-const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason"]);
+const SQL_KEYS = new Set(["paths", "rules", "exemptions"]);
+const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason", "within", "until", "informational"]);
+const SQL_EXEMPTION_KEYS = new Set(["id", "reason", "paths", "rules", "targets", "gate_loosening"]);
 // A whole lower-cased word as sqlWords emits it, or one punctuation character.
 const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sA-Za-z0-9_$])$/;
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
@@ -200,27 +201,66 @@ export function compileConfig(raw) {
   }
 
   const sql = raw.sql_content;
-  let sqlContent = { paths: [], rules: [] };
+  let sqlContent = { paths: [], rules: [], exemptions: [] };
   if (!sql || typeof sql !== "object" || Array.isArray(sql)) {
     errors.push("config: sql_content must be an object");
   } else {
     for (const key of Object.keys(sql)) if (!SQL_KEYS.has(key)) errors.push(`sql_content: unknown rule key "${key}"`);
     const rules = Array.isArray(sql.rules) ? sql.rules : (errors.push("sql_content.rules must be an array"), []);
     const ids = new Set();
+    const compiledRules = rules.flatMap((rule, index) => {
+      const where = `sql_content.rules[${index}]`;
+      if (!rule || typeof rule !== "object") return errors.push(`${where} must be an object`), [];
+      for (const key of Object.keys(rule)) if (!SQL_RULE_KEYS.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
+      if (typeof rule.id !== "string" || !NAME_PATTERN.test(rule.id)) errors.push(`${where}: invalid id`);
+      else if (ids.has(rule.id)) errors.push(`${where}: duplicate id "${rule.id}"`);
+      ids.add(rule.id);
+      if (typeof rule.reason !== "string" || rule.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
+      if (!classes.some((entry) => entry.name === rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
+      const tokens = stringList(rule.tokens, `${where}.tokens`, errors, SQL_TOKEN_PATTERN);
+      if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
+      const compiled = { id: rule.id, class: rule.class, tokens, reason: rule.reason, informational: rule.informational === true };
+      if (rule.informational !== undefined && typeof rule.informational !== "boolean") errors.push(`${where}.informational must be a boolean`);
+      if (rule.within !== undefined) {
+        if (!Array.isArray(rule.within) || rule.within.length === 0) errors.push(`${where}.within must be a non-empty array of token lists`);
+        else {
+          compiled.within = rule.within.map((sequence, at) => stringList(sequence, `${where}.within[${at}]`, errors, SQL_TOKEN_PATTERN));
+          if (compiled.within.some((sequence) => sequence.length === 0)) errors.push(`${where}.within must not contain an empty token list`);
+        }
+      }
+      if (rule.until !== undefined) {
+        if (typeof rule.until !== "string" || !SQL_TOKEN_PATTERN.test(rule.until)) errors.push(`${where}.until must be one token`);
+        else compiled.until = rule.until;
+      }
+      return [compiled];
+    });
+    const exemptions = Array.isArray(sql.exemptions ?? []) ? (sql.exemptions ?? []) : (errors.push("sql_content.exemptions must be an array"), []);
+    const exemptionIds = new Set();
     sqlContent = {
       paths: compileGlobs(stringList(sql.paths, "sql_content.paths", errors), "sql_content.paths", errors),
-      rules: rules.flatMap((rule, index) => {
-        const where = `sql_content.rules[${index}]`;
-        if (!rule || typeof rule !== "object") return errors.push(`${where} must be an object`), [];
-        for (const key of Object.keys(rule)) if (!SQL_RULE_KEYS.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
-        if (typeof rule.id !== "string" || !NAME_PATTERN.test(rule.id)) errors.push(`${where}: invalid id`);
-        else if (ids.has(rule.id)) errors.push(`${where}: duplicate id "${rule.id}"`);
-        ids.add(rule.id);
-        if (typeof rule.reason !== "string" || rule.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
-        if (!classes.some((entry) => entry.name === rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
-        const tokens = stringList(rule.tokens, `${where}.tokens`, errors, SQL_TOKEN_PATTERN);
-        if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
-        return [{ id: rule.id, class: rule.class, tokens, reason: rule.reason }];
+      rules: compiledRules,
+      exemptions: exemptions.flatMap((exemption, index) => {
+        const where = `sql_content.exemptions[${index}]`;
+        if (!exemption || typeof exemption !== "object") return errors.push(`${where} must be an object`), [];
+        for (const key of Object.keys(exemption)) if (!SQL_EXEMPTION_KEYS.has(key)) errors.push(`${where}: unknown key "${key}"`);
+        if (typeof exemption.id !== "string" || !NAME_PATTERN.test(exemption.id)) errors.push(`${where}: invalid id`);
+        else if (exemptionIds.has(exemption.id) || ids.has(exemption.id)) errors.push(`${where}: duplicate id "${exemption.id}"`);
+        exemptionIds.add(exemption.id);
+        if (typeof exemption.reason !== "string" || exemption.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
+        // Every exemption weakens the gate, so the config must say so in place.
+        if (exemption.gate_loosening !== true) errors.push(`${where}: gate_loosening must be true`);
+        const paths = stringList(exemption.paths, `${where}.paths`, errors);
+        if (paths.length === 0) errors.push(`${where}.paths must not be empty`);
+        const ruleIds = stringList(exemption.rules, `${where}.rules`, errors);
+        if (ruleIds.length === 0) errors.push(`${where}.rules must not be empty`);
+        for (const id of ruleIds) {
+          const rule = compiledRules.find((candidate) => candidate.id === id);
+          if (!rule) errors.push(`${where}: unknown rule "${id}"`);
+          else if (rule.informational) errors.push(`${where}: rule "${id}" is informational`);
+        }
+        const targets = exemption.targets === undefined ? null : stringList(exemption.targets, `${where}.targets`, errors, SQL_TOKEN_PATTERN);
+        if (targets && targets.length === 0) errors.push(`${where}.targets must not be empty when present`);
+        return [{ id: exemption.id, reason: exemption.reason, paths: compileGlobs(paths, `${where}.paths`, errors), rules: ruleIds, targets }];
       }),
     };
   }
@@ -295,9 +335,37 @@ const MAX_SQL_DEPTH = 8;
  * and set_config with the setting name nested deeper than `(('role'))` or
  * passed as a variable does not match the role rules.
  */
-export function sqlWords(text, depth = 0) {
+export function sqlWords(text) {
+  return sqlTokens(text).words;
+}
+
+/**
+ * sqlWords with the 1-based source line of every word. A word inside a string
+ * or dollar-quoted body gets the line it sits on in the file.
+ * @returns {{words: string[], lines: number[]}}
+ */
+export function sqlTokens(text, depth = 0, firstLine = 1) {
   const sql = String(text);
   const words = [];
+  const lines = [];
+  const breaks = [];
+  for (let at = sql.indexOf("\n"); at !== -1; at = sql.indexOf("\n", at + 1)) breaks.push(at);
+  const lineAt = (offset) => {
+    let low = 0;
+    let high = breaks.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (breaks[mid] < offset) low = mid + 1;
+      else high = mid;
+    }
+    return firstLine + low;
+  };
+  const push = (word, line) => (words.push(word), lines.push(line));
+  const pushBody = (body, offset) => {
+    const inner = sqlBodyTokens(body, depth, lineAt(offset));
+    words.push(...inner.words);
+    lines.push(...inner.lines);
+  };
   let index = 0;
   while (index < sql.length) {
     const char = sql[index];
@@ -315,7 +383,8 @@ export function sqlWords(text, depth = 0) {
       }
     } else if (char === "'" || char === '"') {
       const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop();
+      if (backslash && words.at(-1) === "e") words.pop(), lines.pop();
+      const start = index;
       index += 1;
       let body = "";
       while (index < sql.length) {
@@ -327,46 +396,99 @@ export function sqlWords(text, depth = 0) {
           break;
         } else (body += sql[index]), (index += 1);
       }
-      if (char === "'") words.push(...sqlBodyWords(body, depth));
-      else if (body !== "") words.push(body.toLowerCase());
+      if (char === "'") pushBody(body, start);
+      else if (body !== "") push(body.toLowerCase(), lineAt(start));
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
       const close = sql.indexOf(tag, bodyStart);
-      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
+      pushBody(sql.slice(bodyStart, close === -1 ? sql.length : close), bodyStart);
       index = close === -1 ? sql.length : close + tag.length;
     } else if (/[A-Za-z_]/.test(char)) {
       const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      words.push(match[0].toLowerCase());
+      push(match[0].toLowerCase(), lineAt(index));
       index += match[0].length;
     } else {
-      if (!/\s/.test(char)) words.push(char);
+      if (!/\s/.test(char)) push(char, lineAt(index));
       index += 1;
     }
   }
-  return words;
+  return { words, lines };
 }
 
-function sqlBodyWords(body, depth) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1);
-  return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
+function sqlBodyTokens(body, depth, firstLine) {
+  if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine);
+  const words = [];
+  const lines = [];
+  for (const match of body.toLowerCase().matchAll(/[a-z_][a-z0-9_$]*/g)) {
+    words.push(match[0]);
+    lines.push(firstLine + (body.slice(0, match.index).match(/\n/g)?.length ?? 0));
+  }
+  return { words, lines };
+}
+
+const sequenceAt = (words, start, tokens) => tokens.every((token, offset) => words[start + offset] === token);
+
+/** Whether one of the `within` sequences starts the statement before `start` (back to the previous ';'). */
+function withinStatement(words, start, within) {
+  let first = start;
+  while (first > 0 && words[first - 1] !== ";") first -= 1;
+  for (let at = first; at < start; at += 1) if (within.some((tokens) => sequenceAt(words, at, tokens))) return true;
+  return false;
+}
+
+/** Whether `token` follows `from` before the statement ends. */
+function followedBy(words, from, token) {
+  for (let at = from; at < words.length && words[at] !== ";"; at += 1) if (words[at] === token) return true;
+  return false;
+}
+
+/** The word a SET names after the matched tokens, skipping TO and '='. */
+function targetAfter(words, from) {
+  let at = from;
+  if (words[at] === "to" || words[at] === "=") at += 1;
+  return words[at] ?? null;
 }
 
 /**
  * Classes whose token sequences occur in the SQL text. Each matching rule adds
- * the reason `<class>:sql:<id>: <reason>`.
+ * the reason `<class>:sql:<id>: <reason>`. Every occurrence is also a hit with
+ * its rule id, path and line. An informational rule's hits never add a class.
+ * When `path` matches an exemption that lists the rule (and, if the exemption
+ * has targets, the SET names one of them) the hit is exempt and is marked
+ * gate_loosening; the rule adds its class only for a hit that is not exempt.
+ * @returns {{classes: string[], reasons: string[], hits: object[]}}
  */
-export function classifySql(text, config) {
-  const words = sqlWords(text);
+export function classifySql(text, config, path = null) {
+  const { words, lines } = sqlTokens(text);
+  const exemptions = path === null ? [] : config.sqlContent.exemptions.filter((entry) => entry.paths.some((re) => re.test(path)));
+  const targeted = new Set(config.sqlContent.exemptions.filter((entry) => entry.targets).flatMap((entry) => entry.rules));
   const classes = [];
   const reasons = [];
+  const hits = [];
   for (const rule of config.sqlContent.rules) {
-    const found = words.some((_, start) => rule.tokens.every((token, offset) => words[start + offset] === token));
-    if (!found) continue;
+    let sensitive = false;
+    for (let start = 0; start < words.length; start += 1) {
+      if (!sequenceAt(words, start, rule.tokens)) continue;
+      const end = start + rule.tokens.length;
+      if (rule.within && !withinStatement(words, start, rule.within)) continue;
+      if (rule.until && !followedBy(words, end, rule.until)) continue;
+      const hit = { id: rule.id, class: rule.class, path, line: lines[start], sensitive: !rule.informational };
+      if (targeted.has(rule.id)) hit.target = targetAfter(words, end);
+      if (rule.informational) hit.informational = true;
+      else {
+        const exemption = exemptions.find((entry) => entry.rules.includes(rule.id) && (!entry.targets || entry.targets.includes(hit.target)));
+        if (exemption) Object.assign(hit, { sensitive: false, exemption: exemption.id, gate_loosening: true });
+      }
+      sensitive ||= hit.sensitive;
+      hits.push(hit);
+    }
+    if (!sensitive) continue;
     if (!classes.includes(rule.class)) classes.push(rule.class);
     reasons.push(`${rule.class}:sql:${rule.id}: ${rule.reason}`);
   }
-  return { classes, reasons };
+  hits.sort((a, b) => a.line - b.line);
+  return { classes, reasons, hits };
 }
 
 // ---------------------------------------------------------------- detect
@@ -392,6 +514,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     const reasons = [];
     let category = null;
     const categories = [];
+    let sqlHits = null;
     for (const path of paths) {
       const result = classifyPath(path, config);
       const label = path === file.filename ? "" : "previous:";
@@ -399,12 +522,13 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
       reasons.push(...result.reasons.map((reason) => label + reason));
       categories.push(result.category);
     }
-    if (readsHead(file.status) &&config.sqlContent.paths.some((re) => re.test(file.filename))) {
+    if (readsHead(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
       try {
         if (!readHeadFile) throw new Error("no head reader");
-        const sql = classifySql(await readHeadFile(file.filename), config);
+        const sql = classifySql(await readHeadFile(file.filename), config, file.filename);
         for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
         reasons.push(...sql.reasons);
+        sqlHits = sql.hits;
       } catch (error) {
         allErrors.push(`could not read ${file.filename} at head: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -414,6 +538,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     classes.sort((a, b) => order.indexOf(a) - order.indexOf(b));
     const entry = { path: file.filename, status: file.status, classes, category, reasons };
     if (paths.length > 1) entry.previous_path = file.previous_filename;
+    if (sqlHits) entry.sql_hits = sqlHits;
     results.push(entry);
   }
 
@@ -428,13 +553,15 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     multi_class: classes.length > 1,
     files: results,
     unclassified: results.filter((file) => !file.classes.length && !file.category).map((file) => file.path),
+    // SQL hits an exemption cleared; each one is a place the gate is looser than the plain rule.
+    gate_loosening: results.flatMap((file) => (file.sql_hits ?? []).filter((hit) => hit.gate_loosening)),
     errors: allErrors,
   };
 }
 
 /** The result for a run that could not classify anything. */
 export function errorResult(errors, { sha = null, baseSha = null } = {}) {
-  return { version: CONFIG_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors };
+  return { version: CONFIG_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], gate_loosening: [], errors };
 }
 
 // ---------------------------------------------------------------- GitHub
@@ -503,6 +630,21 @@ export function formatSummary(result) {
     for (const file of result.files) {
       const name = safeInline(file.path).replaceAll("|", "\\|");
       lines.push(`| ${name} | ${file.status ?? ""} | ${file.classes.join(", ") || "-"} | ${file.category ?? (file.classes.length ? "-" : "**unclassified**")} |`);
+    }
+    lines.push("");
+  }
+  const loosening = result.gate_loosening ?? [];
+  if (loosening.length) {
+    const ids = [...new Set(loosening.map((hit) => hit.exemption))].join(", ");
+    lines.push(`Gate loosening: ${loosening.length} SQL hit(s) exempted by ${ids}`, "");
+  }
+  const hits = result.files.flatMap((file) => file.sql_hits ?? []);
+  if (hits.length) {
+    lines.push("| SQL rule | Location | Class | Effect |", "| --- | --- | --- | --- |");
+    for (const hit of hits) {
+      const where = safeInline(`${hit.path}:${hit.line}`).replaceAll("|", "\\|");
+      const effect = hit.gate_loosening ? `exempt (gate_loosening: ${hit.exemption})` : hit.informational ? "informational" : "sensitive";
+      lines.push(`| ${hit.id} | ${where} | ${hit.class} | ${effect} |`);
     }
     lines.push("");
   }

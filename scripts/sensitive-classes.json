@@ -6,7 +6,8 @@
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
     "exclude": "Globs; a path matching one is not in this entry.",
     "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
-    "sql_content": "Token sequences matched in SQL after comments are removed. A double-quoted identifier is one lower-cased word, so SET \"row_security\" matches. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too (set_config('row_security', ...)); false positives are accepted to fail closed. A token is a whole lower-cased word or one punctuation character, so 'row_security' does not match 'row_security_note'. Each rule has a unique id and a reason; both appear in the result's reasons. Every changed file except a removal is read at the head. The SQL is read as data and never executed."
+    "sql_content": "Token sequences matched in SQL after comments are removed. A double-quoted identifier is one lower-cased word, so SET \"row_security\" matches. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too (set_config('row_security', ...)); false positives are accepted to fail closed. A token is a whole lower-cased word or one punctuation character, so 'row_security' does not match 'row_security_note'. Each rule has a unique id and a reason; both appear in the result's reasons. Every changed file except a removal is read at the head. The SQL is read as data and never executed. A rule with 'within' matches only when one of those token sequences occurs earlier in the same statement (back to the previous ';', so a DO body's statements count on their own); a rule with 'until' matches only when that token follows later in the same statement. An 'informational' rule reports its hits but never adds its class. Every hit reports its rule id, path and line.",
+    "sql_exemptions": "An exemption clears hits of the listed rules in files matching its paths and, when it has targets, only when the SET names one of them (the word after the rule's tokens, skipping TO or '='). Each exemption must set gate_loosening: true; every hit it clears is reported in the result's gate_loosening list and the job summary, and a cleared hit adds no class. Any other hit of the same rule in the same file still does."
   },
   "sql_content": {
     "paths": ["**/*.{sql,pgsql,psql}"],
@@ -38,7 +39,34 @@
       { "id": "auth_session_authorization", "class": "auth", "tokens": ["session_authorization"], "reason": "Any mention of the session_authorization setting fails closed, since set_config can name it in many forms" },
       { "id": "auth_reset_role", "class": "auth", "tokens": ["reset", "role"], "reason": "RESET ROLE switches the current role back to the session user" },
       { "id": "auth_reset_session_authorization", "class": "auth", "tokens": ["reset", "session", "authorization"], "reason": "RESET SESSION AUTHORIZATION switches the session user" },
-      { "id": "auth_reset_all", "class": "auth", "tokens": ["reset", "all"], "reason": "RESET ALL resets role, session authorization and row_security" }
+      { "id": "auth_reset_all", "class": "auth", "tokens": ["reset", "all"], "reason": "RESET ALL resets role, session authorization and row_security" },
+      { "id": "auth_role_superuser", "class": "auth", "tokens": ["superuser"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "SUPERUSER on CREATE/ALTER ROLE or USER grants every privilege" },
+      { "id": "auth_role_createrole", "class": "auth", "tokens": ["createrole"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "CREATEROLE on CREATE/ALTER ROLE or USER lets a role create, alter and grant roles" },
+      { "id": "auth_role_replication", "class": "auth", "tokens": ["replication"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "REPLICATION on CREATE/ALTER ROLE or USER lets a role stream every row, bypassing policies" },
+      { "id": "auth_role_nosuperuser", "class": "auth", "informational": true, "tokens": ["nosuperuser"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "NOSUPERUSER only removes a privilege; reported, not sensitive" },
+      { "id": "auth_role_nocreaterole", "class": "auth", "informational": true, "tokens": ["nocreaterole"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "NOCREATEROLE only removes a privilege; reported, not sensitive" },
+      { "id": "auth_role_noreplication", "class": "auth", "informational": true, "tokens": ["noreplication"], "within": [["create", "role"], ["create", "user"], ["alter", "role"], ["alter", "user"]], "reason": "NOREPLICATION only removes a privilege; reported, not sensitive" },
+      { "id": "auth_grant_postgres", "class": "auth", "tokens": ["postgres"], "within": [["grant"]], "until": "to", "reason": "GRANT postgres TO makes a role a member of the superuser role" },
+      { "id": "auth_grant_supabase_admin", "class": "auth", "tokens": ["supabase_admin"], "within": [["grant"]], "until": "to", "reason": "GRANT supabase_admin TO makes a role a member of the platform admin role" },
+      { "id": "auth_grant_service_role", "class": "auth", "tokens": ["service_role"], "within": [["grant"]], "until": "to", "reason": "GRANT service_role TO lets a role act as service_role, which bypasses row level security" },
+      { "id": "auth_grant_authenticator", "class": "auth", "tokens": ["authenticator"], "within": [["grant"]], "until": "to", "reason": "GRANT authenticator TO lets a role switch to any role authenticator can" }
+    ],
+    "exemptions": [
+      {
+        "id": "tests_set_role_unprivileged",
+        "gate_loosening": true,
+        "paths": ["supabase/tests/**"],
+        "rules": ["auth_set_role", "auth_set_local_role", "auth_set_session_role", "auth_set_session_authorization", "auth_set_local_session_authorization"],
+        "targets": ["anon", "authenticated"],
+        "reason": "pgTAP tests switch to the anon or authenticated API roles to prove policies hold for clients; that drops privileges and changes no shipped database state. A switch to service_role, postgres, supabase_admin, authenticator or any other role in a test stays sensitive, as does every switch outside supabase/tests/**."
+      },
+      {
+        "id": "tests_reset_role",
+        "gate_loosening": true,
+        "paths": ["supabase/tests/**"],
+        "rules": ["auth_reset_role"],
+        "reason": "RESET ROLE in a pgTAP test returns to the test's session user after a role switch; it changes no shipped database state."
+      }
     ]
   },
   "classes": {
@@ -61,7 +89,7 @@
       "paths": []
     },
     "auth": {
-      "description": "Auth, permissions and sessions, including SET/RESET ROLE, SET/RESET SESSION AUTHORIZATION and RESET ALL in SQL.",
+      "description": "Auth, permissions and sessions, including SET/RESET ROLE, SET/RESET SESSION AUTHORIZATION, RESET ALL, SUPERUSER/CREATEROLE/REPLICATION on CREATE/ALTER ROLE or USER and GRANT of postgres, supabase_admin, service_role or authenticator in SQL. In supabase/tests/** a SET ROLE to anon or authenticated and RESET ROLE are exempt (gate_loosening).",
       "areas": ["Auth, permissions, sessions"],
       "signals": ["auth", "permission(s)", "session"],
       "path_keywords": ["auth", "oauth", "permission", "session"]
