@@ -5,11 +5,11 @@
     "paths": "Globs over the repo-relative path, case-insensitive. '**' matches zero or more whole segments, '*' and '?' stay within one segment, '{a,b}' is alternation.",
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
     "exclude": "Globs; a path matching one is not in this entry.",
-    "exclude_keywords": "Path keywords; a path matching one is not in this entry.",
-    "sql_content": "Token sequences matched in SQL after comments, quoted strings and plain dollar-quoted strings are removed. Bodies after DO or AS are tokenized as SQL. The SQL is read as data and never executed."
+    "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
+    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too; false positives are accepted to fail closed. Every changed file except a removal is read at the head. The SQL is read as data and never executed."
   },
   "sql_content": {
-    "paths": ["**/*.sql"],
+    "paths": ["**/*.{sql,pgsql,psql}"],
     "rules": [
       { "class": "rls", "tokens": ["create", "policy"] },
       { "class": "rls", "tokens": ["alter", "policy"] },
@@ -64,10 +64,33 @@
       "path_keywords": ["secret", "credential", "vault"]
     },
     "ci": {
-      "description": "CI workflows and actions.",
+      "description": "CI workflows and actions, this detector and its config, and the scripts/** files CI runs: every scripts path referenced from .github/** plus the scripts those import or call. Scripts reached only through npm run are not listed (package.json is deps). scripts/sensitive-class-detect.test.mjs fails when a referenced script is missing.",
       "areas": ["Infra, CI, deploy"],
       "signals": [".github/workflows/", ".github/actions/"],
-      "paths": [".github/workflows/**", ".github/actions/**"]
+      "paths": [
+        ".github/workflows/**",
+        ".github/actions/**",
+        "scripts/sensitive-class*",
+        "scripts/proof-check*",
+        "scripts/preflight.sh",
+        "scripts/symphony-preflight.sh",
+        "scripts/validate-pr-body*",
+        "scripts/check-sourcing-worker-scope.mjs",
+        "scripts/provider-enablement-detect.mjs",
+        "scripts/run-supabase-policy-tests*",
+        "scripts/migration-timestamp.mjs",
+        "scripts/free-quote-*",
+        "scripts/fixtures/free-quote-*",
+        "scripts/qualification/free-quote-*",
+        "scripts/generate-free-quote-fixtures*",
+        "scripts/native/**",
+        "scripts/native-{companion-inert-ci,first-loop-vitest,result-reader,storage-qualification}*",
+        "scripts/{verify-,}ovd420-*",
+        "scripts/ovd{462,510,518,520,561,570,576,577,591}-*",
+        "scripts/quote-selection-expiry-rehearsal.mjs",
+        "scripts/selection-publication-rehearsal.mjs",
+        "scripts/window-1/ovd602-*"
+      ]
     },
     "infra": {
       "description": "Infrastructure and deploy.",
@@ -134,9 +157,9 @@
       "exclude": ["e2e/fixtures/**/*.sql"]
     },
     "frontend_ui": {
-      "description": "Frontend UI outside auth, session, permission, billing, pricing, checkout, stripe and dispatch paths.",
+      "description": "Frontend UI outside auth, session, permission, sign-in, password, billing, pricing, checkout, stripe and dispatch paths.",
       "paths": ["src/components/**", "src/pages/**", "src/features/**"],
-      "exclude_keywords": ["auth", "session", "permission", "billing", "pricing", "checkout", "stripe", "dispatch"]
+      "exclude_keywords": ["auth", "session", "permission", "login", "logout", "signin", "sign-in", "signout", "sign-out", "signup", "sign-up", "password", "billing", "pricing", "checkout", "stripe", "dispatch"]
     },
     "styles_assets": {
       "description": "Styles and static assets.",

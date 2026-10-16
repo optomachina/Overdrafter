@@ -11,7 +11,17 @@ name: Sensitive class
 # files through the API and reads changed .sql files at the head as data only.
 # When the base has no copy of the script yet (the PR that introduces it), the
 # job skips with a summary note. merge_group runs are a no op pass so the check
-# can never stall a merge queue.
+# can never stall a merge queue. `edited` reruns the job when the PR is
+# retargeted to another base, so the result never describes a stale base.
+#
+# OVD-845 requirement: this artifact is not a trusted gate by itself. Under
+# pull_request this YAML comes from the PR, so a PR can edit this file (or add
+# a workflow that uploads an artifact named sensitive-class) and publish a
+# clean result. OVD-845 must recompute the result in a trusted context
+# (workflow_run, or pull_request_target with a base checkout and no head code
+# executed) or confirm from the API file list that the PR touches no
+# .github/** file, and must check the producing run's workflow path
+# (.github/workflows/sensitive-class.yml) and head sha.
 
 on:
   pull_request:
@@ -20,6 +30,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - edited
   merge_group:
     types:
       - checks_requested
