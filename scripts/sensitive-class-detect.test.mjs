@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CONFIG_PATH,
   CONFIG_REPO_PATH,
+  DETECTOR_HELPER_REPO_PATH,
   DETECTOR_REPO_PATH,
   GATE_LOOSENING_LINE,
   MAX_FILES,
@@ -513,8 +514,37 @@ describe("gate_loosening: config diff against base", () => {
       expect.objectContaining({ kind: "rule_narrowed", field: "path_keywords", value: "auth" }),
     ]);
     expect(judge((head) => head.classes.billing.signals.pop()).reasons).toEqual([
-      expect.objectContaining({ kind: "rule_narrowed", field: "signals", value: "checkout" }),
+      expect.objectContaining({ kind: "signal_removed", entry: "classes.billing", field: "signals", value: "checkout" }),
     ]);
+  });
+
+  it("flags reordered safe categories, which change the first-match category", async () => {
+    const reorder = (head) => {
+      const { tests, ...rest } = head.safe_categories;
+      head.safe_categories = { tests, ...rest };
+    };
+    const result = judge(reorder);
+    expect(result.reasons).toEqual([expect.objectContaining({ kind: "category_order_changed", entry: "safe_categories" })]);
+
+    // The reorder turns an unclassified rename into a safe one.
+    const rename = [{ filename: "src/a.test.ts", previous_filename: "docs/a.test.ts", status: "renamed" }];
+    const before = await detect({ files: rename, readHeadFile: noSql, config });
+    const head = structuredClone(rawConfig);
+    reorder(head);
+    const after = await detect({ files: rename, readHeadFile: noSql, config: compileConfig(head).config });
+    expect([before.files[0].category, after.files[0].category]).toEqual([null, "tests"]);
+
+    // Removing a category or appending one keeps the shared order.
+    expect(kinds(judge((head) => delete head.safe_categories.docs))).toEqual([]);
+    expect(kinds(judge((head) => (head.safe_categories.misc = { description: "Misc.", paths: ["misc/**"] })))).toEqual(["exemption_added"]);
+  });
+
+  it("does not flag reordered classes or sql_content rules", () => {
+    const result = judge((head) => {
+      head.classes = Object.fromEntries(Object.entries(head.classes).reverse());
+      head.sql_content.rules.reverse();
+    });
+    expect(result).toMatchObject({ detected: false, reasons: [] });
   });
 
   it("flags a class path moved into a safe category as a downgrade", () => {
@@ -593,6 +623,8 @@ describe("gate_loosening: config diff against base", () => {
     expect(kinds(edited)).toEqual(["gate_changed"]);
     const removed = await gateLooseningForPull({ files: [{ filename: DETECTOR_REPO_PATH, status: "removed" }], baseRaw: rawConfig });
     expect(kinds(removed)).toEqual(["gate_removed"]);
+    const helper = await gateLooseningForPull({ files: [modified(DETECTOR_HELPER_REPO_PATH)], baseRaw: rawConfig });
+    expect(helper.reasons).toEqual([expect.objectContaining({ kind: "gate_changed", path: "scripts/proof-check.mjs" })]);
     const incomplete = await gateLooseningForPull({ files: [], baseRaw: rawConfig, incomplete: "the changed-file list is incomplete or stale" });
     expect(kinds(incomplete)).toEqual(["not_checked"]);
   });

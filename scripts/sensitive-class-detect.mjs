@@ -429,10 +429,12 @@ export const CONFIG_REPO_PATH = "scripts/sensitive-classes.json";
 export const DETECTOR_REPO_PATH = "scripts/sensitive-class-detect.mjs";
 export const WORKFLOW_REPO_PATH = ".github/workflows/sensitive-class.yml";
 export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
-const GATE_PATHS = [CONFIG_REPO_PATH, DETECTOR_REPO_PATH, WORKFLOW_REPO_PATH];
+// The detector imports proof-check.mjs, so an edit there changes it after merge.
+export const DETECTOR_HELPER_REPO_PATH = "scripts/proof-check.mjs";
+const GATE_PATHS = [CONFIG_REPO_PATH, DETECTOR_REPO_PATH, DETECTOR_HELPER_REPO_PATH, WORKFLOW_REPO_PATH];
 // Fields whose items each widen what an entry matches. areas, description and
 // syntax are text and never change a classification.
-const MATCH_FIELDS = ["paths", "path_keywords", "signals"];
+const MATCH_FIELDS = ["paths", "path_keywords"];
 const EXEMPT_FIELDS = ["exclude", "exclude_keywords"];
 
 const listOf = (entry, field) => (Array.isArray(entry?.[field]) ? entry[field] : []);
@@ -446,16 +448,24 @@ const sqlRuleKey = (rule) => `${rule?.class}:${Array.isArray(rule?.tokens) ? rul
  * - the head config is removed, unparseable or invalid under the base
  *   validator (fail closed), or the base config cannot be read;
  * - a class, safe category exclusion or sql_content rule is removed;
- * - a class glob, keyword or signal, or a sql_content path, is removed or
+ * - a class glob or keyword, or a sql_content path, is removed or
  *   edited (an edit is a removal plus an addition);
+ * - a class signal is removed or edited (signal_removed);
  * - a class glob or keyword moves into a safe category (class_downgraded);
  * - a new exemption: an exclude or exclude_keywords on a class, or a new safe
  *   category path or keyword;
- * - the detector script or its workflow is edited or removed (CI runs the
- *   base copy, so the edit takes effect only after merge);
+ * - the safe categories kept from base change order (category_order_changed);
+ * - the detector script, its proof-check.mjs helper or its workflow is edited
+ *   or removed (CI runs the base copy, so the edit takes effect only after
+ *   merge);
  * - the changed-file list is incomplete, so a config edit cannot be ruled out.
- * Added classes, rules, globs and keywords and description-only edits are not
- * loosening. gateFiles: [{ path, status }] from the PR file list.
+ * Added classes, rules, globs and keywords, description-only edits and
+ * reordering classes or sql_content rules are not loosening.
+ * The diff is textual, so it fails safe with false positives: an equivalent
+ * rewrite (splitting a brace glob into two, a case-only edit) is flagged, and
+ * so is a stale branch that edits the config after base has added rules (the
+ * newer base rules look removed). gateFiles: [{ path, status }] from the PR
+ * file list.
  */
 export function detectGateLoosening({ baseRaw = null, headRaw = null, baseError = null, headError = null, gateFiles = [], incomplete = null }) {
   const reasons = [];
@@ -505,6 +515,12 @@ function diffConfig(base, head) {
       const kept = new Set(listOf(headClasses[name], field));
       for (const value of listOf(entry, field)) if (!kept.has(value)) removals.push({ name, field, value });
     }
+    // Signals never classify; they map AGENTS.md rows to a class, so dropping
+    // one can leave a sensitive area unclaimed.
+    const keptSignals = new Set(listOf(headClasses[name], "signals"));
+    for (const value of listOf(entry, "signals")) {
+      if (!keptSignals.has(value)) reasons.push({ kind: "signal_removed", path: at, entry: `classes.${name}`, field: "signals", value, message: `${at} removes or edits signal ${JSON.stringify(value)} of class "${name}".` });
+    }
   }
   for (const [name, entry] of Object.entries(headClasses)) {
     for (const field of EXEMPT_FIELDS) {
@@ -513,6 +529,14 @@ function diffConfig(base, head) {
         if (!prior.has(value)) reasons.push({ kind: "exemption_added", path: at, entry: `classes.${name}`, field, value, message: `${at} adds ${field} ${JSON.stringify(value)} to class "${name}".` });
       }
     }
+  }
+
+  // A path takes the first safe category that matches, and a rename stays safe
+  // only when both names get the same one, so reordering can exempt a file.
+  const baseOrder = Object.keys(baseCategories).filter((name) => Object.hasOwn(headCategories, name));
+  const headOrder = Object.keys(headCategories).filter((name) => Object.hasOwn(baseCategories, name));
+  if (baseOrder.join("\n") !== headOrder.join("\n")) {
+    reasons.push({ kind: "category_order_changed", path: at, entry: "safe_categories", value: headOrder, message: `${at} reorders safe categories from ${JSON.stringify(baseOrder)} to ${JSON.stringify(headOrder)}.` });
   }
 
   const additions = [];
