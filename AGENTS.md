@@ -59,7 +59,7 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ## Sensitive paths (single shared list)
 
-`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs` and never copy its globs; gates read the base checkout's copy. A Linear issue whose scope touches it is routed architect-first; a PR that touches it gets Opus review regardless of the Jev score. Globs use picomatch semantics with dotfiles included and case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening.
+`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs` and never copy its globs; gates read the base checkout's copy. A Linear issue whose scope touches it is routed architect-first; a PR that touches it gets Opus review regardless of the Jev score. Globs use picomatch semantics with dotfiles included and case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening. The PR report (`npm run sensitive-paths:report`, also run inside `npm run test:portable-node`) is report only and never fails; a dedicated workflow running the base copy of the matcher is a future card item.
 
 <!-- sensitive-paths:begin -->
 - **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`

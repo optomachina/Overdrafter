@@ -19,10 +19,12 @@
  * Gates read the JSON from the base checkout. A change that removes, narrows
  * or reclassifies a glob, or deletes or breaks the file, is gate_loosening
  * (needs a Grok Bot countersign on top of Blaine's card); additions are free.
- * An edit to this module or its workflow is flagged as well. Report only: it
- * never changes the exit code.
+ * An edit to this module or its report runner (REPORT_RUNNER_PATH, run by
+ * `npm run test:portable-node`) is flagged as well. Report only: it never
+ * changes the exit code.
  *
  * Usage:
+ *   npm run sensitive-paths:report   (HEAD^1..HEAD, what CI reports)
  *   node scripts/lib/sensitive-paths.mjs classify [--base-ref <ref>] [--json] <path> ...
  *   node scripts/lib/sensitive-paths.mjs report --changed-files-from <name-status.txt> --base-ref HEAD^1 [--json-out <path>]
  * Options: --root <dir> (repository root, default cwd).
@@ -37,7 +39,12 @@ import { fileURLToPath } from "node:url";
 export const SENSITIVE_PATHS_FILE = "docs/sensitive-paths.json";
 export const SENSITIVE_PATHS_VERSION = 1;
 export const MATCHER_PATH = "scripts/lib/sensitive-paths.mjs";
-export const WORKFLOW_PATH = ".github/workflows/sensitive-paths-report.yml";
+// Runs the report inside `npm run test:portable-node` (CI runs it; no workflow of its own).
+export const REPORT_RUNNER_PATH = "scripts/sensitive-paths-report.node-test.mjs";
+// Not in the repository: a dedicated workflow that runs the base copy of this
+// module is a future card item (Blaine's card). Listed so that adding it later
+// is free and any edit after that is flagged.
+export const PLANNED_WORKFLOW_PATH = ".github/workflows/sensitive-paths-report.yml";
 export const REPORT_SCHEMA = "sensitive-paths-report.v1";
 export const SENSITIVE_CLASSES = ["schema", "migrations", "auth", "payments", "provider_dispatch", "secrets", "infra_ci", "deps"];
 export const AGENTS_BEGIN = "<!-- sensitive-paths:begin -->";
@@ -51,7 +58,7 @@ export const LOOSENING_GLOB_RECLASSIFIED = "glob_reclassified";
 export const LOOSENING_CONFIG_REMOVED = "config_removed";
 export const LOOSENING_CONFIG_INVALID = "config_invalid";
 export const LOOSENING_MATCHER_CHANGED = "matcher_changed";
-const MATCHER_FILES = [MATCHER_PATH, WORKFLOW_PATH];
+const MATCHER_FILES = [MATCHER_PATH, REPORT_RUNNER_PATH, PLANNED_WORKFLOW_PATH];
 
 // ---------------------------------------------------------------------------
 // Globs

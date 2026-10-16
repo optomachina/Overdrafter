@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,6 +15,8 @@ import {
   LOOSENING_GLOB_REMOVED,
   LOOSENING_MATCHER_CHANGED,
   MATCHER_PATH,
+  PLANNED_WORKFLOW_PATH,
+  REPORT_RUNNER_PATH,
   SENSITIVE_CLASSES,
   SENSITIVE_PATHS_FILE,
   checkAgentsParity,
@@ -228,6 +230,16 @@ describe("gate loosening", () => {
     expect(codes(findGateLoosening({ changedFiles: [{ status: "M", file: MATCHER_PATH }] }))).toEqual([LOOSENING_MATCHER_CHANGED]);
     expect(findGateLoosening({ changedFiles: [{ status: "A", file: MATCHER_PATH }] }).detected).toBe(false);
     expect(findGateLoosening({ baseText: null, headText: configText }).detected).toBe(false);
+  });
+
+  it("flags edits to the report runner and the planned workflow", () => {
+    expect(existsSync(join(repoRoot, REPORT_RUNNER_PATH))).toBe(true);
+    // The workflow is a future card item, not in the repository yet.
+    expect(existsSync(join(repoRoot, PLANNED_WORKFLOW_PATH))).toBe(false);
+    for (const file of [REPORT_RUNNER_PATH, PLANNED_WORKFLOW_PATH]) {
+      expect(codes(findGateLoosening({ changedFiles: [{ status: "M", file }] }))).toEqual([LOOSENING_MATCHER_CHANGED]);
+      expect(findGateLoosening({ changedFiles: [{ status: "A", file }] }).detected).toBe(false);
+    }
   });
 
   it("classifies with the base checkout's JSON and reports loosening (report mode)", () => {
