@@ -1,0 +1,122 @@
+name: Ephemeral DB
+
+# OVD-849 part 1. Proves a PR's migrations in a throwaway local Supabase database
+# on the runner: start the stack from the base's supabase/ tree (HEAD^1, so only
+# main's migrations), apply the PR's new migrations oldest first, run the policy
+# pgTAP suite, then apply the touched migration drafts and run the touched
+# pending pgTAP files. scripts/ephemeral-db-apply.mjs does the work and names the
+# first migration that fails.
+#
+# It never connects to a hosted Supabase project and uses no secrets: the script
+# accepts only a loopback database URL (scripts/supabase-target-guard.mjs).
+#
+# Report mode: the job is non-required and continue-on-error, and the script
+# exits 0 whatever the result. The JSON report (schema ovd849.ephemeral-db.v1,
+# for OVD-845) is uploaded as the ephemeral-db-report artifact and summarised
+# in the step summary. To block on it later, pass enforce: true (which adds
+# --enforce) and make the check required; do not change branch protection here.
+#
+# This generalises the per-issue ovdNNN-pending-pgtap.yml workflows. Those still
+# own their rollback and DM-1R replay checks, and can be retired once this job
+# has proven itself.
+#
+# The script runs from the base commit (HEAD^1), so a PR cannot edit it to skip
+# itself. When the base has no copy yet (the PR that introduces it), the head
+# copy runs.
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - 'supabase/config.toml'
+      - 'docs/migration-drafts/**'
+      - 'scripts/ephemeral-db-apply.mjs'
+      - 'scripts/supabase-target-guard.mjs'
+      - 'scripts/run-supabase-policy-tests.mjs'
+      - '.github/workflows/ephemeral-db.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      enforce:
+        description: Fail the job when the ephemeral database result is not pass.
+        type: boolean
+        default: false
+
+concurrency:
+  group: ephemeral-db-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ephemeral-db:
+    name: ephemeral-db
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Report mode: never blocks a PR until it is promoted with enforce: true.
+    continue-on-error: ${{ !inputs.enforce }}
+    env:
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      # pull_request checks out the merge commit of the PR head into the current
+      # base tip, so HEAD^1 is the base as merged.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
+        with:
+          version: 2.78.1
+
+      - name: Prepare checker from base
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/gate"
+          mkdir -p "$gate/scripts"
+          files="scripts/ephemeral-db-apply.mjs scripts/supabase-target-guard.mjs scripts/migration-timestamp.mjs scripts/run-supabase-policy-tests.mjs scripts/ovd462-lease-race.mjs scripts/ovd591-psql-concurrency.mjs"
+          source=base
+          for file in $files; do
+            git cat-file -e "HEAD^1:$file" 2>/dev/null || source=head
+          done
+          for file in $files; do
+            if [ "$source" = base ]; then
+              git show "HEAD^1:$file" > "$gate/$file"
+            else
+              cp "$file" "$gate/$file"
+            fi
+          done
+          echo "Checker scripts taken from: $source"
+
+      - name: Apply PR migrations and run pgTAP (ephemeral DB)
+        env:
+          ENFORCE: ${{ inputs.enforce && '--enforce' || '' }}
+        run: |
+          set -euo pipefail
+          git diff --name-status --no-renames HEAD^1 HEAD
+          node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs" \
+            --root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
+            --db-url "$DB_URL" --psql docker \
+            --report "$RUNNER_TEMP/ephemeral-db-report.json" $ENFORCE
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ephemeral-db-report
+          path: ${{ runner.temp }}/ephemeral-db-report.json
+          if-no-files-found: warn
+
+      - name: Stop local database
+        if: always()
+        # The base copy shares config.toml's project_id, so this stops its containers.
+        run: supabase stop --no-backup || true
