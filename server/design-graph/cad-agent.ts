@@ -87,7 +87,7 @@ function toMm(value: string, unit: string | undefined): number {
 
 export function parseThicknessMm(prompt: string): number | undefined {
   for (const pattern of THICKNESS_PATTERNS) {
-    const match = prompt.match(pattern);
+    const match = pattern.exec(prompt);
     if (match) return toMm(match[1], match[2]);
   }
   return undefined;
@@ -234,7 +234,9 @@ export class CadAgent implements DomainAgent {
     const result = outcome.result;
     if (!outcome.ok || !result || !outcome.runDir) {
       const failed = result?.checks.filter((check) => !check.pass).map((check) => check.check) ?? [];
-      throw new Error(`worker ${outcome.state}${outcome.reason ? `: ${outcome.reason}` : ""}${failed.length ? `; failed checks: ${failed.join(", ")}` : ""}`);
+      const reason = outcome.reason ? `: ${outcome.reason}` : "";
+      const failedChecks = failed.length ? `; failed checks: ${failed.join(", ")}` : "";
+      throw new Error(`worker ${outcome.state}${reason}${failedChecks}`);
     }
     const measured = result.stepBboxMm;
     const expected = { x: CAD_PLATE_EDGE_MM, y: CAD_PLATE_EDGE_MM, z: thicknessMm };

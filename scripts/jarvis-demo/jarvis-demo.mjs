@@ -49,10 +49,12 @@ export const PLATE_EDGE_MM = 101.6;
 export const PLATE_THICKNESS_MIN_MM = 0.5;
 export const PLATE_THICKNESS_MAX_MM = 50;
 export const PLATE_HOLE_PATTERNS = ["none", "four_corner_m5", "four_corner_1_4_20"];
+// Float comparison slack for the fixed edge; far below any machinable difference.
+const PLATE_EDGE_EPSILON_MM = 1e-9;
 
 export function validatePlateParams(params) {
   if (params?.recipe !== "plate") return { ok: false, reason: "recipe must be plate" };
-  if (params.edgeMm !== PLATE_EDGE_MM) {
+  if (typeof params.edgeMm !== "number" || !(Math.abs(params.edgeMm - PLATE_EDGE_MM) <= PLATE_EDGE_EPSILON_MM)) {
     return { ok: false, reason: `this recipe builds only a ${PLATE_EDGE_MM} mm square plate, got ${params.edgeMm}` };
   }
   const t = params.thicknessMm;
@@ -152,6 +154,51 @@ export function work(root, python, id) {
 }
 
 const python = (root) => process.env.JARVIS_DEMO_PYTHON ?? join(root, ".venv", "bin", "python");
+const source = () => process.env.JARVIS_DEMO_SOURCE ?? "cli";
+const isRequestId = (value) => /^jd-[\w-]+$/.test(value ?? "");
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function runPlate(root, paramsJson) {
+  const filed = createPlateRequest(root, parseJson(paramsJson), source());
+  const result = filed.ok ? work(root, python(root), filed.request.id) : filed;
+  const resultPath = result.runDir && join(result.runDir, "result.json");
+  if (resultPath && existsSync(resultPath)) result.result = JSON.parse(readFileSync(resultPath, "utf8"));
+  return result;
+}
+
+function readStatus(root, id) {
+  const path = join(root, "runs", id, "outcome.json");
+  return existsSync(path) ? { ok: true, ...JSON.parse(readFileSync(path, "utf8")) } : { ok: true, state: "pending_or_unknown" };
+}
+
+function dispatch(root, command, rest) {
+  if (command === "request") return createRequest(root, rest.join(" "), source());
+  if (command === "plate" && rest.length === 1) return runPlate(root, rest[0]);
+  if (command === "work" && (rest.length === 0 || (rest[0] === "--id" && isRequestId(rest[1])))) return work(root, python(root), rest[1]);
+  if (command === "status" && isRequestId(rest[0])) return readStatus(root, rest[0]);
+  return undefined;
+}
+
+// The CLI's stdout is its response, so it carries ids, states, refusal reasons and
+// the worker's verification summary only; never the request text, params, env or
+// the Python stderr (that stays in runs/<id>/worker.log).
+function responseOf(result) {
+  const { ok, idle, id, state, exitCode, durationMs, runDir, reason } = result;
+  const response = { ok, idle, id, state, exitCode, durationMs, runDir, reason };
+  if (result.request) response.request = { id: result.request.id, state: result.request.state };
+  if (result.result) {
+    const { requestId, stepBboxMm, allChecksPass, checks, files } = result.result;
+    response.result = { requestId, stepBboxMm, allChecksPass, checks, files };
+  }
+  return response;
+}
 
 function main(argv) {
   if (process.env.JARVIS_DEMO_ENABLED !== "1") {
@@ -161,30 +208,12 @@ function main(argv) {
   const root = process.env.JARVIS_DEMO_ROOT ?? join(homedir(), "overnight", "jarvis");
   for (const dir of ["done", "failed"]) mkdirSync(join(root, "queue", dir), { recursive: true });
   const [command, ...rest] = argv;
-  let result;
-  if (command === "request") {
-    result = createRequest(root, rest.join(" "), process.env.JARVIS_DEMO_SOURCE ?? "cli");
-  } else if (command === "plate" && rest.length === 1) {
-    let params;
-    try {
-      params = JSON.parse(rest[0]);
-    } catch {
-      params = undefined;
-    }
-    const filed = createPlateRequest(root, params, process.env.JARVIS_DEMO_SOURCE ?? "cli");
-    result = filed.ok ? work(root, python(root), filed.request.id) : filed;
-    const resultPath = result.runDir && join(result.runDir, "result.json");
-    if (resultPath && existsSync(resultPath)) result.result = JSON.parse(readFileSync(resultPath, "utf8"));
-  } else if (command === "work" && (rest.length === 0 || (rest[0] === "--id" && /^jd-[\w-]+$/.test(rest[1] ?? "")))) {
-    result = work(root, python(root), rest[1]);
-  } else if (command === "status" && rest[0] && /^jd-[\w-]+$/.test(rest[0])) {
-    const path = join(root, "runs", rest[0], "outcome.json");
-    result = existsSync(path) ? { ok: true, ...JSON.parse(readFileSync(path, "utf8")) } : { ok: true, state: "pending_or_unknown" };
-  } else {
+  const result = dispatch(root, command, rest);
+  if (!result) {
     console.error("usage: jarvis-demo.mjs request <text> | work [--id <id>] | status <id> | plate <params json>");
     return 64;
   }
-  console.log(JSON.stringify(result, null, 2));
+  process.stdout.write(`${JSON.stringify(responseOf(result), null, 2)}\n`);
   if (result.ok) return 0;
   return result.state === "checks_failed" ? 2 : 1;
 }

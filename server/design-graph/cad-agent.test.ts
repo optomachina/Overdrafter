@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,8 +90,13 @@ function measureStep(stepPath: string) {
   return JSON.parse(run.stdout) as { x: number; y: number; z: number; solids: number; valid: boolean };
 }
 
-function checkGlb(glbPath: string) {
-  const run = spawnSync(PYTHON as string, [GLB_CHECK, glbPath], { encoding: "utf8", cwd: tmpdir(), env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
+function runGlbCheck(root: string, glbPath: string) {
+  const env = { ...process.env, JARVIS_DEMO_ROOT: root, PYTHONDONTWRITEBYTECODE: "1" };
+  return spawnSync(PYTHON as string, [GLB_CHECK, glbPath], { encoding: "utf8", cwd: tmpdir(), env });
+}
+
+function checkGlb(root: string, glbPath: string) {
+  const run = runGlbCheck(root, glbPath);
   return { status: run.status, report: JSON.parse(run.stdout) as Record<string, number | boolean> };
 }
 
@@ -193,7 +198,8 @@ describe("OVD-802 CadAgent plate recipe", () => {
   realIt(
     "P-3 exactly one valid solid and a watertight GLB (every edge shared by exactly two triangles)",
     async () => {
-      const graph = graphWith(createDefaultRegistry({ env: realEnv(tempRoot()) }));
+      const root = tempRoot();
+      const graph = graphWith(createDefaultRegistry({ env: realEnv(root) }));
       const runId = graph.submit({ prompt: "4 inch square plate, 0.25 in thick, with M5 corner holes" });
       const snapshot = await graph.waitForTerminal(runId);
       const events = graph.getEvents(runId);
@@ -203,7 +209,7 @@ describe("OVD-802 CadAgent plate recipe", () => {
       const measured = measureStep(fileOf(artifacts.find((a) => a.kind === "step")!.uri));
       expect(measured).toMatchObject({ solids: 1, valid: true });
 
-      const { status, report } = checkGlb(fileOf(artifacts.find((a) => a.kind === "glb")!.uri));
+      const { status, report } = checkGlb(root, fileOf(artifacts.find((a) => a.kind === "glb")!.uri));
       console.log(`P-3 STEP solids=${measured.solids} valid=${measured.valid}; GLB ${JSON.stringify(report)}`);
       expect(status).toBe(0);
       expect(report).toMatchObject({ watertight: true, edgesNotShared2: 0, degenerateTriangles: 0 });
@@ -211,12 +217,22 @@ describe("OVD-802 CadAgent plate recipe", () => {
       expect((report.vertices as number) - (report.edges as number) + (report.triangles as number)).toBe(2 - 2 * 4);
 
       // Controls: the checker rejects an open mesh and merges split vertices of a closed one.
-      const dir = tempRoot();
+      const controlRoot = tempRoot();
+      const dir = path.join(controlRoot, "runs", "jd-controls");
+      mkdirSync(dir, { recursive: true });
       const [a, b, c, d] = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
       writeGlb(path.join(dir, "open.glb"), [[a, b, c]]);
-      expect(checkGlb(path.join(dir, "open.glb"))).toMatchObject({ status: 1, report: { watertight: false, edgesNotShared2: 3 } });
+      expect(checkGlb(controlRoot, path.join(dir, "open.glb"))).toMatchObject({ status: 1, report: { watertight: false, edgesNotShared2: 3 } });
       writeGlb(path.join(dir, "tetra.glb"), [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]);
-      expect(checkGlb(path.join(dir, "tetra.glb"))).toMatchObject({ status: 0, report: { watertight: true, vertices: 4, edges: 6 } });
+      expect(checkGlb(controlRoot, path.join(dir, "tetra.glb"))).toMatchObject({ status: 0, report: { watertight: true, vertices: 4, edges: 6 } });
+      // The checker reads only .glb files inside the runs dir.
+      const outside = tempRoot();
+      writeGlb(path.join(outside, "tetra.glb"), [[a, c, b], [a, b, d], [a, d, c], [b, c, d]]);
+      for (const target of [path.join(outside, "tetra.glb"), path.join(dir, "..", "..", "..", path.basename(outside), "tetra.glb")]) {
+        const refused = runGlbCheck(controlRoot, target);
+        expect(refused.status).toBe(1);
+        expect(refused.stderr).toMatch(/must be an existing \.glb file under/);
+      }
     },
     REAL_TIMEOUT_MS,
   );

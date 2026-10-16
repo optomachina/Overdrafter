@@ -5,12 +5,17 @@ edge is shared by exactly two triangles. Meshes exported per face (one glTF
 primitive per B-rep face) share no vertex indices, so merging by position is
 what joins them.
 
+Only .glb files under $JARVIS_DEMO_ROOT/runs (default ~/overnight/jarvis/runs)
+are read.
+
 Usage: python glb_check.py <file.glb>   -> prints a JSON report, exits 0 if watertight
 """
 
 import json
+import os
 import struct
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -22,8 +27,21 @@ TYPE_WIDTHS = {"SCALAR": 1, "VEC3": 3}
 MODE_TRIANGLES = 4
 
 
+def runs_root():
+    return (Path(os.environ.get("JARVIS_DEMO_ROOT", Path.home() / "overnight" / "jarvis")) / "runs").resolve()
+
+
+def checked_glb_path(path):
+    """Resolve path (following symlinks) and require an existing .glb file inside the runs dir."""
+    resolved = Path(path).resolve()
+    root = runs_root()
+    if resolved.suffix.lower() != ".glb" or not resolved.is_relative_to(root) or not resolved.is_file():
+        raise ValueError(f"GLB path must be an existing .glb file under {root}")
+    return resolved
+
+
 def read_glb(path):
-    data = open(path, "rb").read()
+    data = checked_glb_path(path).read_bytes()
     magic, version, length = struct.unpack_from("<III", data, 0)
     if magic != GLB_MAGIC or version != 2 or length != len(data):
         raise ValueError(f"not a glTF 2.0 binary: magic={magic:#x} version={version} length={length}/{len(data)}")
