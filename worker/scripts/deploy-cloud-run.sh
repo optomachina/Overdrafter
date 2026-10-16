@@ -13,6 +13,8 @@ SERVICE_NAME="${SERVICE_NAME:-overdrafter-cad-worker}"
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${CLOUD_RUN_REGION:-us-west1}"
 SUPABASE_URL="${SUPABASE_URL:-}"
+OVERDRAFTER_DEPLOY_ENV="${OVERDRAFTER_DEPLOY_ENV:-}"
+STAGING_SUPABASE_REF="ldmambwtksfvqdufhaam"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
 XOMETRY_PROFILE_SNAPSHOT_BUCKET="${XOMETRY_PROFILE_SNAPSHOT_BUCKET:-}"
@@ -110,6 +112,27 @@ fi
 
 if [[ -z "$SUPABASE_URL" ]]; then
   echo "SUPABASE_URL is required."
+  exit 1
+fi
+
+# OVD-838: a staging worker targets only the staging Supabase project, under its
+# own service name and its own service-role secret, so no production credential
+# is bound to it. See docs/staging-env-wiring.md.
+if [[ "$OVERDRAFTER_DEPLOY_ENV" == "staging" ]]; then
+  if [[ "$SUPABASE_URL" != "https://${STAGING_SUPABASE_REF}.supabase.co" ]]; then
+    echo "A staging worker requires the staging Supabase URL."
+    exit 1
+  fi
+  if [[ "$SERVICE_NAME" == "overdrafter-cad-worker" ]]; then
+    echo "A staging worker must not reuse the production service name."
+    exit 1
+  fi
+  if [[ "$SUPABASE_SERVICE_ROLE_SECRET_NAME" == "supabase-service-role-key" ]]; then
+    echo "A staging worker must not bind the production service-role secret."
+    exit 1
+  fi
+elif [[ -n "$OVERDRAFTER_DEPLOY_ENV" ]]; then
+  echo "OVERDRAFTER_DEPLOY_ENV must be empty or staging."
   exit 1
 fi
 

@@ -287,6 +287,15 @@ type HealthExtras = {
   fictivSessionAgeDays: number | null;
 };
 
+/** OVD-838: the Supabase project ref behind SUPABASE_URL (never a key), so staging and prod are distinguishable. */
+export function supabaseProjectRef(url: string): string | null {
+  try {
+    return /^([a-z0-9]{20})\.supabase\.co$/.exec(new URL(url).hostname)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState, extras: HealthExtras) {
   const ready = state.status === "running" && state.readinessIssues.length === 0;
 
@@ -295,6 +304,7 @@ function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState, extras: He
     workerName: config.workerName,
     workerBuildVersion: config.workerBuildVersion,
     workerMode: config.workerMode,
+    supabaseProjectRef: supabaseProjectRef(config.supabaseUrl),
     drawingExtractionModel: config.drawingExtractionModel,
     drawingExtractionDebugAllowedModels: config.drawingExtractionDebugAllowedModels,
     drawingExtractionModelFallbackEnabled: config.drawingExtractionEnableModelFallback,

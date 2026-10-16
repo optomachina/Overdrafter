@@ -125,6 +125,7 @@ async function runDeployScript({
     "GOOGLE_CLOUD_PROJECT",
     "CLOUD_RUN_REGION",
     "SUPABASE_URL",
+    "OVERDRAFTER_DEPLOY_ENV",
     "SUPABASE_SERVICE_ROLE_SECRET_NAME",
     "XOMETRY_STORAGE_STATE_SECRET_NAME",
     "FICTIV_STORAGE_STATE_SECRET_NAME",
@@ -384,6 +385,40 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     });
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+
+  describe("OVD-838 staging worker guard", () => {
+    const STAGING_ENV = {
+      OVERDRAFTER_DEPLOY_ENV: "staging",
+      SERVICE_NAME: "overdrafter-cad-worker-staging",
+      SUPABASE_URL: "https://ldmambwtksfvqdufhaam.supabase.co",
+      SUPABASE_SERVICE_ROLE_SECRET_NAME: "supabase-service-role-key-staging",
+    };
+
+    it("deploys a staging worker bound only to the staging service-role secret", async () => {
+      const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides: STAGING_ENV });
+      expect(failure).toBeNull();
+      const deployCall = findCall(calls, ["run", "deploy", "overdrafter-cad-worker-staging"]);
+      expect(deployCall).toBeDefined();
+      const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+      expect(envVars.SUPABASE_URL).toBe("https://ldmambwtksfvqdufhaam.supabase.co");
+      const updateSecrets = parseAssignments(optionValue(deployCall, "--update-secrets"));
+      expect(updateSecrets.SUPABASE_SERVICE_ROLE_KEY).toBe("supabase-service-role-key-staging:latest");
+    });
+
+    it.each([
+      ["the production Supabase URL", { SUPABASE_URL: "https://ozuatdcakezjtevztjlr.supabase.co" }],
+      ["the production service name", { SERVICE_NAME: "overdrafter-cad-worker" }],
+      ["the production service-role secret", { SUPABASE_SERVICE_ROLE_SECRET_NAME: "supabase-service-role-key" }],
+      ["an unknown deploy environment", { OVERDRAFTER_DEPLOY_ENV: "preview" }],
+    ])("refuses a staging deploy that uses %s before invoking gcloud", async (_label, override) => {
+      const { failure, calls } = await runDeployScript({
+        snapshot: true,
+        envOverrides: { ...STAGING_ENV, ...override },
+      });
+      expect(failure).not.toBeNull();
+      expect(calls).toEqual([]);
+    });
   });
 
   it("refuses to deploy when the bucket control preflight fails", async () => {
