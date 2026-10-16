@@ -1622,16 +1622,76 @@ async function runProviderPortalInteraction(
   return extractProviderPortalOffers(interaction, snapshot);
 }
 
+/** Signals present when a portal step stops, in no particular arrival order. */
+export type PortalBoundarySignals = {
+  /** First recorded boundary violation, e.g. `unexpected_navigation:<host>`. */
+  violation: string | null;
+  /** Main-frame URL at the time of the stop, when a page exists. */
+  currentUrl: string | null;
+  allowedHosts: readonly string[];
+  providerMutationPossible: boolean;
+  /** Terminal classification a step already produced (e.g. selector drift), if any. */
+  stepOutcome: { terminalState: ProviderPortalTerminalState; reason: string } | null;
+};
+
+export type PortalBoundaryOutcome = {
+  terminalState: ProviderPortalTerminalState;
+  reason: string;
+};
+
+/**
+ * OVD-826: the single precedence rule for a stopped portal step:
+ * unexpected_origin > ambiguous_provider_mutation > selector_drift. An origin
+ * signal is terminal and drops whatever the step was classifying, regardless
+ * of which signal arrived first.
+ */
+export function classifyPortalBoundaryOutcome(signals: PortalBoundarySignals): PortalBoundaryOutcome {
+  if (signals.violation) {
+    return { terminalState: "unexpected_origin", reason: signals.violation };
+  }
+  if (
+    signals.currentUrl !== null
+    && signals.currentUrl !== "about:blank"
+    && !isAllowedProviderUrl(signals.currentUrl, signals.allowedHosts)
+  ) {
+    return { terminalState: "unexpected_origin", reason: "unexpected_origin" };
+  }
+  if (signals.stepOutcome) {
+    return signals.stepOutcome;
+  }
+  return signals.providerMutationPossible
+    ? { terminalState: "selector_drift", reason: "ambiguous_provider_mutation" }
+    : { terminalState: "unavailable", reason: "browser_or_navigation_unavailable" };
+}
+
+function stepOutcomeOf(error: VendorAutomationError): PortalBoundaryOutcome | null {
+  const { terminalState, reason } = error.payload;
+  return typeof terminalState === "string" && typeof reason === "string"
+    ? { terminalState: terminalState as ProviderPortalTerminalState, reason }
+    : null;
+}
+
 function translatePortalKernelError(
   definition: ProviderPortalDefinition,
   boundary: PortalBoundaryState,
+  currentUrl: string | null,
   error: unknown,
 ): VendorAutomationError | ProviderKillSwitchError {
   // Dispatch authorization and export-control decisions are rethrown
   // unchanged by the caller before translation (isDispatchDecisionError).
   // OVD-722: a kill-switch refusal is never re-labelled as a provider failure.
   if (error instanceof ProviderKillSwitchError) return error;
-  if (error instanceof VendorAutomationError) {
+  const stepOutcome = error instanceof VendorAutomationError ? stepOutcomeOf(error) : null;
+  const outcome = classifyPortalBoundaryOutcome({
+    violation: boundary.violation,
+    currentUrl,
+    allowedHosts: definition.allowedHosts,
+    providerMutationPossible: boundary.providerMutationPossible,
+    stepOutcome,
+  });
+  const originOverridesStep = outcome.terminalState === "unexpected_origin"
+    && (stepOutcome?.terminalState !== outcome.terminalState || stepOutcome.reason !== outcome.reason);
+  if (error instanceof VendorAutomationError && !originOverridesStep) {
     if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
       error.payload.providerMutationPossible = true;
     }
@@ -1639,10 +1699,18 @@ function translatePortalKernelError(
   }
   return terminalError(
     definition,
-    boundary.providerMutationPossible ? "selector_drift" : "unavailable",
-    boundary.providerMutationPossible ? "ambiguous_provider_mutation" : "browser_or_navigation_unavailable",
+    outcome.terminalState,
+    outcome.reason,
     { providerMutationPossible: boundary.providerMutationPossible },
   );
+}
+
+function safePageUrl(page: Page | undefined): string | null {
+  try {
+    return page?.url() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1692,7 +1760,7 @@ export async function runProviderPortalKernel(
       throw error;
     }
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
-    const translated = translatePortalKernelError(definition, boundary, error);
+    const translated = translatePortalKernelError(definition, boundary, safePageUrl(session?.page), error);
     if (translated instanceof ProviderKillSwitchError) throw translated;
     if (session) translated.payload.portalBoundary = snapshotBoundaryTelemetry(session.boundary.telemetry);
     if (dependencies.operationalJev) {
