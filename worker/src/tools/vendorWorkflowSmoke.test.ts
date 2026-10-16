@@ -20,6 +20,7 @@ import { PROVIDER_KILL_SWITCH_STATE_SCHEMA } from "../providerKillSwitch";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate";
 import {
   buildErrorRow,
+  formatRow,
   loadProviderPortalApproval,
   loadSendCutSendEvaluationManifest,
   parseQuantities,
@@ -1030,6 +1031,61 @@ describe("runQuote", () => {
     expect(row.totalPriceUsd).toBeNull();
     expect(row.error).toContain("Provider adapter contract failed");
     expect(row.error).toContain("offer_price_unanchored");
+  });
+
+  // Standing rule (2026-10-15): every run that uploaded a test part records
+  // whether the supplier cart was cleaned, without changing the row outcome.
+  describe("supplier cart cleanup record", () => {
+    const staged = () => ({
+      authorization: { nonExportControlled: true, cadFileSha256: "a".repeat(64), drawingFileSha256: null },
+      cadPath: "/private/staged/part.step",
+      drawingPath: null,
+      cleanup: vi.fn(),
+    });
+    const smokeArgs = () => parseSmokeArgs(["--vendor", "xometry", "--cad", "./part.step", "--confirm-non-export-controlled"]);
+
+    it("records the removal reported with a successful quote", async () => {
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
+      const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+        vendor: "xometry", status: "manual_vendor_followup", unitPriceUsd: null, totalPriceUsd: null,
+        leadTimeBusinessDays: null, quoteUrl: null, offers: [], dfmIssues: [], notes: [], artifacts: [],
+        rawPayload: { providerMutationPossible: true, cartCleanup: { status: "removed", removed: 1, remaining: 0, reason: null } },
+      });
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.status).toBe("manual_vendor_followup");
+      expect(row.supplierCartCleanup).toMatchObject({ status: "removed", manualRemovalRequired: false });
+    });
+
+    it("records the cleanup on a failure after upload and keeps the failure", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = new VendorAutomationError("price pending", "selector_failure", {
+        terminalState: "selector_drift", reason: "oshcut_price_pending", providerMutationPossible: true,
+        cartCleanup: { status: "removed", removed: 1, remaining: 0, reason: null },
+      });
+      const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.errorCode).toBe("selector_failure");
+      expect(row.supplierCartCleanup).toMatchObject({ status: "removed", manualRemovalRequired: false });
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("liveHarnessSupplierCleanup"));
+    });
+
+    it("warns for manual removal when the cleanup failed, without changing the outcome", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = new VendorAutomationError("price pending", "selector_failure", {
+        terminalState: "selector_drift", reason: "oshcut_price_pending", providerMutationPossible: true,
+        cartCleanup: { status: "failed", removed: 0, remaining: null, reason: "CleanupTimeout" },
+      });
+      const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
+      const row = await runQuote({ workerTempDir: "/private/runtime" } as WorkerConfig, smokeArgs(), "xometry", 1, staged(),
+        () => ({ xometry: { quote } }));
+      expect(row.errorCode).toBe("selector_failure");
+      expect(row.errorPayload).toMatchObject({ reason: "oshcut_price_pending" });
+      expect(row.supplierCartCleanup).toMatchObject({ status: "failed", manualRemovalRequired: true });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("\"source\":\"liveHarnessSupplierCleanup\""));
+      expect(formatRow(row)).toMatch(/ERROR selector_failure .* \| SUPPLIER CART CLEANUP NEEDED \(failed\)/);
+    });
   });
 
   it("redacts relative runtime roots from failures and artifacts through runQuote", async () => {

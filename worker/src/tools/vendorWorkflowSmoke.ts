@@ -37,6 +37,7 @@ import {
   type LiveHarnessArtifactOptions,
   type LiveHarnessRunArtifacts,
 } from "./liveHarnessArtifacts.js";
+import { reportSupplierCartCleanup, type SupplierCartCleanupRecord } from "./liveHarnessSupplierCleanup.js";
 import { assertOperatorProvidersEnabled, guardOperatorQuote } from "./operatorKillSwitchGate.js";
 import {
   hasNonExportControlledConfirmation,
@@ -114,6 +115,8 @@ type SmokeRow = {
   errorPayload: Record<string, unknown> | null;
   error: string | null;
   cleanupError: string | null;
+  /** Supplier-side removal of the uploaded test part (standing rule, 2026-10-15). */
+  supplierCartCleanup?: SupplierCartCleanupRecord;
   evidence: LiveEvaluationEvidenceV1;
 };
 
@@ -1324,6 +1327,14 @@ function formatBusinessDays(value: number | null): string {
 }
 
 export function formatRow(row: SmokeRow) {
+  const line = formatRowOutcome(row);
+  const cleanup = row.supplierCartCleanup;
+  return cleanup?.manualRemovalRequired
+    ? `${line} | SUPPLIER CART CLEANUP NEEDED (${cleanup.status}): remove the test part manually`
+    : line;
+}
+
+function formatRowOutcome(row: SmokeRow) {
   if (row.error) {
     const code = row.errorCode ? ` ${row.errorCode}` : "";
     return `  ${row.vendor} qty ${row.quantity}: ERROR${code} (${row.elapsedSec.toFixed(1)}s) - ${row.error}`;
@@ -1514,6 +1525,7 @@ export async function runQuote(
       const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
       const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
         authorization: stagedFiles.authorization, accountMode, sensitivePaths, adapterInput });
+      nativeRow.supplierCartCleanup = reportSupplierCartCleanup({ vendor, quantity, payload: validated });
       console.log("done (local native-currency evidence)");
       return nativeRow;
     }
@@ -1560,6 +1572,7 @@ export async function runQuote(
         validityTerms: result.validityTerms,
       }),
     };
+    row.supplierCartCleanup = reportSupplierCartCleanup({ vendor, quantity, payload: result.rawPayload });
     await recordRunArtifacts(runArtifacts, row, result.quoteUrl, result.artifacts);
   } catch (error) {
     console.log("FAILED");
@@ -1576,6 +1589,11 @@ export async function runQuote(
         accountMode,
       },
     );
+    row.supplierCartCleanup = reportSupplierCartCleanup({
+      vendor,
+      quantity,
+      payload: isVendorAutomationError(error) ? error.payload : adapterResult?.rawPayload,
+    });
     await recordFailedRunArtifacts(runArtifacts, row, adapterResult, error);
   }
 
