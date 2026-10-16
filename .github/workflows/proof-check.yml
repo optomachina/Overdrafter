@@ -1,0 +1,70 @@
+name: Proof check
+
+# Checks that the PR body has a "## Proof" section with at least one
+# recognised item, and a Screenshot for UI changes (scripts/proof-check.mjs).
+# Docs-only PRs are exempt. This is not a required check.
+#
+# The script runs from the base branch's checkout, never from the PR: the job
+# checks out the base sha, reads changed files through the API, and takes the
+# body from the event payload through an environment variable. When the base
+# has no copy of the script yet (the PR that introduces it), the job skips with
+# a summary note.
+#
+# PROOF_CHECK_MODE=report always exits 0 and marks the result in the job
+# summary. Switch it to enforce to fail the job on a missing proof.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - ready_for_review
+
+concurrency:
+  group: proof-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  proof-check:
+    name: proof-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROOF_CHECK_MODE: report
+
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check proof
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ ! -f scripts/proof-check.mjs ]; then
+            printf '### Proof check: SKIPPED\n\nThe base branch has no scripts/proof-check.mjs yet, so there is no trusted copy to run.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          changed="$RUNNER_TEMP/proof-check-changed-files.txt"
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$changed"; then
+            printf '### Proof check: ERROR\n\nCould not list the changed files for this PR.\n' >> "$GITHUB_STEP_SUMMARY"
+            [ "$PROOF_CHECK_MODE" = enforce ] && exit 1
+            exit 0
+          fi
+          node scripts/proof-check.mjs --changed-files "$changed"
