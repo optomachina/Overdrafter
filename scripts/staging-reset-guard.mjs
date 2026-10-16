@@ -40,11 +40,18 @@ export function assertStagingRef(ref) {
   return ref;
 }
 
+// libpq lets these query parameters replace the host in the URL authority.
+const HOST_OVERRIDE_PARAMS = new Set(["host", "hostaddr"]);
+const POOLER_HOST_PATTERN = /^[a-z0-9-]+\.pooler\.supabase\.com$/;
+
 /**
  * Resolve the project ref a target names: a bare ref, an API URL
  * (https://<ref>.supabase.co), a direct DB URL (db.<ref>.supabase.co) or a
- * pooler URL (user postgres.<ref>). Every ref-shaped token in the target must
- * agree, so a URL that mentions production anywhere is refused.
+ * pooler URL (user postgres.<ref> on *.pooler.supabase.com). Every ref-shaped
+ * token in the target must agree, so a URL that mentions production anywhere
+ * is refused. Key=value DSNs, multi-host URLs and URLs whose query string
+ * overrides the host (host= / hostaddr=) are refused, because libpq would
+ * connect somewhere other than the authority this guard checked.
  */
 export function projectRefFromTarget(target) {
   if (typeof target !== "string" || target.trim() === "") {
@@ -59,12 +66,27 @@ export function projectRefFromTarget(target) {
   } catch {
     refuse("target is neither a project ref nor a URL");
   }
+  const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
+  if (authority.slice(authority.lastIndexOf("@") + 1).includes(",") || url.host.includes(",")) {
+    refuse("target URL lists more than one host");
+  }
+  for (const key of url.searchParams.keys()) {
+    if (HOST_OVERRIDE_PARAMS.has(key.trim().toLowerCase())) {
+      refuse(`target URL overrides the host with a ${key.trim().toLowerCase()} parameter`);
+    }
+  }
+
   const candidates = new Set();
   const host = url.hostname.toLowerCase();
   const hostMatch = /^(?:db\.)?([a-z0-9]{20})\.supabase\.(?:co|com)$/.exec(host);
   if (hostMatch) candidates.add(hostMatch[1]);
   const userMatch = /^[a-z_]+\.([a-z0-9]{20})$/.exec(decodeURIComponent(url.username));
-  if (userMatch) candidates.add(userMatch[1]);
+  if (userMatch) {
+    if (!hostMatch && !POOLER_HOST_PATTERN.test(host)) {
+      refuse("target URL names a project ref in the user but its host is not a Supabase pooler");
+    }
+    candidates.add(userMatch[1]);
+  }
   if (value.includes(PRODUCTION_PROJECT_REF)) candidates.add(PRODUCTION_PROJECT_REF);
 
   if (candidates.size === 0) refuse("cannot determine a Supabase project ref from the target URL");

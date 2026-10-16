@@ -54,8 +54,10 @@ match to the table above, stop. Do not retry against a guessed ref.
 [`scripts/staging-reset-guard.mjs`](../../scripts/staging-reset-guard.mjs)
 exports `assertStagingRef(ref)` and `assertStagingTarget(refOrUrl)`. The
 allowlist is exactly `ldmambwtksfvqdufhaam`. The production ref, unknown refs,
-malformed refs, local URLs, and any URL that mentions the production ref
-anywhere are refused with exit code 1 (2 for usage errors). It makes no network
+malformed refs, local URLs, any URL that mentions the production ref
+anywhere, key=value DSNs, multi-host URLs, URLs whose query string overrides
+the host (`host=` / `hostaddr=`, any case), and pooler-style users on a
+non-pooler host are refused with exit code 1 (2 for usage errors). It makes no network
 or database call. Tests: `scripts/staging-reset-guard.test.mjs`.
 
 Rule: the staging seed (`scripts/seed-staging.mjs --check-target`, OVD-837) and
@@ -99,7 +101,8 @@ Full reset (schema drifted, a rollback left debris, or a drill went wrong):
 2. Either delete and recreate the project as `overdrafter-staging` in
    `us-west-1` (the ref changes: update this runbook and the guard allowlist in
    the same PR), or drop and recreate the app schemas on the existing project
-   and replay `supabase/migrations` in order (see caveats below).
+   and replay `supabase/migrations` in order with `supabase db push --linked`
+   (not MCP `apply_migration`; see the migration flow and caveats below).
 3. Confirm `list_migrations` shows every file on `main`.
 4. Reseed and run the counts and smoke files.
 
@@ -129,12 +132,19 @@ Every change under `supabase/migrations` goes to staging before production.
    `.rollback.sql` (see [Rollback](#rollback)). Qualify it locally or in CI
    (pending pgTAP workflow) as today.
 2. **Guard.** Confirm the target is `ldmambwtksfvqdufhaam`.
-3. **Apply to staging.** Either:
+3. **Apply to staging** with the Supabase CLI, which records each version from
+   the `supabase/migrations` filename so staging history matches the repo:
    - `supabase link --project-ref ldmambwtksfvqdufhaam`, read back
-     `supabase/.temp/project-ref`, then `supabase db push --linked`; or
-   - Supabase MCP `apply_migration` / `execute_sql` with
-     `project_id: ldmambwtksfvqdufhaam`, then insert the history row so
-     `list_migrations` matches the repo.
+     `supabase/.temp/project-ref`, then `supabase db push --linked`
+     (or `supabase migration up --linked`). Check with
+     `supabase migration list --linked` that local and remote versions match.
+   - **Do not use Supabase MCP `apply_migration`.** It stamps a new
+     current-timestamp version instead of the repo filename's version, so
+     staging history diverges from `supabase/migrations` and a later
+     `db push` sees the file as unapplied.
+   - If the CLI cannot reach staging, MCP `execute_sql` is the fallback: run
+     the file as written, then insert the history row with the repo filename's
+     version and name (see [execute_sql caveats](#execute_sql-caveats)).
 4. **Rollback drill on staging.** Apply, roll back, re-apply.
 5. **Smoke reads on staging.** Run the PR's smoke SQL (SELECT + LIMIT) and
    `list_migrations`. Record pass or fail.
@@ -162,7 +172,7 @@ Paste into the PR description and the release notes. Fill every field; write
 | Migration id(s) | `<14-digit timestamp>_<slug>.sql` |
 | Commit SHA | `<sha>` |
 | Staging ref | `ldmambwtksfvqdufhaam` (guard output: `<paste>`) |
-| Staging apply | pass / fail, `<UTC timestamp>`, method: `db push --linked` / MCP |
+| Staging apply | pass / fail, `<UTC timestamp>`, method: `db push --linked` / `migration up --linked` / `execute_sql` + history row |
 | Staging rollback drill | apply → rollback → re-apply: pass / fail, `<UTC timestamp>` |
 | Staging smoke SQL | see block below |
 | Staging smoke result | pass / fail, `<UTC timestamp>`, rows: `<summary>` |
@@ -206,8 +216,10 @@ MCP-driven apply:
   `supabase db push` handles these files as written.
 - **Record history.** MCP `execute_sql` does not write
   `supabase_migrations.schema_migrations`. Insert the history row for each
-  applied version (or use `apply_migration`) so `list_migrations` matches the
-  repo and a later `db push` does not re-apply it.
+  applied file using the version and name from its `supabase/migrations`
+  filename, so `list_migrations` matches the repo and a later `db push` does
+  not re-apply it. Never use `apply_migration` for this: it records a new
+  timestamp version that does not match the repo.
 
 ## Related
 
