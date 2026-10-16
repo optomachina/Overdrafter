@@ -1,7 +1,7 @@
 # Jarvis PWA, slice 1: thread, skippable decision cards, 3D result view
 
 Issue: OVD-799 (split child of OVD-795). Owner: Designer, then Engineer (OVD-803 PWA shell and gate, OVD-804 thread and 3D; OVD-800 closed as a duplicate of OVD-803) after sign off.
-Repo path: `docs/design/jarvis-pwa/` (this folder). Status: **v4.1 APPROVED by Blaine, 2026-10-16 (v3 plus the Critiquito fixes, plus the v4 recheck fixes).** v1, v2 and v3 are superseded and kept for history. Chat as the primary surface is allowed only in the Jarvis phone app; the customer quote workspace ban in `docs/DESIGN.md` still stands. Jarvis shows inches by default with mm as the secondary unit.
+Repo path: `docs/design/jarvis-pwa/` (this folder). Status: **v4.1 APPROVED by Blaine, 2026-10-16 (v3 plus the Critiquito fixes, plus the v4 recheck fixes).** v1, v2 and v3 are superseded. Their mocks, screenshots and tools were removed from the repo (recover them from git history at cb307e09 or earlier); the sections below keep only their reasoning. Chat as the primary surface is allowed only in the Jarvis phone app; the customer quote workspace ban in `docs/DESIGN.md` still stands. Jarvis shows inches by default with mm as the secondary unit.
 Inputs read: OVD-799, OVD-795 (incl. architect comment 5b0ca055 and the 8:35/8:36 PM AR and job control comments), OVD-481, OVD-781, `docs/DESIGN.md`, `src/lib/engineering-workbench-access.ts`.
 All values in the mock and screenshots are **sample data** (labeled on screen). Nothing here is a real Jarvis output.
 
@@ -32,7 +32,7 @@ All 13 states at 430 and 375: rendered; control border contrast at least 3:1 aga
 
 ## v4. North Star command loop plus Critiquito fixes (approved 2026-10-16; refined by v4.1)
 
-Approved by Blaine on 2026-10-16 as "v3 plus your fixes from the Critiquito pass". Critique: `critique-v3.md`; fix list: `/workspace/critiques/jarvis-pwa/fix-list.md`.
+Approved by Blaine on 2026-10-16 as "v3 plus your fixes from the Critiquito pass". Critique: `critique-v3.md`; fix list: `/workspace/critiques/jarvis-pwa/fix-list.md` (not kept in the repo).
 Files: `tools/index.v4.src.html` → `tools/build.v4.py` → `mock/v4.html` (`?state=`); `tools/shoot.v4.js` → `screenshots/v4/<state>-430.png` (full page), `screenshots/v4/375/<state>-375.png`, `screenshots/v4/combined-direct-parallel-decide-result-committed.png`, `screenshots/v4/checks-report.json`.
 
 **States (13):** `empty`, `direct`, `parallel`, `decide`, `evidence` (calculation sheet), `result`, `commit` (confirm sheet), `committed` (with undo), `more` (sheet), `paused`, `failed` (CAD failed), `checkfail` (independent check failed, not committable), `offline`.
@@ -72,6 +72,8 @@ All 13 states at 430 and 375: rendered, no horizontal overflow, no text under 11
 
 ## v3. North Star command loop (SUPERSEDED by v4, history only)
 
+Files named in this section were removed from the repo; see git history at cb307e09.
+
 Files: `tools/index.v3.src.html` → `tools/build.v3.py` → `mock/v3.html` (`?state=direct|parallel|decide|result|more`); `tools/shoot.v3.js` → `screenshots/v3/{direct,parallel,decide,result,more}-430.png`, `screenshots/v3/combined-direct-parallel-decide-result.png`, `screenshots/v3/checks-report.json`.
 
 Same quiet frame as v2 (plain thread, no badges, one accent per screen, 11px sample line). Four key states:
@@ -97,6 +99,8 @@ Same as v2 (overflow, 11px, 44px, no dash or ellipsis, at most one accent elemen
 > **History.** v2 (2026-10-15, 9:30 PM PT) superseded v1 and is itself superseded by v3. v1 (sections 1 to 11 below) is superseded by v3 for layout, chrome and states; its behavior notes remain reference only. Blaine: "It's too busy, needs to be less." v2 below is the current direction. Sections 4 to 9 describe v1 and stay for reference: they still apply for behavior (events, idempotency, AR detection, model-viewer, gate, units data, decisions in §10) but **not** for layout, chrome or the state list wherever v2 says otherwise.
 
 ## v2. Quiet chat (SUPERSEDED by v3, history only)
+
+Files named in this section were removed from the repo; see git history at cb307e09.
 
 Files: `tools/index.v2.src.html` → `tools/build.v2.py` → `mock/v2.html` (`?state=working|question|result|more`); `tools/shoot.v2.js` → `screenshots/v2/{working,question,result,more}-430.png`, `screenshots/v2/combined-working-question-result.png`, `screenshots/v2/checks-report.json`. v1 files are untouched.
 
@@ -132,6 +136,8 @@ No horizontal overflow; no text under 11px; every control at least 44 x 44; no h
 §4 state list (layout), §5.2 strip, §5.3 status card and pinned strip, §5.4 permanent control buttons (behavior kept), §5.5 to §5.7 card layouts and tags, §2 "filled accent buttons" rule (now one accent per screen), §8 criteria 1 and 11 (strip on every screen).
 
 ## 1. Folder contents
+
+Files named in this section were removed from the repo; see git history at cb307e09.
 
 | Path | What |
 |---|---|
