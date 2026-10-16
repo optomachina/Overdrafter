@@ -2051,8 +2051,46 @@ export async function setQuantity(
 }
 
 /**
+ * OVD-776: reads the part row's quantity input values from the first
+ * row-scoped selector with a visible match. Every visible match is returned,
+ * so a second row or a stray widget with another value cannot hide behind
+ * the first one. Unparseable values are returned as null.
+ */
+async function readLineItemQuantities(page: Page) {
+  for (const selector of XOMETRY_LOCATORS.lineItemQuantityInputs) {
+    const locator = page.locator(selector);
+    const count = Math.min(await locator.count().catch(() => 0), 10);
+    const values: Array<number | null> = [];
+    for (let index = 0; index < count; index += 1) {
+      const input = locator.nth(index);
+      if (!(await input.isVisible().catch(() => false))) continue;
+      const value = (await input.inputValue().catch(() => "")).trim();
+      values.push(/^\d+$/.test(value) ? Number.parseInt(value, 10) : null);
+    }
+    if (values.length > 0) return { selector, values };
+  }
+  return { selector: null, values: [] as Array<number | null> };
+}
+
+/**
+ * Fails closed unless every visible line-item quantity input reads back the
+ * requested quantity. The summary `Quantity` row is never trusted for this:
+ * the T1 page rendered it as a bare label with no number.
+ */
+async function lineItemQuantityFailure(page: Page, requestedQuantity: number) {
+  const readback = await readLineItemQuantities(page);
+  if (readback.values.length === 0 || readback.values.includes(null)) {
+    return { reason: "quantity_unverified" as const, ...readback };
+  }
+  if (readback.values.some((value) => value !== requestedQuantity)) {
+    return { reason: "quantity_mismatch" as const, ...readback };
+  }
+  return null;
+}
+
+/**
  * Reads Xometry's quote summary and, only when it exposes no explicit quantity,
- * appends one synthetic `Quantity:` line from the first visible quantity input.
+ * appends one synthetic `Quantity:` line from the line-item quantity input.
  * Explicit summary quantities always take precedence, including contradictory
  * values, so callers can use the result for fail-closed verification.
  */
@@ -2065,14 +2103,10 @@ async function readQuoteSummaryText(page: Page) {
     return bodyText;
   }
 
-  for (const selector of XOMETRY_LOCATORS.quantityInputs) {
-    const locator = page.locator(selector).first();
-    if ((await locator.count().catch(() => 0)) < 1) continue;
-    if (!(await locator.isVisible().catch(() => false))) continue;
-    const value = await locator.inputValue().catch(() => "");
-    if (/^\d+$/.test(value)) {
-      return `${bodyText}\nQuantity: ${value}`;
-    }
+  const readback = await readLineItemQuantities(page);
+  const [value] = readback.values;
+  if (value !== undefined && value !== null && readback.values.every((candidate) => candidate === value)) {
+    return `${bodyText}\nQuantity: ${value}`;
   }
 
   return bodyText;
@@ -3264,6 +3298,28 @@ export class XometryAdapter extends VendorAdapter {
           await capturePageArtifacts(page, runDir, "requirement-mismatch"),
         );
       }
+      // OVD-776: no price is captured until the part row itself reads back
+      // the requested quantity. A manual-review page withholds its price instead.
+      const quantityFailure = await lineItemQuantityFailure(page, normalizedQuantity(input));
+      if (quantityFailure && !manualReviewResult.manualReview) {
+        throw new VendorAutomationError(
+          quantityFailure.reason === "quantity_mismatch"
+            ? "Xometry line-item quantity does not match the requested quantity."
+            : "Xometry line-item quantity could not be read back before price capture.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: quantityFailure.reason,
+            requestedQuantity: normalizedQuantity(input),
+            observedLineItemQuantities: quantityFailure.values,
+            lineItemQuantitySelector: quantityFailure.selector,
+            attemptedSelectors: [...XOMETRY_LOCATORS.lineItemQuantityInputs],
+            url: page.url(),
+            bodyExcerpt: excerptText(bodyText),
+          },
+          await capturePageArtifacts(page, runDir, "quantity-unverified"),
+        );
+      }
       const offers = manualReviewResult.manualReview
         ? []
         : await collectXometryOffers(page, normalizedQuantity(input), this.providerObserver ?? this.operationalProviderObserver);
@@ -3298,7 +3354,7 @@ export class XometryAdapter extends VendorAdapter {
             bodyText,
           );
       const priceGate = gateVendorPrice(priceResult);
-      const totalPrice = priceGate.trusted ? priceResult.value : null;
+      const totalPrice = priceGate.trusted && !quantityFailure ? priceResult.value : null;
       const leadTime = gateLeadTime(leadTimeResult, priceGate);
       // A drifted adapter must never publish a price, so the lane routes to
       // review instead of quoting whatever currency string the page happened

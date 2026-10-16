@@ -155,6 +155,16 @@ export const XOMETRY_LOCATORS = {
     'input[type="number"][pattern="^[0-9]*$"]',
     'input[type="number"]',
   ],
+  // OVD-776: the part row's own quantity input, read back before any price
+  // is captured. Row-scoped selectors come first; the generic number inputs
+  // above are deliberately excluded because they can belong to other widgets.
+  lineItemQuantityInputs: [
+    '[data-testid*="line-item" i] input[aria-label="Quantity" i]',
+    '[data-testid*="part-row" i] input[aria-label="Quantity" i]',
+    '[data-testid*="line-item" i] [data-testid*="quantity" i] input',
+    '[data-testid*="part-row" i] [data-testid*="quantity" i] input',
+    'input[aria-label="Quantity"]',
+  ],
   // Current configuration controls. Material and finish are required inputs;
   // the adapter fails closed when it cannot apply the requested requirement.
   materialButtons: [
