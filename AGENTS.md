@@ -110,7 +110,7 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
 - A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
 - Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch [sensitive paths](#sensitive-paths-single-shared-list) or provider/customer data. Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks.
-- Reviewers come from different model families: Sonnet/Opus plus at least one of Codex or Grok. A finding raised by two families is the strongest signal. Review the diff, never an abstract plan.
+- Reviewers come from different model families: Sonnet/Opus plus Codex as the second family; Grok is overflow and a council seat. A finding raised by two families is the strongest signal. Review the diff, never an abstract plan.
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Merge gate (pstack rules, 2026-10-16)

@@ -15,7 +15,8 @@ nodes:
   reviewers:
     sonnet: {family: anthropic, when: always}
     opus:   {family: anthropic, when: [jev-risky, sensitive-paths]}
-    codex:  {family: openai,    when: always}      # cross-family seat (Blaine to confirm)
+    codex:  {family: openai,    when: always}      # second reviewer family (Blaine, 2026-10-16)
+    grok:   {family: xai,       when: overflow}    # overflow reviewer; also a council seat
 edges:
   - [auto-triage, engineer, {unless: sensitive-paths, else: release}]   # architect-first
   - [engineer, jev]
@@ -40,5 +41,5 @@ first_investment: verify-overdrafter
 adapters:   # thin pointers only; no rules restated
   - AGENTS.md          # Codex / dots / generic
   - CLAUDE.md          # Claude Code
-  - ~/.hermes/...      # Hermes (path TBD)
+  - openclaw-mini:~/.hermes/SOUL.md  # Hermes
   - agent-data/workflows/agent-orchestrator-linear/SKILL.md  # Grok Bot
