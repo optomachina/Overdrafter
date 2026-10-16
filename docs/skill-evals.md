@@ -4,7 +4,7 @@ Repo skills are tested like code: each skill has a spec of tasks, expected behav
 
 ## Where things live
 
-- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. `verify-overdrafter` is expected at `.cursor/skills/verify-overdrafter/` (OVD-842). Its spec ships here first and the tooling tolerates the skill being absent.
+- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. `verify-overdrafter` lives at `.agents/skills/verify-overdrafter/` (OVD-842, PR 801). Its spec ships here first and the tooling tolerates the skill being absent.
 - Specs: `evals/skills/<skill>/spec.json`, one per skill. Each case has `id`, `task`, `expectedBehaviors[]` and `rubric[]` (`{id, criterion, points}`, integer points summing to exactly 10). `passScore` is 10.
 - Tooling: `scripts/skill-evals.mjs` (offline, no model API calls). Tests: `scripts/skill-evals.test.mjs`.
 
