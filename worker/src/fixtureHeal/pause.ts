@@ -19,8 +19,6 @@
  * internal test quote here never skips a kill switch checkpoint.
  */
 
-export const FIXTURE_HEAL_PAUSE_CODE = "provider_paused_fixture_heal";
-
 export type SupplierPauseRelease = { via: "reverify" | "heal"; evidenceRef: string };
 
 export type SupplierPauseRecord = {
