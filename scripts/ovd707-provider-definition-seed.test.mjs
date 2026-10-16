@@ -1,0 +1,71 @@
+// @vitest-environment node
+
+// OVD-707: the providers-as-data seed draft is generated from the provider
+// registry and manifests. Pin it so a registry change cannot leave the seed
+// silently stale before the draft is promoted.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+
+const SEED_ROW = /\('([a-z][a-z0-9]{1,49})', '((?:[^']|'')*)', '(portal|api|email|manual)', '([A-Z]{3})', array\[([^\]]*)\]::text\[\], (null|'[A-Z][A-Z0-9_]*'),\s*'((?:[^']|'')*)'::jsonb\)/g;
+
+function parseSeedRows(sql) {
+  return [...sql.matchAll(SEED_ROW)].map(([, slug, displayName, kind, currency, hosts, credentialRef, admission]) => ({
+    slug,
+    displayName: displayName.replaceAll("''", "'"),
+    kind,
+    currency,
+    hosts: [...hosts.matchAll(/'([^']+)'/g)].map((match) => match[1]),
+    credentialRef: credentialRef === "null" ? null : credentialRef.slice(1, -1),
+    admission: JSON.parse(admission.replaceAll("''", "'")),
+  }));
+}
+
+function expectedKind(adapterKind) {
+  if (adapterKind === "api") return "api";
+  return adapterKind.endsWith("_portal") ? "portal" : "manual";
+}
+
+describe("OVD-707 provider definition seed draft", () => {
+  const registry = JSON.parse(read("provider-integrations/provider-registry.v1.json"));
+  const rows = parseSeedRows(read("docs/migration-drafts/ovd-707-b-seed.sql"));
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+
+  it("seeds exactly the registry providers, once each", () => {
+    expect(rows.length).toBe(bySlug.size);
+    expect([...bySlug.keys()].sort()).toEqual(registry.providers.map((entry) => entry.key).sort());
+  });
+
+  it("copies each registry entry verbatim as the admission object", () => {
+    for (const entry of registry.providers) {
+      expect(bySlug.get(entry.key)?.admission).toEqual(entry);
+    }
+  });
+
+  it("takes name, kind and host allowlist from the manifest, and a secret name only", () => {
+    for (const entry of registry.providers) {
+      const manifest = JSON.parse(read(`provider-integrations/${entry.key}/manifest.v1.json`));
+      const row = bySlug.get(entry.key);
+      expect(row.displayName).toBe(manifest.displayName);
+      expect(row.kind).toBe(expectedKind(manifest.integration.adapterKind));
+      expect(row.hosts).toEqual([...manifest.official.domains].sort());
+      expect(row.credentialRef).toBe(entry.sessionSecrets[0]?.secretNameEnv ?? null);
+      if (row.credentialRef !== null) {
+        expect(row.credentialRef).toMatch(/^[A-Z][A-Z0-9_]{0,100}_SECRET_NAME$/);
+      }
+    }
+  });
+
+  it("stays a draft: nothing for OVD-707 lives in supabase/migrations", () => {
+    const migrations = fs.readdirSync(path.join(root, "supabase/migrations"));
+    for (const name of migrations) {
+      expect(read(`supabase/migrations/${name}`)).not.toMatch(/provider_definitions|provider_audit_log/);
+    }
+  });
+});
