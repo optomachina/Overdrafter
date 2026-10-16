@@ -69,6 +69,13 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   --note "low: rename helper for clarity"
 ```
 
+- Arguments are treated as untrusted (they may come from an LLM).
+  `--base`/`--head` must be plain revisions: no leading `-`, no `..`, only
+  ref characters (`A-Za-z0-9._/@{}~^+-`). `--pr` must be a positive integer,
+  and the body goes to `gh` over stdin. `--findings` must resolve (after
+  symlinks) to a file inside the working directory or the OS temp directory.
+  `git` and `gh` are run by absolute path from `/usr/bin`, `/bin` or
+  `/usr/local/bin` with `PATH` pinned to those directories.
 - `sha` comes from `git rev-parse --verify --end-of-options <head>^{commit}`.
   Head is resolved once, and `patch_id` is computed from that same SHA, so the
   two always describe the same commit.

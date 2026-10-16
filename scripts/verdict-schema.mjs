@@ -44,7 +44,7 @@ export const schema = {
       properties: {
         id: { type: "string", minLength: 1, maxLength: 128 },
         model_family: { type: "string", pattern: MODEL_FAMILY },
-        github_login: { type: "string", pattern: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$" },
+        github_login: { type: "string", pattern: String.raw`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$` },
       },
     },
     evidence: {
@@ -62,7 +62,7 @@ export const schema = {
     },
     notes: {
       type: "array",
-      items: { type: "string", pattern: `^(${SEVERITIES.join("|")}): \\S` },
+      items: { type: "string", pattern: String.raw`^(${SEVERITIES.join("|")}): \S` },
     },
     readiness: {
       type: "object",
@@ -103,7 +103,8 @@ const typeOf = (value) => {
 const typeMatches = (actual, expected) => actual === expected || (expected === "number" && actual === "integer");
 const show = (value) => {
   const text = JSON.stringify(value);
-  return text === undefined ? String(value) : text.length > 60 ? `${text.slice(0, 57)}...` : text;
+  if (text === undefined) return String(value);
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 };
 
 /** Allowed clock skew for a verdict timestamp ahead of `now`. */
@@ -133,51 +134,80 @@ const FORMATS = {
   },
 };
 
-/** Minimal JSON Schema interpreter covering exactly the keywords `schema` uses. */
-function check(node, value, path, errors) {
+/**
+ * Keywords that reject the value outright (const, enum, type). Returns false when
+ * the value is rejected, so no narrower keyword reports a second error for it.
+ */
+function checkShape(node, value, actual, path, errors) {
   if ("const" in node && value !== node.const) {
-    errors.push(`${path}: must be ${show(node.const)} (got ${show(value)})${path === "verdict.schema" ? " - unknown schema version" : ""}`);
-    return;
+    const hint = path === "verdict.schema" ? " - unknown schema version" : "";
+    errors.push(`${path}: must be ${show(node.const)} (got ${show(value)})${hint}`);
+    return false;
   }
   if (node.enum && !node.enum.includes(value)) {
     errors.push(`${path}: must be one of ${node.enum.join(", ")} (got ${show(value)})`);
-    return;
+    return false;
   }
+  if (!node.type) return true;
+  const allowed = [node.type].flat();
+  if (allowed.some((t) => typeMatches(actual, t))) return true;
+  errors.push(`${path}: must be ${allowed.join(" or ")} (got ${actual})`);
+  return false;
+}
+
+function checkString(node, value, path, errors) {
+  if (node.minLength !== undefined && value.length < node.minLength) errors.push(`${path}: must not be empty`);
+  if (node.maxLength !== undefined && value.length > node.maxLength) errors.push(`${path}: must be at most ${node.maxLength} characters`);
+  if (node.pattern && !new RegExp(node.pattern).test(value)) errors.push(`${path}: must match ${node.pattern} (got ${show(value)})`);
+  const formatError = node.format && FORMATS[node.format](value);
+  if (formatError) errors.push(`${path}: ${formatError} (got ${show(value)})`);
+}
+
+function checkArray(node, value, path, errors) {
+  if (node.minItems !== undefined && value.length < node.minItems) {
+    const plural = node.minItems === 1 ? "" : "s";
+    errors.push(`${path}: must have at least ${node.minItems} item${plural} (got ${value.length})`);
+  }
+  if (node.items) value.forEach((item, i) => check(node.items, item, `${path}[${i}]`, errors));
+}
+
+function checkObject(node, value, path, errors) {
+  for (const key of node.required ?? []) {
+    if (!Object.hasOwn(value, key)) errors.push(`${path}.${key}: is required`);
+  }
+  for (const [key, child] of Object.entries(value)) {
+    // Own properties only: `constructor`, `__proto__`, `valueOf`, ... must not resolve to Object.prototype.
+    const sub = node.properties && Object.hasOwn(node.properties, key) ? node.properties[key] : undefined;
+    if (sub) check(sub, child, `${path}.${key}`, errors);
+    else if (node.additionalProperties === false) errors.push(`${path}.${key}: is not an allowed field`);
+  }
+}
+
+/** Minimal JSON Schema interpreter covering exactly the keywords `schema` uses. */
+function check(node, value, path, errors) {
   const actual = typeOf(value);
-  if (node.type) {
-    const allowed = [].concat(node.type);
-    if (!allowed.some((t) => typeMatches(actual, t))) {
-      errors.push(`${path}: must be ${allowed.join(" or ")} (got ${actual})`);
-      return;
-    }
-  }
-  if (actual === "string") {
-    if (node.minLength !== undefined && value.length < node.minLength) errors.push(`${path}: must not be empty`);
-    if (node.maxLength !== undefined && value.length > node.maxLength) errors.push(`${path}: must be at most ${node.maxLength} characters`);
-    if (node.pattern && !new RegExp(node.pattern).test(value)) errors.push(`${path}: must match ${node.pattern} (got ${show(value)})`);
-    const formatError = node.format && FORMATS[node.format](value);
-    if (formatError) errors.push(`${path}: ${formatError} (got ${show(value)})`);
-  }
-  if (actual === "integer" && node.minimum !== undefined && value < node.minimum) {
+  if (!checkShape(node, value, actual, path, errors)) return;
+  if (actual === "string") checkString(node, value, path, errors);
+  else if (actual === "integer" && node.minimum !== undefined && value < node.minimum) {
     errors.push(`${path}: must be >= ${node.minimum} (got ${value})`);
+  } else if (actual === "array") checkArray(node, value, path, errors);
+  else if (actual === "object") checkObject(node, value, path, errors);
+}
+
+/** Checks JSON Schema cannot express: future timestamps and role/verdict-dependent fields. */
+function semanticErrors(obj, now) {
+  const errors = [];
+  const at = typeof obj.timestamp === "string" && !FORMATS["utc-timestamp"](obj.timestamp) ? Date.parse(obj.timestamp) : Number.NaN;
+  if (Number.isFinite(at) && at > new Date(now).getTime() + MAX_FUTURE_SKEW_MS) {
+    errors.push(`verdict.timestamp: is in the future (got ${show(obj.timestamp)}, now ${new Date(now).toISOString()})`);
   }
-  if (actual === "array") {
-    if (node.minItems !== undefined && value.length < node.minItems) {
-      errors.push(`${path}: must have at least ${node.minItems} item${node.minItems === 1 ? "" : "s"} (got ${value.length})`);
-    }
-    if (node.items) value.forEach((item, i) => check(node.items, item, `${path}[${i}]`, errors));
+  const hasFindings = Object.hasOwn(obj, "findings");
+  if (obj.role === "reviewer" && !hasFindings) errors.push("verdict.findings: is required when role is reviewer (use [] for none)");
+  if (obj.role === "verifier" && hasFindings) errors.push("verdict.findings: is only allowed when role is reviewer");
+  if (obj.verdict === "PASS_NOTES" && Array.isArray(obj.notes) && obj.notes.length === 0) {
+    errors.push("verdict.notes: PASS_NOTES requires at least one note");
   }
-  if (actual === "object") {
-    for (const key of node.required ?? []) {
-      if (!Object.hasOwn(value, key)) errors.push(`${path}.${key}: is required`);
-    }
-    for (const [key, child] of Object.entries(value)) {
-      // Own properties only: `constructor`, `__proto__`, `valueOf`, ... must not resolve to Object.prototype.
-      const sub = node.properties && Object.hasOwn(node.properties, key) ? node.properties[key] : undefined;
-      if (sub) check(sub, child, `${path}.${key}`, errors);
-      else if (node.additionalProperties === false) errors.push(`${path}.${key}: is not an allowed field`);
-    }
-  }
+  return errors;
 }
 
 /**
@@ -187,21 +217,7 @@ function check(node, value, path, errors) {
 export function validateVerdict(obj, { now = new Date() } = {}) {
   const errors = [];
   check(schema, obj, "verdict", errors);
-  if (typeOf(obj) === "object") {
-    const at = typeof obj.timestamp === "string" && !FORMATS["utc-timestamp"](obj.timestamp) ? Date.parse(obj.timestamp) : NaN;
-    if (Number.isFinite(at) && at > new Date(now).getTime() + MAX_FUTURE_SKEW_MS) {
-      errors.push(`verdict.timestamp: is in the future (got ${show(obj.timestamp)}, now ${new Date(now).toISOString()})`);
-    }
-    if (obj.role === "reviewer" && !Object.hasOwn(obj, "findings")) {
-      errors.push("verdict.findings: is required when role is reviewer (use [] for none)");
-    }
-    if (obj.role === "verifier" && Object.hasOwn(obj, "findings")) {
-      errors.push("verdict.findings: is only allowed when role is reviewer");
-    }
-    if (obj.verdict === "PASS_NOTES" && Array.isArray(obj.notes) && obj.notes.length === 0) {
-      errors.push("verdict.notes: PASS_NOTES requires at least one note");
-    }
-  }
+  if (typeOf(obj) === "object") errors.push(...semanticErrors(obj, now));
   return { ok: errors.length === 0, errors };
 }
 

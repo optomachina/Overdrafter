@@ -9,6 +9,12 @@
  * posts (via `gh pr comment`) when --post and --pr are both given. Never edit a
  * posted verdict comment: edited comments are rejected, so post a new one.
  *
+ * Arguments may come from an LLM, so they are treated as untrusted: --base and
+ * --head must look like git revisions (no leading "-", no "..", only ref
+ * characters), --pr must be a plain positive integer, and --findings must be a
+ * file inside the working directory or the OS temp directory. git and gh run
+ * from a fixed system directory with a fixed PATH, never the caller's PATH.
+ *
  *   node scripts/emit-verdict.mjs --role verifier --verdict PASS \
  *     --base origin/main --head HEAD \
  *     --verifier-id astra-verifier --model-family opus --github-login my-bot \
@@ -19,17 +25,47 @@
  * See docs/verdict-format.md.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { SCHEMA_ID, formatVerdictBlock, tagCorroborated, validateVerdict } from "./verdict-schema.mjs";
 
+/** Fixed, root-owned binary directories. The caller's PATH is never consulted. */
+const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
+const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
+
+/** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
+export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
+  const found = dirs.map((dir) => join(dir, name)).find((candidate) => exists(candidate));
+  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
+  return found;
+}
+
 const git = (args, { cwd, input } = {}) =>
-  execFileSync("git", args, { cwd, input, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
+  execFileSync(resolveBinary("git"), args, {
+    cwd,
+    input,
+    env: SAFE_ENV,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+const REV = /^[A-Za-z0-9_][A-Za-z0-9._/@{}~^+-]{0,254}$/;
+
+/** Reject anything that is not a plain revision (branch, tag, SHA, HEAD~n, ...) before it reaches git. */
+export function assertRev(rev) {
+  if (typeof rev !== "string" || !REV.test(rev) || rev.includes("..")) {
+    throw new Error(`invalid revision ${JSON.stringify(rev ?? null)}: use a branch, tag, or commit SHA`);
+  }
+  return rev;
+}
 
 /** Resolve a revision to its 40-hex commit SHA. */
 export function resolveSha(rev, { cwd } = {}) {
-  return git(["rev-parse", "--verify", "--end-of-options", `${rev}^{commit}`], { cwd }).trim();
+  return git(["rev-parse", "--verify", "--end-of-options", `${assertRev(rev)}^{commit}`], { cwd }).trim();
 }
 
 /**
@@ -50,8 +86,8 @@ const PINNED_DIFF = [
  * `git patch-id --verbatim` of the base...head diff (merge-base to head).
  * `--verbatim` keeps whitespace, so an indentation-only change yields a new id,
  * and implies the order-independent `--stable` hashing (git rejects passing
- * both). Both ends are resolved with `resolveSha` (which ends option parsing)
- * before the diff, so neither can be read as a git option.
+ * both). Both ends are validated and resolved with `resolveSha` (which ends
+ * option parsing) before the diff, so neither can be read as a git option.
  */
 export function computePatchId({ base, head, cwd }) {
   const baseSha = resolveSha(base, { cwd });
@@ -113,15 +149,51 @@ export function formatComment(verdict) {
   ].join("\n");
 }
 
-/** Post via `gh pr comment`. `run` is injectable so tests never touch GitHub. */
-export function postComment({ pr, body, cwd, run = spawnSync }) {
-  if (!/^\d+$/.test(String(pr ?? ""))) throw new Error("--post requires --pr <number>");
-  const result = run("gh", ["pr", "comment", String(pr), "--body-file", "-"], { cwd, input: body, encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
-  if (result.error || result.status !== 0) throw new Error(`gh pr comment failed (${result.error?.message ?? `exit ${result.status}`})`);
+/**
+ * Post via `gh pr comment`. The body goes over stdin, never argv. `run` and
+ * `gh` are injectable so tests never touch GitHub.
+ */
+export function postComment({ pr, body, cwd, run = spawnSync, gh }) {
+  const prNumber = String(pr ?? "");
+  if (!/^[1-9]\d{0,9}$/.test(prNumber)) throw new Error("--post requires --pr <positive integer>");
+  const result = run(gh ?? resolveBinary("gh"), ["pr", "comment", prNumber, "--body-file", "-"], {
+    cwd,
+    input: body,
+    env: SAFE_ENV,
+    encoding: "utf8",
+    stdio: ["pipe", "inherit", "inherit"],
+  });
+  if (result.error || result.status !== 0) {
+    const reason = result.error?.message ?? "exit " + result.status;
+    throw new Error(`gh pr comment failed (${reason})`);
+  }
 }
 
-const readFindings = (file) => {
-  const findings = JSON.parse(readFileSync(file, "utf8"));
+const isInside = (root, target) => {
+  const rel = relative(root, target);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
+/**
+ * Resolve a --findings path and require it (after following symlinks) to sit
+ * inside `cwd` or the OS temp directory. Anything else is refused.
+ */
+export function resolveInputFile(file, { cwd = process.cwd() } = {}) {
+  const roots = [cwd, tmpdir()].map((root) => realpathSync(resolve(root)));
+  let target;
+  try {
+    target = realpathSync(resolve(cwd, file));
+  } catch {
+    throw new Error(`--findings ${JSON.stringify(file)} does not exist`);
+  }
+  if (!roots.some((root) => isInside(root, target))) {
+    throw new Error(`--findings ${JSON.stringify(file)} must be inside the working directory or ${tmpdir()}`);
+  }
+  return target;
+}
+
+const readFindings = (file, { cwd } = {}) => {
+  const findings = JSON.parse(readFileSync(resolveInputFile(file, { cwd }), "utf8"));
   if (!Array.isArray(findings)) throw new Error(`--findings ${file} must contain a JSON array of finding objects`);
   return findings;
 };
@@ -163,7 +235,7 @@ export function main(argv = process.argv.slice(2), { cwd, now, run } = {}) {
         open_threads: parseCount("open-threads", values["open-threads"]),
         checks: values.checks,
       },
-      findings: values.findings === undefined ? undefined : readFindings(values.findings),
+      findings: values.findings === undefined ? undefined : readFindings(values.findings, { cwd }),
     },
     { cwd, now },
   );
