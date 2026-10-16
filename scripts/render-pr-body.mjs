@@ -128,15 +128,19 @@ function normalizeProviderGoLive(value) {
     throw new Error("providerGoLive must be an object keyed by checklist item id");
   }
 
-  const known = new Set(PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => item.id));
+  const manual = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => !item.auto);
+  const known = new Set(manual.map((item) => item.id));
   for (const key of Object.keys(value)) {
+    if (PROVIDER_GO_LIVE_REQUIRED_ITEMS.some((item) => item.auto && item.id === key)) {
+      throw new Error(`providerGoLive.${key} is filled automatically; omit it`);
+    }
     if (!known.has(key)) {
       throw new Error(`providerGoLive.${key} is not a checklist item (${[...known].join(", ")})`);
     }
   }
 
   return Object.fromEntries(
-    PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => {
+    manual.map((item) => {
       const entry = value[item.id];
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         throw new Error(`providerGoLive.${item.id} must be an object with evidence or na`);
@@ -157,6 +161,10 @@ function renderProviderGoLive(entries) {
   for (const group of PROVIDER_GO_LIVE_GROUPS) {
     lines.push(`### ${group}`, "");
     for (const item of PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((candidate) => candidate.group === group)) {
+      if (item.auto) {
+        lines.push(formatCheckboxLine(true, item.text));
+        continue;
+      }
       const entry = entries[item.id];
       const base = item.text.replace(/:$/, "").replace(/\s*Evidence$/, "");
       lines.push(
