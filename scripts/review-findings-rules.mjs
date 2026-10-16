@@ -19,8 +19,22 @@ export const RULE_TYPES = ["lint", "test", "ci"];
 export const STATUSES = ["open", "converted", "wontfix"];
 export const DEFAULT_LEDGER_PATH = "docs/review-findings-ledger.json";
 
+/** Total over every JSON value: only strings normalize, anything else is "" (never String()-coerced, so it cannot throw). */
 export function normalizeCategory(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/[\s_]+/g, "-") : "";
+}
+
+/**
+ * Why a raw category value is unusable, or null when it is a taxonomy string. The typeof check comes first so an
+ * array like ["performance"] cannot coerce into a valid-looking string.
+ */
+function categoryProblem(value) {
+  if (value === undefined || value === null) return "is required";
+  if (typeof value !== "string") return "must be a string";
+  const category = normalizeCategory(value);
+  if (!category) return "is required";
+  if (!CATEGORIES.includes(category)) return `"${category}" is not in the taxonomy`;
+  return null;
 }
 
 /** PR numbers compare as positive integers, so 1 and "1" are the same PR. Returns null when invalid. */
@@ -40,16 +54,18 @@ export function validateLedger(ledger) {
       errors.push(`${at} must be an object`);
       return;
     }
-    const category = normalizeCategory(entry.category);
-    if (!category) errors.push(`${at}.category is required`);
-    else if (!CATEGORIES.includes(category)) errors.push(`${at}.category "${category}" is not in the taxonomy`);
-    else if (seen.has(category)) errors.push(`${at}.category "${category}" is duplicated`);
-    seen.add(category);
+    const problem = categoryProblem(entry.category);
+    if (problem) errors.push(`${at}.category ${problem}`);
+    else {
+      const category = normalizeCategory(entry.category);
+      if (seen.has(category)) errors.push(`${at}.category "${category}" is duplicated`);
+      seen.add(category);
+    }
     const first = normalizePr(entry.first_seen);
     const second = normalizePr(entry.second_seen);
     if (first === null || second === null) errors.push(`${at}.first_seen and second_seen must be PR numbers`);
     else if (first === second) errors.push(`${at}.first_seen and second_seen must be different PRs`);
-    if (!/^OVD-\d+$/.test(String(entry.task ?? ""))) errors.push(`${at}.task must look like OVD-123`);
+    if (typeof entry.task !== "string" || !/^OVD-\d+$/.test(entry.task)) errors.push(`${at}.task must look like OVD-123`);
     if (!RULE_TYPES.includes(entry.rule_type)) errors.push(`${at}.rule_type must be one of ${RULE_TYPES.join("|")}`);
     if (!STATUSES.includes(entry.status)) errors.push(`${at}.status must be one of ${STATUSES.join("|")}`);
     if (entry.status === "converted" && !entry.converted_by) errors.push(`${at}.converted_by is required when converted`);
@@ -67,9 +83,8 @@ export function validateFindings(findings) {
       errors.push(`${at} must be an object`);
       return;
     }
-    const category = normalizeCategory(finding.category);
-    if (!category) errors.push(`${at}.category is required`);
-    else if (!CATEGORIES.includes(category)) errors.push(`${at}.category "${category}" is not in the taxonomy`);
+    const problem = categoryProblem(finding.category);
+    if (problem) errors.push(`${at}.category ${problem}`);
     if (normalizePr(finding.pr) === null) errors.push(`${at}.pr must be a positive integer PR number`);
   });
   return errors;
@@ -109,7 +124,8 @@ export function analyze(findings, ledger) {
       second_seen: distinct[1],
       prs: distinct,
       taxonomy: CATEGORIES.includes(category),
-      titles: [...prs.values()].flat().map((finding) => finding.title).filter(Boolean),
+      // Only string titles are reported: interpolating an arbitrary JSON value into the report can throw.
+      titles: [...prs.values()].flat().map((finding) => finding.title).filter((title) => typeof title === "string" && title),
     };
     // "other" is a temporary catch-all: repeats mean "pick a real category", not "open a rule task".
     if (category === "other") recategorize.push(item);

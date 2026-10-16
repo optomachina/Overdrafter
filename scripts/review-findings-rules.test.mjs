@@ -4,10 +4,22 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, conversionRate, DEFAULT_LEDGER_PATH, main, normalizePr, resolveDefaultLedgerPath, validateFindings, validateLedger } from "./review-findings-rules.mjs";
+import {
+  analyze,
+  conversionRate,
+  DEFAULT_LEDGER_PATH,
+  main,
+  normalizeCategory,
+  normalizePr,
+  resolveDefaultLedgerPath,
+  validateFindings,
+  validateLedger,
+} from "./review-findings-rules.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const finding = (pr, category, title = "t") => ({ pr, reviewer: "opus", severity: "medium", category, file: "a.ts", title });
+// JSON values that String() would coerce into something valid-looking, or throw on ({"toString":null}).
+const nonStringJson = [["performance"], { toString: null }, {}, [], 5, true];
 const entry = (category, status, extra = {}) => ({
   category, first_seen: 1, second_seen: 2, task: "OVD-1", rule_type: "lint", status, converted_by: null, ...extra,
 });
@@ -77,6 +89,30 @@ describe("review findings to rules", () => {
   it("rejects finding categories outside the taxonomy but accepts other", () => {
     expect(validateFindings([finding(1, "typo-cat")])).toHaveLength(1);
     expect(validateFindings([finding(1, "Test Gap"), finding(2, "other")])).toEqual([]);
+  });
+
+  it("normalizes strings and never throws on any other JSON value", () => {
+    expect(normalizeCategory("  Test Gap ")).toBe("test-gap");
+    expect(normalizeCategory("test_gap")).toBe("test-gap");
+    for (const value of [...nonStringJson, null, undefined, 0, false, [["performance"]]]) {
+      expect(normalizeCategory(value)).toBe("");
+    }
+  });
+
+  it("rejects non-string categories instead of coercing them", () => {
+    for (const category of nonStringJson) {
+      expect(validateFindings([finding(1, category)])).toEqual(["findings[0].category must be a string"]);
+      expect(validateLedger({ entries: [entry(category, "open")] })).toEqual(["entries[0].category must be a string"]);
+    }
+    expect(validateFindings([finding(1, null)])).toEqual(["findings[0].category is required"]);
+    expect(validateFindings([finding(1, "Test Gap"), finding(2, "test_gap"), finding(3, "other")])).toEqual([]);
+  });
+
+  it("rejects a non-string ledger task and ignores non-string titles instead of throwing", () => {
+    expect(validateLedger({ entries: [entry("test-gap", "open", { task: { toString: null } })] })).toHaveLength(1);
+    expect(validateLedger({ entries: [entry("test-gap", "open", { task: ["OVD-1"] })] })).toHaveLength(1);
+    const result = analyze([finding(1, "performance", { toString: null }), finding(2, "performance", "real title")], { entries: [] });
+    expect(result.needsTask[0].titles).toEqual(["real title"]);
   });
 
   it("routes repeated other findings to recategorize, not needs task", () => {
@@ -172,6 +208,43 @@ describe("review findings to rules", () => {
       });
     });
 
+    it("exits 2 on a non-string finding category", () => {
+      for (const category of nonStringJson) {
+        withFiles([finding(1, category)], emptyLedger, (f, l) => {
+          const result = run(["--findings", f, "--ledger", l, "--fail-on-needs-task"]);
+          expect(result.code).toBe(2);
+          expect(result.text).toContain("findings[0].category must be a string");
+        });
+      }
+    });
+
+    it("exits 2 on a non-string ledger category", () => {
+      for (const category of nonStringJson) {
+        withFiles([finding(1, "performance")], { entries: [entry(category, "open")] }, (f, l) => {
+          const result = run(["--findings", f, "--ledger", l, "--fail-on-needs-task"]);
+          expect(result.code).toBe(2);
+          expect(result.text).toContain("ledger: entries[0].category must be a string");
+        });
+      }
+    });
+
+    it("exits 2 through the real process, not exit 0 or an uncaught exception, for the array and toString cases", () => {
+      const script = path.join(repoRoot, "scripts/review-findings-rules.mjs");
+      const cli = (findings, ledger) =>
+        withFiles(findings, ledger, (f, l) => spawnSync(process.execPath, [script, "--findings", f, "--ledger", l, "--fail-on-needs-task"], { encoding: "utf8" }));
+      const cases = [
+        cli('[{"pr":1,"category":["performance"]}]', emptyLedger),
+        cli('[{"pr":1,"category":{"toString":null}}]', emptyLedger),
+        cli([finding(1, "performance")], { entries: [entry(["performance"], "open")] }),
+        cli([finding(1, "performance")], { entries: [entry({ toString: null }, "open")] }),
+        cli([finding(1, "performance")], { entries: [entry("performance", "open", { task: { toString: null } })] }),
+      ];
+      for (const result of cases) {
+        expect(result.status).toBe(2);
+        expect(result.stderr).not.toContain("TypeError");
+      }
+    });
+
     it("exits 2 on a trailing --ledger with no value instead of falling back to the default ledger", () => {
       withFiles([finding(1, "performance")], emptyLedger, (f) => {
         const result = run(["--findings", f, "--ledger"]);
@@ -204,9 +277,17 @@ describe("review findings to rules", () => {
       }
     });
 
-    it("does not shell out to resolve the ledger path (Sonar S4036)", () => {
-      const source = readFileSync(path.join(repoRoot, "scripts/review-findings-rules.mjs"), "utf8");
-      expect(source).not.toMatch(/child_process/);
+    it("resolves the default ledger with an empty environment and no git on PATH (Sonar S4036)", () => {
+      withFiles([finding(1, "performance")], emptyLedger, (f) => {
+        const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/review-findings-rules.mjs"), "--findings", f], {
+          cwd: path.dirname(f),
+          env: {},
+          encoding: "utf8",
+        });
+        expect(result.stderr).toBe("");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("conversion:");
+      });
     });
 
     it("rejects bad usage with a message", () => {
