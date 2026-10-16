@@ -21,9 +21,11 @@ Use this checklist with the **Provider go-live** section in
   standing authority". It is no longer a manual blocker.
 - One item, **Per-supplier on/off switch in the admin dashboard**, replaces the
   rollback/disable rehearsal, the per provider kill switch rehearsal, the
-  same-day turn-off, and the stored customer passwords items. It is satisfied
+  and same-day turn-off items. It is satisfied
   by dependency on OVD-829, a separate PR that builds the switch and a
   configurable daily quote cap for every supplier.
+- The no stored customer passwords item stays, decoupled from one-click
+  revoke: only encrypted session tokens are stored.
 - The about 20 quotes per provider per day item and the ITAR/EAR item are
   unchanged. OVD-829 will make the daily cap configurable.
 
@@ -135,6 +137,8 @@ ITAR/EAR item for a US only provider (see Evidence and N/A).
 - [ ] **About 20 quotes per provider per day.** Record the configured daily
       ceiling and where it is enforced. OVD-829 will make the cap
       configurable per supplier.
+- [ ] **No stored customer passwords.** Only encrypted session tokens are
+      stored. Record where tokens are encrypted at rest.
 - [ ] **ITAR/EAR controlled or uncertain uploads are blocked** to foreign
       providers (Geomiq, Weerg) and to LLMs. Record the block (OVD-723) and its
       test.

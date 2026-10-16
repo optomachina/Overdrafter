@@ -95,7 +95,7 @@ Do not open or refresh a PR with placeholder template text.
 When you want a structured PR body and consistent template formatting, use this sequence:
 
 1. Write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`.
-2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`.
+2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`. Add `proof` lines for the `## Proof` section that `scripts/proof-check.mjs` reads (`Test: <path>`, `Command: <cmd>` with a fenced output block, `Live: <url>`, or `Screenshot: <image/url>`; UI changes need a Screenshot). The proof check runs in report mode and is not a required check.
 3. Render the markdown to a temporary file, add the issue ownership answer from the PR template and an honest pending-review status, then validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
 4. Create the PR with `gh pr create --base main --body-file <path-to-rendered-markdown>` or refresh it with `gh pr edit --body-file <path-to-rendered-markdown>`.
 5. After hosted checks and reviews finish on the final head, replace pending review status with the findings and actual coverage, update the PR body, and optionally validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
@@ -122,6 +122,7 @@ Renderer input shape:
     "results": ["Narrower verification was sufficient because no runtime code changed."],
     "baselineFailures": []
   },
+  "proof": ["- Test: scripts/render-pr-body.test.mjs"],
   "tests": ["Added or updated test coverage, or why none were practical."],
   "migrationNotes": {
     "hasImpact": false,

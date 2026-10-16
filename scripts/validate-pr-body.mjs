@@ -337,6 +337,14 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     na: false,
   },
   {
+    id: "no-passwords",
+    group: "Legal stance",
+    text: "No stored customer passwords; encrypted session tokens only. Evidence:",
+    label: "no stored customer passwords, encrypted session tokens only",
+    match: /no stored customer passwords/i,
+    na: false,
+  },
+  {
     id: "export-control",
     group: "Legal stance",
     text: "ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:",

@@ -15,6 +15,7 @@ import { ProviderKillSwitchError } from "../providerKillSwitch";
 import {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
+  classifyPortalBoundaryOutcome,
   classifyProviderPortalSnapshot,
   isAllowedProviderUrl,
   normalizeAnchoredProviderOffers,
@@ -198,6 +199,8 @@ function fakeBrowser(options: {
   requestDuringUpload?: string | FakeRequest;
   requestsDuringUpload?: FakeRequest[];
   webSocketDuringUpload?: string;
+  navigateDuringFill?: string[];
+  fillFailure?: Error;
 } = {}) {
   let currentUrl = "about:blank";
   const pageListeners = new Map<string, Array<(value: unknown) => void>>();
@@ -236,7 +239,15 @@ function fakeBrowser(options: {
       await webSocketRouteHandler(webSocketRoute);
     }
   });
-  const fill = vi.fn(async () => undefined);
+  const fill = vi.fn(async () => {
+    for (const url of options.navigateDuringFill ?? []) {
+      currentUrl = url;
+      emit(pageListeners, "framenavigated", mainFrame);
+    }
+    if (options.fillFailure) {
+      throw options.fillFailure;
+    }
+  });
   const selectOption = vi.fn(async () => undefined);
   const click = vi.fn(async () => undefined);
   const filter = vi.fn();
@@ -963,6 +974,48 @@ describe("provider portal kernel admission", () => {
   });
 });
 
+describe("portal boundary outcome precedence (OVD-826)", () => {
+  const allowedHosts = ["quickparts.com", "quickquote.quickparts.com"];
+  const driftStep = { terminalState: "selector_drift" as const, reason: "bounded_recovery_stopped" };
+
+  it("reports unexpected_origin when off-host, mutation, and drift signals arrive together", () => {
+    expect(classifyPortalBoundaryOutcome({
+      violation: "unexpected_navigation:login.example-sso.com",
+      currentUrl: "https://login.example-sso.com/authorize",
+      allowedHosts,
+      providerMutationPossible: true,
+      stepOutcome: driftStep,
+    })).toEqual({ terminalState: "unexpected_origin", reason: "unexpected_navigation:login.example-sso.com" });
+  });
+
+  it("lets an off-host signal that arrives after a pending drift win", () => {
+    const signals = {
+      violation: null as string | null,
+      currentUrl: "https://quickquote.quickparts.com/",
+      allowedHosts,
+      providerMutationPossible: true,
+      stepOutcome: driftStep,
+    };
+    expect(classifyPortalBoundaryOutcome(signals)).toEqual(driftStep);
+    signals.violation = "unexpected_navigation:login.example-sso.com";
+    signals.currentUrl = "chrome-error://chromewebdata/";
+    expect(classifyPortalBoundaryOutcome(signals)).toEqual({
+      terminalState: "unexpected_origin",
+      reason: "unexpected_navigation:login.example-sso.com",
+    });
+  });
+
+  it("keeps selector_drift for a same-origin drift", () => {
+    expect(classifyPortalBoundaryOutcome({
+      violation: null,
+      currentUrl: "https://quickquote.quickparts.com/",
+      allowedHosts,
+      providerMutationPossible: false,
+      stepOutcome: driftStep,
+    })).toEqual(driftStep);
+  });
+});
+
 describe("provider portal finite states and offers", () => {
   it("exposes only restricted read and declared configuration capabilities to hooks", async () => {
     const fake = fakeBrowser();
@@ -1271,6 +1324,25 @@ describe("provider portal finite states and offers", () => {
     )).rejects.toMatchObject({ payload: { terminalState: "unexpected_origin" } });
     expect(fake.setInputFiles).toHaveBeenCalledOnce();
     expect(fake.fill).not.toHaveBeenCalled();
+  });
+
+  it("reports the first off-host navigation when a fill times out on Chromium's error page (OVD-826)", async () => {
+    const fake = fakeBrowser({
+      navigateDuringFill: ["https://login.example-sso.com/authorize", "chrome-error://chromewebdata/"],
+      fillFailure: new Error("locator.fill: Timeout 5000ms exceeded."),
+    });
+    await expect(runProviderPortalKernel(
+      definition(),
+      config(),
+      await input(),
+      { launchBrowser: vi.fn(async () => fake.browser), captureEvidence: async () => [] },
+    )).rejects.toMatchObject({
+      payload: {
+        terminalState: "unexpected_origin",
+        reason: "unexpected_navigation:login.example-sso.com",
+        providerMutationPossible: true,
+      },
+    });
   });
 
   it("marks an ambiguous upload failure as mutation-possible and closes the isolated context", async () => {

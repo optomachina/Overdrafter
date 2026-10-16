@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { checkProof } from "./proof-check.mjs";
 import { renderPrBody } from "./render-pr-body.mjs";
 import { PROVIDER_GO_LIVE_REQUIRED_ITEMS, validatePrBody } from "./validate-pr-body.mjs";
 
@@ -62,6 +63,29 @@ describe("renderPrBody", () => {
     });
     expect(rendered).toContain("## Summary");
     expect(rendered).toContain("## Documentation");
+  });
+
+  it("renders an optional Proof section that the proof check accepts", () => {
+    const changedFiles = ["scripts/render-pr-body.mjs", "scripts/render-pr-body.test.mjs"];
+    expect(renderPrBody(buildInput())).not.toContain("## Proof");
+    expect(checkProof(renderPrBody(buildInput()), changedFiles).status).toBe("fail");
+
+    const rendered = renderPrBody({
+      ...buildInput(),
+      proof: [
+        "- Test: scripts/render-pr-body.test.mjs",
+        "- Command: npx vitest run scripts/render-pr-body.test.mjs",
+        "  ```text",
+        "  Test Files  1 passed (1)",
+        "  ```",
+      ],
+    });
+
+    expect(validatePrBody(rendered).ok).toBe(true);
+    expect(checkProof(rendered, changedFiles)).toEqual({
+      status: "pass",
+      reasons: ["Test: `scripts/render-pr-body.test.mjs`", "Command: `npx vitest run scripts/render-pr-body.test.mjs`"],
+    });
   });
 
   it("renders no-impact migration and no-doc-update states", () => {
@@ -154,6 +178,7 @@ describe("renderPrBody", () => {
       expect(rendered).toContain(`- [x] provider:check green. Evidence: ${evidence}`);
       expect(rendered).toContain("N/A: this stage does not change egress");
       expect(rendered).toContain(`- [x] Per-supplier on/off switch in the admin dashboard`);
+      expect(rendered).toContain(`- [x] No stored customer passwords; encrypted session tokens only. Evidence: ${evidence}`);
     });
 
     it("fills the envelope review item automatically, pre-checked and signed", () => {
@@ -176,6 +201,16 @@ describe("renderPrBody", () => {
       );
       expect(() =>
         renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "supplier-switch": { na: "does not apply here" } } }),
+      ).toThrow("N/A is not allowed");
+    });
+
+    it("requires the no stored customer passwords item and rejects N/A on it", () => {
+      const { "no-passwords": _omitted, ...partial } = full();
+      expect(() => renderPrBody({ ...buildInput(), providerGoLive: partial })).toThrow(
+        "providerGoLive.no-passwords must be an object",
+      );
+      expect(() =>
+        renderPrBody({ ...buildInput(), providerGoLive: { ...full(), "no-passwords": { na: "does not apply here" } } }),
       ).toThrow("N/A is not allowed");
     });
 
