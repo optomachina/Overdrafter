@@ -5,14 +5,16 @@
 > `db reset --linked` and the prod project ref in runnable files) was cut from this PR and needs a
 > follow-up issue.
 >
-> **Known gap until the card's ci.yml job lands:** the node:test wrapper runs from the PR head, so a PR
-> could drop it from `test:portable-node` by editing `package.json` and `scripts/test-lane-contract.test.mjs`
-> together, and that would not be reported as gate_loosening.
+> **CI job (Blaine approved, 2026-10-16: "#820 too, and its ci.yml job card is approved"):** the
+> `migration-immutability` job now ships in `.github/workflows/ci.yml` in report mode. It is
+> `continue-on-error` and not in the `ci` aggregate, so it never blocks a merge. Making it required or
+> passing `--enforce` needs a separate approval. The node:test wrapper still runs from the PR head, so a PR
+> could drop it from `test:portable-node`; the CI job (which runs the base copy) now covers that gap.
 
 Applied migrations are history, so `supabase/migrations/` is append-only.
 `scripts/check-migration-immutability.mjs` checks every PR from
-`npm run test:portable-node`, which CI already runs (report mode). A dedicated
-`migration-immutability` CI job is drafted for a card (see "CI" below).
+`npm run test:portable-node`, which CI already runs (report mode), and in the
+dedicated `migration-immutability` CI job (see "CI" below).
 
 ## Rules
 
@@ -115,20 +117,20 @@ here, so the `migration-edit-approved` override is never applied (`unavailable`)
 Locally `HEAD^1` is just the parent commit; use `npm run
 migrations:immutability` to compare a branch with `origin/main`.
 
-### Card item: `migration-immutability` job in `ci.yml`
+### `migration-immutability` job in `ci.yml` (report mode)
 
-The dedicated job is not in `.github/workflows/ci.yml`; adding it is a card
-item for Blaine (workflow edits need Blaine's card before merge). The proposed
-job is `scripts/fixtures/migration-immutability/ci-job.draft.yml`, and the
-vitest suite runs its step script so the draft stays working. It checks out the merge
-commit with `fetch-depth: 2`, runs the base copy of the checker the same way,
+The job is in `.github/workflows/ci.yml` (Blaine approved it on 2026-10-16), and
+the vitest suite runs its real step script under `bash -e`, the way GitHub does.
+It checks out the merge commit with `fetch-depth: 2` and `persist-credentials: false`,
+runs the base copy of the checker the same way,
 fetches the PR timeline with `gh api` so the override can apply, uploads the
 JSON report (`ovd871.migration-immutability.v1`) as the
 `migration-immutability` artifact and writes the human report to the step
 summary. It has `continue-on-error: true`, does not pass `--enforce` and is not
-in the `ci` aggregate. Once it lands, the node:test wrapper can be dropped.
-Enforcing it (adding it to `ci` and to required checks) is a separate step that
-needs Blaine.
+in the `ci` aggregate. Findings never fail it. A checker that cannot run, or that
+exits without writing a report, still writes the summary with an ERROR line and
+turns the job red, but never blocks a merge. Enforcing it (adding it to `ci`
+and to required checks) is a separate step that needs Blaine.
 
 ## Local use
 

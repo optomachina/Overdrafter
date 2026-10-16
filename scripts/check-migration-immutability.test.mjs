@@ -21,8 +21,8 @@ import {
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtures = join(repoRoot, "scripts/fixtures/migration-immutability");
-// The CI job is a card draft (docs/migration-immutability.md), not yet in ci.yml.
-const ciPath = join(fixtures, "ci-job.draft.yml");
+// The report-mode CI job ships in ci.yml (docs/migration-immutability.md); these tests read the real job.
+const ciPath = join(repoRoot, ".github/workflows/ci.yml");
 const temps = [];
 afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
@@ -149,7 +149,8 @@ const UNUSABLE_TIMESTAMPS = [
   ["a leap second", "2026-10-10T23:59:60Z"],
 ];
 
-describe("status rule (only A passes)", () => {
+// These build real git repos; allow for a loaded runner.
+describe("status rule (only A passes)", { timeout: 20_000 }, () => {
   it("passes a new migration that sorts after the newest base timestamp", () => {
     const { code, report } = check(overlayRepo({}, { [LATER]: "select 1;\n" }), ["--enforce"]);
     expect(code).toBe(0);
@@ -251,7 +252,8 @@ describe("parseGitHubTimestamp (the checker's one timestamp parser)", () => {
   });
 });
 
-describe("migration-edit-approved override", () => {
+// These build real git repos; allow for a loaded runner.
+describe("migration-edit-approved override", { timeout: 20_000 }, () => {
   const PUSHED_AT = "2026-10-10T08:00:00Z";
   const HEAD = "a".repeat(40);
   const labeled = (login, createdAt, name = OVERRIDE_LABEL) => ({ event: "labeled", created_at: createdAt, actor: { login }, label: { name } });
@@ -418,7 +420,8 @@ describe("migration-edit-approved override", () => {
   });
 });
 
-describe("gate_loosening (checker and CI job)", () => {
+// These build real git repos; allow for a loaded runner.
+describe("gate_loosening (checker and CI job)", { timeout: 20_000 }, () => {
   const workflow = (step) => [
     "jobs:",
     "  lint:",
@@ -451,13 +454,15 @@ describe("gate_loosening (checker and CI job)", () => {
     expect(reasons(base.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-24.04"))).toEqual([]);
   });
 
-  it("finds the drafted CI job surface in report mode", () => {
+  it("finds the CI job surface in report mode, outside the ci aggregate", () => {
     const surface = checkerWorkflowSurface(readFileSync(ciPath, "utf8"));
     expect(surface.job).toMatch(/^ {2}migration-immutability:\n/);
     expect(surface.job).toContain("continue-on-error: true");
     expect(surface.job).toContain(`git show "HEAD^1:$file"`);
     expect(surface.job).not.toContain("--enforce");
     expect(surface.mentions).toEqual([]);
+    const ciJob = readFileSync(ciPath, "utf8").split(/\n {2}ci:\n/)[1] ?? "";
+    expect(ciJob).not.toMatch(/\bmigration-immutability\b/);
   });
 
   it("detects an edited or removed portable-node wrapper", () => {
@@ -467,7 +472,8 @@ describe("gate_loosening (checker and CI job)", () => {
   });
 });
 
-describe("CI step runs the base copy of the checker", () => {
+// These build real git repos; allow for a loaded runner.
+describe("CI step runs the base copy of the checker", { timeout: 20_000 }, () => {
   /** The `run: |` body of the "Check migration immutability" step, dedented. */
   function stepScript() {
     const lines = readFileSync(ciPath, "utf8").split("\n");
@@ -483,12 +489,15 @@ describe("CI step runs the base copy of the checker", () => {
     const runnerTemp = mkdtempSync(join(tmpdir(), "migration-immutability-runner-"));
     temps.push(runnerTemp);
     const summary = join(runnerTemp, "summary.md");
-    const result = spawnSync("bash", ["-c", stepScript()], {
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", stepScript()], {
       cwd: dir,
       encoding: "utf8",
       env: { PATH: process.env.PATH, HOME: process.env.HOME, RUNNER_TEMP: runnerTemp, GITHUB_STEP_SUMMARY: summary, GITHUB_EVENT_NAME: "push", ...env },
     });
-    return { ...result, summary: readFileSync(summary, "utf8"), report: JSON.parse(readFileSync(join(runnerTemp, "migration-immutability.json"), "utf8")) };
+    const reportPath = join(runnerTemp, "migration-immutability.json");
+    let report = null;
+    try { report = JSON.parse(readFileSync(reportPath, "utf8")); } catch { report = null; }
+    return { ...result, summary: readFileSync(summary, "utf8"), report };
   }
 
   const realChecker = readFileSync(join(repoRoot, CHECKER_PATH), "utf8");
@@ -502,13 +511,30 @@ describe("CI step runs the base copy of the checker", () => {
     expect(stdout).not.toContain("HEAD COPY");
     expect(stdout).toContain(`FAIL ${OLD} is modified.`);
     expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "checker_changed", path: CHECKER_PATH })]);
-    expect(summary).toContain("**GATE LOOSENING: needs Grok Bot countersign + Blaine's card.**");
+    expect(summary).toContain("**GATE LOOSENING: needs Blaine's explicit OK before merge.**");
   });
 
   it("falls back to the head copy when the base has none", () => {
     const { stdout } = runStep(overlayRepo({}, { [CHECKER_PATH]: realChecker, [LATER]: "select 1;\n" }));
     expect(stdout).toContain("Checker taken from: head");
     expect(stdout).toContain("OK: supabase/migrations only gains new, later files.");
+  });
+
+  it("a checker that cannot run still writes the summary and fails the job loudly (not silently)", () => {
+    const crasher = 'process.stderr.write("boom\\n");\nprocess.exit(2);\n';
+    const { status, stdout, summary, report } = runStep(overlayRepo({ [CHECKER_PATH]: crasher }, { [LATER]: "select 1;\n" }));
+    expect(status).toBe(1);
+    expect(report).toBeNull();
+    expect(stdout).toContain("boom");
+    expect(summary).toContain("**ERROR: the checker did not produce a report (exit 2), so nothing was checked.**");
+    expect(summary).toContain("boom");
+  });
+
+  it("a checker that exits 0 without a report is an error, not a pass", () => {
+    const silent = 'process.exit(0);\n';
+    const { status, summary } = runStep(overlayRepo({ [CHECKER_PATH]: silent }, { [LATER]: "select 1;\n" }));
+    expect(status).toBe(1);
+    expect(summary).toContain("**ERROR: the checker did not produce a report (exit 0), so nothing was checked.**");
   });
 
   it("on pull_request feeds the timeline from gh to the base checker and voids a stale label", () => {
