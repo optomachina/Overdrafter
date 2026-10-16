@@ -103,14 +103,37 @@ describe("staging reset guard", () => {
     expect(() => assertStagingTarget(target)).toThrow(StagingTargetRefusedError);
   });
 
-  // Every fixture carries sslmode=require so it is refused for its own reason.
+  // Each fixture is a valid staging URL (already ending in ?sslmode=require)
+  // plus exactly one extra query parameter, on both hosts, so the only reason
+  // to refuse it is that parameter. The base URL is asserted accepted first:
+  // a fixture that is also broken another way (say, a missing sslmode) fails
+  // that assertion instead of silently passing for the wrong reason. host= and
+  // service= matter most, because they are libpq overrides of the target.
+  it.each(
+    [
+      ["service param", "service=x"],
+      ["host param", "host=evil"],
+      ["hostaddr param", "hostaddr=1.2.3.4"],
+      ["target_session_attrs param", "target_session_attrs=read-write"],
+      ["extra query param", "application_name=staging-seed"],
+    ].flatMap(([label, param]) => [
+      [`${label}, direct host`, stagingDirectUrl, param],
+      [`${label}, pooler host`, stagingPoolerUrl, param],
+    ]),
+  )("refuses %s after a valid sslmode", (_label, base, param) => {
+    expect(assertStagingTarget(base)).toBe(STAGING_PROJECT_REF);
+    const target = `${base}&${param}`;
+    expect(() => assertStagingTarget(target)).toThrow(StagingTargetRefusedError);
+    const io = { log: vi.fn(), error: vi.fn() };
+    expect(main([target], io, {})).toBe(1);
+  });
+
+  // Every URL fixture below carries sslmode=require so it is refused for its
+  // own reason. The exceptions: "uppercase sslmode" deliberately has no
+  // lowercase sslmode, and "API URL", "key=value DSN" and "not a target" are
+  // not postgres URLs at all.
   it.each([
     ["IPv6 bracket host", `postgresql://postgres:pw@[::1]:5432/postgres${ssl}`],
-    ["service param", `${directBase}?service=x`],
-    ["host param", `${directBase}?host=evil`],
-    ["hostaddr param", `${stagingDirectUrl}&hostaddr=1.2.3.4`],
-    ["target_session_attrs param", `${stagingDirectUrl}&target_session_attrs=read-write`],
-    ["extra query param", `${stagingDirectUrl}&application_name=staging-seed`],
     ["raw @ in password", `postgresql://postgres:p@w@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres${ssl}`],
     ["raw # in password", `postgresql://postgres:p#w@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres${ssl}`],
     ["raw : in password", `postgresql://postgres:p:w@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres${ssl}`],

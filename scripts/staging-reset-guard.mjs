@@ -100,8 +100,8 @@ export function assertStagingConnectionEnv(env = process.env) {
  * Resolve the project ref a target names: a bare ref, or a postgres URL that
  * matches the staging allowlist exactly. Everything else (API URLs, key=value
  * DSNs, multi-host, IPv6, a missing or weak sslmode, extra query parameters,
- * fragments, other ports or users) is refused. Messages never include the URL, so a password is never
- * echoed.
+ * fragments, other ports or users) is refused. Messages never include the
+ * URL, so a password is never echoed.
  */
 export function projectRefFromTarget(target) {
   if (typeof target !== "string" || target.trim() === "") {
