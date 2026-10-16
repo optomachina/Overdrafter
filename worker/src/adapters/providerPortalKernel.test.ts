@@ -238,6 +238,8 @@ function fakeBrowser(options: {
   });
   const fill = vi.fn(async () => undefined);
   const selectOption = vi.fn(async () => undefined);
+  const click = vi.fn(async () => undefined);
+  const filter = vi.fn();
   const popup = {
     url: vi.fn(() => "https://malicious.example/popup"),
     close: vi.fn(async () => undefined),
@@ -272,6 +274,8 @@ function fakeBrowser(options: {
     setInputFiles,
     fill,
     selectOption,
+    click,
+    filter,
     allInnerTexts: vi.fn(async () => {
       triggerReadBoundaryChange();
       return ["offer"];
@@ -285,6 +289,7 @@ function fakeBrowser(options: {
       return "offer-id";
     }),
   };
+  filter.mockImplementation(() => uploadLocator);
   const mainFrame = { url: vi.fn(() => currentUrl) };
   const page = {
     goto: vi.fn(async (url: string) => {
@@ -342,6 +347,8 @@ function fakeBrowser(options: {
     setInputFiles,
     fill,
     selectOption,
+    click,
+    filter,
   };
 }
 
@@ -938,8 +945,8 @@ describe("provider portal finite states and offers", () => {
         ...definition().hooks,
         configure: async (configuration) => {
           seenCapabilities.push(Object.keys(configuration).sort());
-          expect((configuration as unknown as { click?: unknown }).click).toBeUndefined();
           expect((configuration as unknown as { goto?: unknown }).goto).toBeUndefined();
+          expect((configuration as unknown as { evaluate?: unknown }).evaluate).toBeUndefined();
           await configuration.select("material", "6061");
         },
         extractOffers: async (reader) => {
@@ -962,10 +969,70 @@ describe("provider portal finite states and offers", () => {
       },
     )).resolves.toMatchObject({ state: "offers_extracted" });
     expect(seenCapabilities).toEqual([
-      ["fill", "select"],
+      ["click", "fill", "select"],
       ["count", "readAttribute", "readText", "readTexts"],
     ]);
     expect(fake.selectOption).toHaveBeenCalledWith("6061");
+    expect(fake.click).not.toHaveBeenCalled();
+  });
+
+  // OVD-677: a click is a declared configuration rule like fill and select,
+  // matched on exact element text, and never aims at checkout-like text.
+  it("clicks only a declared click rule, filtered on exact text", async () => {
+    const fake = fakeBrowser();
+    const results: boolean[] = [];
+    const clickDefinition = definition({
+      selectors: {
+        ...definition().selectors,
+        configuration: { materialFilter: { selector: ".Slideover .filterItem", operation: "click" } },
+      },
+      hooks: {
+        ...definition().hooks,
+        configure: async (configuration) => {
+          results.push(await configuration.click("materialFilter", "6061 T6 Aluminum"));
+        },
+        extractOffers: async () => [candidate()],
+      },
+    });
+
+    await expect(runProviderPortalKernel(clickDefinition, config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).resolves.toMatchObject({ state: "offers_extracted" });
+    expect(results).toEqual([true]);
+    expect(fake.click).toHaveBeenCalledTimes(1);
+    const [{ hasText }] = fake.filter.mock.calls[0] as unknown as [{ hasText: RegExp }];
+    expect(hasText.test(" 6061 T6 Aluminum ")).toBe(true);
+    expect(hasText.test("6061 T6 Aluminum Tread")).toBe(false);
+  });
+
+  it.each([
+    ["an undeclared field", "material", "6061 T6 Aluminum"],
+    ["a select rule", "materialSelect", "6061 T6 Aluminum"],
+    ["checkout-like text", "materialFilter", "Proceed to checkout"],
+  ])("refuses a click on %s without clicking", async (_name, field, text) => {
+    const fake = fakeBrowser();
+    const clickDefinition = definition({
+      selectors: {
+        ...definition().selectors,
+        configuration: {
+          materialFilter: { selector: ".Slideover .filterItem", operation: "click" },
+          materialSelect: { selector: "select[name='material']", operation: "select" },
+        },
+      },
+      hooks: {
+        ...definition().hooks,
+        configure: async (configuration) => { await configuration.click(field, text); },
+      },
+    });
+
+    await expect(runProviderPortalKernel(clickDefinition, config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({
+      payload: { terminalState: "configuration_required", reason: "undeclared_configuration_operation" },
+    });
+    expect(fake.click).not.toHaveBeenCalled();
   });
 
   it("fails closed on a hook-triggered popup and performs no later extraction work", async () => {

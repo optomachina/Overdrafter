@@ -125,6 +125,12 @@ export type ProviderPortalReadCapability = {
 export type ProviderPortalConfigurationCapability = {
   fill: (field: string, value: string) => Promise<boolean>;
   select: (field: string, value: string) => Promise<boolean>;
+  /**
+   * Clicks the first element of a declared `click` rule whose trimmed text is
+   * exactly `text` (or the first element when `text` is omitted). Returns
+   * false, without recovery, when no such element exists.
+   */
+  click: (field: string, text?: string) => Promise<boolean>;
 };
 
 export type ProviderPortalDefinition = {
@@ -151,9 +157,15 @@ export type ProviderPortalDefinition = {
     cadUpload: string;
     drawingUpload?: string;
     quantity?: string;
+    /**
+     * Optional bound (ms) to wait for the quantity control to attach after
+     * upload, for portals that render the part row asynchronously. Absent, the
+     * kernel looks for it once, immediately.
+     */
+    quantityAwaitMs?: number;
     configuration?: Readonly<Record<string, {
       selector: string;
-      operation: "fill" | "select";
+      operation: "fill" | "select" | "click";
     }>>;
   };
   supportedFileExtensions: readonly string[];
@@ -1302,10 +1314,36 @@ function buildConfigurationCapability(
     assertPortalBoundary(definition, page, boundary);
     return true;
   };
+  const click = async (field: string, text?: string): Promise<boolean> => {
+    const rule = definition.selectors.configuration?.[field];
+    if (rule?.operation !== "click" || (text !== undefined && PROHIBITED_CONFIGURATION_SELECTOR.test(text))) {
+      throw terminalError(definition, "configuration_required", "undeclared_configuration_operation", {
+        providerMutationPossible: boundary.providerMutationPossible,
+      });
+    }
+    const matches = guardedLocator(definition, page, boundary, rule.selector);
+    const locator = (text === undefined ? matches : matches.filter({ hasText: exactTextPattern(text) })).first();
+    if (await locator.count() < 1) {
+      assertPortalBoundary(definition, page, boundary);
+      return false;
+    }
+    // OVD-722: fresh read immediately before each configuration mutation.
+    await killSwitchCheckpoint?.("before_configure");
+    enterProviderMutation(boundary);
+    await locator.click();
+    assertPortalBoundary(definition, page, boundary);
+    return true;
+  };
   return Object.freeze({
     fill: (field: string, value: string) => perform("fill", field, value),
     select: (field: string, value: string) => perform("select", field, value),
+    click,
   });
+}
+
+function exactTextPattern(text: string): RegExp {
+  const escaped = text.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*${escaped}\\s*$`);
 }
 
 async function observeMissingConfiguration(
@@ -1509,6 +1547,10 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
   await input.providerKillSwitchCheckpoint?.("before_configure");
   if (definition.selectors.quantity) {
     const quantityInput = session.page.locator(definition.selectors.quantity).first();
+    if (definition.selectors.quantityAwaitMs) {
+      await quantityInput.waitFor({ state: "attached", timeout: definition.selectors.quantityAwaitMs })
+        .catch(() => undefined);
+    }
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
