@@ -18,6 +18,7 @@ import { ExportControlLookupError } from "../exportControl";
 import { EXPORT_CONTROL_HOLD_AFTER_ADAPTER_START_NOTE, EXPORT_CONTROL_LOOKUP_HOLD_BEFORE_UPLOAD_NOTE } from "../dispatchRouting";
 import type { ProviderTaskRouteInput } from "../providerTaskRoute";
 import type { ProviderTaskOutcome } from "../providerTaskPipeline";
+import { providerDispatchReservation } from "../../test-support/providerDispatchReservation";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -130,7 +131,10 @@ function database(requestCanceled = false, denyDispatch = false, queueAck?: () =
             // OVD-723: the export-control gate admits this clean, scanned part.
             : name === "api_check_export_control_dispatch" ? { allowed: true }
               : name === "api_worker_provider_kill_switch_state" ? { schema: "provider-kill-switch-state.v1",
-                provider: (args as { p_provider: string }).p_provider, engaged: false, globalEngaged: false } : null;
+                provider: (args as { p_provider: string }).p_provider, engaged: false, globalEngaged: false }
+                // OVD-829: the supplier settings gate reserves one dispatch before launch.
+                : name === "api_worker_reserve_provider_dispatch"
+                  ? providerDispatchReservation((args as { p_provider: string }).p_provider) : null;
     const result = Promise.resolve({ data, error: null });
     return Object.assign(result, { abortSignal: () => result });
   };

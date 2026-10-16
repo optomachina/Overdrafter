@@ -10,6 +10,7 @@ import {
 } from "./providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 import { fictivDispatchEnvelope } from "../test-support/fictivDispatchFixture";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 /**
  * OVD-673: once Fictiv v1 is on the code-reviewed list, a database-admitted
@@ -89,6 +90,7 @@ async function authorizationFor(quoteInput: VendorQuoteAdapterInput): Promise<Ve
     scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "fictiv" },
     adapter: { quote },
     quoteInput,
+    reserveDispatch: async (provider) => providerDispatchReservation(provider),
     killSwitchReader: async (provider) => ({
       schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
     }),

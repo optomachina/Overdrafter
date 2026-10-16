@@ -33,6 +33,7 @@ import {
   WEERG_ALLOWED_HOSTS,
   WEERG_PRODUCTION_LOCATORS,
 } from "./weergPortal";
+import { providerDispatchReservation } from "../../test-support/providerDispatchReservation";
 
 /**
  * OVD-675: the production Weerg branch is default-off. Without a current
@@ -358,6 +359,7 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "weerg" },
       adapter: { quote },
       quoteInput: input,
+      reserveDispatch: async (provider) => providerDispatchReservation(provider),
       killSwitchReader: async (provider) => ({
         schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
       }),

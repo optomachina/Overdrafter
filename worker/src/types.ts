@@ -551,6 +551,13 @@ export type WorkerConfig = {
   providerSessionLease?: "off" | "on";
   /** OVD-381: HMAC key for opaque lease identities; required when the lease is on. Never logged. */
   providerSessionNamespaceKey?: Uint8Array | null;
+  /**
+   * OVD-829: "on" reserves every live dispatch through the durable counter
+   * (api_worker_reserve_provider_dispatch). Default off until the ovd-828-s1
+   * migration is applied; off keeps the kill switch and counts the cap in
+   * process (see ProviderDispatchCapMode).
+   */
+  providerDurableDispatchCap?: "off" | "on";
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
   drawingExtractionDebugAllowedModels: string[];

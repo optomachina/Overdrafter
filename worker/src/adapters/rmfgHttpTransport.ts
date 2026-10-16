@@ -9,7 +9,6 @@ import type { RmfgQuoteRequest, RmfgQuoteTransport } from "./rmfgQuoteTransport.
  */
 export const RMFG_HTTP_TRANSPORT_REVISION = "rmfg-http-transport.v1" as const;
 export const RMFG_API_ORIGIN = "https://api.rmfg.com";
-export const RMFG_DAILY_QUOTE_CAP = 20;
 const PROVIDER_KEY = "rmfg";
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -23,8 +22,6 @@ export type RmfgHttpTransportOptions = {
   /** Test and fixture callers only. Production construction must leave this unset so the key is never sent over plain http. */
   allowInsecureLoopbackForTests?: boolean;
   fetchImpl?: typeof fetch;
-  now?: () => Date;
-  dailyQuoteCap?: number;
   /** Optional operator kill switch (OVD-722) and export control block (OVD-723). Awaited before every call, so it may read a database row. */
   isBlocked?: () => boolean | Promise<boolean>;
 };
@@ -32,31 +29,29 @@ export type RmfgHttpTransportOptions = {
 export type RmfgHttpTransport = RmfgQuoteTransport & {
   /** Set after any 401, 403 or 429; every later call is refused without a request. */
   blockedReason(): RmfgBlockReason | null;
-  quotesStartedToday(): number;
 };
 
 /**
- * The block latch and the daily attempt count are per process, keyed by
- * provider, so constructing a second transport cannot reset either one.
+ * The block latch is per process, keyed by provider, so constructing a second
+ * transport cannot reset it. The daily quote cap is not here: the worker's
+ * shared supplier settings gate (OVD-829) counts every dispatch durably.
  */
-type ProviderState = { blocked: RmfgBlockReason | null; quoteDay: string | null; quotesToday: number };
+type ProviderState = { blocked: RmfgBlockReason | null };
 const providerState = new Map<string, ProviderState>();
 
 function stateFor(provider: string): ProviderState {
   let state = providerState.get(provider);
   if (!state) {
-    state = { blocked: null, quoteDay: null, quotesToday: 0 };
+    state = { blocked: null };
     providerState.set(provider, state);
   }
   return state;
 }
 
-/** Test hook: clears the process wide block latch and daily count. */
+/** Test hook: clears the process wide block latch. */
 export function resetRmfgProcessStateForTests(): void {
   for (const state of providerState.values()) {
     state.blocked = null;
-    state.quoteDay = null;
-    state.quotesToday = 0;
   }
 }
 
@@ -87,10 +82,6 @@ function hasControlCharacter(value: string): boolean {
     if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
   }
   return false;
-}
-
-function dayKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function buildRequest(request: RmfgQuoteRequest, apiKey: string): { path: string; init: RequestInit } {
@@ -124,11 +115,6 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
   }
   const origin = resolveOrigin(options.baseUrl, options.allowInsecureLoopbackForTests === true);
   const doFetch = options.fetchImpl ?? fetch;
-  const now = options.now ?? (() => new Date());
-  const cap = options.dailyQuoteCap ?? RMFG_DAILY_QUOTE_CAP;
-  if (!Number.isInteger(cap) || cap < 1 || cap > RMFG_DAILY_QUOTE_CAP) {
-    throw new Error(`RMFG daily quote cap must be an integer from 1 to ${RMFG_DAILY_QUOTE_CAP}.`);
-  }
   const state = stateFor(PROVIDER_KEY);
 
   const transport: RmfgHttpTransport = Object.assign(
@@ -136,13 +122,6 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
       if (state.blocked) return { status: state.blocked === "rate_limited" ? 429 : 403, body: null };
       if (options.isBlocked && (await options.isBlocked())) return { status: 403, body: null };
       if (state.blocked) return { status: state.blocked === "rate_limited" ? 429 : 403, body: null };
-      if (request.endpoint === "analyze") {
-        const today = dayKey(now());
-        if (today !== state.quoteDay) { state.quoteDay = today; state.quotesToday = 0; }
-        // One analyze starts one quote attempt, so the cap counts attempts, not polls.
-        if (state.quotesToday >= cap) return { status: 429, body: null };
-        state.quotesToday += 1;
-      }
       const { path, init } = buildRequest(request, apiKey);
       const url = new URL(path, `${origin}/`);
       if (!path.startsWith("/") || url.origin !== origin || !allowedPath(request, url.pathname)) {
@@ -159,7 +138,6 @@ export function createRmfgHttpTransport(options: RmfgHttpTransportOptions): Rmfg
     },
     {
       blockedReason: () => state.blocked,
-      quotesStartedToday: () => state.quotesToday,
     },
   );
   return transport;
