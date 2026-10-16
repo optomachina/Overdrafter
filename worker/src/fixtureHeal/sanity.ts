@@ -55,7 +55,7 @@ export type SanityOffer = {
 export type SanityInput = {
   provider: string;
   requestedQuantity: number;
-  /** Only priced results (`instant_quote_received`, `official_quote_received`) are checked. */
+  /** Only priced results are checked: a priced status, or any price or offer whatever the status. */
   priced: boolean;
   /** Every purchasable offer; a summary-only result is passed as one offer. */
   offers: readonly SanityOffer[];

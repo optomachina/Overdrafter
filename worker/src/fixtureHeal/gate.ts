@@ -97,12 +97,26 @@ function sanityOffers(output: VendorQuoteAdapterOutput, requestedQuantity: numbe
   return [{ unitPriceUsd: output.unitPriceUsd, totalPriceUsd: output.totalPriceUsd, quantity: requestedQuantity }];
 }
 
+/**
+ * A result is checked when it has a priced status or carries any price at all:
+ * a `manual_review_pending` result with a price still becomes an offer row
+ * (`normalizedAdapterOffers`), so it must not skip the gate.
+ */
+function carriesPrice(output: VendorQuoteAdapterOutput): boolean {
+  return (
+    PRICED_STATUSES.has(output.status) ||
+    finiteNumber(output.unitPriceUsd) !== null ||
+    finiteNumber(output.totalPriceUsd) !== null ||
+    (Array.isArray(output.offers) && output.offers.length > 0)
+  );
+}
+
 export function sanityInputFromOutput(output: VendorQuoteAdapterOutput, context: FixtureSanityContext): SanityInput {
   const rawPayload = record(output.rawPayload) ?? {};
   return {
     provider: context.provider,
     requestedQuantity: context.requestedQuantity,
-    priced: PRICED_STATUSES.has(output.status),
+    priced: carriesPrice(output),
     offers: sanityOffers(output, context.requestedQuantity),
     requested: {
       material: text(context.requirement?.material),

@@ -174,4 +174,37 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
       }) }),
     ]));
   });
+
+  it("xometry_priced_manual_review_result_is_gated", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Manual review flagged, but the price locator still matched: the result carries a price.
+    vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue({
+      ...xometryOutput("5052-H32"),
+      status: "manual_review_pending",
+      offers: [],
+    });
+    const db = database();
+    scoringRecordsInto(db.events);
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    // Checked, not skipped: the drifting price is withheld, so no offer row is written.
+    expect(db.events[0]).toBe("sanity_history");
+    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    expect(finalize.p_offers).toEqual([]);
+    expect(finalize.p_result).toMatchObject({
+      status: "manual_review_pending",
+      unit_price_usd: null,
+      total_price_usd: null,
+      raw_payload: {
+        fixtureSanity: {
+          verdict: "hold",
+          findings: [{ code: "material_echo", class: "hard" }],
+          withheldStatus: "manual_review_pending",
+          withheldResult: { unitPriceUsd: 45.56, totalPriceUsd: 45.56 },
+        },
+      },
+    });
+    expect(fixtureHealSupplierPause.isPaused("xometry")).toBe(true);
+  });
 });
