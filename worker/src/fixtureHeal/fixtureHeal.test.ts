@@ -17,7 +17,7 @@ import {
 } from "../providerTaskPipeline";
 import type { VendorQuoteAdapterInput, VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types";
 import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE } from "./gate";
-import { createSupplierPauseSwitch, isInternalTestQuote, type FixtureHealPage } from "./pause";
+import { createSupplierPauseSwitch, isInternalTestQuote, logFixtureHealPage, type FixtureHealPage } from "./pause";
 import { checkQuote, materialEchoMismatch, type PriceHistory, type SanityInput } from "./sanity";
 import { createSupabaseSanityHistoryReader, type SanityHistoryReader } from "./sanityHistory";
 
@@ -468,6 +468,16 @@ describe("OVD-813 fixture sanity gate", () => {
 
     expect(vendorFilters.sort()).toEqual(["eq", "neq"]);
     expect(history).toEqual({ available: true, history: [12], peers: [30, 30] });
+  });
+
+  it("pause_page_says_restart_clears_it", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    logFixtureHealPage({ severity: "page", source: "fixture_heal.pause", provider: "oshcut", codes: ["price_missing"], runId: "run",
+      vendorQuoteResultId: "r", brakeCommand: "npm run provider:kill -- oshcut --on" });
+    const line = JSON.parse(String(error.mock.calls[0][0]));
+    expect(line.message).toContain("process-local: a restart clears it. Run brakeCommand to persist it.");
+    expect(line.context.brakeCommand).toBe("npm run provider:kill -- oshcut --on");
+    error.mockRestore();
   });
 
   it("pause_while_in_flight_holds_the_result", async () => {

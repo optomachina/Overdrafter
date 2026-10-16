@@ -63,7 +63,9 @@ export function logFixtureHealPage(page: FixtureHealPage): void {
       level: "error",
       severity: page.severity,
       source: page.source,
-      message: `Supplier ${page.provider} paused by the fixture sanity gate (${page.codes.join(", ")}); its quote is held.`,
+      message:
+        `Supplier ${page.provider} paused by the fixture sanity gate (${page.codes.join(", ")}); its quote is held. ` +
+        "The pause is process-local: a restart clears it. Run brakeCommand to persist it.",
       context: page,
     }),
   );
