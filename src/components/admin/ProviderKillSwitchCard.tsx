@@ -7,6 +7,9 @@ import {
   setProviderKillSwitch,
   type ProviderKillSwitchRow,
 } from "@/features/quotes/api/provider-kill-switch-api";
+import { STEP_UP_ENROLL_TITLE, useAal2StepUp } from "@/features/auth/use-aal2-step-up";
+import { MfaStepUpDialog } from "@/components/auth/MfaStepUpDialog";
+import { StepUpNoticeBanner } from "@/components/auth/StepUpNoticeBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +22,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
  * or to every provider, with a data flip: the worker re-reads the switch
  * before launch and before each upload or configuration step, so the change
  * takes effect at the next checkpoint with no deploy. Every flip requires a
- * typed reason and a confirmation, and is audited.
+ * typed reason and a confirmation, and is audited. OVD-771: the write also
+ * requires an AAL2 session; the emergency CLI uses the service role instead,
+ * so the brake never depends on MFA.
  */
 
 const QUERY_KEY = ["admin", "provider-kill-switches"] as const;
@@ -61,6 +66,9 @@ export function ProviderKillSwitchCard() {
     },
   });
 
+  const stepUp = useAal2StepUp(mutation.mutateAsync);
+  const isBusy = mutation.isPending || stepUp.isCheckingAssurance || stepUp.isMfaOpen;
+
   const begin = (flip: PendingFlip) => {
     setPending(flip);
     setReason("");
@@ -72,14 +80,14 @@ export function ProviderKillSwitchCard() {
   const canConfirm = Boolean(pending)
     && reason.trim().length >= PROVIDER_KILL_SWITCH_MIN_REASON_LENGTH
     && confirmation.trim() === expectedConfirmation
-    && !mutation.isPending;
+    && !isBusy;
 
   const toggle = (provider: string | null, engaged: boolean, version: number | null) => (
     <Button
       variant="outline"
       size="sm"
       aria-label={`${engaged ? "Release" : "Stop"} ${provider ?? "all providers"}`}
-      disabled={mutation.isPending}
+      disabled={isBusy}
       onClick={() => begin({ provider, engaged: !engaged, expectedVersion: version })}
     >
       {engaged ? "Release" : "Stop"}
@@ -159,7 +167,7 @@ export function ProviderKillSwitchCard() {
               <Button
                 variant={pending.engaged ? "destructive" : "default"}
                 disabled={!canConfirm}
-                onClick={() => mutation.mutate({
+                onClick={() => void stepUp.requestWrite({
                   provider: pending.provider,
                   engaged: pending.engaged,
                   reason,
@@ -168,13 +176,19 @@ export function ProviderKillSwitchCard() {
               >
                 Confirm
               </Button>
-              <Button variant="ghost" disabled={mutation.isPending} onClick={() => setPending(null)}>
+              <Button variant="ghost" disabled={isBusy} onClick={() => setPending(null)}>
                 Cancel
               </Button>
             </div>
           </div>
         ) : null}
+        <StepUpNoticeBanner notice={stepUp.notice} onEnroll={stepUp.startEnrollment} />
       </CardContent>
+      <MfaStepUpDialog
+        {...stepUp.dialogProps}
+        title={stepUp.dialogMode === "enroll" ? STEP_UP_ENROLL_TITLE : "Verify this kill switch change"}
+        description="Stopping or releasing provider traffic requires an authenticator-app code. Your account remains the audited actor. If MFA is unavailable in an emergency, use the provider:kill CLI (see the cease-and-desist runbook)."
+      />
     </Card>
   );
 }
