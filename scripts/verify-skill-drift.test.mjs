@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,8 +17,10 @@ import {
   readIgnore,
   renderMarkdown,
   resolveBinary,
+  resolveTargets,
   runDetector,
   selectMaintenancePr,
+  stripFences,
 } from "./verify-skill-drift.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,6 +86,30 @@ describe("extraction", () => {
 
   it("does not read absolute filesystem paths as app routes", () => {
     expect(extractMarkdownReferences("`/tmp/out` `/usr/bin` `/home/x` `/tmpl`").routes).toEqual(["/tmpl"]);
+  });
+
+  it("skips an indented fence inside a list item", () => {
+    const markdown = [
+      "1. **Choose the PR.** See `src/kept.ts`.",
+      "",
+      "   ```bash",
+      "   node `scripts/not-a-real-file.mjs` --route `/not/a/route`",
+      "   ```",
+      "",
+      "   Then open `/parts`.",
+    ].join("\n");
+    expect(extractMarkdownReferences(markdown)).toEqual({ routes: ["/parts"], paths: ["src/kept.ts"] });
+  });
+
+  it("handles tilde and long fences, CRLF, and never lets inline triple backticks open a block", () => {
+    expect(stripFences("a\r\n\t~~~\r\n`x/y.md`\r\n\t~~~\r\nb")).toBe("a\nb");
+    expect(stripFences("````md\n```\n`x/y.md`\n````\nb")).toBe("b");
+    const inline = "  ```inline``` is not a fence\n- cites `a/b.md`\n- and `c/d.md`\n```\n`fenced/e.md`\n```";
+    expect(extractMarkdownReferences(inline).paths).toEqual(["a/b.md", "c/d.md"]);
+  });
+
+  it("scans an unclosed fence as plain text instead of hiding the rest of the file", () => {
+    expect(extractMarkdownReferences("```bash\nrun `src/after.ts`\n").paths).toEqual(["src/after.ts"]);
   });
 });
 
@@ -174,21 +200,36 @@ describe("selectMaintenancePr (at most one PR per run)", () => {
 
   it("creates only when the run changed something and no maintenance PR is open", () => {
     expect(selectMaintenancePr({ outcome: "changed", openPrs: [pr(5, "feature/x")] })).toEqual({
-      action: "create", branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "no open maintenance PR", duplicates: [],
+      action: "create", branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "no open maintenance PR", duplicates: [], foreign: [],
     });
   });
 
-  it("reuses the fixed-branch PR before a labelled one and lists the rest as duplicates", () => {
-    const openPrs = [pr(3, "other", [{ name: MAINTENANCE_LABEL }]), pr(9, MAINTENANCE_BRANCH), pr(4, "again", [MAINTENANCE_LABEL])];
-    expect(selectMaintenancePr({ outcome: "changed", openPrs })).toMatchObject({
-      action: "update", pr: 9, branch: MAINTENANCE_BRANCH, duplicates: [3, 4],
+  it("updates only the fixed-branch PR; a labelled PR on another branch is reported, never selected", () => {
+    const openPrs = [pr(3, "alice/my-feature", [{ name: MAINTENANCE_LABEL }]), pr(9, MAINTENANCE_BRANCH), pr(4, "again", [MAINTENANCE_LABEL])];
+    expect(selectMaintenancePr({ outcome: "changed", openPrs })).toEqual({
+      action: "update", pr: 9, branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "reuse the open maintenance PR", duplicates: [], foreign: [3, 4],
     });
-    expect(selectMaintenancePr({ outcome: "changed", openPrs: openPrs.slice(0, 1) })).toMatchObject({ action: "update", pr: 3, branch: "other" });
+    const labelOnly = selectMaintenancePr({ outcome: "changed", openPrs: openPrs.slice(0, 1) });
+    expect(labelOnly).toMatchObject({ action: "create", branch: MAINTENANCE_BRANCH, duplicates: [], foreign: [3] });
+    expect(labelOnly).not.toHaveProperty("pr");
+    expect(selectMaintenancePr({ outcome: "clean", openPrs: openPrs.slice(0, 1) })).toMatchObject({ action: "none", existing: null, foreign: [3] });
   });
 
-  it("ignores closed and fork PRs", () => {
-    const openPrs = [pr(1, MAINTENANCE_BRANCH, [], { state: "MERGED" }), pr(2, MAINTENANCE_BRANCH, [], { isCrossRepository: true })];
-    expect(selectMaintenancePr({ outcome: "changed", openPrs }).action).toBe("create");
+  it("lists only other fixed-branch PRs as duplicates", () => {
+    const openPrs = [pr(12, MAINTENANCE_BRANCH, [MAINTENANCE_LABEL]), pr(8, MAINTENANCE_BRANCH), pr(5, "bob/x", [MAINTENANCE_LABEL])];
+    expect(selectMaintenancePr({ outcome: "changed", openPrs })).toMatchObject({ action: "update", pr: 8, duplicates: [12], foreign: [5] });
+  });
+
+  it("ignores closed PRs and reports fork PRs on the branch name without selecting them", () => {
+    const openPrs = [pr(1, MAINTENANCE_BRANCH, [], { state: "MERGED" }), pr(2, MAINTENANCE_BRANCH, [MAINTENANCE_LABEL], { isCrossRepository: true })];
+    expect(selectMaintenancePr({ outcome: "changed", openPrs })).toMatchObject({ action: "create", duplicates: [], foreign: [2] });
+  });
+
+  it("rejects PR rows that are not gh pr list objects", () => {
+    expect(() => selectMaintenancePr({ outcome: "changed", openPrs: [null] })).toThrow(/integer "number"/);
+    expect(() => selectMaintenancePr({ outcome: "changed", openPrs: [[]] })).toThrow(/integer "number"/);
+    expect(() => selectMaintenancePr({ outcome: "changed", openPrs: [{ number: 1 }] })).toThrow(/string "headRefName"/);
+    expect(() => selectMaintenancePr({ outcome: "changed", openPrs: null })).toThrow(/JSON array/);
   });
 
   it("never opens or pushes for clean or blocked runs", () => {
@@ -217,6 +258,27 @@ describe("parseArgs", () => {
   it("rejects unknown flags instead of falling back to defaults", () => {
     expect(parseArgs(["--root", "x"], ["root"])).toEqual({ root: "x" });
     expect(() => parseArgs(["--skilldir", "x"], ["root", "skill-dir"])).toThrow(/unknown flag: --skilldir/);
+  });
+
+  it("rejects a missing or empty value and a value that is another flag", () => {
+    const allowed = ["root", "json"];
+    expect(() => parseArgs(["--root", "--json"], allowed)).toThrow(/missing value for --root/);
+    expect(() => parseArgs(["--root", "--json", "out.json"], allowed)).toThrow(/missing value for --root/);
+    expect(() => parseArgs(["--root"], allowed)).toThrow(/missing value for --root/);
+    expect(() => parseArgs(["--root", ""], allowed)).toThrow(/missing value for --root/);
+    expect(() => parseArgs(["root", "x"], allowed)).toThrow(/bad argument: root/);
+  });
+});
+
+describe("resolveTargets", () => {
+  it("only the default skill path may be absent; explicit paths must exist", () => {
+    const root = fixtureRepo({ [`${SKILL}/SKILL.md`]: "" });
+    expect(resolveTargets({ root })).toEqual({ root, skillDir: SKILL });
+    expect(resolveTargets({ root, "skill-dir": SKILL })).toEqual({ root, skillDir: SKILL });
+    expect(() => resolveTargets({ root: path.join(root, "nope") })).toThrow(/--root .*nope: no such directory/);
+    expect(() => resolveTargets({ root: path.join(root, SKILL, "SKILL.md") })).toThrow(/no such directory/);
+    expect(() => resolveTargets({ root, "skill-dir": "nope" })).toThrow(/--skill-dir nope: no SKILL.md/);
+    expect(() => resolveTargets({ root, "skill-dir": `${SKILL}/features` })).toThrow(/no SKILL.md/);
   });
 });
 
@@ -282,6 +344,21 @@ describe("runDetector and CLI", () => {
     expect(readFileSync(path.join(root, "r.md"), "utf8")).toContain("| unmapped-spec | `e2e/new.spec.ts` | `e2e` |");
   });
 
+  it("exits 2, never absent, on malformed or nonexistent explicit arguments", () => {
+    const root = fixtureRepo({ "src/App.tsx": APP });
+    const swallowed = cliRun(["--root", "--json"]);
+    expect(swallowed.status).toBe(2);
+    expect(swallowed.stderr).toContain("missing value for --root");
+    expect(swallowed.stdout).not.toContain("absent");
+    const missingRoot = cliRun(["--root", path.join(root, "does-not-exist"), "--json", path.join(root, "r.json")]);
+    expect(missingRoot.status).toBe(2);
+    expect(JSON.parse(readFileSync(path.join(root, "r.json"), "utf8"))).toMatchObject({ status: "error", message: expect.stringMatching(/no such directory/) });
+    const missingSkill = cliRun(["--root", root, "--skill-dir", "nope"]);
+    expect(missingSkill.status).toBe(2);
+    expect(missingSkill.stderr).toContain("--skill-dir nope: no SKILL.md");
+    expect(cliRun(["--root", root]).status).toBe(0);
+  });
+
   it("exits 2 on bad arguments or a malformed ignore file, and prints a PR decision", () => {
     expect(cliRun(["--root"]).status).toBe(2);
     const root = fixtureRepo(cleanRepo({ [`${SKILL}/drift-ignore.json`]: '{"routes":[{"pattern":"/"}]}' }));
@@ -298,6 +375,62 @@ describe("runDetector and CLI", () => {
     const cli = cliRun(["select-pr", "--outcome", "changed", "--prs", path.join(root, "prs.json")]);
     expect(cli.status).toBe(0);
     expect(JSON.parse(cli.stdout)).toMatchObject({ action: "update", pr: 7 });
+    writeFileSync(path.join(root, "nested.json"), JSON.stringify([[], []]));
+    const nested = cliRun(["select-pr", "--outcome", "changed", "--prs", path.join(root, "nested.json")]);
+    expect(nested.status).toBe(2);
+    expect(nested.stderr).toContain('integer "number"');
+  });
+});
+
+describe("runbook PR lookup fails closed", () => {
+  const runbook = readFileSync(path.join(repoRoot, "docs/runbooks/verify-skill-maintenance.md"), "utf8");
+  const block = /5\. \*\*Choose the PR\.[^\n]*\n\n {3}```bash\n([\s\S]*?)\n {3}```/.exec(runbook)[1].replaceAll(/^ {3}/gm, "");
+  const hasTools = ["bash", "jq"].every((bin) => spawnSync(bin, ["--version"]).status === 0);
+  const ours = { number: 9, headRefName: MAINTENANCE_BRANCH, labels: [], isCrossRepository: false, state: "OPEN" };
+  const alice = { number: 3, headRefName: "alice/my-feature", labels: [{ name: MAINTENANCE_LABEL }], isCrossRepository: false, state: "OPEN" };
+
+  /** Runs the runbook block verbatim with a fake `gh` that answers each query as given. */
+  function lookup({ head, label }) {
+    const dir = fixtureRepo({
+      "bin/gh": [
+        "#!/bin/sh",
+        'case "$*" in',
+        '  *--head*) printf %s "$HEAD_OUT"; exit "$HEAD_EXIT" ;;',
+        '  *--label*) printf %s "$LABEL_OUT"; exit "$LABEL_EXIT" ;;',
+        "esac",
+        "exit 99",
+        "",
+      ].join("\n"),
+    });
+    chmodSync(path.join(dir, "bin/gh"), 0o755);
+    const env = {
+      ...process.env,
+      PATH: `${path.join(dir, "bin")}:${process.env.PATH}`,
+      TMPDIR: dir,
+      GITHUB_STEP_SUMMARY: "",
+      HEAD_OUT: head.out, HEAD_EXIT: String(head.exit ?? 0), LABEL_OUT: label.out, LABEL_EXIT: String(label.exit ?? 0),
+    };
+    return spawnSync("bash", ["-c", block], { cwd: repoRoot, encoding: "utf8", env });
+  }
+
+  it.skipIf(!hasTools)("stops when a query fails, even if the other returns []", () => {
+    const run = lookup({ head: { out: "", exit: 1 }, label: { out: "[]" } });
+    expect(run.status).not.toBe(0);
+    expect(run.stdout).not.toContain('"action"');
+    expect(lookup({ head: { out: "[]" }, label: { out: "", exit: 4 } }).status).not.toBe(0);
+  });
+
+  it.skipIf(!hasTools)("stops when a query prints null or nothing", () => {
+    expect(lookup({ head: { out: "null" }, label: { out: "[]" } }).status).not.toBe(0);
+    expect(lookup({ head: { out: "" }, label: { out: "[]" } }).status).not.toBe(0);
+  });
+
+  it.skipIf(!hasTools)("updates the fixed-branch PR once and reports a labelled foreign PR", () => {
+    const both = lookup({ head: { out: JSON.stringify([ours]) }, label: { out: JSON.stringify([ours, alice]) } });
+    expect(both.status).toBe(0);
+    expect(JSON.parse(both.stdout)).toMatchObject({ action: "update", pr: 9, branch: MAINTENANCE_BRANCH, duplicates: [], foreign: [3] });
+    const labelOnly = lookup({ head: { out: "[]" }, label: { out: JSON.stringify([alice]) } });
+    expect(JSON.parse(labelOnly.stdout)).toMatchObject({ action: "create", branch: MAINTENANCE_BRANCH, foreign: [3] });
   });
 });
 

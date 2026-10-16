@@ -13,7 +13,7 @@ There are two parts. Only the first is automated:
 node scripts/verify-skill-drift.mjs --json /tmp/drift.json --markdown /tmp/drift.md
 ```
 
-Exit `0` means no drift, or the skill is absent: the skill directory or its `SKILL.md` is missing (it prints `Status: **absent**` and does nothing). A skill that exists without `features/` is drift (`missing-index`), not absent. Exit `1` means drift. Exit `2` means a usage error (including an unknown flag) or a malformed `drift-ignore.json`; the report files are still written with `Status: **error**` and the message. The report compares the map to `src/App.tsx` routes, `e2e/**/*.spec.ts` and the repo paths the map cites in inline code:
+Exit `0` means no drift, or the skill is absent: the default skill directory or its `SKILL.md` is missing (it prints `Status: **absent**` and does nothing). A skill that exists without `features/` is drift (`missing-index`), not absent. Exit `1` means drift. Exit `2` means a usage or config error. Argument errors (an unknown flag, or a flag with no value or with another flag as its value, such as `--root --json`) write no report files. Config errors still write them with `Status: **error**` and the message: a malformed `drift-ignore.json`, a `--root` that does not exist, or a `--skill-dir` with no `SKILL.md`. An explicit path is never reported as absent. The report compares the map to `src/App.tsx` routes, `e2e/**/*.spec.ts` and the repo paths the map cites in inline code:
 
 | Kind | Meaning | Usual fix |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ Intentional exclusions go in `.agents/skills/verify-overdrafter/drift-ignore.jso
 }
 ```
 
-A cited path that does not exist counts as present only when it is listed in `runtimePaths` and git ignores it. Other gitignored paths (`node_modules/...`, `dist/...`) are still `missing-path`. Absolute filesystem paths in inline code (`/tmp/...`, `/usr/...`) are not treated as app routes.
+A cited path that does not exist counts as present only when it is listed in `runtimePaths` and git ignores it. Other gitignored paths (`node_modules/...`, `dist/...`) are still `missing-path`. Absolute filesystem paths in inline code (`/tmp/...`, `/usr/...`) are not treated as app routes. Fenced code blocks (backtick or tilde, at any indent, including inside list items) are not scanned. An unclosed fence is scanned as plain text, so a typo cannot hide the rest of a file.
 
 ## Run procedure
 
@@ -45,17 +45,26 @@ A cited path that does not exist counts as present only when it is listed in `ru
 5. **Choose the PR. Only a `changed` outcome ships.**
 
    ```bash
-   FIELDS=number,headRefName,labels,isCrossRepository,state
-   { gh pr list --state open --head chore/verify-skill-maintenance --limit 1000 --json "$FIELDS"
-     gh pr list --state open --label verify-skill-maintenance --limit 1000 --json "$FIELDS"; } | jq -s add > /tmp/prs.json
-   node scripts/verify-skill-drift.mjs select-pr --outcome changed --prs /tmp/prs.json
+   (
+     set -euo pipefail
+     D="$(mktemp -d)"
+     FIELDS=number,headRefName,labels,isCrossRepository,state
+     gh pr list --state open --head chore/verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/head.json"
+     gh pr list --state open --label verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/label.json"
+     jq -e -s 'length == 2 and all(.[]; type == "array")' "$D/head.json" "$D/label.json" > /dev/null
+     jq -s 'add' "$D/head.json" "$D/label.json" > "$D/prs.json"
+     node scripts/verify-skill-drift.mjs select-pr --outcome changed --prs "$D/prs.json"
+   )
    ```
 
-   Query by head branch and label with `--limit 1000`, never the default 30-PR page, or the maintenance PR can drop out of the list and a second one gets opened. `--prs` is required (`select-pr` exits `2` without it), and a PR returned by both queries counts once.
+   Run the block as one unit. Each query runs on its own, so a failed `gh` call stops the block before anything is decided. Never treat a failed or empty-output query as "no PR". The `jq -e` check stops the block unless both queries printed a JSON array (not `null`, not nothing). `select-pr` also exits `2` on rows without an integer `number` and a string `headRefName`. Query by head branch and label with `--limit 1000`, never the default 30-PR page, or the maintenance PR can drop out of the list and a second one gets opened. `--prs` is required (`select-pr` exits `2` without it), and a PR returned by both queries counts once.
+
+   Only an open same-repo PR whose head is `chore/verify-skill-maintenance` is the maintenance PR. The label alone never makes a PR ours.
 
    - `create`: branch `chore/verify-skill-maintenance` from `origin/main`, then open one PR with the label `verify-skill-maintenance`.
-   - `update`: check out the returned branch, rebase it onto `origin/main`, add this run's commit, and push with `--force-with-lease` to the same PR. Do not open a new one.
-   - `duplicates`: close any listed PRs with a comment that points at the kept PR.
+   - `update`: the branch is always `chore/verify-skill-maintenance`. Check it out, rebase it onto `origin/main`, add this run's commit, and push with `--force-with-lease` to the same PR. Do not open a new one. Never rebase or push any other branch.
+   - `duplicates`: other open same-repo PRs on `chore/verify-skill-maintenance`. Close them with a comment that points at the kept PR.
+   - `foreign`: PRs that carry the label or the branch name but are on another branch or a fork. List them in the report and the PR body. Do not check out, rebase, push, close, relabel or comment on them.
    - For `clean` or `blocked`, the decision is `none`: no branch and no PR. Report the outcome and coverage. Leave an existing open maintenance PR as it is.
 6. **PR body.** Give the outcome, the features covered live and the evidence directories, the before and after drift reports, any unreachable prerequisites, product gaps with their Linear links, and the `npm run preflight` stage lines.
 

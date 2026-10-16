@@ -11,11 +11,11 @@
  *   node scripts/verify-skill-drift.mjs select-pr --outcome clean|changed|blocked --prs FILE
  *
  * Exit codes: 0 no drift (or skill absent), 1 drift, 2 usage or config error.
- * "Absent" means the skill directory or its SKILL.md is missing; a skill without
- * features/ is drift.
+ * "Absent" means the default skill directory or its SKILL.md is missing; a skill without
+ * features/ is drift. An explicit --root or --skill-dir that does not exist is exit 2.
  */
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,7 +68,48 @@ export function extractSpecPaths(text) {
 /** Absolute filesystem paths (`/tmp/out`, `/usr/bin`) are not app routes. */
 const FILESYSTEM_ROOTS = /^\/(?:tmp|usr|bin|sbin|etc|var|opt|home|dev|proc|private|Users)(?:\/|$)/;
 
-const stripFences = (markdown) => markdown.replace(/^```[\s\S]*?^```/gm, "");
+const FENCE_OPEN = /^[ \t]*(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
+
+/** A backtick fence's info string cannot contain a backtick, so "```x``` text" is inline code. */
+const fenceOpener = (line) => {
+  const m = FENCE_OPEN.exec(line);
+  return m && !(m[1][0] === "`" && m[2].includes("`")) ? m[1] : null;
+};
+
+/** Closes on the same character, at least as long as the opener, with nothing after it. */
+const closesFence = (line, fence) => {
+  const m = FENCE_CLOSE.exec(line);
+  return Boolean(m) && m[1][0] === fence[0] && m[1].length >= fence.length;
+};
+
+/** Index of the line that closes a fence opened at `start`, or -1 (not an opener, or unclosed). */
+function fenceEnd(lines, start) {
+  const fence = fenceOpener(lines[start]);
+  if (!fence) return -1;
+  for (let j = start + 1; j < lines.length; j += 1) {
+    if (closesFence(lines[j], fence)) return j;
+  }
+  return -1;
+}
+
+/**
+ * Drops fenced code blocks at any indent (list items indent them). Line-based, not a regex,
+ * so an inline "```x```" cannot open a block. An unclosed fence is kept and still scanned:
+ * a typo must not hide the rest of the file from the detector.
+ */
+export function stripFences(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const kept = [];
+  let i = 0;
+  while (i < lines.length) {
+    const end = fenceEnd(lines, i);
+    if (end === -1) kept.push(lines[i]);
+    i = end === -1 ? i + 1 : end + 1;
+  }
+  return kept.join("\n");
+}
+
 const inlineCode = (markdown) => [...stripFences(markdown).matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim());
 
 /** Inline-code tokens that look like app routes (`/parts/<id>`) or repo paths (`e2e/auth.mjs`). */
@@ -196,25 +237,42 @@ export function detectDrift({ skill, app, ignore = { routes: [], specs: [], path
   };
 }
 
+/** `--prs` rows must look like `gh pr list --json` output, so a mangled merge fails closed. */
+export function validatePrList(openPrs) {
+  if (!Array.isArray(openPrs)) throw new Error("expected a JSON array of PRs");
+  for (const pr of openPrs) {
+    if (!Number.isInteger(pr?.number) || typeof pr?.headRefName !== "string") {
+      throw new Error(`every PR needs an integer "number" and a string "headRefName"; got ${JSON.stringify(pr)}`);
+    }
+  }
+  return openPrs;
+}
+
 /**
- * At most one maintenance PR per run. Reuse an open same-repo PR on the fixed branch
- * (preferred) or carrying the label; only `changed` runs ever push or create.
+ * At most one maintenance PR per run. Only an open same-repo PR whose head is the fixed
+ * branch is ours to update; the label is optional. Any other PR carrying the label or the
+ * branch name (another author's branch, a fork) is listed in `foreign` and never touched.
+ * Only `changed` runs ever push or create.
  */
 export function selectMaintenancePr({ outcome, openPrs = [] }) {
   if (!["clean", "changed", "blocked"].includes(outcome)) throw new Error(`unknown outcome: ${outcome}`);
   const labelNames = (pr) => (pr.labels ?? []).map((l) => (typeof l === "string" ? l : l.name));
-  const byNumber = new Map(openPrs.map((pr) => [pr.number, pr]));
-  const candidates = [...byNumber.values()]
-    .filter((pr) => (pr.state ?? "OPEN").toUpperCase() === "OPEN" && !pr.isCrossRepository)
-    .filter((pr) => pr.headRefName === MAINTENANCE_BRANCH || labelNames(pr).includes(MAINTENANCE_LABEL))
-    .sort((a, b) => Number(b.headRefName === MAINTENANCE_BRANCH) - Number(a.headRefName === MAINTENANCE_BRANCH) || a.number - b.number);
-  const [existing, ...duplicates] = candidates;
-  const extra = { duplicates: duplicates.map((pr) => pr.number) };
+  const open = [...new Map(validatePrList(openPrs).map((pr) => [pr.number, pr])).values()]
+    .filter((pr) => (pr.state ?? "OPEN").toUpperCase() === "OPEN")
+    .sort((a, b) => a.number - b.number);
+  const ours = (pr) => pr.headRefName === MAINTENANCE_BRANCH && !pr.isCrossRepository;
+  const [existing, ...duplicates] = open.filter(ours);
+  const extra = {
+    duplicates: duplicates.map((pr) => pr.number),
+    foreign: open
+      .filter((pr) => !ours(pr) && (pr.headRefName === MAINTENANCE_BRANCH || labelNames(pr).includes(MAINTENANCE_LABEL)))
+      .map((pr) => pr.number),
+  };
   if (outcome !== "changed") {
     return { action: "none", reason: `outcome ${outcome}: nothing to ship`, existing: existing?.number ?? null, ...extra };
   }
   if (existing) {
-    return { action: "update", pr: existing.number, branch: existing.headRefName, label: MAINTENANCE_LABEL, reason: "reuse the open maintenance PR", ...extra };
+    return { action: "update", pr: existing.number, branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "reuse the open maintenance PR", ...extra };
   }
   return { action: "create", branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "no open maintenance PR", ...extra };
 }
@@ -281,18 +339,38 @@ export function runDetector({ root, skillDir = DEFAULT_SKILL_DIR, isIgnored = gi
 const DETECT_FLAGS = ["root", "skill-dir", "json", "markdown"];
 const SELECT_FLAGS = ["outcome", "prs"];
 
-/** `--flag value` pairs; unknown flags are usage errors so a typo cannot fall back to defaults. */
+/**
+ * `--flag value` pairs. Unknown flags, a missing or empty value, and a value that is itself a
+ * flag (`--root --json`) are usage errors, so a typo cannot fall back to defaults.
+ */
 export function parseArgs(argv, allowed) {
   const opts = {};
-  for (let i = 0; i < argv.length; i += 1) {
+  for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
-    if (!flag.startsWith("--") || argv[i + 1] === undefined) throw new Error(`bad argument: ${flag}`);
+    const value = argv[i + 1];
+    if (!flag.startsWith("--")) throw new Error(`bad argument: ${flag}`);
     const name = flag.slice(2);
     if (!allowed.includes(name)) throw new Error(`unknown flag: ${flag} (allowed: ${allowed.map((f) => `--${f}`).join(", ")})`);
-    i += 1;
-    opts[name] = argv[i];
+    if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`missing value for ${flag}`);
+    opts[name] = value;
   }
   return opts;
+}
+
+const isDirectory = (dir) => existsSync(dir) && statSync(dir).isDirectory();
+
+/**
+ * "Absent" (exit 0) applies only to the default skill path. A `--root` or `--skill-dir`
+ * given explicitly must exist (and the skill dir must hold SKILL.md), or it is a config error.
+ */
+export function resolveTargets(opts) {
+  const root = path.resolve(opts.root ?? ".");
+  if (opts.root !== undefined && !isDirectory(root)) throw new Error(`--root ${opts.root}: no such directory`);
+  const skillDir = opts["skill-dir"] ?? DEFAULT_SKILL_DIR;
+  if (opts["skill-dir"] !== undefined && !existsSync(path.join(path.resolve(root, skillDir), "SKILL.md"))) {
+    throw new Error(`--skill-dir ${skillDir}: no SKILL.md under ${root}`);
+  }
+  return { root, skillDir };
 }
 
 function writeReport(report, opts) {
@@ -310,14 +388,18 @@ function main(argv) {
     const opts = parseArgs(argv.slice(1), SELECT_FLAGS);
     if (!opts.prs) throw new Error("select-pr needs --prs FILE (gh pr list JSON); refusing to assume no open PRs");
     const openPrs = JSON.parse(readFileSync(opts.prs, "utf8"));
-    if (!Array.isArray(openPrs)) throw new Error(`--prs ${opts.prs}: expected a JSON array`);
+    try {
+      validatePrList(openPrs);
+    } catch (error) {
+      throw new Error(`--prs ${opts.prs}: ${error.message}`);
+    }
     console.log(JSON.stringify(selectMaintenancePr({ outcome: opts.outcome, openPrs }), null, 2));
     return 0;
   }
   const opts = parseArgs(argv, DETECT_FLAGS);
   let report;
   try {
-    report = { schema: SCHEMA, ...runDetector({ root: path.resolve(opts.root ?? "."), skillDir: opts["skill-dir"] }) };
+    report = { schema: SCHEMA, ...runDetector(resolveTargets(opts)) };
   } catch (error) {
     // Config errors still leave a report behind for the maintenance agent.
     writeReport({ schema: SCHEMA, status: "error", skillDir: opts["skill-dir"] ?? DEFAULT_SKILL_DIR, message: error.message }, opts);
