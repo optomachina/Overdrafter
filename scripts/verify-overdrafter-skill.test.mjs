@@ -1,11 +1,21 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { FEATURE_SPECS, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
+import {
+  CONFIG_PORTS,
+  DEFAULT_CONFIG,
+  FEATURE_SPECS,
+  parseFeatures,
+  specsFor,
+} from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
+import { isolationProblems, KEY_VARS, URL_VARS } from "../.agents/skills/verify-overdrafter/scripts/isolation.mjs";
+import { countResults, verdict } from "../.agents/skills/verify-overdrafter/scripts/verdict.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillDir = path.join(root, ".agents/skills/verify-overdrafter");
@@ -32,16 +42,30 @@ describe("verify-overdrafter skill structure", () => {
 
   it("maps every index feature to existing e2e specs and shipped scripts", () => {
     expect(Object.keys(FEATURE_SPECS).sort()).toEqual(["auth", "provider", "quote"]);
-    for (const mode of ["fixture", "local"]) {
-      for (const spec of specsFor(Object.keys(FEATURE_SPECS), mode)) {
+    for (const entry of Object.values(FEATURE_SPECS)) {
+      for (const { spec, config } of [...entry.fixture, ...entry.local]) {
         expect(existsSync(path.join(root, spec)), spec).toBe(true);
+        expect(existsSync(path.join(root, config)), config).toBe(true);
+        expect(CONFIG_PORTS[config], `${config} port`).toBeTypeOf("number");
       }
     }
-    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs"]) {
+    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs", "scripts/verdict.mjs", "scripts/isolation.mjs"]) {
       expect(existsSync(path.join(skillDir, s)), s).toBe(true);
       expect(read("SKILL.md")).toContain(s);
     }
     expect(() => specsFor(["nope"], "fixture")).toThrow(/unknown feature/);
+  });
+
+  it("fails closed when any requested feature has no specs in the mode", () => {
+    expect(() => specsFor(["auth", "provider"], "local")).toThrow(/provider has no local specs/);
+    expect(specsFor(["auth", "provider"], "fixture").length).toBeGreaterThan(0);
+  });
+
+  it("rejects empty feature tokens", () => {
+    for (const list of ["", " ", "auth,", ",auth", "auth,,quote"]) {
+      expect(() => parseFeatures(list), JSON.stringify(list)).toThrow(/feature/);
+    }
+    expect(parseFeatures("auth, quote")).toEqual(["auth", "quote"]);
   });
 
   it("keeps evidence gitignored and the skill listed in AGENTS.md", () => {
@@ -52,13 +76,71 @@ describe("verify-overdrafter skill structure", () => {
 
 describe("verify-overdrafter driver behavior", () => {
   const verify = path.join(skillDir, "scripts/verify.sh");
-  const run = (...args) => spawnSync("bash", [verify, ...args], { cwd: root, encoding: "utf8" });
+  const cleanEnv = () => {
+    const env = { ...process.env };
+    for (const k of [...URL_VARS, ...KEY_VARS]) delete env[k];
+    return env;
+  };
+  const run = (...args) => spawnSync("bash", [verify, ...args], { cwd: root, encoding: "utf8", env: cleanEnv() });
+  const runEnv = (extra, ...args) =>
+    spawnSync("bash", [verify, ...args], { cwd: root, encoding: "utf8", env: { ...cleanEnv(), ...extra } });
 
   it("rejects unknown, empty and spec-less feature selections", () => {
-    for (const args of [["--features", "bogus"], ["--features", ""], ["--mode", "local", "--features", "provider"]]) {
+    for (const args of [
+      ["--features", "bogus"],
+      ["--features", ""],
+      ["--features", "auth,"],
+      ["--mode", "local", "--features", "provider"],
+      ["--mode", "local", "--features", "auth,provider"],
+    ]) {
       const r = run(...args, "--dry-run");
       expect(r.status, args.join(" ")).toBe(2);
       expect(r.stdout).not.toContain("playwright test");
+    }
+    expect(run("--features", "auth,", "--dry-run").stderr).toContain("empty feature name");
+    expect(run("--mode", "local", "--features", "auth,provider", "--dry-run").stderr).toContain("provider has no local specs");
+  });
+
+  it("runs admin-operations under its own config", () => {
+    const r = run("--features", "provider", "--dry-run");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/--config e2e\/admin-operations\.config\.ts e2e\/admin-operations\.spec\.ts /);
+    expect(r.stdout).not.toMatch(/--config playwright\.config\.ts [^\n]*admin-operations/);
+  });
+
+  it("doctor and --prepare refuse non-local targets without printing them", () => {
+    const secret = "https://abcdefghijklmnop.supabase.co";
+    for (const [name, value] of [
+      ["VITE_SUPABASE_URL", secret],
+      ["PLAYWRIGHT_BASE_URL", "https://app.overdrafter.example"],
+      ["SUPABASE_URL", secret],
+      ["SUPABASE_SERVICE_ROLE_KEY", "sb_secret_notlocal"],
+    ]) {
+      const doctor = runEnv({ [name]: value }, "--doctor");
+      expect(doctor.status, name).not.toBe(0);
+      expect(doctor.stdout).toContain(`FAIL ${name}`);
+      expect(doctor.stdout + doctor.stderr).not.toContain(value);
+      const prepare = runEnv({ [name]: value }, "--mode", "local", "--prepare", "--features", "auth");
+      expect(prepare.status, name).toBe(1);
+      expect(prepare.stdout).toContain(`FAIL ${name}`);
+      expect(prepare.stdout + prepare.stderr).not.toContain(value);
+      expect(prepare.stdout).not.toContain("e2e:prepare");
+    }
+  });
+
+  it("doctor fails when any listener holds a config port", async () => {
+    const server = net.createServer();
+    const listening = await new Promise((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen(CONFIG_PORTS["e2e/admin-operations.config.ts"], "127.0.0.1", () => resolve(true));
+    });
+    // Not an HTTP server: a bare TCP listener must still trip the guard.
+    try {
+      const r = run("--doctor", "--features", "provider");
+      expect(r.status).not.toBe(0);
+      expect(r.stdout).toContain("FAIL port 4174");
+    } finally {
+      if (listening) await new Promise((resolve) => server.close(resolve));
     }
   });
 
@@ -72,6 +154,7 @@ describe("verify-overdrafter driver behavior", () => {
     expect(fixture.status).toBe(0);
     expect(fixture.stdout).toContain("e2e/quote-comparison.spec.ts");
     expect(fixture.stdout).toContain("--grep @fixture");
+    expect(fixture.stdout).toContain("--config playwright.config.ts");
     const local = run("--mode", "local", "--features", "auth", "--dry-run");
     expect(local.status).toBe(0);
     expect(local.stdout).toContain("e2e/access-scope.spec.ts");
@@ -84,8 +167,8 @@ describe("verify-overdrafter lane mapping", () => {
 
   it("fixture specs carry the @fixture tag and are not fixture-only in local lanes", () => {
     for (const [name, entry] of Object.entries(FEATURE_SPECS)) {
-      for (const p of entry.fixture) expect(spec(p), `${name} fixture ${p}`).toContain("@fixture");
-      for (const p of entry.local) {
+      for (const { spec: p } of entry.fixture) expect(spec(p), `${name} fixture ${p}`).toContain("@fixture");
+      for (const { spec: p } of entry.local) {
         const src = spec(p);
         const tests = (src.match(/^\s*test(\.\w+)?\(/gm) ?? []).length;
         const tagged = (src.match(/@fixture"/g) ?? []).length;
@@ -97,8 +180,36 @@ describe("verify-overdrafter lane mapping", () => {
 
   it("does not list a spec in both lanes", () => {
     const all = Object.values(FEATURE_SPECS);
-    const fx = new Set(all.flatMap((e) => e.fixture));
-    for (const p of all.flatMap((e) => e.local)) expect(fx.has(p), p).toBe(false);
+    const fx = new Set(all.flatMap((e) => e.fixture.map((s) => s.spec)));
+    for (const { spec: p } of all.flatMap((e) => e.local)) expect(fx.has(p), p).toBe(false);
+  });
+
+  // A top-level test.skip() silently turns a whole spec into skips. Each one
+  // must gate on a baseURL that the config the spec is mapped to actually serves.
+  const skipMismatches = (entries) => {
+    const bad = [];
+    for (const { spec: p, config } of entries) {
+      const configSrc = readFileSync(path.join(root, config), "utf8");
+      if (config !== DEFAULT_CONFIG) {
+        const match = configSrc.match(/testMatch:\s*"([^"]+)"/);
+        if (!match || path.basename(p) !== match[1]) bad.push(`${p}: ${config} testMatch does not select it`);
+      }
+      for (const line of spec(p).split("\n").filter((l) => /^test\.skip\(/.test(l))) {
+        const url = line.match(/baseURL !== "([^"]+)"/)?.[1];
+        if (!url) bad.push(`${p}: unconditional or unrecognized top-level test.skip`);
+        else if (!configSrc.includes(`"${url}"`)) bad.push(`${p}: skips unless ${url}, which ${config} does not serve`);
+      }
+    }
+    return bad;
+  };
+
+  it("runs every mapped spec under a config where its top-level skips do not fire", () => {
+    const entries = Object.values(FEATURE_SPECS).flatMap((e) => [...e.fixture, ...e.local]);
+    expect(skipMismatches(entries)).toEqual([]);
+  });
+
+  it("catches a spec mapped to a config its top-level skip rejects", () => {
+    expect(skipMismatches([{ spec: "e2e/admin-operations.spec.ts", config: DEFAULT_CONFIG }])).toHaveLength(1);
   });
 
   it("tracks the skill in git despite the ignored .agents directory", () => {
@@ -107,5 +218,81 @@ describe("verify-overdrafter lane mapping", () => {
     for (const f of ["SKILL.md", "scripts/verify.sh", "scripts/feature-specs.mjs", "features/README.md"]) {
       expect(r.stdout, f).toContain(`.agents/skills/verify-overdrafter/${f}`);
     }
+  });
+});
+
+describe("verify-overdrafter verdict", () => {
+  const t = (status, expectedStatus = "passed") => ({ status, expectedStatus });
+  const report = (...tests) => ({ suites: [{ specs: [{ tests: tests.slice(0, 1) }], suites: [{ specs: [{ tests: tests.slice(1) }] }] }] });
+  const counts = (o) => ({ passed: 0, failed: 0, skipped: 0, expectedFail: 0, flaky: 0, ...o });
+
+  it("counts nested results by status", () => {
+    expect(countResults(report(t("expected"), t("skipped"), t("expected", "failed"), t("flaky"), t("unexpected")))).toEqual(
+      counts({ passed: 1, skipped: 1, expectedFail: 1, flaky: 1, failed: 1 }),
+    );
+    expect(countResults({ suites: [] })).toEqual(counts({}));
+    expect(() => countResults({})).toThrow(/Playwright/);
+  });
+
+  it("fails closed on failures, skips, zero passes and missing counts", () => {
+    expect(verdict({ exitCodes: [0], counts: counts({ passed: 3, expectedFail: 1 }) })).toBe("PASS");
+    expect(verdict({ exitCodes: [0, 1], counts: counts({ passed: 3 }) })).toBe("FAIL");
+    expect(verdict({ exitCodes: [0], counts: counts({ passed: 3, failed: 1 }) })).toBe("FAIL");
+    expect(verdict({ exitCodes: [1], counts: null })).toBe("FAIL");
+    expect(verdict({ exitCodes: [0], counts: null })).toBe("INCOMPLETE");
+    expect(verdict({ exitCodes: [0], counts: counts({ passed: 3, skipped: 1 }) })).toBe("INCOMPLETE");
+    expect(verdict({ exitCodes: [0], counts: counts({ skipped: 6 }) })).toBe("INCOMPLETE");
+    expect(verdict({ exitCodes: [0], counts: counts({}) })).toBe("INCOMPLETE");
+    expect(verdict({ exitCodes: [0], counts: counts({ expectedFail: 2 }) })).toBe("INCOMPLETE");
+    expect(verdict({ exitCodes: [0], counts: counts({ passed: 2, flaky: 1 }) })).toBe("INCOMPLETE");
+  });
+
+  it("the CLI sums runs and exits non-zero unless PASS", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "verify-overdrafter-"));
+    const ok = path.join(dir, "ok.json");
+    const skipped = path.join(dir, "skipped.json");
+    writeFileSync(ok, JSON.stringify(report(t("expected"), t("expected"))));
+    writeFileSync(skipped, JSON.stringify(report(t("skipped"))));
+    const cli = (...args) =>
+      spawnSync("node", [path.join(skillDir, "scripts/verdict.mjs"), ...args], { encoding: "utf8" });
+    const pass = cli(`0:${ok}`);
+    expect(pass.status).toBe(0);
+    expect(pass.stdout).toContain("tests: passed=2 failed=0 skipped=0");
+    expect(pass.stdout).toContain("verdict: PASS");
+    const partial = cli(`0:${ok}`, `0:${skipped}`);
+    expect(partial.status).toBe(3);
+    expect(partial.stdout).toContain("passed=2 failed=0 skipped=1");
+    const missing = cli(`0:${ok}`, `0:${path.join(dir, "absent.json")}`);
+    expect(missing.status).toBe(3);
+    expect(missing.stdout).toContain("tests: unavailable");
+    expect(cli().status).toBe(3);
+  });
+});
+
+describe("verify-overdrafter isolation", () => {
+  const demoJwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
+
+  it("accepts unset and localhost targets", () => {
+    expect(isolationProblems({})).toEqual([]);
+    expect(
+      isolationProblems({
+        VITE_SUPABASE_URL: "http://127.0.0.1:54321",
+        PLAYWRIGHT_BASE_URL: "http://localhost:4173",
+        SUPABASE_DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        SUPABASE_SERVICE_ROLE_KEY: demoJwt({ iss: "supabase-demo", role: "service_role" }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects hosted URLs, hosted or opaque keys and lookalike hosts", () => {
+    expect(
+      isolationProblems({
+        VITE_SUPABASE_URL: "https://abc.supabase.co",
+        SUPABASE_URL: "http://127.0.0.1.evil.example",
+        PLAYWRIGHT_BASE_URL: "not a url",
+        SUPABASE_ANON_KEY: demoJwt({ iss: "supabase", ref: "abc", role: "anon" }),
+        SUPABASE_SERVICE_ROLE_KEY: "sb_secret_abc",
+      }),
+    ).toEqual(["VITE_SUPABASE_URL", "PLAYWRIGHT_BASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY"]);
   });
 });
