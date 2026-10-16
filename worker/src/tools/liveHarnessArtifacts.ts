@@ -37,6 +37,11 @@ export type LiveHarnessResultRow = {
   status: string | null;
   errorCode: string | null;
   totalPriceUsd: number | null;
+  /**
+   * OVD-785: adapter-normalized lead time for the first offer. Optional so
+   * rows written before this field existed still parse as v1.
+   */
+  leadTimeBusinessDays?: number | null;
   artifacts: Array<{ kind: VendorArtifact["kind"]; label: string; path: string }>;
 };
 
@@ -52,6 +57,7 @@ export type LiveHarnessRunArtifacts = {
     status: string | null;
     errorCode: string | null;
     totalPriceUsd: number | null;
+    leadTimeBusinessDays?: number | null;
     artifacts: readonly VendorArtifact[];
     now?: Date;
   }): Promise<LiveHarnessResultRow>;
@@ -95,6 +101,11 @@ export function parseProviderQuoteId(rawUrl: string | null): string | null {
   const stripped = stripQuoteUrl(rawUrl);
   if (!stripped) return null;
   return /\/quote\/(Q\d{2}-\d{4}-\d{4})(?:\/|$)/.exec(new URL(stripped).pathname)?.[1] ?? null;
+}
+
+/** Only a whole, non-negative business-day count is recorded; anything else is null. */
+function leadTimeOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function assertOutsideRepository(root: string) {
@@ -213,6 +224,7 @@ export async function openLiveHarnessRunArtifacts(
         status: input.status,
         errorCode: input.errorCode,
         totalPriceUsd: input.totalPriceUsd,
+        leadTimeBusinessDays: leadTimeOrNull(input.leadTimeBusinessDays),
         artifacts: linked,
       };
       await fs.appendFile(path.join(runDir, LIVE_HARNESS_RESULTS_FILE), `${JSON.stringify(row)}\n`, {

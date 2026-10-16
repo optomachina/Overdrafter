@@ -1598,6 +1598,7 @@ async function recordRunArtifacts(
       status: row.status,
       errorCode: row.errorCode,
       totalPriceUsd: row.totalPriceUsd,
+      leadTimeBusinessDays: row.leadTimeBusinessDays,
       artifacts: rawArtifacts,
     });
   } catch (error) {
