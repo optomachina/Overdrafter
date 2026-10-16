@@ -90,6 +90,45 @@ node scripts/check-rls-deny-coverage.mjs --write-baseline
 The vitest suite (`scripts/check-rls-deny-coverage.test.mjs`) fails while the
 committed baseline is out of date with the tree.
 
+## Gate loosening
+
+Per the release plan (§6), a PR that grows the baseline or relaxes this check
+is classified `gate_loosening` and needs a Grok Bot countersign on top of
+Blaine's card. Diff mode compares the head against the base commit and flags:
+
+| Reason `kind` | Trigger |
+| --- | --- |
+| `baseline_entry_added` | the head baseline lists an entry the base baseline does not |
+| `baseline_entry_widened` | a same `(table, policy)` entry gains or changes fields |
+| `baseline_unreadable` | the head baseline is not a valid `ovd847.rls-deny-baseline.v1` document |
+| `checker_changed` / `checker_removed` | `scripts/check-rls-deny-coverage.mjs` is edited or deleted |
+| `ci_job_changed` / `ci_job_removed` | a workflow's `rls-deny-coverage` job, or a non-comment line elsewhere naming `rls-deny`, changes or goes away |
+
+Any edit to the checker or its job counts ("needs review"); the checker does
+not try to judge whether the edit is harmless. A file the base commit does not
+have yet is being introduced, not loosened, so the PR that adds the checker
+is not flagged. Because CI runs the base copy of the checker, a PR cannot
+change the detection to hide itself.
+
+The JSON report carries a top-level field (diff mode only), for OVD-845:
+
+```json
+"gate_loosening": {
+  "detected": true,
+  "reasons": [{ "kind": "baseline_entry_added", "path": "scripts/rls-deny-baseline.json", "message": "..." }],
+  "requires": ["grokbot_countersign", "blaine_card"]
+}
+```
+
+The human report and the CI step summary print
+`GATE LOOSENING: needs Grok Bot countersign + Blaine's card` followed by the
+reasons.
+
+This is report only. `gate_loosening` does not change `ok` or the exit code,
+including under `--enforce`. Baseline growth still also raises its existing
+`baseline_growth` finding, so `--enforce` fails on it exactly as before; a
+checker or workflow edit alone never fails the build.
+
 ## Running it
 
 ```sh

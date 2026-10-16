@@ -22,6 +22,10 @@
  * --enforce exits 1 when there are findings. --json prints the JSON report on
  * stdout instead of the human report; --json-out <file> writes it to a file.
  *
+ * Diff mode also reports gate_loosening (baseline growth or widening, edits to
+ * this script or its CI job) for a Grok Bot countersign plus Blaine's card.
+ * It is report-only: it never changes ok or the exit code.
+ *
  * Diff mode runs from the base copy of this script in CI, so a PR cannot edit
  * the checker to skip itself, and it reads files from git, never the network.
  */
@@ -36,6 +40,10 @@ export const TESTS_DIR = "supabase/tests";
 export const BASELINE_PATH = "scripts/rls-deny-baseline.json";
 export const BASELINE_SCHEMA = "ovd847.rls-deny-baseline.v1";
 export const REPORT_SCHEMA = "ovd847.rls-deny-coverage.v1";
+export const CHECKER_PATH = "scripts/check-rls-deny-coverage.mjs";
+export const WORKFLOWS_DIR = ".github/workflows";
+export const CI_JOB = "rls-deny-coverage";
+export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
 /** Table-level entry key for ENABLE ROW LEVEL SECURITY with no named policy. */
 export const RLS_TABLE_ENTRY = null;
 
@@ -355,11 +363,87 @@ export function baselineGrowth(baseBaseline, headBaseline) {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Gate loosening (Plan §6): base-to-head changes that weaken this gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Comparing entries by their full JSON (keys sorted) catches a same-key entry
+ * that gains or changes fields, e.g. a future "missing" list or a broader match.
+ */
+const canonicalEntry = (entry) => JSON.stringify(Object.keys(entry).sort(compareCodeUnits).map((key) => [key, entry[key]]));
+
+/**
+ * The checker's CI surface in a workflow file: the rls-deny-coverage job block
+ * plus any non-comment line elsewhere that names it (needs:, other steps).
+ * Returns null when the workflow does not mention the checker at all.
+ */
+export function checkerWorkflowSurface(text) {
+  if (text == null) return null;
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => new RegExp(String.raw`^ {2}${CI_JOB}:\s*$`).test(line));
+  let end = start;
+  if (start !== -1) {
+    end = start + 1;
+    while (end < lines.length && !/^ {0,2}\S/.test(lines[end])) end += 1;
+  }
+  const job = start === -1 ? null : lines.slice(start, end).join("\n").trimEnd();
+  const mentions = lines.filter((line, i) => (start === -1 || i < start || i >= end) && !/^\s*#/.test(line) && /rls-deny/.test(line))
+    .map((line) => line.trim());
+  return job == null && mentions.length === 0 ? null : { job, mentions };
+}
+
+const sameSurface = (a, b) => a.job === b.job && JSON.stringify(a.mentions) === JSON.stringify(b.mentions);
+
+/**
+ * Report-only gate_loosening classification. Any of these needs a Grok Bot
+ * countersign on top of Blaine's card:
+ * - the head baseline adds an entry, widens a same-key entry, or is unreadable;
+ * - the checker script, or its CI job / workflow references, changed or were removed.
+ * A file the base does not have is being introduced, not loosened.
+ * gateFiles: [{ path, kind: "script" | "workflow", base: string|null, head: string|null }].
+ */
+export function detectGateLoosening({ baseBaseline = null, headBaseline = null, headBaselineError = null, gateFiles = [] }) {
+  const reasons = [];
+  if (headBaselineError) {
+    reasons.push({ kind: "baseline_unreadable", path: BASELINE_PATH, message: `${BASELINE_PATH} at head cannot be read (${headBaselineError}); the base baseline no longer applies.` });
+  } else if (baseBaseline && headBaseline) {
+    const base = new Map(baseBaseline.entries.map((entry) => [entryKey(entry), entry]));
+    for (const entry of headBaseline.entries) {
+      const prior = base.get(entryKey(entry));
+      if (!prior) {
+        reasons.push({ kind: "baseline_entry_added", path: BASELINE_PATH, table: entry.table, policy: entry.policy, message: `${BASELINE_PATH} adds ${entryLabel(entry)}.` });
+      } else if (canonicalEntry(prior) !== canonicalEntry(entry)) {
+        reasons.push({ kind: "baseline_entry_widened", path: BASELINE_PATH, table: entry.table, policy: entry.policy, message: `${BASELINE_PATH} changes ${entryLabel(entry)}: ${JSON.stringify(prior)} -> ${JSON.stringify(entry)}.` });
+      }
+    }
+  }
+  for (const { path, kind, base, head } of gateFiles) {
+    if (kind === "script") {
+      if (base == null || base === head) continue;
+      reasons.push(head == null
+        ? { kind: "checker_removed", path, message: `${path} is deleted.` }
+        : { kind: "checker_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` });
+    } else {
+      const before = checkerWorkflowSurface(base);
+      if (before == null) continue;
+      const after = checkerWorkflowSurface(head);
+      if (after == null || (before.job != null && after.job == null)) {
+        reasons.push({ kind: "ci_job_removed", path, message: `${path} no longer runs the ${CI_JOB} job.` });
+      } else if (!sameSurface(before, after)) {
+        reasons.push({ kind: "ci_job_changed", path, message: `${path} changes the ${CI_JOB} job or its references; needs review that it does not relax the check.` });
+      }
+    }
+  }
+  return { detected: reasons.length > 0, reasons, requires: GATE_LOOSENING_REQUIRES };
+}
+
 /**
  * Diff mode. changedMigrations: [{ path, content }] added or modified in the PR.
  * testFiles: every supabase/tests SQL file at head. Baselines: parsed JSON or null.
+ * gateFiles / headBaselineError feed the report-only gate_loosening field.
  */
-export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null, headBaseline = null }) {
+export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null, headBaseline = null, headBaselineError = null, gateFiles = [] }) {
   const ops = changedMigrations.flatMap(({ path, content }) => parseRlsOperations(content, path));
   const { entries, weakened } = changedEntries(ops);
   const { coverage, problems } = collectCoverage(testFiles);
@@ -374,6 +458,7 @@ export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null
     checked: entries.map(({ table, policy, ops: entryOps, files }) => ({
       table, policy, ops: entryOps, files, missing: missingCases(coverage, table),
     })),
+    gate_loosening: detectGateLoosening({ baseBaseline, headBaseline, headBaselineError, gateFiles }),
   });
 }
 
@@ -419,6 +504,8 @@ function report(mode, body) {
   return { schema: REPORT_SCHEMA, mode, ok: body.findings.length === 0, ...body };
 }
 
+export const GATE_LOOSENING_LINE = "GATE LOOSENING: needs Grok Bot countersign + Blaine's card (report only; does not fail the build).";
+
 export function formatHuman(result) {
   const lines = [];
   if (result.mode === "diff") {
@@ -433,6 +520,10 @@ export function formatHuman(result) {
     for (const entry of result.staleBaselineEntries) lines.push(`STALE ${entryLabel(entry)} is covered or gone; remove it from ${BASELINE_PATH}.`);
   }
   lines.push(result.ok ? "OK: no missing deny cases." : `${result.findings.length} finding(s). See docs/rls-deny-coverage.md for the deny tag convention.`);
+  if (result.gate_loosening?.detected) {
+    lines.push(GATE_LOOSENING_LINE);
+    for (const reason of result.gate_loosening.reasons) lines.push(`  - ${reason.message}`);
+  }
   return lines.join("\n");
 }
 
@@ -440,7 +531,7 @@ export function formatHuman(result) {
 // Input loading (git refs or working tree)
 // ---------------------------------------------------------------------------
 
-const git = (cwd, args) => execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+const git = (cwd, args) => execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 
 function gitShow(cwd, ref, path) {
   try {
@@ -456,7 +547,7 @@ function listTree(cwd, ref, dir, pattern) {
 
 function walk(dir) {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).sort().flatMap((name) => {
+  return readdirSync(dir).sort(compareCodeUnits).flatMap((name) => {
     const full = join(dir, name);
     return statSync(full).isDirectory() ? walk(full) : [full];
   });
@@ -478,16 +569,36 @@ function readBaseline(root, ref) {
   return parsed;
 }
 
+/** The checker script and every changed workflow file, at both refs. */
+function loadGateFiles(root, baseRef, headRef) {
+  const changed = git(root, ["diff", "--name-only", "--no-renames", baseRef, headRef, "--", CHECKER_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
+  return changed.map((path) => ({
+    path,
+    kind: path === CHECKER_PATH ? "script" : "workflow",
+    base: gitShow(root, baseRef, path),
+    head: gitShow(root, headRef, path),
+  }));
+}
+
 export function loadDiffInputs(root, baseRef, headRef) {
   const status = git(root, ["diff", "--name-status", "--no-renames", baseRef, headRef, "--", MIGRATIONS_DIR]);
   const changedMigrations = status.split("\n").filter(Boolean).map((line) => line.split("\t"))
     .filter(([code, path]) => code !== "D" && SQL_FILE.test(path) && path.startsWith(`${MIGRATIONS_DIR}/`))
     .map(([, path]) => ({ path, content: gitShow(root, headRef, path) ?? "" }));
+  let headBaseline = null;
+  let headBaselineError = null;
+  try {
+    headBaseline = readBaseline(root, headRef);
+  } catch (error) {
+    headBaselineError = error.message;
+  }
   return {
     changedMigrations,
     testFiles: readTreeFiles(root, headRef, TESTS_DIR),
     baseBaseline: readBaseline(root, baseRef),
-    headBaseline: readBaseline(root, headRef),
+    headBaseline,
+    headBaselineError,
+    gateFiles: loadGateFiles(root, baseRef, headRef),
   };
 }
 
@@ -559,4 +670,9 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   process.exitCode = run(process.argv.slice(2));
+}
+
+function compareCodeUnits(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }

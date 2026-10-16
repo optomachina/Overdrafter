@@ -1,13 +1,17 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BASELINE_PATH,
+  CHECKER_PATH,
+  GATE_LOOSENING_LINE,
   baselineGrowth,
+  checkerWorkflowSurface,
+  detectGateLoosening,
   evaluateAll,
   evaluateDiff,
   hasDenyAssertion,
@@ -36,6 +40,28 @@ function fixtureRepo(name) {
   cpSync(join(fixtures, name, "head"), dir, { recursive: true });
   git(dir, "add", "-A");
   git(dir, "commit", "-qm", "head");
+  return dir;
+}
+
+/** Two-commit repo from _base: base gets baseFiles, head gets headFiles (null deletes). */
+function overlayRepo(baseFiles, headFiles) {
+  const dir = mkdtempSync(join(tmpdir(), "rls-deny-"));
+  temps.push(dir);
+  git(dir, "init", "-q");
+  cpSync(join(fixtures, "_base"), dir, { recursive: true });
+  const apply = (files) => {
+    for (const [path, content] of Object.entries(files)) {
+      const full = join(dir, path);
+      if (content == null) { rmSync(full, { force: true }); continue; }
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, content);
+    }
+    git(dir, "add", "-A");
+  };
+  apply(baseFiles);
+  git(dir, "commit", "-qm", "base");
+  apply(headFiles);
+  git(dir, "commit", "-qm", "head", "--allow-empty");
   return dir;
 }
 
@@ -216,5 +242,98 @@ describe("baseline", () => {
 
   it("fixtures live outside supabase/ so pgTAP and migration tooling never read them", () => {
     expect(relative(repoRoot, fixtures).split("/")[0]).toBe("scripts");
+  });
+});
+
+describe("gate_loosening (base-to-head)", () => {
+  const baseBaseline = JSON.parse(readFileSync(join(fixtures, "_base", BASELINE_PATH), "utf8"));
+  const withEntries = (entries) => `${JSON.stringify({ ...baseBaseline, entries }, null, 2)}\n`;
+  const diffRepo = (dir, extra = []) => {
+    const { code, out } = runCli(["--root", dir, "--base-ref", "HEAD^1", "--head-ref", "HEAD", "--json", ...extra]);
+    return { code, report: JSON.parse(out) };
+  };
+  const workflow = (step) => [
+    "jobs:",
+    "  lint:",
+    "    runs-on: ubuntu-latest",
+    "  rls-deny-coverage:",
+    "    continue-on-error: true",
+    "    steps:",
+    `      - run: ${step}`,
+    "  # next job",
+    "  ci:",
+    "    needs:",
+    "      - lint",
+    "",
+  ].join("\n");
+
+  it("detects baseline growth vs the base with a reason, without changing ok or exit code beyond baseline_growth", () => {
+    const { code, report } = diffFixture("baseline-growth", ["--enforce"]);
+    expect(report.gate_loosening).toEqual({
+      detected: true,
+      reasons: [expect.objectContaining({ kind: "baseline_entry_added", path: BASELINE_PATH, table: "public.sneaky_items", policy: "sneaky_items_select_all" })],
+      requires: ["grokbot_countersign", "blaine_card"],
+    });
+    expect(report.findings.map((f) => f.kind)).toEqual(["baseline_growth"]);
+    expect(code).toBe(1);
+  });
+
+  it("does not detect a shrinking baseline", () => {
+    const { report } = diffRepo(overlayRepo({}, { [BASELINE_PATH]: withEntries(baseBaseline.entries.slice(1)) }), ["--enforce"]);
+    expect(report.ok).toBe(true);
+    expect(report.gate_loosening).toEqual({ detected: false, reasons: [], requires: ["grokbot_countersign", "blaine_card"] });
+  });
+
+  it("does not detect an unchanged baseline", () => {
+    const { report } = diffFixture("unchanged-baseline-policy");
+    expect(report.gate_loosening.detected).toBe(false);
+    expect(report.gate_loosening.reasons).toEqual([]);
+  });
+
+  it("detects an edited checker script, reports only, and prints the human line", () => {
+    const dir = overlayRepo({ [CHECKER_PATH]: "// base checker\n" }, { [CHECKER_PATH]: "// relaxed checker\n" });
+    const { code, report } = diffRepo(dir, ["--enforce"]);
+    expect(report.ok).toBe(true);
+    expect(code).toBe(0);
+    expect(report.gate_loosening.detected).toBe(true);
+    expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "checker_changed", path: CHECKER_PATH })]);
+    const human = runCli(["--root", dir, "--base-ref", "HEAD^1", "--head-ref", "HEAD"]);
+    expect(human.out).toContain(GATE_LOOSENING_LINE);
+    expect(human.out).toContain("GATE LOOSENING: needs Grok Bot countersign + Blaine's card");
+    expect(human.out).toContain(CHECKER_PATH);
+  });
+
+  it("detects a removed checker but not one the base never had", () => {
+    expect(diffRepo(overlayRepo({ [CHECKER_PATH]: "// base\n" }, { [CHECKER_PATH]: null })).report.gate_loosening.reasons)
+      .toEqual([expect.objectContaining({ kind: "checker_removed" })]);
+    expect(diffRepo(overlayRepo({}, { [CHECKER_PATH]: "// new\n" })).report.gate_loosening.detected).toBe(false);
+  });
+
+  it("detects changes to the CI job and its references, ignoring unrelated workflow edits", () => {
+    const path = ".github/workflows/ci.yml";
+    const base = workflow("node checker --base-ref HEAD^1");
+    const reasons = (head) => diffRepo(overlayRepo({ [path]: base }, { [path]: head })).report.gate_loosening.reasons.map((r) => r.kind);
+    expect(reasons(base.replace("node checker --base-ref HEAD^1", "node checker --base-ref HEAD"))).toEqual(["ci_job_changed"]);
+    expect(reasons(base.replace("      - lint\n", "      - lint\n      - rls-deny-coverage\n"))).toEqual(["ci_job_changed"]);
+    expect(reasons(base.replace(/ {2}rls-deny-coverage:[\s\S]*?(?= {2}# next job)/, ""))).toEqual(["ci_job_removed"]);
+    expect(reasons(base.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-24.04").replace("# next job", "# the next job"))).toEqual([]);
+    expect(diffRepo(overlayRepo({}, { [path]: base })).report.gate_loosening.detected).toBe(false);
+  });
+
+  it("flags widened and unreadable baselines", () => {
+    const entry = { table: "public.a", policy: "p" };
+    expect(detectGateLoosening({ baseBaseline: { entries: [entry] }, headBaseline: { entries: [{ ...entry, missing: ["anon", "other_user"] }] } }).reasons)
+      .toEqual([expect.objectContaining({ kind: "baseline_entry_widened", table: "public.a", policy: "p" })]);
+    expect(detectGateLoosening({ baseBaseline: { entries: [entry] }, headBaseline: { entries: [{ policy: "p", table: "public.a" }] } }).detected).toBe(false);
+    expect(detectGateLoosening({ baseBaseline: null, headBaseline: { entries: [entry] } }).detected).toBe(false);
+    const { report } = diffRepo(overlayRepo({}, { [BASELINE_PATH]: "{\"schema\":\"nope\"}\n" }));
+    expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "baseline_unreadable" })]);
+  });
+
+  it("finds the committed CI job surface", () => {
+    const surface = checkerWorkflowSurface(readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8"));
+    expect(surface.job).toMatch(/^ {2}rls-deny-coverage:\n/);
+    expect(surface.job).toContain(CHECKER_PATH);
+    expect(surface.job).not.toContain("verify-worker");
   });
 });
