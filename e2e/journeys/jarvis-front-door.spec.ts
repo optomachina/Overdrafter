@@ -21,22 +21,45 @@ async function signInIfAsked(page: Page) {
   }
 }
 
+// The front door: a visible link or button to Jarvis from the public root.
+function jarvisDoor(page: Page) {
+  return page.getByRole("link", { name: /jarvis/i }).or(page.getByRole("button", { name: /jarvis/i })).first();
+}
+
+async function openPublicRoot(page: Page) {
+  await page.goto("/?fixture=client-quoted&debug=1");
+  // Readiness for the lazily mounted app shell (see e2e/client-shell.spec.ts); not part of the journey budget.
+  await page.locator("[data-client-shell]").waitFor({ timeout: 30_000 });
+  await signInIfAsked(page);
+}
+
 for (const phone of PHONES) {
   test.describe(`Jarvis front door on a ${phone.name} phone`, { tag: "@fixture" }, () => {
     test.use({ viewport: phone.viewport, isMobile: true, hasTouch: true });
 
+    // Boot guard: a normal test, so a broken app or fixture is red instead of hiding behind test.fail() below.
+    test("boot guard: fixture loads and the client shell mounts", async ({ page }) => {
+      await page.goto("/?fixture=client-quoted&debug=1");
+      await expect(page.locator("[data-client-shell]")).toBeVisible({ timeout: 30_000 });
+    });
+
+    // Flips red when OVD-805 adds the public Jarvis link: delete this test and the test.fail() below together.
+    test("OVD-805 guard: no public Jarvis link on / yet", async ({ page }) => {
+      await openPublicRoot(page);
+      await expect(
+        jarvisDoor(page),
+        "Jarvis link now exists on /: OVD-805 landed, remove test.fail() from the journey and delete this guard",
+      ).toHaveCount(0);
+    });
+
     test("public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link", async ({ page }) => {
-      // Expected to fail until OVD-805 lands: https://linear.app/overdrafter/issue/OVD-805
-      test.fail();
+      test.fail(true, "Expected to fail until OVD-805 lands (no public Jarvis link): https://linear.app/overdrafter/issue/OVD-805");
       test.setTimeout(60_000);
 
-      await page.goto("/?fixture=client-quoted&debug=1");
-      // Readiness for the lazily mounted app shell (see e2e/client-shell.spec.ts); not part of the journey budget.
-      await page.locator("[data-client-shell]").waitFor({ timeout: 30_000 });
-      await signInIfAsked(page);
+      await openPublicRoot(page);
 
-      // The front door: a visible link or button to Jarvis from the public root.
-      const door = page.getByRole("link", { name: /jarvis/i }).or(page.getByRole("button", { name: /jarvis/i })).first();
+      // First assertion on purpose: the expected failure is a missing front door, with its own message.
+      const door = jarvisDoor(page);
       await expect(door, "no public link to Jarvis on /").toBeVisible({ timeout: STEP_TIMEOUT });
       await door.tap();
 

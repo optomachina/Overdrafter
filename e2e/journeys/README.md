@@ -16,8 +16,10 @@ start where a user starts.
 - `jarvis-front-door.spec.ts` (`@fixture`, runs in `npm run e2e:fixture`): phone
   viewport, `/` -> Jarvis link -> "design a 4 inch square plate" -> status,
   result card, PNG, GLB/USDZ and AR link. Marked `test.fail()` until
-  [OVD-805](https://linear.app/overdrafter/issue/OVD-805) lands; remove the
-  marker when it passes.
+  [OVD-805](https://linear.app/overdrafter/issue/OVD-805) lands. Two sibling
+  tests keep that honest: a boot guard (shell must mount) and an OVD-805 guard
+  asserting no Jarvis link on `/`. When OVD-805 adds the link the guard goes
+  red; then remove `test.fail()` from the journey and delete the guard.
 
 ```bash
 npx vitest run src/journeys --maxWorkers=2
