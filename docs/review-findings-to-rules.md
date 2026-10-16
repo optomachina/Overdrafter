@@ -27,7 +27,7 @@ Exceptions: if a rule is genuinely not feasible, close the task and set the ledg
 | `naming-style` | naming and structure that diverges from neighbouring code |
 | `docs-drift` | docs or comments no longer matching the code |
 | `performance` | N+1 queries, needless re-renders or loops |
-| `other` | use only until a real category emerges, then add it here |
+| `other` | use only until a real category emerges, then add it here; repeats are reported as `recategorize`, never `needs task` |
 
 Add a category to this table and to `CATEGORIES` in `scripts/review-findings-rules.mjs` together.
 
@@ -38,15 +38,15 @@ Add a category to this table and to `CATEGORIES` in `scripts/review-findings-rul
 | Field | Meaning |
 | --- | --- |
 | `category` | taxonomy category (one entry per category) |
-| `first_seen`, `second_seen` | the two PRs that triggered the task |
-| `task` | Linear issue id, for example `OVD-900` |
+| `first_seen`, `second_seen` | the two distinct PR numbers (positive integers) that triggered the task |
+| `task` | Linear issue id matching `OVD-<number>`, for example `OVD-900` |
 | `rule_type` | `lint`, `test` or `ci` |
 | `status` | `open`, `converted` or `wontfix` |
-| `converted_by` | PR or commit that landed the rule; required when `converted` |
+| `converted_by` | PR or commit that landed the rule; required when `converted`, empty otherwise |
 
 ## Metric
 
-**Conversion rate = converted / opened**, where opened is every ledger entry (including `wontfix`). Track it over time; a rate that stays low means findings are being handled by review instead of by rules.
+**Conversion rate = converted / opened**, where opened is every ledger entry (including `wontfix`, so a `wontfix` counts as an unconverted entry). Track it over time; a rate that stays low means findings are being handled by review instead of by rules.
 
 ## Script
 
@@ -54,4 +54,4 @@ Add a category to this table and to `CATEGORIES` in `scripts/review-findings-rul
 node scripts/review-findings-rules.mjs --findings findings.json [--ledger docs/review-findings-ledger.json] [--json] [--fail-on-needs-task]
 ```
 
-`findings.json` is an array of `{pr, reviewer, severity, category, file, title}`. The script prints each category seen in two or more distinct PRs that is not in the ledger as `needs task`, then the conversion rate. It makes no Linear or GitHub calls; a person or agent opens the task and edits the ledger.
+`findings.json` is an array of `{pr, reviewer, severity, category, file, title}`. The script prints each category seen in two or more distinct PRs that is not in the ledger as `needs task`, then the conversion rate. Findings with a missing category or a non-integer `pr` (`1` and `"1"` are the same PR) make the script exit 2 rather than being skipped. `--fail-on-needs-task` exits 1 and is for local or agent use only; it is not wired into any workflow. It makes no Linear or GitHub calls; a person or agent opens the task and edits the ledger.
