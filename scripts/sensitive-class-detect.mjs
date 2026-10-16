@@ -432,10 +432,24 @@ export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
 // The detector imports proof-check.mjs, so an edit there changes it after merge.
 export const DETECTOR_HELPER_REPO_PATH = "scripts/proof-check.mjs";
 const GATE_PATHS = [CONFIG_REPO_PATH, DETECTOR_REPO_PATH, DETECTOR_HELPER_REPO_PATH, WORKFLOW_REPO_PATH];
-// Fields whose items each widen what an entry matches. areas, description and
-// syntax are text and never change a classification.
+// Class fields whose items each widen what a class matches. areas, description
+// and syntax are text and never change a classification.
 const MATCH_FIELDS = ["paths", "path_keywords"];
 const EXEMPT_FIELDS = ["exclude", "exclude_keywords"];
+// Every safe category field that affects matching: the whole category schema
+// (CATEGORY_KEYS, which the validator keeps closed) except description text.
+export const CATEGORY_MATCH_FIELDS = [...CATEGORY_KEYS].filter((field) => field !== "description");
+// The reason kind for one item added to or removed from a safe category field.
+// A path takes the first safe category that matches, so narrowing a category
+// lets a path fall through to a later one: that loosens a rename just as a
+// widening does. A field missing here is flagged both ways (category_changed).
+const CATEGORY_FIELD_EFFECTS = {
+  paths: { added: "exemption_added", removed: "category_narrowed" },
+  path_keywords: { added: "exemption_added", removed: "category_narrowed" },
+  exclude: { added: "category_narrowed", removed: "exemption_widened" },
+  exclude_keywords: { added: "category_narrowed", removed: "exemption_widened" },
+};
+const UNKNOWN_FIELD_EFFECT = { added: "category_changed", removed: "category_changed" };
 
 const listOf = (entry, field) => (Array.isArray(entry?.[field]) ? entry[field] : []);
 const objectOf = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
@@ -444,28 +458,45 @@ const sqlRuleKey = (rule) => `${rule?.class}:${Array.isArray(rule?.tokens) ? rul
 /**
  * Report-only gate_loosening classification of a config diff, run by the base
  * copy of this script so a PR cannot change its own judgement. Each of these
- * needs a Grok Bot countersign on top of Blaine's card:
- * - the head config is removed, unparseable or invalid under the base
- *   validator (fail closed), or the base config cannot be read;
- * - a class, safe category exclusion or sql_content rule is removed;
- * - a class glob or keyword, or a sql_content path, is removed or
- *   edited (an edit is a removal plus an addition);
- * - a class signal is removed or edited (signal_removed);
- * - a class glob or keyword moves into a safe category (class_downgraded);
- * - a new exemption: an exclude or exclude_keywords on a class, or a new safe
- *   category path or keyword;
- * - the safe categories kept from base change order (category_order_changed);
- * - the detector script, its proof-check.mjs helper or its workflow is edited
- *   or removed (CI runs the base copy, so the edit takes effect only after
- *   merge);
- * - the changed-file list is incomplete, so a config edit cannot be ruled out.
- * Added classes, rules, globs and keywords, description-only edits and
- * reordering classes or sql_content rules are not loosening.
+ * needs a Grok Bot countersign on top of Blaine's card. Reason kinds:
+ * - not_checked: the changed-file list is incomplete, so a config edit cannot
+ *   be ruled out;
+ * - gate_changed, gate_removed: the detector script, its proof-check.mjs
+ *   helper or its workflow is edited or removed (CI runs the base copy, so the
+ *   edit takes effect only after merge);
+ * - config_unreadable, config_invalid: the head config is removed, renamed,
+ *   unparseable or invalid under the base validator, or the base config
+ *   cannot be read (fail closed);
+ * - class_removed: a class is removed or renamed;
+ * - rule_narrowed: a class glob or keyword, or a sql_content path, is removed
+ *   or edited (an edit is a removal plus an addition);
+ * - class_downgraded: a class glob or keyword moves into a safe category;
+ * - signal_removed: a class signal is removed or edited;
+ * - sql_rule_removed: a sql_content rule is removed or edited;
+ * - exemption_added: an exclude or exclude_keywords item added to a class, or
+ *   a path or path_keywords item added to a safe category (a new or renamed
+ *   category adds all of its own);
+ * - exemption_widened: an exclude or exclude_keywords item removed from a safe
+ *   category;
+ * - category_narrowed: a safe category is removed or renamed, loses a path or
+ *   path_keywords item, or gains an exclude or exclude_keywords item. A path
+ *   takes the first safe category that matches and a rename stays safe only
+ *   when both names land in the same one, so a path that falls through to a
+ *   later category can make a rename safe;
+ * - category_order_changed: the safe categories kept from base change order;
+ * - category_changed: any change to a safe category field with no recorded
+ *   effect (none today; it keeps a new schema field from passing silently).
+ * Every safe_categories edit that can change a classification is flagged.
+ * Not loosening: added classes, rules, globs and keywords, removed class
+ * exclusions, description, syntax and areas text, item order or duplicates
+ * inside a list, and reordering classes or sql_content rules (every class and
+ * rule is checked, so their order only sorts the output).
  * The diff is textual, so it fails safe with false positives: an equivalent
- * rewrite (splitting a brace glob into two, a case-only edit) is flagged, and
- * so is a stale branch that edits the config after base has added rules (the
- * newer base rules look removed). gateFiles: [{ path, status }] from the PR
- * file list.
+ * rewrite (splitting a brace glob into two, a case-only edit) is flagged, an
+ * exclusion on a new category is flagged although it only trims that
+ * category, and so is a stale branch that edits the config after base has
+ * added rules (the newer base rules look removed). gateFiles: [{ path,
+ * status }] from the PR file list.
  */
 export function detectGateLoosening({ baseRaw = null, headRaw = null, baseError = null, headError = null, gateFiles = [], incomplete = null }) {
   const reasons = [];
@@ -531,43 +562,49 @@ function diffConfig(base, head) {
     }
   }
 
-  // A path takes the first safe category that matches, and a rename stays safe
-  // only when both names get the same one, so reordering can exempt a file.
+  // Safe categories. A path takes the first safe category that matches, and a
+  // rename stays safe only when both names land in the same one, so any change
+  // to which category a path lands in can exempt a file. Flagged: a removed
+  // category, a reorder of the categories kept from base, and every item added
+  // to or removed from any CATEGORY_MATCH_FIELDS field (a new category diffs
+  // against an empty one). When none is flagged, every base category survives
+  // with the same match sets in the same relative order and any new category
+  // matches nothing, so every path lands where it did on base.
+  for (const name of Object.keys(baseCategories)) {
+    if (!Object.hasOwn(headCategories, name)) {
+      reasons.push({ kind: "category_narrowed", path: at, entry: `safe_categories.${name}`, message: `${at} removes safe category "${name}"; a path it matched can fall through to a later category.` });
+    }
+  }
   const baseOrder = Object.keys(baseCategories).filter((name) => Object.hasOwn(headCategories, name));
   const headOrder = Object.keys(headCategories).filter((name) => Object.hasOwn(baseCategories, name));
   if (baseOrder.join("\n") !== headOrder.join("\n")) {
     reasons.push({ kind: "category_order_changed", path: at, entry: "safe_categories", value: headOrder, message: `${at} reorders safe categories from ${JSON.stringify(baseOrder)} to ${JSON.stringify(headOrder)}.` });
   }
-
-  const additions = [];
+  const categoryChanges = [];
   for (const [name, entry] of Object.entries(headCategories)) {
-    for (const field of ["paths", "path_keywords"]) {
-      const prior = new Set(listOf(baseCategories[name], field));
-      for (const value of listOf(entry, field)) if (!prior.has(value)) additions.push({ name, field, value });
-    }
-  }
-  for (const [name, entry] of Object.entries(baseCategories)) {
-    if (!Object.hasOwn(headCategories, name)) continue;
-    for (const field of EXEMPT_FIELDS) {
-      const kept = new Set(listOf(headCategories[name], field));
-      for (const value of listOf(entry, field)) {
-        if (!kept.has(value)) reasons.push({ kind: "exemption_widened", path: at, entry: `safe_categories.${name}`, field, value, message: `${at} removes ${field} ${JSON.stringify(value)} from safe category "${name}".` });
-      }
+    const prior = Object.hasOwn(baseCategories, name) ? baseCategories[name] : {};
+    for (const field of CATEGORY_MATCH_FIELDS) {
+      const effect = CATEGORY_FIELD_EFFECTS[field] ?? UNKNOWN_FIELD_EFFECT;
+      const before = new Set(listOf(prior, field));
+      const after = new Set(listOf(entry, field));
+      for (const value of after) if (!before.has(value)) categoryChanges.push({ kind: effect.added, name, field, value, added: true });
+      for (const value of before) if (!after.has(value)) categoryChanges.push({ kind: effect.removed, name, field, value, added: false });
     }
   }
 
   // A class glob or keyword that reappears in a safe category is a downgrade.
   for (const removal of removals) {
-    const index = additions.findIndex((add) => add.field === removal.field && add.value === removal.value);
+    const index = categoryChanges.findIndex((change) => change.kind === "exemption_added" && change.field === removal.field && change.value === removal.value);
     if (index !== -1) {
-      const [add] = additions.splice(index, 1);
+      const [add] = categoryChanges.splice(index, 1);
       reasons.push({ kind: "class_downgraded", path: at, entry: `classes.${removal.name}`, field: removal.field, value: removal.value, message: `${at} moves ${removal.field} ${JSON.stringify(removal.value)} from class "${removal.name}" to safe category "${add.name}".` });
     } else {
       reasons.push({ kind: "rule_narrowed", path: at, entry: `classes.${removal.name}`, field: removal.field, value: removal.value, message: `${at} removes or edits ${removal.field} ${JSON.stringify(removal.value)} of class "${removal.name}".` });
     }
   }
-  for (const add of additions) {
-    reasons.push({ kind: "exemption_added", path: at, entry: `safe_categories.${add.name}`, field: add.field, value: add.value, message: `${at} adds ${add.field} ${JSON.stringify(add.value)} to safe category "${add.name}".` });
+  for (const { kind, name, field, value, added } of categoryChanges) {
+    const change = added ? `adds ${field} ${JSON.stringify(value)} to` : `removes ${field} ${JSON.stringify(value)} from`;
+    reasons.push({ kind, path: at, entry: `safe_categories.${name}`, field, value, message: `${at} ${change} safe category "${name}".` });
   }
 
   const baseSql = objectOf(base.sql_content);

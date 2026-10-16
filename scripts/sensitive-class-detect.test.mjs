@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CATEGORY_MATCH_FIELDS,
   CONFIG_PATH,
   CONFIG_REPO_PATH,
   DETECTOR_HELPER_REPO_PATH,
@@ -518,6 +519,22 @@ describe("gate_loosening: config diff against base", () => {
     ]);
   });
 
+  // A rename probe: docs/a.test.ts -> src/a.test.ts is unclassified on base
+  // (the old path lands in docs, the new one in tests). An edit that sends the
+  // old path to tests makes the rename safe.
+  const renameCategory = async (edit) => {
+    const rename = [{ filename: "src/a.test.ts", previous_filename: "docs/a.test.ts", status: "renamed" }];
+    const head = structuredClone(rawConfig);
+    edit(head);
+    const compiled = compileConfig(head);
+    expect(compiled.errors).toEqual([]);
+    return (await detect({ files: rename, readHeadFile: noSql, config: compiled.config })).files[0].category;
+  };
+
+  it("the rename probe is unclassified on base", async () => {
+    expect(await renameCategory(() => {})).toBeNull();
+  });
+
   it("flags reordered safe categories, which change the first-match category", async () => {
     const reorder = (head) => {
       const { tests, ...rest } = head.safe_categories;
@@ -525,18 +542,59 @@ describe("gate_loosening: config diff against base", () => {
     };
     const result = judge(reorder);
     expect(result.reasons).toEqual([expect.objectContaining({ kind: "category_order_changed", entry: "safe_categories" })]);
+    expect(await renameCategory(reorder)).toBe("tests");
 
-    // The reorder turns an unclassified rename into a safe one.
-    const rename = [{ filename: "src/a.test.ts", previous_filename: "docs/a.test.ts", status: "renamed" }];
-    const before = await detect({ files: rename, readHeadFile: noSql, config });
-    const head = structuredClone(rawConfig);
-    reorder(head);
-    const after = await detect({ files: rename, readHeadFile: noSql, config: compileConfig(head).config });
-    expect([before.files[0].category, after.files[0].category]).toEqual([null, "tests"]);
-
-    // Removing a category or appending one keeps the shared order.
-    expect(kinds(judge((head) => delete head.safe_categories.docs))).toEqual([]);
+    // Appending a category keeps the shared order; its paths are exemptions.
     expect(kinds(judge((head) => (head.safe_categories.misc = { description: "Misc.", paths: ["misc/**"] })))).toEqual(["exemption_added"]);
+  });
+
+  // Narrowing an earlier category lets the old path fall through to tests.
+  it.each([
+    ["deleting safe category docs", (head) => delete head.safe_categories.docs, { entry: "safe_categories.docs" }],
+    ["dropping docs/** from docs.paths", (head) => (head.safe_categories.docs.paths = head.safe_categories.docs.paths.filter((glob) => glob !== "docs/**")), { entry: "safe_categories.docs", field: "paths", value: "docs/**" }],
+    ["adding docs.exclude **/*.test.ts", (head) => head.safe_categories.docs.exclude.push("**/*.test.ts"), { entry: "safe_categories.docs", field: "exclude", value: "**/*.test.ts" }],
+    ["adding docs.exclude_keywords test", (head) => (head.safe_categories.docs.exclude_keywords = ["test"]), { entry: "safe_categories.docs", field: "exclude_keywords", value: "test" }],
+  ])("flags %s, which makes the rename probe safe", async (_label, edit, reason) => {
+    expect(await renameCategory(edit)).toBe("tests");
+    expect(judge(edit)).toMatchObject({ detected: true, reasons: [{ kind: "category_narrowed", ...reason }] });
+    expect(judge(edit).reasons).toHaveLength(1);
+  });
+
+  it("flags dropping a path_keywords item from a safe category", () => {
+    const base = structuredClone(rawConfig);
+    base.safe_categories.docs.path_keywords = ["readme"];
+    const result = detectGateLoosening({ baseRaw: base, headRaw: rawConfig, gateFiles: configChanged });
+    expect(result.reasons).toEqual([expect.objectContaining({ kind: "category_narrowed", entry: "safe_categories.docs", field: "path_keywords", value: "readme" })]);
+  });
+
+  it("covers every safe category field the validator accepts", () => {
+    // The category schema is closed: any other key is invalid, so fails closed.
+    expect(CATEGORY_MATCH_FIELDS).toEqual(["paths", "path_keywords", "exclude", "exclude_keywords"]);
+    expect(kinds(judge((head) => (head.safe_categories.docs.priority = 1)))).toEqual(["config_invalid"]);
+    // Adding or removing one item of any matching field, on any category, is flagged.
+    for (const name of Object.keys(rawConfig.safe_categories)) {
+      for (const field of CATEGORY_MATCH_FIELDS) {
+        const probe = field.endsWith("keywords") ? "zzprobe" : "zzprobe/**";
+        const widened = structuredClone(rawConfig);
+        widened.safe_categories[name][field] = [...(widened.safe_categories[name][field] ?? []), probe];
+        const added = detectGateLoosening({ baseRaw: rawConfig, headRaw: widened, gateFiles: configChanged });
+        const removed = detectGateLoosening({ baseRaw: widened, headRaw: rawConfig, gateFiles: configChanged });
+        for (const result of [added, removed]) {
+          expect(result.reasons).toEqual([expect.objectContaining({ entry: `safe_categories.${name}`, field, value: probe })]);
+        }
+      }
+    }
+  });
+
+  it("does not flag a description-only edit to safe categories", async () => {
+    const reword = (head) => {
+      for (const entry of Object.values(head.safe_categories)) entry.description = "Reworded.";
+    };
+    expect(judge(reword)).toMatchObject({ detected: false, reasons: [] });
+    expect(await renameCategory(reword)).toBeNull();
+    // Reordering or repeating items inside a list cannot change a category either.
+    expect(judge((head) => head.safe_categories.docs.paths.reverse()).detected).toBe(false);
+    expect(judge((head) => head.safe_categories.docs.exclude.push("AGENTS.md")).detected).toBe(false);
   });
 
   it("does not flag reordered classes or sql_content rules", () => {
@@ -602,7 +660,6 @@ describe("gate_loosening: config diff against base", () => {
       head.classes.billing.signals.push("refund");
       head.sql_content.rules.push({ class: "definer", tokens: ["set", "role"] });
       head.sql_content.paths.push("**/*.ddl");
-      head.safe_categories.docs.exclude.push("docs/security/**");
     });
     expect(result).toMatchObject({ detected: false, reasons: [] });
   });
