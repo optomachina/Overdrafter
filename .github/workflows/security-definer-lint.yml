@@ -1,0 +1,106 @@
+name: SECURITY DEFINER lint
+
+# OVD-846. Checks every SECURITY DEFINER function created by the PR's added or
+# modified migrations for a pinned search_path, a REVOKE from PUBLIC and anon,
+# and an explicit GRANT in the same migration (scripts/lint-security-definer.mjs).
+# Existing violations are listed in scripts/security-definer-baseline.json; the
+# baseline may only shrink, so a PR that adds entries to it is reported too.
+#
+# Report mode: the job runs the linter without --enforce, so it exits 0 and
+# never blocks a merge. Violations appear as warning annotations, in the job
+# summary and in the security-definer-lint JSON artifact (consumed by OVD-845).
+# To enforce, add --enforce to the lint step; making it a required check is a
+# separate branch protection change.
+#
+# Like pr-body-gate.yml, the linter runs from the base copy (HEAD^1), so a PR
+# cannot edit it to skip itself, and the allow-list is the base commit's
+# baseline. When the base has no copy yet (the PR that introduces the linter),
+# the head copy runs.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: security-definer-lint-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security-definer-lint:
+    name: security-definer-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, security-definer-lint ran on the pull_request run."
+
+      # pull_request checks out the merge commit of the PR head into the
+      # current base tip, so HEAD^1 is the base as merged.
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Prepare linter from base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          gate="$RUNNER_TEMP/gate"
+          mkdir -p "$gate/scripts"
+          file=scripts/lint-security-definer.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$gate/$file"
+            echo "Linter taken from: base"
+          else
+            cp "$file" "$gate/$file"
+            echo "Linter taken from: head"
+          fi
+
+      # continue-on-error also keeps an input error (exit 2) non-blocking while
+      # the check is in report mode. Remove it together with adding --enforce.
+      - name: Lint SECURITY DEFINER functions (report mode)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # --no-renames keeps a rename source as a deletion plus an addition.
+          git diff --name-status --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"
+          # Run from the checkout so files and git show read this repository.
+          node "$RUNNER_TEMP/gate/scripts/lint-security-definer.mjs" \
+            --changed-files-from "$RUNNER_TEMP/changed-files.txt" \
+            --base-ref HEAD^1 \
+            --json-out "$RUNNER_TEMP/security-definer-lint.json" \
+            | tee "$RUNNER_TEMP/security-definer-lint.txt"
+          {
+            echo '## SECURITY DEFINER lint (report mode)'
+            echo '```'
+            grep -v '^::' "$RUNNER_TEMP/security-definer-lint.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload lint report
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-definer-lint
+          path: ${{ runner.temp }}/security-definer-lint.json
+          if-no-files-found: ignore
+          retention-days: 14
