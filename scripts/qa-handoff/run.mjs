@@ -18,8 +18,9 @@
 //
 // Token: GITHUB_TOKEN or GH_TOKEN. Required checks: GET branches/main, else the
 // branch protection endpoint, else the REQUIRED_CHECKS env (comma separated),
-// else DEFAULT_REQUIRED_CHECKS. Marker authors: github-actions[bot] plus the
-// QA_HANDOFF_TRUSTED_MARKER_AUTHORS env (comma separated logins).
+// else DEFAULT_REQUIRED_CHECKS. Marker authors: DEFAULT_TRUSTED_MARKER_AUTHORS
+// plus the QA_HANDOFF_TRUSTED_MARKER_AUTHORS env (comma separated logins); the
+// workflow and the backstop must pass the same list.
 
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -32,6 +33,7 @@ import {
   hasMarker,
   markerFor,
   parseRequiredChecks,
+  requiredCheckSpec,
   trustedMarkerAuthors,
 } from "./gate.mjs";
 
@@ -110,9 +112,9 @@ export function createGithubApi({ token, repo, fetchImpl = fetch, baseUrl = "htt
     // GET branches/main carries protection.required_status_checks and is often
     // readable where the protection endpoint (admin scope) is not.
     getBranchRequiredChecks: async () =>
-      requiredCheckNames((await request("GET", `${r}/branches/${BASE_BRANCH}`)).data?.protection?.required_status_checks),
+      requiredChecksFrom((await request("GET", `${r}/branches/${BASE_BRANCH}`)).data?.protection?.required_status_checks),
     getProtectionRequiredChecks: async () =>
-      requiredCheckNames((await request("GET", `${r}/branches/${BASE_BRANCH}/protection/required_status_checks`)).data),
+      requiredChecksFrom((await request("GET", `${r}/branches/${BASE_BRANCH}/protection/required_status_checks`)).data),
     listCheckRuns: (sha) => paginate(`${r}/commits/${sha}/check-runs?filter=latest`, (data) => data.check_runs),
     listStatuses: async (sha) => (await request("GET", `${r}/commits/${sha}/status`)).data.statuses ?? [],
     listComments: (number) => paginate(`${r}/issues/${number}/comments`),
@@ -122,12 +124,26 @@ export function createGithubApi({ token, repo, fetchImpl = fetch, baseUrl = "htt
   };
 }
 
-function requiredCheckNames(requiredStatusChecks) {
-  const names = [
-    ...(requiredStatusChecks?.contexts ?? []),
-    ...(requiredStatusChecks?.checks ?? []).map((check) => check.context),
-  ];
-  return [...new Set(names)];
+// Required checks as names, or { name, appId } when `checks[]` pins a check
+// to an app. A pinned entry wins over a bare context of the same name.
+export function requiredChecksFrom(requiredStatusChecks) {
+  const byName = new Map();
+  for (const check of requiredStatusChecks?.checks ?? []) {
+    byName.set(check.context, check.app_id == null ? check.context : { name: check.context, appId: check.app_id });
+  }
+  for (const context of requiredStatusChecks?.contexts ?? []) {
+    if (!byName.has(context)) byName.set(context, context);
+  }
+  return [...byName.values()];
+}
+
+function formatRequired(checks) {
+  return checks
+    .map((check) => {
+      const { name, appId } = requiredCheckSpec(check);
+      return appId === undefined ? name : `${name} (app ${appId})`;
+    })
+    .join(", ");
 }
 
 const isUnreadable = (error) => error instanceof GithubApiError && (error.status === 403 || error.status === 404);
@@ -145,7 +161,7 @@ export async function resolveRequiredChecks(api, env, log) {
     try {
       const names = await read();
       if (names.length > 0) {
-        log(`required checks (${label}): ${names.join(", ")}`);
+        log(`required checks (${label}): ${formatRequired(names)}`);
         return names;
       }
       log(`${label} lists no required checks`);
@@ -220,8 +236,9 @@ export async function handoffPr({
 
 // The backstop is outside the workflow's concurrency group, so both can pass
 // the in-lock re-read and write a marker for the same sha. Re-list after the
-// write and delete every trusted marker above the lowest id. Both writers
-// pick the same survivor; a 404 means the other writer deleted it first.
+// write and delete every trusted marker but the survivor duplicateMarkers
+// picks (a default author's marker first, so writers with uneven trust sets
+// agree); a 404 means the other writer deleted it first.
 async function dedupeMarkers({ api, prNumber, headSha, trustedAuthors }) {
   let removed = 0;
   for (const comment of duplicateMarkers(await api.listComments(prNumber), headSha, trustedAuthors)) {

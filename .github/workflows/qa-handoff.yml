@@ -17,6 +17,11 @@ name: QA handoff
 # qa:ready label and post the hidden marker comment
 # `<!-- qa-handoff sha=<head_sha> -->`, the per-sha idempotency record.
 #
+# Marker authors: github-actions[bot] plus the repo variable
+# QA_HANDOFF_TRUSTED_MARKER_AUTHORS (comma separated logins). Set that variable
+# to the Mac mini backstop's `gh api user` login so the workflow honors the
+# backstop's markers; the backstop trusts github-actions[bot] the same way.
+#
 # The triggering workflows own the required checks on main: `ci` (CI) and
 # `provider-go-live` (PR body gate). Keep this list in step with branch
 # protection and with DEFAULT_REQUIRED_CHECKS in gate.mjs.
@@ -69,6 +74,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EVENT_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          # Must list the backstop's gh login; see the header comment.
+          QA_HANDOFF_TRUSTED_MARKER_AUTHORS: ${{ vars.QA_HANDOFF_TRUSTED_MARKER_AUTHORS }}
         run: |
           set -uo pipefail
           if [ ! -f scripts/qa-handoff/run.mjs ]; then

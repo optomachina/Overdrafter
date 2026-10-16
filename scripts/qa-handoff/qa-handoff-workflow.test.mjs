@@ -62,6 +62,12 @@ describe("qa-handoff.yml", () => {
     }
   });
 
+  it("reads trusted marker authors from the repo variable, through step env only", () => {
+    const step = steps.find((item) => item.run?.includes("run.mjs"));
+    expect(step.env.QA_HANDOFF_TRUSTED_MARKER_AUTHORS).toBe("${{ vars.QA_HANDOFF_TRUSTED_MARKER_AUTHORS }}");
+    expect(step.run).not.toContain("QA_HANDOFF_TRUSTED_MARKER_AUTHORS");
+  });
+
   it("defaults to report mode and documents the required-check fallback", () => {
     const job = workflow.jobs["qa-handoff"];
     expect(job.env.QA_HANDOFF_MODE).toBe("report");

@@ -18,8 +18,10 @@ export const BASE_BRANCH = "main";
 export const QA_READY_LABEL = "qa:ready";
 
 // Only these authors' marker comments count. Anyone who can comment on a PR
-// can paste the marker text; a marker from anyone else is ignored. The
-// backstop adds its own gh login through QA_HANDOFF_TRUSTED_MARKER_AUTHORS.
+// can paste the marker text; a marker from anyone else is ignored. Both the
+// workflow and the backstop start from this list and add the logins in
+// QA_HANDOFF_TRUSTED_MARKER_AUTHORS (the workflow reads it from the repo
+// variable of the same name, which must list the backstop's gh login).
 export const DEFAULT_TRUSTED_MARKER_AUTHORS = Object.freeze(["github-actions[bot]"]);
 
 // Required check runs must come from GitHub Actions when the payload names the
@@ -51,10 +53,15 @@ export function hasMarker(comments, sha, trustedAuthors = DEFAULT_TRUSTED_MARKER
 }
 
 // Post-write dedupe: when two writers race (the backstop sits outside the
-// workflow's concurrency group), keep the lowest-id trusted marker and return
-// every other one for deletion. Both writers compute the same answer.
+// workflow's concurrency group), keep one trusted marker and return every other
+// one for deletion. The survivor is the lowest-id marker from a default author,
+// which every writer trusts whatever it adds through the env, else the
+// lowest-id trusted marker. So writers with uneven trust sets still agree.
 export function duplicateMarkers(comments, sha, trustedAuthors = DEFAULT_TRUSTED_MARKER_AUTHORS) {
-  return trustedMarkers(comments, sha, trustedAuthors).slice(1);
+  const markers = trustedMarkers(comments, sha, trustedAuthors);
+  const shared = new Set(DEFAULT_TRUSTED_MARKER_AUTHORS);
+  const survivor = markers.find((comment) => shared.has(comment.user?.login)) ?? markers[0];
+  return markers.filter((comment) => comment !== survivor);
 }
 
 export function dedupeKey(pr, sha) {
@@ -66,14 +73,21 @@ export function parseRequiredChecks(value) {
   return [...new Set(value.split(",").map((name) => name.trim()).filter(Boolean))];
 }
 
+// A required check is a name, or { name, appId } when branch protection pins
+// the check to an app (`checks[].app_id`).
+export function requiredCheckSpec(check) {
+  return typeof check === "string" ? { name: check, appId: undefined } : { name: check.name, appId: check.appId ?? undefined };
+}
+
 // Latest check run per name: a re-run creates a new check run with a higher id
 // on the same sha, and only the newest one counts.
-// Runs whose app is not GitHub Actions are ignored; runs without an app field
-// (older payloads, tests) still count.
-function latestCheckRuns(checkRuns) {
+// With appId, only runs from that app count. Otherwise runs whose app is not
+// GitHub Actions are ignored; runs without an app field (older payloads,
+// tests) still count.
+function latestCheckRuns(checkRuns, appId) {
   const byName = new Map();
   for (const run of checkRuns ?? []) {
-    if (run.app && run.app.slug !== REQUIRED_CHECK_APP_SLUG) continue;
+    if (appId !== undefined ? Number(run.app?.id) !== Number(appId) : run.app && run.app.slug !== REQUIRED_CHECK_APP_SLUG) continue;
     const current = byName.get(run.name);
     if (!current || Number(run.id) > Number(current.id)) byName.set(run.name, run);
   }
@@ -91,13 +105,19 @@ function latestStatuses(statuses) {
 }
 
 // Returns { state: "pass" | "pending" | "fail" | "missing", detail }.
-export function requiredCheckState(name, checkRuns, statuses) {
-  const run = latestCheckRuns(checkRuns).get(name);
+// A commit status never satisfies a check pinned to an app, nor one of the
+// known Actions checks: anyone with status write access could post one. Other
+// required contexts may still be met by a status.
+export function requiredCheckState(check, checkRuns, statuses) {
+  const { name, appId } = requiredCheckSpec(check);
+  const run = latestCheckRuns(checkRuns, appId).get(name);
   if (run) {
     if (run.status !== "completed") return { state: "pending", detail: `check run ${run.status}` };
     if (PASSING_CONCLUSIONS.has(run.conclusion)) return { state: "pass", detail: `check run ${run.conclusion}` };
     return { state: "fail", detail: `check run ${run.conclusion}` };
   }
+  if (appId !== undefined) return { state: "missing", detail: `no check run from app ${appId}` };
+  if (DEFAULT_REQUIRED_CHECKS.includes(name)) return { state: "missing", detail: "no check run (statuses ignored)" };
   const status = latestStatuses(statuses).get(name);
   if (status) {
     if (status.state === "success") return { state: "pass", detail: "status success" };
@@ -122,7 +142,10 @@ export function evaluateGate({ event, pr, checkRuns, statuses, requiredChecks })
   if (!Array.isArray(requiredChecks) || requiredChecks.length === 0) {
     return { handoff: false, reason: "no-required-checks" };
   }
-  const checks = requiredChecks.map((name) => ({ name, ...requiredCheckState(name, checkRuns, statuses) }));
+  const checks = requiredChecks.map((check) => ({
+    name: requiredCheckSpec(check).name,
+    ...requiredCheckState(check, checkRuns, statuses),
+  }));
   const blocking = checks.filter((check) => check.state !== "pass");
   if (blocking.length > 0) {
     const order = ["fail", "pending", "missing"];

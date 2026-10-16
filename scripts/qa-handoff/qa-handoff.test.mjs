@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_TRUSTED_MARKER_AUTHORS,
   decide,
   dedupeKey,
   duplicateMarkers,
@@ -11,7 +12,7 @@ import {
   parseRequiredChecks,
   trustedMarkerAuthors,
 } from "./gate.mjs";
-import { GithubApiError, handoffPr, parseArgs, resolveRequiredChecks, run } from "./run.mjs";
+import { GithubApiError, handoffPr, parseArgs, requiredChecksFrom, resolveRequiredChecks, run } from "./run.mjs";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -178,13 +179,14 @@ describe("gate", () => {
     expect(evaluateGate({ ...base, checkRuns: rerun }).handoff).toBe(true);
   });
 
-  it("accepts skipped and neutral, and commit statuses", () => {
+  it("accepts skipped and neutral, and commit statuses for contexts outside the known Actions checks", () => {
+    const requiredChecks = ["ci", "legacy-status"];
     const runs = [{ id: 1, name: "ci", status: "completed", conclusion: "skipped" }];
-    const statuses = [{ context: "provider-go-live", state: "success" }];
-    const result = evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns: runs, statuses, requiredChecks: REQUIRED });
+    const statuses = [{ context: "legacy-status", state: "success" }];
+    const result = evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns: runs, statuses, requiredChecks });
     expect(result.handoff).toBe(true);
     const neutral = [{ id: 1, name: "ci", status: "completed", conclusion: "neutral" }];
-    expect(evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns: neutral, statuses, requiredChecks: REQUIRED }).handoff).toBe(true);
+    expect(evaluateGate({ event: { headSha: SHA_A }, pr: pr(), checkRuns: neutral, statuses, requiredChecks }).handoff).toBe(true);
   });
 
   it.each([
@@ -229,6 +231,14 @@ describe("gate", () => {
     expect(duplicateMarkers(comments, SHA_B, [BOT, BACKSTOP])).toEqual([]);
   });
 
+  it("keeps the default author's marker over a lower-id backstop marker, so uneven trust sets agree", () => {
+    const comments = [comment(10, markerFor(SHA_A), BACKSTOP), comment(20, markerFor(SHA_A)), comment(30, markerFor(SHA_A), BACKSTOP)];
+    expect(duplicateMarkers(comments, SHA_A, [BOT, BACKSTOP]).map((item) => item.id)).toEqual([10, 30]);
+    expect(duplicateMarkers(comments, SHA_A, [BOT])).toEqual([]);
+    // No default-author marker: fall back to the lowest trusted id.
+    expect(duplicateMarkers([comments[2], comments[0]], SHA_A, [BOT, BACKSTOP]).map((item) => item.id)).toEqual([30]);
+  });
+
   it("only counts required check runs from GitHub Actions when the app is present", () => {
     const base = { event: { headSha: SHA_A }, pr: pr(), statuses: [], requiredChecks: REQUIRED };
     const spoofed = [
@@ -238,8 +248,43 @@ describe("gate", () => {
     ];
     expect(evaluateGate({ ...base, checkRuns: spoofed }).reason).toBe("check-fail");
     expect(evaluateGate({ ...base, checkRuns: spoofed.slice(1) }).reason).toBe("check-missing");
+    // A commit status never stands in for a known Actions check.
     const statuses = [{ context: "ci", state: "success" }];
-    expect(evaluateGate({ ...base, checkRuns: spoofed.slice(1), statuses }).handoff).toBe(true);
+    expect(evaluateGate({ ...base, checkRuns: spoofed.slice(1), statuses }).reason).toBe("check-missing");
+    expect(evaluateGate({ ...base, checkRuns: [], statuses: [...statuses, { context: "provider-go-live", state: "success" }] }).reason).toBe(
+      "check-missing",
+    );
+  });
+
+  it("requires a check run from the pinned app when protection gives an app_id", () => {
+    const requiredChecks = [{ name: "ci", appId: 15368 }, "provider-go-live"];
+    const base = { event: { headSha: SHA_A }, pr: pr(), requiredChecks };
+    const plg = { id: 3, name: "provider-go-live", status: "completed", conclusion: "success", app: { id: 15368, slug: "github-actions" } };
+    const fromApp = { id: 1, name: "ci", status: "completed", conclusion: "success", app: { id: 15368, slug: "github-actions" } };
+    const otherApp = { id: 2, name: "ci", status: "completed", conclusion: "success", app: { id: 999, slug: "github-actions" } };
+    const noApp = { id: 4, name: "ci", status: "completed", conclusion: "success" };
+    expect(evaluateGate({ ...base, checkRuns: [fromApp, plg], statuses: [] })).toMatchObject({ handoff: true });
+    for (const checkRuns of [[otherApp, plg], [noApp, plg]]) {
+      const result = evaluateGate({ ...base, checkRuns, statuses: [{ context: "ci", state: "success" }] });
+      expect(result).toMatchObject({ handoff: false, reason: "check-missing" });
+      expect(result.checks[0]).toMatchObject({ name: "ci", state: "missing", detail: "no check run from app 15368" });
+    }
+    // A failing run from the pinned app is not masked by a later run from another app.
+    const failed = { ...fromApp, conclusion: "failure" };
+    expect(evaluateGate({ ...base, checkRuns: [failed, { ...otherApp, id: 9 }, plg], statuses: [] }).reason).toBe("check-fail");
+  });
+
+  it("reads app_id pins from the protection payload", () => {
+    expect(
+      requiredChecksFrom({
+        contexts: ["ci", "provider-go-live", "legacy-status"],
+        checks: [
+          { context: "ci", app_id: 15368 },
+          { context: "provider-go-live", app_id: null },
+        ],
+      }),
+    ).toEqual([{ name: "ci", appId: 15368 }, "provider-go-live", "legacy-status"]);
+    expect(requiredChecksFrom(undefined)).toEqual([]);
   });
 });
 
@@ -331,7 +376,7 @@ describe("handoffPr", () => {
     const api = fakeApi();
     const trustedAuthors = trustedMarkerAuthors(BACKSTOP);
     // No shared lock: both pass the in-lock re-read, both write, and the
-    // post-write re-list deletes the higher-id marker.
+    // post-write re-list deletes the backstop's marker.
     const results = await Promise.all([
       apply(api, { eventSha: SHA_A, trustedAuthors }),
       apply(api.asAuthor(BACKSTOP), { eventSha: SHA_A, trustedAuthors }),
@@ -340,10 +385,27 @@ describe("handoffPr", () => {
     expect(api.state.writes.filter((write) => write.type === "comment")).toHaveLength(2);
     expect(api.state.writes.filter((write) => write.type === "delete")).toHaveLength(1);
     expect(markers(api)).toHaveLength(1);
-    // Comment ids start at 100, so the survivor is the first marker written.
-    expect(markers(api)[0].id).toBe(100);
+    expect(markers(api)[0].user.login).toBe(BOT);
     expect(results.reduce((sum, result) => sum + result.duplicatesRemoved, 0)).toBe(1);
     expect(await apply(api, { eventSha: SHA_A, trustedAuthors })).toMatchObject({ action: "noop", reason: "already-handed-off" });
+  });
+
+  it.each([
+    ["backstop writes first", true],
+    ["workflow writes first", false],
+  ])("a race with uneven trust sets keeps the github-actions[bot] marker (%s)", async (_label, backstopFirst) => {
+    const api = fakeApi();
+    // The workflow's repo variable omits the backstop login; the backstop trusts both.
+    const workflow = () => apply(api, { eventSha: SHA_A, trustedAuthors: trustedMarkerAuthors("") });
+    const backstop = () => apply(api.asAuthor(BACKSTOP), { eventSha: SHA_A, trustedAuthors: trustedMarkerAuthors(BACKSTOP) });
+    const results = await Promise.all(backstopFirst ? [backstop(), workflow()] : [workflow(), backstop()]);
+    expect(results.map((result) => result.action)).toEqual(["handoff", "handoff"]);
+    expect(markers(api)).toHaveLength(1);
+    expect(markers(api)[0].user.login).toBe(BOT);
+    expect(api.state.writes.filter((write) => write.type === "delete")).toEqual([expect.objectContaining({ login: BACKSTOP })]);
+    // Either side now sees a trusted marker and does nothing.
+    expect(await workflow()).toMatchObject({ action: "noop", reason: "already-handed-off" });
+    expect(await backstop()).toMatchObject({ action: "noop", reason: "already-handed-off" });
   });
 
   it("report mode logs the would-be handoff and writes nothing", async () => {
@@ -406,6 +468,24 @@ describe("run", () => {
     expect(lines).toContain(`trusted marker authors: ${BOT}, ${BACKSTOP}`);
     const untrusted = await run({ args, api, env: {}, log: () => {} });
     expect(untrusted).toEqual([expect.objectContaining({ action: "handoff" })]);
+  });
+
+  it("both sides start from the same default trusted authors", () => {
+    expect(trustedMarkerAuthors(undefined)).toEqual([...DEFAULT_TRUSTED_MARKER_AUTHORS]);
+    expect(trustedMarkerAuthors("")).toEqual([...DEFAULT_TRUSTED_MARKER_AUTHORS]);
+    expect(trustedMarkerAuthors(BACKSTOP)).toEqual([...DEFAULT_TRUSTED_MARKER_AUTHORS, BACKSTOP]);
+  });
+
+  it("a backstop marker followed by a workflow run with a matching trust set is a no-op", async () => {
+    const api = fakeApi();
+    const env = { QA_HANDOFF_TRUSTED_MARKER_AUTHORS: BACKSTOP };
+    const backstop = await run({ args: { repo: "o/r", mode: "apply", pr: undefined, sha: undefined }, api: api.asAuthor(BACKSTOP), env, log: () => {} });
+    expect(backstop).toEqual([expect.objectContaining({ action: "handoff" })]);
+    const writes = api.state.writes.length;
+    const workflow = await run({ args: { repo: "o/r", mode: "apply", pr: 7, sha: SHA_A }, api, env, log: () => {} });
+    expect(workflow).toEqual([expect.objectContaining({ action: "noop", reason: "already-handed-off" })]);
+    expect(api.state.writes).toHaveLength(writes);
+    expect(markers(api).map((item) => item.user.login)).toEqual([BACKSTOP]);
   });
 
   it("finds the PR by sha when the event carries no PR number", async () => {

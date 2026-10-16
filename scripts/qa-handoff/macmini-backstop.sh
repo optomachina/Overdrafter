@@ -19,7 +19,10 @@ if [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # Markers the backstop writes are authored by this gh user, so trust them
-# alongside github-actions[bot]; markers from anyone else are ignored.
+# alongside github-actions[bot] (DEFAULT_TRUSTED_MARKER_AUTHORS in gate.mjs,
+# which run.mjs always adds); markers from anyone else are ignored. The
+# workflow's QA_HANDOFF_TRUSTED_MARKER_AUTHORS repo variable must list this
+# same login, or the workflow will not honor the backstop's markers.
 login="$(gh api user --jq .login)"
 QA_HANDOFF_TRUSTED_MARKER_AUTHORS="${QA_HANDOFF_TRUSTED_MARKER_AUTHORS:+${QA_HANDOFF_TRUSTED_MARKER_AUTHORS},}${login}"
 export QA_HANDOFF_TRUSTED_MARKER_AUTHORS
