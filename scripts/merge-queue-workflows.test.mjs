@@ -47,6 +47,10 @@ describe("merge queue workflows", () => {
       });
 
       if (check.noOp) {
+        it("has no job-level if that could skip the job", () => {
+          expect(jobBlock(text, check.job)).not.toMatch(/^ {4}if:/m);
+        });
+
         it("passes as a no op on merge_group and runs real steps only on pull_request", () => {
           const ifs = stepIfs(jobBlock(text, check.job));
           expect(ifs[0]).toBe("github.event_name == 'merge_group'");
@@ -72,5 +76,16 @@ describe("merge queue workflows", () => {
     expect(runbook).toContain('"merge_method": "SQUASH"');
     expect(runbook).toContain('"grouping_strategy": "ALLGREEN"');
     expect(runbook).toMatch(/"max_entries_to_build": 1,\n\s+"min_entries_to_merge": 1,\n\s+"max_entries_to_merge": 1/);
+  });
+
+  it("drafts the strict fallback with the required checks unchanged", () => {
+    const runbook = read("docs/runbooks/merge-queue.md");
+    expect(runbook).toContain("--jq .owner.type");
+    expect(runbook).toContain(
+      "gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/required_status_checks",
+    );
+    const checks = REQUIRED_CHECKS.map((check) => `\\{ "context": "${check.job}", "app_id": 15368 \\}`).join(",\\n\\s+");
+    expect(runbook).toMatch(new RegExp(`"strict": true,\\n\\s+"checks": \\[\\n\\s+${checks}\\n\\s+\\]`));
+    expect(runbook).not.toMatch(/"enforce_admins"/);
   });
 });

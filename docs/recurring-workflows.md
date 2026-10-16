@@ -170,5 +170,7 @@ deployment, live verification, an external operation, or other post-merge work.
 
 The drafted merge queue for `main` (required checks, settings, re-run policy,
 rollback, and the rule that every required check triggers on `merge_group`)
-lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). It is not
-applied until Blaine approves it.
+lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
+needs an organization-owned repo, so the runbook also drafts the applicable
+fallback (`strict: true` up to date checks). Neither is applied until Blaine
+approves it, and the `land` skill must be updated in the same change.
