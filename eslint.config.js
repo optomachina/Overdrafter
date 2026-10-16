@@ -17,6 +17,8 @@ export default tseslint.config(
       ".turbo/**",
       ".vercel/**",
       ".code-review-graph/**",
+      // verify-overdrafter evidence (gitignored; holds bundled vite caches).
+      "artifacts/verify-overdrafter/**",
     ],
   },
   {
