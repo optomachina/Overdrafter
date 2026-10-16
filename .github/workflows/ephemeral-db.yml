@@ -3,9 +3,12 @@ name: Ephemeral DB
 # OVD-849 part 1. Proves a PR's migrations in a throwaway local Supabase database
 # on the runner: start the stack from the base's supabase/ tree (HEAD^1, so only
 # main's migrations), apply the PR's new migrations oldest first, run the policy
-# pgTAP suite, then apply the touched migration drafts and run the touched
-# pending pgTAP files. scripts/ephemeral-db-apply.mjs does the work and names the
-# first migration that fails.
+# pgTAP suite, then resolve touched migration drafts and pending pgTAP files to
+# their issue families (ovd-NNN drafts, ovdNNN pending tests, and the drafts each
+# pending test names), apply the families' drafts and run all of their pending
+# tests. Retired (SUPERSEDED) drafts and drafts no pending test names are
+# reported, not applied. scripts/ephemeral-db-apply.mjs does the work and names
+# the first migration or draft that fails.
 #
 # It never connects to a hosted Supabase project and uses no secrets: the script
 # accepts only a loopback database URL (scripts/supabase-target-guard.mjs).
@@ -23,6 +26,23 @@ name: Ephemeral DB
 # The script runs from the base commit (HEAD^1), so a PR cannot edit it to skip
 # itself. When the base has no copy yet (the PR that introduces it), the head
 # copy runs.
+#
+# Before promoting to enforce, three known gaps must be closed:
+#
+# - Base execution only partly protects the gate. Under pull_request this YAML
+#   comes from the PR head, so a PR can edit the steps, or add a name to the
+#   files= list that the base lacks, which flips every script to the head copy.
+#   The report records it as checkerSource "head" (with a warning) so OVD-845
+#   can refuse to count such a run. pr-body-gate.yml has the same limitation and
+#   a "Gate change review" rule for it; add the equivalent here when enforcing.
+# - The paths filter below means the check never reports on PRs outside those
+#   paths, so as a required check it would leave them pending forever. Enforcing
+#   needs an always-run no-op path for unrelated PRs (as pr-body-gate.yml has for
+#   merge_group), not just the filter.
+# - workflow_dispatch and workflow_call check out a branch tip, not a pull_request
+#   merge commit, so HEAD^1 is just the previous commit and the diff covers only
+#   that commit. Use those triggers for smoke runs, not as a PR verdict; a caller
+#   that needs a real base should add a base input and pass it as --base.
 
 on:
   pull_request:
@@ -96,6 +116,7 @@ jobs:
             fi
           done
           echo "Checker scripts taken from: $source"
+          echo "CHECKER_SOURCE=$source" >> "$GITHUB_ENV"
 
       - name: Apply PR migrations and run pgTAP (ephemeral DB)
         env:
@@ -106,6 +127,7 @@ jobs:
           node "$RUNNER_TEMP/gate/scripts/ephemeral-db-apply.mjs" \
             --root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
             --db-url "$DB_URL" --psql docker \
+            --work-dir "$RUNNER_TEMP/ephemeral-db" --checker-source "$CHECKER_SOURCE" \
             --report "$RUNNER_TEMP/ephemeral-db-report.json" $ENFORCE
 
       - name: Upload report
@@ -118,5 +140,6 @@ jobs:
 
       - name: Stop local database
         if: always()
-        # The base copy shares config.toml's project_id, so this stops its containers.
-        run: supabase stop --no-backup || true
+        # --workdir: stop the stack the base copy's config.toml started, even if
+        # the PR changes project_id or ports in the head's config.toml.
+        run: supabase stop --no-backup --workdir "$RUNNER_TEMP/ephemeral-db/base-project" || true
