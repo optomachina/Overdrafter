@@ -6,6 +6,7 @@ import path from "node:path";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideProviderUploadCapability } from "../providerUploadCapability.js";
+import { createXometryUploadCapabilityCheckpoint } from "../xometryUploadAdmission.js";
 import type { ProviderUploadCapabilityDecision, ProviderUploadCapabilityObserved } from "../providerUploadCapabilityTypes.js";
 
 const {
@@ -1390,8 +1391,10 @@ describe("XometryAdapter", () => {
       uploadCapabilityCheckpoint: VendorQuoteAdapterInput["uploadCapabilityCheckpoint"],
       events: string[] = [],
       acceptAfterDisclosure?: string,
+      options: { accept?: string; stagedPath?: string } = {},
     ) {
-      let currentAccept = ".step,.stp";
+      let currentAccept = options.accept ?? ".step,.stp";
+      const stagedPath = options.stagedPath ?? "/tmp/part.step";
       const workerTempDir = await makeTempDir();
       const standaloneUpload = vi.fn(() => {
         events.push("setInputFiles");
@@ -1431,6 +1434,12 @@ describe("XometryAdapter", () => {
       const error = await adapter
         .quote(makeInput({
           uploadCapabilityCheckpoint,
+          stagedCadFile: {
+            originalName: path.basename(stagedPath),
+            localPath: stagedPath,
+            storageBucket: "job-files",
+            storagePath: `cad/${path.basename(stagedPath)}`,
+          },
           beforeProviderDisclosure: async () => {
             events.push("beforeProviderDisclosure");
             if (acceptAfterDisclosure !== undefined) currentAccept = acceptAfterDisclosure;
@@ -1479,6 +1488,109 @@ describe("XometryAdapter", () => {
       expect(standaloneUpload).toHaveBeenCalledTimes(1);
     });
 
+    describe("live accept-list format drift (OVD-863)", () => {
+      afterEach(() => {
+        if (vi.isMockFunction(console.warn)) vi.mocked(console.warn).mockRestore();
+      });
+      const admittedCheckpoint = () => createXometryUploadCapabilityCheckpoint(async () => ({
+        schema: "xometry-admission-read.v1",
+        policy_present: true,
+        provider_admitted: true,
+        generically_dispatchable: false,
+        provider: "xometry",
+        admission_state: "controlled_beta_only",
+        policy_revision: "xometry-beta-v1",
+        evidence_reference: "OVD-379",
+        permission_basis: "existing_controlled_beta_path",
+        supported_processes: ["cnc_milling"],
+        accepted_file_extensions: ["step", "stp"],
+        session_owner: "overdrafter_managed",
+        reviewed_at: "2026-01-01T00:00:00.000Z",
+        expires_at: null,
+        reason_code: "controlled_beta_only",
+      }));
+      const driftLogs = (warn: { mock: { calls: unknown[][] } }) => warn.mock.calls
+        .map(([line]) => (typeof line === "string" ? line : ""))
+        .filter((line) => line.includes("vendor.upload_capability_format_drift"));
+
+      it("selects a staged STEP when Xometry adds a format beyond admission", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: ".step,.stp,.sldprt" },
+        );
+        expect(error).toBeNull();
+        expect(standaloneUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+        expect(driftLogs(warn)).toHaveLength(1);
+        expect(JSON.parse(driftLogs(warn)[0])).toMatchObject({
+          context: { classification: "format_added", reportedAddedExtensions: ["sldprt"] },
+        });
+      });
+
+      it("compares the staged extension case-insensitively", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: ".step,.stp", stagedPath: "/tmp/PART.STP" },
+        );
+        expect(error).toBeNull();
+        expect(standaloneUpload).toHaveBeenCalledWith(["/tmp/PART.STP"]);
+      });
+
+      it("refuses a staged STEP once Xometry stops accepting .step", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: ".stp" },
+        );
+        expect(error).toMatchObject({ code: "upload_failure" });
+        expect(standaloneUpload).not.toHaveBeenCalled();
+      });
+
+      it("refuses .step at the capability gate even when readiness would pass", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          async (observed) => admittedCheckpoint()({ ...observed, extensions: ["stp"] }),
+        );
+        expect(error).toMatchObject({
+          payload: { reason: "upload_capability_denied", classification: "extension_not_allowed" },
+        });
+        expect(standaloneUpload).not.toHaveBeenCalled();
+      });
+
+      it("selects a staged STP when only .stp remains and logs the drift", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: ".stp", stagedPath: "/tmp/part.stp" },
+        );
+        expect(error).toBeNull();
+        expect(standaloneUpload).toHaveBeenCalledWith(["/tmp/part.stp"]);
+        expect(JSON.parse(driftLogs(warn)[0])).toMatchObject({
+          context: { classification: "format_removed", reportedRemovedExtensions: ["step"] },
+        });
+      });
+
+      it("refuses selection when the live accept list carries no extension", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: "*/*" },
+        );
+        expect(error).toMatchObject({ payload: { reason: "upload_capability_denied" } });
+        expect(standaloneUpload).not.toHaveBeenCalled();
+      });
+
+      it("refuses selection when the live accept list is missing on a generic surface", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          async (observed) => admittedCheckpoint()({ ...observed, acceptAttributePresent: false, extensions: undefined, mimeTypes: undefined }),
+        );
+        expect(error).toMatchObject({ payload: { reason: "upload_capability_denied", classification: "accept_missing" } });
+        expect(standaloneUpload).not.toHaveBeenCalled();
+      });
+
+      it("refuses a staged .sldprt even when Xometry advertises it", async () => {
+        const { error, standaloneUpload } = await quoteOnStandaloneUploader(
+          admittedCheckpoint(), [], undefined, { accept: ".step,.stp,.sldprt", stagedPath: "/tmp/part.sldprt" },
+        );
+        expect(error).toMatchObject({
+          payload: { reason: "upload_capability_denied", classification: "extension_not_allowed" },
+        });
+        expect(standaloneUpload).not.toHaveBeenCalled();
+      });
+    });
+
     it.each([
       "accept_missing",
       "unsupported",
@@ -1492,8 +1604,6 @@ describe("XometryAdapter", () => {
       "anti_bot_or_challenge",
       "provider_error",
       "unclassified_response",
-      "format_added",
-      "format_removed",
     ] as const)("%s: no file is selected and only the classification is recorded", async (classification) => {
       const { error, standaloneUpload } = await quoteOnStandaloneUploader(
         async () => decisionOf(classification),
