@@ -64,6 +64,7 @@ describe("committed specs", () => {
     const r = validateAll(repoRoot);
     expect(r.errors).toEqual([]);
     expect(r.specs).toContain("verify-overdrafter");
+    expect(r.skills).toEqual(r.specs);
   });
 });
 
@@ -86,15 +87,45 @@ describe("validateSpec", () => {
 });
 
 describe("validateAll", () => {
-  it("requires a spec for each present skill and tolerates absent skills", () => {
+  it("requires a spec for each present skill and a skill for each spec", () => {
     const root = tmp();
     write(root, ".agents/skills/has-spec/SKILL.md", "x");
     write(root, ".codex/skills/no-spec/SKILL.md", "x");
     write(root, "evals/skills/has-spec/spec.json", JSON.stringify(goodSpec("has-spec")));
-    write(root, "evals/skills/verify-overdrafter/spec.json", JSON.stringify(goodSpec("verify-overdrafter")));
+    write(root, "evals/skills/orphan/spec.json", JSON.stringify(goodSpec("orphan")));
     const r = validateAll(root);
-    expect(r.errors).toEqual([".codex/skills/no-spec: skill has no eval spec at evals/skills/no-spec/spec.json"]);
-    expect(r.absent).toEqual(["verify-overdrafter"]);
+    expect(r.ok).toBe(false);
+    expect(r.errors).toEqual([
+      ".codex/skills/no-spec: skill has no eval spec at evals/skills/no-spec/spec.json",
+      "evals/skills/orphan: no skill directory for this spec; restore the skill or remove the spec",
+    ]);
+    expect(run(root, "validate").code).toBe(1);
+  });
+  it("rejects a skill name used in two roots, and hashes every copy", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".agents/skills/dup/SKILL.md", "a");
+    write(root, ".codex/skills/dup/SKILL.md", "b");
+    write(root, "evals/skills/dup/spec.json", JSON.stringify(goodSpec("dup")));
+    git("add", "-f", ".agents", ".codex", "evals");
+    git("commit", "-qm", "base");
+    expect(skillDirs(root).get("dup")).toEqual([".agents/skills/dup", ".codex/skills/dup"]);
+    expect(validateAll(root).errors).toEqual([
+      "dup: skill name is used in more than one root (.agents/skills/dup, .codex/skills/dup); keep one",
+    ]);
+    const before = skillHash(root, "dup");
+    write(root, ".codex/skills/dup/SKILL.md", "edited");
+    expect(skillHash(root, "dup")).not.toBe(before);
+    const hash = run(root, "hash", "dup");
+    expect(hash.code).toBe(2);
+    expect(hash.text).toMatch(/more than one root/);
+    write(root, "scores.json", JSON.stringify([{
+      skill: "dup", case: "c1", skillHash: skillHash(root, "dup"), runner: "model-a", judge: "model-b",
+      scores: [{ id: "r1", points: 6 }, { id: "r2", points: 4 }],
+    }]));
+    const report = run(root, "report", "--skill", "dup", path.join(root, "scores.json"));
+    expect(report.code).toBe(1);
+    expect(report.text).toMatch(/error: dup: skill name is used in more than one root/);
   });
   it("only counts git-tracked skills in a git checkout", () => {
     const root = tmp();
@@ -120,7 +151,12 @@ describe("changed skills", () => {
     expect(skillForPath(".cursor/skills/verify-overdrafter/x/y.md")).toBe("verify-overdrafter");
     expect(skillForPath("evals/skills/b/spec.json")).toBe("b");
     expect(skillForPath("src/index.ts")).toBeNull();
-    expect(changedSkillsFromPaths([".codex/skills/z/a", ".agents/skills/a/b", ".agents/skills/a/c", "README.md"])).toEqual(["a", "z"]);
+    expect(skillForPath(".agents/skills/README.md")).toBeNull();
+    expect(skillForPath("evals/skills/README.md")).toBeNull();
+    expect(skillForPath(".codex/skills/")).toBeNull();
+    expect(changedSkillsFromPaths([
+      ".codex/skills/z/a", ".agents/skills/a/b", ".agents/skills/a/c", "README.md", ".agents/skills/README.md",
+    ])).toEqual(["a", "z"]);
   });
   it("diffs two git refs", () => {
     const root = tmp();
@@ -224,14 +260,21 @@ describe("report", () => {
     expect(r.ok).toBe(false);
     expect(r.skills[0].cases[0].status).toBe("unscored");
   });
-  it("skips specs for absent skills and still fails unscored present skills", () => {
-    const specs2 = new Map([["demo", goodSpec()], ["verify-overdrafter", goodSpec("verify-overdrafter")]]);
-    const skipped = buildReport(specs2, [result()], { present: new Set(["demo"]) });
-    expect(skipped.ok).toBe(true);
-    expect(skipped.skills.find((s) => s.skill === "verify-overdrafter")).toMatchObject({ status: "skipped", reason: "skill absent" });
-    expect(renderReport(skipped)).toMatch(/\| verify-overdrafter \| - \| - \| skipped \(skill absent\)/);
-    const unscored = buildReport(specs2, [result()], { present: new Set(["demo", "verify-overdrafter"]) });
-    expect(unscored.ok).toBe(false);
+  it("fails when nothing in scope was scored", () => {
+    for (const r of [
+      buildReport(new Map(), [result()]),
+      buildReport(specs, [result()], { only: ["nope"] }),
+      buildReport(new Map([["demo", { ...goodSpec(), cases: [] }]]), [result()]),
+    ]) expect(r.ok).toBe(false);
+    const empty = buildReport(new Map(), []);
+    expect(empty.reason).toMatch(/nothing was scored/);
+    expect(renderReport(empty)).toMatch(/Overall: NOT 10\/10\n\nReason: no eval case was in scope/);
+  });
+  it("fails a spec whose skill has no current skillHash", () => {
+    const r = buildReport(specs, [result({ skillHash: "x" })], { hashes: new Map() });
+    expect(r.ok).toBe(false);
+    expect(r.skills[0]).toMatchObject({ skill: "demo", status: "fail", reason: "skill directory absent" });
+    expect(renderReport(r)).toMatch(/\| demo \| - \| - \| fail \| skill directory absent \|/);
   });
   it("scopes to --only skills", () => {
     const specs2 = new Map([["demo", goodSpec()], ["other", goodSpec("other")]]);
@@ -267,21 +310,45 @@ describe("report", () => {
     expect(parseFlags(["--skill", "a", "--skill", "b,c", "x.json"])).toEqual({ _: ["x.json"], skill: ["a", "b,c"] });
     expect(parseFlags(["--runner", "--judge", "x"])).toEqual({ _: [], runner: true, judge: "x" });
   });
-  it("cli: absent verify-overdrafter is skipped, present-but-unscored fails, --skill scopes", () => {
+  it("cli: a spec without its skill fails every report, scoped or not", () => {
+    const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
+    for (const n of ["demo", "verify-overdrafter"]) write(root, `evals/skills/${n}/spec.json`, JSON.stringify(goodSpec(n)));
+    write(root, "demo.json", JSON.stringify([result({ skillHash: skillHash(root, "demo") })]));
+    for (const scope of [[], ["--skill", "demo"], ["--skill", "verify-overdrafter"]]) {
+      const r = run(root, "report", ...scope, path.join(root, "demo.json"));
+      expect(r.code).toBe(1);
+      expect(r.text).toMatch(/Overall: NOT 10\/10/);
+      expect(r.text).toMatch(/error: evals\/skills\/verify-overdrafter: no skill directory for this spec/);
+    }
+    const json = JSON.parse(run(root, "report", "--json", path.join(root, "demo.json")).text);
+    expect(json).toMatchObject({ ok: false, skills: [] });
+    expect(json.errors).toHaveLength(1);
+  });
+  it("cli: a present skill without a spec fails the report even when every spec passes", () => {
+    const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
+    write(root, ".codex/skills/pull/SKILL.md", "x");
+    write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+    write(root, "demo.json", JSON.stringify([result({ skillHash: skillHash(root, "demo") })]));
+    const r = run(root, "report", path.join(root, "demo.json"));
+    expect(r.code).toBe(1);
+    expect(r.text).toMatch(/error: \.codex\/skills\/pull: skill has no eval spec/);
+    expect(run(root, "report", "--skill", "demo", path.join(root, "demo.json")).code).toBe(1);
+  });
+  it("cli: present-but-unscored fails, --skill scopes", () => {
     const root = tmp();
     write(root, ".agents/skills/demo/SKILL.md", "x");
     write(root, ".agents/skills/other/SKILL.md", "x");
+    write(root, ".agents/skills/verify-overdrafter/SKILL.md", "x");
     for (const n of ["demo", "other", "verify-overdrafter"]) write(root, `evals/skills/${n}/spec.json`, JSON.stringify(goodSpec(n)));
     const scored = (n) => result({ skill: n, skillHash: skillHash(root, n) });
     write(root, "all.json", JSON.stringify([scored("demo"), scored("other")]));
-    const full = run(root, "report", path.join(root, "all.json"));
-    expect(full.code).toBe(0);
-    expect(full.text).toMatch(/verify-overdrafter \| - \| - \| skipped \(skill absent\)/);
-
-    write(root, ".agents/skills/verify-overdrafter/SKILL.md", "x");
     const present = run(root, "report", path.join(root, "all.json"));
     expect(present.code).toBe(1);
     expect(present.text).toMatch(/verify-overdrafter \| c1 \| -\/10 \| unscored/);
+    write(root, "every.json", JSON.stringify(["demo", "other", "verify-overdrafter"].map(scored)));
+    expect(run(root, "report", path.join(root, "every.json"))).toMatchObject({ code: 0 });
 
     write(root, "demo.json", JSON.stringify([scored("demo")]));
     expect(run(root, "report", path.join(root, "demo.json")).code).toBe(1);

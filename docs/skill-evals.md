@@ -4,7 +4,7 @@ Repo skills are tested like code: each skill has a spec of tasks, expected behav
 
 ## Where things live
 
-- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. In a git checkout only git-tracked skill directories count, so locally installed third-party skills (these roots are gitignored) are ignored. `verify-overdrafter` lives at `.agents/skills/verify-overdrafter/` (OVD-842, merged in #801). Checkouts from before that merge do not have it, and the tooling tolerates its absence: `validate` notes it and `report` skips it.
+- Skills: `.agents/skills/*`, `.codex/skills/*`, plus `.claude/skills/*` and `.cursor/skills/*` when present. In a git checkout only git-tracked skill directories count, so locally installed third-party skills (these roots are gitignored) are ignored. A skill name lives in exactly one root: `validate` rejects a name found in two roots, because a score for one copy says nothing about the other. `verify-overdrafter` lives at `.agents/skills/verify-overdrafter/` (OVD-842, merged in #801).
 - Specs: `evals/skills/<skill>/spec.json`, one per skill. Each case has `id`, `task`, `expectedBehaviors[]` and `rubric[]` (`{id, criterion, points}`, integer points summing to exactly 10). `passScore` is 10.
 - Tooling: `scripts/skill-evals.mjs` (offline, no model API calls). Tests: `scripts/skill-evals.test.mjs`.
 
@@ -23,19 +23,21 @@ Re-run a skill's evals on any change under its skill directory, or under `evals/
 node scripts/skill-evals.mjs changed --base origin/main --head HEAD
 ```
 
-It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Feed the list to the loop and to `report --skill`:
+It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Loose files directly under a skill root (such as a README) belong to no skill and are not listed. Feed the list to the loop and to `report --skill`:
 
 ```bash
 skills=$(node scripts/skill-evals.mjs changed --base origin/main --head HEAD | paste -sd, -)
 node scripts/skill-evals.mjs report --skill "$skills" scores/*.json
 ```
 
-The `skillHash` enforces the trigger. `report` only counts results whose `skillHash` matches the current skill directory plus spec. Older results show as `stale`, so a score cannot outlive the skill version it judged.
+If the list includes a skill whose directory and spec were both removed (a retirement), drop that name first: `report --skill` exits 2 for a name with no spec.
+
+The `skillHash` enforces the trigger. `report` only counts results whose `skillHash` matches the current skill directory plus spec. Older results show as `stale` and fail, so a score cannot outlive the skill version it judged.
 
 ## Commands
 
 ```bash
-node scripts/skill-evals.mjs validate                  # specs are well formed; every present skill has one
+node scripts/skill-evals.mjs validate                  # specs are well formed; each skill has one root and a spec; each spec has its skill
 node scripts/skill-evals.mjs check-judge --runner <model-a> --judge <model-b>
 node scripts/skill-evals.mjs hash <skill>...            # skillHash to put on each judge result
 node scripts/skill-evals.mjs report [--skill <name>]... scores/*.json   # markdown; add --json for JSON
@@ -43,16 +45,17 @@ node scripts/skill-evals.mjs report [--skill <name>]... scores/*.json   # markdo
 
 `check-judge` exits 2 when either flag is missing, empty or whitespace, or has no value (for example `--runner $A` with `A` unset).
 
-`report` accepts files that hold one result or an array. A result that is not an object with string `skill` and `case` fields stops the run (exit 2) and names its file and index. Among the results with the current `skillHash`, the last one for a case (in argument order) wins, so a re-run replaces earlier attempts. Results for an older `skillHash` are ignored. `report` exits 1 unless every in-scope skill present in the checkout is 10/10.
+`report` accepts files that hold one result or an array. A result that is not an object with string `skill` and `case` fields stops the run (exit 2) and names its file and index. Among the results with the current `skillHash`, the last one for a case (in argument order) wins, so a re-run replaces earlier attempts. Results for an older `skillHash` are ignored. `report` exits 0 only when `validate` passes, at least one skill is in scope, and every in-scope case is 10/10. Otherwise it exits 1.
 
-- A spec whose skill directory is absent from the checkout is listed as `skipped (skill absent)` and is left out of the pass/fail decision.
-- A present skill with no result is `unscored`, and it fails.
+- `report` runs the same checks as `validate` first, scoped or not. A present skill with no spec, a spec with no skill directory, a skill name in two roots, or a malformed spec fails the report and lists the errors.
+- A report with nothing in scope fails. It never passes with nothing scored.
+- A case with no result is `unscored`, and it fails. A case whose results all carry an older `skillHash` is `stale`, and it fails.
 - Missing, unknown, duplicated or out-of-range scores mark the case `invalid`. A judge that is the same base model as the runner also marks the case `invalid`.
 - `--skill` with an unknown name, or with no value, exits 2.
 
 ## Adding or changing a skill
 
-Add `evals/skills/<skill>/spec.json` in the same change. `validate` fails for a present skill with no spec. Write cases that probe the skill's rules, such as refusals and guardrails, and not just the happy path.
+Add `evals/skills/<skill>/spec.json` in the same change. `validate` fails for a present skill with no spec. To retire a skill, remove its spec in the same change, because `validate` also fails for a spec whose skill is gone. Write cases that probe the skill's rules, such as refusals and guardrails, and not just the happy path.
 
 ## Not in scope
 

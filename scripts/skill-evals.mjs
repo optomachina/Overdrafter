@@ -61,15 +61,18 @@ function gitLsFiles(root, paths) {
 }
 
 /**
- * Skill name -> repo-relative dir. In a git checkout only tracked skills count,
- * so locally installed (gitignored) third-party skills are not picked up.
+ * Skill name -> every repo-relative dir carrying that name, in SKILL_ROOTS
+ * order. A name must live in exactly one root (validateAll rejects the rest).
+ * In a git checkout only tracked skills count, so locally installed
+ * (gitignored) third-party skills are not picked up.
  */
 export function skillDirs(root) {
   const found = new Map();
   const tracked = isGitCheckout(root) ? gitLsFiles(root, SKILL_ROOTS) : null;
   for (const base of SKILL_ROOTS) {
     for (const name of skillNamesUnder(root, base, tracked)) {
-      if (!found.has(name)) found.set(name, path.posix.join(base, name));
+      if (!found.has(name)) found.set(name, []);
+      found.get(name).push(path.posix.join(base, name));
     }
   }
   return found;
@@ -95,11 +98,12 @@ function walkFiles(root, rel) {
 }
 
 /**
- * Content hash of a skill (its skill dir plus its eval spec). A judge result
- * records it as `skillHash` so a score cannot outlive the skill it judged.
+ * Content hash of a skill (every dir carrying its name, plus its eval spec). A
+ * judge result records it as `skillHash` so a score cannot outlive the skill
+ * it judged, whichever copy was edited.
  */
 export function skillHash(root, name, dirs = skillDirs(root)) {
-  const rels = [dirs.get(name), path.posix.join(SPEC_ROOT, name)].filter(Boolean);
+  const rels = [...(dirs.get(name) ?? []), path.posix.join(SPEC_ROOT, name)];
   const files = isGitCheckout(root) ? gitLsFiles(root, rels) : rels.flatMap((r) => walkFiles(root, r));
   const hash = crypto.createHash("sha256");
   for (const file of [...new Set(files)].sort(compareCodeUnits)) {
@@ -186,20 +190,28 @@ export function loadSpecs(root) {
 }
 
 /**
- * Every present skill needs a spec. A spec whose skill dir is absent (for
- * example verify-overdrafter before its PR lands) is tolerated and reported.
+ * Specs, skill dirs and every coverage error: each present skill needs exactly
+ * one dir and a spec, and each spec needs its skill dir. A spec left behind by
+ * a deleted or moved skill would otherwise drop out of the report unnoticed.
  */
-export function validateAll(root) {
+function inspectRepo(root) {
   const { specs, errors } = loadSpecs(root);
   const dirs = skillDirs(root);
-  for (const name of dirs.keys()) {
-    if (!specs.has(name)) errors.push(`${dirs.get(name)}: skill has no eval spec at ${SPEC_ROOT}/${name}/${SPEC_FILE}`);
+  for (const [name, rels] of dirs) {
+    if (rels.length > 1) errors.push(`${name}: skill name is used in more than one root (${rels.join(", ")}); keep one`);
+    if (!specs.has(name)) errors.push(`${rels[0]}: skill has no eval spec at ${SPEC_ROOT}/${name}/${SPEC_FILE}`);
   }
-  const absent = [...specs.keys()].filter((n) => !dirs.has(n)).sort(compareCodeUnits);
+  for (const name of [...specs.keys()].sort(compareCodeUnits)) {
+    if (!dirs.has(name)) errors.push(`${SPEC_ROOT}/${name}: no skill directory for this spec; restore the skill or remove the spec`);
+  }
+  return { specs, dirs, errors };
+}
+
+export function validateAll(root) {
+  const { specs, dirs, errors } = inspectRepo(root);
   return {
     ok: errors.length === 0,
     errors,
-    absent,
     specs: [...specs.keys()].sort(compareCodeUnits),
     skills: [...dirs.keys()].sort(compareCodeUnits),
   };
@@ -211,14 +223,18 @@ function compareCodeUnits(a, b) {
   return a > b ? 1 : 0;
 }
 
-/** Map a repo-relative path to the skill it belongs to, or null. */
+/**
+ * Map a repo-relative path to the skill it belongs to, or null. Only paths
+ * inside a skill or spec dir count; a loose file such as
+ * `.agents/skills/README.md` belongs to no skill.
+ */
 export function skillForPath(file) {
   const p = file.replaceAll("\\", "/");
-  for (const base of SKILL_ROOTS) {
-    if (p.startsWith(`${base}/`)) return p.slice(base.length + 1).split("/")[0] || null;
-  }
-  if (p.startsWith(`${SPEC_ROOT}/`)) return p.slice(SPEC_ROOT.length + 1).split("/")[0] || null;
-  return null;
+  const base = [...SKILL_ROOTS, SPEC_ROOT].find((b) => p.startsWith(`${b}/`));
+  if (!base) return null;
+  const rest = p.slice(base.length + 1);
+  const cut = rest.indexOf("/");
+  return cut > 0 ? rest.slice(0, cut) : null;
 }
 
 export function changedSkillsFromPaths(paths) {
@@ -291,35 +307,47 @@ function reportCase(c, spec, mine, currentHash) {
 }
 
 /**
- * Options: `present` (set of skill names in the checkout; specs for other
- * skills are skipped, not failed), `hashes` (skill -> current skillHash; when
- * given, results must carry a matching skillHash), `only` (skill names in scope).
+ * Options: `hashes` (skill -> current skillHash; when given, results must
+ * carry a matching skillHash and a skill missing from it fails), `only` (skill
+ * names in scope). Fails closed: a report passes only when at least one skill
+ * was in scope and every in-scope case scored 10/10.
  */
-export function buildReport(specs, results, { present = null, hashes = null, only = null } = {}) {
+export function buildReport(specs, results, { hashes = null, only = null } = {}) {
   const skills = [];
   for (const [name, spec] of [...specs].sort(([a], [b]) => compareCodeUnits(a, b))) {
     if (only && !only.includes(name)) continue;
-    if (present && !present.has(name)) {
-      skills.push({ skill: name, status: "skipped", reason: "skill absent", cases: [] });
+    if (hashes && !hashes.has(name)) {
+      skills.push({ skill: name, status: "fail", reason: "skill directory absent", cases: [] });
       continue;
     }
     const hash = hashes?.get(name) ?? null;
     const cases = spec.cases.map((c) =>
       reportCase(c, spec, results.filter((r) => r.skill === name && r.case === c.id), hash));
-    skills.push({ skill: name, status: cases.every((c) => c.status === "pass") ? "pass" : "fail", cases });
+    const passed = cases.length > 0 && cases.every((c) => c.status === "pass");
+    skills.push({ skill: name, status: passed ? "pass" : "fail", cases });
   }
-  return { ok: skills.every((s) => s.status !== "fail"), skills };
+  const report = { ok: skills.length > 0 && skills.every((s) => s.status === "pass"), skills };
+  if (skills.length === 0) report.reason = "no eval case was in scope, so nothing was scored";
+  return report;
 }
 
 function cell(value) {
   return String(value).replaceAll("|", String.raw`\|`).replaceAll(/\r?\n/g, " ");
 }
 
-export function renderReport(report) {
+function summaryLines(report) {
   const lines = ["# Skill eval report", "", `Overall: ${report.ok ? "PASS" : "NOT 10/10"}`, ""];
+  if (report.reason) lines.push(`Reason: ${report.reason}`, "");
+  const errors = report.errors ?? [];
+  if (errors.length) lines.push(...errors.map((e) => `- error: ${e}`), "");
+  return lines;
+}
+
+export function renderReport(report) {
+  const lines = summaryLines(report);
   lines.push("| Skill | Case | Score | Status | Notes |", "| --- | --- | --- | --- | --- |");
   for (const s of report.skills) {
-    if (s.status === "skipped") lines.push(`| ${cell(s.skill)} | - | - | skipped (${s.reason}) | |`);
+    if (s.reason) lines.push(`| ${cell(s.skill)} | - | - | ${s.status} | ${cell(s.reason)} |`);
     for (const c of s.cases) {
       lines.push(`| ${cell(s.skill)} | ${cell(c.id)} | ${c.total ?? "-"}/${MAX_SCORE} | ${c.status} | ${cell(c.problems.join("; "))} |`);
     }
@@ -387,13 +415,12 @@ const USAGE = `Usage: node scripts/skill-evals.mjs <command>
   check-judge --runner <m> --judge <m>   fail unless the judge is a different base model
   hash <skill>...                   print the skillHash a judge result must carry
   report [--json] [--skill <name>]... <scores.json>...
-                                    aggregate judge results (exit 1 unless every
-                                    present, in-scope skill is 10/10)`;
+                                    aggregate judge results (exit 1 unless validate
+                                    passes and every in-scope case is 10/10)`;
 
 function runValidate(f, root, out) {
   const r = validateAll(root);
   for (const e of r.errors) out(`error: ${e}\n`);
-  for (const n of r.absent) out(`note: skill "${n}" is not present in this checkout; spec kept\n`);
   out(r.ok ? `ok: ${r.specs.length} specs, ${r.skills.length} skills present\n` : "validation failed\n");
   return r.ok ? 0 : 1;
 }
@@ -418,7 +445,9 @@ function runHash(f, root, out) {
   if (f._.length === 0) throw new Error("at least one skill name is required");
   const dirs = skillDirs(root);
   for (const name of f._) {
-    if (!dirs.has(name)) throw new Error(`skill "${name}" is not present in this checkout`);
+    const rels = dirs.get(name);
+    if (!rels) throw new Error(`skill "${name}" is not present in this checkout`);
+    if (rels.length > 1) throw new Error(`skill "${name}" is in more than one root (${rels.join(", ")}); run validate`);
     out(`${name} ${skillHash(root, name, dirs)}\n`);
   }
   return 0;
@@ -426,13 +455,17 @@ function runHash(f, root, out) {
 
 function runReport(f, root, out) {
   if (f._.length === 0) throw new Error("at least one scores file is required");
-  const { specs, errors } = loadSpecs(root);
-  if (errors.length) throw new Error(`invalid specs: ${errors.join("; ")}`);
+  const { specs, dirs, errors } = inspectRepo(root);
   const only = skillScope(f.skill, specs);
-  const dirs = skillDirs(root);
-  const present = new Set(dirs.keys());
-  const hashes = new Map([...present].filter((n) => specs.has(n)).map((n) => [n, skillHash(root, n, dirs)]));
-  const report = buildReport(specs, readResults(f._), { present, hashes, only });
+  const results = readResults(f._);
+  // Scoped or not, a report cannot pass while `validate` fails: a skill with
+  // no spec, a spec with no skill, or a name in two roots is never scored.
+  const report = errors.length
+    ? { ok: false, reason: "validation failed (see node scripts/skill-evals.mjs validate)", errors, skills: [] }
+    : buildReport(specs, results, {
+      hashes: new Map([...dirs.keys()].map((n) => [n, skillHash(root, n, dirs)])),
+      only,
+    });
   out(f.json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report));
   return report.ok ? 0 : 1;
 }
