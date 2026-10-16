@@ -446,9 +446,12 @@ begin
     raise exception 'invalid_endpoint' using errcode = '22023';
   end if;
 
-  -- FOR SHARE: a concurrent revoke (FOR UPDATE) waits for this use to commit,
-  -- and this use waits for a revoke in flight, so the two cannot interleave.
-  select * into v_key from public.agent_api_keys k where k.id = p_key_id for share;
+  -- FOR NO KEY UPDATE: a concurrent revoke (FOR UPDATE) waits for this use to
+  -- commit, and this use waits for a revoke in flight, so the two cannot
+  -- interleave. It also serialises uses of the same key, so the later
+  -- last_used_at UPDATE never upgrades a lock shared with another session
+  -- (FOR SHARE here deadlocked two parallel uses of one key).
+  select * into v_key from public.agent_api_keys k where k.id = p_key_id for no key update;
   if not found then
     raise exception 'key_not_found' using errcode = 'P0002';
   end if;
@@ -472,20 +475,24 @@ begin
       and r.subject_id in (v_key.id, v_key.org_id)
       and r.expires_at <= v_now;
 
-    -- Org first, then key: one lock order for every caller.
-    insert into private.agent_api_key_rate_limits as r
-      (scope, subject_id, window_started_at, window_seconds, attempt_count, expires_at)
-    values ('org', v_key.org_id, v_window_started_at, p_window_seconds, 1, v_expires_at)
-    on conflict (scope, subject_id, window_started_at, window_seconds)
-    do update set attempt_count = least(r.attempt_count + 1, p_org_limit + 1)
-    returning r.attempt_count into v_org_count;
-
+    -- Key first, then org: one lock order for every caller (key row, key
+    -- counter, org counter). The org counter is only touched when the key is
+    -- under its own limit, so one runaway key cannot spend the org's budget.
     insert into private.agent_api_key_rate_limits as r
       (scope, subject_id, window_started_at, window_seconds, attempt_count, expires_at)
     values ('key', v_key.id, v_window_started_at, p_window_seconds, 1, v_expires_at)
     on conflict (scope, subject_id, window_started_at, window_seconds)
     do update set attempt_count = least(r.attempt_count + 1, p_key_limit + 1)
     returning r.attempt_count into v_key_count;
+
+    if v_key_count <= p_key_limit then
+      insert into private.agent_api_key_rate_limits as r
+        (scope, subject_id, window_started_at, window_seconds, attempt_count, expires_at)
+      values ('org', v_key.org_id, v_window_started_at, p_window_seconds, 1, v_expires_at)
+      on conflict (scope, subject_id, window_started_at, window_seconds)
+      do update set attempt_count = least(r.attempt_count + 1, p_org_limit + 1)
+      returning r.attempt_count into v_org_count;
+    end if;
 
     if v_key_count > p_key_limit then
       v_result := 'rate_limited_key';

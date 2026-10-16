@@ -48,7 +48,7 @@ No client role has INSERT, UPDATE, DELETE or TRUNCATE on any of the three tables
 | `api_admin_list_agent_api_keys(uuid)` | DEFINER | authenticated | `current_user_has_aal2() AND is_platform_admin()` |
 | `api_admin_revoke_agent_api_key(uuid)` | DEFINER | authenticated | `current_user_has_aal2() AND is_platform_admin()` |
 | `api_service_get_agent_api_key(text)` | DEFINER | service_role | returns `keyHash`, scopes, expiry, revocation for one prefix |
-| `api_service_admit_agent_api_key_use(uuid, text, int, int, int)` | DEFINER | service_role | under `FOR SHARE` re-checks revoked, expired and creator still a member; takes per-org then per-key counters; stamps `last_used_at`; audits every outcome |
+| `api_service_admit_agent_api_key_use(uuid, text, int, int, int)` | DEFINER | service_role | under `FOR NO KEY UPDATE` re-checks revoked, expired and creator still a member; takes the per-key counter, then the per-org counter only when the key is under its limit; stamps `last_used_at`; audits every outcome |
 | `api_service_record_agent_api_key_refusal(uuid, text, text)` | DEFINER | service_role | audits `invalid_secret`, `insufficient_scope`, `revoked` or `expired` (fixed set) |
 | `private.agent_api_key_revoke(uuid, uuid, text)` | DEFINER | nobody | shared revoke body |
 | `private.agent_api_key_audit_immutable()` | trigger | nobody | append-only audit |
@@ -59,7 +59,7 @@ Why SECURITY DEFINER: the create, revoke and service RPCs write tables that no c
 
 ### Choices
 
-- **Revocation is immediate.** The verifier reads the row on every call and has no cache. The admit RPC re-checks `revoked_at` under `FOR SHARE`. A revoke takes `FOR UPDATE`, so it waits for a use in flight to commit, and every use after the revoke commits is refused. The fixture race shows this: the revoke waited 1.5 s, then the next use returned `revoked`.
+- **Revocation is immediate.** The verifier reads the row on every call and has no cache. The admit RPC re-checks `revoked_at` under `FOR NO KEY UPDATE` (which also serialises parallel uses of one key; `FOR SHARE` deadlocked them on the `last_used_at` update). A revoke takes `FOR UPDATE`, so it waits for a use in flight to commit, and every use after the revoke commits is refused. The fixture race shows this: the revoke waited 1.5 s, then the next use returned `revoked`.
 - **Expiry is required** (NOT NULL, CHECK `expires_at > created_at and expires_at <= created_at + interval '1 year'`). The CHECK uses `created_at`, not `now()`, for the same reasons as OVD-797 DM-10.
 - **Creator leaves the org.** The key stops working (`creator_not_member`), so a removed member's key cannot outlive their access. An org admin should still revoke it so the UI shows it as revoked.
 - **Rate limits** use fixed windows, one counter per key and one per org. The server passes the window and limits (defaults in `server/agent-auth/verifier.ts`: 60 s, 60 per key, 300 per org), and the RPC bounds-checks them. Only uses with a correct secret are counted, so someone guessing secrets for a known prefix cannot lock out the real key. Guessing a 256-bit secret is not feasible anyway. Expired counters for the key and org are pruned on each admit.
@@ -112,3 +112,5 @@ The CI workflow is the faithful proof, because it runs on the full `supabase/mig
 6. Attach the OVD-602 inventory diff (exactly the four rows), the DM-1R dump diff (empty), and the pgTAP output to the approval card.
 7. Deploy order: migration first, then any route that calls `verifyAgentApiKey` (S5/S6). The verifier fails closed (`unavailable`) when the RPCs are missing, so deploying it early refuses every key. It does not admit any.
 8. Rollback: roll back or unwire the S5/S6 routes first, export `private.agent_api_key_audit` if it is needed as evidence, then apply `ovd-831-agent-api-keys.rollback.sql`.
+
+- **Invalid-secret audit growth (open, follow-up).** Wrong-secret attempts against a known prefix each write one audit row and are not rate limited (lockout is deliberately avoided). Before exposing the endpoint publicly, add a per-prefix throttle at the edge/server for `invalid_secret` audits.
