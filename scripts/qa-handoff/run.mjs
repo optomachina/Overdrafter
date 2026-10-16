@@ -40,6 +40,20 @@ import { sanitizeLog } from "./sanitize-log.mjs";
 
 const MODES = new Set(["report", "apply"]);
 
+// A backtick fence is only closed by a backtick fence at least as long as the
+// opener, so a fence strictly longer than the longest backtick run in the
+// content (minimum 3) cannot be closed by PR-derived text.
+export function codeFence(content) {
+  const longest = Math.max(0, ...(String(content).match(/`+/g) ?? []).map((run) => run.length));
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+export function stepSummary(mode, lines) {
+  const body = lines.join("\n");
+  const fence = codeFence(body);
+  return `### QA handoff (${mode} mode)\n\n${fence}\n${body}\n${fence}\n`;
+}
+
 export function parseArgs(argv) {
   const args = { repo: undefined, mode: "report", pr: undefined, sha: undefined };
   for (let i = 0; i < argv.length; i += 1) {
@@ -311,8 +325,7 @@ async function main() {
     status = 1;
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
-    const summary = `### QA handoff (${args.mode} mode)\n\n\`\`\`\n${lines.join("\n")}\n\`\`\`\n`;
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, stepSummary(args.mode, lines));
   }
   process.exit(status);
 }
