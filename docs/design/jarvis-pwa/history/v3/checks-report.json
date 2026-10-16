@@ -1,0 +1,67 @@
+[
+  {
+    "file": "direct-430.png",
+    "state": "direct",
+    "width": 430,
+    "ok": true,
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "pageErrors": []
+  },
+  {
+    "file": "parallel-430.png",
+    "state": "parallel",
+    "width": 430,
+    "ok": true,
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "pageErrors": []
+  },
+  {
+    "file": "decide-430.png",
+    "state": "decide",
+    "width": 430,
+    "ok": true,
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "pageErrors": []
+  },
+  {
+    "file": "result-430.png",
+    "state": "result",
+    "width": 430,
+    "ok": true,
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "pageErrors": []
+  },
+  {
+    "file": "more-430.png",
+    "state": "more",
+    "width": 430,
+    "ok": true,
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "pageErrors": []
+  }
+]
