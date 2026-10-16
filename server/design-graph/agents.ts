@@ -34,6 +34,10 @@ export interface AgentContext {
   runId: string;
   request: DesignRequest;
   picks: Readonly<Record<string, string>>;
+  // A safe point to apply queued pause/cancel. Call it between artifact writes, never
+  // in the middle of one. It blocks while the run is paused and throws
+  // RunCancelledError once a cancel applies; let that error propagate.
+  checkpoint(): Promise<void>;
 }
 
 export interface AgentOutput {
@@ -141,8 +145,11 @@ export class StubCadAgent implements DomainAgent {
     const dimensionsMm = { x: PLATE_EDGE_MM, y: PLATE_EDGE_MM, z: PLATE_THICKNESS_MM };
     const base = `stub://design-graph/${ctx.runId}/plate-101.6mm`;
     emit({ type: "status", state: "info", message: `Modeling ${PLATE_EDGE_MM} mm square plate in ${material}` });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "step", name: "plate-101.6mm.step", mimeType: "model/step", uri: `${base}.step`, dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "glb", name: "plate-101.6mm.glb", mimeType: "model/gltf-binary", uri: `${base}.glb`, dimensionsMm });
+    await ctx.checkpoint();
     emit({ type: "artifact", kind: "png", name: "plate-101.6mm.png", mimeType: "image/png", uri: `${base}.png` });
     return { summary: `4-inch (${PLATE_EDGE_MM} mm) square plate, ${PLATE_THICKNESS_MM} mm thick, ${material}` };
   }
