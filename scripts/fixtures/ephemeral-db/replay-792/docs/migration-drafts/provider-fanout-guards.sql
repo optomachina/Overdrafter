@@ -1,0 +1,41 @@
+-- Multi provider fan out guards: DRAFT ONLY. Not a migration.
+--
+-- Do not copy into supabase/migrations/ or apply to any hosted project without
+-- its own migration window review and Blaine's approval.
+--
+-- The client calls public.api_get_provider_fanout_guards(p_job_id) when
+-- VITE_MULTI_PROVIDER_FANOUT=true (src/features/quotes/api/quote-requests-api.ts).
+-- Until this function exists the call fails and the client sends to the
+-- primary provider only, which is today's behavior.
+--
+-- Dependencies that are not on main yet:
+--   OVD-722 (PR #676): private.provider_kill_switches. Assumed shape
+--     (provider public.vendor_name primary key, disabled boolean not null).
+--     Rebind the kill switch CTE to the merged shape before review.
+--   OVD-723 (PR #677): a job level clean export declaration. Bound here through
+--     private.job_export_declaration_is_clean(uuid), a name to replace with
+--     #677's real predicate (clean declaration, no pending marking review,
+--     clean scan of record for every file the part sends).
+--
+-- The daily cap is optional and per supplier: there is no default cap
+-- (docs/business/business-model.md). A provider is reported at cap only when an
+-- admin set a positive private.provider_kill_switches.daily_quote_cap
+-- (OVD-829, docs/migration-drafts/ovd-828-s1.sql); a null cap never appears.
+-- It protects OverDrafter's own provider account, so it counts permits across
+-- all organizations. The function returns only which providers are at that
+-- cap, never the counts themselves. Both permit paths count. Rebind the count
+-- to private.provider_daily_quote_usage before review.
+--
+-- quoteRequestBudget mirrors the per user guardrail that
+-- private.request_scoped_automatic_quote_impl enforces on every provider
+-- request (20260812044000): userMaxRequestsPerWindow requests per user per
+-- userWindowMinutes (default 5 per 60), and the org pending cost ceiling
+-- (default $500 at $75 per requested lane). It is null when the org has the
+-- guardrail off. The numbers are the caller's own and their org's own.
+--
+-- The worker execution seam remains the authority (provider_disabled,
+-- export_control_blocked, provider_daily_cap_reached), as does the admission
+-- guardrail; this RPC only lets the customer see a skip before confirming.
+
+-- [header-only snapshot of docs/migration-drafts/provider-fanout-guards.sql at d2b7981b (#792); body omitted]
+select 1;

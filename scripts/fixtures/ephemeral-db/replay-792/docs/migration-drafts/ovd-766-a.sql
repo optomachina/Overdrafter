@@ -1,0 +1,38 @@
+-- OVD-766 (group a) / OVD-767: verified auth + AAL2 on the platform admin
+-- emergency controls.
+--
+-- DRAFT. NOT APPLIED. NEEDS A BLAINE-APPROVED MIGRATION WINDOW. Do not copy
+-- into supabase/migrations/ or run against any database before that window.
+-- Rollback: docs/migration-drafts/ovd-766-a.rollback.sql.
+-- Test: supabase/tests/pending/ovd766_a_guards.sql.pending (rename to drop
+-- .pending in the same change that promotes this draft).
+--
+-- Each function keeps its latest body unchanged for a legitimate caller (a
+-- verified, AAL2 platform admin) and only adds, ahead of the existing
+-- is_platform_admin() check, public.require_verified_auth(), and after it, the
+-- public.current_user_has_aal2() check in the api_admin_set_founding_beta_enrollment
+-- style. Latest current definitions:
+--   api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)
+--   api_admin_set_global_kill_switch(boolean, text, bigint)
+--     supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql
+--   api_set_global_spend_cap(numeric, numeric, boolean)
+--     supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql
+--     (also moves search_path from public to '' with qualified references)
+--   api_review_export_control_block(uuid, text, text)
+--     supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql
+--     (already called require_verified_auth(); adds only the AAL2 check)
+--
+-- Grants: EXECUTE stays with authenticated only; PUBLIC and anon are revoked.
+-- The anon revoke is idempotent with the OVD-736 anon revoke: either may run
+-- first, and running both leaves the same ACL. service_role is left exactly as
+-- it is today (the kill switches already revoke it; the spend cap and export
+-- review keep whatever Supabase's default privileges gave it).
+--
+-- Every statement is create or replace / revoke / grant, so re-running the
+-- whole file is a no-op.
+
+-- ---------------------------------------------------------------------
+-- Per-provider kill switch
+-- ---------------------------------------------------------------------
+-- [header-only snapshot of docs/migration-drafts/ovd-766-a.sql at d2b7981b (#792); body omitted]
+select 1;

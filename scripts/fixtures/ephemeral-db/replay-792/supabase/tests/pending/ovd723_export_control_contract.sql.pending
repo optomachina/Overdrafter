@@ -1,0 +1,35 @@
+-- OVD-723 (contract): controlled or uncertain uploads are blocked at upload time, files
+-- with export-control markings are held for admin review, and every provider
+-- preflight denies without a clean latest declaration.
+--
+-- Targets the EXPAND draft docs/migration-drafts/ovd-723.sql followed by the
+-- CONTRACT draft docs/migration-drafts/ovd-723-contract.sql (window 2): the
+-- complete server side block. The window 1 suite is
+-- ovd723_export_control_upload_block.sql.pending.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd723_export_control_upload_block.sql in the same
+-- change. Pre-apply observation: every assertion that references the new
+-- functions or tables fails with "does not exist".
+--
+-- Acceptance coverage:
+--   1. upload without a declaration is rejected and stores nothing
+--   2. controlled / unsure blocks the upload; zero storage objects
+--   3. a declaration exists but the latest is not clean: preflight denies
+--   4. a marking hit blocks; a user cannot clear it; an admin can, audited
+--   5. foreign providers have their own denial; Xometry and Fictiv are denied
+--   6. a preflight lookup that finds nothing denies (fail closed)
+--   7. cross-org reads fail, audit UPDATE/DELETE fail, anon cannot execute
+--   8. dispatch needs a clean scan of record for the part's own files; a
+--      reused file (same bytes, different job_file) is not covered by another
+--      file's scan
+--   9. Codex review attacks: an upload grant covers one exact object, is
+--      single use, and finalize checks owner, size, and window (finding 2);
+--      the Storage helper serializes with declaration writers (finding 1, the
+--      two-session race is docs/migration-drafts/ovd-723-upload-race.sh); the
+--      legacy signatures never delegate (finding 3); a scan stops vouching
+--      once its file row is repointed, moved, or its hash is unverified
+--      (finding 4)
+-- [header-only snapshot of supabase/tests/pending/ovd723_export_control_contract.sql.pending at d2b7981b (#792); body omitted]
+select 1;

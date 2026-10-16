@@ -256,6 +256,68 @@ jobs:
       - name: Build private sample UI
         run: npm run build:sample-plate
 
+  # OVD-847: every changed RLS policy needs tagged anon / other_user /
+  # role_boundary deny tests (docs/rls-deny-coverage.md). Report mode for now:
+  # the job never fails the build and is not in the `ci` aggregate below.
+  # Enforce later by passing --enforce and adding it to `ci`.
+  # The checker runs from the base copy (HEAD^1), so a PR cannot edit it to
+  # skip itself. When the base has no copy yet, the head copy runs.
+  # Baseline growth and edits to the checker or this job are reported as
+  # gate_loosening (Grok Bot countersign + Blaine's card); report only.
+  rls-deny-coverage:
+    name: rls-deny-coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+
+    steps:
+      # pull_request checks out the PR merged into the base tip, so HEAD^1 is
+      # the base as merged; push and merge_group commits have their base there too.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check RLS deny coverage
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/check-rls-deny-coverage.mjs"
+          file=scripts/check-rls-deny-coverage.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$checker"
+            echo "Checker taken from: base"
+          else
+            cp "$file" "$checker"
+            echo "Checker taken from: head"
+          fi
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD \
+            --json-out "$RUNNER_TEMP/rls-deny-coverage.json" | tee "$RUNNER_TEMP/rls-deny-coverage.txt"
+          {
+            echo '### RLS deny coverage (report mode)'
+            # Report only (Plan §6): gate_loosening never fails this job.
+            if jq -e '.gate_loosening.detected == true' "$RUNNER_TEMP/rls-deny-coverage.json" > /dev/null 2>&1; then
+              echo "**GATE LOOSENING: needs Grok Bot countersign + Blaine's card.**"
+              jq -r '.gate_loosening.reasons[] | "- " + .message' "$RUNNER_TEMP/rls-deny-coverage.json"
+              echo
+            fi
+            echo '```'
+            cat "$RUNNER_TEMP/rls-deny-coverage.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload RLS deny coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rls-deny-coverage
+          path: ${{ runner.temp }}/rls-deny-coverage.json
+          if-no-files-found: warn
+
   verify-worker:
     runs-on: ubuntu-latest
     timeout-minutes: 20
