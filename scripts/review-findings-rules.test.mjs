@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -67,10 +68,15 @@ describe("review findings to rules", () => {
 
   it("reports malformed findings", () => {
     expect(validateFindings([finding(1, "test-gap")])).toEqual([]);
-    expect(validateFindings([{ category: "x" }])).toHaveLength(1);
+    expect(validateFindings([{ category: "other" }])).toHaveLength(1);
     expect(validateFindings([{ pr: 1 }])).toHaveLength(1);
-    expect(validateFindings([{ pr_number: 1, category: "x" }])).toHaveLength(1);
+    expect(validateFindings([{ pr_number: 1, category: "other" }])).toHaveLength(1);
     expect(validateFindings([null, "s", []])).toHaveLength(3);
+  });
+
+  it("rejects finding categories outside the taxonomy but accepts other", () => {
+    expect(validateFindings([finding(1, "typo-cat")])).toHaveLength(1);
+    expect(validateFindings([finding(1, "Test Gap"), finding(2, "other")])).toEqual([]);
   });
 
   it("routes repeated other findings to recategorize, not needs task", () => {
@@ -155,6 +161,26 @@ describe("review findings to rules", () => {
         const result = run(["--findings", f, "--ledger", l]);
         expect(result.code).toBe(2);
         expect(result.text).toContain("findings must be a JSON array");
+      });
+    });
+
+    it("exits 2 on a finding category outside the taxonomy", () => {
+      withFiles([finding(1, "weird"), finding(2, "weird")], emptyLedger, (f, l) => {
+        const result = run(["--findings", f, "--ledger", l]);
+        expect(result.code).toBe(2);
+        expect(result.text).toContain("not in the taxonomy");
+      });
+    });
+
+    it("finds the default ledger from a repo subdirectory", () => {
+      withFiles([finding(1, "performance")], emptyLedger, (f) => {
+        const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/review-findings-rules.mjs"), "--findings", f], {
+          cwd: path.join(repoRoot, "scripts"),
+          encoding: "utf8",
+        });
+        expect(result.stderr).not.toContain("cannot read input");
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("conversion:");
       });
     });
 
