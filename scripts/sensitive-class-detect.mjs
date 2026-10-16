@@ -346,8 +346,9 @@ export function sqlWords(text) {
  * sqlWords with the 1-based source line of every word. A word inside a string
  * or dollar-quoted body gets the line it sits on in the file. `raws` holds each
  * word as written (original case; a quoted identifier keeps its quotes), and
- * `starts`/`ends` mark the first and last word of a string or dollar-quoted body.
- * @returns {{words: string[], lines: number[], raws: string[], starts: boolean[], ends: boolean[]}}
+ * `starts`/`ends` count the string or dollar-quoted bodies each word starts and ends
+ * (a word can open or close several nested bodies at once).
+ * @returns {{words: string[], lines: number[], raws: string[], starts: number[], ends: number[]}}
  */
 export function sqlTokens(text, depth = 0, firstLine = 1) {
   const sql = String(text);
@@ -368,12 +369,12 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
     }
     return firstLine + low;
   };
-  const push = (word, line, raw = word) => (words.push(word), lines.push(line), raws.push(raw), starts.push(false), ends.push(false));
+  const push = (word, line, raw = word) => (words.push(word), lines.push(line), raws.push(raw), starts.push(0), ends.push(0));
   const pushBody = (body, offset) => {
     const inner = sqlBodyTokens(body, depth, lineAt(offset));
     if (inner.words.length === 0) return;
-    inner.starts[0] = true;
-    inner.ends[inner.ends.length - 1] = true;
+    inner.starts[0] += 1;
+    inner.ends[inner.ends.length - 1] += 1;
     words.push(...inner.words);
     lines.push(...inner.lines);
     raws.push(...inner.raws);
@@ -440,22 +441,41 @@ function sqlBodyTokens(body, depth, firstLine) {
     lines.push(firstLine + (body.slice(0, match.index).match(/\n/g)?.length ?? 0));
     raws.push(match[0]);
   }
-  return { words, lines, raws, starts: words.map(() => false), ends: words.map(() => false) };
+  return { words, lines, raws, starts: words.map(() => 0), ends: words.map(() => 0) };
 }
 
 const sequenceAt = (words, start, tokens) => tokens.every((token, offset) => words[start + offset] === token);
 
+/** The string nesting level of every word: 0 outside any string, 1 inside one, and so on. */
+function nestingLevels({ starts, ends }) {
+  const levels = [];
+  let level = 0;
+  for (let at = 0; at < starts.length; at += 1) {
+    level += starts[at];
+    levels.push(level);
+    level -= ends[at];
+  }
+  return levels;
+}
+
+/**
+ * Whether the word at `at` ends a statement for a match at nesting `level`:
+ * a ';' at that level or a shallower one. A ';' inside a string literal or
+ * dollar-quoted body nested in the statement (`password ';'`) does not end it.
+ */
+const boundary = (words, levels, at, level) => words[at] === ";" && levels[at] <= level;
+
 /** Whether one of the `within` sequences starts the statement before `start` (back to the previous ';'). */
-function withinStatement(words, start, within) {
+function withinStatement(words, levels, start, within) {
   let first = start;
-  while (first > 0 && words[first - 1] !== ";") first -= 1;
+  while (first > 0 && !boundary(words, levels, first - 1, levels[start])) first -= 1;
   for (let at = first; at < start; at += 1) if (within.some((tokens) => sequenceAt(words, at, tokens))) return true;
   return false;
 }
 
-/** Whether `token` follows `from` before the statement ends. */
-function followedBy(words, from, token) {
-  for (let at = from; at < words.length && words[at] !== ";"; at += 1) if (words[at] === token) return true;
+/** Whether `token` follows `from` before the statement of the match at `start` ends. */
+function followedBy(words, levels, start, from, token) {
+  for (let at = from; at < words.length && !boundary(words, levels, at, levels[start]); at += 1) if (words[at] === token) return true;
   return false;
 }
 
@@ -496,7 +516,10 @@ function exactTarget(tokens, at) {
 export function classifySql(text, config, path = null) {
   const tokens = sqlTokens(text);
   const { words, lines } = tokens;
-  const exemptions = path === null ? [] : config.sqlContent.exemptions.filter((entry) => entry.paths.some((re) => re.test(path)));
+  const levels = nestingLevels(tokens);
+  // A '.', '..' or empty segment could walk an exempt prefix out of its directory, so such a path is never exempt.
+  const plainPath = path !== null && String(path).split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+  const exemptions = plainPath ? config.sqlContent.exemptions.filter((entry) => entry.paths.some((re) => re.test(path))) : [];
   const targeted = new Set(config.sqlContent.exemptions.filter((entry) => entry.targets).flatMap((entry) => entry.rules));
   const classes = [];
   const reasons = [];
@@ -506,9 +529,9 @@ export function classifySql(text, config, path = null) {
     for (let start = 0; start < words.length; start += 1) {
       if (!sequenceAt(words, start, rule.tokens)) continue;
       const end = start + rule.tokens.length;
-      if (rule.within && !withinStatement(words, start, rule.within)) continue;
-      if (rule.after && !withinStatement(words, start, rule.after)) continue;
-      if (rule.until && !followedBy(words, end, rule.until)) continue;
+      if (rule.within && !withinStatement(words, levels, start, rule.within)) continue;
+      if (rule.after && !withinStatement(words, levels, start, rule.after)) continue;
+      if (rule.until && !followedBy(words, levels, start, end, rule.until)) continue;
       const hit = { id: rule.id, class: rule.class, path, line: lines[start], sensitive: !rule.informational };
       let exact = false;
       if (targeted.has(rule.id)) {

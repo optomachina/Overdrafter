@@ -565,6 +565,51 @@ describe("classifySql: role attributes, role grants and test SET ROLE scope (OVD
       expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
     },
   );
+  it.each([["supabase/tests/../migrations/a.sql"], ["supabase/tests/./a.sql"], ["supabase/tests//a.sql"], ["./supabase/tests/a.sql"]])(
+    "never exempts a path with a '.', '..' or empty segment: %s",
+    (file) => {
+      const result = sql("set local role anon;\nreset role;", file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    },
+  );
+});
+
+describe("classifySql: literal-aware statement boundaries (OVD-878)", () => {
+  const sql = (text) => classifySql(text, config);
+
+  it.each([
+    ["create role x with password ';' superuser;", "auth_role_superuser"],
+    ["alter role x with password $p$;$p$ createrole;", "auth_role_createrole"],
+    ["create role x valid until ';' replication;", "auth_role_replication"],
+    ["create role x password ';' in role service_role;", "auth_in_role_service_role"],
+    ["create role x password E'\\';' superuser;", "auth_role_superuser"],
+    ["create role x password $a$x$b$;$b$y$a$ superuser;", "auth_role_superuser"],
+    ["grant postgres, $q$;$q$ to x;", "auth_grant_postgres"],
+  ])("a ';' inside a string does not end the statement: %s", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+  });
+
+  it("ignores a ';' inside a string for informational rules too", () => {
+    expect(sql("alter role x password ';' nosuperuser;").hits.map((hit) => hit.id)).toEqual(["auth_role_nosuperuser"]);
+  });
+
+  it.each([
+    ["create role x; select 'superuser';"],
+    ["create role x; select $$superuser$$;"],
+    ["select 'create role x;' ; select superuser;"],
+    ["grant select on t to y; select postgres, 1 to_x;"],
+  ])("a ';' at the same or a shallower level still ends the statement: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+
+  it("splits statements at a ';' inside a string body at that body's level", () => {
+    const result = sql("do $$ begin create role x; perform 'superuser'; end $$;");
+    expect(result.classes).toEqual([]);
+    expect(sql("do $$ begin create role x password ';' superuser; end $$;").classes).toEqual(["auth"]);
+  });
 });
 
 describe("compileConfig: SQL exemptions (OVD-878)", () => {
