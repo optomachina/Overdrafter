@@ -493,6 +493,78 @@ describe("classifySql: role attributes, role grants and test SET ROLE scope (OVD
   ])("no false positive: %s", (text) => {
     expect(sql(text).classes).toEqual([]);
   });
+
+  it.each([
+    ['set local role "Anon";', "anon"],
+    ['SET ROLE "AUTHENTICATED";', "authenticated"],
+    ["set role 'Anon';", "anon"],
+    ["do $$ begin execute 'set local role anon' || 'x'; end $$;", "anon"],
+    ["do $$ begin execute 'set local role anon' || '_x'; end $$;", "anon"],
+    ["set local role anon, service_role;", "anon"],
+    ["set local role authenticated x;", "authenticated"],
+  ])("supabase/tests exempts only an exact anon/authenticated target: %s", (text, target) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ target, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+  });
+
+  it.each([
+    ["SET LOCAL ROLE ANON;"],
+    ["set local role Authenticated"],
+    ['set local role "anon";'],
+    ["do $$ begin execute 'set local role anon'; end $$;"],
+    ["do $$ begin execute format('set local role authenticated'); end $$;"],
+    ["do $$ begin set local role anon; end $$;"],
+  ])("supabase/tests still exempts an exact target: %s", (text) => {
+    const result = sql(text, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ sensitive: false, exemption: "tests_set_role_unprivileged", gate_loosening: true })]);
+  });
+
+  it.each([
+    ["create group g superuser;", "auth_role_superuser"],
+    ["CREATE GROUP g WITH CREATEROLE;", "auth_role_createrole"],
+    ["create group g replication;", "auth_role_replication"],
+    ["create role x in role service_role;", "auth_in_role_service_role"],
+    ["create role x in group postgres;", "auth_in_role_postgres"],
+    ["CREATE USER x WITH LOGIN IN ROLE app, supabase_admin;", "auth_in_role_supabase_admin"],
+    ['create group g in role "authenticator";', "auth_in_role_authenticator"],
+    ['create role "Anon" in role service_role;', "auth_in_role_service_role"],
+    ["alter group service_role add user x;", "auth_alter_group_service_role"],
+    ["ALTER GROUP postgres ADD USER x, y;", "auth_alter_group_postgres"],
+    ["alter group supabase_admin add user x;", "auth_alter_group_supabase_admin"],
+    ["alter group authenticator add user x;", "auth_alter_group_authenticator"],
+    ["do $$ begin execute 'create role x in role service_role'; end $$;", "auth_in_role_service_role"],
+  ])("%s -> auth (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons).toContain(reasonFor(id));
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, line: 1, sensitive: true }));
+  });
+
+  it.each([
+    ["create group g nosuperuser;", "auth_role_nosuperuser"],
+    ["create role x in role app;", null],
+    ["create role service_role_copy in role app;", null],
+    ["create role x role service_role;", null],
+    ["alter group app add user service_role;", null],
+    ["alter group app drop user x;", null],
+    ["select * from t where role in (select role from groups);", null],
+  ])("no membership false positive: %s", (text, informational) => {
+    const result = sql(text);
+    expect(result.classes).toEqual([]);
+    expect(result.hits.map((hit) => hit.id)).toEqual(informational ? [informational] : []);
+  });
+
+  it.each([["Supabase/Tests/x.sql"], ["supabase/Tests/x.sql"], ["SUPABASE/TESTS/x.sql"]])(
+    "matches exemption paths case-sensitively: %s",
+    (file) => {
+      const result = sql("set local role anon;\nreset role;", file);
+      expect(result.classes).toEqual(["auth"]);
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    },
+  );
 });
 
 describe("compileConfig: SQL exemptions (OVD-878)", () => {
