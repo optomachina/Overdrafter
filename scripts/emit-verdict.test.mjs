@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertRev, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveGhBin, resolveInputFile, resolveSha } from "./emit-verdict.mjs";
+import { assertSha, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -15,6 +15,9 @@ const commit = (file, content, message) => {
   git("commit", "-q", "-m", message);
   return git("rev-parse", "HEAD");
 };
+/** Resolve a ref in the fixture repo; the tool itself only accepts SHAs. */
+const sha = (ref) => git("rev-parse", "--verify", `${ref}^{commit}`);
+const patchId = (base, head) => computePatchId({ base: sha(base), head: sha(head), cwd: repo });
 
 beforeAll(() => {
   repo = mkdtempSync(join(tmpdir(), "ovd851-verdict-"));
@@ -32,10 +35,10 @@ beforeAll(() => {
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
 const NOW = new Date("2026-10-16T12:34:56.789Z");
-const ARGS = [
+const ARGS = () => [
   "--verdict", "PASS",
-  "--base", "main",
-  "--head", "feature",
+  "--base", sha("main"),
+  "--head", sha("feature"),
   "--verifier-id", "astra-verifier",
   "--model-family", "opus",
   "--github-login", "verifier-bot",
@@ -44,19 +47,21 @@ const ARGS = [
   "--conflicts", "0",
   "--open-threads", "0",
 ];
+/** ARGS() without the given flags (and their values). */
+const argsWithout = (...flags) => ARGS().filter((_, i, all) => !flags.includes(all[i]) && !flags.includes(all[i - 1]));
 
 describe("computePatchId", () => {
   it("is stable across a no-op rebase and changes when the diff changes", () => {
-    const before = computePatchId({ base: "main", head: "feature", cwd: repo });
-    const oldHead = resolveSha("feature", { cwd: repo });
+    const before = patchId("main", "feature");
+    const oldHead = sha("feature");
     git("checkout", "-q", "feature");
     git("rebase", "-q", "main");
     const rebasedHead = git("rev-parse", "HEAD");
     expect(rebasedHead).not.toBe(oldHead);
-    expect(computePatchId({ base: "main", head: "feature", cwd: repo })).toBe(before);
+    expect(patchId("main", "feature")).toBe(before);
 
     commit("feature.txt", "feature line changed\n", "amend diff");
-    expect(computePatchId({ base: "main", head: "feature", cwd: repo })).not.toBe(before);
+    expect(patchId("main", "feature")).not.toBe(before);
     git("reset", "-q", "--hard", rebasedHead);
     git("checkout", "-q", "main");
   });
@@ -67,7 +72,7 @@ describe("computePatchId", () => {
     git("checkout", "-q", "-b", "ws-b", "main");
     commit("ws.py", "if x:\n    y()\n    z()\n", "indented z");
     git("checkout", "-q", "main");
-    expect(computePatchId({ base: "main", head: "ws-a", cwd: repo })).not.toBe(computePatchId({ base: "main", head: "ws-b", cwd: repo }));
+    expect(patchId("main", "ws-a")).not.toBe(patchId("main", "ws-b"));
   });
 
   it("does not depend on local diff config", () => {
@@ -77,11 +82,11 @@ describe("computePatchId", () => {
     git("checkout", "-q", "-b", "ctx-head");
     commit("ctx.txt", `${lines.map((l, i) => (i === 4 || i === 12 ? `${l} changed` : l)).join("\n")}\n`, "ctx change");
     git("checkout", "-q", "main");
-    const pinned = computePatchId({ base: "ctx-base", head: "ctx-head", cwd: repo });
+    const pinned = patchId("ctx-base", "ctx-head");
     const settings = [["diff.context", "1"], ["diff.interHunkContext", "10"], ["diff.algorithm", "patience"], ["diff.noprefix", "true"], ["diff.suppressBlankEmpty", "true"]];
     try {
       for (const [key, value] of settings) git("config", key, value);
-      expect(computePatchId({ base: "ctx-base", head: "ctx-head", cwd: repo })).toBe(pinned);
+      expect(patchId("ctx-base", "ctx-head")).toBe(pinned);
     } finally {
       for (const [key] of settings) git("config", "--unset", key);
     }
@@ -90,65 +95,83 @@ describe("computePatchId", () => {
   it("never lets base or head be read as a git option", () => {
     const outDir = mkdtempSync(join(tmpdir(), "ovd851-inject-"));
     try {
-      expect(() => computePatchId({ base: `--output=${join(outDir, "x")}`, head: "feature", cwd: repo })).toThrow(/invalid revision/);
-      expect(() => computePatchId({ base: "main", head: `--output=${join(outDir, "y")}`, cwd: repo })).toThrow(/invalid revision/);
+      expect(() => computePatchId({ base: `--output=${join(outDir, "x")}`, head: sha("feature"), cwd: repo })).toThrow(/--base must be a full 40-character lowercase commit SHA/);
+      expect(() => computePatchId({ base: sha("main"), head: `--output=${join(outDir, "y")}`, cwd: repo })).toThrow(/--head must be a full 40-character lowercase commit SHA/);
       expect(readdirSync(outDir)).toEqual([]);
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }
   });
 
-  it("accepts plain revisions and rejects option-like or non-ref input", () => {
-    for (const rev of ["main", "origin/main", "HEAD", "HEAD~2", "HEAD^", "v1.2.3", "feature/a_b-c", "a".repeat(40), "main@{1}"]) {
-      expect(assertRev(rev)).toBe(rev);
+  it("accepts only full lowercase 40-hex SHAs", () => {
+    const valid = sha("feature");
+    expect(assertSha(valid, "--base")).toBe(valid);
+    const rejected = [
+      "main", "origin/main", "HEAD", "HEAD~2", "main..feature",
+      "a".repeat(39), "a".repeat(41), valid.slice(0, 39), `${valid}0`,
+      "A".repeat(40), valid.toUpperCase().replace(/^./, "A"),
+      "--output=/tmp/x", `--${"a".repeat(38)}`, `-${"a".repeat(39)}`,
+      ` ${valid}`, `${valid}\n`, `${valid}^{commit}`, "", undefined, null, 7,
+    ];
+    for (const value of rejected) {
+      expect(() => assertSha(value, "--base")).toThrow(/^--base must be a full 40-character lowercase commit SHA/);
     }
-    for (const rev of ["-p", "--output=/tmp/x", "main..feature", "main...feature", "a b", "main;rm", "$(id)", "main\n--all", "", "x".repeat(256), undefined, 7]) {
-      expect(() => assertRev(rev)).toThrow(/invalid revision/);
+  });
+
+  it("requires --base and --head as SHAs on the CLI and never resolves refs", () => {
+    const run = (overrides) => () => main([...argsWithout("--base", "--head"), ...overrides], { cwd: repo, now: NOW });
+    expect(run(["--head", sha("feature")])).toThrow(/--base must be a full 40-character lowercase commit SHA \(got null\)/);
+    expect(run(["--base", sha("main")])).toThrow(/--head must be a full 40-character lowercase commit SHA \(got null\)/);
+    for (const ref of ["main", "origin/main", "HEAD"]) {
+      expect(run(["--base", ref, "--head", sha("feature")])).toThrow(/--base must be a full 40-character lowercase commit SHA/);
+      expect(run(["--base", sha("main"), "--head", ref])).toThrow(/--head must be a full 40-character lowercase commit SHA/);
     }
-    expect(() => main([...ARGS.filter((_, i) => i !== 2 && i !== 3), "--base=--all"], { cwd: repo, now: NOW })).toThrow(/invalid revision/);
+    expect(run(["--base=--all", "--head", sha("feature")])).toThrow(/--base must be/);
+    expect(run(["--base", sha("main"), "--head", "f".repeat(40)])).toThrow(/--head f{40} is not a commit in this repository/);
   });
 
   it("refuses an empty diff", () => {
-    expect(() => computePatchId({ base: "main", head: "main", cwd: repo })).toThrow(/empty diff/);
+    expect(() => patchId("main", "main")).toThrow(/empty diff/);
   });
 });
 
 describe("emit -> validate round trip", () => {
   it("fills sha, patch_id and a UTC timestamp and validates", () => {
-    const body = main(ARGS, { cwd: repo, now: NOW });
+    const body = main(ARGS(), { cwd: repo, now: NOW });
     const [block] = extractVerdictBlocks(body);
     const verdict = JSON.parse(block);
     expect(validateVerdict(verdict)).toEqual({ ok: true, errors: [] });
     expect(verdict).toMatchObject({
       role: "verifier",
-      sha: resolveSha("feature", { cwd: repo }),
-      patch_id: computePatchId({ base: "main", head: "feature", cwd: repo }),
+      sha: sha("feature"),
+      patch_id: patchId("main", "feature"),
       timestamp: "2026-10-16T12:34:56Z",
     });
     const comments = [{ id: 7, user: { login: "verifier-bot" }, created_at: "2026-10-16T12:35:00Z", updated_at: "2026-10-16T12:35:00Z", body }];
     expect(parseVerdictComments(comments, { sha: verdict.sha }).verdict).toEqual(verdict);
   });
 
-  it("binds patch_id to the given sha rather than re-resolving head", () => {
-    const sha = resolveSha("ws-a", { cwd: repo });
+  it("binds patch_id to the given sha rather than head", () => {
+    const wsA = sha("ws-a");
     const verdict = buildVerdict(
-      { role: "verifier", verdict: "PASS", sha, base: "main", head: "feature", verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } },
+      { role: "verifier", verdict: "PASS", sha: wsA, base: sha("main"), head: sha("feature"), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } },
       { cwd: repo, now: NOW },
     );
-    expect(verdict.patch_id).toBe(computePatchId({ base: "main", head: "ws-a", cwd: repo }));
+    expect(verdict.sha).toBe(wsA);
+    expect(verdict.patch_id).toBe(patchId("main", "ws-a"));
   });
 
   it("rejects a --findings file that is not an array", () => {
     const findingsFile = join(repo, "findings-object.json");
     writeFileSync(findingsFile, JSON.stringify({ severity: "high" }));
-    expect(() => main([...ARGS, "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW })).toThrow(/must contain a JSON array/);
+    expect(() => main([...ARGS(), "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW })).toThrow(/must contain a JSON array/);
   });
 
   it("refuses to emit an invalid verdict with every error listed", () => {
-    expect(() => main([...ARGS.slice(0, -6), "--evidence", "log=http://x.test/", "--checks", "maybe", "--conflicts", "0", "--open-threads", "0"], { cwd: repo, now: NOW }))
+    expect(() => main([...ARGS().slice(0, -6), "--evidence", "log=http://x.test/", "--checks", "maybe", "--conflicts", "0", "--open-threads", "0"], { cwd: repo, now: NOW }))
       .toThrow(/evidence\[1\]\.url: must use https[\s\S]*readiness\.checks: must be one of/);
-    expect(() => main([...ARGS, "--conflicts=-1"], { cwd: repo })).toThrow(/--conflicts must be a non-negative integer/);
-    expect(() => main(ARGS.filter((a) => !a.startsWith("verify-run") && a !== "--evidence"), { cwd: repo })).toThrow(/at least 1 item/);
+    expect(() => main([...ARGS(), "--conflicts=-1"], { cwd: repo })).toThrow(/--conflicts must be a non-negative integer/);
+    expect(() => main(ARGS().filter((a) => !a.startsWith("verify-run") && a !== "--evidence"), { cwd: repo })).toThrow(/at least 1 item/);
   });
 
   describe("--findings resolution", () => {
@@ -177,7 +200,7 @@ describe("emit -> validate round trip", () => {
     it("rejects an absolute path outside the base, including the OS temp directory", () => {
       expect(() => resolveInputFile("/etc/passwd", { cwd: repo, env })).toThrow(/must be inside the repository root/);
       expect(() => resolveInputFile(join(outside, "f.json"), { cwd: repo, env })).toThrow(/must be inside the repository root/);
-      expect(() => main([...ARGS, "--role", "reviewer", "--findings", "/etc/passwd"], { cwd: repo, now: NOW, env })).toThrow(/must be inside/);
+      expect(() => main([...ARGS(), "--role", "reviewer", "--findings", "/etc/passwd"], { cwd: repo, now: NOW, env })).toThrow(/must be inside/);
     });
 
     it("rejects symlinks, including one inside the base that points outside", () => {
@@ -199,7 +222,7 @@ describe("emit -> validate round trip", () => {
       expect(resolveInputFile("f.json", { cwd: repo, env: runnerEnv })).toBe(realpathSync(join(outside, "f.json")));
       expect(() => resolveInputFile("/etc/passwd", { cwd: repo, env: runnerEnv })).toThrow(/must be inside the repository root or \$RUNNER_TEMP/);
       writeFileSync(join(outside, "findings.json"), JSON.stringify([{ severity: "low", file: "feature.txt", line: null, model: "opus" }]));
-      const body = main([...ARGS, "--role", "reviewer", "--findings", join(outside, "findings.json")], { cwd: repo, now: NOW, env: runnerEnv });
+      const body = main([...ARGS(), "--role", "reviewer", "--findings", join(outside, "findings.json")], { cwd: repo, now: NOW, env: runnerEnv });
       expect(JSON.parse(extractVerdictBlocks(body)[0]).findings).toHaveLength(1);
     });
   });
@@ -210,7 +233,7 @@ describe("emit -> validate round trip", () => {
       { severity: "high", file: "feature.txt", line: 1, model: "grok" },
       { severity: "medium", file: "feature.txt", line: 1, model: "codex" },
     ]));
-    const body = main([...ARGS, "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW });
+    const body = main([...ARGS(), "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW });
     expect(body).toContain("advisory reviewer verdict, not gate input");
     const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
     expect(verdict.findings.every((f) => f.corroborated)).toBe(true);
@@ -220,7 +243,7 @@ describe("emit -> validate round trip", () => {
 describe("posting", () => {
   it("prints by default and never calls gh without --post", () => {
     const run = vi.fn();
-    main([...ARGS, "--pr", "12"], { cwd: repo, now: NOW, run });
+    main([...ARGS(), "--pr", "12"], { cwd: repo, now: NOW, run });
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -231,7 +254,7 @@ describe("posting", () => {
       seen = { bodyFile, exists: existsSync(bodyFile), contents: readFileSync(bodyFile, "utf8") };
       return { status: 0 };
     });
-    const body = main([...ARGS, "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
+    const body = main([...ARGS(), "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
     expect(run).toHaveBeenCalledTimes(1);
     const [bin, args, opts] = run.mock.calls[0];
     expect(bin).toMatch(/^\/.*\/gh$/);

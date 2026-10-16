@@ -3,15 +3,16 @@
  * OVD-851: build, validate, and print an `overdrafter.verdict/v1` PR comment.
  *
  * Used by the independent verifier (role verifier, gate input) and by
- * reviewers (role reviewer, advisory, with --findings). Resolves base and head
- * to commit SHAs once, then fills sha from the resolved head, patch_id from
- * `git patch-id --verbatim` over base...head, and a UTC timestamp. Prints the comment body to stdout; it only
+ * reviewers (role reviewer, advisory, with --findings). --base and --head are
+ * required commit SHAs (the tool never resolves refs); it fills sha from head,
+ * patch_id from `git patch-id --verbatim` over base...head, and a UTC
+ * timestamp. Prints the comment body to stdout; it only
  * posts (via `gh pr comment`) when --post and --pr are both given. Never edit a
  * posted verdict comment: edited comments are rejected, so post a new one.
  *
  * Arguments may come from an LLM, so they are treated as untrusted: --base and
- * --head must look like git revisions (no leading "-", no "..", only ref
- * characters), --pr must be a plain positive integer of at most 7 digits, and
+ * --head must be full lowercase 40-hex commit SHAs and are passed to git after
+ * --end-of-options, --pr must be a plain positive integer of at most 7 digits, and
  * --findings must be a regular file (not a symlink) whose realpath is inside the
  * repository root or $RUNNER_TEMP. git and gh run
  * from a fixed system directory with a fixed PATH, never the caller's PATH.
@@ -19,7 +20,7 @@
  * resolveGhBin's ownership and permission checks or the script fails closed.
  *
  *   node scripts/emit-verdict.mjs --role verifier --verdict PASS \
- *     --base origin/main --head HEAD \
+ *     --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" \
  *     --verifier-id astra-verifier --model-family opus --github-login my-bot \
  *     --evidence verify-run=https://github.com/o/r/actions/runs/1 \
  *     --checks green --conflicts 0 --open-threads 0 [--note "low: ..."] \
@@ -98,26 +99,27 @@ const git = (args, { cwd, input } = {}) =>
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-const REV = /^\w[\w./@{}~^+-]{0,254}$/;
 const SHA = /^[0-9a-f]{40}$/;
 
 /**
- * Reject anything that is not a plain revision (branch, tag, SHA, HEAD~n, ...)
- * before it reaches git. Returns the regex match, not the caller's string, so
- * only allowlisted characters ever reach git's argv.
+ * Accept only a full, lowercase 40-hex commit SHA. Refs are never resolved
+ * here; callers pass `$(git rev-parse <ref>)`. Returns the regex match, not the
+ * caller's string, so only hex characters ever reach git's argv.
  */
-export function assertRev(rev) {
-  const match = typeof rev === "string" && !rev.includes("..") ? REV.exec(rev) : null;
-  if (!match) throw new Error(`invalid revision ${JSON.stringify(rev ?? null)}: use a branch, tag, or commit SHA`);
+export function assertSha(value, flag) {
+  const match = typeof value === "string" ? SHA.exec(value) : null;
+  if (!match) throw new Error(`${flag} must be a full 40-character lowercase commit SHA (got ${JSON.stringify(value ?? null)})`);
   return match[0];
 }
 
-/** Resolve a revision to its 40-hex commit SHA. */
-export function resolveSha(rev, { cwd } = {}) {
-  const match = SHA.exec(git(["rev-parse", "--verify", "--end-of-options", `${assertRev(rev)}^{commit}`], { cwd }).trim());
-  if (!match) throw new Error(`git rev-parse did not return a commit SHA for ${JSON.stringify(rev)}`);
-  return match[0];
-}
+/** Throw unless `sha` (already validated by assertSha) names a commit in the repository. */
+const assertCommit = (sha, flag, { cwd } = {}) => {
+  try {
+    git(["cat-file", "-e", "--end-of-options", `${sha}^{commit}`], { cwd });
+  } catch {
+    throw new Error(`${flag} ${sha} is not a commit in this repository`);
+  }
+};
 
 /**
  * Every diff option that git config could otherwise change is pinned here, so
@@ -137,14 +139,16 @@ const PINNED_DIFF = [
  * `git patch-id --verbatim` of the base...head diff (merge-base to head).
  * `--verbatim` keeps whitespace, so an indentation-only change yields a new id,
  * and implies the order-independent `--stable` hashing (git rejects passing
- * both). Both ends are validated and resolved with `resolveSha` (which ends
- * option parsing) before the diff, so neither can be read as a git option.
+ * both). Both ends must be full commit SHAs (checked before any git call) and
+ * follow `--end-of-options`, so neither can be read as a git option.
  */
 export function computePatchId({ base, head, cwd }) {
-  const baseSha = resolveSha(base, { cwd });
-  const headSha = resolveSha(head, { cwd });
-  const diff = git([...PINNED_DIFF, `${baseSha}...${headSha}`, "--"], { cwd });
-  if (!diff.trim()) throw new Error(`computePatchId: ${base}...${head} has an empty diff`);
+  const baseSha = assertSha(base, "--base");
+  const headSha = assertSha(head, "--head");
+  assertCommit(baseSha, "--base", { cwd });
+  assertCommit(headSha, "--head", { cwd });
+  const diff = git([...PINNED_DIFF, "--end-of-options", `${baseSha}...${headSha}`, "--"], { cwd });
+  if (!diff.trim()) throw new Error(`computePatchId: ${baseSha}...${headSha} has an empty diff`);
   const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
   if (!SHA.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
   return patchId;
@@ -167,8 +171,8 @@ const parseEvidence = (entry) => {
  */
 export function buildVerdict(input, { cwd, now = new Date() } = {}) {
   if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
-  // Resolve head once and diff that exact commit, so sha and patch_id always describe the same tree.
-  const sha = input.sha ?? resolveSha(input.head, { cwd });
+  // Diff the exact head commit, so sha and patch_id always describe the same tree.
+  const sha = input.sha ?? assertSha(input.head, "--head");
   const verdict = {
     schema: SCHEMA_ID,
     role: input.role,
@@ -291,8 +295,8 @@ const readFindings = (file, { cwd, env } = {}) => {
 const OPTIONS = {
   role: { type: "string", default: "verifier" },
   verdict: { type: "string" },
-  base: { type: "string", default: "origin/main" },
-  head: { type: "string", default: "HEAD" },
+  base: { type: "string" },
+  head: { type: "string" },
   "verifier-id": { type: "string" },
   "model-family": { type: "string" },
   "github-login": { type: "string" },
@@ -309,12 +313,15 @@ const OPTIONS = {
 /** CLI entry point. Returns the comment body; posts only with --post. */
 export function main(argv = process.argv.slice(2), { cwd, now, run, env } = {}) {
   const { values } = parseArgs({ args: argv, options: OPTIONS, strict: true, allowPositionals: false });
+  // Both are required and checked before any git call (including --findings resolution).
+  const base = assertSha(values.base, "--base");
+  const head = assertSha(values.head, "--head");
   const verdict = buildVerdict(
     {
       role: values.role,
       verdict: values.verdict,
-      base: values.base,
-      head: values.head,
+      base,
+      head,
       verifierId: values["verifier-id"],
       modelFamily: values["model-family"],
       githubLogin: values["github-login"],

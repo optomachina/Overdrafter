@@ -62,7 +62,7 @@ can't claim a time after the comment that carries it was posted.
 
 ```bash
 node scripts/emit-verdict.mjs --role verifier --verdict PASS \
-  --base origin/main --head HEAD \
+  --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" \
   --verifier-id astra-verifier --model-family opus --github-login verifier-bot \
   --evidence verify-run=https://github.com/optomachina/Overdrafter/actions/runs/1 \
   --checks green --conflicts 0 --open-threads 0 \
@@ -70,18 +70,30 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
 ```
 
 - Arguments are treated as untrusted (they may come from an LLM).
-  `--base`/`--head` must be plain revisions: no leading `-`, no `..`, only
-  ref characters (`\w` plus `._/@{}~^+-`). Only the regex match of a
-  validated revision, never the raw argument, reaches git's argv. `--pr` must
-  match `^[1-9]\d{0,6}$`. `--findings` is resolved with
-  `path.resolve(base, file)` against the repository root (the git toplevel of
-  the working directory, or the working directory outside a repository) and
-  then `$RUNNER_TEMP` when set. The path itself must not be a symlink, and its
-  realpath must sit strictly inside that base; the file is read from the
-  validated realpath. The OS temp directory is not an allowed base, so in CI
-  write findings under `$RUNNER_TEMP`. `git` and `gh` are run with
-  `shell: false` by absolute path from `/usr/bin`, `/bin` or `/usr/local/bin`
-  with `PATH` pinned to those directories.
+- `--base` and `--head` are required and accept only a full, lowercase
+  40-character commit SHA (`^[0-9a-f]{40}$`). Branch names, tags, `HEAD`,
+  `origin/main`, abbreviated or uppercase SHAs, and anything starting with `-`
+  are refused before any git call; the script never resolves refs itself, so
+  resolve them in the caller with `git rev-parse` as in the example above.
+  Only the regex match, never the raw argument, reaches git's argv, and it
+  always follows `--end-of-options`. Each SHA must name a commit in the
+  repository (`git cat-file -e --end-of-options <sha>^{commit}`).
+- `--pr` must match `^[1-9]\d{0,6}$`.
+- `--findings` rules:
+  - the file must be under the repository root (the git toplevel of the
+    working directory, or the working directory outside a repository) or under
+    `$RUNNER_TEMP` when that is set;
+  - a relative path resolves from the repository root (not the current
+    directory), then from `$RUNNER_TEMP`, with `path.resolve(base, file)`, and
+    its realpath must sit strictly inside that base; the file is read from the
+    validated realpath;
+  - symlinks are rejected, including a link inside the repository whose
+    target is also inside it;
+  - the OS temp directory (`os.tmpdir()`, `/tmp`) is not accepted, so in CI
+    write findings under `$RUNNER_TEMP`.
+- `git` and `gh` are run with `shell: false` by absolute path from
+  `/usr/bin`, `/bin` or `/usr/local/bin` with `PATH` pinned to those
+  directories.
 - `GH_BIN` optionally overrides the `gh` binary only (never `git`). Unset or
   empty means the strict lookup above. When set it must be an absolute path;
   the script resolves it with `realpath` and requires the result to be an
@@ -91,12 +103,10 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   after a bad override. Setup note: on the Mac mini (Apple Silicon Homebrew,
   where `gh` lives outside the fixed directories) set
   `GH_BIN=/opt/homebrew/bin/gh`.
-- `sha` comes from `git rev-parse --verify --end-of-options <head>^{commit}`.
-  Head is resolved once, and `patch_id` is computed from that same SHA, so the
-  two always describe the same commit.
-- `patch_id` is `git patch-id --verbatim` over `git diff base...head`, with both
-  ends resolved to SHAs first (so `--base`/`--head` can never be read as git
-  options). `--verbatim` keeps whitespace, so an indentation-only change gets a
+- `sha` is the `--head` SHA, and `patch_id` is computed from that same SHA, so
+  the two always describe the same commit.
+- `patch_id` is `git patch-id --verbatim` over `git diff <pinned options> --end-of-options
+  base...head --`, so `--base`/`--head` can never be read as git options. `--verbatim` keeps whitespace, so an indentation-only change gets a
   new id; it also implies the file-order-independent hashing of `--stable`.
   The script pins every diff option that git config could change: no renames,
   no relative paths, Myers algorithm, indent heuristic, `--unified=3`,
@@ -192,8 +202,10 @@ cover:
 - one fixture per schema violation;
 - patch-id stability across a no-op rebase, and a new patch-id when the diff
   changes, including an indentation-only change; the same id under different
-  `diff.*` config; `--base`/`--head` values that look like git options are
-  refused (temporary git repo in `os.tmpdir()`);
+  `diff.*` config (temporary git repo in `os.tmpdir()`);
+- `--base`/`--head`: both required; ref names (`main`, `origin/main`, `HEAD`),
+  39- and 41-character hex, uppercase hex and values starting with `--` are
+  refused, a valid SHA is accepted, and an unknown SHA is reported;
 - extra fields named after `Object.prototype` members, and future timestamps;
 - comment parsing: non-fenced text, latest block for a SHA, conflicts (with a
   `null` verdict), ordering by instant, edited comments and author mismatch;
