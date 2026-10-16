@@ -85,12 +85,18 @@ function parseCurrencyValue(value: string) {
 const CURRENCY_CODES = new Set(Intl.supportedValuesOf("currency"));
 const DOLLAR_AMOUNT_SOURCE = String.raw`\$\s*([\d,]+(?:\.\d{2})?)`;
 const USD_CODE_AMOUNT_SOURCE = String.raw`\bUSD[^\S\r\n]*([\d,]+(?:\.\d{2})?)`;
+/** Savings/discount amounts are not offer prices; drop them before anchoring. */
+const SAVINGS_AMOUNT = /\b(?:you\s+)?sav(?:e|es|ing|ings)\b[^\S\r\n]*(?:of\s*)?(?:\$|USD)[^\S\r\n]*[\d,]+(?:\.\d{2})?|(?:\$|USD)[^\S\r\n]*[\d,]+(?:\.\d{2})?[^\S\r\n]*off\b/gi;
+function withoutSavings(text: string) {
+  return text.replace(SAVINGS_AMOUNT, "");
+}
 /** `$` amounts; symbol-less `USD 41.41` amounts count only when no `$` amount exists. */
 function amountSource(text: string) {
   return new RegExp(DOLLAR_AMOUNT_SOURCE).test(text) ? DOLLAR_AMOUNT_SOURCE : USD_CODE_AMOUNT_SOURCE;
 }
 
-function currencyEvidence(text: string, registryCurrency: string | null) {
+function currencyEvidence(rawText: string, registryCurrency: string | null) {
+  const text = withoutSavings(rawText);
   const observed = new Set<string>();
   const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
   let trusted = true;
@@ -139,12 +145,13 @@ function currencyEvidence(text: string, registryCurrency: string | null) {
   for (const [symbol, code] of [["€", "EUR"], ["£", "GBP"], ["¥", "JPY_or_CNY"]]) {
     if (text.includes(symbol)) { observed.add(code); trusted = false; }
   }
-  // Only bare amounts, with no conflicting marker, are unverified rather than foreign.
-  const unverified = bareAmountUnverified && observed.size === 1;
+  // Bare amounts mixed only with USD markers are unverified; foreign markers stay untrusted.
+  const unverified = bareAmountUnverified && [...observed].every((code) => code === "USD" || code === "unknown");
   return { trusted: trusted && amounts.length > 0, unverified, observedCurrencies: [...observed] };
 }
 
-function parsePrices(text: string, requestedQuantity: number) {
+function parsePrices(rawText: string, requestedQuantity: number) {
+  const text = withoutSavings(rawText);
   const source = amountSource(text);
   const currencyMatches = [...text.matchAll(new RegExp(source, "g"))];
   if (currencyMatches.length === 0) return null;
