@@ -12,6 +12,10 @@
  * any directory, is reported as gate_loosening (Grok Bot countersign plus
  * Blaine's card). That report never changes the exit code.
  *
+ * Inline gitleaks allow comments are forbidden: any added line, in any file,
+ * that contains the marker is a finding (rule `inline_allow`). Only the path
+ * and line number are reported, never the line itself.
+ *
  * The diff is merge-base(base, head)..head (`base...head` semantics), so
  * commits that land on the base after the branch point are not counted.
  *
@@ -34,6 +38,8 @@ export const DEFAULT_HEAD_REF = "HEAD";
 export const GITLEAKS_CONFIG = ".gitleaks.toml";
 export const GITLEAKS_IGNORE = ".gitleaksignore";
 export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
+// Assembled so this file does not itself add the marker it forbids.
+export const INLINE_ALLOW_MARKER = ["gitleaks", "allow"].join(":");
 
 /**
  * The one list of blocked path patterns, matched case-insensitively against the
@@ -111,11 +117,26 @@ export function listChanges(cwd, baseRef, headRef) {
   return changes;
 }
 
+/** [{ line, text }] for each line the diff adds to `path`, numbered in the head copy. */
+export function listAddedLines(cwd, baseRef, headRef, path) {
+  const diff = git(cwd, ["diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", baseRef, headRef, "--", `:(literal)${path}`]);
+  const added = [];
+  let next = null;
+  for (const text of diff.split("\n")) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
+    if (hunk) next = Number(hunk[1]);
+    else if (next === null) continue;
+    else if (text.startsWith("+")) added.push({ line: next++, text: text.slice(1) });
+  }
+  return added;
+}
+
 /**
  * Evaluate a change list. readFile(path) returns the head copy of a file; it
- * is only called for `.envrc` and its result never reaches the report.
+ * is only called for `.envrc`. readAddedLines(path) returns the lines the diff
+ * adds to a file. Neither result's text ever reaches the report.
  */
-export function evaluateChanges(changes, readFile) {
+export function evaluateChanges(changes, readFile, readAddedLines = () => []) {
   const findings = [];
   const gateLoosening = [];
   for (const { status, path } of changes) {
@@ -125,6 +146,11 @@ export function evaluateChanges(changes, readFile) {
       gateLoosening.push({ path, status, reason: "fingerprint ignore list edited", requires: [...GATE_LOOSENING_REQUIRES] });
     }
     if (status !== "A" && status !== "M") continue;
+    for (const { line, text } of readAddedLines(path)) {
+      if (text.includes(INLINE_ALLOW_MARKER)) {
+        findings.push({ path, line, rules: ["inline_allow"], reason: "inline gitleaks allow comment added (forbidden)" });
+      }
+    }
     const rules = matchSensitiveRules(path);
     if (rules.length === 0) continue;
     const name = basename(path);
@@ -143,7 +169,11 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
   const base = mergeBase(cwd, baseRef, headRef);
   if (!base) throw new Error(`no merge-base for ${baseRef} and ${headRef}`);
   const changes = listChanges(cwd, base, headRef);
-  const { findings, gateLoosening } = evaluateChanges(changes, (path) => git(cwd, ["show", `${headRef}:${path}`]));
+  const { findings, gateLoosening } = evaluateChanges(
+    changes,
+    (path) => git(cwd, ["show", `${headRef}:${path}`]),
+    (path) => listAddedLines(cwd, base, headRef, path),
+  );
   return {
     schema: REPORT_SCHEMA,
     base_ref: baseRef,
@@ -160,11 +190,13 @@ export function formatReport(report) {
   const lines = [
     `secret-paths: ${report.base_ref}...${report.head_ref} (merge-base ${report.merge_base.slice(0, 12)}), ${report.checked_paths} added/modified path(s)`,
   ];
-  for (const f of report.findings) lines.push(`  BLOCKED ${f.path} [${f.rules.join(",")}]: ${f.reason}`);
+  for (const f of report.findings) {
+    lines.push(`  BLOCKED ${f.path}${f.line ? `:${f.line}` : ""} [${f.rules.join(",")}]: ${f.reason}`);
+  }
   for (const g of report.gate_loosening) {
     lines.push(`  gate_loosening ${g.path} (${g.status}): ${g.reason}; requires ${g.requires.join(" + ")}`);
   }
-  lines.push(report.ok ? "secret-paths: OK" : `secret-paths: ${report.findings.length} blocked path(s)`);
+  lines.push(report.ok ? "secret-paths: OK" : `secret-paths: ${report.findings.length} finding(s)`);
   return lines.join("\n") + "\n";
 }
 

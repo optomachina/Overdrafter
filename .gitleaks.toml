@@ -5,15 +5,15 @@
 
 title = "Overdrafter gitleaks config"
 
+# Inline allow comments are forbidden. gitleaks v8.30.1 has no config-file key
+# for this (config.ViperConfig has none), so every scan must pass the CLI flag
+# --ignore-gitleaks-allow (cmd/root.go). The only exemption is a fingerprint in
+# the base checkout's .gitleaksignore. See docs/secret-scanning.md.
+
 # Use gitleaks' built-in default rules unchanged.
 [extend]
 useDefault = true
 
-# Allowlist: intentionally empty. gitleaks rejects an [[allowlists]] table
-# with no checks in it, so there are no entries until an exception is
-# approved. Add one entry per approved exception, scoped as narrowly as
-# possible, with a description naming the approving card:
-#
-# [[allowlists]]
-# description = "OVD-XXX: <why this is not a secret>"
-# paths = ['''^exact/path/to/file$''']
+# Allowlist: intentionally empty, and not an exemption route. gitleaks rejects
+# an [[allowlists]] table with no checks in it, so there is none. Exemptions
+# are fingerprints in .gitleaksignore, which CI reads from the base checkout.

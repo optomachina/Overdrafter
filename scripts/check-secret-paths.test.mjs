@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   GIT_BIN,
+  INLINE_ALLOW_MARKER,
   SENSITIVE_PATH_RULES,
   envrcLoadsOnly,
   matchSensitiveRules,
@@ -19,6 +21,15 @@ const STRIPE_KEY = ["sk", "_te", "st_", "51Hx", "Fake", "0000", "Synthetic", "Va
 const JWT = ["ey", "JhbGciOiJIUzI1NiJ9", ".", "ey", "JyIjoic2VydmljZV9yb2xlIn0", ".", "c2lnbmF0dXJl"].join("");
 const PEM = ["-----BEGIN ", "RSA PRIVATE ", "KEY-----\n", "MIIsynthetic\n", "-----END ", "RSA PRIVATE ", "KEY-----\n"].join("");
 const SECRETS = [AWS_KEY, STRIPE_KEY, JWT, PEM.split("\n")[0]];
+// Matches gitleaks' default aws-access-token rule (AKIA + 16 base32 chars).
+const AWS_KEY_GITLEAKS = ["AK", "IA", "QYLP", "MN5H", "HHFP", "ZAM2"].join("");
+const INLINE_ALLOWED_LINE = `const id = "${AWS_KEY_GITLEAKS}"; // ${INLINE_ALLOW_MARKER}\n`;
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// gitleaks is not a dependency. The real-binary test runs only when one is
+// already available: $GITLEAKS_BIN, or `gitleaks` on PATH.
+const GITLEAKS_BIN = process.env.GITLEAKS_BIN || "gitleaks";
+const HAS_GITLEAKS = spawnSync(GITLEAKS_BIN, ["version"], { stdio: "ignore" }).status === 0;
 
 const temps = [];
 afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -175,6 +186,39 @@ describe("check-secret-paths diff mode", () => {
     expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
   });
 
+  it("flags a line added to an existing .gitleaksignore as gate_loosening", () => {
+    const dir = repo({ ".gitleaksignore": "abc123:src/app.ts:generic-api-key:1\n" });
+    commit(dir, { ".gitleaksignore": "abc123:src/app.ts:generic-api-key:1\ndef456:src/b.ts:aws-access-token:3\n" });
+    const { code, report } = check(dir, ["--enforce"]);
+    expect(code).toBe(0);
+    expect(report.gate_loosening).toEqual([
+      { path: ".gitleaksignore", status: "M", reason: "fingerprint ignore list edited", requires: ["grokbot_countersign", "blaine_card"] },
+    ]);
+  });
+
+  it("flags an added inline allow marker as a finding, by file:line only", () => {
+    const dir = repo({ "src/a.ts": "export const a = 1;\n" });
+    commit(dir, { "src/a.ts": `export const a = 1;\n// ok\n${INLINE_ALLOWED_LINE}`, "docs/n.md": `x ${INLINE_ALLOW_MARKER}\n` });
+    const { code, out, err, report } = check(dir, ["--enforce"]);
+    expect(code).toBe(1);
+    expect(report.findings).toEqual([
+      { path: "docs/n.md", line: 1, rules: ["inline_allow"], reason: "inline gitleaks allow comment added (forbidden)" },
+      { path: "src/a.ts", line: 3, rules: ["inline_allow"], reason: "inline gitleaks allow comment added (forbidden)" },
+    ]);
+    let human = "";
+    run([], { cwd: dir, stdout: { write: (c) => { human += c; return true; } }, stderr: { write: () => true } });
+    expect(human).toContain("BLOCKED src/a.ts:3 [inline_allow]");
+    for (const output of [out + err, human]) {
+      expect(output).not.toContain(AWS_KEY_GITLEAKS);
+      expect(output).not.toContain("const id");
+    }
+  });
+
+  it("does not flag an inline allow marker that was already on the base", () => {
+    const dir = repo({ "src/a.ts": INLINE_ALLOWED_LINE }, { "src/a.ts": `${INLINE_ALLOWED_LINE}export {};\n` });
+    expect(check(dir).report.findings).toEqual([]);
+  });
+
   it("diffs against the merge-base, so base commits after the branch point are ignored", () => {
     const dir = repo();
     git(dir, "branch", "-M", "main");
@@ -232,4 +276,30 @@ describe("check-secret-paths diff mode", () => {
       for (const secret of SECRETS) expect(output).not.toContain(secret);
     }
   });
+});
+
+const SKIP_REASON = HAS_GITLEAKS ? "" : " (skipped: no gitleaks binary; set GITLEAKS_BIN or put gitleaks on PATH)";
+
+describe(`real gitleaks with --ignore-gitleaks-allow${SKIP_REASON}`, () => {
+  it.skipIf(!HAS_GITLEAKS)(
+    "still flags an inline-allowed synthetic secret",
+    () => {
+      const dir = repo({ "src/id.ts": INLINE_ALLOWED_LINE });
+      // Untracked and not named .gitleaksignore, so gitleaks only sees it via the flag.
+      const ignore = join(dir, "empty-ignore");
+      writeFileSync(ignore, "");
+      const scan = (...extra) => spawnSync(GITLEAKS_BIN, [
+        "git", "--no-banner", "--redact", ...extra,
+        "--config", join(REPO_ROOT, ".gitleaks.toml"),
+        "--gitleaks-ignore-path", ignore,
+        "--log-opts=HEAD^1..HEAD",
+        "--exit-code", "1",
+      ], { cwd: dir, encoding: "utf8" });
+      const enforced = scan("--ignore-gitleaks-allow");
+      expect(enforced.status).toBe(1);
+      expect(enforced.stdout + enforced.stderr).not.toContain(AWS_KEY_GITLEAKS);
+      // Control: without the flag the marker hides the same secret.
+      expect(scan().status).toBe(0);
+    },
+  );
 });

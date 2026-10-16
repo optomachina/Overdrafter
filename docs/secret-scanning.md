@@ -47,11 +47,17 @@ Allowed exceptions:
   `(`, `)`, `<`, `>`, `=`), so an `.envrc` cannot set a value or run a command.
   Values belong in the git-ignored file it loads.
 
+It also reports every **added line**, in any file, that contains an inline
+`gitleaks:allow` comment, as a finding with rule `inline_allow` (see
+[Exemption policy](#exemption-policy)). Only `file:line` is printed, never the
+line. A marker that was already on the base is not reported.
+
 `SENSITIVE_PATH_RULES` is the one list. It moves to OVD-873's
 `docs/sensitive-paths.json` once that lands (PR #818).
 
-Output has paths, rule ids and reasons only. The checker reads file contents
-only to evaluate `.envrc`, and it never prints them. Git is called as
+Output has paths, line numbers, rule ids and reasons only. The checker reads
+file contents only to evaluate `.envrc` and to look for the inline allow
+marker in added lines, and it never prints them. Git is called as
 `/usr/bin/git` with an argument array, and nothing touches the network.
 
 Exit codes: `0` in report mode (always) or when clean; `1` with `--enforce`
@@ -67,49 +73,75 @@ checkouts). The behaviour itself is covered by `scripts/check-secret-paths.test.
 
 ### Test coverage and card follow-ups
 
-The tests in this PR cover the **path block only**. Their fixtures hold
-synthetic AWS, Stripe, JWT and PEM values, but only to prove the checker never
-prints file contents; nothing in this PR runs gitleaks. These gitleaks content
-tests need the gitleaks binary, which is the card dependency, so they are
-**card follow-ups**:
+`scripts/check-secret-paths.test.mjs` covers the path block, the
+`.gitleaksignore` gate_loosening report (including a line added to an existing
+file), and the `inline_allow` finding. Fixtures hold synthetic AWS, Stripe, JWT
+and PEM values, built at runtime, to prove the checker never prints file
+contents.
+
+One test runs the **real** gitleaks: a synthetic AWS key on a line carrying an
+inline `gitleaks:allow` is still reported with `--ignore-gitleaks-allow` (exit
+1, redacted output), and is hidden without it (the control). gitleaks is not a
+dependency, so the test runs only when a binary is already available
+(`GITLEAKS_BIN=/path/to/gitleaks`, or `gitleaks` on `PATH`) and is skipped with
+that reason otherwise.
+
+Card follow-ups, once the workflow lands:
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
 - The redacted JSON report and the job log contain none of those values.
-- A head-side `.gitleaksignore` or inline `gitleaks:allow` (see below) does or
-  does not suppress a finding, matching what the card decides.
 
 ## gitleaks config and gate_loosening
 
 `.gitleaks.toml` extends the gitleaks default rules (`[extend] useDefault = true`)
 and has an empty allowlist. gitleaks rejects an `[[allowlists]]` table with no
-checks in it, so the empty allowlist is "no entries". A commented template shows
-the shape of an entry.
+checks in it, so the empty allowlist is "no entries". It stays empty:
+exemptions go in `.gitleaksignore` (see [Exemption policy](#exemption-policy)).
 
-Every allowlist exception goes in `.gitleaks.toml`, one narrowly scoped entry
-each, with a description naming the approving card. gitleaks also skips any
-finding whose fingerprint is listed in a `.gitleaksignore` file. **Any edit to
+**Any edit to
 `.gitleaks.toml` or `.gitleaksignore`, in any directory** (add, modify or
 delete), is **gate_loosening**: it needs a Grok Bot countersign plus Blaine's
 card. The path block reports these as `gate_loosening` entries with
 `requires: ["grokbot_countersign", "blaine_card"]`. They are report-only and
 never change `ok` or the exit code.
 
-The draft workflow closes the two file-based bypasses:
+### Exemption policy
 
-- It reads `.gitleaks.toml` and the path-block script from the **base** commit.
-- It never uses the head copy of `.gitleaksignore`: it deletes the checked-out
-  copy and passes `--gitleaks-ignore-path` pointing to an empty file in
-  `$RUNNER_TEMP`.
+**The only exemption is a fingerprint in `.gitleaksignore`, read from the base
+checkout.** A PR cannot exempt its own content:
 
-**Known gap, for the card to decide:** gitleaks skips any line carrying an
-inline `gitleaks:allow` comment, and that comment arrives with the PR's own
-content. There is no gitleaks flag to turn it off. So a PR **can** still hide a
-secret from the content scan this way, and the path block does not look at
-file contents. Options for the card: grep the PR's added lines for
-`gitleaks:allow` and report each one as gate_loosening, or accept the gap and
-rely on review. Until the card decides, do not read the scan as proof that a PR
-cannot loosen it.
+- **Inline `gitleaks:allow` is forbidden.** Every gitleaks run passes
+  `--ignore-gitleaks-allow`, so the comment has no effect and the finding is
+  still reported. The path block also reports each added marker as an
+  `inline_allow` finding (`file:line` only).
+- **`.gitleaksignore` is read from the base commit only.** The draft workflow
+  writes `git show <base>:.gitleaksignore` (or an empty file when the base has
+  none) to `$RUNNER_TEMP` and passes it as `--gitleaks-ignore-path`. It also
+  deletes the checked-out root copy, because gitleaks always loads
+  `<source>/.gitleaksignore` as well. Adding, editing or deleting a
+  `.gitleaksignore` line is gate_loosening, so a new fingerprint takes effect
+  only after a countersigned PR adding it has merged.
+- **`.gitleaks.toml` is read from the base commit only**, as is the path-block
+  script. Its allowlist stays empty and is not an exemption route; any edit
+  is gate_loosening.
+
+Source for the flag and the ignore-file loading (gitleaks **v8.30.1**, checked
+against the release source and `gitleaks git --help` from the pinned binary):
+
+- `cmd/root.go` line 85 defines the persistent flag:
+  `rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow comments")`.
+  <https://github.com/gitleaks/gitleaks/blob/v8.30.1/cmd/root.go#L85>
+- `detect/detect.go` line 510 skips a finding only when
+  `!d.IgnoreGitleaksAllow && strings.Contains(finding.Line, gitleaksAllowSignature)`,
+  where `gitleaksAllowSignature = "gitleaks:allow"` (line 28).
+  <https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/detect.go#L510>
+- There is no config-file equivalent: `config.ViperConfig` (`config/config.go`)
+  has no such key, so `.gitleaks.toml` only carries a comment pointing here.
+- `cmd/root.go` lines 300 to 321 load `.gitleaksignore` from
+  `--gitleaks-ignore-path` (a file, or `<dir>/.gitleaksignore`) and from
+  `<source>/.gitleaksignore`, and from nowhere else, so nested copies are never
+  read.
 
 ## Optional pre-commit hook (docs only)
 
@@ -120,7 +152,7 @@ draft) and add `.git/hooks/pre-commit`:
 ```sh
 #!/bin/sh
 # Scan staged changes only; --redact keeps matched values out of the terminal.
-exec gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
+exec gitleaks git --pre-commit --staged --redact --no-banner --ignore-gitleaks-allow --config .gitleaks.toml
 ```
 
 Then run `chmod +x .git/hooks/pre-commit`. The path block works on commits,
@@ -150,10 +182,11 @@ PR body as is.
   The only artifact is the redacted JSON report.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
-- The config is the base copy, and the head's `.gitleaksignore` is never used
-  (the checked-out copy is deleted and `--gitleaks-ignore-path` points to an
-  empty file). Inline `gitleaks:allow` is still honoured; see the known gap
-  above.
+- `--ignore-gitleaks-allow` is passed, so inline `gitleaks:allow` comments
+  never suppress a finding (see [Exemption policy](#exemption-policy)).
+- The config is the base copy. The only ignore list is the base copy of
+  `.gitleaksignore` (or an empty file when the base has none), passed as
+  `--gitleaks-ignore-path`; the checked-out copy is deleted.
 - `continue-on-error: true` for the one-week report period.
 
 ```yaml
@@ -201,17 +234,20 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
           "$RUNNER_TEMP/gitleaks/gitleaks" version
 
-      - name: Load base copies of the config and path block
+      - name: Load base copies of the config, ignore list and path block
         # The PR's own .gitleaks.toml, .gitleaksignore and path block are not
-        # used. Inline gitleaks:allow comments are a known gap (see docs).
+        # used. The base .gitleaksignore is the only exemption.
         run: |
           set -euo pipefail
           git show "${BASE_SHA}:.gitleaks.toml" > "$RUNNER_TEMP/gitleaks.toml"
           git show "${BASE_SHA}:scripts/check-secret-paths.mjs" > "$RUNNER_TEMP/check-secret-paths.mjs"
-          # Never honour a head-side fingerprint ignore list: use an empty one,
-          # and drop the checked-out root copy in case gitleaks also reads it
-          # from the source directory.
-          : > "$RUNNER_TEMP/gitleaksignore-empty"
+          if git cat-file -e "${BASE_SHA}:.gitleaksignore" 2>/dev/null; then
+            git show "${BASE_SHA}:.gitleaksignore" > "$RUNNER_TEMP/gitleaksignore-base"
+          else
+            : > "$RUNNER_TEMP/gitleaksignore-base"
+          fi
+          # gitleaks always loads <source>/.gitleaksignore too (cmd/root.go),
+          # so drop the head copy from the checkout.
           rm -f .gitleaksignore
 
       - name: Secret path block (report mode)
@@ -223,7 +259,8 @@ jobs:
             --no-banner \
             --redact \
             --config "$RUNNER_TEMP/gitleaks.toml" \
-            --gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore-empty" \
+            --ignore-gitleaks-allow \
+            --gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore-base" \
             --log-opts="${BASE_SHA}..${HEAD_SHA}" \
             --report-format json \
             --report-path "$RUNNER_TEMP/gitleaks-report.json" \
@@ -247,11 +284,7 @@ Notes for the card:
 - The workflow reads base copies of the config and script, so the first PR that
   adds this workflow must merge after this PR. Until then the `git show` step
   has nothing to read.
-- Verify on the pinned version that `--gitleaks-ignore-path` plus deleting the
-  root `.gitleaksignore` means no head-side ignore file is loaded, including
-  any nested copy (the path block reports nested copies as gate_loosening
-  either way).
-- Decide the inline `gitleaks:allow` gap, and add the gitleaks content tests
-  listed under "Test coverage and card follow-ups".
+- Add the gitleaks content tests listed under "Test coverage and card
+  follow-ups".
 - After the report week, Blaine's queue: drop `continue-on-error`, pass
   `--enforce` to the path block, and add `secret-scan` to the required checks.
