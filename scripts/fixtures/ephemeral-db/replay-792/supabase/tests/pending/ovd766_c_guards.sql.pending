@@ -1,0 +1,8 @@
+-- OVD-766 (split child c) / OVD-769: pending guard test for
+-- public.api_reconcile_job_parts after docs/migration-drafts/ovd-766-c.sql
+-- (option b: authenticated keeps EXECUTE; the body requires verified auth and
+-- user_can_edit_job on the target job). Promote it to
+-- supabase/tests/ovd766_c_guards.sql in the PR that applies the draft.
+-- Plain SQL, no psql variables. Synthetic records only; everything rolls back.
+-- [header-only snapshot of supabase/tests/pending/ovd766_c_guards.sql.pending at d2b7981b (#792); body omitted]
+select 1;

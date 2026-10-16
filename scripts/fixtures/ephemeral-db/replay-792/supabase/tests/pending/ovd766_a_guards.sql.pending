@@ -1,0 +1,28 @@
+-- OVD-766 (group a) / OVD-767: verified auth + AAL2 on the platform admin
+-- emergency controls.
+--
+-- Targets the draft docs/migration-drafts/ovd-766-a.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd766_a_guards.sql in the same change.
+-- Pre-apply observation: the AAL1 admin and unverified admin refusals fail
+-- (the current bodies let those callers through), and the spend cap
+-- search_path assertion fails (it is still search_path = public).
+--
+-- Per function:
+--   public.api_admin_set_provider_kill_switch(public.vendor_name, boolean, text, bigint)
+--   public.api_admin_set_global_kill_switch(boolean, text, bigint)
+--   public.api_set_global_spend_cap(numeric, numeric, boolean)
+--   public.api_review_export_control_block(uuid, text, text)
+-- covers:
+--   * pg_proc: SECURITY DEFINER and search_path = ''
+--   * EXECUTE: not PUBLIC, not anon, authenticated yes
+--   * anon is refused (permission denied)
+--   * a verified non-admin at AAL2 is refused by the admin check
+--   * an unverified platform admin at AAL2 is refused by require_verified_auth()
+--   * a verified platform admin at AAL1 is refused by the AAL2 check
+--   * a verified platform admin at AAL2 is allowed
+--   * refused calls leave no audit row, no switch flip and no block review
+-- [header-only snapshot of supabase/tests/pending/ovd766_a_guards.sql.pending at d2b7981b (#792); body omitted]
+select 1;
