@@ -54,3 +54,6 @@ worker/#
 \#
 
 /dist-sample-plate/
+
+# verify-overdrafter skill evidence
+artifacts/verify-overdrafter/
