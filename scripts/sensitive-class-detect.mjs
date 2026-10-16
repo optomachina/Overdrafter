@@ -317,10 +317,11 @@ export function classifyPath(path, config) {
 
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 const MAX_SQL_DEPTH = 8;
-/** SQL bodies longer than this many whitespace-separated words are not scanned; they fail closed. */
-export const MAX_SQL_WORDS = 100_000;
+/** SQL bodies that tokenize to more than this many tokens are not scanned; they fail closed. */
+export const MAX_SQL_TOKENS = 100_000;
 
-const countWords = (text) => (String(text).match(/\S+/g) ?? []).length;
+/** Thrown by sqlWords when a body exceeds the token budget. */
+export class SqlTooLargeError extends Error {}
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
@@ -331,9 +332,16 @@ const countWords = (text) => (String(text).match(/\S+/g) ?? []).length;
  * closed: a string literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  */
-export function sqlWords(text, depth = 0) {
+export function sqlWords(text, depth = 0, budget = { left: MAX_SQL_TOKENS }) {
   const sql = String(text);
   const words = [];
+  const add = (word) => {
+    if ((budget.left -= 1) < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
+    words.push(word);
+  };
+  const addAll = (list) => {
+    for (const word of list) add(word);
+  };
   let index = 0;
   while (index < sql.length) {
     const char = sql[index];
@@ -352,7 +360,7 @@ export function sqlWords(text, depth = 0) {
       }
     } else if (char === "'" || char === '"') {
       const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop();
+      if (backslash && words.at(-1) === "e") (words.pop(), (budget.left += 1));
       index += 1;
       let body = "";
       while (index < sql.length) {
@@ -364,27 +372,27 @@ export function sqlWords(text, depth = 0) {
           break;
         } else (body += sql[index]), (index += 1);
       }
-      if (char === "'") words.push(...sqlBodyWords(body, depth));
+      if (char === "'") addAll(sqlBodyWords(body, depth, budget));
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
       const close = sql.indexOf(tag, bodyStart);
-      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
+      addAll(sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth, budget));
       index = close === -1 ? sql.length : close + tag.length;
     } else if (/[A-Za-z_]/.test(char)) {
       const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      words.push(match[0].toLowerCase());
+      add(match[0].toLowerCase());
       index += match[0].length;
     } else {
-      if (!/\s/.test(char)) words.push(char);
+      if (!/\s/.test(char)) add(char);
       index += 1;
     }
   }
   return words;
 }
 
-function sqlBodyWords(body, depth) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1);
+function sqlBodyWords(body, depth, budget) {
+  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1, budget);
   return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
@@ -460,17 +468,21 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
       try {
         if (!readHeadFile) throw new Error("no head reader");
         const body = await readHeadFile(file.filename);
-        const wordCount = countWords(body);
-        if (wordCount > MAX_SQL_WORDS) {
+        let sql;
+        try {
+          sql = classifySql(body, config);
+        } catch (error) {
+          if (!(error instanceof SqlTooLargeError)) throw error;
+        }
+        if (!sql) {
           // Too large to scan: treat as every class the SQL scan could have found.
-          const message = `SQL body ${file.filename} rejected for size: ${wordCount} words exceeds the limit of ${MAX_SQL_WORDS}; manual review is required`;
+          const message = `SQL body ${file.filename} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`;
           for (const rule of config.sqlContent.rules) if (!classes.includes(rule.class)) classes.push(rule.class);
-          reasons.push(`sql:oversized:${wordCount}>${MAX_SQL_WORDS}`);
+          reasons.push(`sql:oversized:>${MAX_SQL_TOKENS}`);
           notices.push(message);
         } else {
-          const sql = classifySql(body, config);
           for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
-          reasons.push(...sql.reasons);
+          for (const reason of sql.reasons) reasons.push(reason);
         }
       } catch (error) {
         allErrors.push(`could not read ${file.filename} at head: ${messageOf(error)}`);
