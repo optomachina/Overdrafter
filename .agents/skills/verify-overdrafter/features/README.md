@@ -6,7 +6,8 @@ Maintained source for verifying user-facing behavior. Read this index, then the 
 
 - Fixture mode: repo deps installed (`npm ci`), no database, dev server on `127.0.0.1:4173` started by Playwright. Only `@fixture` specs run.
 - Local mode: local Supabase up on `127.0.0.1:54321`, `npm run e2e:prepare` done (seeded `client.demo` and `estimator.demo`, saved auth in `playwright/.auth/`). Non-fixture specs run.
-- Never drive a server this run did not start. Run `verify.sh --doctor` first.
+- Never drive a server this run did not start; doctor fails if port 4173 is already served. Run `verify.sh --doctor` first.
+- A fixture PASS does not cover `auth-dialog`, `auth-session` or `auth-scope` (local only), nor any real-database provider behavior.
 
 ## Driving conventions
 

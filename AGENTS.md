@@ -126,7 +126,7 @@ Use a skill only when it materially improves the task:
 
 - `linear-issue-creator`: implementation-ready Linear decomposition;
 - `overdrafter-verification`: explicit acceptance or release claims;
-- `verify-overdrafter` (`.agents/skills/verify-overdrafter/`): drive the real app with Playwright and local Supabase to prove auth, quote and provider journeys;
+- `verify-overdrafter` (`.agents/skills/verify-overdrafter/`): drive the real app to prove auth, quote and provider journeys;
 - `overnight-run`: sustained unattended work;
 - `agent-skill-eval`: consequential workflow changes.
 

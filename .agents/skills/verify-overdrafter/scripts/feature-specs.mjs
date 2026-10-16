@@ -12,8 +12,12 @@ export const FEATURE_SPECS = {
     local: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"],
   },
   provider: {
-    fixture: ["e2e/admin-operations.spec.ts", "e2e/journeys/jarvis-front-door.spec.ts"],
-    local: ["e2e/engineering-admin-route.spec.ts"],
+    fixture: [
+      "e2e/admin-operations.spec.ts",
+      "e2e/journeys/jarvis-front-door.spec.ts",
+      "e2e/engineering-admin-route.spec.ts",
+    ],
+    local: [],
   },
 };
 
@@ -30,5 +34,7 @@ export function specsFor(features, mode) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [features = "auth,quote,provider", mode = "fixture"] = process.argv.slice(2);
   if (!["fixture", "local"].includes(mode)) throw new Error(`unknown mode: ${mode}`);
-  console.log(specsFor(features.split(","), mode).join("\n"));
+  const specs = specsFor(features.split(","), mode);
+  if (specs.length === 0) throw new Error(`no ${mode} specs for features: ${features}`);
+  console.log(specs.join("\n"));
 }

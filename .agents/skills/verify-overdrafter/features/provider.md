@@ -12,14 +12,14 @@ Operators manage suppliers (on/off and daily cap) in the admin operations view, 
 ## How to get to it (user POV)
 
 - Internal session, Operations/Admin operations route.
-- Engineering admin route (`e2e/engineering-admin-route.spec.ts`, local mode).
+- Engineering admin route (`e2e/engineering-admin-route.spec.ts`, fixture mode; builds its own synthetic server).
 
 ## Driving it with Playwright
 
-Preconditions: fixture mode for operations specs; local mode with `estimator.demo` for the engineering admin route.
+Preconditions: fixture mode for every mapped provider spec. There is no local-mode provider spec.
 
-- **Operations (fixture).** `verify.sh --features provider` runs `e2e/admin-operations.spec.ts` and `e2e/journeys/jarvis-front-door.spec.ts`. Expect the supplier cap to persist after reload and the off switch to stick.
-- **Admin route (local).** `verify.sh --mode local --prepare --features provider`.
+- **Operations (fixture).** `verify.sh --features provider` runs `e2e/admin-operations.spec.ts`, `e2e/journeys/jarvis-front-door.spec.ts` and `e2e/engineering-admin-route.spec.ts`. Expect the supplier cap to persist after reload and the off switch to stick.
+- **Admin route.** Covered by the fixture command above (synthetic network only). `verify.sh --mode local --features provider` exits 2: no local provider spec exists, so report real-database provider behavior as not verified.
 - **Reachability.** `npx vitest run src/journeys --maxWorkers=2` checks every claimed entry point resolves.
 
 ## Gotchas

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +45,67 @@ describe("verify-overdrafter skill structure", () => {
   });
 
   it("keeps evidence gitignored and the skill listed in AGENTS.md", () => {
-    expect(readFileSync(path.join(root, ".gitignore"), "utf8")).toContain("artifacts/verify-overdrafter/");
+    expect(readFileSync(path.join(root, ".gitignore"), "utf8")).toContain("/artifacts/verify-overdrafter/");
     expect(readFileSync(path.join(root, "AGENTS.md"), "utf8")).toContain("`verify-overdrafter`");
+  });
+});
+
+describe("verify-overdrafter driver behavior", () => {
+  const verify = path.join(skillDir, "scripts/verify.sh");
+  const run = (...args) => spawnSync("bash", [verify, ...args], { cwd: root, encoding: "utf8" });
+
+  it("rejects unknown, empty and spec-less feature selections", () => {
+    for (const args of [["--features", "bogus"], ["--features", ""], ["--mode", "local", "--features", "provider"]]) {
+      const r = run(...args, "--dry-run");
+      expect(r.status, args.join(" ")).toBe(2);
+      expect(r.stdout).not.toContain("playwright test");
+    }
+  });
+
+  it("rejects --prepare in fixture mode and unknown modes", () => {
+    expect(run("--prepare", "--dry-run").status).toBe(2);
+    expect(run("--mode", "prod", "--dry-run").status).toBe(2);
+  });
+
+  it("dry-run prints the mapped specs and the lane filter", () => {
+    const fixture = run("--features", "quote", "--dry-run");
+    expect(fixture.status).toBe(0);
+    expect(fixture.stdout).toContain("e2e/quote-comparison.spec.ts");
+    expect(fixture.stdout).toContain("--grep @fixture");
+    const local = run("--mode", "local", "--features", "auth", "--dry-run");
+    expect(local.status).toBe(0);
+    expect(local.stdout).toContain("e2e/access-scope.spec.ts");
+    expect(local.stdout).toContain("--grep-invert @fixture");
+  });
+});
+
+describe("verify-overdrafter lane mapping", () => {
+  const spec = (p) => readFileSync(path.join(root, p), "utf8");
+
+  it("fixture specs carry the @fixture tag and are not fixture-only in local lanes", () => {
+    for (const [name, entry] of Object.entries(FEATURE_SPECS)) {
+      for (const p of entry.fixture) expect(spec(p), `${name} fixture ${p}`).toContain("@fixture");
+      for (const p of entry.local) {
+        const src = spec(p);
+        const tests = (src.match(/^\s*test(\.\w+)?\(/gm) ?? []).length;
+        const tagged = (src.match(/@fixture"/g) ?? []).length;
+        expect(tests, `${name} local ${p} must have a non-fixture test`).toBeGreaterThan(tagged);
+        expect(src, `${name} local ${p}`).not.toMatch(/describe\([^)]*@fixture/);
+      }
+    }
+  });
+
+  it("does not list a spec in both lanes", () => {
+    const all = Object.values(FEATURE_SPECS);
+    const fx = new Set(all.flatMap((e) => e.fixture));
+    for (const p of all.flatMap((e) => e.local)) expect(fx.has(p), p).toBe(false);
+  });
+
+  it("tracks the skill in git despite the ignored .agents directory", () => {
+    const r = spawnSync("git", ["ls-files", ".agents/skills/verify-overdrafter"], { cwd: root, encoding: "utf8" });
+    if (r.status !== 0) return;
+    for (const f of ["SKILL.md", "scripts/verify.sh", "scripts/feature-specs.mjs", "features/README.md"]) {
+      expect(r.stdout, f).toContain(`.agents/skills/verify-overdrafter/${f}`);
+    }
   });
 });
