@@ -18,6 +18,13 @@ name: Proof check
 # scripts/proof-check-run.sh or, when the base lacks it, an inline copy of the
 # same logic. Switch it to enforce to fail the job on a missing proof or an
 # error.
+#
+# OVD-841: a Command must name a real npm script (base or head package.json)
+# and real files (repo or diff). The head package.json is fetched through the
+# API as data only; nothing from the PR head is checked out or executed. The
+# JSON report (docs/proof-check.md) is uploaded as the proof-check-report
+# artifact. The workflow also runs on merge_group with a no op pass, like
+# pr-body-gate.yml, so a future required check never stalls a merge queue.
 
 on:
   pull_request:
@@ -26,9 +33,12 @@ on:
       - edited
       - synchronize
       - ready_for_review
+  merge_group:
+    types:
+      - checks_requested
 
 concurrency:
-  group: proof-check-${{ github.event.pull_request.number }}
+  group: proof-check-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -44,21 +54,32 @@ jobs:
       PROOF_CHECK_MODE: report
 
     steps:
+      # A merge queue run has no PR body to read; the pull_request run is the
+      # one that checks the proof.
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, proof-check ran on the pull_request run."
+
       - name: Checkout base
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
+        if: github.event_name == 'pull_request'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Check proof
+        id: proof
+        if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -73,6 +94,14 @@ jobs:
             [ "$PROOF_CHECK_MODE" = enforce ] && exit 1
             exit 0
           fi
+          # Data only: the head package.json lists scripts a PR adds. A fetch
+          # failure leaves only the base scripts.
+          export PROOF_CHECK_JSON="$RUNNER_TEMP/proof-check.json"
+          export PROOF_CHECK_HEAD_PACKAGE_JSON="$RUNNER_TEMP/head-package.json"
+          if [ -z "${HEAD_SHA:-}" ] || ! gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$REPOSITORY/contents/package.json?ref=$HEAD_SHA" > "$PROOF_CHECK_HEAD_PACKAGE_JSON" 2>/dev/null; then
+            rm -f "$PROOF_CHECK_HEAD_PACKAGE_JSON"
+          fi
           # The wrapper is read from the base checkout like the script; when the
           # base has no copy yet, the inline fallback applies the same policy.
           if [ -f scripts/proof-check-run.sh ]; then
@@ -86,3 +115,12 @@ jobs:
             [ "$PROOF_CHECK_MODE" = enforce ] && exit "$rc"
           fi
           exit 0
+
+      - name: Upload proof report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-check-report
+          path: ${{ runner.temp }}/proof-check.json
+          if-no-files-found: ignore
+          retention-days: 14
