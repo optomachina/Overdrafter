@@ -82,12 +82,14 @@ done
 ```
 
    - If required checks fail, the PR closes without merging, or the bounded wait expires, stop and report the blocker.
-12. After merge, report:
+12. Read the merge back. `MERGED` is PR state, not proof. Fetch `main`, then run `node scripts/merge-readback.mjs readback --repo . --merge-sha <squash sha> --verified-head <verified head sha> --log <plan tsv> --pr "$PR_NUMBER" --verdict-ref <verdict ref>` as described in [the merge plan procedure](../../../docs/recurring-workflows.md#release-bot-merge-plan-and-decision-log). If it exits non-zero (`tree_match=false`), stop, flag it to Grok Bot, and do not auto-revert.
+13. After merge and read-back, report:
    - PR URL
    - merge method
+   - merge SHA and read-back result
    - final status
-13. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge.
-14. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
+14. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge and the read-back passes.
+15. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
 
 ## Guardrails
 

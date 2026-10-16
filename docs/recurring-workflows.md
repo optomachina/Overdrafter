@@ -164,6 +164,51 @@ If verification finds unrelated baseline failures outside the issue scope, docum
 ## Merge sequence
 
 Use the `land` skill only when the issue is already in `Merging` and a real PR
-exists. After GitHub shows the approved PR merged, record the merge and move the
-issue to `Done` automatically unless an acceptance criterion still requires
-deployment, live verification, an external operation, or other post-merge work.
+exists. After GitHub shows the approved PR merged and the
+[merge read-back](#release-bot-merge-plan-and-decision-log) passes, record the
+merge and move the issue to `Done` automatically unless an acceptance criterion
+still requires deployment, live verification, an external operation, or other
+post-merge work.
+
+### Release bot merge plan and decision log
+
+Every Release bot merge plan carries a show-me-your-work TSV decision log
+(OVD-857). `scripts/merge-readback.mjs` builds the plan and the read-back rows
+from local git only. It never merges, pushes, fetches, or touches a remote, so
+refresh `main` yourself before reading back.
+
+1. **Plan bottom-up.** List the stack bottom-up with each PR's current head SHA
+   (`[{"pr":101,"head_sha":"…"}]`) and the OVD-845 verdict lookup
+   (`{"101":{"sha":"…","verdict_ref":"…","valid":true}}`). The plan lands only the
+   contiguous verified run and stops at the first PR with no verdict, an invalid
+   verdict, or a verdict for an older SHA:
+   `node scripts/merge-readback.mjs plan --stack stack.json --verdicts verdicts.json --log .audit/<plan>.tsv`
+2. **Merge** the planned PRs in order with the normal squash pinned to the SHA.
+3. **Read every merge back.** A queued merge or an armed auto-merge is not a
+   merge, and PR state alone is never enough. After `git fetch`, read `main`
+   back for each landed PR in order:
+   `node scripts/merge-readback.mjs readback-run --repo . --merges merges.json --log .audit/<plan>.tsv`
+   with `merges.json` as `[{"pr":101,"head_sha":"…","verdict_ref":"…","merge_sha":"…"}]`.
+   A merge passes when it is a single-parent commit on `main` and its tree equals
+   the verified head's tree. After a rebase it passes only when the patch-id is
+   identical and its tree equals the verified head rebased onto the merge
+   commit's parent. Use `readback` for a single merge.
+4. **Stop on `tree_match=false`.** The run stops at that row (exit 1) and later
+   merges are not reported as landed. Flag it to Grok Bot, who brings it to
+   Blaine. Do not auto-revert.
+5. **Keep the log append-only.** Record `digest --log <tsv>` with the plan, and
+   before relying on the log, run `verify-log --log <tsv> --prior digest.json`.
+   It fails if any earlier byte was rewritten or truncated. Correct a wrong row
+   with a new row and never edit history.
+
+Template (`init-log --log <tsv>` writes the header row; columns are exact):
+
+```tsv
+ts	pr	head_sha	patch_id	verdict_ref	action	merge_sha	tree_match	result
+2026-10-16T09:00:00.000Z	101	<head sha>		<verdict ref>	plan-land			verified-at-head
+2026-10-16T09:00:00.000Z	102	<head sha>		<verdict ref>	plan-stop			stop: verdict-not-valid
+2026-10-16T09:20:00.000Z	101	<head sha>	<patch-id>	<verdict ref>	readback	<merge sha>	true	landed (exact)
+```
+
+`action` is `plan-land`, `plan-stop`, or `readback`. Attach the TSV, or link it,
+in the merge plan.
