@@ -1215,6 +1215,15 @@ function safeResourceType(request: Request): string {
   }
 }
 
+/**
+ * The first violation is the cause; later ones are its fallout. A blocked
+ * off-host navigation, for example, then commits Chromium's error page
+ * (chrome-error://chromewebdata), which must not replace the real host.
+ */
+function recordBoundaryViolation(boundary: PortalBoundaryState, violation: string): void {
+  boundary.violation ??= violation;
+}
+
 async function installPortalBoundaryGuards(
   definition: ProviderPortalDefinition,
   context: BrowserContext,
@@ -1232,7 +1241,7 @@ async function installPortalBoundaryGuards(
     const host = safeObservedHost(requestUrl);
     const disposition = await classifyOffHostRequest(request);
     if (disposition !== "subresource") {
-      boundary.violation = `${disposition}:${host}`;
+      recordBoundaryViolation(boundary, `${disposition}:${host}`);
       await route.abort("blockedbyclient");
       return;
     }
@@ -1248,7 +1257,7 @@ async function installPortalBoundaryGuards(
   await context.routeWebSocket("**/*", async (webSocketRoute) => {
     const socketUrl = webSocketRoute.url();
     if (!isAllowedProviderWebSocketUrl(socketUrl, definition.allowedHosts)) {
-      boundary.violation = `unexpected_websocket:${safeObservedHost(socketUrl)}`;
+      recordBoundaryViolation(boundary, `unexpected_websocket:${safeObservedHost(socketUrl)}`);
       await webSocketRoute.close({ code: 1008, reason: "unexpected_origin" });
       return;
     }
@@ -1260,7 +1269,7 @@ async function installPortalBoundaryGuards(
       return;
     }
     unexpectedPages.add(unexpectedPage);
-    boundary.violation = `unexpected_page:${safeObservedHost(unexpectedPage.url())}`;
+    recordBoundaryViolation(boundary, `unexpected_page:${safeObservedHost(unexpectedPage.url())}`);
     void unexpectedPage.close().catch(() => undefined);
   };
   context.on("page", rejectUnexpectedPage);
@@ -1271,7 +1280,7 @@ async function installPortalBoundaryGuards(
       && frame.url() !== "about:blank"
       && !isAllowedProviderUrl(frame.url(), definition.allowedHosts)
     ) {
-      boundary.violation = `unexpected_navigation:${safeObservedHost(frame.url())}`;
+      recordBoundaryViolation(boundary, `unexpected_navigation:${safeObservedHost(frame.url())}`);
     }
   });
 }
@@ -1807,6 +1816,10 @@ async function runProviderPortalInteraction(
   return extractProviderPortalOffers(interaction, snapshot);
 }
 
+function isUnexpectedOriginError(error: unknown): boolean {
+  return error instanceof VendorAutomationError && error.payload.terminalState === "unexpected_origin";
+}
+
 function translatePortalKernelError(
   definition: ProviderPortalDefinition,
   boundary: PortalBoundaryState,
@@ -1816,6 +1829,13 @@ function translatePortalKernelError(
   // unchanged by the caller before translation (isDispatchDecisionError).
   // OVD-722: a kill-switch refusal is never re-labelled as a provider failure.
   if (error instanceof ProviderKillSwitchError) return error;
+  // A recorded boundary violation wins over whatever failed after it, e.g. a
+  // quantity fill that timed out waiting on the blocked navigation's error page.
+  if (boundary.violation && !isUnexpectedOriginError(error)) {
+    return terminalError(definition, "unexpected_origin", boundary.violation, {
+      providerMutationPossible: boundary.providerMutationPossible,
+    });
+  }
   if (error instanceof VendorAutomationError) {
     if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
       error.payload.providerMutationPossible = true;

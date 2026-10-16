@@ -744,6 +744,37 @@ describe("provider portal kernel admission", () => {
     expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
   });
 
+  it("reports the first off-host navigation when a later step times out on the blocked error page", async () => {
+    // The browser race behind the off-host fixture flake: the page navigates
+    // off-host mid-fill, the blocked navigation commits Chromium's error page,
+    // and the fill then times out with a plain Playwright error.
+    const fake = fakeBrowser();
+    const frame = fake.page.mainFrame();
+    let frameUrl: string | null = null;
+    vi.mocked(frame.url).mockImplementation(() => frameUrl ?? fake.page.url());
+    const navigateMainFrame = (url: string) => {
+      frameUrl = url;
+      const calls = vi.mocked(fake.page.on).mock.calls as unknown as Array<[string, (value: unknown) => void]>;
+      for (const [event, listener] of calls) if (event === "framenavigated") listener(frame);
+    };
+    fake.fill.mockImplementationOnce(async () => {
+      navigateMainFrame("https://login.example-sso.com/authorize");
+      navigateMainFrame("chrome-error://chromewebdata/");
+      throw new Error("locator.fill: Timeout 5000ms exceeded.");
+    });
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: vi.fn(async () => fake.browser),
+      captureEvidence: async () => [],
+    })).rejects.toMatchObject({
+      payload: {
+        terminalState: "unexpected_origin",
+        reason: "unexpected_navigation:login.example-sso.com",
+        providerMutationPossible: true,
+      },
+    });
+    expect(fake.fill).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["a form POST body", { "content-type": "application/x-www-form-urlencoded" }, "quantity=5&material=6061"],
     ["a JSON body", { "content-type": "application/json" }, "{\"quantity\":5}"],
