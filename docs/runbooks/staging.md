@@ -40,9 +40,12 @@ Before every command that touches a hosted database (MCP `execute_sql`,
 ```bash
 # Exits non-zero for the production ref or any ref other than staging.
 node scripts/staging-reset-guard.mjs ldmambwtksfvqdufhaam
-# A connection URL works too if it matches the allowlist below; only the ref is
-# printed, never the password. Unset PGHOST/PGHOSTADDR/PGPORT/PGSERVICE/
-# PGSERVICEFILE/PGPASSFILE first or the guard refuses.
+# A connection URL works too if it matches the allowlist below (it must end in
+# ?sslmode=require or ?sslmode=verify-full); only the ref is printed, never the
+# password. Unset the ten PG* variables listed under "Prod-ref guard" first or
+# the guard refuses.
+node scripts/staging-reset-guard.mjs \
+  "postgresql://postgres:<password>@db.ldmambwtksfvqdufhaam.supabase.co:5432/postgres?sslmode=require"
 node scripts/staging-reset-guard.mjs "$STAGING_DB_URL"
 # Confirm what the CLI is linked to before db push.
 cat supabase/.temp/project-ref
@@ -66,28 +69,56 @@ libpq disagree on the host when `#` or `?` comes before the last `@`, so only
 an exact allowlist is safe.
 
 ```text
-postgres[ql]://<user>:<password>@<host>:<port>/postgres[?sslmode=require|?sslmode=verify-full]
+postgres[ql]://<user>:<password>@<host>:<port>/postgres?sslmode=<require|verify-full>
 ```
 
 | Part | Allowed |
 | --- | --- |
 | Scheme | `postgres://` or `postgresql://` (lowercase) |
-| Host + user | `db.ldmambwtksfvqdufhaam.supabase.co` with user `postgres` (direct), or `aws-1-us-west-1.pooler.supabase.com` with user `postgres.ldmambwtksfvqdufhaam` (us-west-1 Supavisor pooler) |
+| Host + user | `db.ldmambwtksfvqdufhaam.supabase.co` with user `postgres` (direct), or `aws-0-us-west-1.pooler.supabase.com` with user `postgres.ldmambwtksfvqdufhaam` (us-west-1 Supavisor pooler) |
 | Port | `5432` or `6543`, always explicit |
 | Password | Required, non-empty. Only `A-Z a-z 0-9 . _ ~ -` and `%XX` escapes. Percent-encode every other character (`@` → `%40`, `#` → `%23`, `?` → `%3F`, `/` → `%2F`, `:` → `%3A`, `%` → `%25`) |
 | Database | `postgres` |
-| Query | None, or exactly `sslmode=require` / `sslmode=verify-full`. Any other parameter (`host=`, `hostaddr=`, `service=`, `application_name=`, …) is refused |
+| Query | Required, exactly `?sslmode=require` or `?sslmode=verify-full`. No query (libpq would default to `prefer`), `sslmode=disable` / `allow` / `prefer` / `verify-ca`, or any other parameter (`options=`, `host=`, `hostaddr=`, `service=`, `target_session_attrs=`, `application_name=`, …), alone or alongside `sslmode`, is refused |
 
 Everything else is refused: API URLs, key=value DSNs, fragments, IPv6 or
-bracketed hosts, multi-host lists, other hosts (including `aws-0-` poolers),
+bracketed hosts, multi-host lists, other hosts (including `aws-1-` poolers),
 other users or ports, uppercase hosts, and surrounding whitespace. Error
 messages never print the URL, so a password is never echoed.
 
+Accepted examples:
+
+```text
+postgresql://postgres:<password>@db.ldmambwtksfvqdufhaam.supabase.co:5432/postgres?sslmode=require
+postgresql://postgres.ldmambwtksfvqdufhaam:<password>@aws-0-us-west-1.pooler.supabase.com:6543/postgres?sslmode=require
+```
+
+Pooler host: the allowlist holds only `aws-0-us-west-1.pooler.supabase.com`.
+`aws-1-us-west-1.pooler.supabase.com` is refused: it is the host the prod-only
+ovd373 access tool uses, so it is most likely the production cluster. Evidence
+(posted on OVD-880): a credential-free TLS startup probe as
+`postgres.ldmambwtksfvqdufhaam` got a SASL auth request from `aws-0-us-west-1`
+(the tenant exists there) and "tenant/user not found" from `aws-1-us-west-1`.
+`scripts/seed-staging.test.mjs` already uses `aws-0` for staging. Blaine can
+confirm the host read-only in the staging project's Supabase dashboard
+**Connect** panel. If that panel shows a different host, change the allowlist
+in `scripts/staging-reset-guard.mjs` to that exact value; do not widen it to
+other `aws-N-` hosts.
+
 Pass the connection only as that validated URL. The CLI refuses to run if any
-of `PGHOST`, `PGHOSTADDR`, `PGPORT`, `PGSERVICE`, `PGSERVICEFILE` or
-`PGPASSFILE` is set (even to an empty string), because libpq would use them
-to connect somewhere or as someone other than the URL says. Unset them
-before running the guard and the command that follows it.
+of these ten variables is set (even to an empty string), because libpq would
+use them to connect somewhere or as someone other than the URL says, or with
+weaker TLS or altered session settings:
+
+`PGHOST`, `PGHOSTADDR`, `PGPORT`, `PGSERVICE`, `PGSERVICEFILE`, `PGPASSFILE`,
+`PGSSLMODE`, `PGOPTIONS`, `PGSSLROOTCERT`, `PGTARGETSESSIONATTRS`.
+
+Unset them before running the guard and the command that follows it:
+
+```bash
+unset PGHOST PGHOSTADDR PGPORT PGSERVICE PGSERVICEFILE PGPASSFILE \
+  PGSSLMODE PGOPTIONS PGSSLROOTCERT PGTARGETSESSIONATTRS
+```
 
 Rule: the staging seed (`scripts/seed-staging.mjs --check-target`, OVD-837) and
 any staging reset or smoke script must run this check (or the equivalent
