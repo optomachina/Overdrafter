@@ -156,7 +156,7 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql"
+    "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -256,7 +256,7 @@
       "sha256": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8"
     },
     {
-      "path": "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql",
+      "path": "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql",
       "issue": "OVD-736",
       "sha256": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
     }
@@ -674,6 +674,6 @@
     "supabase/migrations/20261013043000_ovd723_export_control_upload_block.sql": "ed1a2f17e7471a3b32c3e0927421b74191f5aff5fa72477ae959a8b4e7120118",
     "supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql": "7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13",
     "supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql": "ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8",
-    "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
+    "supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql": "b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c"
   }
 }
