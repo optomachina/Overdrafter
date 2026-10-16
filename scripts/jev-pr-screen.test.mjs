@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { DEFAULT_LOG, decisionRecord, finalTier, maxTier, replay, screen } from "./jev-pr-screen.mjs";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_LOG, decisionRecord, deterministicTier, finalTier, maxTier, replay, screen } from "./jev-pr-screen.mjs";
+import { loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const accepted = (choice, confidence = 0.9) => ({ status: "accepted", choice, confidence });
 
@@ -76,6 +78,15 @@ describe("jev PR screen", () => {
     for (const result of replay(lines)) expect(result.changed).toBe(false);
   });
 
+  it("raises the declared tier to risky for sensitive paths from the shared list, never lowers it", () => {
+    const sensitivePaths = loadSensitivePaths({ root: fileURLToPath(new URL("..", import.meta.url)) });
+    expect(deterministicTier({ deterministic: "low", files: ["README.md", ".github/workflows/ci.yml"] }, sensitivePaths))
+      .toEqual({ tier: "risky", sensitiveClasses: ["infra_ci"] });
+    expect(deterministicTier({ deterministic: "normal", files: ["README.md"] }, sensitivePaths)).toEqual({ tier: "normal", sensitiveClasses: [] });
+    expect(deterministicTier({ deterministic: "Risky", files: ["README.md"] }, sensitivePaths).tier).toBe("risky");
+    expect(deterministicTier({ deterministic: "low" })).toEqual({ tier: "low", sensitiveClasses: null });
+  });
+
   it("appends one JSONL line per PR", async () => {
     const lines = [];
     const ask = async () => ({ ok: false, reason: "timeout", latencyMs: 1 });
@@ -83,5 +94,8 @@ describe("jev PR screen", () => {
     expect(records[0].final).toBe("risky");
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0])).toMatchObject({ pr: 3, final: "risky" });
+    // The default screen reads docs/sensitive-paths.json, so a declared-low PR touching a lockfile is risky.
+    const [lockfile] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: "x.jsonl", append: () => {} });
+    expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
   });
 });

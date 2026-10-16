@@ -1,7 +1,8 @@
 /**
  * Jev PR risk screen (advisory). Sizes review: low stops after an independent
  * QA or Sonnet review, normal gets a Sonnet review, risky gets an Opus review. Jev can only raise the tier set by
- * the deterministic sensitive-path match; a failed or low-confidence Jev call
+ * the deterministic sensitive-path match (OVD-873: any file matching docs/sensitive-paths.json through
+ * scripts/lib/sensitive-paths.mjs raises the declared tier to "risky"); a failed or low-confidence Jev call
  * raises the tier to at least "normal", and an unknown deterministic tier counts
  * as "risky". Every decision is appended to the JSONL
  * log with Jev's confidence and incident probability so rule changes can be
@@ -13,7 +14,9 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { askJev, gatedChoice, sanitizeToken } from "./jev-client.mjs";
+import { classifyPaths, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const DEFAULT_LOG = fileURLToPath(new URL("../docs/agent-log/jev-decisions.jsonl", import.meta.url));
 export const TIERS = ["low", "normal", "risky"];
 export const DEFAULT_MIN_CONFIDENCE = 0.5;
@@ -56,8 +59,20 @@ export function finalTier(deterministic, gate) {
   return maxTier(base, jevTier);
 }
 
-export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE } = {}) {
+/**
+ * Deterministic tier: the declared tier (unknown counts as risky), raised to
+ * risky when any file is on the shared sensitive-path list. Never lowers.
+ */
+export function deterministicTier(pr, sensitivePaths = null) {
+  const declared = TIERS.includes(pr.deterministic) ? pr.deterministic : "risky";
+  if (!sensitivePaths || !Array.isArray(pr.files)) return { tier: declared, sensitiveClasses: null };
+  const { sensitive, classes } = classifyPaths(pr.files.map(String), sensitivePaths);
+  return { tier: sensitive ? "risky" : declared, sensitiveClasses: classes };
+}
+
+export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths = null } = {}) {
   const gate = gatedChoice(result, "tier", floorOf(minConfidence));
+  const { tier: deterministic, sensitiveClasses } = deterministicTier(pr, sensitivePaths);
   const incident = result?.ok ? result.answers?.incident?.noul : undefined;
   return {
     ts: now.toISOString(),
@@ -73,8 +88,9 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
       status: gate.status,
       pIncident: isProbability(incident) ? incident : null,
     },
-    deterministic: TIERS.includes(pr.deterministic) ? pr.deterministic : "risky",
-    final: finalTier(pr.deterministic, gate),
+    deterministic,
+    sensitiveClasses,
+    final: finalTier(deterministic, gate),
     latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
   };
 }
@@ -90,7 +106,7 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
   });
 }
 
-export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE } = {}) {
+export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths = loadSensitivePaths({ root: REPO_ROOT }) } = {}) {
   const results = [];
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
@@ -101,7 +117,7 @@ export async function screen(prs, { ask = askJev, log = DEFAULT_LOG, append = ap
     results.push(...(await Promise.all(chunk)));
   }
   // Append in input order so the log reads like the batch.
-  const records = prs.map((pr, index) => decisionRecord(pr, results[index], new Date(), { minConfidence }));
+  const records = prs.map((pr, index) => decisionRecord(pr, results[index], new Date(), { minConfidence, sensitivePaths }));
   for (const record of records) append(log, `${JSON.stringify(record)}\n`);
   return records;
 }

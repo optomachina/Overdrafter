@@ -59,17 +59,18 @@ Prepare reversible work first and ask only at the protected boundary. Goals, iss
 
 ## Sensitive paths (single shared list)
 
-Triage (`ovd-auto-triage`) and the Jev PR screen (`screen.py`) use this one list. A Linear issue whose scope touches it is routed architect-first; a PR that touches it gets Opus review regardless of the Jev score. Keep the screen patterns in sync when this list changes.
+`docs/sensitive-paths.json` is the source of truth. Triage (`ovd-auto-triage`), the Jev PR screen and the merge gates read it only through `scripts/lib/sensitive-paths.mjs` and never copy its globs; gates read the base checkout's copy. A Linear issue whose scope touches it is routed architect-first; a PR that touches it gets Opus review regardless of the Jev score. Globs use picomatch semantics with dotfiles included and case ignored. The list below must match the JSON exactly (`scripts/validate-agent-contract.mjs` checks both directions). Adding a glob is free; removing, narrowing or reclassifying one is gate_loosening.
 
-| Area | Paths / signals |
-| --- | --- |
-| Database schema and migrations | `supabase/migrations/`, schema or RLS changes |
-| Auth, permissions, sessions | `auth`, `rls`, `permission(s)`, `session` paths |
-| Payments, pricing, billing | `payment`, `billing`, `stripe`, `pricing`, `invoice`, `checkout` |
-| Provider dispatch | `dispatch`, `worker/src/adapters/`, `provider-admission`, `provider-upload` |
-| Secrets and env | `secret`, `credential`, `*.pem`, `*.key`, `keys/`, `token(s).{json,yaml,ts,js}`, `vault`, `.env*`, `env.{ts,js,json}`, `.envrc` |
-| Infra, CI, deploy | `.github/workflows/`, `.github/actions/`, `infra/`, `terraform/`, `deploy/`, `k8s/`, `helm/`, `ops/`, `*.tf`, `Dockerfile`, `docker-compose`, `vercel.json`, `netlify.toml`, `fly.toml`, `scripts/deploy*`, `scripts/release*` |
-| New dependencies | `package.json`, lockfiles, `requirements*.txt`, `pyproject.toml`, `uv.lock`, `Cargo.toml`, `go.mod` |
+<!-- sensitive-paths:begin -->
+- **schema** (database schema): `**/*.sql`, `supabase/config.toml`, `docs/migration-drafts/**`
+- **migrations** (migrations): `supabase/migrations/**`
+- **auth** (auth, RLS, permissions, sessions): `**/*auth*{,/**}`, `**/{rls,*-rls,*_rls}*{,/**}`, `**/*permission*{,/**}`, `**/*session*{,/**}`
+- **payments** (payments, pricing, billing): `**/*payment*{,/**}`, `**/*billing*{,/**}`, `**/*stripe*{,/**}`, `**/*pricing*{,/**}`, `**/*invoice*{,/**}`, `**/*checkout*{,/**}`
+- **provider_dispatch** (provider dispatch): `**/*dispatch*{,/**}`, `worker/src/adapters/**`, `**/*provider-admission*{,/**}`, `**/*provider-upload*{,/**}`
+- **secrets** (secrets and env): `**/*secret*{,/**}`, `**/*credential*{,/**}`, `**/*.pem`, `**/*.key`, `**/keys/**`, `**/token{,s}.{json,yaml,yml,ts,js}`, `**/*vault*{,/**}`, `**/.env*`, `**/env.{ts,js,json}`
+- **infra_ci** (infra, CI, deploy): `.github/workflows/**`, `.github/actions/**`, `**/{infra,terraform,deploy,k8s,helm,ops}/**`, `**/*.tf`, `**/Dockerfile*`, `**/docker-compose*`, `**/{vercel.json,netlify.toml,fly.toml}`, `scripts/deploy*{,/**}`, `scripts/release*{,/**}`
+- **deps** (new dependencies): `**/package.json`, `**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}`, `**/requirements*.txt`, `**/{pyproject.toml,uv.lock,poetry.lock}`, `**/{Cargo.toml,Cargo.lock,go.mod,go.sum}`
+<!-- sensitive-paths:end -->
 
 ## Ownership and durable state
 

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "description": "OVD-873: the single sensitive-path list. AGENTS.md mirrors it between the sensitive-paths markers (checked by scripts/validate-agent-contract.mjs). Consumers import scripts/lib/sensitive-paths.mjs and never copy these globs. Globs use picomatch semantics with dot and nocase on; supported syntax is *, **, ? and {a,b}. Adding a glob is free; removing or narrowing one is gate_loosening.",
+  "classes": {
+    "schema": { "label": "Database schema", "description": "SQL, schema drafts and Supabase config outside the migrations directory" },
+    "migrations": { "label": "Migrations", "description": "Supabase migrations" },
+    "auth": { "label": "Auth, permissions, sessions", "description": "auth, RLS, permission and session paths" },
+    "payments": { "label": "Payments, pricing, billing", "description": "payment, billing, Stripe, pricing, invoice and checkout paths" },
+    "provider_dispatch": { "label": "Provider dispatch", "description": "dispatch, worker adapters, provider admission and upload" },
+    "secrets": { "label": "Secrets and env", "description": "secrets, credentials, keys, tokens, vaults and env files" },
+    "infra_ci": { "label": "Infra, CI, deploy", "description": "workflows, actions, infrastructure, containers, hosting config, deploy and release scripts" },
+    "deps": { "label": "Dependencies", "description": "package manifests and lockfiles" }
+  },
+  "globs": [
+    { "glob": "**/*.sql", "class": "schema" },
+    { "glob": "supabase/config.toml", "class": "schema" },
+    { "glob": "docs/migration-drafts/**", "class": "schema" },
+
+    { "glob": "supabase/migrations/**", "class": "migrations" },
+
+    { "glob": "**/*auth*{,/**}", "class": "auth" },
+    { "glob": "**/{rls,*-rls,*_rls}*{,/**}", "class": "auth" },
+    { "glob": "**/*permission*{,/**}", "class": "auth" },
+    { "glob": "**/*session*{,/**}", "class": "auth" },
+
+    { "glob": "**/*payment*{,/**}", "class": "payments" },
+    { "glob": "**/*billing*{,/**}", "class": "payments" },
+    { "glob": "**/*stripe*{,/**}", "class": "payments" },
+    { "glob": "**/*pricing*{,/**}", "class": "payments" },
+    { "glob": "**/*invoice*{,/**}", "class": "payments" },
+    { "glob": "**/*checkout*{,/**}", "class": "payments" },
+
+    { "glob": "**/*dispatch*{,/**}", "class": "provider_dispatch" },
+    { "glob": "worker/src/adapters/**", "class": "provider_dispatch" },
+    { "glob": "**/*provider-admission*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*provider-upload*{,/**}", "class": "provider_dispatch" },
+
+    { "glob": "**/*secret*{,/**}", "class": "secrets" },
+    { "glob": "**/*credential*{,/**}", "class": "secrets" },
+    { "glob": "**/*.pem", "class": "secrets" },
+    { "glob": "**/*.key", "class": "secrets" },
+    { "glob": "**/keys/**", "class": "secrets" },
+    { "glob": "**/token{,s}.{json,yaml,yml,ts,js}", "class": "secrets" },
+    { "glob": "**/*vault*{,/**}", "class": "secrets" },
+    { "glob": "**/.env*", "class": "secrets" },
+    { "glob": "**/env.{ts,js,json}", "class": "secrets" },
+
+    { "glob": ".github/workflows/**", "class": "infra_ci" },
+    { "glob": ".github/actions/**", "class": "infra_ci" },
+    { "glob": "**/{infra,terraform,deploy,k8s,helm,ops}/**", "class": "infra_ci" },
+    { "glob": "**/*.tf", "class": "infra_ci" },
+    { "glob": "**/Dockerfile*", "class": "infra_ci" },
+    { "glob": "**/docker-compose*", "class": "infra_ci" },
+    { "glob": "**/{vercel.json,netlify.toml,fly.toml}", "class": "infra_ci" },
+    { "glob": "scripts/deploy*{,/**}", "class": "infra_ci" },
+    { "glob": "scripts/release*{,/**}", "class": "infra_ci" },
+
+    { "glob": "**/package.json", "class": "deps" },
+    { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
+    { "glob": "**/requirements*.txt", "class": "deps" },
+    { "glob": "**/{pyproject.toml,uv.lock,poetry.lock}", "class": "deps" },
+    { "glob": "**/{Cargo.toml,Cargo.lock,go.mod,go.sum}", "class": "deps" }
+  ]
+}

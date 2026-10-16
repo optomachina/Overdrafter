@@ -15,7 +15,8 @@ test("current agent contract is internally consistent", () => {
 test("obsolete complexity approval and workflow settings are rejected", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-"));
   try {
-    for (const file of ["AGENTS.md", "CLAUDE.md", "WORKFLOW.md"]) {
+    fs.mkdirSync(path.join(temp, "docs"));
+    for (const file of ["AGENTS.md", "CLAUDE.md", "WORKFLOW.md", "docs/sensitive-paths.json"]) {
       fs.copyFileSync(path.join(repoRoot, file), path.join(temp, file));
     }
     fs.appendFileSync(path.join(temp, "AGENTS.md"), "\nHigh-complexity override\n");

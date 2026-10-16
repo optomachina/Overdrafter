@@ -2,15 +2,17 @@
 
 `jev-decisions.jsonl` records every Jev (TypeSafe, `jev-1.13.0`) decision the
 lead engineer uses to size review, one JSON object per line: PR, head SHA,
-deterministic tier from the sensitive path list in `AGENTS.md`, Jev's tier,
-confidence and incident probability, the final tier, and latency.
+deterministic tier, the matched sensitive-path classes (`sensitiveClasses`, from
+`docs/sensitive-paths.json` through `scripts/lib/sensitive-paths.mjs`), Jev's
+tier, confidence and incident probability, the final tier, and latency.
 
 Rules the log encodes, and the review each tier gets:
 
 * Jev can only raise risk. The final tier is the higher of the deterministic
   tier and Jev's tier.
 * A failed or low confidence Jev call raises the tier to at least `normal`.
-* An unknown deterministic tier counts as `risky`.
+* An unknown deterministic tier counts as `risky`, and any changed file on the
+  shared sensitive-path list raises it to `risky`.
 * `low` stops after an independent QA or Sonnet review, `normal` gets an
   independent Sonnet review, `risky` gets an independent Opus review.
   Anything on Blaine's hard list (migrations, RLS, SECURITY DEFINER, CI
