@@ -106,6 +106,9 @@ const show = (value) => {
   return text === undefined ? String(value) : text.length > 60 ? `${text.slice(0, 57)}...` : text;
 };
 
+/** Allowed clock skew for a verdict timestamp ahead of `now`. */
+export const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
 const UTC_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/;
 const FORMATS = {
   "https-url": (value) => {
@@ -169,18 +172,26 @@ function check(node, value, path, errors) {
       if (!Object.hasOwn(value, key)) errors.push(`${path}.${key}: is required`);
     }
     for (const [key, child] of Object.entries(value)) {
-      const sub = node.properties?.[key];
+      // Own properties only: `constructor`, `__proto__`, `valueOf`, ... must not resolve to Object.prototype.
+      const sub = node.properties && Object.hasOwn(node.properties, key) ? node.properties[key] : undefined;
       if (sub) check(sub, child, `${path}.${key}`, errors);
       else if (node.additionalProperties === false) errors.push(`${path}.${key}: is not an allowed field`);
     }
   }
 }
 
-/** Validate a parsed verdict object. Returns { ok, errors } with one precise message per problem. */
-export function validateVerdict(obj) {
+/**
+ * Validate a parsed verdict object. Returns { ok, errors } with one precise message per problem.
+ * A timestamp more than MAX_FUTURE_SKEW_MS after `now` is rejected.
+ */
+export function validateVerdict(obj, { now = new Date() } = {}) {
   const errors = [];
   check(schema, obj, "verdict", errors);
   if (typeOf(obj) === "object") {
+    const at = typeof obj.timestamp === "string" && !FORMATS["utc-timestamp"](obj.timestamp) ? Date.parse(obj.timestamp) : NaN;
+    if (Number.isFinite(at) && at > new Date(now).getTime() + MAX_FUTURE_SKEW_MS) {
+      errors.push(`verdict.timestamp: is in the future (got ${show(obj.timestamp)}, now ${new Date(now).toISOString()})`);
+    }
     if (obj.role === "reviewer" && !Object.hasOwn(obj, "findings")) {
       errors.push("verdict.findings: is required when role is reviewer (use [] for none)");
     }
@@ -224,23 +235,34 @@ export function formatVerdictBlock(verdict) {
   return `\`\`\`${FENCE_INFO}\n${JSON.stringify(verdict, null, 2)}\n\`\`\``;
 }
 
+/** Order comments by created_at as instants (not strings), falling back to string order when unparseable. */
+const byCreatedAt = (a, b) => {
+  const [x, y] = [Date.parse(a?.created_at), Date.parse(b?.created_at)];
+  if (Number.isFinite(x) && Number.isFinite(y)) return x - y;
+  return String(a?.created_at).localeCompare(String(b?.created_at));
+};
+
 /**
  * Parse GitHub issue comments ({ id, body, created_at, updated_at, user: { login } }).
  *
  * Returns, for `sha`:
- * - verdict: latest valid verifier verdict (by comment created_at, then block order), or null;
- * - conflicts: valid verifier verdicts for the SHA that disagree with it on verdict or patch_id;
+ * - verdict: latest valid verifier verdict (by comment created_at, then block order), or null.
+ *   Always null when `conflict` is true, so a consumer that ignores conflicts cannot pass;
+ * - conflict: true when any valid verifier verdict for the SHA disagrees with the latest one;
+ * - conflicts: those disagreeing entries (the latest itself is `latest`);
+ * - latest: the latest verifier entry, kept for diagnostics even when conflicting;
  * - reviews: valid advisory reviewer verdicts for the SHA;
  * - other_sha: valid verdicts for other SHAs (stale for this head);
  * - rejected: [{ comment_id, block, reason, errors }] for edited comments, unparseable
- *   JSON, schema errors, or a github_login that is not the comment author.
+ *   JSON, schema errors (including a timestamp after the comment's created_at), or a
+ *   github_login that is not the comment author.
  * A gate must fail closed (verdict_schema_error) on any conflict.
  */
 export function parseVerdictComments(comments, { sha } = {}) {
   if (typeof sha !== "string" || !new RegExp(HEX40).test(sha)) throw new TypeError("parseVerdictComments: sha must be a 40-hex commit SHA");
   const accepted = [];
   const rejected = [];
-  const ordered = [...(comments ?? [])].sort((a, b) => String(a?.created_at).localeCompare(String(b?.created_at)));
+  const ordered = [...(comments ?? [])].sort(byCreatedAt);
   for (const comment of ordered) {
     const blocks = extractVerdictBlocks(comment?.body);
     blocks.forEach((text, block) => {
@@ -253,7 +275,7 @@ export function parseVerdictComments(comments, { sha } = {}) {
       } catch (error) {
         return reject("invalid_json", [error.message]);
       }
-      const { ok, errors } = validateVerdict(parsed);
+      const { ok, errors } = validateVerdict(parsed, { now: Number.isFinite(Date.parse(comment.created_at)) ? new Date(comment.created_at) : new Date() });
       if (!ok) return reject("schema_error", errors);
       const author = comment.user?.login;
       if (!author || author.toLowerCase() !== parsed.verifier.github_login.toLowerCase()) {
@@ -268,10 +290,13 @@ export function parseVerdictComments(comments, { sha } = {}) {
   const conflicts = latest
     ? verifierEntries.filter((entry) => entry.verdict.verdict !== latest.verdict.verdict || entry.verdict.patch_id !== latest.verdict.patch_id)
     : [];
+  const conflict = conflicts.length > 0;
   return {
-    verdict: latest?.verdict ?? null,
-    comment_id: latest?.comment_id ?? null,
+    verdict: conflict ? null : (latest?.verdict ?? null),
+    comment_id: conflict ? null : (latest?.comment_id ?? null),
+    conflict,
     conflicts,
+    latest,
     reviews: forSha.filter((entry) => entry.verdict.role === "reviewer"),
     other_sha: accepted.filter((entry) => entry.verdict.sha !== sha),
     rejected,

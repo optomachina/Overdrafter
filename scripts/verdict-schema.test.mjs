@@ -25,7 +25,7 @@ const valid = (overrides = {}) => ({
   evidence: [{ kind: "verify-run", url: "https://github.com/o/r/actions/runs/1" }],
   notes: [],
   readiness: { conflicts: 0, open_threads: 0, checks: "green" },
-  timestamp: "2026-10-16T12:00:00Z",
+  timestamp: "2026-10-15T12:00:00Z",
   ...overrides,
 });
 
@@ -74,6 +74,20 @@ describe("validateVerdict", () => {
     ["PASS_NOTES without notes", valid({ verdict: "PASS_NOTES" }), "verdict.notes: PASS_NOTES requires at least one note"],
     ["bad finding line", valid({ role: "reviewer", findings: [{ severity: "low", file: "a.ts", line: 0, model: "grok" }] }), "verdict.findings[0].line: must be >= 1 (got 0)"],
     ["not an object", [], "verdict: must be object (got array)"],
+    ["far-future timestamp", valid({ timestamp: "2999-01-01T00:00:00Z" }), "verdict.timestamp: is in the future"],
+    // Names inherited from Object.prototype must still be unknown fields (fail closed).
+    ...["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"].flatMap((name) => {
+      const top = valid();
+      const nested = valid();
+      // Define as own data properties: `obj.__proto__ = x` would set the prototype instead.
+      Object.defineProperty(top, name, { value: "x", enumerable: true });
+      Object.defineProperty(nested.verifier, name, { value: 1, enumerable: true });
+      return [
+        [`top-level ${name}`, top, `verdict.${name}: is not an allowed field`],
+        [`verifier.${name}`, nested, `verdict.verifier.${name}: is not an allowed field`],
+      ];
+    }),
+    ["JSON-parsed __proto__", JSON.parse(JSON.stringify(valid()).replace(/^\{/, '{"__proto__":{"x":1},')), "verdict.__proto__: is not an allowed field"],
   ];
 
   it.each(cases)("rejects %s with a precise message", (_name, verdict, message) => {
@@ -88,6 +102,13 @@ describe("validateVerdict", () => {
       { severity: "info", file: "README.md", line: null, model: "codex" },
     ];
     expect(validateVerdict(valid({ role: "reviewer", findings })).ok).toBe(true);
+  });
+
+  it("rejects a timestamp beyond the skew allowance relative to now, and accepts one within it", () => {
+    const now = new Date("2026-10-16T12:00:00Z");
+    expect(validateVerdict(valid({ timestamp: "2026-10-16T12:04:59Z" }), { now }).ok).toBe(true);
+    const result = validateVerdict(valid({ timestamp: "2026-10-16T12:05:01Z" }), { now });
+    expect(result.errors).toEqual([expect.stringMatching(/^verdict\.timestamp: is in the future/)]);
   });
 
   it("detects high notes", () => {
@@ -170,8 +191,24 @@ describe("parseVerdictComments", () => {
       [comment(1, valid({ verdict: "FAIL" })), comment(2, valid()), comment(3, valid({ patch_id: "d".repeat(40) }), { login: "verifier-bot" })],
       { sha: SHA },
     );
-    expect(result.comment_id).toBe(3);
+    expect(result).toMatchObject({ verdict: null, comment_id: null, conflict: true });
+    expect(result.latest.comment_id).toBe(3);
     expect(result.conflicts.map((e) => e.comment_id)).toEqual([1, 2]);
+  });
+
+  it("orders by created_at instant, not by string", () => {
+    const result = parseVerdictComments(
+      [comment(1, valid({ verdict: "FAIL" }), { created: "2026-10-16T12:00:01.500Z" }), comment(2, valid(), { created: "2026-10-16T12:00:01Z" })],
+      { sha: SHA },
+    );
+    // As strings ".500Z" sorts before "Z"; as instants comment 1 is later.
+    expect(result.latest.comment_id).toBe(1);
+  });
+
+  it("rejects a verdict timestamped after its comment was created", () => {
+    const result = parseVerdictComments([comment(1, valid({ timestamp: "2026-10-16T13:00:00Z" }))], { sha: SHA });
+    expect(result.verdict).toBeNull();
+    expect(result.rejected[0]).toMatchObject({ reason: "schema_error", errors: [expect.stringMatching(/is in the future/)] });
   });
 
   it("rejects edited comments", () => {
@@ -207,7 +244,8 @@ describe("parseVerdictComments", () => {
   it("reads every block in a comment and requires a valid sha argument", () => {
     const body = `${formatVerdictBlock(valid({ verdict: "FAIL" }))}\n\n${formatVerdictBlock(valid())}`;
     const result = parseVerdictComments([comment(1, body)], { sha: SHA });
-    expect(result.verdict.verdict).toBe("PASS");
+    expect(result.verdict).toBeNull();
+    expect(result.latest.verdict.verdict).toBe("PASS");
     expect(result.conflicts).toHaveLength(1);
     expect(() => parseVerdictComments([], { sha: "HEAD" })).toThrow(/40-hex/);
   });

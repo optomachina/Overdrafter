@@ -20,7 +20,7 @@ doesn't gate anything on its own.
   "role": "verifier",
   "verdict": "PASS",
   "sha": "<40-hex head SHA verified>",
-  "patch_id": "<git patch-id --stable of base...head>",
+  "patch_id": "<git patch-id --verbatim of base...head>",
   "verifier": { "id": "astra-verifier", "model_family": "opus", "github_login": "verifier-bot" },
   "evidence": [{ "kind": "verify-run", "url": "https://github.com/optomachina/Overdrafter/actions/runs/1" }],
   "notes": ["low: rename helper for clarity"],
@@ -50,7 +50,13 @@ with its JSON path. Examples:
 
 Unknown fields, wrong types, unknown schema versions, non-https or credentialed
 evidence URLs, non-UTC or impossible timestamps, and empty evidence are all
-rejected.
+rejected. Field names inherited from `Object.prototype` (`constructor`,
+`__proto__`, `valueOf`, ...) are unknown fields like any other.
+
+`validateVerdict(obj, { now })` also rejects a `timestamp` more than five
+minutes (`MAX_FUTURE_SKEW_MS`) after `now`, which defaults to the current time.
+`parseVerdictComments` passes the comment's `created_at` as `now`, so a verdict
+can't claim a time after the comment that carries it was posted.
 
 ## Emitting
 
@@ -63,14 +69,26 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   --note "low: rename helper for clarity"
 ```
 
-- `sha` comes from `git rev-parse <head>^{commit}`.
-- `patch_id` is `git patch-id --stable` over `git diff base...head`. The script
-  pins the diff options (no renames, Myers algorithm, `a/` and `b/` prefixes, no
-  external diff or textconv), so local git config can't change the id. An empty
-  diff is an error.
+- `sha` comes from `git rev-parse --verify --end-of-options <head>^{commit}`.
+  Head is resolved once, and `patch_id` is computed from that same SHA, so the
+  two always describe the same commit.
+- `patch_id` is `git patch-id --verbatim` over `git diff base...head`, with both
+  ends resolved to SHAs first (so `--base`/`--head` can never be read as git
+  options). `--verbatim` keeps whitespace, so an indentation-only change gets a
+  new id; it also implies the file-order-independent hashing of `--stable`.
+  The script pins every diff option that git config could change: no renames,
+  no relative paths, Myers algorithm, indent heuristic, `--unified=3`,
+  `--inter-hunk-context=0`, `--submodule=short`, `--ignore-submodules=none`,
+  `--full-index`, `--binary` (binary changes affect the id), `a/` and `b/`
+  prefixes, no order file, `diff.suppressBlankEmpty=false`, and no external diff
+  or textconv. The verifier and OVD-845 therefore compute the same id for the
+  same commits regardless of local config. OVD-845 must compute the id with
+  `computePatchId` (or byte-identical options) rather than its own diff. An
+  empty diff is an error.
 - `timestamp` is the current UTC time, to the second.
-- Reviewers add `--role reviewer --findings findings.json`. The script tags the
-  findings with `corroborated` before printing them.
+- Reviewers add `--role reviewer --findings findings.json`. The file must hold a
+  JSON array. The script tags the findings with `corroborated` before printing
+  them.
 - The script prints the comment body to stdout. It posts only when given both
   `--post` and `--pr <n>`, and then it runs `gh pr comment <n> --body-file -`.
   Tests inject the runner and never post.
@@ -95,8 +113,10 @@ created_at`) is rejected. To change a verdict, post a new comment.
 
 | Key | Meaning |
 | --- | --- |
-| `verdict` / `comment_id` | Latest valid `verifier` verdict for `sha`, ordered by comment `created_at` and then by block order, or `null`. |
-| `conflicts` | Other valid verifier verdicts for `sha` whose `verdict` or `patch_id` differs from the latest one. |
+| `verdict` / `comment_id` | Latest valid `verifier` verdict for `sha`, ordered by comment `created_at` (as an instant) and then by block order, or `null`. **Always `null` when `conflict` is true**, so a consumer that ignores conflicts can't read a pass. |
+| `conflict` | `true` when any other valid verifier verdict for `sha` disagrees with the latest one. |
+| `conflicts` | Those disagreeing verifier verdicts (`verdict` or `patch_id` differs from the latest one). |
+| `latest` | The latest verifier entry, `{ comment_id, block, created_at, verdict }`, kept for diagnostics even when conflicting. Never use it as gate input. |
 | `reviews` | Valid advisory `reviewer` verdicts for `sha`. |
 | `other_sha` | Valid verdicts for other SHAs. These are stale for this head. Under the OVD-845 rebase rule, a verdict carries over only when its `patch_id` equals the patch-id recomputed for the current head. |
 | `rejected` | `{ comment_id, block, reason, errors }`, where `reason` is one of `edited_comment`, `missing_comment_timestamps`, `invalid_json`, `schema_error` or `author_mismatch`. |
@@ -106,10 +126,28 @@ line and end with a closing fence line. It ignores other text and fences in
 other languages. A gate must treat any `conflicts` entry, or any rejected block
 that may belong to the current head, as `verdict_schema_error`.
 
-The parser doesn't check independence: whether the verifier also authored or
-committed a commit in the PR (`verifier_not_independent`). It also doesn't
-check SHA staleness against the live head. OVD-845 does both, using the PR
-commits API.
+## OVD-845 responsibilities
+
+This format and its parser deliberately leave the following to the OVD-845
+gate. The gate must do each of them; none is enforced here.
+
+- **Independence.** The parser only checks that `verifier.github_login`
+  matches the comment author. It does not check the login against the PR
+  author or against the authors and committers of the PR's commits
+  (`verifier_not_independent`), against an allowlist of verifier identities,
+  or `verifier.model_family` against the implementer's model family. OVD-845
+  owns all of these checks.
+- **Corroboration.** The `corroborated` field on findings is self-reported by
+  whoever emitted the verdict and covers only the findings inside that one
+  verdict. Consumers must not trust it: recompute it with `tagCorroborated`
+  over the findings they use. Corroboration across separate reviewer comments
+  (for example an Opus review and a Grok review posted separately) is not
+  computed anywhere in this format; if OVD-845 needs it, it must collect the
+  findings from every valid `reviews` entry and run `tagCorroborated` over the
+  combined list.
+- **Staleness.** The parser doesn't compare `sha` with the live PR head.
+  OVD-845 does, using the PR commits API, and applies the rebase rule above
+  with a patch-id it recomputes itself.
 
 ## Corroboration
 
@@ -117,7 +155,7 @@ commits API.
 a finding when another model family raised a finding on the same file at a line
 within `lineTolerance`. File-level findings (`line: null`) only match other
 file-level findings. When one family repeats a finding, that isn't
-corroboration.
+corroboration. The emitted field is advisory; see OVD-845 responsibilities.
 
 ## Tests
 
@@ -127,9 +165,12 @@ cover:
 - the emit-to-validate round trip;
 - one fixture per schema violation;
 - patch-id stability across a no-op rebase, and a new patch-id when the diff
-  changes (temporary git repo in `os.tmpdir()`);
-- comment parsing: non-fenced text, latest block for a SHA, conflicts, edited
-  comments and author mismatch;
+  changes, including an indentation-only change; the same id under different
+  `diff.*` config; `--base`/`--head` values that look like git options are
+  refused (temporary git repo in `os.tmpdir()`);
+- extra fields named after `Object.prototype` members, and future timestamps;
+- comment parsing: non-fenced text, latest block for a SHA, conflicts (with a
+  `null` verdict), ordering by instant, edited comments and author mismatch;
 - advisory reviewer verdicts;
 - corroboration;
 - posting only with `--post`, through an injected runner.

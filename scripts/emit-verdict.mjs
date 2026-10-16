@@ -3,9 +3,9 @@
  * OVD-851: build, validate, and print an `overdrafter.verdict/v1` PR comment.
  *
  * Used by the independent verifier (role verifier, gate input) and by
- * reviewers (role reviewer, advisory, with --findings). Fills sha from
- * `git rev-parse <head>`, patch_id from `git patch-id --stable` over
- * base...head, and a UTC timestamp. Prints the comment body to stdout; it only
+ * reviewers (role reviewer, advisory, with --findings). Resolves base and head
+ * to commit SHAs once, then fills sha from the resolved head, patch_id from
+ * `git patch-id --verbatim` over base...head, and a UTC timestamp. Prints the comment body to stdout; it only
  * posts (via `gh pr comment`) when --post and --pr are both given. Never edit a
  * posted verdict comment: edited comments are rejected, so post a new one.
  *
@@ -33,16 +33,32 @@ export function resolveSha(rev, { cwd } = {}) {
 }
 
 /**
- * `git patch-id --stable` of the base...head diff (merge-base to head). Diff
- * options are pinned so local git config cannot change the id.
+ * Every diff option that git config could otherwise change is pinned here, so
+ * the verifier and OVD-845 compute the same id for the same commits.
+ */
+const PINNED_DIFF = [
+  "-c", "core.quotePath=true",
+  "-c", "diff.suppressBlankEmpty=false",
+  "diff",
+  "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-relative",
+  "--diff-algorithm=myers", "--indent-heuristic", "--unified=3", "--inter-hunk-context=0",
+  "--submodule=short", "--ignore-submodules=none", "--full-index", "--binary",
+  "--src-prefix=a/", "--dst-prefix=b/", "-O/dev/null",
+];
+
+/**
+ * `git patch-id --verbatim` of the base...head diff (merge-base to head).
+ * `--verbatim` keeps whitespace, so an indentation-only change yields a new id,
+ * and implies the order-independent `--stable` hashing (git rejects passing
+ * both). Both ends are resolved with `resolveSha` (which ends option parsing)
+ * before the diff, so neither can be read as a git option.
  */
 export function computePatchId({ base, head, cwd }) {
-  const diff = git(
-    ["-c", "core.quotePath=true", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--diff-algorithm=myers", "--src-prefix=a/", "--dst-prefix=b/", `${base}...${head}`, "--"],
-    { cwd },
-  );
+  const baseSha = resolveSha(base, { cwd });
+  const headSha = resolveSha(head, { cwd });
+  const diff = git([...PINNED_DIFF, `${baseSha}...${headSha}`, "--"], { cwd });
   if (!diff.trim()) throw new Error(`computePatchId: ${base}...${head} has an empty diff`);
-  const [patchId] = git(["patch-id", "--stable"], { cwd, input: diff }).trim().split(/\s+/);
+  const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
   if (!/^[0-9a-f]{40}$/.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
   return patchId;
 }
@@ -63,12 +79,15 @@ const parseEvidence = (entry) => {
  * tests or computed from git) and validate it. Throws with every schema error.
  */
 export function buildVerdict(input, { cwd, now = new Date() } = {}) {
+  if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
+  // Resolve head once and diff that exact commit, so sha and patch_id always describe the same tree.
+  const sha = input.sha ?? resolveSha(input.head, { cwd });
   const verdict = {
     schema: SCHEMA_ID,
     role: input.role,
     verdict: input.verdict,
-    sha: input.sha ?? resolveSha(input.head, { cwd }),
-    patch_id: input.patchId ?? computePatchId({ base: input.base, head: input.head, cwd }),
+    sha,
+    patch_id: input.patchId ?? computePatchId({ base: input.base, head: sha, cwd }),
     verifier: { id: input.verifierId, model_family: input.modelFamily, github_login: input.githubLogin },
     evidence: input.evidence ?? [],
     notes: input.notes ?? [],
@@ -76,7 +95,7 @@ export function buildVerdict(input, { cwd, now = new Date() } = {}) {
     ...(input.findings !== undefined ? { findings: tagCorroborated(input.findings) } : {}),
     timestamp: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
   };
-  const { ok, errors } = validateVerdict(verdict);
+  const { ok, errors } = validateVerdict(verdict, { now });
   if (!ok) throw new Error(`invalid verdict:\n- ${errors.join("\n- ")}`);
   return verdict;
 }
@@ -95,11 +114,17 @@ export function formatComment(verdict) {
 }
 
 /** Post via `gh pr comment`. `run` is injectable so tests never touch GitHub. */
-export function postComment({ pr, body, run = spawnSync }) {
+export function postComment({ pr, body, cwd, run = spawnSync }) {
   if (!/^\d+$/.test(String(pr ?? ""))) throw new Error("--post requires --pr <number>");
-  const result = run("gh", ["pr", "comment", String(pr), "--body-file", "-"], { input: body, encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
+  const result = run("gh", ["pr", "comment", String(pr), "--body-file", "-"], { cwd, input: body, encoding: "utf8", stdio: ["pipe", "inherit", "inherit"] });
   if (result.error || result.status !== 0) throw new Error(`gh pr comment failed (${result.error?.message ?? `exit ${result.status}`})`);
 }
+
+const readFindings = (file) => {
+  const findings = JSON.parse(readFileSync(file, "utf8"));
+  if (!Array.isArray(findings)) throw new Error(`--findings ${file} must contain a JSON array of finding objects`);
+  return findings;
+};
 
 const OPTIONS = {
   role: { type: "string", default: "verifier" },
@@ -138,12 +163,12 @@ export function main(argv = process.argv.slice(2), { cwd, now, run } = {}) {
         open_threads: parseCount("open-threads", values["open-threads"]),
         checks: values.checks,
       },
-      findings: values.findings === undefined ? undefined : JSON.parse(readFileSync(values.findings, "utf8")),
+      findings: values.findings === undefined ? undefined : readFindings(values.findings),
     },
     { cwd, now },
   );
   const body = formatComment(verdict);
-  if (values.post) postComment({ pr: values.pr, body, run });
+  if (values.post) postComment({ pr: values.pr, body, cwd, run });
   return body;
 }
 

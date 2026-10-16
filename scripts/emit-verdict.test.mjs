@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -61,6 +61,43 @@ describe("computePatchId", () => {
     git("checkout", "-q", "main");
   });
 
+  it("changes when only indentation changes (--verbatim)", () => {
+    git("checkout", "-q", "-b", "ws-a", "main");
+    commit("ws.py", "if x:\n    y()\nz()\n", "dedented z");
+    git("checkout", "-q", "-b", "ws-b", "main");
+    commit("ws.py", "if x:\n    y()\n    z()\n", "indented z");
+    git("checkout", "-q", "main");
+    expect(computePatchId({ base: "main", head: "ws-a", cwd: repo })).not.toBe(computePatchId({ base: "main", head: "ws-b", cwd: repo }));
+  });
+
+  it("does not depend on local diff config", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    git("checkout", "-q", "-b", "ctx-base", "main");
+    commit("ctx.txt", `${lines.join("\n")}\n`, "ctx base");
+    git("checkout", "-q", "-b", "ctx-head");
+    commit("ctx.txt", `${lines.map((l, i) => (i === 4 || i === 12 ? `${l} changed` : l)).join("\n")}\n`, "ctx change");
+    git("checkout", "-q", "main");
+    const pinned = computePatchId({ base: "ctx-base", head: "ctx-head", cwd: repo });
+    const settings = [["diff.context", "1"], ["diff.interHunkContext", "10"], ["diff.algorithm", "patience"], ["diff.noprefix", "true"], ["diff.suppressBlankEmpty", "true"]];
+    try {
+      for (const [key, value] of settings) git("config", key, value);
+      expect(computePatchId({ base: "ctx-base", head: "ctx-head", cwd: repo })).toBe(pinned);
+    } finally {
+      for (const [key] of settings) git("config", "--unset", key);
+    }
+  });
+
+  it("never lets base or head be read as a git option", () => {
+    const outDir = mkdtempSync(join(tmpdir(), "ovd851-inject-"));
+    try {
+      expect(() => computePatchId({ base: `--output=${join(outDir, "x")}`, head: "feature", cwd: repo })).toThrow(/rev-parse/);
+      expect(() => computePatchId({ base: "main", head: `--output=${join(outDir, "y")}`, cwd: repo })).toThrow(/rev-parse/);
+      expect(readdirSync(outDir)).toEqual([]);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses an empty diff", () => {
     expect(() => computePatchId({ base: "main", head: "main", cwd: repo })).toThrow(/empty diff/);
   });
@@ -80,6 +117,21 @@ describe("emit -> validate round trip", () => {
     });
     const comments = [{ id: 7, user: { login: "verifier-bot" }, created_at: "2026-10-16T12:35:00Z", updated_at: "2026-10-16T12:35:00Z", body }];
     expect(parseVerdictComments(comments, { sha: verdict.sha }).verdict).toEqual(verdict);
+  });
+
+  it("binds patch_id to the given sha rather than re-resolving head", () => {
+    const sha = resolveSha("ws-a", { cwd: repo });
+    const verdict = buildVerdict(
+      { role: "verifier", verdict: "PASS", sha, base: "main", head: "feature", verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } },
+      { cwd: repo, now: NOW },
+    );
+    expect(verdict.patch_id).toBe(computePatchId({ base: "main", head: "ws-a", cwd: repo }));
+  });
+
+  it("rejects a --findings file that is not an array", () => {
+    const findingsFile = join(repo, "findings-object.json");
+    writeFileSync(findingsFile, JSON.stringify({ severity: "high" }));
+    expect(() => main([...ARGS, "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW })).toThrow(/must contain a JSON array/);
   });
 
   it("refuses to emit an invalid verdict with every error listed", () => {
@@ -112,7 +164,7 @@ describe("posting", () => {
   it("posts a new comment through an injected runner with --post", () => {
     const run = vi.fn(() => ({ status: 0 }));
     const body = main([...ARGS, "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
-    expect(run).toHaveBeenCalledWith("gh", ["pr", "comment", "12", "--body-file", "-"], expect.objectContaining({ input: body }));
+    expect(run).toHaveBeenCalledWith("gh", ["pr", "comment", "12", "--body-file", "-"], expect.objectContaining({ input: body, cwd: repo }));
   });
 
   it("requires a PR number and surfaces gh failures", () => {
