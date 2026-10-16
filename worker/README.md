@@ -695,8 +695,9 @@ SUPABASE_URL=https://your-project.supabase.co \
 ```
 
 For a staging worker against the staging Supabase project, set
-`OVERDRAFTER_DEPLOY_ENV=staging` with a staging `SERVICE_NAME` and
-`SUPABASE_SERVICE_ROLE_SECRET_NAME`; the script refuses production values. See
+`OVERDRAFTER_DEPLOY_ENV=staging` with `WORKER_MODE=simulate` and a
+`SERVICE_NAME` and secret names ending in `-staging`; the script refuses live
+mode and any other name. See
 [docs/staging-env-wiring.md](../docs/staging-env-wiring.md).
 
 To inject a provider key from Secret Manager, add either

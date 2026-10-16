@@ -287,7 +287,10 @@ type HealthExtras = {
   fictivSessionAgeDays: number | null;
 };
 
-/** OVD-838: the Supabase project ref behind SUPABASE_URL (never a key), so staging and prod are distinguishable. */
+/**
+ * OVD-838: the Supabase project ref behind SUPABASE_URL (never a key), so staging and prod are distinguishable.
+ * Mirrors supabaseProjectRef in server/operations/deploy-diagnostics.ts; keep them in sync.
+ */
 export function supabaseProjectRef(url: string): string | null {
   try {
     return /^([a-z0-9]{20})\.supabase\.co$/.exec(new URL(url).hostname)?.[1] ?? null;

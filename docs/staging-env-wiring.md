@@ -41,6 +41,15 @@ scoped to both Production and Preview, split it into two entries first.
 No new Vercel variable is required: `GET /api/health` derives the target from
 the built-in `VERCEL_ENV` and the existing `SUPABASE_URL`/`VITE_SUPABASE_URL`.
 
+`/api/health` reads these values from the function's runtime environment. The
+browser bundle inlines `VITE_*` values at build time, so after changing any
+Preview value, **redeploy** before trusting `browserSupabaseRef`; otherwise the
+endpoint reports the new ref while the browser still uses the old one.
+
+Preview deployments answer `503` until the Preview-scoped Supabase values
+exist. Deployments with `VERCEL_ENV=development` (and local runs) have no
+required ref and always answer `200`; they are not checked.
+
 ## Vercel Production
 
 Unchanged. Every name above keeps its existing Production-scoped value pointing
@@ -54,9 +63,20 @@ the script then refuses to deploy unless all of these hold, before any `gcloud`
 call:
 
 - `SUPABASE_URL` is `https://ldmambwtksfvqdufhaam.supabase.co`;
-- `SERVICE_NAME` is not the production `overdrafter-cad-worker`;
-- `SUPABASE_SERVICE_ROLE_SECRET_NAME` is not the production
-  `supabase-service-role-key`.
+- `WORKER_MODE` is not `live` (the script default), so no supplier carts or
+  quotes are touched;
+- `SERVICE_NAME` and `SUPABASE_SERVICE_ROLE_SECRET_NAME` end in `-staging`;
+- without a profile snapshot, `XOMETRY_STORAGE_STATE_SECRET_NAME` ends in
+  `-staging` (its default is the production `xometry-storage-state`, which the
+  script binds even in simulate mode); with a snapshot,
+  `XOMETRY_PROFILE_SNAPSHOT_BUCKET` ends in `-staging`;
+- every other secret name that is set (`FICTIV_`, `QUICKPARTS_`,
+  `WEERG_STORAGE_STATE_SECRET_NAME`, `OPENAI_`/`ANTHROPIC_API_KEY_SECRET_NAME`,
+  `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME`) ends in `-staging`.
+
+In the other direction, a deploy without `OVERDRAFTER_DEPLOY_ENV=staging` is
+refused when `SUPABASE_URL` names the staging project. Live staging dispatch is
+not supported by the script; enabling it needs a separately approved change.
 
 | Deploy input | Source | Value or Secret Manager name |
 | --- | --- | --- |
@@ -64,8 +84,10 @@ call:
 | `SERVICE_NAME` | shell | `overdrafter-cad-worker-staging` |
 | `SUPABASE_URL` | shell | staging URL |
 | `SUPABASE_SERVICE_ROLE_SECRET_NAME` | Secret Manager | `supabase-service-role-key-staging` (mounted as `SUPABASE_SERVICE_ROLE_KEY`) |
-| `WORKER_MODE` | shell | `simulate` until staging live dispatch is separately approved |
-| `XOMETRY_STORAGE_STATE_SECRET_NAME`, `XOMETRY_PROFILE_SNAPSHOT_*`, `*_API_KEY_SECRET_NAME` | Secret Manager | leave unset, or use separate `-staging` secrets; never the production secrets |
+| `WORKER_MODE` | shell | `simulate` (required; `live` is refused) |
+| `XOMETRY_STORAGE_STATE_SECRET_NAME` | Secret Manager | **required** unless a snapshot is set: `xometry-storage-state-staging`. Do not leave it unset; the default is the production secret |
+| `XOMETRY_PROFILE_SNAPSHOT_BUCKET`, `XOMETRY_PROFILE_SNAPSHOT_OBJECT` | GCS | leave unset, or a bucket ending in `-staging` |
+| `FICTIV_`/`QUICKPARTS_`/`WEERG_STORAGE_STATE_SECRET_NAME`, `*_API_KEY_SECRET_NAME` | Secret Manager | leave unset, or a separate secret ending in `-staging`; never the production secrets |
 
 Create the staging secret once, reading the key from your own shell so it never
 lands in a file or history:
@@ -73,6 +95,9 @@ lands in a file or history:
 ```bash
 gcloud secrets create supabase-service-role-key-staging --replication-policy=automatic
 # then add a version from stdin: gcloud secrets versions add supabase-service-role-key-staging --data-file=-
+gcloud secrets create xometry-storage-state-staging --replication-policy=automatic
+# simulate mode never logs in; an empty storage state is enough:
+# printf '{"cookies":[],"origins":[]}' | gcloud secrets versions add xometry-storage-state-staging --data-file=-
 ```
 
 The worker `/health` and `/ready` payloads include `supabaseProjectRef` (ref

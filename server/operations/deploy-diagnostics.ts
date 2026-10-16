@@ -4,6 +4,7 @@
  * reads or echoes keys. See docs/staging-env-wiring.md.
  */
 export const PRODUCTION_SUPABASE_REF = "ozuatdcakezjtevztjlr";
+// Must match STAGING_SUPABASE_REF in worker/scripts/deploy-cloud-run.sh (contract-tested).
 export const STAGING_SUPABASE_REF = "ldmambwtksfvqdufhaam";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -15,14 +16,21 @@ export type DeployDiagnostics = {
   deployEnvironment: DeployEnvironment;
   /** Ref behind SUPABASE_URL, used by server functions. */
   serverSupabaseRef: string | null;
-  /** Ref behind VITE_SUPABASE_URL, inlined into the browser bundle. */
+  /**
+   * Ref behind the runtime VITE_SUPABASE_URL. The browser bundle inlines this at
+   * build time, so the two only agree when the deployment was rebuilt after the
+   * value last changed.
+   */
   browserSupabaseRef: string | null;
   expectedSupabaseRef: string | null;
   /** False when a ref is missing or differs from the one this environment requires. */
   supabaseRefMatchesEnvironment: boolean | null;
 };
 
-/** Hosted Supabase refs are 20 lowercase alphanumerics; anything else is not reported. */
+/**
+ * Hosted Supabase refs are 20 lowercase alphanumerics; anything else is not reported.
+ * Mirrored by supabaseProjectRef in worker/src/httpServer.ts; keep them in sync.
+ */
 export function supabaseProjectRef(url: string | undefined): string | null {
   if (!url) return null;
   try {
@@ -38,6 +46,7 @@ function deployEnvironment(environment: Environment): DeployEnvironment {
   return value === "production" || value === "preview" || value === "development" ? value : "local";
 }
 
+// `development` and `local` have no required ref, so they always answer 200.
 const EXPECTED_REFS: Partial<Record<DeployEnvironment, string>> = {
   production: PRODUCTION_SUPABASE_REF,
   preview: STAGING_SUPABASE_REF,
