@@ -21,6 +21,7 @@ import {
 } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
+  type HarnessPriceCaptureHook,
   type VendorArtifact,
   type VendorQuoteAdapterOffer,
   type LiveEvaluationUploadFile,
@@ -481,6 +482,37 @@ async function appendArtifacts(
   label: string,
 ) {
   artifacts.push(...(await capturePageArtifacts(page, runDir, label)));
+}
+
+/**
+ * OVD-779: the price-capture DOM goes through the same redactor as every other
+ * snapshot. The adapter never screenshots (OVD-611); only a hook injected by
+ * the live-evaluation harness may, and a hook failure never fails the quote.
+ */
+export async function capturePriceArtifacts(
+  page: Page,
+  runDir: string,
+  harnessHook: HarnessPriceCaptureHook | null,
+): Promise<VendorArtifact[]> {
+  const artifacts = await capturePageArtifacts(page, runDir, "price-capture");
+  if (!harnessHook) return artifacts;
+  try {
+    artifacts.push(...(await harnessHook({ page, label: "price-capture" })));
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.harness_capture_failed",
+        message: "Live-evaluation harness capture hook failed.",
+        context: {
+          vendor: "xometry",
+          error: error instanceof Error ? error.name : "unknown",
+        },
+      }),
+    );
+  }
+  return artifacts;
 }
 
 async function firstWorkingLocator(page: Page, selectors: readonly string[]) {
@@ -3510,6 +3542,11 @@ export class XometryAdapter extends VendorAdapter {
       // review instead of quoting whatever currency string the page happened
       // to contain. See gateVendorPrice for the reasoning.
       const manualReview = manualReviewResult.manualReview || priceGate.locatorDriftDetected;
+      artifacts.push(...(await capturePriceArtifacts(
+        page,
+        runDir,
+        isLiveEvaluation ? input.harnessPriceCaptureHook ?? null : null,
+      )));
 
       if (offers.length === 0 && priceGate.trusted && !manualReviewResult.manualReview) {
         throw new VendorAutomationError(

@@ -1744,6 +1744,7 @@ describe("XometryAdapter", () => {
       clickMaterialControl, clickFinishControl, hiddenMaterialControl, hiddenFinishControl, startNewQuote, instantQuoteUpload, toolLibraryUpload,
     } = createLiveConfigureFlow(input);
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const screenshot = vi.spyOn(page, "screenshot");
 
     const adapter = makeLiveEvaluationAdapter(
       makeConfig({
@@ -1755,6 +1756,8 @@ describe("XometryAdapter", () => {
     );
 
     const result = await adapter.quote(input);
+    // OVD-779: without an injected harness hook the adapter never screenshots.
+    expect(screenshot).not.toHaveBeenCalled();
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
@@ -1796,10 +1799,11 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    // OVD-611: screenshots are no longer captured, so only the 5 HTML snapshots remain.
+    // OVD-611: screenshots are not captured; OVD-779 adds the redacted price-capture DOM.
     expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
-      Array(5).fill("html_snapshot"),
+      Array(6).fill("html_snapshot"),
     );
+    expect(result.artifacts.map((artifact) => artifact.label)).toContain("price-capture-dom");
 
     // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
     const browser = await playwrightLaunchMock.mock.results[0]?.value;
@@ -1820,6 +1824,31 @@ describe("XometryAdapter", () => {
     await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
   });
 
+  it("calls an injected harness capture hook once at price capture on the live-evaluation path", async () => {
+    const workerTempDir = await makeTempDir();
+    const harnessPriceCaptureHook = vi.fn(async () => [{
+      kind: "screenshot" as const,
+      label: "price-capture-screenshot",
+      localPath: path.join(workerTempDir, "harness.png"),
+      contentType: "image/png",
+    }]);
+    const input = { ...(await makeLiveEvaluationInput()), harnessPriceCaptureHook };
+    const { page } = createLiveConfigureFlow(input);
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(input);
+
+    expect(harnessPriceCaptureHook).toHaveBeenCalledOnce();
+    expect(harnessPriceCaptureHook).toHaveBeenCalledWith(expect.objectContaining({ label: "price-capture" }));
+    expect(result.artifacts.filter((artifact) => artifact.kind === "screenshot")).toHaveLength(1);
+  });
   it("engaged during the last configuration step: Save Configuration is never clicked (OVD-722)", async () => {
     const workerTempDir = await makeTempDir();
     const reads: string[] = [];
