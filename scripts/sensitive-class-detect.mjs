@@ -43,7 +43,7 @@ const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude
 const SQL_KEYS = new Set(["paths", "rules"]);
 const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason"]);
 // A whole lower-cased word as sqlWords emits it, or one punctuation character.
-const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sa-z0-9_$])$/;
+const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sA-Za-z0-9_$])$/;
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -284,12 +284,20 @@ const MAX_SQL_DEPTH = 8;
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
- * comments and quoted identifiers. Every single-quoted, E'' and dollar-quoted
- * string is tokenized recursively as SQL, because a string can be code: a DO
- * block (`DO LANGUAGE plpgsql $$…$$`), an old-style function body
- * (`AS '…'`) or dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails
- * closed: a string literal that merely mentions CREATE POLICY also matches.
+ * comments. A double-quoted identifier becomes one lower-cased word, because
+ * Postgres accepts quoted names (`SET "row_security"`, `"set_config"(…)`).
+ * Every single-quoted, E'' and dollar-quoted string is tokenized recursively
+ * as SQL, because a string can be code: a DO block
+ * (`DO LANGUAGE plpgsql $$…$$`), an old-style function body (`AS '…'`) or
+ * dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails closed: a string
+ * literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
+ *
+ * Known limits: names spelled with escapes (`E'row\x5fsecurity'`,
+ * `U&'row\005fsecurity'`, `U&"row\005fsecurity"`) or built at run time
+ * (`'row_' || 'security'`, format(), EXECUTE of a variable) are not decoded,
+ * and set_config with the setting name nested deeper than `(('role'))` or
+ * passed as a variable does not match the role rules.
  */
 export function sqlWords(text, depth = 0) {
   const sql = String(text);
@@ -324,6 +332,7 @@ export function sqlWords(text, depth = 0) {
         } else (body += sql[index]), (index += 1);
       }
       if (char === "'") words.push(...sqlBodyWords(body, depth));
+      else if (body !== "") words.push(body.toLowerCase());
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
