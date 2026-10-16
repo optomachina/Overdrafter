@@ -82,9 +82,9 @@ insert into ovd707a_rpcs (name, sig, call, is_service) values
     $c$select public.api_admin_approve_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason', true)$c$, false),
   ('reject', 'public.api_admin_reject_provider_definition(uuid, text)',
     $c$select public.api_admin_reject_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
-  ('record_dry_run', 'public.api_admin_record_provider_dry_run(uuid, boolean, text, text)',
+  ('record_dry_run', 'public.api_admin_record_provider_dry_run(uuid, boolean, text, text, boolean)',
     $c$select public.api_admin_record_provider_dry_run('00000000-0000-4000-8000-000000707ad1', true, 'guard-run', 'OVD-707 guard test reason')$c$, false),
-  ('activate', 'public.api_admin_activate_provider_definition(uuid, text)',
+  ('activate', 'public.api_admin_activate_provider_definition(uuid, text, boolean)',
     $c$select public.api_admin_activate_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
   ('suspend', 'public.api_admin_suspend_provider_definition(uuid, text)',
     $c$select public.api_admin_suspend_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
@@ -145,7 +145,7 @@ select is_empty(
          'provider_definitions_no_delete', 'require_provider_definition_admin', 'provider_definition_reason',
          'provider_definition_payload', 'provider_definition_state', 'provider_definition_check_input',
          'provider_request_id', 'write_provider_audit', 'lock_provider_definition', 'require_provider_status',
-         'move_provider_definition')
+         'require_provider_four_eyes', 'provider_approved_contributors', 'move_provider_definition')
        and pg_catalog.has_function_privilege(r.role, p.oid, 'EXECUTE') $$,
   'no API role can execute an OVD-707 private helper');
 

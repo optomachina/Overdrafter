@@ -35,19 +35,22 @@
 --   submit              draft -> pending_review      (snapshots a revision)
 --   approve             pending_review -> approved   (four-eyes, see below)
 --   reject              pending_review -> draft
---   record dry run      approved -> approved         (records a check result)
---   activate            approved | suspended -> active
---   suspend             active -> suspended
+--   record dry run      approved -> approved         (four-eyes; records a check result)
+--   activate            approved | suspended -> active (four-eyes)
+--   suspend             active -> suspended          (single admin, never blocked)
 --   reopen              approved | suspended -> draft
 --   retire              draft | approved | active | suspended -> retired
--- Four-eyes: the approver must not be one of the revision's contributors (its
--- submitter and everyone who created or edited the draft since the last
--- approval). The one
--- exception is the single-admin override: p_override = true, the caller's
--- email is in private.provider_definition_override_emails (Blaine), the
+-- Four-eyes (ovd-707-notes.md, Q2): the approver, the admin who records the
+-- dry run and the admin who activates must not be one of the revision's
+-- contributors (its submitter and everyone who created or edited the draft
+-- since the last approval), and the activator must not be the admin who
+-- recorded the dry run. Violations raise 42501 four_eyes_required. The one
+-- exception is the single-admin override (Q1): p_override = true, the caller's
+-- email is in private.provider_definition_override_emails (Blaine only), the
 -- session is AAL2 (as for every RPC here) and the reason is at least 10
--- characters. The override is recorded on the revision and as audit action
--- approve_override.
+-- characters. The override is audited as approve_override,
+-- record_dry_run_override or activate_override, and an approval override is
+-- also recorded on the revision.
 
 -- =====================================================================
 -- Types and validation helpers
@@ -204,7 +207,9 @@ revoke all on function private.provider_admission_is_valid(jsonb, text) from pub
 -- =====================================================================
 
 -- Who may use the single-admin four-eyes override. Same email allowlist
--- pattern as private.platform_admin_emails; see ovd-707-notes.md (Q1).
+-- pattern as private.platform_admin_emails. Decided (ovd-707-notes.md, Q1):
+-- Blaine only. Adding anyone else needs a reviewed migration and Blaine's
+-- approval.
 create table if not exists private.provider_definition_override_emails (
   email text primary key check (email = pg_catalog.lower(email)),
   created_at timestamptz not null default pg_catalog.clock_timestamp()
@@ -238,6 +243,8 @@ create table if not exists private.provider_definitions (
   -- dispatch). Activation needs it to equal version.
   dry_run_passed_version integer,
   dry_run_checked_at timestamptz,
+  -- Who recorded the latest dry-run result; the activator must be someone else.
+  dry_run_recorded_by uuid,
   dry_run_evidence_ref text check (dry_run_evidence_ref is null
     or pg_catalog.char_length(pg_catalog.btrim(dry_run_evidence_ref)) between 1 and 500),
   created_by uuid,
@@ -305,7 +312,8 @@ create table if not exists private.provider_audit_log (
   provider_id uuid,
   action text not null check (action in (
     'create', 'update_draft', 'submit', 'approve', 'approve_override', 'reject',
-    'record_dry_run', 'activate', 'suspend', 'reopen', 'retire', 'seed', 'seed_rollback')),
+    'record_dry_run', 'record_dry_run_override', 'activate', 'activate_override',
+    'suspend', 'reopen', 'retire', 'seed', 'seed_rollback')),
   before jsonb,
   after jsonb,
   reason text,
@@ -490,6 +498,7 @@ as $$
       'approvedRevisionId', p_row.approved_revision_id,
       'dryRunPassedVersion', p_row.dry_run_passed_version,
       'dryRunCheckedAt', p_row.dry_run_checked_at,
+      'dryRunRecordedBy', p_row.dry_run_recorded_by,
       'dryRunEvidenceRef', p_row.dry_run_evidence_ref,
       'updatedAt', p_row.updated_at)
   end;
@@ -583,6 +592,54 @@ begin
 end;
 $$;
 
+-- Four-eyes for approve, record dry run and activate. p_conflict is true when
+-- the caller is a maker for this step (a revision contributor, or for
+-- activation the dry-run recorder). Returns true when the single-admin
+-- override is used. Not SECURITY DEFINER: it runs inside the definer RPCs.
+create or replace function private.require_provider_four_eyes(
+  p_actor uuid,
+  p_conflict boolean,
+  p_override boolean
+)
+returns boolean
+language plpgsql
+stable
+set search_path = ''
+as $$
+begin
+  if coalesce(p_conflict, false) then
+    if not coalesce(p_override, false) then
+      raise exception 'four_eyes_required' using errcode = '42501';
+    end if;
+    if not exists (
+      select 1 from auth.users u
+      join private.provider_definition_override_emails o on o.email = pg_catalog.lower(u.email)
+      where u.id = p_actor
+    ) then
+      raise exception 'four_eyes_override_not_permitted' using errcode = '42501';
+    end if;
+    return true;
+  end if;
+  if coalesce(p_override, false) then
+    -- Keep the record honest: an override is only ever a maker's own step.
+    raise exception 'four_eyes_override_not_needed' using errcode = '22023';
+  end if;
+  return false;
+end;
+$$;
+
+-- The contributors of the definition's approved revision (null before the
+-- first approval; empty for the registry seed).
+create or replace function private.provider_approved_contributors(p_row private.provider_definitions)
+returns uuid[]
+language sql
+stable
+set search_path = ''
+as $$
+  select r.contributors from private.provider_definition_revisions r
+  where r.id = p_row.approved_revision_id;
+$$;
+
 -- Shared body of the simple status moves (activate, suspend, reopen, retire).
 create or replace function private.move_provider_definition(
   p_actor uuid,
@@ -644,6 +701,8 @@ revoke all on function private.provider_request_id() from public, anon, authenti
 revoke all on function private.write_provider_audit(uuid, uuid, text, jsonb, jsonb, text) from public, anon, authenticated, service_role;
 revoke all on function private.lock_provider_definition(uuid) from public, anon, authenticated, service_role;
 revoke all on function private.require_provider_status(private.provider_definitions, private.provider_status[], text) from public, anon, authenticated, service_role;
+revoke all on function private.require_provider_four_eyes(uuid, boolean, boolean) from public, anon, authenticated, service_role;
+revoke all on function private.provider_approved_contributors(private.provider_definitions) from public, anon, authenticated, service_role;
 revoke all on function private.move_provider_definition(uuid, uuid, text, private.provider_status[], private.provider_status, text) from public, anon, authenticated, service_role;
 
 -- =====================================================================
@@ -819,22 +878,8 @@ begin
 
   -- Anyone who created, edited or submitted this revision is a maker, not a
   -- checker.
-  if v_actor = any (v_revision.contributors) then
-    if not coalesce(p_override, false) then
-      raise exception 'four_eyes_required' using errcode = '42501';
-    end if;
-    if not exists (
-      select 1 from auth.users u
-      join private.provider_definition_override_emails o on o.email = pg_catalog.lower(u.email)
-      where u.id = v_actor
-    ) then
-      raise exception 'four_eyes_override_not_permitted' using errcode = '42501';
-    end if;
-    v_override := true;
-  elsif coalesce(p_override, false) then
-    -- Keep the record honest: an override is only ever a contributor's approval.
-    raise exception 'four_eyes_override_not_needed' using errcode = '22023';
-  end if;
+  v_override := private.require_provider_four_eyes(v_actor,
+    v_actor = any (v_revision.contributors), p_override);
 
   update private.provider_definition_revisions r
   set decision = 'approved',
@@ -904,12 +949,15 @@ $$;
 -- Records the result of the offline dry-run check for the approved version.
 -- The database performs no dispatch; the caller supplies the evidence
 -- reference (for example a qualification run id). A failing result clears
--- any earlier pass.
+-- any earlier pass. Four-eyes: a contributor to the approved revision may not
+-- record it, except through the single-admin override. The recorder is kept so
+-- activation can require someone else.
 create or replace function public.api_admin_record_provider_dry_run(
   p_id uuid,
   p_passed boolean,
   p_evidence_ref text,
-  p_reason text
+  p_reason text,
+  p_override boolean default false
 )
 returns jsonb
 language plpgsql
@@ -921,6 +969,7 @@ declare
   v_reason text := private.provider_definition_reason(p_reason);
   v_before private.provider_definitions;
   v_after private.provider_definitions;
+  v_override boolean;
 begin
   if p_passed is null then
     raise exception 'dry_run_result_required' using errcode = '22023';
@@ -930,24 +979,36 @@ begin
   end if;
   v_before := private.lock_provider_definition(p_id);
   perform private.require_provider_status(v_before, array['approved']::private.provider_status[], 'record_dry_run');
+  v_override := private.require_provider_four_eyes(v_actor,
+    v_actor = any (private.provider_approved_contributors(v_before)), p_override);
 
   update private.provider_definitions d
   set dry_run_passed_version = case when p_passed then d.version else null end,
       dry_run_checked_at = pg_catalog.clock_timestamp(),
       dry_run_evidence_ref = pg_catalog.btrim(p_evidence_ref),
+      dry_run_recorded_by = v_actor,
       updated_at = pg_catalog.clock_timestamp()
   where d.id = p_id
   returning d.* into v_after;
 
-  perform private.write_provider_audit(v_actor, p_id, 'record_dry_run',
+  perform private.write_provider_audit(v_actor, p_id,
+    case when v_override then 'record_dry_run_override' else 'record_dry_run' end,
     private.provider_definition_state(v_before),
-    private.provider_definition_state(v_after) || pg_catalog.jsonb_build_object('dryRunPassed', p_passed),
+    private.provider_definition_state(v_after)
+      || pg_catalog.jsonb_build_object('dryRunPassed', p_passed, 'fourEyesOverride', v_override),
     v_reason);
   return private.provider_definition_state(v_after);
 end;
 $$;
 
-create or replace function public.api_admin_activate_provider_definition(p_id uuid, p_reason text)
+-- Four-eyes: the activator is neither a contributor to the approved revision
+-- nor the admin who recorded the dry run, except through the single-admin
+-- override. Resuming from suspended is an activation and follows the same rule.
+create or replace function public.api_admin_activate_provider_definition(
+  p_id uuid,
+  p_reason text,
+  p_override boolean default false
+)
 returns jsonb
 language plpgsql
 security definer
@@ -955,12 +1016,23 @@ set search_path = ''
 as $$
 declare
   v_actor uuid := private.require_provider_definition_admin();
+  v_row private.provider_definitions;
+  v_override boolean;
 begin
-  return private.move_provider_definition(v_actor, p_id, 'activate',
+  perform private.provider_definition_reason(p_reason);
+  v_row := private.lock_provider_definition(p_id);
+  perform private.require_provider_status(v_row, array['approved', 'suspended']::private.provider_status[], 'activate');
+  v_override := private.require_provider_four_eyes(v_actor,
+    v_actor = any (private.provider_approved_contributors(v_row))
+      or v_actor is not distinct from v_row.dry_run_recorded_by,
+    p_override);
+  return private.move_provider_definition(v_actor, p_id,
+    case when v_override then 'activate_override' else 'activate' end,
     array['approved', 'suspended']::private.provider_status[], 'active', p_reason);
 end;
 $$;
 
+-- Single admin by design (Q2): switching a provider off must never be blocked.
 create or replace function public.api_admin_suspend_provider_definition(p_id uuid, p_reason text)
 returns jsonb
 language plpgsql
@@ -1091,8 +1163,8 @@ revoke all on function public.api_admin_update_provider_definition_draft(uuid, j
 revoke all on function public.api_admin_submit_provider_definition(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.api_admin_approve_provider_definition(uuid, text, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.api_admin_reject_provider_definition(uuid, text) from public, anon, authenticated, service_role;
-revoke all on function public.api_admin_record_provider_dry_run(uuid, boolean, text, text) from public, anon, authenticated, service_role;
-revoke all on function public.api_admin_activate_provider_definition(uuid, text) from public, anon, authenticated, service_role;
+revoke all on function public.api_admin_record_provider_dry_run(uuid, boolean, text, text, boolean) from public, anon, authenticated, service_role;
+revoke all on function public.api_admin_activate_provider_definition(uuid, text, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.api_admin_suspend_provider_definition(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.api_admin_reopen_provider_definition(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.api_admin_retire_provider_definition(uuid, text) from public, anon, authenticated, service_role;
@@ -1105,8 +1177,8 @@ grant execute on function public.api_admin_update_provider_definition_draft(uuid
 grant execute on function public.api_admin_submit_provider_definition(uuid, text) to authenticated;
 grant execute on function public.api_admin_approve_provider_definition(uuid, text, boolean) to authenticated;
 grant execute on function public.api_admin_reject_provider_definition(uuid, text) to authenticated;
-grant execute on function public.api_admin_record_provider_dry_run(uuid, boolean, text, text) to authenticated;
-grant execute on function public.api_admin_activate_provider_definition(uuid, text) to authenticated;
+grant execute on function public.api_admin_record_provider_dry_run(uuid, boolean, text, text, boolean) to authenticated;
+grant execute on function public.api_admin_activate_provider_definition(uuid, text, boolean) to authenticated;
 grant execute on function public.api_admin_suspend_provider_definition(uuid, text) to authenticated;
 grant execute on function public.api_admin_reopen_provider_definition(uuid, text) to authenticated;
 grant execute on function public.api_admin_retire_provider_definition(uuid, text) to authenticated;
