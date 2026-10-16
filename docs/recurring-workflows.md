@@ -181,31 +181,41 @@ loose objects but no refs.
 
 Keep one log per stack, for example `.audit/merge-plans/<stack>.tsv`, and append
 every plan cycle for that stack to the same file. The stop guard in step 4 only
-sees its own log.
+sees its own log. Only one operator runs this procedure at a time. The log has
+no lock, so two operators planning or reading back at once can interleave rows
+and race past the stop guard.
 
-1. **Plan bottom-up.** List the stack bottom-up with each PR's current head SHA
-   (`[{"pr":101,"head_sha":"…"}]`) and the OVD-845 verdict lookup
+1. **Plan bottom-up.** Write `stack.json` with the commit the bottom PR's branch
+   starts from and the PRs bottom-up at their current head SHAs
+   (`{"base":"<sha>","prs":[{"pr":101,"head_sha":"…"},{"pr":102,"head_sha":"…"}]}`),
+   and the OVD-845 verdict lookup
    (`{"101":{"sha":"…","verdict_ref":"…","valid":true}}`). The plan lands only the
    contiguous verified run and stops at the first PR with no verdict, an invalid
-   verdict, or a verdict for an older SHA. A duplicate or missing PR number fails
-   the plan. Save stdout as the plan:
+   verdict, or a verdict for an older SHA. A duplicate or missing PR number, or a
+   `base` that is not a hex SHA, fails the plan. Save stdout as the plan:
    `node scripts/merge-readback.mjs plan --stack stack.json --verdicts verdicts.json --log .audit/merge-plans/<stack>.tsv > plan.json`
 2. **Merge** the planned PRs in order with the normal squash pinned to the SHA.
 3. **Read every merge back.** A queued merge or an armed auto-merge is not a
    merge, and PR state alone is never enough. After `git fetch origin main`,
    read `main` back for each landed PR in order:
    `node scripts/merge-readback.mjs readback-run --repo . --main origin/main --merges merges.json --plan plan.json --log .audit/merge-plans/<stack>.tsv`
-   with `merges.json` as `[{"pr":101,"merge_sha":"…"}]`. The verified head SHA
-   and verdict ref come from `plan.json`. The run refuses (exit 1, no row
-   written) any PR outside the plan's `land` list, a `head_sha` other than the
-   verified one, or a merge out of bottom-up order. It also refuses a merge
-   above a PR that has no passing read-back in the log. Without `--main`, the
+   with `merges.json` as `[{"pr":101,"merge_sha":"…"},{"pr":102,"merge_sha":"…"}]`.
+   `--plan` is required. The verified head SHA and verdict ref come from
+   `plan.json`, and so does the verified base: the plan's `base` for the bottom
+   PR, and the verified head of the PR below for every PR above it. A
+   `"verified_base"` on a `merges.json` entry overrides the derived base. The
+   run refuses (exit 1, no row written) any PR outside the plan's `land` list, a
+   `head_sha` other than the verified one, or a merge out of bottom-up order. It
+   also refuses a merge above a PR that has no passing read-back in the log. A
+   PR that already read back true at the same head and merge SHA is skipped
+   with no new row; the same PR and head at a different merge SHA is refused.
+   SHAs must be hex, and `--main` must not start with `-`. Without `--main`, the
    script uses `origin/main` when it exists, otherwise local `main`. A stale
    local `main` would otherwise report `not-on-main` for a good merge.
 
    A merge passes in one of two ways. It is a single-parent commit on `main`
-   whose parent is the verified head's base and whose tree equals the verified
-   head's tree. Or, after `main` moved, its patch-id is identical and its tree
+   whose parent is the verified base and whose tree equals the verified head's
+   tree. Or, after `main` moved, its patch-id is identical and its tree
    equals the verified head rebased onto the merge commit's parent. A commit
    with the verified head's tree on top of any other parent fails, because it
    would silently revert what landed in between. For a single merge, use

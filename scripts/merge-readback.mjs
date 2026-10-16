@@ -44,6 +44,19 @@ function resolveCommit(repo, rev) {
 
 const treeOf = (repo, rev) => git(repo, ["rev-parse", `${rev}^{tree}`]);
 
+// Revisions reach git as argv, so refuse anything git could read as an option.
+export function assertSha(value, label) {
+  if (typeof value !== "string" || !/^[0-9a-f]{4,64}$/i.test(value)) throw new Error(`${label} must be a hex commit SHA, got ${JSON.stringify(value)}`);
+  return value;
+}
+
+export function assertRef(value, label) {
+  if (typeof value !== "string" || !value || value.startsWith("-") || /[\s\0-\x1f\x7f]/.test(value)) {
+    throw new Error(`${label} must be a git ref without a leading '-' or whitespace, got ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
 // Stable patch-id of the diff base..head; "" when the diff is empty.
 export function patchId(repo, base, head) {
   const diff = git(repo, ["diff-tree", "-p", "--no-color", base, head]);
@@ -59,9 +72,12 @@ function lookupVerdict(verdicts, pr) {
 
 // stack: bottom-up [{pr, head_sha}]. verdicts: OVD-845 lookup, either a
 // function pr -> {sha, verdict_ref, valid} or a map/object keyed by PR.
+// base: the commit the bottom PR's branch starts from; it is the bottom PR's
+// verified base, and each PR above uses the verified head below it.
 // Lands only the contiguous verified run from the bottom; stops at the first
 // PR without a valid verdict for its current head SHA.
-export function planContiguousVerified(stack, verdicts) {
+export function planContiguousVerified(stack, verdicts, { base } = {}) {
+  if (base !== undefined) assertSha(base, "stack base");
   const seen = new Set();
   for (const entry of stack) {
     if (entry?.pr === undefined || entry.pr === null || entry.pr === "") throw new Error("stack entry is missing pr");
@@ -77,11 +93,11 @@ export function planContiguousVerified(stack, verdicts) {
     else if (!entry.head_sha || verdict.sha !== entry.head_sha) reason = "verdict-sha-stale";
     else if (!verdict.verdict_ref) reason = "verdict-ref-missing";
     if (reason) {
-      return { land, stop: { pr: entry.pr, head_sha: entry.head_sha ?? "", verdict_ref: verdict?.verdict_ref ?? "", reason } };
+      return { base: base ?? null, land, stop: { pr: entry.pr, head_sha: entry.head_sha ?? "", verdict_ref: verdict?.verdict_ref ?? "", reason } };
     }
     land.push({ pr: entry.pr, head_sha: entry.head_sha, verdict_ref: verdict.verdict_ref });
   }
-  return { land, stop: null };
+  return { base: base ?? null, land, stop: null };
 }
 
 // `git fetch` moves origin/main, not local main, so prefer origin/main when the
@@ -92,11 +108,17 @@ export function defaultMainRef(repo) {
 
 // Read main back after a merge. A queued merge or an armed auto-merge is not a
 // merge: the commit must exist, be on mainRef, and either sit directly on the
-// verified head's base with a tree equal to the verified head's tree, or
+// verified base with a tree equal to the verified head's tree, or
 // (after main moved) carry the identical patch-id and equal the verified head
 // rebased onto the merge commit's parent. A tree that equals the verified head
 // on top of any other parent would silently revert that parent's changes.
+// Without verifiedBase it falls back to merge-base(parent, head), which is only
+// right for an unstacked PR; readBackRun always passes the plan-derived base.
 export function readBack({ repo, mergeSha, verifiedHead, verifiedBase, mainRef }) {
+  if (mergeSha) assertSha(mergeSha, "merge sha");
+  if (verifiedHead) assertSha(verifiedHead, "verified head");
+  if (verifiedBase) assertSha(verifiedBase, "verified base");
+  if (mainRef) assertRef(mainRef, "main ref");
   const result = {
     merge_sha: mergeSha ?? "",
     verified_head: verifiedHead ?? "",
@@ -173,9 +195,13 @@ const passedReadBack = (rows, entry) =>
 // Binds read-backs to the plan: every merge must be a PR in plan.land at the
 // planned (verdict) head SHA, in bottom-up order. The first merge may start
 // above the bottom only if every PR below it already read back true in rows.
-// Returns the merges with head_sha and verdict_ref taken from the plan.
+// Returns the merges with head_sha and verdict_ref taken from the plan, and
+// verified_base derived from stack order: plan.base for the bottom PR, the
+// verified head of the PR below for every other PR. An explicit verified_base
+// on a merge overrides the derived one.
 export function checkMergesAgainstPlan({ plan, merges, rows = [] }) {
   if (!plan || !Array.isArray(plan.land)) return { ok: false, reason: "plan-missing" };
+  if (!Array.isArray(merges)) return { ok: false, reason: "merges-not-a-list" };
   const land = plan.land;
   const resolved = [];
   let expected = null;
@@ -192,33 +218,59 @@ export function checkMergesAgainstPlan({ plan, merges, rows = [] }) {
       return { ok: false, reason: `out-of-order: expected ${land[expected]?.pr ?? "(end of plan)"}, got ${merge.pr}` };
     }
     expected = index + 1;
-    resolved.push({ ...merge, pr: entry.pr, head_sha: entry.head_sha, verdict_ref: entry.verdict_ref });
+    const verifiedBase = merge.verified_base || (index === 0 ? plan.base : land[index - 1].head_sha);
+    if (!verifiedBase) return { ok: false, reason: `plan-base-missing: no verified base for bottom PR ${entry.pr}` };
+    resolved.push({ ...merge, pr: entry.pr, head_sha: entry.head_sha, verdict_ref: entry.verdict_ref, verified_base: verifiedBase });
   }
   return { ok: true, merges: resolved };
 }
 
-// merges: bottom-up [{pr, head_sha, verdict_ref, merge_sha, verified_base?}].
+// A merge whose PR already read back true at the same head SHA: a no-op when
+// it names the same merge commit, a refusal when it names a different one.
+// Returns {skip: true}, {refused}, or {} for a merge not yet read back.
+function priorReadBack(repo, rows, merge) {
+  const prior = rows.find((row) => row.action === "readback" && row.tree_match === "true" && row.pr === String(merge.pr) && row.head_sha === merge.head_sha);
+  if (!prior) return {};
+  if (resolveCommit(repo, merge.merge_sha) === prior.merge_sha) return { skip: true };
+  return { refused: `already-read-back: PR ${merge.pr} at ${merge.head_sha} passed as ${prior.merge_sha}, not ${merge.merge_sha}` };
+}
+
+// merges: bottom-up [{pr, merge_sha, verified_base?}]; plan: the plan JSON.
+// Refuses merges that are not the plan's verified run (see
+// checkMergesAgainstPlan), and refuses while the log has an open stop.
 // Reads each merge back in order, logs one row per read-back, and stops at the
 // first tree_match=false. Later merges are not read back or reported landed.
-// With a plan, refuses merges that are not the plan's verified run (see
-// checkMergesAgainstPlan). With a log, refuses while the log has an open stop.
+// A merge that already read back true at the same head and merge SHA is
+// skipped without a new row.
 export function readBackRun({ repo, merges, logPath, mainRef, plan }) {
+  const refused = (reason) => ({ landed: [], skipped: [], stop: null, refused: reason });
+  if (mainRef) assertRef(mainRef, "main ref");
   const rows = logPath ? readDecisions(logPath) : [];
   const stop = openStop(rows);
-  if (stop) return { landed: [], stop: null, refused: `open-stop: PR ${stop.pr} read back tree_match=false; ack it with stop-ack first` };
-  if (plan) {
-    const check = checkMergesAgainstPlan({ plan, merges, rows });
-    if (!check.ok) return { landed: [], stop: null, refused: check.reason };
-    merges = check.merges;
+  if (stop) return refused(`open-stop: PR ${stop.pr} read back tree_match=false; ack it with stop-ack first`);
+  const check = checkMergesAgainstPlan({ plan, merges, rows });
+  if (!check.ok) return refused(check.reason);
+  for (const merge of check.merges) {
+    assertSha(merge.merge_sha, `merge_sha for PR ${merge.pr}`);
+    assertSha(merge.head_sha, `head_sha for PR ${merge.pr}`);
+    assertSha(merge.verified_base, `verified_base for PR ${merge.pr}`);
+  }
+  const todo = [];
+  const skipped = [];
+  for (const merge of check.merges) {
+    const prior = priorReadBack(repo, rows, merge);
+    if (prior.refused) return refused(prior.refused);
+    if (prior.skip) skipped.push({ pr: merge.pr, merge_sha: merge.merge_sha });
+    else todo.push(merge);
   }
   const landed = [];
-  for (const merge of merges) {
+  for (const merge of todo) {
     const result = readBack({ repo, mergeSha: merge.merge_sha, verifiedHead: merge.head_sha, verifiedBase: merge.verified_base, mainRef });
     if (logPath) appendDecision(logPath, readBackRow(merge, result));
-    if (!result.tree_match) return { landed, stop: { pr: merge.pr, ...result } };
+    if (!result.tree_match) return { landed, skipped, stop: { pr: merge.pr, ...result } };
     landed.push({ pr: merge.pr, ...result });
   }
-  return { landed, stop: null };
+  return { landed, skipped, stop: null };
 }
 
 // Parses the decision log into row objects keyed by column ([] if absent).
@@ -345,9 +397,18 @@ function required(options, ...keys) {
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 
+const SHA_OPTIONS = ["merge-sha", "verified-head", "verified-base"];
+
+function validateRevOptions(options) {
+  for (const key of SHA_OPTIONS) if (options[key] !== undefined) assertSha(options[key], `--${key}`);
+  if (options.main !== undefined) assertRef(options.main, "--main");
+  if (options.repo?.startsWith("-")) throw new Error("--repo must not start with '-'");
+}
+
 const USAGE = `usage: merge-readback.mjs <command> [options]
   init-log  --log <tsv>
   plan      --stack <stack.json> --verdicts <verdicts.json> [--log <tsv>]   (stdout is the plan JSON)
+            stack.json: {"base": "<sha the bottom PR branches from>", "prs": [{"pr": n, "head_sha": "<sha>"}, ...]}
   readback  --repo <path> --merge-sha <sha> --verified-head <sha> [--verified-base <sha>] [--main <ref>]
             [--log <tsv> --plan <plan.json> --pr <n>]
   readback-run --repo <path> --merges <merges.json> --plan <plan.json> --log <tsv> [--main <ref>]
@@ -357,6 +418,7 @@ const USAGE = `usage: merge-readback.mjs <command> [options]
 
 export function runCli(argv, out = process.stdout) {
   const { command, options } = parseArgs(argv);
+  validateRevOptions(options);
   const print = (value) => out.write(`${JSON.stringify(value, null, 2)}\n`);
   const refuse = (reason) => {
     print({ refused: reason });
@@ -374,7 +436,9 @@ export function runCli(argv, out = process.stdout) {
       required(options, "stack", "verdicts");
       const stop = options.log ? openStop(readDecisions(options.log)) : null;
       if (stop) return refuse(`open-stop: PR ${stop.pr} read back tree_match=false; ack it with stop-ack first`);
-      const plan = planContiguousVerified(readJson(options.stack), readJson(options.verdicts));
+      const stack = readJson(options.stack);
+      if (!stack || Array.isArray(stack) || !Array.isArray(stack.prs)) throw new Error(`${options.stack} must be {"base": "<sha>", "prs": [...]}`);
+      const plan = planContiguousVerified(stack.prs, readJson(options.verdicts), { base: stack.base ?? "" });
       if (options.log) {
         for (const entry of plan.land) {
           appendDecision(options.log, { ...entry, action: "plan-land", result: "verified-at-head" });
@@ -396,17 +460,24 @@ export function runCli(argv, out = process.stdout) {
         if (stop) return refuse(`open-stop: PR ${stop.pr} read back tree_match=false; ack it with stop-ack first`);
         const check = checkMergesAgainstPlan({
           plan: readJson(options.plan),
-          merges: [{ pr: options.pr, head_sha: options["verified-head"], merge_sha: options["merge-sha"] }],
+          merges: [{ pr: options.pr, head_sha: options["verified-head"], merge_sha: options["merge-sha"], verified_base: options["verified-base"] }],
           rows,
         });
         if (!check.ok) return refuse(check.reason);
         [merge] = check.merges;
+        assertSha(merge.verified_base, `verified_base for PR ${merge.pr}`);
+        const prior = priorReadBack(options.repo, rows, merge);
+        if (prior.refused) return refuse(prior.refused);
+        if (prior.skip) {
+          print({ skipped: { pr: merge.pr, merge_sha: merge.merge_sha }, reason: "already-read-back" });
+          return 0;
+        }
       }
       const result = readBack({
         repo: options.repo,
         mergeSha: options["merge-sha"],
-        verifiedHead: options["verified-head"],
-        verifiedBase: options["verified-base"],
+        verifiedHead: merge?.head_sha ?? options["verified-head"],
+        verifiedBase: merge?.verified_base ?? options["verified-base"],
         mainRef: options.main,
       });
       if (merge) appendDecision(options.log, readBackRow(merge, result));
