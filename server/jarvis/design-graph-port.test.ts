@@ -13,7 +13,7 @@ import {
 import { createTestAdapter, TEST_ADAPTER_SECRET, type TestInboundRequest } from "../../src/features/jarvis/channels/test-adapter";
 import { ConversationService, NOT_AVAILABLE_REPLY } from "../../src/features/jarvis/core/conversation-service";
 import { InMemoryJarvisRepo } from "../../src/features/jarvis/core/in-memory-repo";
-import { createSlidingWindowLimiter } from "../../src/features/jarvis/core/rate-limiter";
+import { createFailedAttemptLimiter, createSlidingWindowLimiter } from "../../src/features/jarvis/core/rate-limiter";
 import { createChannelRegistry } from "../../src/features/jarvis/core/registry";
 import { NO_AGENT_REPLY } from "../../src/features/jarvis/core/render";
 import type {
@@ -67,6 +67,7 @@ async function setup() {
     uiEnabled: false,
     testEnvironment: true,
     rateLimiter: createSlidingWindowLimiter(),
+    linkAttempts: createFailedAttemptLimiter(),
     delivery: { maxAttempts: 1, baseDelayMs: 0, sleep: async () => undefined },
     webBaseUrl: "https://jarvis.example",
     now: () => new Date(idleClock.now()),

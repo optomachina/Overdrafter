@@ -31,6 +31,11 @@ export type InboundMessage = {
   readonly text: string;
   readonly agent?: DomainAgentId;
   readonly action?: InboundAction;
+  /**
+   * A one-time link code the user typed in the channel (`/link 123456`). It routes to identity
+   * linking through the same front of the pipeline as every other message.
+   */
+  readonly linkCode?: string;
   readonly idempotencyKey: string;
   readonly receivedAt: string;
 };

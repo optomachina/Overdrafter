@@ -1,5 +1,5 @@
 import { deliver, type DeliveryPolicy } from "./delivery";
-import type { RateLimiter } from "./rate-limiter";
+import type { FailedAttemptLimiter, RateLimiter } from "./rate-limiter";
 import type { ChannelRegistry } from "./registry";
 import { NOT_AVAILABLE_REPLY, renderEvent, SKIP_CHOICE, type OutboundEvent } from "./render";
 import type { ChannelSettingsRow, DecisionRow, JarvisRepo, MessageRow, RunOrigin } from "./repo";
@@ -21,6 +21,9 @@ export const GENERIC_DENIAL = "Jarvis isn't available for this account yet.";
 export const THROTTLED_REPLY = "You're sending requests too quickly. Try again in a minute.";
 export { NOT_AVAILABLE_REPLY };
 export const REFUSED_REPLY = "That action isn't allowed.";
+export const LINKED_REPLY = "This chat is now linked to Jarvis.";
+export const LINK_FAILED_REPLY = "That code didn't work. Get a new one from the Jarvis web app.";
+export const LINK_THROTTLED_REPLY = "Too many wrong codes. Try again later with a new code from the Jarvis web app.";
 
 const TIER_RANK: Record<AccessTier, number> = { paid: 1, beta: 2, owner: 3 };
 const SLICE_ONE_CONTROLS = new Set(["pause", "cancel"]);
@@ -40,6 +43,7 @@ export type InboundResult =
   | { readonly status: "duplicate" }
   | { readonly status: "denied" | "throttled" | "unavailable"; readonly reply: string }
   | { readonly status: "refused"; readonly reason: string; readonly reply: string }
+  | { readonly status: "linked"; readonly reply: string }
   | { readonly status: "accepted"; readonly runId: string };
 
 export type ConversationServiceDeps = {
@@ -52,6 +56,8 @@ export type ConversationServiceDeps = {
   readonly uiEnabled: boolean;
   readonly testEnvironment: boolean;
   readonly rateLimiter: RateLimiter;
+  /** Failed link-code attempts per channel + external-id hash. */
+  readonly linkAttempts: FailedAttemptLimiter;
   readonly delivery: DeliveryPolicy;
   readonly webBaseUrl: string;
   readonly now: () => Date;
@@ -73,6 +79,8 @@ type AccessCheck = { readonly userId: UserId } | { readonly reason: string; read
  * One conversation service for every channel. The pipeline order is fixed:
  * flag -> channel enabled -> verify -> idempotency claim -> identity -> tier -> rate limit
  * -> append -> DesignGraph. Nothing before the append writes anything except the claim.
+ * A link-code message branches after the claim into `link` (failed-attempt limit -> consume code).
+ * Any throw after the claim releases it, so the channel's retry is processed.
  */
 export class ConversationService {
   constructor(private readonly deps: ConversationServiceDeps) {}
@@ -90,6 +98,7 @@ export class ConversationService {
       return this.finish(channelId, { status: "duplicate" });
     }
     try {
+      if (message.linkCode !== undefined) return await this.link(adapter.id, message, message.linkCode);
       return await this.admit(adapter, message, settings);
     } catch (error) {
       // Release the claim so the channel's retry (sent after our non-2xx) is processed, not dropped
@@ -115,13 +124,29 @@ export class ConversationService {
     await this.fanOut(origin, message, event);
   }
 
-  /** Consumes a one-time code issued from an AAL2 web session and links the external id. */
-  async linkIdentity(channel: ChannelId, code: string, externalUserId: string): Promise<UserId | null> {
-    const linkCode = await this.deps.repo.consumeLinkCode(this.deps.hash(code), channel, this.deps.now().toISOString());
-    if (!linkCode) return null;
-    const externalIdHash = this.externalIdHash(channel, externalUserId);
-    const linked = await this.deps.repo.insertIdentity({ userId: linkCode.userId, channel, externalIdHash, address: null, revokedAt: null });
-    return linked ? linkCode.userId : null;
+  /**
+   * Consumes a one-time code issued from an AAL2 web session and links the verified sender. It runs
+   * after flag -> channel enabled -> verify -> claim, like every inbound message. Failed attempts
+   * are limited per channel + external-id hash, and a blocked sender never reaches the code table.
+   */
+  private async link(channel: ChannelId, message: InboundMessage, code: string): Promise<InboundResult> {
+    const externalIdHash = this.externalIdHash(channel, message.externalUserId);
+    const attemptKey = `${channel}:${externalIdHash}`;
+    const nowMs = this.deps.now().getTime();
+    if (this.deps.linkAttempts.isBlocked(attemptKey, nowMs)) {
+      return this.finish(channel, { status: "throttled", reply: LINK_THROTTLED_REPLY }, "link_attempts_exceeded");
+    }
+    const linkCode = await this.deps.repo.consumeLinkCode(this.deps.hash(code), channel, new Date(nowMs).toISOString());
+    if (!linkCode) {
+      this.deps.linkAttempts.recordFailure(attemptKey, nowMs);
+      return this.finish(channel, { status: "denied", reply: LINK_FAILED_REPLY }, "link_code_invalid");
+    }
+    const identity = { userId: linkCode.userId, channel, externalIdHash, address: message.address, revokedAt: null };
+    if (!(await this.deps.repo.insertIdentity(identity))) {
+      return this.finish(channel, { status: "denied", reply: LINK_FAILED_REPLY }, "identity_conflict");
+    }
+    this.deps.linkAttempts.reset(attemptKey);
+    return this.finish(channel, { status: "linked", reply: LINKED_REPLY });
   }
 
   private routable(adapter: ChannelAdapter): boolean {

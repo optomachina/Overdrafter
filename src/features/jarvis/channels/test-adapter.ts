@@ -9,6 +9,7 @@ export type TestInboundRequest = {
   readonly text?: string;
   readonly agent?: InboundMessage["agent"];
   readonly action?: InboundAction;
+  readonly linkCode?: string;
 };
 
 export type TestSend = { readonly user: UserRef; readonly message: RenderedMessage; readonly deliveryKey: string };
@@ -53,6 +54,7 @@ export function createTestAdapter(options: TestAdapterOptions = {}): TestAdapter
         text: inbound.text ?? "",
         agent: inbound.agent,
         action: inbound.action,
+        linkCode: inbound.linkCode,
         idempotencyKey: inbound.eventId,
         receivedAt: new Date(0).toISOString(),
       };

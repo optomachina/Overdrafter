@@ -7,7 +7,10 @@ import { isJarvisUiEnabled, JARVIS_UI_FLAG } from "../jarvis-ui-flag";
 import {
   ConversationService,
   GENERIC_DENIAL,
+  LINK_FAILED_REPLY,
   LINK_PROMPT,
+  LINK_THROTTLED_REPLY,
+  LINKED_REPLY,
   NOT_AVAILABLE_REPLY,
   THROTTLED_REPLY,
   type ConversationServiceDeps,
@@ -16,7 +19,7 @@ import {
 } from "./conversation-service";
 import { deliver } from "./delivery";
 import { InMemoryJarvisRepo } from "./in-memory-repo";
-import { createSlidingWindowLimiter } from "./rate-limiter";
+import { createFailedAttemptLimiter, createSlidingWindowLimiter } from "./rate-limiter";
 import { createChannelRegistry } from "./registry";
 import { NO_AGENT_REPLY, renderEvent, RUN_FAILED_REPLY } from "./render";
 import type { AccessTier, DesignGraph, GraphEvent } from "./types";
@@ -63,6 +66,7 @@ function setup(options: HarnessOptions = {}) {
     uiEnabled: options.uiEnabled ?? true,
     testEnvironment: options.testEnvironment ?? true,
     rateLimiter: options.limiter ?? createSlidingWindowLimiter(),
+    linkAttempts: createFailedAttemptLimiter(),
     delivery: { maxAttempts: 3, baseDelayMs: 100, sleep: async (ms) => void sleeps.push(ms) },
     webBaseUrl: WEB_BASE,
     now: () => new Date(clock.ms),
@@ -594,20 +598,84 @@ describe("Jarvis ConversationService (OVD-798)", () => {
   });
 });
 
-describe("Jarvis identity linking", () => {
-  it("consumes a one-time code once, rejects expired codes, and stores only the external id hash", async () => {
+describe("Jarvis identity linking (M4: same front of the pipeline, failed-attempt limit)", () => {
+  const expiresAt = new Date(START + 10 * 60_000).toISOString();
+  const issue = (h: Harness, code: string, userId = "blaine", channel = "test", expires = expiresAt) =>
+    h.repo.linkCodes.set(hash(code), { codeHash: hash(code), userId, channel, expiresAt: expires, consumedAt: null });
+  const linkRequest = (code: string, overrides: Partial<TestInboundRequest> = {}) => request({ text: `/link ${code}`, linkCode: code, ...overrides });
+
+  it("consumes a one-time code once, stores the hash and opaque address, and the linked chat then works", async () => {
     const h = setup();
-    const expiresAt = new Date(START + 10 * 60_000).toISOString();
-    h.repo.linkCodes.set(hash("123456"), { codeHash: hash("123456"), userId: "blaine", channel: "test", expiresAt, consumedAt: null });
-    h.repo.linkCodes.set(hash("999999"), { codeHash: hash("999999"), userId: "blaine", channel: "test", expiresAt: new Date(START).toISOString(), consumedAt: null });
+    h.grant("blaine");
+    issue(h, "123456");
+    issue(h, "999999", "blaine", "test", new Date(START).toISOString());
+    const event = linkRequest("123456");
 
-    expect(await h.service.linkIdentity("test", "123456", "ext-blaine")).toBe("blaine");
-    expect(await h.service.linkIdentity("test", "123456", "ext-other")).toBeNull();
-    expect(await h.service.linkIdentity("test", "999999", "ext-other")).toBeNull();
-    expect([...h.repo.channelIdentities.values()]).toEqual([{ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), address: null, revokedAt: null }]);
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "linked", reply: LINKED_REPLY });
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "duplicate" });
+    expect(await h.service.handleInbound("test", linkRequest("123456", { externalUserId: "ext-other" }))).toEqual({ status: "denied", reply: LINK_FAILED_REPLY });
+    expect(await h.service.handleInbound("test", linkRequest("999999", { externalUserId: "ext-other" }))).toMatchObject({ status: "denied" });
+    expect([...h.repo.channelIdentities.values()]).toEqual([
+      { userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), address: "chat-ext-blaine", revokedAt: null },
+    ]);
+    expect(h.repo.conversations.size).toBe(0);
+    expect(graphCalls(h)).toBe(0);
 
-    h.repo.linkCodes.set(hash("222222"), { codeHash: hash("222222"), userId: "mallory", channel: "test", expiresAt, consumedAt: null });
-    expect(await h.service.linkIdentity("test", "222222", "ext-blaine")).toBeNull();
+    issue(h, "222222", "mallory");
+    expect(await h.service.handleInbound("test", linkRequest("222222"))).toEqual({ status: "denied", reply: LINK_FAILED_REPLY });
+    expect(h.logs.at(-1)).toEqual({ channel: "test", outcome: "denied", reason: "identity_conflict" });
+
+    expect(await h.service.handleInbound("test", request())).toMatchObject({ status: "accepted" });
+    expect(h.test.sent[0].user.address).toBe("chat-ext-blaine");
+    expect(JSON.stringify(h.logs)).not.toMatch(/123456|222222|ext-|chat-/);
+  });
+
+  it("flag off: a real adapter's link message is dropped before any repo access and the code survives", async () => {
+    const slack = createTestAdapter({ id: "slack", testOnly: false });
+    const h = setup({ uiEnabled: false, extraAdapters: [slack] });
+    issue(h, "123456", "blaine", "slack");
+    const consume = vi.spyOn(h.repo, "consumeLinkCode");
+
+    expect(await h.service.handleInbound("slack", linkRequest("123456"))).toEqual({ status: "dropped", reason: "flag_off" });
+    expect(consume).not.toHaveBeenCalled();
+    expect(h.repo.linkCodes.get(hash("123456"))?.consumedAt).toBeNull();
+    expect(h.repo.channelIdentities.size).toBe(0);
+    expect(h.repo.inboundEvents.size).toBe(0);
+  });
+
+  it("a disabled channel or an unverified request never consumes a code", async () => {
+    const h = setup();
+    issue(h, "123456");
+    const consume = vi.spyOn(h.repo, "consumeLinkCode");
+    h.repo.channelSettings.set("test", { channel: "test", enabled: false, minTier: "owner" });
+    expect(await h.service.handleInbound("test", linkRequest("123456"))).toEqual({ status: "dropped", reason: "channel_disabled" });
+
+    h.repo.channelSettings.set("test", { channel: "test", enabled: true, minTier: "owner" });
+    expect(await h.service.handleInbound("test", linkRequest("123456", { secret: "forged" }))).toEqual({ status: "rejected", reason: "unverified" });
+    expect(consume).not.toHaveBeenCalled();
+    expect(h.repo.linkCodes.get(hash("123456"))?.consumedAt).toBeNull();
+    expect(h.repo.channelIdentities.size).toBe(0);
+    expect(h.repo.inboundEvents.size).toBe(0);
+  });
+
+  it("repeated wrong codes block that sender, even with the right code, until the window passes", async () => {
+    const h = setup();
+    issue(h, "123456");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(await h.service.handleInbound("test", linkRequest(String(100000 + attempt)))).toEqual({ status: "denied", reply: LINK_FAILED_REPLY });
+    }
+    const consume = vi.spyOn(h.repo, "consumeLinkCode");
+    expect(await h.service.handleInbound("test", linkRequest("123456"))).toEqual({ status: "throttled", reply: LINK_THROTTLED_REPLY });
+    expect(consume).not.toHaveBeenCalled();
+    expect(h.repo.linkCodes.get(hash("123456"))?.consumedAt).toBeNull();
+    expect(h.logs.at(-1)).toEqual({ channel: "test", outcome: "throttled", reason: "link_attempts_exceeded" });
+
+    // The limit is per channel + external id: another sender is unaffected.
+    expect(await h.service.handleInbound("test", linkRequest("000000", { externalUserId: "ext-other" }))).toMatchObject({ status: "denied" });
+
+    h.clock.ms += 15 * 60_000;
+    issue(h, "654321", "blaine", "test", new Date(h.clock.ms + 10 * 60_000).toISOString());
+    expect(await h.service.handleInbound("test", linkRequest("654321"))).toEqual({ status: "linked", reply: LINKED_REPLY });
   });
 });
 
