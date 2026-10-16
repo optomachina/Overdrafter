@@ -138,6 +138,24 @@ describe("validateAll", () => {
     expect([...skillDirs(root).keys()]).toEqual(["tracked"]);
     expect(validateAll(root).errors).toEqual([]);
   });
+  it("does not count a tracked skill whose files are gone from the working tree", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".codex/skills/pull/SKILL.md", "x");
+    write(root, ".codex/skills/keep/SKILL.md", "x");
+    for (const n of ["pull", "keep"]) write(root, `evals/skills/${n}/spec.json`, JSON.stringify(goodSpec(n)));
+    git("add", "-f", ".codex", "evals");
+    git("commit", "-qm", "base");
+    expect(validateAll(root).errors).toEqual([]);
+    fs.rmSync(path.join(root, ".codex/skills/pull"), { recursive: true });
+    // Still tracked by git (the deletion is unstaged), but no longer on disk.
+    expect(git("ls-files", ".codex/skills/pull").trim()).toBe(".codex/skills/pull/SKILL.md");
+    expect([...skillDirs(root).keys()]).toEqual(["keep"]);
+    expect(validateAll(root).errors).toEqual([
+      "evals/skills/pull: no skill directory for this spec; restore the skill or remove the spec",
+    ]);
+    expect(run(root, "validate").code).toBe(1);
+  });
   it("reports invalid JSON", () => {
     const root = tmp();
     write(root, "evals/skills/bad/spec.json", "{");
@@ -184,6 +202,48 @@ describe("changed skills", () => {
     git("rm", "-q", "-r", ".codex/skills/gone");
     git("commit", "-qm", "rename+delete");
     expect(changedSkills(root, "HEAD~1", "HEAD")).toEqual(["gone", "new-name", "old-name"]);
+  });
+  it("lists skills whose changed files have non-ASCII or special names", () => {
+    const root = tmp();
+    const git = initGit(root);
+    const files = [
+      ".codex/skills/accent/caf\u00e9.md",
+      ".agents/skills/tabbed/a\tb.md",
+      ".agents/skills/newlined/a\nb.md",
+      ".agents/skills/quoted/say \"hi\".md",
+      ".agents/skills/r\u00e9sum\u00e9/SKILL.md",
+      ".agents/skills/plain/SKILL.md",
+    ];
+    for (const f of files) write(root, f, "1");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    for (const f of files) write(root, f, "2");
+    git("add", "-A");
+    git("commit", "-qm", "change");
+    // Plain `git diff --name-only` quotes these paths, which is why the
+    // script has to ask for NUL-separated output.
+    expect(git("diff", "--name-only", "HEAD~1", "HEAD")).toMatch(/^"/m);
+    const expected = ["accent", "newlined", "plain", "quoted", "r\u00e9sum\u00e9", "tabbed"];
+    expect(changedSkills(root, "HEAD~1", "HEAD")).toEqual(expected);
+    expect(run(root, "changed", "--base", "HEAD~1", "--head", "HEAD")).toEqual({ code: 0, text: `${expected.join("\n")}\n` });
+  });
+  it("lists a skill whose only changed file has a special name", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".codex/skills/commit/caf\u00e9.md", "1");
+    write(root, ".codex/skills/tabbed/a\tb.md", "1");
+    write(root, ".agents/skills/push/SKILL.md", "1");
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    write(root, ".codex/skills/commit/caf\u00e9.md", "2");
+    git("add", "-A");
+    git("commit", "-qm", "accent only");
+    expect(changedSkills(root, "HEAD~1", "HEAD")).toEqual(["commit"]);
+    write(root, ".codex/skills/tabbed/a\tb.md", "2");
+    write(root, ".agents/skills/push/SKILL.md", "2");
+    git("add", "-A");
+    git("commit", "-qm", "tab and plain");
+    expect(changedSkills(root, "HEAD~1", "HEAD")).toEqual(["push", "tabbed"]);
   });
 });
 
@@ -363,6 +423,45 @@ describe("report", () => {
     write(root, ".agents/skills/demo/SKILL.md", "changed");
     expect(run(root, "report", "--skill", "demo", path.join(root, "demo.json")).text).toMatch(/stale/);
     expect(run(root, "hash", "demo").text).toBe(`demo ${skillHash(root, "demo")}\n`);
+  });
+  it("cli: report --skill \"\" (no skills changed) exits 0 without needing scores", () => {
+    const root = tmp();
+    write(root, ".agents/skills/demo/SKILL.md", "x");
+    write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+    const none = path.join(root, "no-such-scores.json");
+    for (const args of [["--skill", "", none], ["--skill", "", "--json", none], ["--skill", ""], ["--skill", "  "]]) {
+      const r = run(root, "report", ...args);
+      expect(r.code).toBe(0);
+      expect(r.text).toMatch(/no skills changed/);
+    }
+    expect(run(root, "report", "--skill", "", "--json", none).text).toMatch(/"ok": true/);
+    // Only a fully empty value means "none changed"; every other empty name is still an error.
+    for (const args of [["--skill"], ["--skill", ","], ["--skill", "demo,,"], ["--skill", "", "--skill", "demo"]]) {
+      expect(run(root, "report", ...args, none).code).toBe(2);
+    }
+    // The empty list still runs the validate checks: a broken repo never passes.
+    write(root, "evals/skills/orphan/spec.json", JSON.stringify(goodSpec("orphan")));
+    const broken = run(root, "report", "--skill", "", none);
+    expect(broken.code).toBe(1);
+    expect(broken.text).toMatch(/error: evals\/skills\/orphan: no skill directory for this spec/);
+    expect(broken.text).not.toMatch(/no skills changed/);
+  });
+  it("cli: the documented changed | report pipeline handles no changed skills", () => {
+    const root = tmp();
+    const git = initGit(root);
+    write(root, ".agents/skills/demo/SKILL.md", "1");
+    write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+    write(root, "docs/x.md", "1");
+    git("add", "-f", "-A");
+    git("commit", "-qm", "base");
+    write(root, "docs/x.md", "2");
+    git("add", "-A");
+    git("commit", "-qm", "docs only");
+    const changed = run(root, "changed", "--base", "HEAD~1", "--head", "HEAD");
+    expect(changed).toEqual({ code: 0, text: "" });
+    // `skills=$(... | paste -sd, -)` strips the trailing newline and joins lines.
+    const skills = changed.text.split("\n").filter(Boolean).join(",");
+    expect(run(root, "report", "--skill", skills, path.join(root, "scores", "*.json"))).toMatchObject({ code: 0 });
   });
   it("cli aggregates score files", () => {
     const root = tmp();

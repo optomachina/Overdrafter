@@ -23,7 +23,7 @@ Re-run a skill's evals on any change under its skill directory, or under `evals/
 node scripts/skill-evals.mjs changed --base origin/main --head HEAD
 ```
 
-It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Loose files directly under a skill root (such as a README) belong to no skill and are not listed. Feed the list to the loop and to `report --skill`:
+It prints one skill name per line (empty when nothing changed). A deleted skill is listed too, so its spec can be retired. A renamed skill lists both the old and the new name. Loose files directly under a skill root (such as a README) belong to no skill and are not listed. File names with non-ASCII or special characters (accents, tabs, newlines, quotes) are handled, so a change to such a file still lists its skill. Feed the list to the loop and to `report --skill`:
 
 ```bash
 skills=$(node scripts/skill-evals.mjs changed --base origin/main --head HEAD | paste -sd, -)
@@ -31,6 +31,8 @@ node scripts/skill-evals.mjs report --skill "$skills" scores/*.json
 ```
 
 If the list includes a skill whose directory and spec were both removed (a retirement), drop that name first: `report --skill` exits 2 for a name with no spec.
+
+When no skill changed, `$skills` is empty and `report --skill ""` prints "no skills changed" and exits 0. It reads no scores files, so a missing `scores/` directory is fine. It still runs the `validate` checks, so a broken repo fails it with exit 1. Only a fully empty value means "none changed". A bare `--skill`, or a list with an empty entry such as `a,,b`, exits 2. Keep the quotes around `"$skills"`: unquoted, an empty list would swallow the next argument as a skill name.
 
 The `skillHash` enforces the trigger. `report` only counts results whose `skillHash` matches the current skill directory plus spec. Older results show as `stale` and fail, so a score cannot outlive the skill version it judged.
 
@@ -55,8 +57,12 @@ node scripts/skill-evals.mjs report [--skill <name>]... scores/*.json   # markdo
 
 ## Adding or changing a skill
 
-Add `evals/skills/<skill>/spec.json` in the same change. `validate` fails for a present skill with no spec. To retire a skill, remove its spec in the same change, because `validate` also fails for a spec whose skill is gone. Write cases that probe the skill's rules, such as refusals and guardrails, and not just the happy path.
+Add `evals/skills/<skill>/spec.json` in the same change. `validate` fails for a present skill with no spec. To retire a skill, remove its spec in the same change, because `validate` also fails for a spec whose skill is gone. CI enforces both rules (see the next section). A skill whose files are deleted from the working tree but not yet staged counts as gone. Write cases that probe the skill's rules, such as refusals and guardrails, and not just the happy path.
+
+## What CI enforces
+
+The repo's vitest suite runs in the CI `test` job, which the required `ci` check depends on. `scripts/skill-evals.test.mjs` includes a "committed specs" test that runs `validate` against the real repo. So the rules above are CI-enforced: a PR fails CI if it adds a tracked skill without a spec, retires a skill but leaves its spec, uses one skill name in two roots, or breaks a spec. CI does not run the model loop or check any scores.
 
 ## Not in scope
 
-The scripts never call a model. Running and judging is done by the operator or agent harness. No CI workflow runs this yet; wiring `validate` into CI is a separate, workflow-touching change.
+The scripts never call a model. Running and judging is done by the operator or agent harness. No CI workflow runs the evals or this CLI. Running `validate` as its own workflow step would be a separate, workflow-touching change.

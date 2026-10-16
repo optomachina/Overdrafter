@@ -81,7 +81,9 @@ export function skillDirs(root) {
 function skillNamesUnder(root, base, tracked) {
   if (tracked) {
     const prefix = `${base}/`;
-    const names = tracked.filter((f) => f.startsWith(prefix) && f.indexOf("/", prefix.length) > 0)
+    // A tracked file deleted from the working tree (not yet staged) does not
+    // keep its skill present; the skill must really be on disk.
+    const names = tracked.filter((f) => f.startsWith(prefix) && f.indexOf("/", prefix.length) > 0 && fs.existsSync(path.join(root, f)))
       .map((f) => f.slice(prefix.length).split("/")[0]);
     return [...new Set(names)].sort(compareCodeUnits);
   }
@@ -245,8 +247,11 @@ export function changedSkills(root, base, head) {
   for (const ref of [base, head]) {
     if (!ref || ref.startsWith("-")) throw new Error(`invalid git ref: ${ref}`);
   }
-  const out = execFileSync(GIT_BIN, ["diff", "--name-only", "--no-renames", `${base}...${head}`], { cwd: root, encoding: "utf8" });
-  return changedSkillsFromPaths(out.split("\n").filter(Boolean));
+  // -z: NUL-separated, unquoted paths. Without it git quotes non-ASCII and
+  // special names ("caf\303\251.md"), which would match no skill dir and drop
+  // the skill from the list.
+  const out = execFileSync(GIT_BIN, ["diff", "--name-only", "-z", "--no-renames", `${base}...${head}`], { cwd: root, encoding: "utf8" });
+  return changedSkillsFromPaths(out.split("\0").filter(Boolean));
 }
 
 /**
@@ -345,6 +350,7 @@ function summaryLines(report) {
 
 export function renderReport(report) {
   const lines = summaryLines(report);
+  if (report.skills.length === 0) return `${lines.join("\n").trimEnd()}\n`;
   lines.push("| Skill | Case | Score | Status | Notes |", "| --- | --- | --- | --- | --- |");
   for (const s of report.skills) {
     if (s.reason) lines.push(`| ${cell(s.skill)} | - | - | ${s.status} | ${cell(s.reason)} |`);
@@ -399,9 +405,15 @@ export function parseFlags(argv) {
   return flags;
 }
 
-/** `--skill a --skill b,c` -> ["a", "b", "c"], or null when absent. */
+/**
+ * `--skill a --skill b,c` -> ["a", "b", "c"], or null when absent. A value
+ * that is empty (what `changed | paste -sd, -` yields when no skill changed)
+ * means an empty scope, []. Any other empty name, such as a bare `--skill` or
+ * `a,,b`, is an error.
+ */
 function skillScope(values, specs) {
   if (values === undefined) return null;
+  if (values.every((v) => typeof v === "string" && v.trim() === "")) return [];
   const names = values.flatMap((v) => (typeof v === "string" ? v.split(",") : [""])).map((v) => v.trim());
   if (names.some((n) => !n)) throw new Error("--skill needs a skill name");
   const unknown = names.filter((n) => !specs.has(n));
@@ -454,18 +466,24 @@ function runHash(f, root, out) {
 }
 
 function runReport(f, root, out) {
-  if (f._.length === 0) throw new Error("at least one scores file is required");
   const { specs, dirs, errors } = inspectRepo(root);
   const only = skillScope(f.skill, specs);
-  const results = readResults(f._);
+  // `report --skill ""`: the documented pipeline's "no skills changed" case.
+  // Nothing needs scoring, so no scores file is required or read.
+  const noneChanged = only?.length === 0;
+  if (!noneChanged && f._.length === 0) throw new Error("at least one scores file is required");
+  const results = noneChanged ? [] : readResults(f._);
+  let report;
   // Scoped or not, a report cannot pass while `validate` fails: a skill with
   // no spec, a spec with no skill, or a name in two roots is never scored.
-  const report = errors.length
-    ? { ok: false, reason: "validation failed (see node scripts/skill-evals.mjs validate)", errors, skills: [] }
-    : buildReport(specs, results, {
-      hashes: new Map([...dirs.keys()].map((n) => [n, skillHash(root, n, dirs)])),
-      only,
-    });
+  if (errors.length) {
+    report = { ok: false, reason: "validation failed (see node scripts/skill-evals.mjs validate)", errors, skills: [] };
+  } else if (noneChanged) {
+    report = { ok: true, reason: "no skills changed, so there is nothing to re-score", skills: [] };
+  } else {
+    const hashes = new Map([...dirs.keys()].map((n) => [n, skillHash(root, n, dirs)]));
+    report = buildReport(specs, results, { hashes, only });
+  }
   out(f.json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report));
   return report.ok ? 0 : 1;
 }
