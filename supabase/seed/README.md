@@ -26,8 +26,8 @@ All ids start with `83700000-5eed-`. The seed rows carry `stagingFixture: "ovd-8
   (`packageId`, `requirementKey`, `cheapestUnitUsd`, v2 verdict). This includes one held
   (`manual_review_pending`) row. One pre-gate `failed` row has no `fixtureSanity`.
 - `private.provider_kill_switches` (one per `vendor_name`) and
-  `private.provider_global_kill_switch`: all disengaged, inserted only if missing.
-  An existing switch is never flipped.
+  `private.provider_global_kill_switch`: a missing row is recreated **engaged**
+  (fail closed). An existing switch is never touched, engaged or released.
 - Written by insert triggers, first run only: `public.canonical_parts`,
   `public.part_versions`, `private.part_fingerprint_observations`,
   `private.part_deadline_history`, `private.sourcing_destination_history`.
@@ -44,7 +44,11 @@ the window. Without it, the 90-day history read would stop finding it.
 
 ## Running it
 
-Runner (psql required). The database URL is split into libpq variables and never printed:
+Runner (psql required). psql is resolved to an absolute path: `PSQL_BIN` if set
+(it must be absolute), otherwise the first `psql` in a fixed list of directories
+(`/usr/bin`, `/usr/local/bin`, `/bin`, `/opt/homebrew/bin`, Homebrew libpq). The
+inherited `PATH` is never used. The database URL is split into libpq variables
+and never printed:
 
 ```sh
 # Guard only: exits 1 for production, an unknown ref, or refs that disagree.
@@ -67,8 +71,17 @@ The runner uses an allowlist. `--ref`, `SUPABASE_URL` and `STAGING_DATABASE_URL`
 - a ref cannot be derived;
 - no target is given.
 
+In-SQL guard: `staging.sql` starts with a `do` block that raises an exception,
+before any write, unless the transaction-local setting `ovd837.seed_target_ref`
+is `ldmambwtksfvqdufhaam`. A Supabase database does not expose its own project
+ref, so the caller that already proved the target asserts it: the runner sets it
+with `set local` inside the seed's single transaction. Pasting the file alone
+anywhere writes nothing.
+
 Supabase MCP: first run the `--check-target` command above. Then pass `project_id`
-`ldmambwtksfvqdufhaam` to `execute_sql`, and run `staging.sql` as one call.
+`ldmambwtksfvqdufhaam` to `execute_sql`, and run `staging.sql` as one call,
+prefixed with
+`select set_config('ovd837.seed_target_ref', 'ldmambwtksfvqdufhaam', true);`.
 Run `staging-counts.sql` before and after, and run the seed twice to confirm
 the counts match. Finish with `staging-smoke.sql`.
 

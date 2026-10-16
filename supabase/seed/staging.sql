@@ -2,7 +2,8 @@
 --
 -- Never apply to production (ozuatdcakezjtevztjlr). Use scripts/seed-staging.mjs,
 -- which refuses every ref but the staging one, or paste this file into the
--- Supabase SQL API / MCP execute_sql for the staging project only.
+-- Supabase SQL API / MCP execute_sql for the staging project only (see the
+-- target guard below).
 --
 -- One statement batch, no begin/commit and no psql meta-commands: the SQL API
 -- runs it in one transaction, and the runner adds --single-transaction.
@@ -20,6 +21,26 @@
 --
 -- Assumes every migration in supabase/migrations is applied (including the
 -- OVD-722 provider kill switch).
+
+-- Target guard: runs first, before any write, and aborts the whole batch unless
+-- the session asserts the staging ref. Signal: the transaction-local setting
+-- ovd837.seed_target_ref. A Supabase database has no built-in setting that
+-- names its own project ref (production and staging share every migration), so
+-- the assertion comes from the caller that already proved the target:
+--   * scripts/seed-staging.mjs sets it with `set local` in the same
+--     --single-transaction psql run, and only after its ref allowlist passed;
+--   * an MCP execute_sql caller (project_id ldmambwtksfvqdufhaam, after
+--     `--check-target`) prepends
+--     select set_config('ovd837.seed_target_ref', 'ldmambwtksfvqdufhaam', true);
+-- Unset, empty or any other value (including the production ref) fails closed,
+-- so pasting this file alone into any SQL editor writes nothing.
+do $guard$
+begin
+  if coalesce(current_setting('ovd837.seed_target_ref', true), '') <> 'ldmambwtksfvqdufhaam' then
+    raise exception 'OVD-837 staging seed refused: ovd837.seed_target_ref is not the staging ref ldmambwtksfvqdufhaam';
+  end if;
+end
+$guard$;
 
 -- Users (no identities: nothing references them and nobody signs in).
 insert into auth.users (
@@ -170,14 +191,14 @@ insert into public.vendor_quote_results (
   unit_price_usd, total_price_usd, lead_time_business_days, notes, raw_payload, created_at
 )
 select
-  fixture.id, run.id, fixture.part_id, run.organization_id, fixture.vendor::public.vendor_name,
+  fixture.id, run.id, part.id, run.organization_id, fixture.vendor::public.vendor_name,
   fixture.status::public.vendor_status, fixture.quantity,
   case when fixture.held then null else fixture.unit_price end,
   case when fixture.held then null else fixture.unit_price * fixture.quantity end,
   fixture.lead_days,
   case when fixture.held then '["Held for review: fixture sanity check failed (synthetic staging fixture)."]'::jsonb else '[]'::jsonb end,
   jsonb_build_object('stagingFixture', 'ovd-837')
-    || case when fixture.package_id is null then '{}'::jsonb else jsonb_build_object('fixtureSanity',
+    || case when package.package_id is null then '{}'::jsonb else jsonb_build_object('fixtureSanity',
       jsonb_build_object(
         'v', 2,
         'verdict', case when fixture.held then 'hold' else 'pass' end,
@@ -187,8 +208,8 @@ select
         'ratios', jsonb_build_object('history', null, 'peer', null),
         'cheapestUnitUsd', fixture.cheapest_unit,
         'pause', fixture.held,
-        'packageId', fixture.package_id,
-        'requirementKey', fixture.requirement_key,
+        'packageId', package.package_id,
+        'requirementKey', package.requirement_key,
         'checkedAt', to_jsonb(now() - make_interval(days => fixture.age_days)),
         'held', fixture.held,
         'holdReason', case when fixture.held then 'sanity' end
@@ -199,47 +220,49 @@ select
     ) end,
   now() - make_interval(days => fixture.age_days)
 from (values
-  -- id, run, part, vendor, status, quantity, unit price, cheapest unit, lead days, held, package, requirement, age days
-  ('83700000-5eed-4000-8000-000000000901'::uuid, '83700000-5eed-4000-8000-000000000804'::uuid, '83700000-5eed-4000-8000-000000000501'::uuid,
-   'xometry', 'instant_quote_received', 1, 41.50::numeric, 41.50::numeric, 10, false,
-   '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0', 20),
-  ('83700000-5eed-4000-8000-000000000902'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid, '83700000-5eed-4000-8000-000000000501'::uuid,
-   'xometry', 'instant_quote_received', 1, 43.00::numeric, 42.25::numeric, 10, false,
-   '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0', 2),
-  ('83700000-5eed-4000-8000-000000000903'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid, '83700000-5eed-4000-8000-000000000501'::uuid,
-   'fictiv', 'instant_quote_received', 1, 47.80::numeric, 47.80::numeric, 12, false,
-   '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0', 2),
-  ('83700000-5eed-4000-8000-000000000904'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid, '83700000-5eed-4000-8000-000000000501'::uuid,
-   'protolabs', 'instant_quote_received', 1, 52.10::numeric, 52.10::numeric, 7, false,
-   '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0', 2),
-  ('83700000-5eed-4000-8000-000000000905'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid, '83700000-5eed-4000-8000-000000000501'::uuid,
-   'xometry', 'manual_review_pending', 10, 4.10::numeric, 4.10::numeric, 10, true,
-   '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0', 2),
-  ('83700000-5eed-4000-8000-000000000906'::uuid, '83700000-5eed-4000-8000-000000000802'::uuid, '83700000-5eed-4000-8000-000000000502'::uuid,
-   'sendcutsend', 'instant_quote_received', 1, 12.40::numeric, 12.40::numeric, 5, false,
-   'd1ac733d7a61f42fd4b5708156d876ab8ae0f9b60e801f6b6ab3cc5b1efceb61', '6fe15353d2b999e93bf88fc2ab6635b2322946675d05aa733d2825436aa516b6', 5),
-  ('83700000-5eed-4000-8000-000000000907'::uuid, '83700000-5eed-4000-8000-000000000802'::uuid, '83700000-5eed-4000-8000-000000000502'::uuid,
-   'oshcut', 'instant_quote_received', 1, 13.05::numeric, 13.05::numeric, 6, false,
-   'd1ac733d7a61f42fd4b5708156d876ab8ae0f9b60e801f6b6ab3cc5b1efceb61', '6fe15353d2b999e93bf88fc2ab6635b2322946675d05aa733d2825436aa516b6', 5),
-  ('83700000-5eed-4000-8000-000000000908'::uuid, '83700000-5eed-4000-8000-000000000803'::uuid, '83700000-5eed-4000-8000-000000000503'::uuid,
-   'xometry', 'official_quote_received', 1, 88.00::numeric, 88.00::numeric, 15, false,
-   '982edb5d7868760f4160d55dedf1a227761aa89fc3dde1be9ddc05a18bab60cd', 'a3be75cac5e8ef87037578eb419c9244a36aacc0375d525b641e925d5812b27d', 7),
-  ('83700000-5eed-4000-8000-000000000909'::uuid, '83700000-5eed-4000-8000-000000000803'::uuid, '83700000-5eed-4000-8000-000000000503'::uuid,
-   'fictiv', 'failed', 1, null::numeric, null::numeric, null, false, null, null, 7)
-) as fixture(id, run_id, part_id, vendor, status, quantity, unit_price, cheapest_unit, lead_days, held, package_id, requirement_key, age_days)
+  -- id, run, vendor, status, quantity, unit price, cheapest unit, lead days, held, package, age days
+  ('83700000-5eed-4000-8000-000000000901'::uuid, '83700000-5eed-4000-8000-000000000804'::uuid,
+   'xometry', 'instant_quote_received', 1, 41.50::numeric, 41.50::numeric, 10, false, 'bracket-a', 20),
+  ('83700000-5eed-4000-8000-000000000902'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid,
+   'xometry', 'instant_quote_received', 1, 43.00::numeric, 42.25::numeric, 10, false, 'bracket-a', 2),
+  ('83700000-5eed-4000-8000-000000000903'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid,
+   'fictiv', 'instant_quote_received', 1, 47.80::numeric, 47.80::numeric, 12, false, 'bracket-a', 2),
+  ('83700000-5eed-4000-8000-000000000904'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid,
+   'protolabs', 'instant_quote_received', 1, 52.10::numeric, 52.10::numeric, 7, false, 'bracket-a', 2),
+  ('83700000-5eed-4000-8000-000000000905'::uuid, '83700000-5eed-4000-8000-000000000801'::uuid,
+   'xometry', 'manual_review_pending', 10, 4.10::numeric, 4.10::numeric, 10, true, 'bracket-a', 2),
+  ('83700000-5eed-4000-8000-000000000906'::uuid, '83700000-5eed-4000-8000-000000000802'::uuid,
+   'sendcutsend', 'instant_quote_received', 1, 12.40::numeric, 12.40::numeric, 5, false, 'plate-b', 5),
+  ('83700000-5eed-4000-8000-000000000907'::uuid, '83700000-5eed-4000-8000-000000000802'::uuid,
+   'oshcut', 'instant_quote_received', 1, 13.05::numeric, 13.05::numeric, 6, false, 'plate-b', 5),
+  ('83700000-5eed-4000-8000-000000000908'::uuid, '83700000-5eed-4000-8000-000000000803'::uuid,
+   'xometry', 'official_quote_received', 1, 88.00::numeric, 88.00::numeric, 15, false, 'housing-c', 7),
+  ('83700000-5eed-4000-8000-000000000909'::uuid, '83700000-5eed-4000-8000-000000000803'::uuid,
+   'fictiv', 'failed', 1, null::numeric, null::numeric, null, false, null, 7)
+) as fixture(id, run_id, vendor, status, quantity, unit_price, cheapest_unit, lead_days, held, package, age_days)
 join public.quote_runs run on run.id = fixture.run_id
+-- One fixture part per fixture job.
+join public.parts part on part.job_id = run.job_id and part.id::text like '83700000-5eed-%'
+-- OVD-813 package and requirement keys per fixture part (the smoke read keys on bracket-a).
+left join (values
+  ('bracket-a', '72ec5db52d4ceedb5fe0c5307532cf276f420f967a4ddd3399fa7a8772e703c3', '5c3214c2161433cf4d41c94986a49465856df6d942b24208b3da6908c4039ac0'),
+  ('plate-b', 'd1ac733d7a61f42fd4b5708156d876ab8ae0f9b60e801f6b6ab3cc5b1efceb61', '6fe15353d2b999e93bf88fc2ab6635b2322946675d05aa733d2825436aa516b6'),
+  ('housing-c', '982edb5d7868760f4160d55dedf1a227761aa89fc3dde1be9ddc05a18bab60cd', 'a3be75cac5e8ef87037578eb419c9244a36aacc0375d525b641e925d5812b27d')
+) as package(package, package_id, requirement_key) on package.package = fixture.package
 on conflict (id) do update
   set created_at = excluded.created_at
   where public.vendor_quote_results.created_at < now() - interval '60 days';
 
--- OVD-722 kill switch rows: one per provider plus the global singleton, all
--- disengaged. The migration seeds the same rows; this only restores any that
--- are missing and never flips an existing switch.
-insert into private.provider_kill_switches (provider, engaged)
-select provider, false
+-- OVD-722 kill switch rows: one per provider plus the global singleton. The
+-- migration seeds them; this only restores a missing row, and a restored row
+-- is ENGAGED (fail closed: staging must not start quoting a provider because a
+-- seed recreated its switch). An existing row is never touched, so the seed can
+-- neither engage nor release a switch someone already set.
+insert into private.provider_kill_switches (provider, engaged, reason, engaged_at)
+select provider, true, 'Recreated engaged by the OVD-837 staging seed (row was missing).', now()
 from unnest(enum_range(null::public.vendor_name)) as provider
 on conflict (provider) do nothing;
 
-insert into private.provider_global_kill_switch (singleton, engaged)
-values (true, false)
+insert into private.provider_global_kill_switch (singleton, engaged, reason, engaged_at)
+values (true, true, 'Recreated engaged by the OVD-837 staging seed (row was missing).', now())
 on conflict (singleton) do nothing;

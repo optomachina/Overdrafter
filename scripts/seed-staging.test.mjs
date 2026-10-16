@@ -5,10 +5,13 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   PRODUCTION_PROJECT_REF,
+  PSQL_FIXED_PATH,
   STAGING_PROJECT_REF,
   libpqEnv,
   main,
+  psqlArgs,
   refFromDatabaseUrl,
+  resolvePsqlBin,
   resolveTargetRef,
 } from "./seed-staging.mjs";
 
@@ -27,10 +30,11 @@ function runScript(args, env = {}) {
   });
 }
 
-function mainWith(argv, env) {
+function mainWith(argv, env, findPsql = () => ({ ok: true, bin: "/usr/bin/psql" })) {
   const runPsql = vi.fn(() => 0);
   const messages = [];
-  const code = main(argv, env, { runPsql, log: (line) => messages.push(line), error: (line) => messages.push(line) });
+  const record = (line) => messages.push(line);
+  const code = main(argv, env, { runPsql, findPsql, log: record, error: record });
   return { code, runPsql, output: messages.join("\n") };
 }
 
@@ -80,6 +84,9 @@ describe("seed-staging target guard (OVD-837)", () => {
       ["staging-counts.sql", false],
       ["staging-smoke.sql", false],
     ]);
+    for (const [, , options] of runPsql.mock.calls) {
+      expect(options).toMatchObject({ targetRef: STAGING_PROJECT_REF, psqlBin: "/usr/bin/psql" });
+    }
     expect(output).not.toContain(SECRET);
     expect(libpqEnv(poolerUrl(STAGING_PROJECT_REF))).toMatchObject({ PGUSER: `postgres.${STAGING_PROJECT_REF}`, PGPORT: "6543", PGSSLMODE: "require" });
   });
@@ -101,13 +108,64 @@ describe("seed-staging target guard (OVD-837)", () => {
   });
 });
 
+describe("seed-staging psql invocation (OVD-837)", () => {
+  const stagingEnv = { STAGING_DATABASE_URL: directUrl(STAGING_PROJECT_REF) };
+
+  it("never looks psql up on the inherited PATH", () => {
+    const source = readFileSync(scriptPath, "utf8");
+    expect(source).not.toMatch(/process\.env\.PATH/);
+    expect(source).not.toMatch(/spawnSync\(\s*["']psql["']/);
+    expect(PSQL_FIXED_PATH.split(":").every((dir) => path.isAbsolute(dir))).toBe(true);
+  });
+
+  it("uses an absolute PSQL_BIN and refuses a relative one", () => {
+    const isExecutable = vi.fn(() => true);
+    expect(resolvePsqlBin({ PSQL_BIN: "/custom/pg/bin/psql" }, isExecutable)).toEqual({ ok: true, bin: "/custom/pg/bin/psql" });
+    for (const PSQL_BIN of ["psql", "bin/psql", "./psql"]) {
+      expect(resolvePsqlBin({ PSQL_BIN }, isExecutable)).toMatchObject({ ok: false, reason: expect.stringContaining("absolute") });
+    }
+    expect(isExecutable).not.toHaveBeenCalled();
+  });
+
+  it("searches only the fixed directories, ignoring PATH", () => {
+    const seen = [];
+    const isExecutable = (file) => {
+      seen.push(file);
+      return file === "/opt/homebrew/bin/psql";
+    };
+    expect(resolvePsqlBin({ PATH: "/tmp/evil" }, isExecutable)).toEqual({ ok: true, bin: "/opt/homebrew/bin/psql" });
+    expect(seen.every((file) => path.isAbsolute(file) && !file.startsWith("/tmp/"))).toBe(true);
+    expect(resolvePsqlBin({ PATH: "/tmp/evil" }, () => false)).toMatchObject({ ok: false });
+  });
+
+  it("refuses before any psql step when psql cannot be resolved", () => {
+    const { code, runPsql, output } = mainWith([], { ...stagingEnv, PSQL_BIN: "psql" }, resolvePsqlBin);
+    expect(code).toBe(1);
+    expect(runPsql).not.toHaveBeenCalled();
+    expect(output).toContain("PSQL_BIN must be an absolute path");
+  });
+
+  it("asserts the staging ref for the in-SQL guard only inside the seed transaction", () => {
+    const seedArgs = psqlArgs("/x/staging.sql", { singleTransaction: true, targetRef: STAGING_PROJECT_REF });
+    expect(seedArgs).toContain("--single-transaction");
+    const setIndex = seedArgs.indexOf(`set local ovd837.seed_target_ref = '${STAGING_PROJECT_REF}'`);
+    expect(setIndex).toBeGreaterThan(0);
+    expect(setIndex).toBeLessThan(seedArgs.indexOf("/x/staging.sql"));
+    expect(psqlArgs("/x/staging-counts.sql").join(" ")).not.toContain("seed_target_ref");
+    for (const targetRef of [PRODUCTION_PROJECT_REF, UNKNOWN_REF, null]) {
+      expect(() => psqlArgs("/x/staging.sql", { singleTransaction: true, targetRef })).toThrow();
+    }
+  });
+});
+
 describe("staging seed SQL (OVD-837)", () => {
   // SQL with line comments removed, so prose in the headers is not matched.
   const read = (name) => readFileSync(path.resolve(process.cwd(), "supabase/seed", name), "utf8").replace(/--.*$/gm, "");
   const seed = read("staging.sql");
 
   it("is one batch for the SQL API: no transaction control or psql meta-commands", () => {
-    expect(seed).not.toMatch(/^\s*(begin|commit|rollback|start transaction)\b/im);
+    // A bare `begin` line is the guard's plpgsql block; `begin;` would be transaction control.
+    expect(seed).not.toMatch(/^\s*(begin\s*(transaction|work)?\s*;|commit\b|rollback\b|start transaction\b)/im);
     expect(seed).not.toMatch(/^\s*\\/m);
   });
 
@@ -118,6 +176,30 @@ describe("staging seed SQL (OVD-837)", () => {
     expect(guards.length).toBe(inserts.length);
     expect(seed).not.toMatch(/gen_random_uuid|uuid_generate/i);
     expect(seed).not.toMatch(/\b(delete|truncate|drop)\b/i);
+  });
+
+  it("aborts unless the session asserts the staging ref, before any write", () => {
+    const guard = /do \$guard\$([\s\S]*?)\$guard\$;/i.exec(seed);
+    expect(guard).not.toBeNull();
+    expect(guard.index).toBeLessThan(seed.search(/\b(insert|update)\b/i));
+    expect(guard[1]).toContain("current_setting('ovd837.seed_target_ref', true)");
+    expect(guard[1]).toContain(`<> '${STAGING_PROJECT_REF}'`);
+    expect(guard[1]).toMatch(/raise exception/i);
+    expect(seed).not.toContain(PRODUCTION_PROJECT_REF);
+  });
+
+  it("recreates a missing kill switch engaged and never releases an existing one", () => {
+    for (const table of ["provider_kill_switches", "provider_global_kill_switch"]) {
+      const insert = new RegExp(`insert into private\\.${table} \\(([^)]*)\\)([\\s\\S]*?);`, "i").exec(seed);
+      expect(insert).not.toBeNull();
+      const columns = insert[1].split(",").map((column) => column.trim());
+      const engaged = columns.indexOf("engaged");
+      expect(engaged).toBeGreaterThan(0);
+      const firstRow = /(?:select|values \()\s*([^\n]*)/i.exec(insert[2])[1].split(",").map((value) => value.trim());
+      expect(firstRow[engaged]).toBe("true");
+      expect(insert[2]).toMatch(/on conflict \(\w+\) do nothing\s*$/i);
+      expect(seed).not.toMatch(new RegExp(`update\\s+private\\.${table}`, "i"));
+    }
   });
 
   it("uses only reserved fake email domains", () => {

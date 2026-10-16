@@ -13,9 +13,11 @@
 //   STAGING_DATABASE_URL=... node scripts/seed-staging.mjs --smoke    read-only OVD-813 history select
 //   node scripts/seed-staging.mjs --ref <ref> --check-target          guard only (before an MCP execute_sql)
 //
-// The database URL is never printed: it is split into libpq environment
+// psql is resolved to an absolute path (PSQL_BIN or fixed directories), never
+// from the inherited PATH. The database URL is never printed: it is split into libpq environment
 // variables for psql and kept out of every message and argument list.
 import { spawnSync } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -130,18 +132,63 @@ export function libpqEnv(databaseUrl) {
   };
 }
 
-function runPsqlFile(file, databaseUrl, { singleTransaction = false } = {}) {
-  const args = ["-X", "-v", "ON_ERROR_STOP=1", ...(singleTransaction ? ["--single-transaction", "-q"] : []), "-f", file];
-  const result = spawnSync("psql", args, {
+// psql is never looked up on the inherited PATH (Sonar S4036): PSQL_BIN must be
+// an absolute path, otherwise the first executable psql in these fixed
+// directories is used. psql itself also gets this fixed PATH.
+export const PSQL_SEARCH_DIRS = Object.freeze([
+  "/usr/bin",
+  "/usr/local/bin",
+  "/bin",
+  "/opt/homebrew/bin",
+  "/opt/homebrew/opt/libpq/bin",
+  "/usr/local/opt/libpq/bin",
+]);
+export const PSQL_FIXED_PATH = PSQL_SEARCH_DIRS.join(":");
+
+/**
+ * Resolves the absolute psql binary. Pure apart from `isExecutable`.
+ * @returns {{ ok: true, bin: string } | { ok: false, reason: string }}
+ */
+export function resolvePsqlBin(env = {}, isExecutable = defaultIsExecutable) {
+  if (env.PSQL_BIN) {
+    if (!path.isAbsolute(env.PSQL_BIN)) return { ok: false, reason: "PSQL_BIN must be an absolute path" };
+    return { ok: true, bin: env.PSQL_BIN };
+  }
+  const bin = PSQL_SEARCH_DIRS.map((dir) => path.join(dir, "psql")).find((candidate) => isExecutable(candidate));
+  return bin ? { ok: true, bin } : { ok: false, reason: `psql not found in ${PSQL_FIXED_PATH}; set PSQL_BIN to its absolute path` };
+}
+
+function defaultIsExecutable(file) {
+  try {
+    accessSync(file, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * psql arguments. The seed runs in one transaction that first asserts the
+ * staging ref for the in-SQL guard of supabase/seed/staging.sql.
+ */
+export function psqlArgs(file, { singleTransaction = false, targetRef = null } = {}) {
+  if (!singleTransaction) return ["-X", "-v", "ON_ERROR_STOP=1", "-f", file];
+  if (targetRef !== STAGING_PROJECT_REF) throw new Error("the seed may only assert the staging ref");
+  return ["-X", "-v", "ON_ERROR_STOP=1", "--single-transaction", "-q",
+    "-c", `set local ovd837.seed_target_ref = '${STAGING_PROJECT_REF}'`, "-f", file];
+}
+
+function runPsqlFile(file, databaseUrl, { psqlBin, ...options }) {
+  const result = spawnSync(psqlBin, psqlArgs(file, options), {
     stdio: "inherit",
-    env: { PATH: process.env.PATH ?? "", ...libpqEnv(databaseUrl) },
+    env: { PATH: PSQL_FIXED_PATH, ...libpqEnv(databaseUrl) },
   });
   if (result.error) throw new Error(`psql could not start (${result.error.code ?? "error"})`);
   return result.status ?? 1;
 }
 
 /** Returns the process exit code: 0 ok, 1 refused or failed, 2 usage. */
-export function main(argv, env, { runPsql = runPsqlFile, log = console.log, error = console.error } = {}) {
+export function main(argv, env, { runPsql = runPsqlFile, findPsql = resolvePsqlBin, log = console.log, error = console.error } = {}) {
   const args = parseArgs(argv);
   if (args.error) {
     error(`seed-staging: ${args.error}`);
@@ -161,6 +208,11 @@ export function main(argv, env, { runPsql = runPsqlFile, log = console.log, erro
     error(`seed-staging: ${DATABASE_URL_ENV} is required to connect`);
     return 1;
   }
+  const psql = findPsql(env);
+  if (!psql.ok) {
+    error(`seed-staging: ${psql.reason}`);
+    return 1;
+  }
   const steps = {
     counts: [["counts", SEED_FILES.counts]],
     smoke: [["smoke", SEED_FILES.smoke]],
@@ -168,7 +220,7 @@ export function main(argv, env, { runPsql = runPsqlFile, log = console.log, erro
   }[args.mode];
   for (const [label, file] of steps) {
     log(`seed-staging: ${label} (${target.ref})`);
-    const status = runPsql(file, databaseUrl, { singleTransaction: label === "seed" });
+    const status = runPsql(file, databaseUrl, { singleTransaction: label === "seed", targetRef: target.ref, psqlBin: psql.bin });
     if (status !== 0) {
       error(`seed-staging: ${label} failed (psql exit ${status})`);
       return 1;
