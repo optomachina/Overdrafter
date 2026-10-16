@@ -1,6 +1,6 @@
 # Re-check: Jarvis PWA v4 (OVD-799), 2026-10-16
 
-Inputs reviewed: `critique-v3.md`, `fix-list.md`, all 13 v4 screenshots at 430, the 375 set (I viewed decide, evidence, offline and result), the combined strip, `mock/v4.html` (CSS and script read), the v4 section of SPEC.md, and `checks-report.json`. I computed contrast from the CSS hex values. I verified behavior by reading the code; I didn't run any interactions.
+Inputs reviewed: `critique-v3.md`, the fix list, fix-list (a markdown file removed in this PR; in cb307e09dd2e0ac9dcabea479b4471707b17d7f5), all 13 v4 screenshots at 430, the 375 set (I viewed decide, evidence, offline and result), the combined strip, `mock/v4.html` (CSS and script read), the v4 section of SPEC.md, and the checks report (screenshots/v4/checks-report.json). I computed contrast from the CSS hex values. I verified behavior by reading the code; I didn't run any interactions.
 
 ## Per item
 

@@ -1,7 +1,7 @@
 # Jarvis PWA, slice 1: thread, skippable decision cards, 3D result view
 
 Issue: OVD-799 (split child of OVD-795). Owner: Designer, then Engineer (OVD-803 PWA shell and gate, OVD-804 thread and 3D; OVD-800 closed as a duplicate of OVD-803) after sign off.
-Repo path: `docs/design/jarvis-pwa/` (this folder). Status: **v4.1 APPROVED by Blaine, 2026-10-16 (v3 plus the Critiquito fixes, plus the v4 recheck fixes).** v1, v2 and v3 are superseded. Their mocks, screenshots and tools were removed from the repo (recover them from git history at cb307e09 or earlier); the sections below keep only their reasoning. Chat as the primary surface is allowed only in the Jarvis phone app; the customer quote workspace ban in `docs/DESIGN.md` still stands. Jarvis shows inches by default with mm as the secondary unit.
+Repo path: `docs/design/jarvis-pwa/` (this folder). Status: **v4.1 APPROVED by Blaine, 2026-10-16 (v3 plus the Critiquito fixes, plus the v4 recheck fixes).** v1, v2 and v3 are superseded. Their mocks, screenshots and tools were removed from the repo (recover with `git fetch origin refs/pull/791/head` then `git show cb307e09dd2e0ac9dcabea479b4471707b17d7f5:<path>` (`refs/pull/791/head` history, commit cb307e09dd2e0ac9dcabea479b4471707b17d7f5)); the History section at the end keeps only their reasoning. Chat as the primary surface is allowed only in the Jarvis phone app; the customer quote workspace ban in `docs/DESIGN.md` still stands. Jarvis shows inches by default with mm as the secondary unit.
 Inputs read: OVD-799, OVD-795 (incl. architect comment 5b0ca055 and the 8:35/8:36 PM AR and job control comments), OVD-481, OVD-781, `docs/DESIGN.md`, `src/lib/engineering-workbench-access.ts`.
 All values in the mock and screenshots are **sample data** (labeled on screen). Nothing here is a real Jarvis output.
 
@@ -32,8 +32,8 @@ All 13 states at 430 and 375: rendered; control border contrast at least 3:1 aga
 
 ## v4. North Star command loop plus Critiquito fixes (approved 2026-10-16; refined by v4.1)
 
-Approved by Blaine on 2026-10-16 as "v3 plus your fixes from the Critiquito pass". Critique: `critique-v3.md`; fix list: `/workspace/critiques/jarvis-pwa/fix-list.md` (not kept in the repo).
-Files: `tools/index.v4.src.html` → `tools/build.v4.py` → `mock/v4.html` (`?state=`); `tools/shoot.v4.js` → `screenshots/v4/<state>-430.png` (full page), `screenshots/v4/375/<state>-375.png`, `screenshots/v4/combined-direct-parallel-decide-result-committed.png`, `screenshots/v4/checks-report.json`.
+Approved by Blaine on 2026-10-16 as "v3 plus your fixes from the Critiquito pass". Critique: `critique-v3.md`; fix list: not kept in the repo (see History).
+Files: `tools/index.v4.src.html` → `tools/build.v4.py` → `mock/v4.html` (`?state=`); `tools/shoot.v4.js` → one full page PNG per state at 430 in `screenshots/v4/`, the same states at 375 in `screenshots/v4/375/`, the combined strip `screenshots/v4/combined-direct-parallel-decide-result-committed.png`, and `screenshots/v4/checks-report.json`.
 
 **States (13):** `empty`, `direct`, `parallel`, `decide`, `evidence` (calculation sheet), `result`, `commit` (confirm sheet), `committed` (with undo), `more` (sheet), `paused`, `failed` (CAD failed), `checkfail` (independent check failed, not committable), `offline`.
 
@@ -68,86 +68,25 @@ Files: `tools/index.v4.src.html` → `tools/build.v4.py` → `mock/v4.html` (`?s
 ### v4 checks (`node tools/shoot.v4.js`)
 All 13 states at 430 and 375: rendered, no horizontal overflow, no text under 11px, every control at least 44 × 44, no hyphen, dash or ellipsis in copy or aria labels, at most one accent element, sample label present, no script errors. Last run: **26/26 pass**.
 
-> **History.** v3 was approved on 2026-10-16 and then superseded by v4 (v3 plus Critiquito fixes). It follows the Linear North Star (document ee801d1f, "OverDraft North Star — General Engineering Intelligence & Execution", and project "North Star Prototype — General Engineering Command Loop"). v3 supersedes v2 where they conflict. v2 and v1 stay for reference. Notes with exact quotes: `notes/north-star-notes.md`.
-
-## v3. North Star command loop (SUPERSEDED by v4, history only)
-
-Files named in this section were removed from the repo; see git history at cb307e09.
-
-Files: `tools/index.v3.src.html` → `tools/build.v3.py` → `mock/v3.html` (`?state=direct|parallel|decide|result|more`); `tools/shoot.v3.js` → `screenshots/v3/{direct,parallel,decide,result,more}-430.png`, `screenshots/v3/combined-direct-parallel-decide-result.png`, `screenshots/v3/checks-report.json`.
-
-Same quiet frame as v2 (plain thread, no badges, one accent per screen, 11px sample line). Four key states:
-| State | What the engineer does | North Star source |
-|---|---|---|
-| `direct` | States an outcome. Jarvis shows how it read the request (Outcome, Open, Plan) and nothing runs until START | Decision: "Engineers direct outcomes"; Principle 1 "Intent over application commands"; Jarvis step 2 "Interpret the intended outcome, constraints, tradeoffs, authority, and uncertainty"; OVD-494 "Sending text alone never creates an accepted decision or starts CAD." |
-| `parallel` | Nothing; work lanes list in the reply (Concept picks Done, CAD model Working, Independent check Waits for CAD) with one status line `Working · nothing committed` and MORE for pause and cancel | Principle 3 "Parallel thought, controlled commits"; Principle 6 "Exception-driven human involvement"; OVD-520 "truthful execution versus verification states". Lanes are only the slice 1 stages (OVD-795 req 12); no other agents are drawn because none run in slice 1 |
-| `decide` | Inspects alternatives, each with its consequence; APPROVE the recommended one, pick another, or SKIP (best guess stated and recorded) | Decision: "inspect evidence-backed alternatives, resolve exceptions, and approve decisions"; Principle 5 "Evidence before approval"; Jarvis step 6 "Present decisions with evidence, assumptions..." The stated assumption (material not specified) is the only evidence the sample has; no cost or lead time is invented |
-| `result` | Sees a Working candidate, independently checked, explicitly not committed, baseline unchanged; OPEN 3D; evidence and check results behind MORE | "The interface must never represent Working state as Committed merely because a speculative visualization looks correct."; "The creating agent does not solely judge its own result."; Principle 7 "Native deliverables remain authoritative" |
-
-Baseline / Working / Committed returns as **one quiet tappable line** under the header (cut in v2): project constraint "Baseline, Working, and Committed states remain explicit." It is hidden on `direct` because nothing exists yet.
-
-### v2 conflicts with the North Star (fixed in v3)
-1. v2 cut the Baseline / Working / Committed strip; the project requires the states to stay explicit.
-2. v2 sent the request straight into work; the North Star asks for interpretation first and OVD-494 forbids text alone from starting CAD.
-3. v2 said "The plate is ready" with no Working vs Committed or verification distinction; the North Star forbids implying Committed and requires independent verification to be visible.
-4. v2 hid evidence and alternatives' consequences (chips only); Principle 5 requires recommendations to expose assumptions and consequences before approval.
-5. v2 framed the job as one assistant reply streaming; the North Star frames specialized agents working in parallel, so v3 shows lanes (still quiet text, no pipeline card).
-
-### v3 checks (`node tools/shoot.v3.js`)
-Same as v2 (overflow, 11px, 44px, no dash or ellipsis, at most one accent element, sample label, no script errors). Last run: 5/5 pass.
-
-> **History.** v2 (2026-10-15, 9:30 PM PT) superseded v1 and is itself superseded by v3. v1 (sections 1 to 11 below) is superseded by v3 for layout, chrome and states; its behavior notes remain reference only. Blaine: "It's too busy, needs to be less." v2 below is the current direction. Sections 4 to 9 describe v1 and stay for reference: they still apply for behavior (events, idempotency, AR detection, model-viewer, gate, units data, decisions in §10) but **not** for layout, chrome or the state list wherever v2 says otherwise.
-
-## v2. Quiet chat (SUPERSEDED by v3, history only)
-
-Files named in this section were removed from the repo; see git history at cb307e09.
-
-Files: `tools/index.v2.src.html` → `tools/build.v2.py` → `mock/v2.html` (`?state=working|question|result|more`); `tools/shoot.v2.js` → `screenshots/v2/{working,question,result,more}-430.png`, `screenshots/v2/combined-working-question-result.png`, `screenshots/v2/checks-report.json`. v1 files are untouched.
-
-### Model
-It reads like a reply in the Claude app: a plain thread where your message is a quiet tinted block and Jarvis's reply is plain streaming text, with no labels, cards or timestamps.
-- **Working:** the reply streams in as text (caret while streaming). Under it, one muted status line: `Working on CAD · 1:42` with a `MORE` button. Pause and Cancel live behind MORE (v1 §5.4 behavior, including `PAUSING` and the cancel confirm, unchanged, only moved).
-- **Question:** the graph decision is asked in the reply text. Options are inline quick-reply chips. The recommended value is the only accented chip. Skip is a chip that states the best guess: `Skip · use 0.250 in`. One muted line explains the skip is recorded and can be changed until the next checkpoint uses it. After that, changing it is a steer through the composer (OVD-812).
-- **Result:** one sentence notes the recorded guess; one sentence gives the size (mm, sample) and "STEP is the authoritative file; the 3D view is for review." An inline 3D card shows the picture (tap opens the model-viewer view) with one filled `OPEN 3D` and a `MORE` that opens a menu with View in AR, Download STEP, Show inches, and Details and recorded guesses.
-- One accent per screen, at most (checked by `shoot.v2.js`). Sample data banner shrunk to one 11px line; the model is labeled `PLATE_R1 · sample`.
-
-### Cut, and why
-| Cut in v2 | Where it went | Rationale (citation) |
-|---|---|---|
-| Baseline / Working / Committed strip and its note | Removed. Committed is NONE in slice 1 anyway (§10 Decision 1); state can come back under MENU when commits exist | `docs/DESIGN.md` § Aesthetic direction: "Decoration level: Minimal" and "Mood: Quiet authority"; § Color, Accent rules: never "Multiple simultaneous emphases on one screen" |
-| Stage pipeline card (INTAKE, CONCEPT PICKS, CAD, VERIFY, RESULT), progress bar, pinned strip | One status line that names the current stage | OVD-795 req 8 "Let it cook: Jarvis only interrupts for real questions or key choices"; `docs/DESIGN.md` § Motion "Forbidden: anything that delays the user from seeing data" |
-| Permanent PAUSE / CANCEL / VIEW IN AR / DOWNLOAD STEP buttons, unit toggle | Behind MORE (one tap) | `docs/DESIGN.md` § Units toggle: the chrome level toggle "was deliberately removed. It cluttered the global command strip" |
-| Tags and badges (SAMPLE on every card, RECOMMENDED, BEST GUESS, SKIPPED · RECORDED, AUTHORITATIVE, LOCKED) | Plain words in the reply sentence | `docs/DESIGN.md` § Forbidden layouts "Bubbly badges or pill UI"; § Anti slop checklist "Bubbly status badges with background fills" |
-| Decision card panel with radio rows and two full width buttons | Quick reply chips (radius 4, not pills) | OVD-795 req 13: decision cards are the graph's decision points and every one can be skipped with a recorded best guess; chips keep that with less chrome |
-| Facts list, file list, YOU / JARVIS labels, timestamps, control lines | Details and recorded guesses (MORE menu); reply text | `PRD.md` § Long term product direction: work must stay "structured, reviewable, and auditable", so the recorded guess is kept, one tap away, not deleted |
-
-### Kept on purpose (required by the docs)
-- The 3D result as an artifact card, not text only, and "STEP is the authoritative file": `PRD.md` § Client workspace surface ("Chat style interaction ... must not replace structured artifacts"); v1 §5.9 (OVD-484).
-- Recorded best guess stated in the thread: OVD-795 req 8 ("proceeds with a best guess (and records it)").
-- No avatar, no bubbles above radius 4, no shadows, no emoji, declarative voice: `docs/DESIGN.md` § Anti slop checklist, § Border, radius, and elevation, § Voice.
-
-### Resolved tension (approved 2026-10-16)
-`docs/DESIGN.md` § Forbidden layouts lists "AI assistant chat widgets as the primary information surface", and `PRD.md` § Non goals excludes "real time chat ... as a core workflow surface". Both target the customer quote workspace. Jarvis is a separate phone surface whose brief (OVD-795 req 1) is "users type to Jarvis", so v2 keeps chat as the frame but makes the result an artifact card, consistent with the PRD exception for the engineering lane (`PRD.md` § Client workspace surface, `/dev/engineering` paragraph). Resolved by Blaine on 2026-10-16: chat is allowed as the primary surface only in the Jarvis phone app; Decisions row added to `docs/DESIGN.md`.
-
-### v2 checks (`node tools/shoot.v2.js`, 430 wide, full page)
-No horizontal overflow; no text under 11px; every control at least 44 x 44; no hyphen, dash or ellipsis characters in copy or aria labels; at most one accent element per screen; sample label present; no script errors. Last run: 4/4 pass (working, question, result, more).
-
-### v1 superseded items
-§4 state list (layout), §5.2 strip, §5.3 status card and pinned strip, §5.4 permanent control buttons (behavior kept), §5.5 to §5.7 card layouts and tags, §2 "filled accent buttons" rule (now one accent per screen), §8 criteria 1 and 11 (strip on every screen).
+> v3, v2 and v1 reasoning is in the History section at the end of this file. v3 followed the Linear North Star (document ee801d1f, "OverDraft North Star — General Engineering Intelligence & Execution", and project "North Star Prototype — General Engineering Command Loop"). Notes with exact quotes: `notes/north-star-notes.md`.
 
 ## 1. Folder contents
 
-Files named in this section were removed from the repo; see git history at cb307e09.
+Files removed from the repo (v1, v2 and v3 mocks, tools, screenshots, council notes, the v4 fix list): recover with `git fetch origin refs/pull/791/head` then `git show cb307e09dd2e0ac9dcabea479b4471707b17d7f5:<path>` (`refs/pull/791/head` history, commit cb307e09dd2e0ac9dcabea479b4471707b17d7f5).
 
 | Path | What |
 |---|---|
 | `SPEC.md` | This spec |
-| `mock/index.html` | Self contained static mock (fonts inlined, no network). State switcher at the top; `?state=<id>` deep links; `?shot=1` hides the switcher for captures |
-| `tools/index.src.html`, `tools/build.py` | Mock source and the builder that inlines subset fonts into `mock/index.html` |
-| `tools/shoot.js` | Regenerates every screenshot and runs the D-1..D-4 checks |
-| `screenshots/<state>-<375or430>.png` | 38 captures, 19 states x 2 widths |
-| `screenshots/checks-report.json` | Machine readable check results |
-| `council/` | Round 1 draft, round 1 critique, round 2 critique, round 1 screenshots |
+| `recheck-v4.md` | Critiquito recheck of v4 that produced the v4.1 fixes |
+| `critique-v3.md` | Critiquito critique of v3 that produced the v4 fixes |
+| `notes/north-star-notes.md` | North Star quotes used by the design |
+| `mock/v4.html` | Self contained static mock (fonts inlined, no network). `?state=<id>` deep links for the 13 states |
+| `tools/index.v4.src.html`, `tools/build.v4.py` | Mock source and the builder that inlines subset fonts into `mock/v4.html` |
+| `tools/shoot.v4.js` | Regenerates every screenshot and runs the checks |
+| `tools/linkcheck.sh` | Verifies that every path named outside History in SPEC.md and recheck-v4.md exists |
+| `screenshots/v4/` | one PNG per state at 430 (13), the same states at 375 in `screenshots/v4/375/` (13), the combined strip and `screenshots/v4/checks-report.json` |
+
+Run `bash docs/design/jarvis-pwa/tools/linkcheck.sh` from the repo root after editing either document; it prints `result=PASS` when every named path exists. Sections under History are ignored.
 
 ## 2. Visual direction and DESIGN.md alignment
 
@@ -165,13 +104,15 @@ Tokens (CSS custom properties):
 Contrast on `--bg`: text 17.5:1, muted 7.9:1, accent 7.4:1; `--on-accent` on accent 7.4:1.
 
 ## 3. Copy rules
-- No hyphens or dashes of any kind in UI copy or aria labels (enforced by `tools/shoot.js`). Use "·", commas, or a new sentence.
+- No hyphens or dashes of any kind in UI copy or aria labels (enforced by `tools/shoot.v4.js`). Use "·", commas, or a new sentence.
 - Declarative, technical, short. Errors as exceptions: `CAD: FAIL · The CAD agent returned no model.`
 - Units: STEP is exported in mm (Decision 5). UI shows mm by default with an MM / IN toggle on the result card. Sample plate: 4 in = 101.6 mm, thickness 0.250 in = 6.35 mm. Decision options stay in the unit the question was asked in. This is a deliberate exception to the DESIGN.md imperial first default.
 - No ellipsis character anywhere in UI copy (enforced with the dash check). In progress states use a word: `PAUSING`, `SAVING`.
 - Never show invented values. Unknowns render as `NOT SPECIFIED`.
 
 ## 4. Screens and states (19)
+
+These are the v1 state ids; their behavior still applies where v4.1 does not say otherwise. The v4.1 state list (13 states) is at the top of this file.
 
 | # | State id | Screen | Purpose |
 |---|---|---|---|
@@ -298,10 +239,10 @@ Detection, client side, in this order:
 
 | Case | How the design meets it | How it is checked |
 |---|---|---|
-| D-1 every card readable at 375px | Single column, 16px gutters, no fixed widths; long labels wrap or ellipsize only in the state strip; 11px floor; decision card stays above the fold by collapsing the status card | `shoot.js`: no horizontal overflow, no text under 11px, no clipped text, on all 19 states at 375 and 430; visual review of all 38 shots |
-| D-2 skip path visible and reversible looking | Skip is a full width button beside the primary on every decision card, with the best guess stated before tapping and "You can change it later"; after skipping, the card shows the guess with `BEST GUESS`, `SKIPPED · RECORDED`, a "Best guess recorded" thread line, and CHANGE ANSWER | Screenshots `decision-*`, `decision-skipped-*`, `result-*` |
-| D-3 no allowlist state leaks no data | The denied screen renders only static copy and two account actions: no thread, job, design name, file, email, tier, allowlist size, or menu. The access check is server side before any conversation payload is sent or the thread chunk is loaded (OVD-803 W-1, W-2). Copy is identical for not listed, revoked, and flag off, so it cannot be used to probe state | `shoot.js` leak regex on `denied` (no design, file, state strip, request, decision, email or tier strings); engineer test W-1 asserts a 403 with no body data |
-| D-4 tap targets 44px or more | `--tap: 44px` on every button, link, input; option rows 56px; viewer toolbar 4 equal 44px buttons | `shoot.js` measures every visible control at both widths |
+| D-1 every card readable at 375px | Single column, 16px gutters, no fixed widths; long labels wrap or ellipsize only in the state strip; 11px floor; decision card stays above the fold by collapsing the status card | `tools/shoot.v4.js`: no horizontal overflow, no text under 11px, no clipped state line, on all 13 v4 states at 375 and 430; visual review of the 26 shots in `screenshots/v4/` |
+| D-2 skip path visible and reversible looking | Skip is a full width button beside the primary on every decision card, with the best guess stated before tapping and "You can change it later"; after skipping, the card shows the guess with `BEST GUESS`, `SKIPPED · RECORDED`, a "Best guess recorded" thread line, and CHANGE ANSWER | Screenshots `screenshots/v4/decide-430.png`, `screenshots/v4/result-430.png` |
+| D-3 no allowlist state leaks no data | The denied screen renders only static copy and two account actions: no thread, job, design name, file, email, tier, allowlist size, or menu. The access check is server side before any conversation payload is sent or the thread chunk is loaded (OVD-803 W-1, W-2). Copy is identical for not listed, revoked, and flag off, so it cannot be used to probe state | v1 only: the leak regex on `denied` in the removed v1 shoot script (no design, file, state strip, request, decision, email or tier strings); the gate screen is not in the v4 mock, so the engineer test W-1 is the check; engineer test W-1 asserts a 403 with no body data |
+| D-4 tap targets 44px or more | `--tap: 44px` on every button, link, input; option rows 56px; viewer toolbar 4 equal 44px buttons | `tools/shoot.v4.js` measures every visible control at both widths |
 
 ## 8. Acceptance criteria for the builder (OVD-803 / OVD-804)
 1. All 19 states exist in the app and match the screenshots in layout, copy and order of actions (pixel exact not required).
@@ -322,50 +263,39 @@ Detection, client side, in this order:
 
 ## 9. Proof (OVD-781)
 
-**Screenshots** (`screenshots/`, 2x device scale, iPhone height 844, reduced motion, sample data banner at top). Thread and gate states are full page; viewer and confirm sheet states are viewport captures.
+**Screenshots** (`screenshots/v4/`, 2x device scale, iPhone height 844, reduced motion, sample data label at top). Full page captures except the sheet states (`evidence`, `commit`, `more`), which are viewport captures.
 
 | State | 375 | 430 |
 |---|---|---|
-| OVD-740 gate, no access | `denied-375.png` | `denied-430.png` |
-| Thread loading | `thread-loading-375.png` | `thread-loading-430.png` |
-| Thread empty | `thread-empty-375.png` | `thread-empty-430.png` |
-| Thread load error | `thread-error-375.png` | `thread-error-430.png` |
-| Jarvis is cooking | `cooking-375.png` | `cooking-430.png` |
-| Pausing | `pausing-375.png` | `pausing-430.png` |
-| Paused | `paused-375.png` | `paused-430.png` |
-| Cancel confirm | `cancel-confirm-375.png` | `cancel-confirm-430.png` |
-| Canceled | `canceled-375.png` | `canceled-430.png` |
-| Decision open | `decision-375.png` | `decision-430.png` |
-| Decision skipped, best guess recorded | `decision-skipped-375.png` | `decision-skipped-430.png` |
-| Decision locked after checkpoint | `decision-locked-375.png` | `decision-locked-430.png` |
-| Result, AR available | `result-375.png` | `result-430.png` |
-| Result, AR unavailable | `result-no-ar-375.png` | `result-no-ar-430.png` |
-| AR, open in Safari fallback | `ar-safari-375.png` | `ar-safari-430.png` |
-| 3D viewer loading | `viewer-loading-375.png` | `viewer-loading-430.png` |
-| 3D viewer open | `viewer-375.png` | `viewer-430.png` |
-| 3D viewer unavailable | `viewer-error-375.png` | `viewer-error-430.png` |
-| CAD failed | `job-error-375.png` | `job-error-430.png` |
+| Empty | `screenshots/v4/375/empty-375.png` | `screenshots/v4/empty-430.png` |
+| Direct (outcome read, START) | `screenshots/v4/375/direct-375.png` | `screenshots/v4/direct-430.png` |
+| Parallel lanes | `screenshots/v4/375/parallel-375.png` | `screenshots/v4/parallel-430.png` |
+| Decide | `screenshots/v4/375/decide-375.png` | `screenshots/v4/decide-430.png` |
+| Calculation sheet | `screenshots/v4/375/evidence-375.png` | `screenshots/v4/evidence-430.png` |
+| Result | `screenshots/v4/375/result-375.png` | `screenshots/v4/result-430.png` |
+| Commit confirm sheet | `screenshots/v4/375/commit-375.png` | `screenshots/v4/commit-430.png` |
+| Committed with undo | `screenshots/v4/375/committed-375.png` | `screenshots/v4/committed-430.png` |
+| MORE sheet | `screenshots/v4/375/more-375.png` | `screenshots/v4/more-430.png` |
+| Paused | `screenshots/v4/375/paused-375.png` | `screenshots/v4/paused-430.png` |
+| CAD failed | `screenshots/v4/375/failed-375.png` | `screenshots/v4/failed-430.png` |
+| Independent check failed | `screenshots/v4/375/checkfail-375.png` | `screenshots/v4/checkfail-430.png` |
+| Offline | `screenshots/v4/375/offline-375.png` | `screenshots/v4/offline-430.png` |
+
+Also in `screenshots/v4/`: `screenshots/v4/combined-direct-parallel-decide-result-committed.png` (combined strip) and `screenshots/v4/checks-report.json`.
 
 **Regenerate** (from `docs/design/jarvis-pwa/`; needs Python with fontTools for the build, Node with `playwright-core` and Chrome for the shots):
 
 ```sh
-python3 tools/build.py          # rebuilds mock/index.html from tools/index.src.html with inlined fonts
-node tools/shoot.js             # writes screenshots/*.png and screenshots/checks-report.json; exits 1 on any failure
-CHROME=/path/to/chrome node tools/shoot.js   # if Chrome is not at /usr/bin/google-chrome
+python3 tools/build.v4.py       # rebuilds mock/v4.html from tools/index.v4.src.html with inlined fonts
+node tools/shoot.v4.js          # writes screenshots/v4/ including screenshots/v4/checks-report.json; exits 1 on any failure
+CHROME=/path/to/chrome node tools/shoot.v4.js   # if Chrome is not at /usr/bin/google-chrome
 ```
 
-**Checks run by `tools/shoot.js`** on every state at both widths:
-1. No horizontal overflow (D-1).
-2. No visible product text under 11px; no clipped text (D-1).
-3. Every visible button, link, input, textarea and option row at least 44 x 44 (D-4).
-4. No hyphen, dash or ellipsis characters in visible copy or aria labels (copy rule).
-5. Denied state contains none of: design names, file types, state strip labels, request or decision text, `@`, tier names (D-3).
-6. No page script errors.
-7. Result states show the mm sample value (101.6) and no meters hint.
+**Checks run by `tools/shoot.v4.js`** are listed under "v4.1 checks" at the top of this file, on every state at both widths.
 
-**Result of the last run:** 38/38 pass (see `screenshots/checks-report.json`).
+**Result of the last run:** 26/26 pass (see `screenshots/v4/checks-report.json`).
 
-**Designer sign off comment** (to post on OVD-799 after Blaine approves): states, link to this folder, the 38/38 result, and the open questions below.
+**Designer sign off comment** (to post on OVD-799 after Blaine approves): states, link to this folder, the 26/26 result, and the architect rulings below.
 
 ## 10. Decisions (resolved, architect answers 2026-10-15)
 1. **Commit action**: none in slice 1. The plate is review only; Committed reads `NONE` with a one line note explaining why (§5.2).
@@ -381,15 +311,125 @@ Tracking: PWA shell issue is OVD-803; OVD-800 was closed as a duplicate.
 ## 10a. Open questions
 None open. Remaining verification: OVD-804 device test for AR in the installed iOS PWA and AR scale.
 
-## 11. Council log
-- **Round 1 draft** (8:40 PM PT): 14 states. Files: `council/r1-mock.html`, `council/r1-index.src.html`, `council/r1/*.png`. Automated checks 6/28 pass (10px tags, sr only text flagged as clipped).
-- **Round 1 adversarial critique** (`council/r1-critique.md`): 20 findings. Main failures: 10px tags and composer covering cards (D-1), decision actions below the fold at 375 (D-1), record of the skip only implied (D-2), duplicate wordmark and account actions on denied (D-3 polish), tap to open missing, AR / Pause / Cancel / Proof missing (release manager steering at 8:43 PM), timeout and submitting states unspecified, DESIGN.md divergence unlogged.
-- **Revision**: all findings fixed in mock or spec; states grew to 18 (paused, cancel confirm, canceled, result without AR).
-- **Architect answers (2026-10-15)**: 7 open questions resolved (§10). States now 19: removed signin and signin-checking; added pausing, decision-locked, ar-safari. Unit toggle added, meters hint removed, OVD-800 references moved to OVD-803.
-- **Round 2 critique** (`council/r2-critique.md`): all round 1 items closed or accepted as spec only; 5 residual items accepted or moved to open questions. 38/38 checks pass. Round limit reached.
-
 ## v4.1 Architect rulings (Release, 2026-10-16), resolving open items 1 to 3
 
 1. Commit ships in slice 1. Commit accepts the current design revision as the job's result: it freezes that revision's decisions and artifacts (STEP, GLB, USDZ) and emits a `committed` graph event. It does not quote, order or contact any supplier. Undo is available until the next run starts; it returns the job to uncommitted on the same revision (artifacts unchanged, nothing regenerated) and logs an `uncommitted` event. A committed job cannot be steered until undo.
 2. W1 copy stays. Before the next checkpoint, changing a skipped guess re-resolves it in place. After the checkpoint, the change is a steer: in slice 1, a rerun of CAD from that decision on a new revision (OVD-812 adds live mid-run steering later). The user always sees "change it, CAD reruns".
 3. Inches is the default display unit. Internals and STEP stay in mm, the mm toggle remains, and display rounds to 3 decimals (4.000 in).
+
+## History (removed files; not links)
+
+Everything below describes v1, v2 and v3 and files that were removed from the repo. File names here are plain text, not links. To recover with `git fetch origin refs/pull/791/head` then `git show cb307e09dd2e0ac9dcabea479b4471707b17d7f5:<path>` (`refs/pull/791/head` history, commit cb307e09dd2e0ac9dcabea479b4471707b17d7f5).
+
+### v3. North Star command loop (superseded by v4)
+
+Files: tools/index.v3.src.html → tools/build.v3.py → mock/v3.html (`?state=direct|parallel|decide|result|more`); tools/shoot.v3.js → screenshots/v3/{direct,parallel,decide,result,more}-430.png, screenshots/v3/combined-direct-parallel-decide-result.png, screenshots/v3/checks-report.json.
+
+Same quiet frame as v2 (plain thread, no badges, one accent per screen, 11px sample line). Four key states:
+| State | What the engineer does | North Star source |
+|---|---|---|
+| `direct` | States an outcome. Jarvis shows how it read the request (Outcome, Open, Plan) and nothing runs until START | Decision: "Engineers direct outcomes"; Principle 1 "Intent over application commands"; Jarvis step 2 "Interpret the intended outcome, constraints, tradeoffs, authority, and uncertainty"; OVD-494 "Sending text alone never creates an accepted decision or starts CAD." |
+| `parallel` | Nothing; work lanes list in the reply (Concept picks Done, CAD model Working, Independent check Waits for CAD) with one status line `Working · nothing committed` and MORE for pause and cancel | Principle 3 "Parallel thought, controlled commits"; Principle 6 "Exception-driven human involvement"; OVD-520 "truthful execution versus verification states". Lanes are only the slice 1 stages (OVD-795 req 12); no other agents are drawn because none run in slice 1 |
+| `decide` | Inspects alternatives, each with its consequence; APPROVE the recommended one, pick another, or SKIP (best guess stated and recorded) | Decision: "inspect evidence-backed alternatives, resolve exceptions, and approve decisions"; Principle 5 "Evidence before approval"; Jarvis step 6 "Present decisions with evidence, assumptions..." The stated assumption (material not specified) is the only evidence the sample has; no cost or lead time is invented |
+| `result` | Sees a Working candidate, independently checked, explicitly not committed, baseline unchanged; OPEN 3D; evidence and check results behind MORE | "The interface must never represent Working state as Committed merely because a speculative visualization looks correct."; "The creating agent does not solely judge its own result."; Principle 7 "Native deliverables remain authoritative" |
+
+Baseline / Working / Committed returns as **one quiet tappable line** under the header (cut in v2): project constraint "Baseline, Working, and Committed states remain explicit." It is hidden on `direct` because nothing exists yet.
+
+#### v2 conflicts with the North Star (fixed in v3)
+1. v2 cut the Baseline / Working / Committed strip; the project requires the states to stay explicit.
+2. v2 sent the request straight into work; the North Star asks for interpretation first and OVD-494 forbids text alone from starting CAD.
+3. v2 said "The plate is ready" with no Working vs Committed or verification distinction; the North Star forbids implying Committed and requires independent verification to be visible.
+4. v2 hid evidence and alternatives' consequences (chips only); Principle 5 requires recommendations to expose assumptions and consequences before approval.
+5. v2 framed the job as one assistant reply streaming; the North Star frames specialized agents working in parallel, so v3 shows lanes (still quiet text, no pipeline card).
+
+#### v3 checks (node tools/shoot.v3.js)
+Same as v2 (overflow, 11px, 44px, no dash or ellipsis, at most one accent element, sample label, no script errors). Last run: 5/5 pass.
+
+> **History.** v2 (2026-10-15, 9:30 PM PT) superseded v1 and is itself superseded by v3. v1 (sections 1 to 11 below) is superseded by v3 for layout, chrome and states; its behavior notes remain reference only. Blaine: "It's too busy, needs to be less." v2 below is the current direction. Sections 4 to 9 describe v1 and stay for reference: they still apply for behavior (events, idempotency, AR detection, model-viewer, gate, units data, decisions in §10) but **not** for layout, chrome or the state list wherever v2 says otherwise.
+
+### v2. Quiet chat (superseded by v3)
+
+Files: tools/index.v2.src.html → tools/build.v2.py → mock/v2.html (`?state=working|question|result|more`); tools/shoot.v2.js → screenshots/v2/{working,question,result,more}-430.png, screenshots/v2/combined-working-question-result.png, screenshots/v2/checks-report.json. v1 files are untouched.
+
+#### Model
+It reads like a reply in the Claude app: a plain thread where your message is a quiet tinted block and Jarvis's reply is plain streaming text, with no labels, cards or timestamps.
+- **Working:** the reply streams in as text (caret while streaming). Under it, one muted status line: `Working on CAD · 1:42` with a `MORE` button. Pause and Cancel live behind MORE (v1 §5.4 behavior, including `PAUSING` and the cancel confirm, unchanged, only moved).
+- **Question:** the graph decision is asked in the reply text. Options are inline quick-reply chips. The recommended value is the only accented chip. Skip is a chip that states the best guess: `Skip · use 0.250 in`. One muted line explains the skip is recorded and can be changed until the next checkpoint uses it. After that, changing it is a steer through the composer (OVD-812).
+- **Result:** one sentence notes the recorded guess; one sentence gives the size (mm, sample) and "STEP is the authoritative file; the 3D view is for review." An inline 3D card shows the picture (tap opens the model-viewer view) with one filled `OPEN 3D` and a `MORE` that opens a menu with View in AR, Download STEP, Show inches, and Details and recorded guesses.
+- One accent per screen, at most (checked by shoot.v2.js). Sample data banner shrunk to one 11px line; the model is labeled `PLATE_R1 · sample`.
+
+#### Cut, and why
+| Cut in v2 | Where it went | Rationale (citation) |
+|---|---|---|
+| Baseline / Working / Committed strip and its note | Removed. Committed is NONE in slice 1 anyway (§10 Decision 1); state can come back under MENU when commits exist | docs/DESIGN.md § Aesthetic direction: "Decoration level: Minimal" and "Mood: Quiet authority"; § Color, Accent rules: never "Multiple simultaneous emphases on one screen" |
+| Stage pipeline card (INTAKE, CONCEPT PICKS, CAD, VERIFY, RESULT), progress bar, pinned strip | One status line that names the current stage | OVD-795 req 8 "Let it cook: Jarvis only interrupts for real questions or key choices"; docs/DESIGN.md § Motion "Forbidden: anything that delays the user from seeing data" |
+| Permanent PAUSE / CANCEL / VIEW IN AR / DOWNLOAD STEP buttons, unit toggle | Behind MORE (one tap) | docs/DESIGN.md § Units toggle: the chrome level toggle "was deliberately removed. It cluttered the global command strip" |
+| Tags and badges (SAMPLE on every card, RECOMMENDED, BEST GUESS, SKIPPED · RECORDED, AUTHORITATIVE, LOCKED) | Plain words in the reply sentence | docs/DESIGN.md § Forbidden layouts "Bubbly badges or pill UI"; § Anti slop checklist "Bubbly status badges with background fills" |
+| Decision card panel with radio rows and two full width buttons | Quick reply chips (radius 4, not pills) | OVD-795 req 13: decision cards are the graph's decision points and every one can be skipped with a recorded best guess; chips keep that with less chrome |
+| Facts list, file list, YOU / JARVIS labels, timestamps, control lines | Details and recorded guesses (MORE menu); reply text | PRD.md § Long term product direction: work must stay "structured, reviewable, and auditable", so the recorded guess is kept, one tap away, not deleted |
+
+#### Kept on purpose (required by the docs)
+- The 3D result as an artifact card, not text only, and "STEP is the authoritative file": PRD.md § Client workspace surface ("Chat style interaction ... must not replace structured artifacts"); v1 §5.9 (OVD-484).
+- Recorded best guess stated in the thread: OVD-795 req 8 ("proceeds with a best guess (and records it)").
+- No avatar, no bubbles above radius 4, no shadows, no emoji, declarative voice: docs/DESIGN.md § Anti slop checklist, § Border, radius, and elevation, § Voice.
+
+#### Resolved tension (approved 2026-10-16)
+docs/DESIGN.md § Forbidden layouts lists "AI assistant chat widgets as the primary information surface", and PRD.md § Non goals excludes "real time chat ... as a core workflow surface". Both target the customer quote workspace. Jarvis is a separate phone surface whose brief (OVD-795 req 1) is "users type to Jarvis", so v2 keeps chat as the frame but makes the result an artifact card, consistent with the PRD exception for the engineering lane (PRD.md § Client workspace surface, `/dev/engineering` paragraph). Resolved by Blaine on 2026-10-16: chat is allowed as the primary surface only in the Jarvis phone app; Decisions row added to docs/DESIGN.md.
+
+#### v2 checks (node tools/shoot.v2.js, 430 wide, full page)
+No horizontal overflow; no text under 11px; every control at least 44 x 44; no hyphen, dash or ellipsis characters in copy or aria labels; at most one accent element per screen; sample label present; no script errors. Last run: 4/4 pass (working, question, result, more).
+
+#### v1 superseded items
+§4 state list (layout), §5.2 strip, §5.3 status card and pinned strip, §5.4 permanent control buttons (behavior kept), §5.5 to §5.7 card layouts and tags, §2 "filled accent buttons" rule (now one accent per screen), §8 criteria 1 and 11 (strip on every screen).
+
+### v1 Proof (OVD-781)
+
+Screenshots were screenshots/<state>-<375or430>.png, 2x device scale, iPhone height 844, reduced motion, sample data banner at top. Thread and gate states were full page; viewer and confirm sheet states were viewport captures.
+
+| State | 375 | 430 |
+|---|---|---|
+| OVD-740 gate, no access | denied-375.png | denied-430.png |
+| Thread loading | thread-loading-375.png | thread-loading-430.png |
+| Thread empty | thread-empty-375.png | thread-empty-430.png |
+| Thread load error | thread-error-375.png | thread-error-430.png |
+| Jarvis is cooking | cooking-375.png | cooking-430.png |
+| Pausing | pausing-375.png | pausing-430.png |
+| Paused | paused-375.png | paused-430.png |
+| Cancel confirm | cancel-confirm-375.png | cancel-confirm-430.png |
+| Canceled | canceled-375.png | canceled-430.png |
+| Decision open | decision-375.png | decision-430.png |
+| Decision skipped, best guess recorded | decision-skipped-375.png | decision-skipped-430.png |
+| Decision locked after checkpoint | decision-locked-375.png | decision-locked-430.png |
+| Result, AR available | result-375.png | result-430.png |
+| Result, AR unavailable | result-no-ar-375.png | result-no-ar-430.png |
+| AR, open in Safari fallback | ar-safari-375.png | ar-safari-430.png |
+| 3D viewer loading | viewer-loading-375.png | viewer-loading-430.png |
+| 3D viewer open | viewer-375.png | viewer-430.png |
+| 3D viewer unavailable | viewer-error-375.png | viewer-error-430.png |
+| CAD failed | job-error-375.png | job-error-430.png |
+
+Checks run by shoot.js on every state at both widths:
+1. No horizontal overflow (D-1).
+2. No visible product text under 11px; no clipped text (D-1).
+3. Every visible button, link, input, textarea and option row at least 44 x 44 (D-4).
+4. No hyphen, dash or ellipsis characters in visible copy or aria labels (copy rule).
+5. Denied state contains none of: design names, file types, state strip labels, request or decision text, `@, tier names (D-3).
+6. No page script errors.
+7. Result states show the mm sample value (101.6) and no meters hint.
+
+Result of the last run: 38/38 pass (see checks-report.json).
+
+### v1 file layout and regenerate commands
+
+v1 files were mock/index.html, tools/index.src.html, tools/build.py (python3 tools/build.py), tools/shoot.js (node tools/shoot.js), screenshots/<state>-<375or430>.png (38 captures, 19 states x 2 widths), screenshots/checks-report.json and council/ (round 1 draft, round 1 critique, round 2 critique, round 1 screenshots).
+
+### v1 Council log
+- **Round 1 draft** (8:40 PM PT): 14 states. Files: council/r1-mock.html`, council/r1-index.src.html, council/r1/*.png. Automated checks 6/28 pass (10px tags, sr only text flagged as clipped).
+- **Round 1 adversarial critique** (council/r1-critique.md): 20 findings. Main failures: 10px tags and composer covering cards (D-1), decision actions below the fold at 375 (D-1), record of the skip only implied (D-2), duplicate wordmark and account actions on denied (D-3 polish), tap to open missing, AR / Pause / Cancel / Proof missing (release manager steering at 8:43 PM), timeout and submitting states unspecified, DESIGN.md divergence unlogged.
+- **Revision**: all findings fixed in mock or spec; states grew to 18 (paused, cancel confirm, canceled, result without AR).
+- **Architect answers (2026-10-15)**: 7 open questions resolved (§10). States now 19: removed signin and signin-checking; added pausing, decision-locked, ar-safari. Unit toggle added, meters hint removed, OVD-800 references moved to OVD-803.
+- **Round 2 critique** (council/r2-critique.md): all round 1 items closed or accepted as spec only; 5 residual items accepted or moved to open questions. 38/38 checks pass. Round limit reached.
+
+### v4 fix list and recheck inputs
+
+The v4 fix list (fix-list.md) was kept outside the repo and is not available; the critique and recheck that drove v4 and v4.1 are critique-v3.md and recheck-v4.md in this folder.
