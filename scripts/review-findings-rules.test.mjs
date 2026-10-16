@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, conversionRate, DEFAULT_LEDGER_PATH, main, normalizePr, validateFindings, validateLedger } from "./review-findings-rules.mjs";
+import { analyze, conversionRate, DEFAULT_LEDGER_PATH, main, normalizePr, resolveDefaultLedgerPath, validateFindings, validateLedger } from "./review-findings-rules.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const finding = (pr, category, title = "t") => ({ pr, reviewer: "opus", severity: "medium", category, file: "a.ts", title });
@@ -182,6 +182,23 @@ describe("review findings to rules", () => {
         expect(result.status).toBe(0);
         expect(result.stdout).toContain("conversion:");
       });
+    });
+
+    it("resolves the default ledger from the script's repo root regardless of cwd", () => {
+      const originalCwd = process.cwd();
+      const elsewhere = mkdtempSync(path.join(tmpdir(), "rfr-cwd-"));
+      try {
+        process.chdir(elsewhere);
+        expect(resolveDefaultLedgerPath()).toBe(path.join(repoRoot, "docs", "review-findings-ledger.json"));
+      } finally {
+        process.chdir(originalCwd);
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    it("does not shell out to resolve the ledger path (Sonar S4036)", () => {
+      const source = readFileSync(path.join(repoRoot, "scripts/review-findings-rules.mjs"), "utf8");
+      expect(source).not.toMatch(/child_process/);
     });
 
     it("rejects bad usage with a message", () => {

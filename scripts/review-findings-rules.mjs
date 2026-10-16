@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -137,15 +136,13 @@ export function formatReport({ needsTask, recategorize = [], conversion }) {
   return lines.join("\n");
 }
 
-/** Default ledger lives at the repo root, not under whatever directory the CLI was started from. */
+/**
+ * Default ledger lives at the repo root, not under whatever directory the CLI was started from.
+ * The root is derived from this script's own location (scripts/ sits one level below it) rather
+ * than shelling out to git, so no PATH-resolved subprocess is involved (Sonar S4036).
+ */
 export function resolveDefaultLedgerPath() {
-  let root;
-  try {
-    root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    root = "";
-  }
-  if (!root) root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   return path.join(root, DEFAULT_LEDGER_PATH);
 }
 
