@@ -490,6 +490,24 @@ describe("OVD-813 fixture sanity gate", () => {
     expect(run.persist).not.toHaveBeenCalled();
   });
 
+  it("kill_switch_wins_over_pause_for_customer_quote", async () => {
+    const pause = createSupplierPauseSwitch({ page: () => {} });
+    pause.pause({ provider: "fictiv", codes: ["material_echo"], runId: "run", vendorQuoteResultId: "r", nowMs: NOW });
+    const run = pipeline({
+      pause,
+      authorize: async () => {
+        throw new ProviderDispatchAuthorizationError("provider_kill_switch_engaged");
+      },
+    });
+
+    const outcome = await runProviderTaskPipeline(pipelineInput(false), run.deps);
+
+    // Both engaged: the lane ends as killed, not in the manual follow-up queue.
+    expect(outcome).toMatchObject({ disposition: "cancelled_provider_disabled", code: "cancelled_provider_disabled", persisted: null });
+    expect(outcome.code).not.toBe(PROVIDER_PAUSED_FIXTURE_HEAL);
+    expect(run.quote).not.toHaveBeenCalled();
+  });
+
   it("pause_does_not_auto_release_at_midnight_without_reverify", () => {
     vi.useFakeTimers();
     const beforeMidnight = Date.parse("2026-10-15T23:59:00.000Z");

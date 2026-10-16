@@ -566,11 +566,6 @@ function resolveRoute(input: ProviderTaskPipelineInput, deps: ProviderTaskPipeli
     return stop("manual_follow_up", "adapter_not_enabled", "authorize");
   }
   if (deps.daySwitch.isDisabled(provider, nowMs)) return stop("manual_follow_up", "provider_disabled", "authorize");
-  // OVD-813: a supplier paused for drift runs internal test quotes only. The
-  // kill switch is checked separately at every checkpoint and still wins.
-  if (deps.pause && !deps.pause.admits(provider, { internalTestQuote: input.internalTestQuote === true })) {
-    return stop("manual_follow_up", PROVIDER_PAUSED_FIXTURE_HEAL, "authorize");
-  }
   return { reviewed, lease, adapter };
 }
 
@@ -1052,6 +1047,12 @@ async function runSteps(
   // 2. Current capability and service authorization.
   const authorization = await resolveAuthorization(deps, provider);
   if (isStop(authorization)) return authorization;
+  // OVD-813: a supplier paused for drift runs internal test quotes only.
+  // Checked after authorization so an engaged kill switch wins: the lane ends
+  // cancelled_provider_disabled, not in the manual follow-up queue.
+  if (deps.pause && !deps.pause.admits(provider, { internalTestQuote: input.internalTestQuote === true })) {
+    return stop("manual_follow_up", PROVIDER_PAUSED_FIXTURE_HEAL, "authorize");
+  }
   // 3. Captured bytes.
   const files = await resolveFiles(deps, authorization.envelope);
   if (isStop(files)) return files;
