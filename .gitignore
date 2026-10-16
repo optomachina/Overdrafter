@@ -41,6 +41,7 @@ test-results/
 .claude/skills/
 .agents/
 skills/
+!evals/skills/
 skills-lock.json
 .playwright-cli/
 output/playwright/

@@ -1,0 +1,59 @@
+{
+  "skill": "push",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "on-main",
+      "task": "Asked to push while on main.",
+      "expectedBehaviors": [
+        "Refuses to continue on main",
+        "Never pushes main directly",
+        "Explains what to do instead"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Refuses to continue on main",
+          "points": 6
+        },
+        {
+          "id": "b2",
+          "criterion": "Never pushes main directly",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Explains what to do instead",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "rejected-push",
+      "task": "Push rejected because the remote moved.",
+      "expectedBehaviors": [
+        "Uses pull skill, reruns verification, pushes again",
+        "No --force; only --force-with-lease if history intentionally rewritten",
+        "Validates PR body and reports branch, PR URL, verification and review identity"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Uses pull skill, reruns verification, pushes again",
+          "points": 4
+        },
+        {
+          "id": "b2",
+          "criterion": "No --force; only --force-with-lease if history intentionally rewritten",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Validates PR body and reports branch, PR URL, verification and review identity",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}
