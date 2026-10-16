@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import { VendorAutomationError } from "../types.js";
 import {
   parseXometryOfferSnapshots,
   selectCompatibilityOffer,
@@ -21,12 +22,12 @@ describe("Xometry multi-offer normalization", () => {
         },
         {
           selector: '[data-testid="tierAndLeadTime"]',
-          text: "Standard\nMade Internationally Except China\nUSD $95.00\n12 working days",
+          text: "Standard\nMade Internationally Except China\nUSD $47.50 ea.\nUSD $95.00\n12 working days",
           attributes: { "data-option-id": "global-standard" },
         },
         {
           selector: '[data-testid="tierAndLeadTime"]',
-          text: "Expedited\nUSD $175.50\n4 business days",
+          text: "Expedited\nUSD $87.75 ea.\nUSD $175.50\n4 business days",
           attributes: { "data-option-id": "expedited" },
         },
       ],
@@ -268,5 +269,68 @@ describe("Xometry multi-offer normalization", () => {
     });
 
     expect(selectCompatibilityOffer(offers)?.providerOptionId).toBe("economy");
+  });
+
+  // OVD-776: tier text shaped like the T1 quote page. Prices carry an explicit
+  // USD marker because bare "$" amounts are not trusted on main (OVD-778).
+  const t1Tier = (each: string, total: string, list: string, save: string) =>
+    `Least Expensive\nArrives by Nov 6\nUSD $${each} ea.\nUSD $${total}\nUSD $${list} (Save USD $${save})`;
+
+  it("accepts a qty-1 tier whose total equals its each price", () => {
+    const [offer] = parseXometryOfferSnapshots({
+      requestedQuantity: 1,
+      quoteUrl,
+      snapshots: [{ selector: ".price-tier", text: t1Tier("41.41", "41.41", "53.96", "12.55"), attributes: {} }],
+    });
+
+    expect(offer).toMatchObject({ unitPriceUsd: 41.41, totalPriceUsd: 41.41 });
+  });
+
+  it("accepts a multi-piece total within per-piece cent rounding", () => {
+    const [offer] = parseXometryOfferSnapshots({
+      requestedQuantity: 10,
+      quoteUrl,
+      snapshots: [{ selector: ".price-tier", text: t1Tier("41.41", "414.15", "539.62", "125.47"), attributes: {} }],
+    });
+
+    expect(offer).toMatchObject({ unitPriceUsd: 41.41, totalPriceUsd: 414.15 });
+  });
+
+  it("refuses the T1 ten-piece price ($41.41 ea. / $414.15) for a qty-1 request", () => {
+    let failure: unknown;
+    try {
+      parseXometryOfferSnapshots({
+        requestedQuantity: 1,
+        quoteUrl,
+        snapshots: [{ selector: ".price-tier", text: t1Tier("41.41", "414.15", "539.62", "125.47"), attributes: {} }],
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect((failure as VendorAutomationError).payload).toMatchObject({
+      reason: "quantity_mismatch",
+      requestedQuantity: 1,
+      observedQuantity: 10,
+      observedUnitPriceUsd: 41.41,
+      observedTotalPriceUsd: 414.15,
+    });
+  });
+
+  it("refuses a tier that states a different quantity", () => {
+    expect(() => parseXometryOfferSnapshots({
+      requestedQuantity: 1,
+      quoteUrl,
+      snapshots: [{ selector: ".price-tier", text: "Standard\nQty: 10\nUSD $414.15\n5 business days", attributes: {} }],
+    })).toThrow(expect.objectContaining({ payload: expect.objectContaining({ reason: "quantity_mismatch", observedQuantity: 10 }) }));
+  });
+
+  it("refuses a lone multi-piece price that does not show which quantity it covers", () => {
+    expect(() => parseXometryOfferSnapshots({
+      requestedQuantity: 2,
+      quoteUrl,
+      snapshots: [{ selector: ".price-tier", text: "Standard\nUSD $120.00\n5 business days", attributes: {} }],
+    })).toThrow(expect.objectContaining({ payload: expect.objectContaining({ reason: "quantity_unverified" }) }));
   });
 });
