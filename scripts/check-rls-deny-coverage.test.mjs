@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ import {
   baselineGrowth,
   checkerWorkflowSurface,
   detectGateLoosening,
+  dynamicSqlWarnings,
+  entryKey,
   evaluateAll,
   evaluateDiff,
   hasDenyAssertion,
@@ -27,6 +29,16 @@ const fixtures = join(repoRoot, "scripts/fixtures/rls-deny");
 const temps = [];
 afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
+/**
+ * Fixtures keep migrations/ and tests/ at their root, not under supabase/, so
+ * no fixture path contains supabase/migrations/ (the migration guardrails
+ * match that anywhere). copyFixture maps them back into a repo layout.
+ */
+const FIXTURE_DIRS = { migrations: "supabase/migrations", tests: "supabase/tests" };
+function copyFixture(src, dir) {
+  for (const name of readdirSync(src)) cpSync(join(src, name), join(dir, FIXTURE_DIRS[name] ?? name), { recursive: true });
+}
+
 const git = (cwd, ...args) => execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
 
 /** Build a two-commit repo: _base, then _base overlaid with <fixture>/head. */
@@ -34,10 +46,10 @@ function fixtureRepo(name) {
   const dir = mkdtempSync(join(tmpdir(), "rls-deny-"));
   temps.push(dir);
   git(dir, "init", "-q");
-  cpSync(join(fixtures, "_base"), dir, { recursive: true });
+  copyFixture(join(fixtures, "_base"), dir);
   git(dir, "add", "-A");
   git(dir, "commit", "-qm", "base");
-  cpSync(join(fixtures, name, "head"), dir, { recursive: true });
+  copyFixture(join(fixtures, name, "head"), dir);
   git(dir, "add", "-A");
   git(dir, "commit", "-qm", "head");
   return dir;
@@ -48,7 +60,7 @@ function overlayRepo(baseFiles, headFiles) {
   const dir = mkdtempSync(join(tmpdir(), "rls-deny-"));
   temps.push(dir);
   git(dir, "init", "-q");
-  cpSync(join(fixtures, "_base"), dir, { recursive: true });
+  copyFixture(join(fixtures, "_base"), dir);
   const apply = (files) => {
     for (const [path, content] of Object.entries(files)) {
       const full = join(dir, path);
@@ -124,9 +136,15 @@ describe("RLS deny coverage fixtures (diff mode)", () => {
     expect(report.findings[0].message).toContain("needs Blaine");
   });
 
-  it("ignores policy text inside $$ / $tag$ bodies, strings and comments", () => {
-    const { report } = diffFixture("function-body-ignored", ["--enforce"]);
+  it("ignores policy text inside $$ / $tag$ bodies, strings and comments, but warns on the bodies", () => {
+    const { code, report } = diffFixture("function-body-ignored", ["--enforce"]);
     expect(report).toMatchObject({ ok: true, checked: [], findings: [] });
+    expect(code).toBe(0);
+    const file = "supabase/migrations/20260201000000_policy_text_in_bodies.sql";
+    expect(report.sqlWarnings).toEqual([
+      expect.objectContaining({ kind: "dynamic_rls_disable", file, line: 8 }),
+      expect.objectContaining({ kind: "dynamic_rls_disable", file, line: 18 }),
+    ]);
   });
 
   it("fails when the PR baseline adds entries over the base baseline", () => {
@@ -178,6 +196,33 @@ describe("SQL tokenizer", () => {
   });
 });
 
+describe("dynamic SQL warnings", () => {
+  it("warns on RLS / policy SQL inside dollar bodies and singles out dynamic disables", () => {
+    const warnings = dynamicSqlWarnings([
+      "do $$ begin execute format('create policy p on %I using (true)', 't'); end $$;",
+      "do $do$ begin",
+      "  execute 'alter table public.t disable row level security';",
+      "end $do$;",
+      "do $$ begin execute 'alter table public.t no force row level security'; end $$;",
+      "create function f() returns int language sql as $$ select 1 $$;",
+      "-- alter table public.t disable row level security",
+      "select 'drop policy x on public.t';",
+    ].join("\n"), "m.sql");
+    expect(warnings.map(({ kind, line }) => [kind, line])).toEqual([
+      ["dynamic_rls_sql", 1],
+      ["dynamic_rls_disable", 2],
+      ["dynamic_rls_disable", 5],
+    ]);
+    expect(warnings[1].message).toContain("m.sql:2: a $$ body disables row level security dynamically");
+  });
+
+  it("prints sql warnings in the human report without failing it", () => {
+    const { code, out } = runCli(["--root", fixtureRepo("function-body-ignored"), "--base-ref", "HEAD^1", "--head-ref", "HEAD", "--enforce"]);
+    expect(code).toBe(0);
+    expect(out).toContain("WARN supabase/migrations/20260201000000_policy_text_in_bodies.sql:8: a $$ body disables row level security dynamically");
+  });
+});
+
 describe("deny tags", () => {
   it("recognises throws / is_empty / zero-row results_eq assertions", () => {
     expect(hasDenyAssertion("select throws_ok($$x$$, '42501');")).toBe(true);
@@ -187,6 +232,22 @@ describe("deny tags", () => {
     expect(hasDenyAssertion("select ok(true);")).toBe(false);
     expect(hasDenyAssertion("select is((select count(*) from t), 3, 'some');")).toBe(false);
     expect(hasDenyAssertion("-- select throws_ok($$x$$);\nselect ok(true);")).toBe(false);
+  });
+
+  it("reports a tag line with trailing text as malformed, and it ends the previous block", () => {
+    const { coverage, problems } = parseDenyTags([
+      "-- deny: anon public.t (owner)",
+      "select throws_ok($$select * from public.t$$, '42501');",
+      "-- deny: other_user public.t",
+      "-- DENY: role_boundary",
+      "select throws_ok($$select * from public.t$$, '42501');",
+    ].join("\n"), "t.sql");
+    expect(coverage.size).toBe(0);
+    expect(problems.map((p) => p.message)).toEqual([
+      expect.stringContaining('t.sql:1: malformed deny tag "-- deny: anon public.t (owner)"'),
+      expect.stringContaining('t.sql:3: "-- deny: other_user public.t" block has no'),
+      expect.stringContaining('t.sql:4: malformed deny tag "-- DENY: role_boundary"'),
+    ]);
   });
 
   it("shares one block across stacked tags and reports malformed tags", () => {
@@ -233,15 +294,29 @@ describe("baseline", () => {
     expect(evaluateDiff({ changedMigrations: [], testFiles: [], baseBaseline: { entries: [] }, headBaseline: head }).ok).toBe(false);
   });
 
-  it("the committed baseline covers the current tree with no stale entries", () => {
+  // Only stale / subset checks here: a new uncovered policy is a report-only
+  // finding from the CI job, never a vitest failure (which would push authors
+  // to grow the baseline with --write-baseline).
+  it("the committed baseline has no stale entries (it lists only uncovered, existing entries)", () => {
     const result = evaluateAll(loadAllInputs(repoRoot));
-    expect(result.findings).toEqual([]);
     expect(result.staleBaselineEntries).toEqual([]);
-    expect(JSON.parse(readFileSync(join(repoRoot, BASELINE_PATH), "utf8")).entries).toEqual(result.baseline.entries);
+    const uncovered = new Set(result.baseline.entries.map(entryKey));
+    const committed = JSON.parse(readFileSync(join(repoRoot, BASELINE_PATH), "utf8")).entries;
+    expect(committed.filter((entry) => !uncovered.has(entryKey(entry)))).toEqual([]);
   });
 
-  it("fixtures live outside supabase/ so pgTAP and migration tooling never read them", () => {
+  it("does not fail vitest on a new uncovered policy: it is a report-only finding", () => {
+    const inputs = loadAllInputs(repoRoot);
+    const result = evaluateAll({ ...inputs, migrations: [...inputs.migrations, { path: "supabase/migrations/99999999999999_new.sql", content: "create policy p on public.brand_new using (true);" }] });
+    expect(result.staleBaselineEntries).toEqual([]);
+    expect(result.findings.filter((f) => f.table === "public.brand_new")).toHaveLength(3);
+  });
+
+  it("fixtures live outside supabase/ and no fixture path contains supabase/migrations/", () => {
     expect(relative(repoRoot, fixtures).split("/")[0]).toBe("scripts");
+    const paths = execFileSync("git", ["ls-files", "--", relative(repoRoot, fixtures)], { cwd: repoRoot, encoding: "utf8" }).split("\n").filter(Boolean);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.filter((path) => /supabase\/+migrations(\/|$)/i.test(path))).toEqual([]);
   });
 });
 
@@ -327,7 +402,16 @@ describe("gate_loosening (base-to-head)", () => {
     expect(detectGateLoosening({ baseBaseline: { entries: [entry] }, headBaseline: { entries: [{ policy: "p", table: "public.a" }] } }).detected).toBe(false);
     expect(detectGateLoosening({ baseBaseline: null, headBaseline: { entries: [entry] } }).detected).toBe(false);
     const { report } = diffRepo(overlayRepo({}, { [BASELINE_PATH]: "{\"schema\":\"nope\"}\n" }));
-    expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "baseline_unreadable" })]);
+    expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "baseline_unreadable", ref: "head" })]);
+  });
+
+  it("reports a malformed base baseline as baseline_unreadable instead of crashing", () => {
+    const dir = overlayRepo({ [BASELINE_PATH]: "{ not json\n" }, { [BASELINE_PATH]: withEntries(baseBaseline.entries) });
+    const { code, report } = diffRepo(dir, ["--enforce"]);
+    expect(code).toBe(0);
+    expect(report.ok).toBe(true);
+    expect(report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "baseline_unreadable", ref: "base", path: BASELINE_PATH })]);
+    expect(runCli(["--root", dir, "--base-ref", "HEAD^1", "--head-ref", "HEAD"]).out).toContain(GATE_LOOSENING_LINE);
   });
 
   it("finds the committed CI job surface", () => {

@@ -63,6 +63,12 @@ const CASE_HINT = {
  * quoted identifiers are kept verbatim. Returns statements split on `;`.
  */
 export function splitSqlStatements(sql) {
+  return tokenizeSql(sql).statements;
+}
+
+/** Shared tokenizer: blanked statements plus the raw text of every dollar-quoted body. */
+function tokenizeSql(sql) {
+  const bodies = [];
   let out = "";
   let i = 0;
   const n = sql.length;
@@ -112,6 +118,7 @@ export function splitSqlStatements(sql) {
       const tag = /^\$(?:[A-Za-z_\u0080-\uffff][\w\u0080-\uffff]*)?\$/.exec(sql.slice(i, i + 64));
       if (tag) {
         const close = sql.indexOf(tag[0], i + tag[0].length);
+        bodies.push({ text: sql.slice(i + tag[0].length, close === -1 ? n : close), line: sql.slice(0, i).split("\n").length });
         i = close === -1 ? n : close + tag[0].length;
         out += "$$ $$";
         continue;
@@ -120,7 +127,30 @@ export function splitSqlStatements(sql) {
     out += ch;
     i += 1;
   }
-  return out.split(";").map((statement) => statement.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const statements = out.split(";").map((statement) => statement.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return { statements, bodies };
+}
+
+const DYNAMIC_RLS_WEAKEN = /\b(?:disable|no\s+force)\s+row\s+level\s+security\b/i;
+const DYNAMIC_RLS_SQL = /\brow\s+level\s+security\b|\b(?:create|alter|drop)\s+policy\b/i;
+
+/**
+ * Warnings for row level security / policy SQL inside $$ / $tag$ bodies (DO
+ * blocks, functions, EXECUTE strings). The checker cannot read those as
+ * statements, so a dynamic DISABLE ROW LEVEL SECURITY or CREATE POLICY would
+ * otherwise pass silently. Report-only: these never change ok.
+ */
+export function dynamicSqlWarnings(sql, file = "<sql>") {
+  const warnings = [];
+  for (const { text, line } of tokenizeSql(sql).bodies) {
+    const where = `${file}:${line}`;
+    if (DYNAMIC_RLS_WEAKEN.test(text)) {
+      warnings.push({ kind: "dynamic_rls_disable", file, line, message: `${where}: a $$ body disables row level security dynamically. The checker cannot see it; weakening RLS needs Blaine.` });
+    } else if (DYNAMIC_RLS_SQL.test(text)) {
+      warnings.push({ kind: "dynamic_rls_sql", file, line, message: `${where}: a $$ body contains row level security or policy SQL the checker cannot see; write it as plain statements or make sure its tables carry deny tags.` });
+    }
+  }
+  return warnings;
 }
 
 const IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
@@ -172,6 +202,8 @@ export function parseRlsOperations(sql, file = "<sql>") {
 // ---------------------------------------------------------------------------
 
 const TAG_LINE = /^\s*--\s*deny:\s*(\S+)\s+(\S+)\s*$/i;
+/** Any `-- deny:` comment; one that is not a well-formed TAG_LINE is reported. */
+const ANY_TAG_LINE = /^\s*--\s*deny\s*:/i;
 const END_LINE = /^\s*--\s*end\s+deny\b/i;
 const THROW_ASSERT = /\b(?:throws_ok|throws_like|throws_ilike|throws_matching|throws_imatching|is_empty)\s*\(/i;
 const RESULT_ASSERT = /\b(?:results_eq|set_eq|bag_eq|is)\s*\(/gi;
@@ -197,7 +229,8 @@ export function hasDenyAssertion(block) {
 /**
  * Collect deny coverage from one pgTAP file. A run of consecutive
  * `-- deny: <case> <schema.table>` lines opens a block that ends at the next
- * tag run, a `-- end deny` line, or end of file. The tag counts only when the
+ * `-- deny:` line (well-formed or not), a `-- end deny` line, or end of file.
+ * A malformed `-- deny:` line is reported and opens no block. The tag counts only when the
  * block holds a deny assertion and the file's SQL references the table.
  * Returns { coverage: Map<table, Set<case>>, problems: [] }.
  */
@@ -208,6 +241,11 @@ export function parseDenyTags(text, file = "<test>") {
   const problems = [];
   let i = 0;
   while (i < lines.length) {
+    if (ANY_TAG_LINE.test(lines[i]) && !TAG_LINE.test(lines[i])) {
+      problems.push({ file, line: i + 1, message: `${file}:${i + 1}: malformed deny tag "${lines[i].trim()}" (expected "-- deny: <case> <schema.table>" with nothing after the table)` });
+      i += 1;
+      continue;
+    }
     if (!TAG_LINE.test(lines[i])) { i += 1; continue; }
     const tags = [];
     while (i < lines.length && TAG_LINE.test(lines[i])) {
@@ -216,7 +254,7 @@ export function parseDenyTags(text, file = "<test>") {
       i += 1;
     }
     const start = i;
-    while (i < lines.length && !TAG_LINE.test(lines[i]) && !END_LINE.test(lines[i])) i += 1;
+    while (i < lines.length && !ANY_TAG_LINE.test(lines[i]) && !END_LINE.test(lines[i])) i += 1;
     const block = lines.slice(start, i).join("\n");
     const asserted = hasDenyAssertion(block);
     for (const tag of tags) {
@@ -398,15 +436,19 @@ const sameSurface = (a, b) => a.job === b.job && JSON.stringify(a.mentions) === 
 /**
  * Report-only gate_loosening classification. Any of these needs a Grok Bot
  * countersign on top of Blaine's card:
- * - the head baseline adds an entry, widens a same-key entry, or is unreadable;
+ * - the head baseline adds an entry, widens a same-key entry, or is unreadable
+ *   (an unreadable base baseline is reported too, instead of crashing the job);
  * - the checker script, or its CI job / workflow references, changed or were removed.
  * A file the base does not have is being introduced, not loosened.
  * gateFiles: [{ path, kind: "script" | "workflow", base: string|null, head: string|null }].
  */
-export function detectGateLoosening({ baseBaseline = null, headBaseline = null, headBaselineError = null, gateFiles = [] }) {
+export function detectGateLoosening({ baseBaseline = null, headBaseline = null, baseBaselineError = null, headBaselineError = null, gateFiles = [] }) {
   const reasons = [];
+  if (baseBaselineError) {
+    reasons.push({ kind: "baseline_unreadable", ref: "base", path: BASELINE_PATH, message: `${BASELINE_PATH} at the base commit cannot be read (${baseBaselineError}); baseline growth cannot be checked.` });
+  }
   if (headBaselineError) {
-    reasons.push({ kind: "baseline_unreadable", path: BASELINE_PATH, message: `${BASELINE_PATH} at head cannot be read (${headBaselineError}); the base baseline no longer applies.` });
+    reasons.push({ kind: "baseline_unreadable", ref: "head", path: BASELINE_PATH, message: `${BASELINE_PATH} at head cannot be read (${headBaselineError}); the base baseline no longer applies.` });
   } else if (baseBaseline && headBaseline) {
     const base = new Map(baseBaseline.entries.map((entry) => [entryKey(entry), entry]));
     for (const entry of headBaseline.entries) {
@@ -441,9 +483,9 @@ export function detectGateLoosening({ baseBaseline = null, headBaseline = null, 
 /**
  * Diff mode. changedMigrations: [{ path, content }] added or modified in the PR.
  * testFiles: every supabase/tests SQL file at head. Baselines: parsed JSON or null.
- * gateFiles / headBaselineError feed the report-only gate_loosening field.
+ * gateFiles and the baseline errors feed the report-only gate_loosening field.
  */
-export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null, headBaseline = null, headBaselineError = null, gateFiles = [] }) {
+export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null, headBaseline = null, baseBaselineError = null, headBaselineError = null, gateFiles = [] }) {
   const ops = changedMigrations.flatMap(({ path, content }) => parseRlsOperations(content, path));
   const { entries, weakened } = changedEntries(ops);
   const { coverage, problems } = collectCoverage(testFiles);
@@ -455,10 +497,11 @@ export function evaluateDiff({ changedMigrations, testFiles, baseBaseline = null
   return report("diff", {
     findings,
     tagProblems: problems,
+    sqlWarnings: changedMigrations.flatMap(({ path, content }) => dynamicSqlWarnings(content, path)),
     checked: entries.map(({ table, policy, ops: entryOps, files }) => ({
       table, policy, ops: entryOps, files, missing: missingCases(coverage, table),
     })),
-    gate_loosening: detectGateLoosening({ baseBaseline, headBaseline, headBaselineError, gateFiles }),
+    gate_loosening: detectGateLoosening({ baseBaseline, headBaseline, baseBaselineError, headBaselineError, gateFiles }),
   });
 }
 
@@ -482,6 +525,7 @@ export function evaluateAll({ migrations, testFiles, baseline = null }) {
   return report("all", {
     findings,
     tagProblems: problems,
+    sqlWarnings: migrations.flatMap(({ path, content }) => dynamicSqlWarnings(content, path)),
     stats: {
       policies: entries.length,
       covered: entries.length - uncovered.length,
@@ -516,6 +560,7 @@ export function formatHuman(result) {
   }
   for (const finding of result.findings) lines.push(`FAIL ${finding.message}`);
   for (const problem of result.tagProblems) lines.push(`WARN ${problem.message}`);
+  for (const warning of result.sqlWarnings) lines.push(`WARN ${warning.message}`);
   if (result.mode === "all") {
     for (const entry of result.staleBaselineEntries) lines.push(`STALE ${entryLabel(entry)} is covered or gone; remove it from ${BASELINE_PATH}.`);
   }
@@ -569,6 +614,14 @@ function readBaseline(root, ref) {
   return parsed;
 }
 
+function tryReadBaseline(root, ref) {
+  try {
+    return { baseline: readBaseline(root, ref), error: null };
+  } catch (error) {
+    return { baseline: null, error: error.message };
+  }
+}
+
 /** The checker script and every changed workflow file, at both refs. */
 function loadGateFiles(root, baseRef, headRef) {
   const changed = git(root, ["diff", "--name-only", "--no-renames", baseRef, headRef, "--", CHECKER_PATH, WORKFLOWS_DIR]).split("\n").filter(Boolean);
@@ -585,19 +638,15 @@ export function loadDiffInputs(root, baseRef, headRef) {
   const changedMigrations = status.split("\n").filter(Boolean).map((line) => line.split("\t"))
     .filter(([code, path]) => code !== "D" && SQL_FILE.test(path) && path.startsWith(`${MIGRATIONS_DIR}/`))
     .map(([, path]) => ({ path, content: gitShow(root, headRef, path) ?? "" }));
-  let headBaseline = null;
-  let headBaselineError = null;
-  try {
-    headBaseline = readBaseline(root, headRef);
-  } catch (error) {
-    headBaselineError = error.message;
-  }
+  const base = tryReadBaseline(root, baseRef);
+  const head = tryReadBaseline(root, headRef);
   return {
     changedMigrations,
     testFiles: readTreeFiles(root, headRef, TESTS_DIR),
-    baseBaseline: readBaseline(root, baseRef),
-    headBaseline,
-    headBaselineError,
+    baseBaseline: base.baseline,
+    headBaseline: head.baseline,
+    baseBaselineError: base.error,
+    headBaselineError: head.error,
     gateFiles: loadGateFiles(root, baseRef, headRef),
   };
 }

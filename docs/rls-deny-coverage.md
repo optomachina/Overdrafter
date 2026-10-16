@@ -19,7 +19,15 @@ collects:
 
 Unqualified table names resolve to `public`. Policy statements built
 dynamically inside `DO` blocks or functions (`execute format(...)`) are not
-seen; write those as plain statements, or tag their tests anyway.
+parsed as entries; write those as plain statements, or tag their tests anyway.
+So that they do not pass silently, the checker prints a `WARN` (JSON
+`sqlWarnings`) for every `$$` / `$tag$` body that contains `row level security`
+or `CREATE` / `ALTER` / `DROP POLICY`, and a stronger `dynamic_rls_disable`
+warning when the body holds `DISABLE` or `NO FORCE ROW LEVEL SECURITY`. These
+are warnings: they do not change `ok` or the exit code. Diff mode warns on the
+changed migrations; `--all` warns on every migration (for example
+`20260910104500_engineering_native_ownership.sql`, whose dynamically created
+policies are not in the baseline).
 
 ## Deny tag convention
 
@@ -70,8 +78,18 @@ Rules:
 - Coverage is per table: once a table has all three cases, every policy on it
   is covered.
 
-Malformed tags (unknown case, unqualified table, no assertion, table not
-referenced) are reported as warnings and do not count.
+Malformed tags (a `-- deny:` line that is not exactly `-- deny: <case>
+<schema.table>`, such as one with trailing text; an unknown case; an
+unqualified table; no assertion; a table the file never references) are
+reported as warnings and do not count. A malformed `-- deny:` line still ends
+the previous block, so its assertion is never credited to an earlier tag.
+
+**Known false negative: coverage is per table, not per policy.** Once a table
+has all three tagged deny cases, any new or loosened policy on that table
+passes, even when the existing tests do not exercise it (for example a new
+permissive `USING (true)` policy for `anon`). Reviewers should still check
+that a policy change on an already-covered table comes with tests that
+exercise that policy.
 
 ## Baseline
 
@@ -87,8 +105,19 @@ for a baseline table, regenerate it:
 node scripts/check-rls-deny-coverage.mjs --write-baseline
 ```
 
-The vitest suite (`scripts/check-rls-deny-coverage.test.mjs`) fails while the
-committed baseline is out of date with the tree.
+The vitest suite (`scripts/check-rls-deny-coverage.test.mjs`) runs in the
+blocking `test` job, so it checks only that the baseline does not hold too
+much: it fails when the committed baseline lists an entry that is now covered
+or no longer exists (a stale entry). It does not fail on a new uncovered policy
+or RLS-enabled table; that is a report-only finding from the `rls-deny-coverage`
+job. Do not run `--write-baseline` to make a new policy pass. Add its deny
+tests instead.
+
+Test fixtures live in `scripts/fixtures/rls-deny/`. Each fixture keeps its
+`migrations/` and `tests/` folders at its root instead of under `supabase/`, so
+no fixture path contains `supabase/migrations/`, which the migration
+guardrails match anywhere in a path. The test copies them into
+`supabase/migrations` and `supabase/tests` in a temporary repo.
 
 ## Gate loosening
 
@@ -100,7 +129,7 @@ Blaine's card. Diff mode compares the head against the base commit and flags:
 | --- | --- |
 | `baseline_entry_added` | the head baseline lists an entry the base baseline does not |
 | `baseline_entry_widened` | a same `(table, policy)` entry gains or changes fields |
-| `baseline_unreadable` | the head baseline is not a valid `ovd847.rls-deny-baseline.v1` document |
+| `baseline_unreadable` | the head (`ref: "head"`) or base (`ref: "base"`) baseline is not a valid `ovd847.rls-deny-baseline.v1` document. A bad base baseline is reported instead of crashing the job, and growth is not checked against it |
 | `checker_changed` / `checker_removed` | `scripts/check-rls-deny-coverage.mjs` is edited or deleted |
 | `ci_job_changed` / `ci_job_removed` | a workflow's `rls-deny-coverage` job, or a non-comment line elsewhere naming `rls-deny`, changes or goes away |
 
