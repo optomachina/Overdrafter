@@ -1,6 +1,6 @@
 # Hardware design graph (OVD-801, Jarvis slice 1)
 
-Contract for turning a hardware request into artifacts. Slice 1 routes to a stub CAD agent only; it makes no worker calls.
+Contract for turning a hardware request into artifacts. Slice 1 routes to a stub CAD agent that makes no worker calls. OVD-802 adds a real `CadAgent` behind a flag (see [CAD agent](#cad-agent-ovd-802)).
 
 ## Flow
 
@@ -41,10 +41,22 @@ The C-proof test prints the event log of a 4-inch plate run that is paused and t
 
 | id          | slice 1                                                                          |
 | ----------- | -------------------------------------------------------------------------------- |
-| cad         | enabled: `StubCadAgent`, a 4-inch (101.6 mm) square plate, 6.35 mm thick, step/glb/png |
+| cad         | enabled: `StubCadAgent`, a 4-inch (101.6 mm) square plate, 6.35 mm thick, step/glb/png; `CadAgent` when `JARVIS_CAD_AGENT_ENABLED=1` |
 | optics      | registered, disabled stub                                                        |
 | electronics | registered, disabled stub                                                        |
 | analysis    | registered, disabled stub                                                        |
+
+## CAD agent (OVD-802)
+
+`CadAgent` (`cad-agent.ts`) builds a 4.000 in (101.6 mm) square plate with the OVD-765 CAD-neutral build123d worker in `scripts/jarvis-demo/`. It does not use SolidWorks.
+
+- **Flag, off by default.** `createDefaultRegistry({ env })` registers `CadAgent` for `cad` only when `JARVIS_CAD_AGENT_ENABLED=1`. Otherwise `cad` stays on `StubCadAgent`. A `CadAgent` built with the flag off (any value other than `1`) refuses in `run()` before it files anything. The graph turns that into one `error` event (`agent_failed`, "CAD agent is off; set JARVIS_CAD_AGENT_ENABLED=1 ...").
+- **Routing.** With the flag on, `cad` handles only prompts that mention a plate. Other CAD prompts get `no_agent`.
+- **Decisions.** `conceptPicks` asks about thickness (0.125, 0.25, 0.375 or 0.5 in) and hole pattern (none, 4x corner M5 clearance, or 4x corner 1/4-20 clearance), unless the prompt already answers them (for example "0.25 in thick", "no holes", "M5"). The best guesses are 0.25 in and no holes. Material is read from the prompt and defaults to 6061-T6 aluminum.
+- **Refusals.** The agent refuses before filing a job, and asks no questions first, when the request has a thickness outside 0.5 to 50 mm (below that is foil, above it is a block) or names a plate size other than 4 in. The worker enforces the same range again in `jarvis-demo.mjs` and `plate.py`.
+- **Worker.** The injectable `CadWorkerRunner` defaults to `createJarvisWorkerRunner`. That runner does nothing unless `JARVIS_CAD_AGENT_ENABLED=1` is in its env; otherwise it returns `state: "disabled"`. With the flag on, it spawns `node scripts/jarvis-demo/jarvis-demo.mjs plate '<params>'`. That command files the job straight into `$JARVIS_DEMO_ROOT/queue/claimed`, so a concurrent `work` can never take it first, and runs `plate.py` with `$JARVIS_DEMO_PYTHON`. The child gets `JARVIS_DEMO_ENABLED=1`, because the CAD flag is the gate on this path.
+- **Timeouts.** The Python run is bounded by `JARVIS_DEMO_WORKER_TIMEOUT_MS` (default 300 s). The runner's own timeout is that value plus 30 s, so the inner timeout always fires first. When it does, the CLI kills Python's process group, moves the claim to `queue/failed/` and writes `outcome.json`. If the outer timeout fires anyway, it sends SIGTERM, which the CLI handles with the same cleanup, then SIGKILL 5 s later. Failure reasons are fixed strings or numbers. They never contain prompt text or worker stderr.
+- **Artifacts.** These are `file://` URIs in `runs/<id>/`: `plate.step` (authoritative), `plate.glb` (derived review view), `plate-iso.png` and `plate-top.png`. The `dimensionsMm` on the STEP and GLB events are the bounding box measured from the re-imported STEP. The agent refuses worker output that fails a check or deviates from the expected size by more than 0.01 mm.
 
 ## Import boundary
 
@@ -52,4 +64,12 @@ Channel and UI code (`src/**`, `api/**`, `server/chatgpt/**`) may import only `s
 
 ## Tests
 
-`npx vitest run server/design-graph --maxWorkers=2`. Test names G-1 through G-7 map to the OVD-801 acceptance list. C-1 through C-7 in `control/` map to the OVD-810 list; `validateStepText` (`control/step-validator.ts`) is the structural ISO-10303-21 check used by C-6.
+`npx vitest run server/design-graph --maxWorkers=2`. Test names G-1 through G-7 map to the OVD-801 acceptance list. They build the registry with `env: {}`, so they always use the stub.
+
+P-1 through P-6 map to OVD-802. P-4 and P-6 are in `cad-agent.test.ts` and use a fake runner. P-5 (concurrent single claim) and a worker-side P-4 are in `scripts/jarvis-demo/jarvis-demo.test.mjs`. P-1 to P-3 run the real build123d worker. They skip unless `JARVIS_DEMO_PYTHON` points at a Python that has build123d (CI has none):
+
+```bash
+JARVIS_DEMO_PYTHON=~/overnight/jarvis/.venv/bin/python npx vitest run server/design-graph/cad-agent.test.ts --maxWorkers=2
+```
+
+C-1 through C-7 in `control/` map to the OVD-810 list; `validateStepText` (`control/step-validator.ts`) is the structural ISO-10303-21 check used by C-6.

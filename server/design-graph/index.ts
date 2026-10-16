@@ -29,6 +29,7 @@ export {
   StubCadAgent,
   createDefaultRegistry,
   type AgentContext,
+  type DefaultRegistryOptions,
   type AgentEmission,
   type AgentEmit,
   type AgentOutput,
@@ -36,6 +37,19 @@ export {
   type DesignRequest,
   type DomainAgent,
 } from "./agents";
+export {
+  CadAgent,
+  CAD_AGENT_FLAG,
+  CAD_PLATE_THICKNESS_MAX_MM,
+  CAD_PLATE_THICKNESS_MIN_MM,
+  createJarvisWorkerRunner,
+  isCadAgentEnabled,
+  type CadAgentOptions,
+  type CadWorkerRunner,
+  type PlateJobParams,
+  type PlateWorkerOutcome,
+  type PlateWorkerResult,
+} from "./cad-agent";
 export {
   assertValidDesignGraphEvent,
   validateDesignGraphEvent,
