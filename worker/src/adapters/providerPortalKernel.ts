@@ -12,6 +12,7 @@ import {
   type BrowserContextOptions,
   type Locator,
   type Page,
+  type Request,
 } from "playwright";
 import {
   gateLeadTime,
@@ -23,6 +24,7 @@ import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
+import { PROVIDER_REGISTRY, type ProviderRegistryEntry } from "../generated/providerRegistry.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
 import { isDispatchDecisionError } from "../dispatchDecisionError.js";
 import {
@@ -138,6 +140,13 @@ export type ProviderPortalDefinition = {
     uploadUrl: string;
   };
   allowedHosts: readonly string[];
+  /**
+   * OVD-773: exact off-host hostnames the portal genuinely needs (for example
+   * a JS CDN). Subresource requests to them are continued instead of quietly
+   * blocked; navigation and payload-bearing requests to them stay violations.
+   * Absent, the provider registry's `offHostAllowlist` applies (empty by default).
+   */
+  offHostAllowlist?: readonly string[];
   selectors: {
     cadUpload: string;
     drawingUpload?: string;
@@ -193,6 +202,8 @@ type ProviderPortalKernelResultBase = {
   url: string | null;
   artifacts: VendorArtifact[];
   providerMutationPossible: boolean;
+  /** OVD-773: off-host requests the boundary quietly blocked; set once a browser session ran. */
+  portalBoundary?: PortalBoundaryTelemetry;
 };
 
 export type ProviderPortalKernelResult = ProviderPortalKernelResultBase & (
@@ -217,6 +228,7 @@ export type RunProviderPortalKernelDependencies = {
     config: WorkerConfig,
     state: ProviderPortalTerminalState | "offers_extracted",
     snapshot: ProviderPortalSnapshot,
+    portalBoundary?: PortalBoundaryTelemetry,
   ) => Promise<VendorArtifact[]>;
 };
 
@@ -296,6 +308,9 @@ function assertProviderDefinition(definition: ProviderPortalDefinition): void {
       throw new Error(`${definition.provider} portal definition contains an unapproved route.`);
     }
   }
+  if (!effectiveOffHostAllowlist(definition).every((host) => EXACT_HOSTNAME.test(host))) {
+    throw new Error(`${definition.provider} portal definition contains an inexact off-host allowlist entry.`);
+  }
   for (const rule of Object.values(definition.selectors.configuration ?? {})) {
     if (PROHIBITED_CONFIGURATION_SELECTOR.test(rule.selector)) {
       throw new Error(`${definition.provider} portal definition contains a prohibited configuration selector.`);
@@ -304,6 +319,15 @@ function assertProviderDefinition(definition: ProviderPortalDefinition): void {
 }
 
 const PROHIBITED_CONFIGURATION_SELECTOR = /checkout|order|purchase|payment|cart/i;
+
+/** Lowercase DNS hostname with at least one dot; no wildcard, port, or path. */
+const EXACT_HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** The definition's off-host allowlist, else the provider registry's (OVD-773). */
+export function effectiveOffHostAllowlist(definition: ProviderPortalDefinition): readonly string[] {
+  const registry = PROVIDER_REGISTRY as Readonly<Record<string, ProviderRegistryEntry | undefined>>;
+  return definition.offHostAllowlist ?? registry[definition.provider]?.offHostAllowlist ?? [];
+}
 
 function terminalError(
   definition: ProviderPortalDefinition,
@@ -931,6 +955,7 @@ export async function captureScrubbedProviderEvidence(
   config: WorkerConfig,
   state: ProviderPortalTerminalState | "offers_extracted",
   snapshot: ProviderPortalSnapshot,
+  portalBoundary?: PortalBoundaryTelemetry,
 ): Promise<VendorArtifact[]> {
   const baseDir = path.join(config.workerTempDir, "provider-portal-evidence", definition.provider);
   await fs.mkdir(baseDir, { recursive: true, mode: 0o700 });
@@ -949,6 +974,12 @@ export async function captureScrubbedProviderEvidence(
       present: snapshot.bodyText.length > 0,
       length: snapshot.bodyText.length,
     },
+    ...(portalBoundary ? {
+      portalBoundary: {
+        blockedOffhostCount: portalBoundary.blockedOffhostCount,
+        blockedOffhostByHost: portalBoundary.blockedOffhostByHost,
+      },
+    } : {}),
   }, null, 2), { encoding: "utf8", mode: 0o600 });
 
   return [{
@@ -991,12 +1022,48 @@ function assertCurrentOrigin(
   }
 }
 
+/**
+ * OVD-773: what the boundary quietly blocked. Host and resource type only,
+ * never a full URL or query string, so the evidence cannot carry page data.
+ */
+export type PortalBoundaryTelemetry = {
+  blockedOffhostCount: number;
+  blockedOffhostByHost: Record<string, number>;
+  blockedOffhostEvents: Array<{ event: "boundary.blocked_offhost"; host: string; resourceType: string }>;
+};
+
+const MAX_BLOCKED_OFFHOST_EVENTS = 50;
+
 type PortalBoundaryState = {
   providerMutationPossible: boolean;
   violation: string | null;
+  telemetry?: PortalBoundaryTelemetry;
   recover?: ReturnType<typeof createBrowserRecovery>;
   observeRecovery?: ReturnType<typeof captureFreshOperationalRecovery>;
 };
+
+function emptyBoundaryTelemetry(): PortalBoundaryTelemetry {
+  return { blockedOffhostCount: 0, blockedOffhostByHost: {}, blockedOffhostEvents: [] };
+}
+
+/** Detached copy for results and error payloads; later route callbacks cannot change it. */
+function snapshotBoundaryTelemetry(telemetry: PortalBoundaryTelemetry | undefined): PortalBoundaryTelemetry {
+  const source = telemetry ?? emptyBoundaryTelemetry();
+  return {
+    blockedOffhostCount: source.blockedOffhostCount,
+    blockedOffhostByHost: { ...source.blockedOffhostByHost },
+    blockedOffhostEvents: source.blockedOffhostEvents.map((event) => ({ ...event })),
+  };
+}
+
+function recordBlockedOffhost(boundary: PortalBoundaryState, host: string, resourceType: string): void {
+  const telemetry = boundary.telemetry ??= emptyBoundaryTelemetry();
+  telemetry.blockedOffhostCount += 1;
+  telemetry.blockedOffhostByHost[host] = (telemetry.blockedOffhostByHost[host] ?? 0) + 1;
+  if (telemetry.blockedOffhostEvents.length < MAX_BLOCKED_OFFHOST_EVENTS) {
+    telemetry.blockedOffhostEvents.push({ event: "boundary.blocked_offhost", host, resourceType });
+  }
+}
 
 /** Marks both the portal boundary and the task-wide retry phase before a provider mutation. */
 function enterProviderMutation(boundary: PortalBoundaryState): void {
@@ -1028,20 +1095,96 @@ function assertPortalBoundary(
   assertCurrentOrigin(definition, page, boundary.providerMutationPossible);
 }
 
+/**
+ * Report bodies the browser itself generates (CSP `report-uri` and the
+ * Reporting API). Only these may carry a body to a quietly blocked host; the
+ * size cap keeps a file from hiding behind the content type.
+ */
+const PAGE_BEACON_CONTENT_TYPES = new Set(["application/csp-report", "application/reports+json"]);
+const MAX_PAGE_BEACON_BYTES = 64 * 1024;
+const CREDENTIAL_HEADERS = ["authorization", "proxy-authorization", "cookie"] as const;
+
+type OffHostDisposition = "unexpected_navigation" | "unexpected_request" | "subresource";
+
+function isPageBeacon(contentType: string | undefined, bodyBytes: number): boolean {
+  const mediaType = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  return PAGE_BEACON_CONTENT_TYPES.has(mediaType) && bodyBytes <= MAX_PAGE_BEACON_BYTES;
+}
+
+/**
+ * OVD-773: an off-host request is a boundary violation when it could carry
+ * something of ours: a top-level navigation away from the provider, a
+ * credential header, or any request body that is not a browser-generated
+ * report. Every other off-host request (fonts, CDN scripts, images, analytics
+ * GETs, CSP reports) is a page subresource and is blocked without failing the
+ * run. Anything that cannot be classified fails closed as a violation.
+ */
+async function classifyOffHostRequest(request: Request): Promise<OffHostDisposition> {
+  try {
+    if (request.isNavigationRequest() && request.frame().parentFrame() === null) {
+      return "unexpected_navigation";
+    }
+    const headers = await request.allHeaders();
+    if (CREDENTIAL_HEADERS.some((name) => Object.hasOwn(headers, name))) {
+      return "unexpected_request";
+    }
+    const body = request.postDataBuffer();
+    if (body && body.length > 0 && !isPageBeacon(headers["content-type"], body.length)) {
+      return "unexpected_request";
+    }
+    return "subresource";
+  } catch {
+    return "unexpected_request";
+  }
+}
+
+/** Fails closed: a request whose body cannot be read is treated as carrying one. */
+function carriesRequestBody(request: Request): boolean {
+  try {
+    const body = request.postDataBuffer();
+    return Boolean(body && body.length > 0);
+  } catch {
+    return true;
+  }
+}
+
+function safeResourceType(request: Request): string {
+  try {
+    return request.resourceType();
+  } catch {
+    return "unknown";
+  }
+}
+
 async function installPortalBoundaryGuards(
   definition: ProviderPortalDefinition,
   context: BrowserContext,
   page: Page,
   boundary: PortalBoundaryState,
 ): Promise<void> {
+  const offHostAllowlist = effectiveOffHostAllowlist(definition);
   await context.route("**/*", async (route) => {
-    const requestUrl = route.request().url();
-    if (!isAllowedProviderUrl(requestUrl, definition.allowedHosts)) {
-      boundary.violation = `unexpected_request:${safeObservedHost(requestUrl)}`;
+    const request = route.request();
+    const requestUrl = request.url();
+    if (isAllowedProviderUrl(requestUrl, definition.allowedHosts)) {
+      await route.continue();
+      return;
+    }
+    const host = safeObservedHost(requestUrl);
+    const disposition = await classifyOffHostRequest(request);
+    if (disposition !== "subresource") {
+      boundary.violation = `${disposition}:${host}`;
       await route.abort("blockedbyclient");
       return;
     }
-    await route.continue();
+    // The allowlist only admits body-less subresources; a report beacon to an
+    // allowlisted host is still blocked so no body ever leaves the provider.
+    if (isAllowedProviderUrl(requestUrl, offHostAllowlist) && !carriesRequestBody(request)) {
+      await route.continue();
+      return;
+    }
+    recordBlockedOffhost(boundary, host, safeResourceType(request));
+    await route.abort("blockedbyclient");
   });
   await context.routeWebSocket("**/*", async (webSocketRoute) => {
     const socketUrl = webSocketRoute.url();
@@ -1278,6 +1421,7 @@ async function openProviderPortalSession(
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,
+      telemetry: emptyBoundaryTelemetry(),
       recover: dependencies.recovery?.enabled === true ? createBrowserRecovery(dependencies.recovery) : undefined,
       observeRecovery: dependencies.operationalJev
         ? captureFreshOperationalRecovery(dependencies.operationalJev, dependencies.operationalJev.scope) : undefined,
@@ -1299,7 +1443,8 @@ async function captureTerminalPortalState(
     return null;
   }
   const capture = interaction.dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-  const artifacts = await capture(interaction.definition, interaction.config, state, snapshot);
+  const artifacts = await capture(interaction.definition, interaction.config, state, snapshot,
+    snapshotBoundaryTelemetry(interaction.session.boundary.telemetry));
   return terminalResult(
     state,
     state,
@@ -1402,8 +1547,9 @@ async function extractProviderPortalOffers(
   const offers = nativeLane ? [] : normalizeAnchoredProviderOffers(candidates as ProviderPortalOfferCandidate[], options);
   assertPortalBoundary(definition, session.page, session.boundary);
   const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
+  const portalBoundary = snapshotBoundaryTelemetry(session.boundary.telemetry);
   if (offers.length === 0 && nativeOffers.length === 0) {
-    const artifacts = await capture(definition, config, "selector_drift", snapshot);
+    const artifacts = await capture(definition, config, "selector_drift", snapshot, portalBoundary);
     return terminalResult(
       "selector_drift",
       "anchored_offer_not_found",
@@ -1412,7 +1558,7 @@ async function extractProviderPortalOffers(
       session.boundary.providerMutationPossible,
     );
   }
-  const artifacts = await capture(definition, config, "offers_extracted", snapshot);
+  const artifacts = await capture(definition, config, "offers_extracted", snapshot, portalBoundary);
   if (nativeLane) {
     return {
       state: "native_offers_extracted", reason: "anchored_native_offers_extracted", url: session.page.url(),
@@ -1530,7 +1676,8 @@ export async function runProviderPortalKernel(
     session = await openProviderPortalSession(definition, config, storageState, { ...dependencies,
       operationalJev: dependencies.operationalJev ? { ...dependencies.operationalJev, scope: { ...dependencies.operationalJev.scope,
         provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
-    return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
+    const result = await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
+    return { ...result, portalBoundary: snapshotBoundaryTelemetry(session.boundary.telemetry) };
   } catch (error) {
     if (isDispatchDecisionError(error)) {
       throw error;
@@ -1538,6 +1685,7 @@ export async function runProviderPortalKernel(
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
     const translated = translatePortalKernelError(definition, boundary, error);
     if (translated instanceof ProviderKillSwitchError) throw translated;
+    if (session) translated.payload.portalBoundary = snapshotBoundaryTelemetry(session.boundary.telemetry);
     if (dependencies.operationalJev) {
       const { scope } = dependencies.operationalJev;
       await observeBoundOperationalFailure(dependencies.operationalJev, { ...scope, provider: definition.provider,

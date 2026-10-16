@@ -66,10 +66,15 @@ with `private.revoke_provider_dispatch_permit`.
   most likely ends in `selector_drift`. That is safe, but it yields no offers.
   Revise the table and its revision string from that capture.
 - **Third-party assets.** The kernel aborts every request outside the two
-  declared hosts and stops with `unexpected_origin`. If QuickQuote loads
-  scripts or fonts from a CDN or analytics host, every attempt stops there,
-  before upload. Any extra host needs the same review as the locators, and an
-  update to both the definition and `STABLE_EGRESS_PROVIDER_HOSTS`.
+  declared hosts. Since OVD-773, a plain page subresource (CDN script, font,
+  analytics beacon, CSP report) is blocked quietly and counted as
+  `boundary.blocked_offhost`; it no longer stops the attempt. An off-host
+  navigation, credential header, or request body still stops with
+  `unexpected_origin` (see "Off-host requests" in
+  `docs/provider-integration.md`). If QuickQuote genuinely needs a CDN script
+  to work, that host needs the same review as the locators, an
+  `offHostAllowlist` entry in the provider registry, and an update to
+  `STABLE_EGRESS_PROVIDER_HOSTS`.
 - **Pricing latency.** After upload, the kernel settles for up to one browser
   timeout plus 2.5 seconds before it reads offers. If instant pricing takes
   longer, the attempt ends in `selector_drift`.
