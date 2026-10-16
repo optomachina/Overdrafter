@@ -1,0 +1,380 @@
+-- OVD-797: Jarvis channels data model + RLS.
+--
+-- Targets the draft docs/migration-drafts/ovd-797-jarvis-channels.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. .github/workflows/ovd797-pending-pgtap.yml runs it against a
+-- throwaway database with the draft applied. In the approved window, the draft
+-- is promoted and this file is renamed to
+-- supabase/tests/ovd797_jarvis_channels.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers (named cases from OVD-797):
+--   * DM-1  shape: ten tables, RLS on every table, seed channels disabled
+--   * DM-2  a second conversation for the same user fails
+--   * DM-3  a duplicate (channel, idempotency_key) inbound event is rejected;
+--           an on-conflict replay leaves one row
+--   * DM-4  a duplicate (channel, external_id_hash) is rejected
+--   * DM-5  cross-user RLS: A sees 0 of B's rows; updates are denied
+--   * DM-6  a non-admin (and an admin without AAL2) cannot read or write
+--           grants or channel settings
+--   * DM-7  anon is denied on every table
+--   * DM-8  no client insert path for control commands; the guard returns
+--           not_owner for a run the caller does not own
+--   * DM-9  a duplicate (graph_run_id, idempotency_key) leaves one row
+--   * DM-10 a link code expiring more than 10 minutes out violates the CHECK
+--   * DM-11 a decision without best_guess is rejected (NOT NULL)
+-- DM-1R (rollback returns the exact pre-draft schema) is checked outside
+-- pgTAP by the workflow and the fixture: pg_dump --schema-only diff is empty.
+-- True concurrency for DM-3 and DM-9 is in docs/migration-drafts/ovd-797-fixture.sh.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(74);
+
+create function pg_temp.ovd797_as(p_user_id uuid, p_role text, p_aal text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
+      'sub', p_user_id, 'role', p_role, 'aal', p_aal))::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+grant execute on function pg_temp.ovd797_as(uuid, text, text) to anon, authenticated, service_role;
+
+create temp table ovd797_tables (name regclass) on commit drop;
+insert into ovd797_tables values
+  ('public.jarvis_access_grants'),
+  ('public.jarvis_channel_settings'),
+  ('public.jarvis_conversations'),
+  ('public.jarvis_channel_identities'),
+  ('public.jarvis_link_codes'),
+  ('public.jarvis_messages'),
+  ('public.jarvis_decisions'),
+  ('public.jarvis_control_commands'),
+  ('public.jarvis_inbound_events'),
+  ('public.jarvis_outbound_deliveries');
+
+-- Users: A and B own conversations, C has no grant, D is a platform admin.
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000797a01', 'authenticated', 'authenticated', 'ovd797-a@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000797b01', 'authenticated', 'authenticated', 'ovd797-b@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000797c01', 'authenticated', 'authenticated', 'ovd797-c@example.test', pg_catalog.now()),
+  ('00000000-0000-4000-8000-000000797d01', 'authenticated', 'authenticated', 'ovd797-admin@example.test', pg_catalog.now());
+insert into private.platform_admin_emails (email) values ('ovd797-admin@example.test')
+on conflict do nothing;
+
+insert into public.jarvis_access_grants (user_id, tier, granted_by) values
+  ('00000000-0000-4000-8000-000000797a01', 'owner', '00000000-0000-4000-8000-000000797d01'),
+  ('00000000-0000-4000-8000-000000797b01', 'beta', '00000000-0000-4000-8000-000000797d01');
+
+insert into public.jarvis_conversations (id, user_id) values
+  ('00000000-0000-4000-8000-0000007970a1', '00000000-0000-4000-8000-000000797a01'),
+  ('00000000-0000-4000-8000-0000007970b1', '00000000-0000-4000-8000-000000797b01');
+
+-- Run ...a9 is A's, ...b9 is B's.
+insert into public.jarvis_messages (id, conversation_id, direction, channel, kind, body, graph_run_id) values
+  ('00000000-0000-4000-8000-0000007971a1', '00000000-0000-4000-8000-0000007970a1', 'outbound', 'web', 'decision_requested', '{"q":"a"}', '00000000-0000-4000-8000-0000007979a9'),
+  ('00000000-0000-4000-8000-0000007971b1', '00000000-0000-4000-8000-0000007970b1', 'outbound', 'web', 'decision_requested', '{"q":"b"}', '00000000-0000-4000-8000-0000007979b9');
+
+insert into public.jarvis_decisions (message_id, graph_run_id, graph_node, options, best_guess) values
+  ('00000000-0000-4000-8000-0000007971a1', '00000000-0000-4000-8000-0000007979a9', 'concept_picks', '[1,2]', '1'),
+  ('00000000-0000-4000-8000-0000007971b1', '00000000-0000-4000-8000-0000007979b9', 'concept_picks', '[1,2]', '2');
+
+insert into public.jarvis_channel_identities (user_id, channel, external_id_hash) values
+  ('00000000-0000-4000-8000-000000797a01', 'telegram', pg_catalog.repeat('a', 64)),
+  ('00000000-0000-4000-8000-000000797b01', 'telegram', pg_catalog.repeat('b', 64));
+
+insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key) values
+  ('00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1'),
+  ('00000000-0000-4000-8000-0000007979b9', 'pause', '00000000-0000-4000-8000-000000797b01', 'b-pause-1');
+
+-- ---------------------------------------------------------------------
+-- DM-1 shape, privileges and seed
+-- ---------------------------------------------------------------------
+select is((select pg_catalog.count(*)::int from ovd797_tables t join pg_catalog.pg_class c on c.oid = t.name),
+  10, 'DM-1 all ten jarvis tables exist');
+select ok((select pg_catalog.bool_and(c.relrowsecurity) from ovd797_tables t join pg_catalog.pg_class c on c.oid = t.name),
+  'DM-1 RLS is enabled on every jarvis table');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_table_privilege('anon', t.name, p))
+   from ovd797_tables t cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p),
+  'DM-7 anon holds no privilege on any jarvis table');
+select ok(
+  (select pg_catalog.bool_and(not pg_catalog.has_table_privilege('authenticated', t.name, p))
+   from ovd797_tables t cross join unnest(array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p),
+  'authenticated holds no write privilege on any jarvis table');
+select ok(
+  not pg_catalog.has_table_privilege('authenticated', 'public.jarvis_link_codes', 'SELECT')
+    and not pg_catalog.has_table_privilege('authenticated', 'public.jarvis_inbound_events', 'SELECT')
+    and not pg_catalog.has_table_privilege('authenticated', 'public.jarvis_outbound_deliveries', 'SELECT'),
+  'link codes, inbound events and outbound deliveries are server only');
+select ok(
+  (select pg_catalog.bool_and(pg_catalog.has_table_privilege('service_role', t.name, 'SELECT,INSERT,UPDATE,DELETE'))
+   from ovd797_tables t),
+  'service_role can read and write every jarvis table');
+select is(
+  (select pg_catalog.count(*)::int from pg_catalog.pg_policies
+   where schemaname = 'public' and tablename like 'jarvis\_%'),
+  7, 'seven jarvis policies exist');
+select is(
+  (select pg_catalog.count(*)::int from pg_catalog.pg_policies
+   where schemaname = 'public' and tablename like 'jarvis\_%'
+     and (cmd <> 'SELECT' or roles <> array['authenticated']::name[] or permissive <> 'PERMISSIVE')),
+  0, 'every jarvis policy is a permissive SELECT for authenticated only');
+select ok(
+  (select p.prosecdef and p.proconfig = array['search_path=""'] and p.provolatile = 's'
+   from pg_catalog.pg_proc p
+   where p.oid = 'public.jarvis_control_command_guard(uuid, text)'::regprocedure),
+  'the guard is a STABLE SECURITY DEFINER function with search_path = ''''');
+select ok(
+  not pg_catalog.has_function_privilege('public', 'public.jarvis_control_command_guard(uuid, text)', 'EXECUTE')
+    and not pg_catalog.has_function_privilege('anon', 'public.jarvis_control_command_guard(uuid, text)', 'EXECUTE')
+    and not pg_catalog.has_function_privilege('service_role', 'public.jarvis_control_command_guard(uuid, text)', 'EXECUTE')
+    and pg_catalog.has_function_privilege('authenticated', 'public.jarvis_control_command_guard(uuid, text)', 'EXECUTE'),
+  'the guard is executable by authenticated only');
+select is(
+  (select pg_catalog.count(*)::int from pg_catalog.pg_proc p
+   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname like 'jarvis\_%'),
+  1, 'the guard is the only jarvis function');
+select results_eq(
+  $$select channel, enabled, min_tier from public.jarvis_channel_settings order by channel$$,
+  $$values ('imessage', false, 'owner'), ('slack', false, 'owner'), ('telegram', false, 'owner'), ('web', false, 'owner')$$,
+  'DM-1 seed: four channels, all disabled, min_tier owner');
+
+-- ---------------------------------------------------------------------
+-- Constraints (as the migration owner; the service role writes the same way)
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$insert into public.jarvis_conversations (user_id) values ('00000000-0000-4000-8000-000000797a01')$$,
+  '23505', null, 'DM-2 a second conversation for the same user fails');
+
+select throws_ok(
+  $$insert into public.jarvis_inbound_events (channel, idempotency_key) values ('slack', 'Ev797'), ('slack', 'Ev797')$$,
+  '23505', null, 'DM-3 a duplicate (channel, idempotency_key) is rejected');
+insert into public.jarvis_inbound_events (channel, idempotency_key) values ('slack', 'Ev797');
+insert into public.jarvis_inbound_events (channel, idempotency_key) values ('slack', 'Ev797')
+on conflict (channel, idempotency_key) do nothing;
+select is((select pg_catalog.count(*)::int from public.jarvis_inbound_events where idempotency_key = 'Ev797' and channel = 'slack'),
+  1, 'DM-3 a replayed inbound event leaves exactly one row');
+select lives_ok(
+  $$insert into public.jarvis_inbound_events (channel, idempotency_key) values ('telegram', 'Ev797')$$,
+  'DM-3 the same key on another channel is a separate event');
+
+select throws_ok(
+  $$insert into public.jarvis_channel_identities (user_id, channel, external_id_hash)
+    values ('00000000-0000-4000-8000-000000797c01', 'telegram', repeat('a', 64))$$,
+  '23505', null, 'DM-4 one external id hash cannot link a second user on the same channel');
+select lives_ok(
+  $$insert into public.jarvis_channel_identities (user_id, channel, external_id_hash)
+    values ('00000000-0000-4000-8000-000000797c01', 'slack', repeat('a', 64))$$,
+  'DM-4 the same hash on another channel is a different identity');
+select throws_ok(
+  $$insert into public.jarvis_channel_identities (user_id, channel, external_id_hash)
+    values ('00000000-0000-4000-8000-000000797c01', 'imessage', '+15555550123')$$,
+  '23514', null, 'a plain external id (not an HMAC hex hash) is rejected');
+select throws_ok(
+  $$insert into public.jarvis_channel_identities (user_id, channel, external_id_hash)
+    values ('00000000-0000-4000-8000-000000797c01', 'fax', repeat('c', 64))$$,
+  '23503', null, 'an identity on an unknown channel is rejected');
+
+select throws_ok(
+  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')$$,
+  '23505', null, 'DM-9 a duplicate (graph_run_id, idempotency_key) is rejected');
+insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+values ('00000000-0000-4000-8000-0000007979a9', 'pause', '00000000-0000-4000-8000-000000797a01', 'a-pause-1')
+on conflict (graph_run_id, idempotency_key) do nothing;
+select is((select pg_catalog.count(*)::int from public.jarvis_control_commands where idempotency_key = 'a-pause-1'),
+  1, 'DM-9 a replayed control command leaves exactly one row');
+select throws_ok(
+  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007979a9', 'reboot', '00000000-0000-4000-8000-000000797a01', 'a-reboot-1')$$,
+  '23514', null, 'an unknown control kind is rejected');
+select throws_ok(
+  $$update public.jarvis_control_commands set status = 'applied' where idempotency_key = 'a-pause-1'$$,
+  '23514', null, 'an applied control command must name its checkpoint');
+
+select throws_ok(
+  $$insert into public.jarvis_link_codes (code_hash, user_id, channel, expires_at)
+    values (repeat('1', 64), '00000000-0000-4000-8000-000000797a01', 'telegram', now() + interval '10 minutes 1 second')$$,
+  '23514', null, 'DM-10 a link code expiring more than 10 minutes out violates the CHECK');
+select lives_ok(
+  $$insert into public.jarvis_link_codes (code_hash, user_id, channel, expires_at)
+    values (repeat('2', 64), '00000000-0000-4000-8000-000000797a01', 'telegram', now() + interval '10 minutes')$$,
+  'DM-10 a link code expiring exactly 10 minutes out is accepted');
+select throws_ok(
+  $$insert into public.jarvis_link_codes (code_hash, user_id, channel, expires_at)
+    values (repeat('3', 64), '00000000-0000-4000-8000-000000797a01', 'telegram', now())$$,
+  '23514', null, 'a link code that is already expired is rejected');
+
+select throws_ok(
+  $$insert into public.jarvis_decisions (message_id, graph_run_id, graph_node, options)
+    values ('00000000-0000-4000-8000-0000007971a1', '00000000-0000-4000-8000-0000007979a9', 'cad', '[1]')$$,
+  '23502', null, 'DM-11 a decision without best_guess is rejected (NOT NULL)');
+select throws_ok(
+  $$update public.jarvis_decisions set resolution = 'skipped_best_guess', resolved_at = now()
+    where message_id = '00000000-0000-4000-8000-0000007971a1'$$,
+  '23514', null, 'a resolved decision must record what was chosen');
+select lives_ok(
+  $$update public.jarvis_decisions set resolution = 'skipped_best_guess', resolved_at = now(), chosen = best_guess
+    where message_id = '00000000-0000-4000-8000-0000007971a1'$$,
+  'a skipped decision records the best guess as chosen');
+
+-- ---------------------------------------------------------------------
+-- DM-5 cross-user RLS (as user A)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797a01', 'authenticated', 'aal2');
+select is((select pg_catalog.count(*)::int from public.jarvis_conversations where user_id = '00000000-0000-4000-8000-000000797b01'),
+  0, 'DM-5 A sees none of B''s conversations');
+select is((select pg_catalog.count(*)::int from public.jarvis_messages where conversation_id = '00000000-0000-4000-8000-0000007970b1'),
+  0, 'DM-5 A sees none of B''s messages');
+select is((select pg_catalog.count(*)::int from public.jarvis_decisions where graph_run_id = '00000000-0000-4000-8000-0000007979b9'),
+  0, 'DM-5 A sees none of B''s decisions');
+select is((select pg_catalog.count(*)::int from public.jarvis_channel_identities where user_id = '00000000-0000-4000-8000-000000797b01'),
+  0, 'DM-5 A sees none of B''s identities');
+select is((select pg_catalog.count(*)::int from public.jarvis_control_commands where graph_run_id = '00000000-0000-4000-8000-0000007979b9'),
+  0, 'DM-5 A sees none of B''s control commands');
+select is(
+  (select pg_catalog.count(*)::int from public.jarvis_conversations)
+    + (select pg_catalog.count(*)::int from public.jarvis_messages)
+    + (select pg_catalog.count(*)::int from public.jarvis_decisions)
+    + (select pg_catalog.count(*)::int from public.jarvis_channel_identities)
+    + (select pg_catalog.count(*)::int from public.jarvis_control_commands),
+  5, 'DM-5 A sees exactly its own conversation, message, decision, identity and control command');
+select throws_ok(
+  $$update public.jarvis_conversations set created_at = now() where user_id = '00000000-0000-4000-8000-000000797b01'$$,
+  '42501', null, 'DM-5 A cannot update B''s conversation');
+select throws_ok(
+  $$update public.jarvis_messages set body = '{}' where conversation_id = '00000000-0000-4000-8000-0000007970b1'$$,
+  '42501', null, 'DM-5 A cannot update B''s messages');
+select throws_ok(
+  $$update public.jarvis_decisions set rationale = 'x' where graph_run_id = '00000000-0000-4000-8000-0000007979b9'$$,
+  '42501', null, 'DM-5 A cannot update B''s decisions');
+select throws_ok(
+  $$update public.jarvis_channel_identities set revoked_at = now() where user_id = '00000000-0000-4000-8000-000000797b01'$$,
+  '42501', null, 'DM-5 A cannot update B''s identities');
+select throws_ok(
+  $$update public.jarvis_control_commands set status = 'rejected' where graph_run_id = '00000000-0000-4000-8000-0000007979b9'$$,
+  '42501', null, 'DM-5 A cannot update B''s control commands');
+select throws_ok(
+  $$update public.jarvis_decisions set rationale = 'mine' where graph_run_id = '00000000-0000-4000-8000-0000007979a9'$$,
+  '42501', null, 'A cannot update even its own decision (writes are server only)');
+select throws_ok(
+  $$delete from public.jarvis_messages$$,
+  '42501', null, 'A cannot delete messages');
+
+-- ---------------------------------------------------------------------
+-- DM-8 control commands: no client insert path; guard verdicts
+-- ---------------------------------------------------------------------
+select throws_ok(
+  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007979b9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-b')$$,
+  '42501', null, 'DM-8 A has no client insert path for a control command on B''s run');
+select throws_ok(
+  $$insert into public.jarvis_control_commands (graph_run_id, kind, actor_user_id, idempotency_key)
+    values ('00000000-0000-4000-8000-0000007979a9', 'cancel', '00000000-0000-4000-8000-000000797a01', 'a-cancel-a')$$,
+  '42501', null, 'DM-8 A has no client insert path even on its own run');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979b9', 'cancel'),
+  'not_owner', 'DM-8 the guard returns not_owner for B''s run');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979ff', 'cancel'),
+  'not_owner', 'DM-8 the guard returns not_owner for an unknown run (no existence leak)');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'cancel'),
+  'ok', 'the guard returns ok for the owner''s own run');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'reboot'),
+  'invalid_command', 'the guard rejects an unknown kind');
+select is(public.jarvis_control_command_guard(null, 'pause'),
+  'invalid_command', 'the guard rejects a null run');
+reset role;
+
+-- A run that also appears in B's conversation is not A's alone.
+insert into public.jarvis_messages (conversation_id, direction, channel, kind, graph_run_id)
+values ('00000000-0000-4000-8000-0000007970b1', 'outbound', 'web', 'status', '00000000-0000-4000-8000-0000007979a9');
+set local role authenticated;
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797a01', 'authenticated', 'aal2');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'pause'),
+  'not_owner', 'DM-8 a run that also appears in another user''s conversation is not owned');
+reset role;
+delete from public.jarvis_messages where conversation_id = '00000000-0000-4000-8000-0000007970b1' and kind = 'status';
+
+-- A revoked grant blocks control even on the owner's own run.
+update public.jarvis_access_grants set revoked_at = now() where user_id = '00000000-0000-4000-8000-000000797a01';
+set local role authenticated;
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797a01', 'authenticated', 'aal2');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'pause'),
+  'no_access', 'the guard returns no_access to an owner whose grant is revoked');
+reset role;
+update public.jarvis_access_grants set revoked_at = null where user_id = '00000000-0000-4000-8000-000000797a01';
+
+-- Platform admin: AAL1 is refused, AAL2 may control any run.
+set local role authenticated;
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797d01', 'authenticated', 'aal1');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979b9', 'pause'),
+  'aal2_required', 'the guard requires AAL2 for an admin on a run it does not own');
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797d01', 'authenticated', 'aal2');
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979b9', 'pause'),
+  'ok', 'the guard allows a platform admin at AAL2');
+select pg_temp.ovd797_as(null, 'authenticated', null);
+select is(public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'pause'),
+  'not_authenticated', 'the guard refuses a session without a user');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- DM-6 grants and channel settings are admin + AAL2 only
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797a01', 'authenticated', 'aal2');
+select is((select pg_catalog.count(*)::int from public.jarvis_access_grants),
+  0, 'DM-6 a non-admin (even with a grant, at AAL2) reads no grants');
+select is((select pg_catalog.count(*)::int from public.jarvis_channel_settings),
+  0, 'DM-6 a non-admin reads no channel settings');
+select throws_ok(
+  $$insert into public.jarvis_access_grants (user_id, tier) values ('00000000-0000-4000-8000-000000797c01', 'paid')$$,
+  '42501', null, 'DM-6 a non-admin cannot write a grant');
+select throws_ok(
+  $$update public.jarvis_channel_settings set enabled = true$$,
+  '42501', null, 'DM-6 a non-admin cannot flip a channel switch');
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797d01', 'authenticated', 'aal1');
+select is((select pg_catalog.count(*)::int from public.jarvis_access_grants)
+    + (select pg_catalog.count(*)::int from public.jarvis_channel_settings),
+  0, 'DM-6 a platform admin at AAL1 reads no grants or settings');
+select pg_temp.ovd797_as('00000000-0000-4000-8000-000000797d01', 'authenticated', 'aal2');
+select is((select pg_catalog.count(*)::int from public.jarvis_access_grants),
+  2, 'a platform admin at AAL2 reads the grants');
+select is((select pg_catalog.count(*)::int from public.jarvis_channel_settings),
+  4, 'a platform admin at AAL2 reads the channel settings');
+select throws_ok(
+  $$update public.jarvis_channel_settings set enabled = true where channel = 'web'$$,
+  '42501', null, 'even an admin at AAL2 cannot flip a switch directly (service role only)');
+reset role;
+
+-- ---------------------------------------------------------------------
+-- DM-7 anon is denied on every table and on the guard
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd797_as(null, 'anon', null);
+select throws_ok($$select 1 from public.jarvis_access_grants$$, '42501', null, 'DM-7 anon is denied jarvis_access_grants');
+select throws_ok($$select 1 from public.jarvis_channel_settings$$, '42501', null, 'DM-7 anon is denied jarvis_channel_settings');
+select throws_ok($$select 1 from public.jarvis_conversations$$, '42501', null, 'DM-7 anon is denied jarvis_conversations');
+select throws_ok($$select 1 from public.jarvis_channel_identities$$, '42501', null, 'DM-7 anon is denied jarvis_channel_identities');
+select throws_ok($$select 1 from public.jarvis_link_codes$$, '42501', null, 'DM-7 anon is denied jarvis_link_codes');
+select throws_ok($$select 1 from public.jarvis_messages$$, '42501', null, 'DM-7 anon is denied jarvis_messages');
+select throws_ok($$select 1 from public.jarvis_decisions$$, '42501', null, 'DM-7 anon is denied jarvis_decisions');
+select throws_ok($$select 1 from public.jarvis_control_commands$$, '42501', null, 'DM-7 anon is denied jarvis_control_commands');
+select throws_ok($$select 1 from public.jarvis_inbound_events$$, '42501', null, 'DM-7 anon is denied jarvis_inbound_events');
+select throws_ok($$select 1 from public.jarvis_outbound_deliveries$$, '42501', null, 'DM-7 anon is denied jarvis_outbound_deliveries');
+select throws_ok(
+  $$select public.jarvis_control_command_guard('00000000-0000-4000-8000-0000007979a9', 'pause')$$,
+  '42501', null, 'DM-7 anon cannot execute the guard');
+reset role;
+
+select * from finish();
+rollback;
