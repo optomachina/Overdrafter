@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -385,13 +385,26 @@ describe("runDetector and CLI", () => {
 describe("runbook PR lookup fails closed", () => {
   const runbook = readFileSync(path.join(repoRoot, "docs/runbooks/verify-skill-maintenance.md"), "utf8");
   const block = /5\. \*\*Choose the PR\.[^\n]*\n\n {3}```bash\n([\s\S]*?)\n {3}```/.exec(runbook)[1].replaceAll(/^ {3}/gm, "");
-  const hasTools = ["bash", "jq"].every((bin) => spawnSync(bin, ["--version"]).status === 0);
+  const realJq = spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
+  /** Every distinct bash on this machine (macOS ships 3.2; CI runs 5.x), identified by $BASH_VERSION. */
+  const shells = new Map();
+  for (const bin of ["bash", "/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]) {
+    const probe = spawnSync(bin, ["-c", 'printf %s "$BASH_VERSION"'], { encoding: "utf8" });
+    if (probe.status === 0 && probe.stdout && !shells.has(probe.stdout)) shells.set(probe.stdout, bin);
+  }
   const ours = { number: 9, headRefName: MAINTENANCE_BRANCH, labels: [], isCrossRepository: false, state: "OPEN" };
   const alice = { number: 3, headRefName: "alice/my-feature", labels: [{ name: MAINTENANCE_LABEL }], isCrossRepository: false, state: "OPEN" };
+  const wrappers = {
+    plain: (code) => code,
+    // bash ignores errexit for the left side of `||`, `&&` and for an `if` condition: the contexts that broke `set -e`.
+    or: (code) => `{\n${code}\n} || echo FAILED`,
+    and: (code) => `{\n${code}\n} && echo PASSED`,
+    if: (code) => `if\n${code}\nthen echo PASSED; else echo FAILED; fi`,
+  };
 
-  /** Runs the runbook block verbatim with a fake `gh` that answers each query as given. */
-  function lookup({ head, label }) {
-    const dir = fixtureRepo({
+  /** Runs the runbook block verbatim, in the given shell and context, with a fake `gh` that answers each query as given. */
+  function lookup({ head, label, jq, shell, mode = "plain" }) {
+    const files = {
       "bin/gh": [
         "#!/bin/sh",
         'case "$*" in',
@@ -401,36 +414,95 @@ describe("runbook PR lookup fails closed", () => {
         "exit 99",
         "",
       ].join("\n"),
-    });
-    chmodSync(path.join(dir, "bin/gh"), 0o755);
+    };
+    // jq: "combine" breaks only the `jq -s add` step; the validation steps keep working.
+    if (jq === "combine") files["bin/jq"] = ['#!/bin/sh', 'for a in "$@"; do [ "$a" = add ] && exit 5; done', 'exec "$REAL_JQ" "$@"', ""].join("\n");
+    const dir = fixtureRepo(files);
+    for (const name of Object.keys(files)) chmodSync(path.join(dir, name), 0o755);
     const env = {
       ...process.env,
       PATH: `${path.join(dir, "bin")}:${process.env.PATH}`,
       TMPDIR: dir,
       GITHUB_STEP_SUMMARY: "",
+      REAL_JQ: realJq,
       HEAD_OUT: head.out, HEAD_EXIT: String(head.exit ?? 0), LABEL_OUT: label.out, LABEL_EXIT: String(label.exit ?? 0),
     };
-    return spawnSync("bash", ["-c", block], { cwd: repoRoot, encoding: "utf8", env });
+    const run = spawnSync(shell, ["-c", wrappers[mode](block)], { cwd: repoRoot, encoding: "utf8", env });
+    return { ...run, dir };
   }
 
-  it.skipIf(!hasTools)("stops when a query fails, even if the other returns []", () => {
-    const run = lookup({ head: { out: "", exit: 1 }, label: { out: "[]" } });
-    expect(run.status).not.toBe(0);
+  /** The block must fail in this context: never the "create" decision, never a clean pass. */
+  function expectFailedClosed(run, mode) {
     expect(run.stdout).not.toContain('"action"');
-    expect(lookup({ head: { out: "[]" }, label: { out: "", exit: 4 } }).status).not.toBe(0);
+    expect(run.stdout).not.toContain("PASSED");
+    if (mode === "plain" || mode === "and") expect(run.status).not.toBe(0);
+    if (mode === "or" || mode === "if") expect(run.stdout).toContain("FAILED");
+  }
+
+  it("never relies on errexit, in the block or in any other runbook command block", () => {
+    const blocks = [...runbook.matchAll(/```(?:bash|sh)\n([\s\S]*?)\n\s*```/g)].map((m) => m[1]);
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    for (const code of blocks) {
+      expect(code).not.toMatch(/\bset\s+[-+]/);
+      expect(code).not.toMatch(/\bpipefail\b|\berrexit\b/);
+    }
+    // Each gh query has its own explicit status check.
+    expect([...block.matchAll(/^\s*gh pr list .*\|\|$/gm)]).toHaveLength(2);
   });
 
-  it.skipIf(!hasTools)("stops when a query prints null or nothing", () => {
-    expect(lookup({ head: { out: "null" }, label: { out: "[]" } }).status).not.toBe(0);
-    expect(lookup({ head: { out: "" }, label: { out: "[]" } }).status).not.toBe(0);
+  it("finds at least one bash to test against", () => {
+    expect(shells.size).toBeGreaterThan(0);
+    expect(realJq).not.toBe("");
   });
 
-  it.skipIf(!hasTools)("updates the fixed-branch PR once and reports a labelled foreign PR", () => {
-    const both = lookup({ head: { out: JSON.stringify([ours]) }, label: { out: JSON.stringify([ours, alice]) } });
-    expect(both.status).toBe(0);
-    expect(JSON.parse(both.stdout)).toMatchObject({ action: "update", pr: 9, branch: MAINTENANCE_BRANCH, duplicates: [], foreign: [3] });
-    const labelOnly = lookup({ head: { out: "[]" }, label: { out: JSON.stringify([alice]) } });
-    expect(JSON.parse(labelOnly.stdout)).toMatchObject({ action: "create", branch: MAINTENANCE_BRANCH, foreign: [3] });
+  (shells.size === 0 || realJq === "" ? describe.skip : describe).each([...shells].map(([version, bin]) => ({ version, bin })))("bash $version", ({ bin }) => {
+    const modes = Object.keys(wrappers);
+
+    it.each(modes)("stops when one gh query fails, even if the other returns [] (%s)", (mode) => {
+      const headFails = lookup({ shell: bin, mode, head: { out: "", exit: 1 }, label: { out: "[]" } });
+      expectFailedClosed(headFails, mode);
+      expect(headFails.stderr).toContain("gh pr list --head failed");
+      const labelFails = lookup({ shell: bin, mode, head: { out: "[]" }, label: { out: "", exit: 4 } });
+      expectFailedClosed(labelFails, mode);
+      expect(labelFails.stderr).toContain("gh pr list --label failed");
+      // A failing gh that still printed a valid array must not count as "no PR" either.
+      expectFailedClosed(lookup({ shell: bin, mode, head: { out: "[]", exit: 1 }, label: { out: "[]" } }), mode);
+    });
+
+    it.each(modes)("stops when a query prints null, nothing, an object or two arrays (%s)", (mode) => {
+      for (const out of ["null", "", "{}", '"x"', "[] []"]) {
+        expectFailedClosed(lookup({ shell: bin, mode, head: { out }, label: { out: "[]" } }), mode);
+        expectFailedClosed(lookup({ shell: bin, mode, head: { out: "[]" }, label: { out } }), mode);
+      }
+    });
+
+    it.each(modes)("stops when combining the two lists fails (%s)", (mode) => {
+      expectFailedClosed(lookup({ shell: bin, mode, jq: "combine", head: { out: "[]" }, label: { out: "[]" } }), mode);
+    });
+
+    it.each(modes)("passes select-pr's failure through instead of deciding (%s)", (mode) => {
+      const run = lookup({ shell: bin, mode, head: { out: JSON.stringify([{ number: "nine", headRefName: MAINTENANCE_BRANCH }]) }, label: { out: "[]" } });
+      expectFailedClosed(run, mode);
+      expect(run.stderr).toContain('integer "number"');
+    });
+
+    it.each(modes)("updates the fixed-branch PR once and reports a labelled foreign PR (%s)", (mode) => {
+      const both = lookup({ shell: bin, mode, head: { out: JSON.stringify([ours]) }, label: { out: JSON.stringify([ours, alice]) } });
+      expect(both.status).toBe(0);
+      expect(both.stdout).not.toContain("FAILED");
+      expect(JSON.parse(both.stdout.replace(/PASSED\n$/, ""))).toMatchObject({ action: "update", pr: 9, branch: MAINTENANCE_BRANCH, duplicates: [], foreign: [3] });
+      const labelOnly = lookup({ shell: bin, mode, head: { out: "[]" }, label: { out: JSON.stringify([alice]) } });
+      expect(JSON.parse(labelOnly.stdout.replace(/PASSED\n$/, ""))).toMatchObject({ action: "create", branch: MAINTENANCE_BRANCH, foreign: [3] });
+    });
+
+    it("removes its temp dir on success and on failure", () => {
+      for (const run of [
+        lookup({ shell: bin, head: { out: "[]" }, label: { out: "[]" } }),
+        lookup({ shell: bin, head: { out: "", exit: 1 }, label: { out: "[]" } }),
+      ]) {
+        expect(readdirSync(run.dir).filter((name) => name !== "bin")).toEqual([]);
+      }
+    });
   });
 });
 

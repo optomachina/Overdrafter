@@ -46,18 +46,24 @@ A cited path that does not exist counts as present only when it is listed in `ru
 
    ```bash
    (
-     set -euo pipefail
-     D="$(mktemp -d)"
+     D="$(mktemp -d)" || { echo "mktemp failed; not deciding" >&2; exit 1; }
+     trap 'rm -rf "$D"' EXIT
      FIELDS=number,headRefName,labels,isCrossRepository,state
-     gh pr list --state open --head chore/verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/head.json"
-     gh pr list --state open --label verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/label.json"
-     jq -e -s 'length == 2 and all(.[]; type == "array")' "$D/head.json" "$D/label.json" > /dev/null
-     jq -s 'add' "$D/head.json" "$D/label.json" > "$D/prs.json"
+     gh pr list --state open --head chore/verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/head.json" ||
+       { echo "gh pr list --head failed; not deciding" >&2; exit 1; }
+     gh pr list --state open --label verify-skill-maintenance --limit 1000 --json "$FIELDS" > "$D/label.json" ||
+       { echo "gh pr list --label failed; not deciding" >&2; exit 1; }
+     jq -e -s 'length == 1 and (.[0] | type == "array")' "$D/head.json" > /dev/null ||
+       { echo "the --head query did not print one JSON array; not deciding" >&2; exit 1; }
+     jq -e -s 'length == 1 and (.[0] | type == "array")' "$D/label.json" > /dev/null ||
+       { echo "the --label query did not print one JSON array; not deciding" >&2; exit 1; }
+     jq -s 'add' "$D/head.json" "$D/label.json" > "$D/prs.json" ||
+       { echo "could not combine the two queries; not deciding" >&2; exit 1; }
      node scripts/verify-skill-drift.mjs select-pr --outcome changed --prs "$D/prs.json"
    )
    ```
 
-   Run the block as one unit. Each query runs on its own, so a failed `gh` call stops the block before anything is decided. Never treat a failed or empty-output query as "no PR". The `jq -e` check stops the block unless both queries printed a JSON array (not `null`, not nothing). `select-pr` also exits `2` on rows without an integer `number` and a string `headRefName`. Query by head branch and label with `--limit 1000`, never the default 30-PR page, or the maintenance PR can drop out of the list and a second one gets opened. `--prs` is required (`select-pr` exits `2` without it), and a PR returned by both queries counts once.
+   Run the block as one unit. It never relies on `set -e`, because bash switches that off for a command on the left of `||` or `&&`, in an `if` condition and in a `!` pipeline. Every step checks its own exit status and ends the block with `exit 1`, so the block fails the same way when it runs alone, after `||`, inside `if` or after `&&`. The `( ... )` keeps that `exit` from closing your shell. Each query runs on its own, so a failed `gh` call stops the block before anything is decided. Never treat a failed or empty-output query as "no PR". The `jq -e` checks stop the block unless each query printed exactly one JSON array (not `null`, not an object, not nothing). The block ends with `select-pr`, whose exit status is the block's, and `select-pr` exits `2` on rows without an integer `number` and a string `headRefName`. Query by head branch and label with `--limit 1000`, never the default 30-PR page, or the maintenance PR can drop out of the list and a second one gets opened. `--prs` is required (`select-pr` exits `2` without it), and a PR returned by both queries counts once.
 
    Only an open same-repo PR whose head is `chore/verify-skill-maintenance` is the maintenance PR. The label alone never makes a PR ours.
 
