@@ -1,0 +1,66 @@
+import type { Page } from "@playwright/test";
+import { test, expect } from "../test";
+
+// OVD-825 front-door journey: a phone user starts at the public root, finds
+// Jarvis without typing a URL, asks for a part and gets a viewable 3D result.
+// Fixture mode only: the client session comes from `?fixture=`, no Supabase.
+
+const STEP_TIMEOUT = 5_000;
+const PROMPT = "design a 4 inch square plate";
+
+const PHONES = [
+  { name: "375x812", viewport: { width: 375, height: 812 } },
+  { name: "430x932", viewport: { width: 430, height: 932 } },
+] as const;
+
+async function signInIfAsked(page: Page) {
+  // Fixture sessions are already signed in; a real front door may still ask.
+  const email = page.locator("#auth-email");
+  if (await email.isVisible().catch(() => false)) {
+    await page.goto("/?fixture=client-quoted&debug=1");
+  }
+}
+
+for (const phone of PHONES) {
+  test.describe(`Jarvis front door on a ${phone.name} phone`, { tag: "@fixture" }, () => {
+    test.use({ viewport: phone.viewport, isMobile: true, hasTouch: true });
+
+    test("public root -> Jarvis -> 4 inch plate -> PNG, GLB/USDZ and AR link", async ({ page }) => {
+      // Expected to fail until OVD-805 lands: https://linear.app/overdrafter/issue/OVD-805
+      test.fail();
+      test.setTimeout(60_000);
+
+      await page.goto("/?fixture=client-quoted&debug=1");
+      // Readiness for the lazily mounted app shell (see e2e/client-shell.spec.ts); not part of the journey budget.
+      await page.locator("[data-client-shell]").waitFor({ timeout: 30_000 });
+      await signInIfAsked(page);
+
+      // The front door: a visible link or button to Jarvis from the public root.
+      const door = page.getByRole("link", { name: /jarvis/i }).or(page.getByRole("button", { name: /jarvis/i })).first();
+      await expect(door, "no public link to Jarvis on /").toBeVisible({ timeout: STEP_TIMEOUT });
+      await door.tap();
+
+      const composer = page.getByRole("textbox", { name: /message|ask|jarvis|describe/i }).first();
+      await expect(composer).toBeVisible({ timeout: STEP_TIMEOUT });
+      await composer.fill(PROMPT);
+      await composer.press("Enter");
+
+      await expect(page.getByText(PROMPT).first()).toBeVisible({ timeout: STEP_TIMEOUT });
+      await expect(page.getByRole("status").first(), "no status update").toBeVisible({ timeout: STEP_TIMEOUT });
+
+      const resultCard = page.locator("[data-jarvis-result]").or(page.getByRole("article", { name: /result|plate/i })).first();
+      await expect(resultCard, "no result card").toBeVisible({ timeout: STEP_TIMEOUT });
+      await expect(resultCard.locator('img[src*=".png"], img[src^="data:image/png"]').first(), "no PNG render").toBeVisible({
+        timeout: STEP_TIMEOUT,
+      });
+      await expect(
+        resultCard.locator('a[href*=".glb"], a[href*=".usdz"], model-viewer[src*=".glb"]').first(),
+        "no GLB/USDZ model",
+      ).toBeAttached({ timeout: STEP_TIMEOUT });
+      await expect(
+        resultCard.getByRole("link", { name: /view in ar|ar/i }).or(resultCard.locator('a[rel="ar"]')).first(),
+        "no AR link",
+      ).toBeVisible({ timeout: STEP_TIMEOUT });
+    });
+  });
+}
