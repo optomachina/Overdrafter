@@ -64,13 +64,15 @@ countersign on top of Blaine's card. Reasons:
 `test:portable-node`, which the CI `test` job runs with full history. It
 compares `HEAD^1` with `HEAD` (on a `pull_request` merge commit, `HEAD^1` is
 the base), copies the checker from `HEAD^1` into a temp directory and runs that
-copy, so a PR cannot edit the checker to skip itself. When the base has no copy
-yet, the head copy runs. When `HEAD^1` does not exist (shallow clone, root
+copy, so a PR's edits to the checker take effect only after merge (and are
+reported as `checker_changed`). When the base has no copy yet, the head copy
+runs. Because it runs from that temp copy, the checker must import only Node
+built-ins (`node:*`); a relative import would not resolve there. When `HEAD^1` does not exist (shallow clone, root
 commit) the test is skipped.
 
 Report mode: the report is printed as node:test diagnostics and findings never
 fail the test; only a checker that cannot run does. There is no PR timeline
-here, so the `migration-edit-approved` override is never applied (`missing`).
+here, so the `migration-edit-approved` override is never applied (`unavailable`).
 Locally `HEAD^1` is just the parent commit; use `npm run
 migrations:immutability` to compare a branch with `origin/main`.
 

@@ -41,6 +41,24 @@ function copyFixture(src, dir) {
 
 const git = (cwd, ...args) => execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
 
+/** Write each { path: content } under dir; a null content deletes the path. */
+function writeTree(dir, files) {
+  for (const [path, content] of Object.entries(files)) {
+    const full = join(dir, path);
+    if (content == null) {
+      rmSync(full, { force: true });
+    } else {
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, content);
+    }
+  }
+}
+
+function commitAll(dir, message) {
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", message, "--allow-empty");
+}
+
 /**
  * Two-commit repo from _base: base gets baseFiles, then head applies headOps.
  * headOps: { path: content | null (delete) } or a function(dir) for git-level edits.
@@ -50,21 +68,11 @@ function overlayRepo(baseFiles, headOps) {
   temps.push(dir);
   git(dir, "init", "-q");
   copyFixture(join(fixtures, "_base"), dir);
-  const apply = (files) => {
-    for (const [path, content] of Object.entries(files)) {
-      const full = join(dir, path);
-      if (content == null) { rmSync(full, { force: true }); continue; }
-      mkdirSync(dirname(full), { recursive: true });
-      writeFileSync(full, content);
-    }
-  };
-  apply(baseFiles);
-  git(dir, "add", "-A");
-  git(dir, "commit", "-qm", "base");
+  writeTree(dir, baseFiles);
+  commitAll(dir, "base");
   if (typeof headOps === "function") headOps(dir);
-  else apply(headOps);
-  git(dir, "add", "-A");
-  git(dir, "commit", "-qm", "head", "--allow-empty");
+  else writeTree(dir, headOps);
+  commitAll(dir, "head");
   return dir;
 }
 

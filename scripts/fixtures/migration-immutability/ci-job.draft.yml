@@ -7,8 +7,8 @@ jobs:
   # modified, deleted, renamed, copied and mode-only changes are violations.
   # Report mode for now: the job never fails the build and is not in the `ci`
   # aggregate below. Enforce later by passing --enforce and adding it to `ci`.
-  # The checker runs from the base copy (HEAD^1), so a PR cannot edit it to
-  # skip itself. When the base has no copy yet, the head copy runs.
+  # The checker runs from the base copy (HEAD^1), so a PR's edits to it take
+  # effect only after merge. When the base has no copy yet, the head copy runs.
   # The migration-edit-approved label waives violations only when the PR
   # timeline shows Blaine applied it after the head was pushed; that waiver and
   # edits to the checker or this job are reported as gate_loosening.

@@ -6,8 +6,8 @@
  * Report mode: compares HEAD^1 with HEAD, prints the report and never fails on
  * findings. On a pull_request merge commit HEAD^1 is the base; locally it is
  * the parent commit. Like the drafted job, it runs the base copy of the checker
- * when HEAD^1 has one, so a PR cannot edit the checker to skip itself. Skips
- * when HEAD^1 is not available (shallow clone, single-commit repo).
+ * when HEAD^1 has one, so a PR's edits to the checker take effect only after
+ * merge. Skips when HEAD^1 is not available (shallow clone, single-commit repo).
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -20,9 +20,11 @@ import test from "node:test";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const CHECKER = "scripts/check-migration-immutability.mjs";
 const BASE_REF = "HEAD^1";
+/** Fixed absolute path, as in the checker: the PATH never picks the git binary. */
+const GIT = "/usr/bin/git";
 
 function gitOk(args) {
-  return spawnSync("git", args, { cwd: root, stdio: "ignore" }).status === 0;
+  return spawnSync(GIT, args, { cwd: root, stdio: "ignore" }).status === 0;
 }
 
 test("migration immutability report (HEAD^1..HEAD, report mode)", (t) => {
@@ -34,7 +36,7 @@ test("migration immutability report (HEAD^1..HEAD, report mode)", (t) => {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const fromBase = gitOk(["cat-file", "-e", `${BASE_REF}:${CHECKER}`]);
   const checker = fromBase ? join(dir, "check-migration-immutability.mjs") : join(root, CHECKER);
-  if (fromBase) writeFileSync(checker, execFileSync("git", ["show", `${BASE_REF}:${CHECKER}`], { cwd: root }));
+  if (fromBase) writeFileSync(checker, execFileSync(GIT, ["show", `${BASE_REF}:${CHECKER}`], { cwd: root }));
 
   const result = spawnSync(process.execPath, [checker, "--root", root, "--base-ref", BASE_REF, "--head-ref", "HEAD"], { cwd: root, encoding: "utf8" });
   t.diagnostic(`checker taken from: ${fromBase ? "base" : "head"}`);

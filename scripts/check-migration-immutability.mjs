@@ -31,11 +31,14 @@
  *
  * gate_loosening (report only, never changes ok or the exit code) also covers
  * edits to this script, its node:test wrapper or its CI job. CI runs the base
- * copy of this script (via `npm run test:portable-node` today), so a PR cannot
- * edit the checker to skip itself. The script reads git and the
+ * copy of this script (via `npm run test:portable-node` today), so a PR's edits
+ * to the checker take effect only after merge. The script reads git and the
  * timeline file it is given; it never calls the network.
+ *
+ * Import only Node built-ins: CI copies this file out of the base commit into
+ * a temp directory and runs it there, where relative imports do not resolve.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -53,6 +56,8 @@ export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
 export const MIGRATION_NAME = /^(\d{14})_[^/]+\.sql$/;
 /** Timeline events that move the head without a new SHA of its own. */
 const HEAD_MOVE_EVENTS = new Set(["head_ref_force_pushed", "head_ref_restored"]);
+
+const compareCodeUnits = (a, b) => (a < b ? -1 : Number(a > b));
 
 const STATUS_KIND = { M: "modified", D: "deleted", R: "renamed", C: "copied", T: "type_changed" };
 
@@ -212,22 +217,47 @@ export function evaluateOverride({ timeline = null, timelineError = null, headSh
  * block plus any non-comment line elsewhere that names it (needs:, other
  * steps). Returns null when the workflow does not mention the checker at all.
  */
+const JOB_HEADER = `  ${CI_JOB}:`;
+/** A non-blank line indented by at most two spaces ends a job block. */
+const OUTDENTED = /^ {0,2}\S/;
+const isComment = (line) => line.trimStart().startsWith("#");
+
 export function checkerWorkflowSurface(text) {
   if (text == null) return null;
   const lines = text.split("\n");
-  const start = lines.findIndex((line) => new RegExp(String.raw`^ {2}${CI_JOB}:\s*$`).test(line));
-  let end = start;
+  const start = lines.findIndex((line) => line.trimEnd() === JOB_HEADER);
+  let job = null;
+  let outside = lines;
   if (start !== -1) {
-    end = start + 1;
-    while (end < lines.length && !/^ {0,2}\S/.test(lines[end])) end += 1;
+    const length = lines.slice(start + 1).findIndex((line) => OUTDENTED.test(line));
+    const end = length === -1 ? lines.length : start + 1 + length;
+    job = lines.slice(start, end).join("\n").trimEnd();
+    outside = [...lines.slice(0, start), ...lines.slice(end)];
   }
-  const job = start === -1 ? null : lines.slice(start, end).join("\n").trimEnd();
-  const mentions = lines.filter((line, i) => (start === -1 || i < start || i >= end) && !/^\s*#/.test(line) && line.includes(CI_JOB))
-    .map((line) => line.trim());
+  const mentions = outside.filter((line) => !isComment(line) && line.includes(CI_JOB)).map((line) => line.trim());
   return job == null && mentions.length === 0 ? null : { job, mentions };
 }
 
 const sameSurface = (a, b) => a.job === b.job && JSON.stringify(a.mentions) === JSON.stringify(b.mentions);
+
+/** An edited or deleted checker script; null when unchanged or new. */
+function scriptChange({ path, base, head }) {
+  if (base == null || base === head) return null;
+  if (head == null) return { kind: "checker_removed", path, message: `${path} is deleted.` };
+  return { kind: "checker_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` };
+}
+
+/** A removed or changed CI job surface; null when the base never ran the job or nothing changed. */
+function workflowChange({ path, base, head }) {
+  const before = checkerWorkflowSurface(base);
+  if (before == null) return null;
+  const after = checkerWorkflowSurface(head);
+  if (after == null || (before.job != null && after.job == null)) {
+    return { kind: "ci_job_removed", path, message: `${path} no longer runs the ${CI_JOB} job.` };
+  }
+  if (sameSurface(before, after)) return null;
+  return { kind: "ci_job_changed", path, message: `${path} changes the ${CI_JOB} job or its references; needs review that it does not relax the check.` };
+}
 
 /**
  * Report-only gate_loosening classification. Any of these needs a Grok Bot
@@ -243,22 +273,9 @@ export function detectGateLoosening({ override = null, waived = [], gateFiles = 
   if (override?.applied && waived.length > 0) {
     reasons.push({ kind: "override_used", label: override.label, actor: override.event.actor, paths: waived.map((f) => f.path), message: `${override.label} (applied by ${override.event.actor} at ${override.event.created_at}) waives ${waived.length} migration immutability finding(s): ${[...new Set(waived.map((f) => f.path))].join(", ")}.` });
   }
-  for (const { path, kind, base, head } of gateFiles) {
-    if (kind === "script") {
-      if (base == null || base === head) continue;
-      reasons.push(head == null
-        ? { kind: "checker_removed", path, message: `${path} is deleted.` }
-        : { kind: "checker_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` });
-    } else {
-      const before = checkerWorkflowSurface(base);
-      if (before == null) continue;
-      const after = checkerWorkflowSurface(head);
-      if (after == null || (before.job != null && after.job == null)) {
-        reasons.push({ kind: "ci_job_removed", path, message: `${path} no longer runs the ${CI_JOB} job.` });
-      } else if (!sameSurface(before, after)) {
-        reasons.push({ kind: "ci_job_changed", path, message: `${path} changes the ${CI_JOB} job or its references; needs review that it does not relax the check.` });
-      }
-    }
+  for (const file of gateFiles) {
+    const reason = file.kind === "script" ? scriptChange(file) : workflowChange(file);
+    if (reason) reasons.push(reason);
   }
   return { detected: reasons.length > 0, reasons, requires: GATE_LOOSENING_REQUIRES };
 }
@@ -293,25 +310,26 @@ export function formatHuman(result) {
   if (result.findings.length === 0) lines.push("OK: supabase/migrations only gains new, later files.");
   else if (result.waived) lines.push(`${result.findings.length} finding(s) waived by ${result.override.label}. See docs/migration-immutability.md.`);
   else lines.push(`${result.findings.length} finding(s). See docs/migration-immutability.md.`);
-  if (result.gate_loosening?.detected) {
-    lines.push(GATE_LOOSENING_LINE);
-    for (const reason of result.gate_loosening.reasons) lines.push(`  - ${reason.message}`);
-  }
-  return lines.join("\n");
+  const loosening = result.gate_loosening?.detected
+    ? [GATE_LOOSENING_LINE, ...result.gate_loosening.reasons.map((reason) => `  - ${reason.message}`)]
+    : [];
+  return [...lines, ...loosening].join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // Input loading (git refs)
 // ---------------------------------------------------------------------------
 
-const git = (cwd, args) => execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+/** Fixed absolute path, no shell: the PATH never picks the git binary. */
+export const GIT = "/usr/bin/git";
+const GIT_OPTIONS = { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] };
 
+const git = (cwd, args) => execFileSync(GIT, args, { ...GIT_OPTIONS, cwd });
+
+/** A file's content at a ref, or null when it does not exist there. */
 function gitShow(cwd, ref, path) {
-  try {
-    return git(cwd, ["show", `${ref}:${path}`]);
-  } catch {
-    return null;
-  }
+  const shown = spawnSync(GIT, ["show", `${ref}:${path}`], { ...GIT_OPTIONS, cwd });
+  return shown.status === 0 ? shown.stdout : null;
 }
 
 /**
@@ -395,18 +413,16 @@ export function run(argv, { stdout = process.stdout, stderr = process.stderr } =
     return 2;
   }
   const result = evaluate({ ...loadInputs(args.root, args.baseRef, args.headRef), override: readOverrideInput(args) });
-  const json = `${JSON.stringify(result, null, 2)}\n`;
-  if (args.jsonOut) writeFileSync(args.jsonOut, json);
-  stdout.write(args.json ? json : `${formatHuman(result)}\n`);
-  if (!result.ok && !args.enforce) stdout.write(args.json ? "" : "Report mode: not failing the build (pass --enforce to fail).\n");
-  return !result.ok && args.enforce ? 1 : 0;
+  const report = `${JSON.stringify(result, null, 2)}\n`;
+  if (args.jsonOut) writeFileSync(args.jsonOut, report);
+  if (args.json) {
+    stdout.write(report);
+  } else {
+    const reportMode = result.ok || args.enforce ? "" : "Report mode: not failing the build (pass --enforce to fail).\n";
+    stdout.write(`${formatHuman(result)}\n${reportMode}`);
+  }
+  return args.enforce && !result.ok ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  process.exitCode = run(process.argv.slice(2));
-}
-
-function compareCodeUnits(a, b) {
-  if (a === b) return 0;
-  return a < b ? -1 : 1;
-}
+const invokedDirectly = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (invokedDirectly) process.exitCode = run(process.argv.slice(2));
