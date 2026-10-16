@@ -10,7 +10,7 @@ export function makeLintRepo(prefix, legacySql) {
   const root = mkdtempSync(path.join(tmpdir(), prefix));
   mkdirSync(path.join(root, "supabase/migrations"), { recursive: true });
   mkdirSync(path.join(root, "scripts"), { recursive: true });
-  const git = (...args) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  const git = (...args) => execFileSync("/usr/bin/git", args, { cwd: root, stdio: "pipe" });
   git("init", "-q");
   git("config", "user.email", "lint@example.invalid");
   git("config", "user.name", "lint");
