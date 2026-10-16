@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,6 +25,20 @@ test("obsolete complexity approval and workflow settings are rejected", () => {
     const errors = validateAgentContract(temp);
     assert.ok(errors.some((error) => error.includes("obsolete gate")));
     assert.ok(errors.some((error) => error.includes("obsolete model")));
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("runs as a CLI when invoked through a symlinked directory", () => {
+  // node runs a symlinked script from its real path; the entry guard compares realpaths.
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agent-contract-link-"));
+  try {
+    const link = path.join(temp, "repo");
+    fs.symlinkSync(repoRoot, link, "dir");
+    const proc = spawnSync(process.execPath, [path.join(link, "scripts", "validate-agent-contract.mjs")], { encoding: "utf8" });
+    assert.equal(proc.status, 0, proc.stderr);
+    assert.equal(proc.stdout, "agent-contract: valid\n");
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

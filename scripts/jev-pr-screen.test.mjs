@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
@@ -55,6 +55,10 @@ const accepted = (choice, confidence = 0.9) => ({ status: "accepted", choice, co
 /** Jev confidently answers low, so only the deterministic tier can make a PR risky. */
 const askLow = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
 const MIGRATION_SQL = ["supabase", "migrations", "x.sql"].join("/");
+/** A readable label for a value (JSON would print NaN as null and drop undefined). */
+const labelOf = (value) => (typeof value === "number" || value === undefined ? String(value) : JSON.stringify(value));
+/** Tier-logic tests only: the one explicit way to skip the sensitive-path check. */
+const SKIP = { skipSensitivePaths: true };
 
 describe("jev PR screen", () => {
   it("lets Jev raise the tier but never lower it", () => {
@@ -75,7 +79,7 @@ describe("jev PR screen", () => {
     for (const typo of ["Risky", "critical", "high", undefined, null]) {
       expect(finalTier(typo, accepted("low"))).toBe("risky");
     }
-    expect(decisionRecord({ pr: 9, sha: "f", deterministic: "Risky" }, { ok: false, reason: "timeout" }, new Date(0)))
+    expect(decisionRecord({ pr: 9, sha: "f", deterministic: "Risky" }, { ok: false, reason: "timeout" }, new Date(0), SKIP))
       .toMatchObject({ deterministic: "risky", final: "risky" });
   });
 
@@ -84,6 +88,7 @@ describe("jev PR screen", () => {
       { pr: "x", sha: "abc def/../../", deterministic: "low" },
       { ok: true, model: "jev 1.13.0 <script>", answers: { tier: { type: "choice", choice: "low", confidence: 7 }, incident: { type: "noul", noul: 3 } }, latencyMs: "slow" },
       new Date(0),
+      SKIP,
     );
     expect(record.pr).toBeNull();
     expect(record.sha).toMatch(/^[\w.-]*$/);
@@ -98,9 +103,10 @@ describe("jev PR screen", () => {
       { pr: 1, sha: "a", deterministic: "low" },
       { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
       new Date(0),
+      SKIP,
     );
     expect(ok).toMatchObject({ final: "low", jev: { tier: "low", confidence: 0.95, pIncident: 0.1 }, ok: true });
-    const failed = decisionRecord({ pr: 2, sha: "b", deterministic: "low" }, { ok: false, reason: "http_403" }, new Date(0));
+    const failed = decisionRecord({ pr: 2, sha: "b", deterministic: "low" }, { ok: false, reason: "http_403" }, new Date(0), SKIP);
     expect(failed).toMatchObject({ final: "normal", ok: false, reason: "http_403", jev: { pIncident: null } });
   });
 
@@ -133,8 +139,47 @@ describe("jev PR screen", () => {
       .toEqual({ tier: "risky", sensitiveClasses: ["infra_ci"], filesProblem: null });
     expect(deterministicTier({ deterministic: "normal", files: ["README.md"] }, sensitivePaths)).toEqual({ tier: "normal", sensitiveClasses: [], filesProblem: null });
     expect(deterministicTier({ deterministic: "Risky", files: ["README.md"] }, sensitivePaths).tier).toBe("risky");
-    // No list passed: no path check (tier-logic tests only; screen() always loads one).
-    expect(deterministicTier({ deterministic: "low" })).toEqual({ tier: "low", sensitiveClasses: null, filesProblem: null });
+    // Only the explicit skipSensitivePaths: true skips the path check (tier-logic tests).
+    expect(deterministicTier({ deterministic: "low" }, undefined, SKIP)).toEqual({ tier: "low", sensitiveClasses: null, filesProblem: null });
+  });
+
+  it("never skips the sensitive-path check for a falsy, missing or invalid list (fail closed)", async () => {
+    const sensitivePaths = loadSensitivePaths({ root: repoRoot });
+    const plain = { pr: 12, sha: "j", deterministic: "low", files: ["README.md"] };
+    const migration = { pr: 13, sha: "k", deterministic: "low", files: [MIGRATION_SQL] };
+    const failedJev = { ok: false, reason: "timeout" };
+    const unavailable = { tier: "risky", sensitiveClasses: null, filesProblem: null };
+    // No list at all: deterministicTier and decisionRecord fail closed instead of keeping the declared tier.
+    expect(deterministicTier(plain)).toEqual(unavailable);
+    expect(decisionRecord(migration, failedJev, new Date(0))).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+    const invalid = [false, 0, "", Number.NaN, undefined, null, true, 1, SENSITIVE_PATHS_FILE, [], {}, { globs: [] }, { ...sensitivePaths, globs: "x" }, SENSITIVE_PATHS_UNAVAILABLE];
+    for (const value of invalid) {
+      const label = labelOf(value);
+      expect(deterministicTier(plain, value), label).toEqual(unavailable);
+      expect(deterministicTier(migration, value), label).toEqual(unavailable);
+      expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: value }), label)
+        .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+    }
+    // screen(): null and undefined load the list (README.md stays low, a migration is risky) ...
+    for (const value of [null, undefined]) {
+      const [low, risky] = await screen([plain, migration], { ask: askLow, append: () => {}, sensitivePaths: value });
+      expect(low, labelOf(value)).toMatchObject({ deterministic: "low", sensitiveClasses: [], sensitivePathsUnavailable: false, final: "low" });
+      expect(risky, labelOf(value)).toMatchObject({ deterministic: "risky", sensitiveClasses: ["schema", "migrations"], sensitivePathsUnavailable: false, final: "risky" });
+    }
+    // ... and any other value that is not a valid list screens every PR risky, even when Jev answers low at 0.99.
+    for (const value of invalid.filter((entry) => entry !== null && entry !== undefined)) {
+      const [record] = await screen([plain], { ask: askLow, append: () => {}, sensitivePaths: value });
+      expect(record, labelOf(value))
+        .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
+    }
+    // The opt-out is exactly skipSensitivePaths: true, and screen() has none.
+    for (const skipSensitivePaths of [1, "true", "yes", {}]) {
+      expect(deterministicTier(plain, false, { skipSensitivePaths }), labelOf(skipSensitivePaths)).toEqual(unavailable);
+      expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: 0, skipSensitivePaths }).final, labelOf(skipSensitivePaths)).toBe("risky");
+    }
+    const [noOptOut] = await screen([plain], { ask: askLow, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
+    expect(noOptOut).toMatchObject({ deterministic: "risky", sensitivePathsUnavailable: true, final: "risky" });
+    expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: false, ...SKIP })).toMatchObject({ deterministic: "low", sensitivePathsUnavailable: false });
   });
 
   it("accepts gh's {path} file objects and fails closed to risky on a missing, empty or malformed list", async () => {
@@ -228,6 +273,16 @@ describe("jev PR screen", () => {
     // An option-like ref is never handed to git.
     expect(existsSync(`${output}:${SENSITIVE_PATHS_FILE}`)).toBe(false);
     expect(deterministicTier({ deterministic: "low", files: ["README.md"] }, SENSITIVE_PATHS_UNAVAILABLE)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: null });
+  });
+
+  it("runs as a CLI when invoked through a symlinked directory", () => {
+    // node runs a symlinked script from its real path; the entry guard compares realpaths, so the CLI still runs.
+    const link = join(mkdtempSync(join(tmpdir(), "jev-cli-link-")), "repo");
+    temps.push(dirname(link));
+    symlinkSync(repoRoot, link, "dir");
+    const proc = spawnSync(process.execPath, [join(link, "scripts", "jev-pr-screen.mjs")], { encoding: "utf8" });
+    expect(proc.status).toBe(2);
+    expect(proc.stderr).toMatch(/jev-pr-screen: usage:/);
   });
 
   it("parses --base-ref on the command line", () => {

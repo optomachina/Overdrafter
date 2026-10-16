@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -129,6 +129,21 @@ describe("shared fixture", () => {
     const sample = fixture.slice(0, 5);
     const out = execFileSync(process.execPath, [libPath, "classify", "--root", repoRoot, "--json", ...sample.map((entry) => entry.path)], { encoding: "utf8" });
     expect(JSON.parse(out).files.map((file) => file.classes)).toEqual(sample.map((entry) => entry.classes));
+  });
+
+  it("runs the CLI when invoked through a symlinked directory (macOS /tmp is one)", () => {
+    // node runs a symlinked script from its real path; the entry guard compares
+    // realpaths, so the CLI neither does nothing nor exits 0 for a bad ref.
+    const link = join(tempDir("sensitive-paths-link-"), "repo");
+    symlinkSync(repoRoot, link, "dir");
+    const script = join(link, MATCHER_PATH);
+    const ok = spawnSync(process.execPath, [script, "classify", "--root", repoRoot, ".env.production", "docs/foo.md"], { encoding: "utf8" });
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toBe(".env.production: secrets\ndocs/foo.md: -\n");
+    const bad = spawnSync(process.execPath, [script, "classify", "--root", repoRoot, "--base-ref", "no-such-ref", ".env.production"], { encoding: "utf8" });
+    expect(bad.status).toBe(2);
+    expect(bad.stdout).toBe("");
+    expect(bad.stderr).toMatch(/does not resolve to a commit/);
   });
 });
 

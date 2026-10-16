@@ -56,7 +56,21 @@ export function validateAgentContract(repoRoot = root) {
   return errors;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * True when node was asked to run this file. Realpaths are compared because
+ * node runs a script given through a symlinked path (macOS /tmp, for example)
+ * from its real path, so comparing the given path skipped the CLI silently.
+ */
+function invokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    return fs.realpathSync(argvPath) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsScript()) {
   const errors = validateAgentContract(root);
   if (errors.length) {
     for (const error of errors) console.error(`agent-contract: ${error}`);

@@ -53,7 +53,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -628,6 +628,20 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * True when node was asked to run this file. Realpaths are compared because
+ * node runs a script given through a symlinked path (macOS /tmp, for example)
+ * from its real path, so comparing the given path skipped the CLI silently.
+ */
+function invokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsScript()) {
   process.exitCode = main();
 }

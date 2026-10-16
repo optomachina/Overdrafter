@@ -22,10 +22,10 @@
  * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]
  * input.json: [{ pr, sha, title, files: [path | {path}, ...], additions?, deletions?, deterministic: "low"|"normal"|"risky", notes? }]
  */
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { askJev, gatedChoice, sanitizeToken } from "./jev-client.mjs";
-import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
+import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 export const DEFAULT_LOG = fileURLToPath(new URL("../docs/agent-log/jev-decisions.jsonl", import.meta.url));
@@ -87,6 +87,22 @@ export function loadScreenSensitivePaths({ root = REPO_ROOT, baseRef = null } = 
   }
 }
 
+/**
+ * The list to screen against: a valid loaded list as given, or
+ * SENSITIVE_PATHS_UNAVAILABLE for anything else (false, 0, "", NaN, a string,
+ * an array, an invalid object, SENSITIVE_PATHS_UNAVAILABLE itself), so no
+ * value turns the path check off (fail closed).
+ */
+function usableSensitivePaths(value) {
+  if (value === null || typeof value !== "object" || value.unavailable === true) return SENSITIVE_PATHS_UNAVAILABLE;
+  try {
+    parseSensitivePaths(value);
+    return value;
+  } catch {
+    return SENSITIVE_PATHS_UNAVAILABLE;
+  }
+}
+
 export const FILES_MISSING = "files_missing";
 export const FILES_NOT_ARRAY = "files_not_array";
 export const FILES_EMPTY = "files_empty";
@@ -115,23 +131,32 @@ function entryPath(entry) {
 
 /**
  * Deterministic tier: the declared tier (unknown counts as risky), raised to
- * risky when any file is on the shared sensitive-path list, when the list
- * could not be loaded, or when files is missing, empty or malformed
- * (filesProblem). Never lowers. With sensitivePaths null no path check runs
- * (tier-logic tests only; screen() always loads a list).
+ * risky when any file is on the shared sensitive-path list, when no valid
+ * list is given (none, a falsy value, or SENSITIVE_PATHS_UNAVAILABLE), or when
+ * files is missing, empty or malformed (filesProblem). Never lowers. The path
+ * check is skipped only with the explicit { skipSensitivePaths: true }, for
+ * tier-logic tests; no list value turns it off.
  */
-export function deterministicTier(pr, sensitivePaths = null) {
+export function deterministicTier(pr, sensitivePaths, { skipSensitivePaths = false } = {}) {
   const declared = TIERS.includes(pr.deterministic) ? pr.deterministic : "risky";
-  if (!sensitivePaths) return { tier: declared, sensitiveClasses: null, filesProblem: null };
+  if (skipSensitivePaths === true) return { tier: declared, sensitiveClasses: null, filesProblem: null };
+  const list = usableSensitivePaths(sensitivePaths);
   const { paths, problem } = prFilePaths(pr.files);
-  if (sensitivePaths.unavailable === true || problem) return { tier: "risky", sensitiveClasses: null, filesProblem: problem };
-  const { sensitive, classes } = classifyPaths(paths, sensitivePaths);
+  if (list === SENSITIVE_PATHS_UNAVAILABLE || problem) return { tier: "risky", sensitiveClasses: null, filesProblem: problem };
+  const { sensitive, classes } = classifyPaths(paths, list);
   return { tier: sensitive ? "risky" : declared, sensitiveClasses: classes, filesProblem: null };
 }
 
-export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths = null } = {}) {
+/**
+ * One logged decision. sensitivePaths must be a loaded list; anything else
+ * screens risky with sensitivePathsUnavailable. skipSensitivePaths: true
+ * skips the path check (tier-logic tests only).
+ */
+export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false } = {}) {
   const gate = gatedChoice(result, "tier", floorOf(minConfidence));
-  const { tier: deterministic, sensitiveClasses, filesProblem } = deterministicTier(pr, sensitivePaths);
+  const skip = skipSensitivePaths === true;
+  const list = skip ? null : usableSensitivePaths(sensitivePaths);
+  const { tier: deterministic, sensitiveClasses, filesProblem } = deterministicTier(pr, list, { skipSensitivePaths: skip });
   const incident = result?.ok ? result.answers?.incident?.noul : undefined;
   return {
     ts: now.toISOString(),
@@ -149,7 +174,7 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     },
     deterministic,
     sensitiveClasses,
-    sensitivePathsUnavailable: sensitivePaths?.unavailable === true,
+    sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
     final: finalTier(deterministic, gate),
     latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
@@ -171,8 +196,10 @@ export async function screen(
   prs,
   { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null } = {},
 ) {
-  // Always screened against a list: null is not an opt-out.
-  const sensitivePaths = given ?? loadScreenSensitivePaths({ root, baseRef });
+  // Always screened against a list: only null or undefined loads it, and any
+  // other value that is not a valid list (false, 0, "", NaN ...) screens every
+  // PR risky. screen() has no opt-out.
+  const sensitivePaths = given === null || given === undefined ? loadScreenSensitivePaths({ root, baseRef }) : usableSensitivePaths(given);
   const results = [];
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
@@ -209,7 +236,21 @@ export function parseScreenArgs(argv) {
   return { input: positional[0], log: positional[1] ?? DEFAULT_LOG, baseRef };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+/**
+ * True when node was asked to run this file. Realpaths are compared because
+ * node runs a script given through a symlinked path (macOS /tmp, for example)
+ * from its real path, so comparing the given path skipped the CLI silently.
+ */
+function invokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsScript()) {
   let args;
   try {
     args = parseScreenArgs(process.argv.slice(2));
