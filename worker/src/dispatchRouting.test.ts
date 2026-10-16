@@ -58,7 +58,7 @@ function harness(rpcResult: { data: unknown; error: unknown; status?: number }) 
     const task = input.task ?? genericTask();
     return quoteWithRoutedDispatchPreflight({
       supabase: { rpc } as unknown as SupabaseClient,
-      config: { workerMode: input.workerMode ?? "live", workerName: "worker-1" },
+      config: { workerMode: input.workerMode ?? "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
       task,
       vendorQuoteResultId: task.vendorQuoteResultId,
       claimedAt: "2026-10-03T12:04:00.000Z",

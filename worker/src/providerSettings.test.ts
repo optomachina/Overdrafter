@@ -16,7 +16,11 @@ import {
   PROVIDER_KILL_SWITCH_ENGAGED,
   PROVIDER_KILL_SWITCH_STATE_SCHEMA,
   PROVIDER_KILL_SWITCH_UNAVAILABLE,
+  PROVIDER_DURABLE_DISPATCH_CAP_ENV,
   PROVIDER_SETTINGS_STATE_SCHEMA,
+  ProcessLocalDispatchCounter,
+  providerDispatchCapMode,
+  providerDispatchCapModeFromEnv,
   ProviderDispatchRefusedError,
   ProviderKillSwitchError,
   type ProviderSettingsPort,
@@ -88,7 +92,9 @@ const NEW_SUPPLIER = "sendcutsend" as VendorName;
 function guarded(store: ReturnType<typeof settingsStore>, provider: VendorName = NEW_SUPPLIER) {
   const adapter = new BrandNewSupplierAdapter();
   const onLaunch = vi.fn();
-  const quote = guardProviderDispatch({ provider, port: store.port, quote: (input) => adapter.quote(input), onLaunch });
+  const quote = guardProviderDispatch({
+    provider, port: store.port, capMode: "durable", quote: (input) => adapter.quote(input), onLaunch,
+  });
   return { adapter, quote, onLaunch };
 }
 
@@ -247,7 +253,7 @@ describe("fail closed reads (OVD-829)", () => {
   it("a counter slower than the timeout refuses", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: {} });
     store.port.reserveDispatch.mockImplementationOnce(() => new Promise(() => undefined));
-    await expect(assertProviderDispatchAllowed(NEW_SUPPLIER, store.port, 10))
+    await expect(assertProviderDispatchAllowed(NEW_SUPPLIER, store.port, { timeoutMs: 10 }))
       .rejects.toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
   });
 });
@@ -256,7 +262,7 @@ describe("getProviderSettings (OVD-829)", () => {
   it("reads on/off and the cap fresh, counting nothing", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap: 50 } });
     await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toEqual({
-      provider: NEW_SUPPLIER, enabled: true, dailyQuoteCap: 50, capSource: "database",
+      provider: NEW_SUPPLIER, enabled: true, disabledReason: null, dailyQuoteCap: 50, capSource: "database",
     });
     store.rows.get(NEW_SUPPLIER)!.cap = null;
     await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toMatchObject({ dailyQuoteCap: null, capSource: "database" });
@@ -267,7 +273,7 @@ describe("getProviderSettings (OVD-829)", () => {
     const store = settingsStore({ [NEW_SUPPLIER]: { cap: 50 } });
     store.port.readSettings.mockRejectedValueOnce(new Error("rpc down"));
     await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toEqual({
-      provider: NEW_SUPPLIER, enabled: true, dailyQuoteCap: 20, capSource: "default",
+      provider: NEW_SUPPLIER, enabled: true, disabledReason: null, dailyQuoteCap: 20, capSource: "default",
     });
   });
 
@@ -286,12 +292,91 @@ describe("getProviderSettings (OVD-829)", () => {
   it("reports a supplier off when the on/off read fails (fail closed)", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: {} });
     store.port.readKillSwitch.mockRejectedValueOnce(new Error("rpc down"));
-    await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toMatchObject({ enabled: false });
+    await expect(getProviderSettings(NEW_SUPPLIER, store.port))
+      .resolves.toMatchObject({ enabled: false, disabledReason: PROVIDER_KILL_SWITCH_UNAVAILABLE });
   });
 
   it("reports a switched off supplier as not enabled", async () => {
     const store = settingsStore({ [NEW_SUPPLIER]: { engaged: true } });
-    await expect(getProviderSettings(NEW_SUPPLIER, store.port)).resolves.toMatchObject({ enabled: false });
+    await expect(getProviderSettings(NEW_SUPPLIER, store.port))
+      .resolves.toMatchObject({ enabled: false, disabledReason: PROVIDER_KILL_SWITCH_ENGAGED });
+  });
+});
+
+describe("deployment gate: process_local cap mode before the migration (OVD-829)", () => {
+  function localGuarded(store: ReturnType<typeof settingsStore>, now = () => new Date("2026-10-16T12:00:00Z")) {
+    const adapter = new BrandNewSupplierAdapter();
+    const localCounter = new ProcessLocalDispatchCounter(now);
+    const quote = guardProviderDispatch({
+      provider: NEW_SUPPLIER, port: store.port, capMode: "process_local", localCounter, quote: (input) => adapter.quote(input),
+    });
+    return { adapter, quote, localCounter };
+  }
+
+  it("maps the worker setting and the operator env to a cap mode; only an explicit on is durable", () => {
+    expect(providerDispatchCapMode("on")).toBe("durable");
+    expect(providerDispatchCapMode("off")).toBe("process_local");
+    expect(providerDispatchCapMode(undefined)).toBe("process_local");
+    expect(providerDispatchCapModeFromEnv({ [PROVIDER_DURABLE_DISPATCH_CAP_ENV]: " on " })).toBe("durable");
+    expect(providerDispatchCapModeFromEnv({ [PROVIDER_DURABLE_DISPATCH_CAP_ENV]: "yes" })).toBe("process_local");
+    expect(providerDispatchCapModeFromEnv({})).toBe("process_local");
+  });
+
+  it("enforces the database cap read through getProviderSettings, never calling the durable counter", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 2 } });
+    const { adapter, quote } = localGuarded(store);
+    expect(await dispatchMany(quote, 3)).toEqual(["ok", "ok", PROVIDER_DAILY_CAP_REACHED]);
+    expect(adapter.calls).toBe(2);
+    expect(store.port.readSettings).toHaveBeenCalledTimes(3);
+    expect(store.port.reserveDispatch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a cap of 20 when the settings RPC is missing (pre-migration), refusing the 21st dispatch", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+    store.port.readSettings.mockRejectedValue(new Error("function api_worker_provider_settings_state does not exist"));
+    const { adapter, quote } = localGuarded(store);
+    const outcomes = await dispatchMany(quote, DEFAULT_PROVIDER_DAILY_QUOTE_CAP + 1);
+    expect(outcomes.slice(0, DEFAULT_PROVIDER_DAILY_QUOTE_CAP).every((outcome) => outcome === "ok")).toBe(true);
+    expect(outcomes.at(-1)).toBe(PROVIDER_DAILY_CAP_REACHED);
+    expect(adapter.calls).toBe(DEFAULT_PROVIDER_DAILY_QUOTE_CAP);
+  });
+
+  it("a null cap read from the database is unlimited", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+    const { adapter, quote } = localGuarded(store);
+    expect((await dispatchMany(quote, 30)).every((outcome) => outcome === "ok")).toBe(true);
+    expect(adapter.calls).toBe(30);
+  });
+
+  it("keeps the kill switch fail closed: engaged and unreadable both refuse with nothing counted", async () => {
+    const engaged = settingsStore({ [NEW_SUPPLIER]: { engaged: true } });
+    const first = localGuarded(engaged);
+    await expect(first.quote(INPUT)).rejects.toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_ENGAGED, checkpoint: "before_launch" });
+    expect(first.localCounter.used(NEW_SUPPLIER)).toBe(0);
+
+    const unreadable = settingsStore({ [NEW_SUPPLIER]: {} });
+    unreadable.port.readKillSwitch.mockRejectedValue(new Error("rpc down"));
+    const second = localGuarded(unreadable);
+    await expect(second.quote(INPUT)).rejects.toMatchObject({ reasonCode: PROVIDER_KILL_SWITCH_UNAVAILABLE });
+    expect(second.adapter.calls).toBe(0);
+    expect(second.localCounter.used(NEW_SUPPLIER)).toBe(0);
+  });
+
+  it("starts a fresh allowance on the next UTC day", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: 1 } });
+    let now = new Date("2026-10-16T23:59:59Z");
+    const { quote } = localGuarded(store, () => now);
+    expect(await dispatchMany(quote, 2)).toEqual(["ok", PROVIDER_DAILY_CAP_REACHED]);
+    now = new Date("2026-10-17T00:00:00Z");
+    expect(await dispatchMany(quote, 2)).toEqual(["ok", PROVIDER_DAILY_CAP_REACHED]);
+  });
+
+  it("durable mode never treats a missing reserve RPC as allowed, even when the settings read works", async () => {
+    const store = settingsStore({ [NEW_SUPPLIER]: { cap: null } });
+    store.port.reserveDispatch.mockRejectedValue(new Error("function api_worker_reserve_provider_dispatch does not exist"));
+    const { adapter, quote } = guarded(store);
+    await expect(quote(INPUT)).rejects.toMatchObject({ reasonCode: PROVIDER_DISPATCH_COUNTER_UNAVAILABLE });
+    expect(adapter.calls).toBe(0);
   });
 });
 
@@ -331,11 +416,48 @@ describe("static boundaries (OVD-829)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("both live dispatch routes wrap adapters with the settings gate, not the bare kill-switch guard", () => {
-    for (const file of ["index.ts", "dispatchRouting.ts"]) {
+  // Every non-adapter source that calls an adapter's quote. Entry points must
+  // wrap with the settings gate; pass-throughs only receive an adapter one of
+  // the entry points already wrapped. A new caller fails here until it is
+  // classified.
+  const LIVE_DISPATCH_ENTRY_POINTS = [
+    "index.ts",
+    "dispatchRouting.ts",
+    "tools/vendorWorkflowSmoke.ts",
+    "tools/xometryQuantitySweep.ts",
+  ];
+  const WRAPPED_ADAPTER_PASS_THROUGHS = [
+    "providerDispatchPreflight.ts",
+    "providerTaskPipeline.ts",
+    "xometryDispatchPreflight.ts",
+  ];
+
+  it("every source that calls an adapter's quote is a classified live dispatch caller", () => {
+    const callers = sourceFiles(srcDir)
+      .filter((file) => !file.startsWith(path.join(srcDir, "adapters") + path.sep))
+      .filter((file) => /\.quote\(|evaluateLocally\(/.test(readFileSync(file, "utf8")))
+      .map((file) => path.relative(srcDir, file).split(path.sep).join("/"))
+      .sort();
+    expect(callers).toEqual([...LIVE_DISPATCH_ENTRY_POINTS, ...WRAPPED_ADAPTER_PASS_THROUGHS].sort());
+  });
+
+  it("every live dispatch entry point, operator tools included, goes through the settings gate", () => {
+    for (const file of LIVE_DISPATCH_ENTRY_POINTS) {
       const source = readFileSync(path.join(srcDir, file), "utf8");
-      expect(source, file).toContain("guardProviderDispatch(");
+      expect(source, file).toMatch(/guardProviderDispatch\(|guardOperatorQuote\(/);
       expect(source, file).not.toContain("guardProviderQuote(");
+      expect(source, file).not.toContain("createProviderKillSwitchGuard(");
     }
+    const operatorGate = readFileSync(path.join(srcDir, "tools/operatorKillSwitchGate.ts"), "utf8");
+    expect(operatorGate).toContain("guardProviderDispatch(");
+    expect(operatorGate).not.toContain("guardProviderQuote(");
+  });
+
+  it("only the settings gate itself builds the bare kill-switch guard", () => {
+    const offenders = sourceFiles(srcDir)
+      .filter((file) => path.basename(file) !== "providerSettings.ts")
+      .filter((file) => /guardProviderQuote\(|createProviderKillSwitchGuard\(/.test(readFileSync(file, "utf8")))
+      .map((file) => path.relative(srcDir, file));
+    expect(offenders).toEqual([]);
   });
 });

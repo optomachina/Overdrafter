@@ -20,12 +20,17 @@
 --     preserves the cap
 --   * api_worker_reserve_provider_dispatch: refuses at cap + 1, null never
 --     refuses, engaged (supplier or global) returns provider_disabled whatever
---     the cap and counts nothing
+--     the cap and counts nothing; a corrupt cap (<= 0) applies 20; counts per
+--     UTC day (yesterday's spent cap does not carry over)
+--   * api_admin_list_provider_kill_switches returns dailyQuoteCap and usedToday
+--
+-- Not covered here (needs two sessions): concurrent reservations at cap - 1.
+-- The row lock that serializes them follows the ovd-722-race-check.sh pattern.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(37);
+select plan(42);
 
 create function pg_temp.ovd829_as(p_user_id uuid, p_role text, p_aal text)
 returns void
@@ -41,11 +46,32 @@ $$;
 
 grant execute on function pg_temp.ovd829_as(uuid, text, text) to anon, authenticated, service_role;
 
+-- The admin under test cannot read private; this reads the current version
+-- for it, the way the admin page passes the version it was shown.
+create function pg_temp.ovd829_version(p_provider public.vendor_name)
+returns bigint
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select s.version from private.provider_kill_switches s where s.provider = p_provider;
+$$;
+
+grant execute on function pg_temp.ovd829_version(public.vendor_name) to authenticated;
+
 insert into auth.users (id, aud, role, email, email_confirmed_at) values
   ('00000000-0000-4000-8000-000000829001', 'authenticated', 'authenticated', 'ovd829-admin@example.test', pg_catalog.now()),
   ('00000000-0000-4000-8000-000000829002', 'authenticated', 'authenticated', 'ovd829-member@example.test', pg_catalog.now());
 insert into private.platform_admin_emails (email) values ('ovd829-admin@example.test')
 on conflict do nothing;
+
+-- Checked before the setup below touches any row: the migration gave every
+-- existing supplier row the default cap.
+select ok(
+  exists (select 1 from private.provider_kill_switches)
+    and not exists (select 1 from private.provider_kill_switches where daily_quote_cap is distinct from 20),
+  'existing supplier rows carry the default cap');
 
 -- Known starting point for the suppliers this suite uses.
 update private.provider_kill_switches set engaged = false, daily_quote_cap = 20
@@ -62,10 +88,6 @@ select is(
    join pg_catalog.pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum
    where d.adrelid = 'private.provider_kill_switches'::regclass and a.attname = 'daily_quote_cap'),
   '20', 'daily_quote_cap defaults to 20');
-select ok(
-  not exists (select 1 from private.provider_kill_switches where daily_quote_cap is distinct from 20
-              and provider in ('fictiv', 'rmfg', 'quickparts')),
-  'existing supplier rows carry the default cap');
 select throws_ok(
   $$update private.provider_kill_switches set daily_quote_cap = 0 where provider = 'fictiv'$$,
   '23514', null, 'the table refuses a cap of 0');
@@ -168,11 +190,11 @@ set local role authenticated;
 select pg_temp.ovd829_as('00000000-0000-4000-8000-000000829001', 'authenticated', 'aal2');
 select is(
   public.api_admin_set_provider_settings('fictiv', false, 50, 'OVD-829 test: raise fictiv cap',
-    (select version from private.provider_kill_switches where provider = 'fictiv')) ->> 'dailyQuoteCap',
+    pg_temp.ovd829_version('fictiv')) ->> 'dailyQuoteCap',
   '50', 'an AAL2 admin raises the fictiv cap to 50');
 select is(
   public.api_admin_set_provider_settings('quickparts', false, null, 'OVD-829 test: quickparts unlimited',
-    (select version from private.provider_kill_switches where provider = 'quickparts')) -> 'dailyQuoteCap',
+    pg_temp.ovd829_version('quickparts')) -> 'dailyQuoteCap',
   'null'::jsonb, 'a null cap (unlimited) is accepted');
 select throws_ok(
   $$select public.api_admin_set_provider_settings('fictiv', false, 30, 'OVD-829 test: stale cap edit', 0)$$,
@@ -222,6 +244,48 @@ reset role;
 select is(
   (select count from private.provider_daily_quote_usage where provider = 'rmfg'),
   3, 'a refused dispatch is not counted');
+
+set local role authenticated;
+select pg_temp.ovd829_as('00000000-0000-4000-8000-000000829001', 'authenticated', 'aal2');
+select is(
+  (select p - 'reason' - 'changedBy' - 'changedAt' - 'version' - 'engaged'
+   from pg_catalog.jsonb_array_elements(public.api_admin_list_provider_kill_switches() -> 'providers') p
+   where p ->> 'provider' = 'rmfg'),
+  '{"provider": "rmfg", "dailyQuoteCap": 3, "usedToday": 3}'::jsonb,
+  'the admin list reports the cap and today''s usage');
+reset role;
+
+-- UTC day: yesterday's spent cap does not carry over to today.
+update private.provider_kill_switches set daily_quote_cap = 2, engaged = false where provider = 'weerg';
+insert into private.provider_daily_quote_usage (provider, usage_date, count)
+values ('weerg', pg_catalog.timezone('UTC', pg_catalog.now())::date - 1, 2);
+set local role service_role;
+select is(
+  public.api_worker_reserve_provider_dispatch('weerg') - 'schema',
+  '{"provider": "weerg", "allowed": true, "reason": null, "cap": 2, "used": 1}'::jsonb,
+  'a cap spent yesterday (UTC) leaves today''s allowance whole');
+reset role;
+select results_eq(
+  $$select usage_date - pg_catalog.timezone('UTC', pg_catalog.now())::date, count
+    from private.provider_daily_quote_usage where provider = 'weerg' order by usage_date$$,
+  $$values (-1, 2), (0, 1)$$,
+  'today''s dispatch is counted on today''s UTC row; yesterday''s is untouched');
+
+-- A corrupt stored cap (only possible without the check constraint) applies 20,
+-- never unlimited. The constraint drop is undone by the suite's rollback.
+alter table private.provider_kill_switches drop constraint provider_kill_switches_daily_quote_cap_check;
+update private.provider_kill_switches set daily_quote_cap = 0, engaged = false where provider = 'geomiq';
+insert into private.provider_daily_quote_usage (provider, usage_date, count)
+values ('geomiq', pg_catalog.timezone('UTC', pg_catalog.now())::date, 19);
+set local role service_role;
+select is(
+  public.api_worker_reserve_provider_dispatch('geomiq') - 'schema',
+  '{"provider": "geomiq", "allowed": true, "reason": null, "cap": 20, "used": 20}'::jsonb,
+  'a corrupt cap of 0 reserves under the default cap of 20');
+select is(
+  public.api_worker_reserve_provider_dispatch('geomiq') ->> 'reason', 'provider_daily_cap_reached',
+  'a corrupt cap of 0 refuses at the default cap of 20');
+reset role;
 
 update private.provider_kill_switches set engaged = false where provider = 'quickparts';
 set local role service_role;

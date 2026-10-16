@@ -381,6 +381,8 @@ export type ProviderSettings = {
   provider: VendorName;
   /** False when switched off, globally or for this supplier, or when the switch cannot be read. */
   enabled: boolean;
+  /** Why `enabled` is false: engaged, or unreadable (fail closed). Null when enabled. */
+  disabledReason: ProviderKillSwitchReasonCode | null;
   /** Null means unlimited. */
   dailyQuoteCap: number | null;
   /** "default" when the cap could not be read and the default applies. */
@@ -471,21 +473,88 @@ export function parseProviderDispatchReservation(data: unknown, provider: Vendor
 }
 
 /**
+ * OVD-829 deployment gate. Which counter the dispatch gate uses:
+ *   * "durable": one atomic reservation through
+ *     `api_worker_reserve_provider_dispatch` per dispatch, shared by every
+ *     worker and surviving restarts. A missing or failing RPC refuses
+ *     (`provider_dispatch_counter_unavailable`); it never counts as allowed.
+ *   * "process_local": the pre-migration fallback. The kill switch is still
+ *     read and fails closed; the cap comes from `getProviderSettings` (an
+ *     unreadable cap, including a missing settings RPC, is
+ *     `DEFAULT_PROVIDER_DAILY_QUOTE_CAP`) and dispatches are counted in this
+ *     process only, so each worker process and each operator run has its own
+ *     daily allowance and a restart resets it.
+ * `WORKER_PROVIDER_DURABLE_DISPATCH_CAP=on` selects "durable". It must stay
+ * off (the default) until docs/migration-drafts/ovd-828-s1.sql is applied, and
+ * must be turned on in the same window once it is.
+ */
+export const PROVIDER_DURABLE_DISPATCH_CAP_ENV = "WORKER_PROVIDER_DURABLE_DISPATCH_CAP";
+export type ProviderDispatchCapMode = "durable" | "process_local";
+
+export function providerDispatchCapMode(setting: "off" | "on" | undefined): ProviderDispatchCapMode {
+  return setting === "on" ? "durable" : "process_local";
+}
+
+/** For operator tools, which read process.env rather than the worker config. Anything but "on" is off. */
+export function providerDispatchCapModeFromEnv(env: NodeJS.ProcessEnv = process.env): ProviderDispatchCapMode {
+  return providerDispatchCapMode(env[PROVIDER_DURABLE_DISPATCH_CAP_ENV]?.trim() === "on" ? "on" : "off");
+}
+
+function utcDay(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/**
+ * The "process_local" counter: per supplier, per UTC day, in this process.
+ * Pre-migration fallback only; never used once the durable counter is on.
+ * Like the durable counter, a reservation is never refunded.
+ */
+export class ProcessLocalDispatchCounter {
+  private day = "";
+  private readonly counts = new Map<VendorName, number>();
+
+  constructor(private readonly now: () => Date = () => new Date()) {}
+
+  private roll(): void {
+    const today = utcDay(this.now());
+    if (today !== this.day) {
+      this.day = today;
+      this.counts.clear();
+    }
+  }
+
+  used(provider: VendorName): number {
+    this.roll();
+    return this.counts.get(provider) ?? 0;
+  }
+
+  /** Synchronous check and increment, so two dispatches in this process cannot both take the last slot. */
+  reserve(provider: VendorName, cap: number | null): { allowed: boolean; used: number } {
+    const used = this.used(provider);
+    if (cap !== null && used >= cap) return { allowed: false, used };
+    this.counts.set(provider, used + 1);
+    return { allowed: true, used: used + 1 };
+  }
+}
+
+const sharedProcessLocalDispatchCounter = new ProcessLocalDispatchCounter();
+
+/**
  * One supplier's settings, read fresh. The on/off read fails closed (an
- * unreadable switch is off); an unreadable cap falls back to
- * `DEFAULT_PROVIDER_DAILY_QUOTE_CAP`. Counts nothing.
+ * unreadable switch is off, with `disabledReason` saying which); an unreadable
+ * or invalid cap falls back to `DEFAULT_PROVIDER_DAILY_QUOTE_CAP`. Counts
+ * nothing. The "process_local" dispatch gate reads the cap through this.
  */
 export async function getProviderSettings(
   provider: VendorName,
   port: Pick<ProviderSettingsPort, "readKillSwitch" | "readSettings">,
   timeoutMs: number = PROVIDER_KILL_SWITCH_TIMEOUT_MS,
 ): Promise<ProviderSettings> {
-  let enabled = false;
+  let disabledReason: ProviderKillSwitchReasonCode | null = null;
   try {
     await assertProviderKillSwitchDisengaged({ reader: port.readKillSwitch, provider, checkpoint: "claim", timeoutMs });
-    enabled = true;
-  } catch {
-    enabled = false;
+  } catch (error) {
+    disabledReason = error instanceof ProviderKillSwitchError ? error.reasonCode : PROVIDER_KILL_SWITCH_UNAVAILABLE;
   }
   let cap: number | null | undefined;
   try {
@@ -496,26 +565,53 @@ export async function getProviderSettings(
   } catch {
     cap = undefined;
   }
+  const enabled = disabledReason === null;
   return cap === undefined
-    ? { provider, enabled, dailyQuoteCap: DEFAULT_PROVIDER_DAILY_QUOTE_CAP, capSource: "default" }
-    : { provider, enabled, dailyQuoteCap: cap, capSource: "database" };
+    ? { provider, enabled, disabledReason, dailyQuoteCap: DEFAULT_PROVIDER_DAILY_QUOTE_CAP, capSource: "default" }
+    : { provider, enabled, disabledReason, dailyQuoteCap: cap, capSource: "database" };
 }
+
+export type ProviderDispatchGateOptions = {
+  /** Defaults to "durable", the strict mode; production callers pass the deployment setting. */
+  capMode?: ProviderDispatchCapMode;
+  timeoutMs?: number;
+  /** Test seam for the "process_local" counter. */
+  localCounter?: ProcessLocalDispatchCounter;
+};
 
 /**
  * The single dispatch gate every supplier passes once, right before launch.
- * Order: the kill switch (fails closed; engaged throws the OVD-722
+ *
+ * "durable": the kill switch (fails closed; engaged throws the OVD-722
  * `ProviderKillSwitchError`, which ends the lane `cancelled_provider_disabled`),
  * then one atomic reservation against the durable daily counter. The counter
  * re-checks the switch under its row lock, so a flip between the two reads
- * still refuses as provider_disabled. A spent cap throws
+ * still refuses as provider_disabled, and it applies the default cap itself
+ * when the stored cap is unusable. A spent cap throws
  * `provider_daily_cap_reached`; an unreachable or malformed counter throws
  * `provider_dispatch_counter_unavailable`. Nothing is counted in process.
+ *
+ * "process_local": `getProviderSettings` (switch fails closed, cap falls back
+ * to the default), then the in-process counter. See `ProviderDispatchCapMode`.
  */
 export async function assertProviderDispatchAllowed(
   provider: VendorName,
-  port: Pick<ProviderSettingsPort, "readKillSwitch" | "reserveDispatch">,
-  timeoutMs: number = PROVIDER_KILL_SWITCH_TIMEOUT_MS,
+  port: ProviderSettingsPort,
+  options: ProviderDispatchGateOptions = {},
 ): Promise<{ dailyQuoteCap: number | null; usedToday: number }> {
+  const timeoutMs = options.timeoutMs ?? PROVIDER_KILL_SWITCH_TIMEOUT_MS;
+  if (options.capMode === "process_local") {
+    const settings = await getProviderSettings(provider, port, timeoutMs);
+    if (settings.disabledReason !== null) {
+      throw new ProviderKillSwitchError(settings.disabledReason, provider, "before_launch");
+    }
+    const local = (options.localCounter ?? sharedProcessLocalDispatchCounter).reserve(provider, settings.dailyQuoteCap);
+    if (!local.allowed) {
+      throw new ProviderDispatchRefusedError(PROVIDER_DAILY_CAP_REACHED, provider, settings.dailyQuoteCap, local.used);
+    }
+    return { dailyQuoteCap: settings.dailyQuoteCap, usedToday: local.used };
+  }
+
   await assertProviderKillSwitchDisengaged({
     reader: port.readKillSwitch,
     provider,
@@ -541,21 +637,34 @@ export async function assertProviderDispatchAllowed(
 
 /**
  * `guardProviderQuote` with the full settings check as its before_launch step.
- * The live dispatch routes (the generic pipeline and the Xometry/simulate
- * route) wrap every adapter with this, so a new adapter is covered with no
- * code of its own. Mid-run checkpoints still read the kill switch only.
+ * Every live dispatch caller wraps its adapter with this: the generic
+ * pipeline, the Xometry/simulate route, and the operator CLI tools (through
+ * `guardOperatorQuote`). A new adapter is covered with no code of its own.
+ * Mid-run checkpoints still read the kill switch only.
+ *
+ * The reservation is taken before the adapter's own steps (for the generic
+ * route, before the inner export-control recheck), so a lane refused after it,
+ * or a reservation that commits after the client timeout, still counts. That
+ * only ever over-counts, which is the safe direction.
  */
 export function guardProviderDispatch<T>(input: {
   provider: VendorName;
   port: ProviderSettingsPort;
+  /** Required so every caller states the deployment setting it runs under. */
+  capMode: ProviderDispatchCapMode;
   quote: (input: VendorQuoteAdapterInput) => Promise<T>;
   onLaunch?: () => void;
   timeoutMs?: number;
+  localCounter?: ProcessLocalDispatchCounter;
 }): (input: VendorQuoteAdapterInput) => Promise<T> {
   return guardProviderQuote(
     createProviderKillSwitchGuard(input.port.readKillSwitch, input.provider, input.timeoutMs),
     input.quote,
     input.onLaunch,
-    () => assertProviderDispatchAllowed(input.provider, input.port, input.timeoutMs),
+    () => assertProviderDispatchAllowed(input.provider, input.port, {
+      capMode: input.capMode,
+      timeoutMs: input.timeoutMs,
+      localCounter: input.localCounter,
+    }),
   );
 }

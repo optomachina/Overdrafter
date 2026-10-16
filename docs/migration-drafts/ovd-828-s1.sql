@@ -42,10 +42,29 @@
 --     database cap here. Neither is applied; rebind fan-out guards to
 --     private.provider_daily_quote_usage and the row cap before review.
 --
--- Deploy ordering: apply this migration BEFORE the worker build containing
--- OVD-829. That worker reserves every dispatch through
--- api_worker_reserve_provider_dispatch and fails closed
--- (provider_dispatch_counter_unavailable) when the RPC is missing.
+-- Deploy gate (worker flag WORKER_PROVIDER_DURABLE_DISPATCH_CAP, default off):
+--   * The OVD-829 worker may merge and deploy before this migration ONLY with
+--     the flag off. Off keeps the kill switch (fail closed) and counts the cap
+--     per worker process, using the cap read through
+--     api_worker_provider_settings_state or the default 20 while that RPC does
+--     not exist yet. It never calls api_worker_reserve_provider_dispatch.
+--   * Turn the flag on (worker and operator tool env) only AFTER this migration
+--     is applied, in the same window. With the flag on, every live dispatch
+--     reserves through api_worker_reserve_provider_dispatch and fails closed
+--     (provider_dispatch_counter_unavailable) when the RPC is missing, so
+--     flag on before the migration stops every supplier. A missing RPC is
+--     never treated as allowed.
+--   * Rollback order is the reverse: flag off first, then the rollback file.
+--
+-- Not changed here: api_admin_set_global_kill_switch stays AAL1 until
+-- ovd-766-a.sql is applied. That draft owns the global switch's AAL2 guard;
+-- this draft deliberately touches only the per-supplier RPCs.
+--
+-- Counting: a reservation is taken immediately before the adapter launches,
+-- ahead of the generic route's inner export-control recheck, and is never
+-- refunded. A lane refused after reserving, or a reservation that commits
+-- after the worker's 2s client timeout, still counts. usedToday can therefore
+-- run slightly above real sends; it never runs below.
 --
 -- What changes:
 --   * private.provider_kill_switches.daily_quote_cap: integer, default 20,
@@ -111,6 +130,7 @@ alter table private.provider_daily_quote_usage force row level security;
 --   1. global switch engaged, missing row, or supplier engaged -> refuse
 --      provider_disabled (fail closed, same rule as
 --      private.provider_kill_switch_engaged). Nothing is counted.
+--   1a. a stored cap <= 0 (impossible under the check constraint) -> 20.
 --   2. cap is null -> allowed, counted.
 --   3. today's count >= cap -> refuse provider_daily_cap_reached, not counted.
 --   4. otherwise -> allowed, counted.
@@ -146,6 +166,13 @@ begin
 
   if not found then
     v_engaged := true;
+  end if;
+
+  -- A stored cap that is not a positive integer can only be a corrupt row (the
+  -- check constraint forbids it). It must never read as unlimited: apply the
+  -- default of 20, the same fallback the worker uses when the cap is unreadable.
+  if v_cap is not null and v_cap <= 0 then
+    v_cap := 20;
   end if;
 
   select u.count into v_used

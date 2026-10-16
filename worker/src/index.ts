@@ -129,6 +129,7 @@ import {
   ProviderKillSwitchError,
   isProviderKillSwitchEngaged,
   providerKillSwitchSweepWarnings,
+  providerDispatchCapMode,
   supabaseProviderSettingsPort,
   sweepProviderDisabledTasks,
 } from "./providerSettings.js";
@@ -1800,6 +1801,7 @@ export async function handleVendorQuoteTask(
           quote: guardProviderDispatch({
             provider: vendor,
             port: supabaseProviderSettingsPort(supabase),
+            capMode: providerDispatchCapMode(config.providerDurableDispatchCap),
             quote: async (input) => {
               try {
                 return await exportCheckedAdapter.quote(input);

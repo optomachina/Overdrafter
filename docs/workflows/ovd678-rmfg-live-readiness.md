@@ -28,7 +28,7 @@ capability record in `docs/rmfg-public-capability-recon.md` is unchanged.
 | HTTP client | `worker/src/adapters/rmfgHttpTransport.ts` implements that injected transport with `fetch`. It can send only the closed `RmfgQuoteRequest` union, so cart, checkout and order endpoints are unreachable. The origin is pinned to `https://api.rmfg.com`; plain `http` is accepted only for a loopback stub and only when the caller passes `allowInsecureLoopbackForTests`, so production construction requires https. Redirects are refused so the key is never forwarded. |
 | API key | The caller passes the key in. The client holds it in a closure, sends it only as a bearer header, and never logs it, returns it, or reads a default. A missing key, a key with any control character (including NUL and DEL), or a key with surrounding whitespace throws at construction. |
 | Stop on block | After any HTTP 401, 403 or 429 the client latches `blockedReason()` and answers every later call without making a request. Nothing retries around a block. The result is `authorization_required` or `rate_limited` and needs a manual follow up. |
-| Daily cap | Not in the client (OVD-829). Every live dispatch, RMFG included, passes the shared supplier settings gate before launch, which reserves one quote against the supplier's admin-set daily cap (default 20, or unlimited) in the database and refuses `provider_daily_cap_reached` with no request. The block latch lives in a module level store keyed by provider, so it holds for the whole process across transport instances; a test reset hook clears it. |
+| Daily cap | Not in the client (OVD-829). Every live dispatch, RMFG included and the operator tools (`vendorWorkflowSmoke`, `xometryQuantitySweep`) too, passes the shared supplier settings gate before launch, which counts one quote against the supplier's admin-set daily cap (default 20, or unlimited) and refuses `provider_daily_cap_reached` with no request. With `WORKER_PROVIDER_DURABLE_DISPATCH_CAP=on` the count is the durable database counter; off (the default, pre-migration) it is a per-process count against the cap read from the database, or 20 when it cannot be read. The block latch lives in a module level store keyed by provider, so it holds for the whole process across transport instances; a test reset hook clears it. |
 | Kill switch hook | An optional `isBlocked` callback, sync or async, is awaited before every request so a later database backed switch can read fresh. It is the seam for the per provider kill switch (OVD-722) and the ITAR/EAR block (OVD-723). Nothing wires it yet. |
 | Tests | `rmfgHttpTransport.test.ts` runs the real client against a local stub HTTP server with synthetic responses. No live call is made. |
 | Adapter | `worker/src/adapters/rmfg.ts` (`RmfgAdapter`, the Weerg substitute for 1.0) wraps the client as a `VendorAdapter`. It reads the key from the `RMFG_API_KEY` environment variable at quote time, only after every gate below passes, and returns a quote only offer. It refuses a part whose stated process is CNC only (`cnc_only_not_supported`), a missing process, or a non STEP file before any request. |
@@ -107,10 +107,22 @@ Then run `npm run provider:sync`. Never edit the generated files by hand.
 - **Lead time.** The contract reports `leadTimeBusinessDays: null`.
 - **Egress.** RMFG is an HTTP API with a key, not a stable address allow list
   case. Whether RMFG needs a stable address is unknown.
-- **Per provider cap.** The durable per supplier cap (OVD-829) needs a
-  migration; the draft is `docs/migration-drafts/ovd-828-s1.sql` (not
-  applied). Until it is applied the worker fails closed
-  (`provider_dispatch_counter_unavailable`).
+- **Per provider cap: merge and deploy gate.** The durable per supplier cap
+  (OVD-829) needs a migration; the draft is
+  `docs/migration-drafts/ovd-828-s1.sql` (not applied). The worker flag
+  `WORKER_PROVIDER_DURABLE_DISPATCH_CAP` gates it:
+  - Off (default). Required until the migration is applied. The kill switch
+    still fails closed, and each worker process (and each operator run) counts
+    against the cap read from the database, or 20 when that read fails or the
+    settings RPC does not exist yet. Not shared across processes, and reset by
+    a restart.
+  - On. Turn it on in the same window, only after the migration is applied.
+    Every dispatch reserves through `api_worker_reserve_provider_dispatch`.
+    If that RPC is missing or fails, dispatch is refused
+    (`provider_dispatch_counter_unavailable`), never allowed. So turning it on
+    before the migration stops every supplier.
+  - Rollback. Turn the flag off first, then run
+    `docs/migration-drafts/ovd-828-s1.rollback.sql`.
 - **Wiring.** The kill switch and export control seams are read from the
   adapter input; they take effect once OVD-722 and OVD-723 set them.
 - **Stock selection.** RMFG needs a catalog stock ID per analyzed part. The

@@ -292,6 +292,7 @@ describe("RMFG live adapter", () => {
     const adapter = adapterWith(fetchImpl);
     const quote = guardProviderDispatch({
       provider: "rmfg",
+      capMode: "durable",
       port: {
         readKillSwitch: async () => killSwitchState(false),
         readSettings: async () => null,

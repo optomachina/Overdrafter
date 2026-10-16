@@ -103,7 +103,7 @@ function routedRun(
 ) {
   return quoteWithRoutedDispatchPreflight({
     supabase,
-    config: { workerMode: "live", workerName: "worker-1" },
+    config: { workerMode: "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
     task: { id: "00000000-0000-4000-8000-000000000001", payload: {} },
     vendorQuoteResultId: "00000000-0000-4000-8000-000000000002",
     claimedAt: "2026-10-11T12:00:00.000Z",
@@ -342,7 +342,7 @@ describe("server preflight denial is terminal (OVD-722)", () => {
     const quote = vi.fn();
     const error = await quoteWithRoutedDispatchPreflight({
       supabase: client,
-      config: { workerMode: "live", workerName: "worker-1" },
+      config: { workerMode: "live", workerName: "worker-1", providerDurableDispatchCap: "on" },
       task: { id: "00000000-0000-4000-8000-000000000001", payload: {
         providerDispatchPermitId: "00000000-0000-4000-8000-00000000457c",
         providerDispatchEnvelopeRevision: "fictiv-quote-envelope.v1",

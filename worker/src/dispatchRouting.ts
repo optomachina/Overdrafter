@@ -14,6 +14,7 @@ import {
   PROVIDER_KILL_SWITCH_ENGAGED,
   ProviderDispatchRefusedError,
   ProviderKillSwitchError,
+  providerDispatchCapMode,
   supabaseProviderSettingsPort,
   type ProviderKillSwitchReader,
   type ProviderSettingsPort,
@@ -90,7 +91,7 @@ export function providerDispatchClaimFromTask(input: {
 
 export async function quoteWithRoutedDispatchPreflight(input: {
   supabase: SupabaseClient;
-  config: Pick<WorkerConfig, "workerMode" | "workerName">;
+  config: Pick<WorkerConfig, "workerMode" | "workerName" | "providerDurableDispatchCap">;
   task: { id: string; payload: Record<string, unknown> };
   vendorQuoteResultId: string;
   claimedAt: string;
@@ -129,6 +130,7 @@ export async function quoteWithRoutedDispatchPreflight(input: {
             ...(input.killSwitchReader ? { readKillSwitch: input.killSwitchReader } : {}),
             ...(input.reserveDispatch ? { reserveDispatch: input.reserveDispatch } : {}),
           }),
+          capMode: providerDispatchCapMode(input.config.providerDurableDispatchCap),
           quote: (quoteInput) => innerAdapter.quote(quoteInput),
           onLaunch: input.onAuthorized,
         })

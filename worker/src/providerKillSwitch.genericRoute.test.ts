@@ -109,7 +109,7 @@ const task = { id: ENVELOPE.task.workQueueTaskId, organization_id: ENVELOPE.subj
     requestedQuantity: ENVELOPE.scope.requestedQuantity,
     providerDispatchPermitId: ENVELOPE.permit.permitId, providerDispatchEnvelopeFingerprint: FINGERPRINT } } as QueueTaskRecord;
 const live = { workerMode: "live", workerName: "worker", workerLiveAdapters: ["fictiv"], workerBuildVersion: "test",
-  workerTempDir: "/tmp/owned-fake-stage" } as unknown as WorkerConfig;
+  workerTempDir: "/tmp/owned-fake-stage", providerDurableDispatchCap: "on" } as unknown as WorkerConfig;
 const part = { id: "part", job_id: "job", organization_id: ENVELOPE.subject.organizationId, name: "part",
   normalized_key: "part", cad_file_id: "cad", drawing_file_id: null, quantity: ENVELOPE.scope.requestedQuantity };
 const cad = { id: "cad", job_id: "job", storage_bucket: "bucket", storage_path: "p/file.step",

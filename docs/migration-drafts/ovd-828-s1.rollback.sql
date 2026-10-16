@@ -6,16 +6,20 @@
 -- Run as one transaction, only in a Blaine-approved window:
 --   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
 --
--- Order: roll the worker back to a build without OVD-829 FIRST. That worker
--- reserves every dispatch through api_worker_reserve_provider_dispatch and
--- refuses every live dispatch (provider_dispatch_counter_unavailable) once the
--- function is gone. The pre-OVD-829 worker keeps only RMFG's in-process cap.
+-- Order: set WORKER_PROVIDER_DURABLE_DISPATCH_CAP=off on every worker and
+-- operator environment FIRST (or roll the worker back to a build without
+-- OVD-829). With the flag on, the worker reserves every dispatch through
+-- api_worker_reserve_provider_dispatch and refuses every live dispatch
+-- (provider_dispatch_counter_unavailable) once the function is gone. With the
+-- flag off it reads the cap fail-safe (default 20) and counts in process.
 --
 -- Restores, byte for byte, the bodies, signatures and grants of
 -- api_admin_set_provider_kill_switch and api_admin_list_provider_kill_switches
 -- from supabase/migrations/20261013043100_ovd722_provider_kill_switch.sql.
--- If ovd-766-a.sql was applied AFTER that migration and BEFORE ovd-828-s1,
--- re-run ovd-766-a.sql's api_admin_set_provider_kill_switch section after this
+-- If ovd-766-a.sql has been applied at all, in EITHER order relative to
+-- ovd-828-s1 (before it, or after it), this rollback overwrites 766-a's
+-- api_admin_set_provider_kill_switch body with the OVD-722 one. Re-run
+-- ovd-766-a.sql's api_admin_set_provider_kill_switch section after this
 -- rollback so the AAL2 guard it added is not lost.
 --
 -- Evidence: the cap columns on private.provider_kill_switch_audit and the
