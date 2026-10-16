@@ -20,9 +20,30 @@
 -- keeps finding it. That update changes no row count.
 --
 -- Assumes every migration in supabase/migrations is applied (including the
--- OVD-722 provider kill switch).
+-- OVD-722 provider kill switch), and that supabase/staging/bootstrap-marker.sql
+-- has run once on this database (OVD-879).
 
--- Target guard: runs first, before any write, and aborts the whole batch unless
+-- OVD-879 environment sentinel: the first statement of the seed transaction.
+-- Aborts the whole batch, before any write, unless the staging-only marker row
+-- overdrafter.environment_marker(env = 'staging') exists. Only
+-- supabase/staging/bootstrap-marker.sql creates that marker; no migration does,
+-- so production and fresh databases never have it. The row check is dynamic
+-- SQL so a missing table cannot fail at parse time.
+do $sentinel$
+declare
+  marker_present boolean := false;
+begin
+  if pg_catalog.to_regclass('overdrafter.environment_marker') is not null then
+    execute 'select exists (select 1 from overdrafter.environment_marker where env = ''staging'')'
+      into marker_present;
+  end if;
+  if not coalesce(marker_present, false) then
+    raise exception 'STAGING_SENTINEL_MISSING: overdrafter.environment_marker has no staging row; run supabase/staging/bootstrap-marker.sql once on staging first (OVD-879)';
+  end if;
+end
+$sentinel$;
+
+-- Target guard: runs before any write, and aborts the whole batch unless
 -- the session asserts the staging ref. Signal: the transaction-local setting
 -- ovd837.seed_target_ref. A Supabase database has no built-in setting that
 -- names its own project ref (production and staging share every migration), so
