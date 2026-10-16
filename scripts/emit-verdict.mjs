@@ -11,8 +11,9 @@
  *
  * Arguments may come from an LLM, so they are treated as untrusted: --base and
  * --head must look like git revisions (no leading "-", no "..", only ref
- * characters), --pr must be a plain positive integer, and --findings must be a
- * file inside the working directory or the OS temp directory. git and gh run
+ * characters), --pr must be a plain positive integer of at most 7 digits, and
+ * --findings must be a regular file (not a symlink) whose realpath is inside the
+ * repository root or $RUNNER_TEMP. git and gh run
  * from a fixed system directory with a fixed PATH, never the caller's PATH.
  * The one exception is an explicit GH_BIN override for gh, which must pass
  * resolveGhBin's ownership and permission checks or the script fails closed.
@@ -27,9 +28,20 @@
  * See docs/verdict-format.md.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { accessSync, constants as fsConstants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { SCHEMA_ID, formatVerdictBlock, tagCorroborated, validateVerdict } from "./verdict-schema.mjs";
@@ -80,24 +92,31 @@ const git = (args, { cwd, input } = {}) =>
     cwd,
     input,
     env: SAFE_ENV,
+    shell: false,
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-const REV = /^[A-Za-z0-9_][A-Za-z0-9._/@{}~^+-]{0,254}$/;
+const REV = /^\w[\w./@{}~^+-]{0,254}$/;
+const SHA = /^[0-9a-f]{40}$/;
 
-/** Reject anything that is not a plain revision (branch, tag, SHA, HEAD~n, ...) before it reaches git. */
+/**
+ * Reject anything that is not a plain revision (branch, tag, SHA, HEAD~n, ...)
+ * before it reaches git. Returns the regex match, not the caller's string, so
+ * only allowlisted characters ever reach git's argv.
+ */
 export function assertRev(rev) {
-  if (typeof rev !== "string" || !REV.test(rev) || rev.includes("..")) {
-    throw new Error(`invalid revision ${JSON.stringify(rev ?? null)}: use a branch, tag, or commit SHA`);
-  }
-  return rev;
+  const match = typeof rev === "string" && !rev.includes("..") ? REV.exec(rev) : null;
+  if (!match) throw new Error(`invalid revision ${JSON.stringify(rev ?? null)}: use a branch, tag, or commit SHA`);
+  return match[0];
 }
 
 /** Resolve a revision to its 40-hex commit SHA. */
 export function resolveSha(rev, { cwd } = {}) {
-  return git(["rev-parse", "--verify", "--end-of-options", `${assertRev(rev)}^{commit}`], { cwd }).trim();
+  const match = SHA.exec(git(["rev-parse", "--verify", "--end-of-options", `${assertRev(rev)}^{commit}`], { cwd }).trim());
+  if (!match) throw new Error(`git rev-parse did not return a commit SHA for ${JSON.stringify(rev)}`);
+  return match[0];
 }
 
 /**
@@ -127,7 +146,7 @@ export function computePatchId({ base, head, cwd }) {
   const diff = git([...PINNED_DIFF, `${baseSha}...${headSha}`, "--"], { cwd });
   if (!diff.trim()) throw new Error(`computePatchId: ${base}...${head} has an empty diff`);
   const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
-  if (!/^[0-9a-f]{40}$/.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
+  if (!SHA.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
   return patchId;
 }
 
@@ -181,51 +200,90 @@ export function formatComment(verdict) {
   ].join("\n");
 }
 
+const PR_NUMBER = /^[1-9]\d{0,6}$/;
+const BODY_FILE = "verdict.md";
+
 /**
- * Post via `gh pr comment`. The body goes over stdin, never argv. `run` and
- * `gh` are injectable so tests never touch GitHub.
+ * Post via `gh pr comment`. argv is fixed apart from the validated PR number;
+ * the body is written to a file in a fresh private temp directory and passed
+ * with --body-file, never through argv or stdin. The directory is always
+ * removed afterwards. `run` and `gh` are injectable so tests never touch GitHub.
  */
 export function postComment({ pr, body, cwd, run = spawnSync, gh }) {
-  const prNumber = String(pr ?? "");
-  if (!/^[1-9]\d{0,9}$/.test(prNumber)) throw new Error("--post requires --pr <positive integer>");
-  const result = run(gh ?? resolveGhBin(), ["pr", "comment", prNumber, "--body-file", "-"], {
-    cwd,
-    input: body,
-    env: SAFE_ENV,
-    encoding: "utf8",
-    stdio: ["pipe", "inherit", "inherit"],
-  });
-  if (result.error || result.status !== 0) {
-    const reason = result.error?.message ?? "exit " + result.status;
-    throw new Error(`gh pr comment failed (${reason})`);
+  const match = PR_NUMBER.exec(String(pr ?? ""));
+  if (!match) throw new Error("--post requires --pr <positive integer>");
+  const prNumber = match[0];
+  const ghBin = gh ?? resolveGhBin();
+  const dir = mkdtempSync(join(tmpdir(), "ovd851-verdict-"));
+  try {
+    const bodyFile = join(dir, BODY_FILE);
+    writeFileSync(bodyFile, body, { encoding: "utf8", mode: 0o600 });
+    const result = run(ghBin, ["pr", "comment", prNumber, "--body-file", bodyFile], {
+      cwd,
+      env: SAFE_ENV,
+      shell: false,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    if (result.error || result.status !== 0) {
+      const reason = result.error?.message ?? "exit " + result.status;
+      throw new Error(`gh pr comment failed (${reason})`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
+/** True when `target` is strictly below `root` (both absolute, already resolved). */
 const isInside = (root, target) => {
   const rel = relative(root, target);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  return rel !== "" && !rel.split(/[\\/]/).includes("..") && !isAbsolute(rel);
 };
 
 /**
- * Resolve a --findings path and require it (after following symlinks) to sit
- * inside `cwd` or the OS temp directory. Anything else is refused.
+ * Directories an input file may live in: the repository root (git toplevel of
+ * `cwd`, or `cwd` itself outside a repository), plus $RUNNER_TEMP when set.
  */
-export function resolveInputFile(file, { cwd = process.cwd() } = {}) {
-  const roots = [cwd, tmpdir()].map((root) => realpathSync(resolve(root)));
-  let target;
+export function inputBases({ cwd = process.cwd(), env = process.env } = {}) {
+  let root;
   try {
-    target = realpathSync(resolve(cwd, file));
+    root = git(["rev-parse", "--show-toplevel"], { cwd }).trim();
   } catch {
-    throw new Error(`--findings ${JSON.stringify(file)} does not exist`);
+    root = cwd;
   }
-  if (!roots.some((root) => isInside(root, target))) {
-    throw new Error(`--findings ${JSON.stringify(file)} must be inside the working directory or ${tmpdir()}`);
-  }
-  return target;
+  return [root, env.RUNNER_TEMP].filter(Boolean).map((base) => realpathSync(resolve(base)));
 }
 
-const readFindings = (file, { cwd } = {}) => {
-  const findings = JSON.parse(readFileSync(resolveInputFile(file, { cwd }), "utf8"));
+/**
+ * Resolve a --findings path against each base in order (`path.resolve(base,
+ * file)`). The path itself must not be a symlink, and its realpath must sit
+ * strictly inside that base. Returns the validated realpath; anything else is
+ * refused.
+ */
+export function resolveInputFile(file, { cwd = process.cwd(), env = process.env } = {}) {
+  const label = `--findings ${JSON.stringify(file)}`;
+  const bases = inputBases({ cwd, env });
+  let found = false;
+  for (const base of bases) {
+    const candidate = resolve(base, file);
+    let stat;
+    try {
+      stat = lstatSync(candidate);
+    } catch {
+      continue;
+    }
+    found = true;
+    if (stat.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
+    const real = realpathSync(candidate);
+    if (isInside(base, real)) return real;
+  }
+  if (!found) throw new Error(`${label} does not exist`);
+  throw new Error(`${label} must be inside the repository root${env.RUNNER_TEMP ? " or $RUNNER_TEMP" : ""}`);
+}
+
+const readFindings = (file, { cwd, env } = {}) => {
+  const validated = resolveInputFile(file, { cwd, env });
+  const findings = JSON.parse(readFileSync(validated, "utf8"));
   if (!Array.isArray(findings)) throw new Error(`--findings ${file} must contain a JSON array of finding objects`);
   return findings;
 };
@@ -249,7 +307,7 @@ const OPTIONS = {
 };
 
 /** CLI entry point. Returns the comment body; posts only with --post. */
-export function main(argv = process.argv.slice(2), { cwd, now, run } = {}) {
+export function main(argv = process.argv.slice(2), { cwd, now, run, env } = {}) {
   const { values } = parseArgs({ args: argv, options: OPTIONS, strict: true, allowPositionals: false });
   const verdict = buildVerdict(
     {
@@ -267,7 +325,7 @@ export function main(argv = process.argv.slice(2), { cwd, now, run } = {}) {
         open_threads: parseCount("open-threads", values["open-threads"]),
         checks: values.checks,
       },
-      findings: values.findings === undefined ? undefined : readFindings(values.findings, { cwd }),
+      findings: values.findings === undefined ? undefined : readFindings(values.findings, { cwd, env }),
     },
     { cwd, now },
   );

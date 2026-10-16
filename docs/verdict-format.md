@@ -71,11 +71,17 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
 
 - Arguments are treated as untrusted (they may come from an LLM).
   `--base`/`--head` must be plain revisions: no leading `-`, no `..`, only
-  ref characters (`A-Za-z0-9._/@{}~^+-`). `--pr` must be a positive integer,
-  and the body goes to `gh` over stdin. `--findings` must resolve (after
-  symlinks) to a file inside the working directory or the OS temp directory.
-  `git` and `gh` are run by absolute path from `/usr/bin`, `/bin` or
-  `/usr/local/bin` with `PATH` pinned to those directories.
+  ref characters (`\w` plus `._/@{}~^+-`). Only the regex match of a
+  validated revision, never the raw argument, reaches git's argv. `--pr` must
+  match `^[1-9]\d{0,6}$`. `--findings` is resolved with
+  `path.resolve(base, file)` against the repository root (the git toplevel of
+  the working directory, or the working directory outside a repository) and
+  then `$RUNNER_TEMP` when set. The path itself must not be a symlink, and its
+  realpath must sit strictly inside that base; the file is read from the
+  validated realpath. The OS temp directory is not an allowed base, so in CI
+  write findings under `$RUNNER_TEMP`. `git` and `gh` are run with
+  `shell: false` by absolute path from `/usr/bin`, `/bin` or `/usr/local/bin`
+  with `PATH` pinned to those directories.
 - `GH_BIN` optionally overrides the `gh` binary only (never `git`). Unset or
   empty means the strict lookup above. When set it must be an absolute path;
   the script resolves it with `realpath` and requires the result to be an
@@ -106,8 +112,12 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   JSON array. The script tags the findings with `corroborated` before printing
   them.
 - The script prints the comment body to stdout. It posts only when given both
-  `--post` and `--pr <n>`, and then it runs `gh pr comment <n> --body-file -`.
-  Tests inject the runner and never post.
+  `--post` and `--pr <n>`, and then it runs
+  `gh pr comment <n> --body-file <file>` with that fixed argv. The body is
+  written to `verdict.md` (mode 0600) in a fresh directory from
+  `mkdtemp($TMPDIR/ovd851-verdict-)`; it never goes through argv or stdin, and
+  the directory is removed afterwards whether or not `gh` succeeds. Tests
+  inject the runner and never post.
 
 The comment has one summary line, the fenced block, and a do-not-edit footer:
 
@@ -189,4 +199,9 @@ cover:
   `null` verdict), ordering by instant, edited comments and author mismatch;
 - advisory reviewer verdicts;
 - corroboration;
-- posting only with `--post`, through an injected runner.
+- `--findings` resolution: `../` traversal, absolute paths outside the base,
+  symlinks (including one inside the repository pointing outside), and
+  `$RUNNER_TEMP` as a base;
+- posting only with `--post`, through an injected runner: injected PR numbers
+  are refused, the argv is fixed, the body file holds the comment during the
+  call, and the temp directory is gone afterwards (also when `gh` fails).

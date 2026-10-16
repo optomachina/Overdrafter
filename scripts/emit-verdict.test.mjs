@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { assertRev, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveGhBin, resolveInputFile, resolveSha } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
@@ -151,21 +151,57 @@ describe("emit -> validate round trip", () => {
     expect(() => main(ARGS.filter((a) => !a.startsWith("verify-run") && a !== "--evidence"), { cwd: repo })).toThrow(/at least 1 item/);
   });
 
-  it("only reads --findings from inside the working directory or the temp directory", () => {
-    const tmpFile = join(mkdtempSync(join(tmpdir(), "ovd851-findings-")), "f.json");
-    writeFileSync(tmpFile, "[]");
-    expect(resolveInputFile(tmpFile, { cwd: repo })).toMatch(/f\.json$/);
-    mkdirSync(join(repo, "sub"), { recursive: true });
-    writeFileSync(join(repo, "sub", "..ok.json"), "[]");
-    expect(resolveInputFile("sub/..ok.json", { cwd: repo })).toMatch(/\.\.ok\.json$/);
+  describe("--findings resolution", () => {
+    let outside;
+    const env = {};
+    beforeAll(() => {
+      outside = mkdtempSync(join(tmpdir(), "ovd851-outside-"));
+      writeFileSync(join(outside, "f.json"), "[]");
+      mkdirSync(join(repo, "sub"), { recursive: true });
+      writeFileSync(join(repo, "sub", "..ok.json"), "[]");
+    });
+    afterAll(() => rmSync(outside, { recursive: true, force: true }));
 
-    expect(() => resolveInputFile("/etc/passwd", { cwd: repo })).toThrow(/must be inside the working directory/);
-    expect(() => resolveInputFile("../../../../../../etc/hostname", { cwd: join(repo, "sub") })).toThrow(/must be inside|does not exist/);
-    expect(() => resolveInputFile(".", { cwd: "/etc" })).toThrow(/must be inside/);
-    expect(() => resolveInputFile("missing.json", { cwd: repo })).toThrow(/does not exist/);
-    symlinkSync("/etc/passwd", join(repo, "sub", "escape.json"));
-    expect(() => resolveInputFile("sub/escape.json", { cwd: repo })).toThrow(/must be inside/);
-    expect(() => main([...ARGS, "--role", "reviewer", "--findings", "/etc/passwd"], { cwd: repo, now: NOW })).toThrow(/must be inside/);
+    it("accepts files inside the repository root, relative to the root", () => {
+      expect(resolveInputFile("sub/..ok.json", { cwd: repo, env })).toBe(realpathSync(join(repo, "sub", "..ok.json")));
+      expect(resolveInputFile("sub/..ok.json", { cwd: join(repo, "sub"), env })).toBe(realpathSync(join(repo, "sub", "..ok.json")));
+      expect(resolveInputFile(join(repo, "sub", "..ok.json"), { cwd: repo, env })).toMatch(/\.\.ok\.json$/);
+    });
+
+    it("rejects ../ traversal", () => {
+      expect(() => resolveInputFile("../../../../../../etc/hostname", { cwd: join(repo, "sub"), env })).toThrow(/must be inside|does not exist/);
+      expect(() => resolveInputFile(`../${outside.split("/").pop()}/f.json`, { cwd: repo, env })).toThrow(/must be inside the repository root/);
+      expect(() => resolveInputFile(".", { cwd: "/etc", env })).toThrow(/must be inside/);
+    });
+
+    it("rejects an absolute path outside the base, including the OS temp directory", () => {
+      expect(() => resolveInputFile("/etc/passwd", { cwd: repo, env })).toThrow(/must be inside the repository root/);
+      expect(() => resolveInputFile(join(outside, "f.json"), { cwd: repo, env })).toThrow(/must be inside the repository root/);
+      expect(() => main([...ARGS, "--role", "reviewer", "--findings", "/etc/passwd"], { cwd: repo, now: NOW, env })).toThrow(/must be inside/);
+    });
+
+    it("rejects symlinks, including one inside the base that points outside", () => {
+      symlinkSync(join(outside, "f.json"), join(repo, "sub", "escape.json"));
+      symlinkSync(join(repo, "sub", "..ok.json"), join(repo, "sub", "inner-link.json"));
+      symlinkSync(outside, join(repo, "sub", "outdir"));
+      expect(() => resolveInputFile("sub/escape.json", { cwd: repo, env })).toThrow(/must not be a symlink/);
+      expect(() => resolveInputFile("sub/inner-link.json", { cwd: repo, env })).toThrow(/must not be a symlink/);
+      expect(() => resolveInputFile("sub/outdir/f.json", { cwd: repo, env })).toThrow(/must be inside the repository root/);
+    });
+
+    it("rejects missing files", () => {
+      expect(() => resolveInputFile("missing.json", { cwd: repo, env })).toThrow(/does not exist/);
+    });
+
+    it("accepts files under RUNNER_TEMP when it is set", () => {
+      const runnerEnv = { RUNNER_TEMP: outside };
+      expect(resolveInputFile(join(outside, "f.json"), { cwd: repo, env: runnerEnv })).toBe(realpathSync(join(outside, "f.json")));
+      expect(resolveInputFile("f.json", { cwd: repo, env: runnerEnv })).toBe(realpathSync(join(outside, "f.json")));
+      expect(() => resolveInputFile("/etc/passwd", { cwd: repo, env: runnerEnv })).toThrow(/must be inside the repository root or \$RUNNER_TEMP/);
+      writeFileSync(join(outside, "findings.json"), JSON.stringify([{ severity: "low", file: "feature.txt", line: null, model: "opus" }]));
+      const body = main([...ARGS, "--role", "reviewer", "--findings", join(outside, "findings.json")], { cwd: repo, now: NOW, env: runnerEnv });
+      expect(JSON.parse(extractVerdictBlocks(body)[0]).findings).toHaveLength(1);
+    });
   });
 
   it("emits reviewer verdicts with corroborated findings and marks them advisory", () => {
@@ -188,11 +224,38 @@ describe("posting", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("posts a new comment through an injected runner with --post", () => {
-    const run = vi.fn(() => ({ status: 0 }));
+  it("posts through a fixed argv with the body in a temp file that is removed afterwards", () => {
+    let seen;
+    const run = vi.fn((_bin, args) => {
+      const bodyFile = args[4];
+      seen = { bodyFile, exists: existsSync(bodyFile), contents: readFileSync(bodyFile, "utf8") };
+      return { status: 0 };
+    });
     const body = main([...ARGS, "--pr", "12", "--post"], { cwd: repo, now: NOW, run });
-    expect(run).toHaveBeenCalledWith(expect.stringMatching(/^\/.*\/gh$/), ["pr", "comment", "12", "--body-file", "-"], expect.objectContaining({ input: body, cwd: repo }));
-    expect(run.mock.calls[0][2].env.PATH).toBe("/usr/bin:/bin:/usr/local/bin");
+    expect(run).toHaveBeenCalledTimes(1);
+    const [bin, args, opts] = run.mock.calls[0];
+    expect(bin).toMatch(/^\/.*\/gh$/);
+    expect(args).toEqual(["pr", "comment", "12", "--body-file", seen.bodyFile]);
+    expect(dirname(seen.bodyFile)).toMatch(new RegExp(`^${tmpdir().replaceAll("/", "\\/")}\\/ovd851-verdict-`));
+    expect(seen).toMatchObject({ exists: true, contents: body });
+    expect(opts).toMatchObject({ cwd: repo, shell: false });
+    expect(opts.input).toBeUndefined();
+    expect(opts.env.PATH).toBe("/usr/bin:/bin:/usr/local/bin");
+    expect(existsSync(dirname(seen.bodyFile))).toBe(false);
+  });
+
+  it("removes the temp dir even when gh fails or throws", () => {
+    const dirs = [];
+    const capture = (result) => (_bin, args) => {
+      dirs.push(dirname(args[4]));
+      if (result instanceof Error) throw result;
+      return result;
+    };
+    expect(() => postComment({ pr: "5", body: "x", gh: "/usr/bin/gh", run: capture({ status: 2 }) })).toThrow(/exit 2/);
+    expect(() => postComment({ pr: "5", body: "x", gh: "/usr/bin/gh", run: capture(new Error("boom")) })).toThrow(/boom/);
+    expect(() => postComment({ pr: "5", body: "x", gh: "/usr/bin/gh", run: capture({ error: new Error("ENOENT") }) })).toThrow(/ENOENT/);
+    expect(dirs).toHaveLength(3);
+    for (const dir of dirs) expect(existsSync(dir)).toBe(false);
   });
 
   it("requires a PR number and surfaces gh failures", () => {
@@ -204,7 +267,7 @@ describe("posting", () => {
     expect(() => postComment({ body, run: vi.fn() })).toThrow(/--pr/);
     expect(() => postComment({ pr: 3, body, gh: "/usr/bin/gh", run: () => ({ status: 1 }) })).toThrow(/exit 1/);
     const run = vi.fn();
-    for (const pr of ["0", "012", "-1", "1.5", "12 --repo evil/x", "--help", "12\n", "99999999999", ""]) {
+    for (const pr of ["0", "012", "-1", "1.5", "12 --repo evil/x", "--help", "--repo=x", "1; rm -rf /", "12\n", "12345678", "99999999999", ""]) {
       expect(() => postComment({ pr, body, gh: "/usr/bin/gh", run })).toThrow(/--pr <positive integer>/);
     }
     expect(run).not.toHaveBeenCalled();
