@@ -7,6 +7,7 @@
 //   node scripts/jarvis-demo/jarvis-demo.mjs request "<text>"   -> prints the request id
 //   node scripts/jarvis-demo/jarvis-demo.mjs work [--id <id>]   -> runs that request, or the oldest pending one
 //   node scripts/jarvis-demo/jarvis-demo.mjs status <id>
+//   node scripts/jarvis-demo/jarvis-demo.mjs plate '<params json>'  -> files a plate job, claims it, runs it (OVD-802)
 //
 // JARVIS_DEMO_ROOT (default ~/overnight/jarvis) holds queue/ and runs/.
 // JARVIS_DEMO_PYTHON points at a Python with build123d and matplotlib.
@@ -42,11 +43,46 @@ export function parseDesignRequest(text) {
   return { ok: true, params: { assembly: "plate-bracket-pin", pinDiameterMm, pinProtrusionMm: 6 } };
 }
 
+// Plate recipe (OVD-802): a fixed 4.000 in square; thickness and hole pattern vary.
+// Under 0.5 mm is foil rather than a machinable plate; over 50 mm is a block.
+export const PLATE_EDGE_MM = 101.6;
+export const PLATE_THICKNESS_MIN_MM = 0.5;
+export const PLATE_THICKNESS_MAX_MM = 50;
+export const PLATE_HOLE_PATTERNS = ["none", "four_corner_m5", "four_corner_1_4_20"];
+
+export function validatePlateParams(params) {
+  if (params?.recipe !== "plate") return { ok: false, reason: "recipe must be plate" };
+  if (params.edgeMm !== PLATE_EDGE_MM) {
+    return { ok: false, reason: `this recipe builds only a ${PLATE_EDGE_MM} mm square plate, got ${params.edgeMm}` };
+  }
+  const t = params.thicknessMm;
+  if (typeof t !== "number" || !(t >= PLATE_THICKNESS_MIN_MM && t <= PLATE_THICKNESS_MAX_MM)) {
+    return { ok: false, reason: `plate thickness must be ${PLATE_THICKNESS_MIN_MM} to ${PLATE_THICKNESS_MAX_MM} mm, got ${t}` };
+  }
+  if (!PLATE_HOLE_PATTERNS.includes(params.holePattern)) {
+    return { ok: false, reason: `hole pattern must be one of ${PLATE_HOLE_PATTERNS.join(", ")}` };
+  }
+  if (typeof params.material !== "string" || params.material.length === 0 || params.material.length > 100) {
+    return { ok: false, reason: "material must be a short non-empty string" };
+  }
+  return { ok: true, params: { recipe: "plate", edgeMm: PLATE_EDGE_MM, thicknessMm: t, holePattern: params.holePattern, material: params.material } };
+}
+
 export function createRequest(root, text, source, now = new Date()) {
   const parsed = parseDesignRequest(text);
   if (!parsed.ok) return parsed;
+  return fileRequest(root, text, source, parsed.params, now);
+}
+
+export function createPlateRequest(root, params, source, now = new Date()) {
+  const checked = validatePlateParams(params);
+  if (!checked.ok) return checked;
+  return fileRequest(root, `plate ${JSON.stringify(checked.params)}`, source, checked.params, now);
+}
+
+function fileRequest(root, text, source, params, now) {
   const id = `jd-${now.toISOString().replace(/[-:.]/g, "").slice(0, 18)}-${randomUUID().slice(0, 8)}`;
-  const request = { id, createdAt: now.toISOString(), source, text, params: parsed.params, state: "pending" };
+  const request = { id, createdAt: now.toISOString(), source, text, params, state: "pending" };
   const pending = join(root, "queue", "pending");
   mkdirSync(pending, { recursive: true });
   // Write under a non-.json name, then rename, so a worker never sees a partial file.
@@ -86,7 +122,9 @@ export function claimOldest(root) {
   return null;
 }
 
-function work(root, python, id) {
+const RECIPE_SCRIPTS = { "plate-bracket-pin": "assembly.py", plate: "plate.py" };
+
+export function work(root, python, id) {
   const claim = id ? claimById(root, id) : claimOldest(root);
   if (!claim) return id ? { ok: false, id, state: "not_pending" } : { ok: true, idle: true };
   const { name, request } = claim;
@@ -96,12 +134,12 @@ function work(root, python, id) {
     mkdirSync(runDir, { recursive: true });
     const requestPath = join(runDir, "request.json");
     writeFileSync(requestPath, `${JSON.stringify({ ...request, state: "running" }, null, 2)}\n`);
-    const script = join(dirname(fileURLToPath(import.meta.url)), "assembly.py");
+    const script = join(dirname(fileURLToPath(import.meta.url)), RECIPE_SCRIPTS[request.params.recipe ?? request.params.assembly]);
     const started = Date.now();
     const run = spawnSync(python, [script, requestPath, runDir], {
       encoding: "utf8",
       timeout: 300_000,
-      env: { ...process.env, JARVIS_DEMO_ROOT: root },
+      env: { ...process.env, JARVIS_DEMO_ROOT: root, PYTHONDONTWRITEBYTECODE: "1" },
     });
     state = run.status === 0 ? "verified" : run.status === 2 ? "checks_failed" : "failed";
     const outcome = { id: request.id, state, exitCode: run.status, durationMs: Date.now() - started, runDir };
@@ -112,6 +150,8 @@ function work(root, python, id) {
     renameSync(join(root, "queue", "claimed", name), join(root, "queue", state === "verified" ? "done" : "failed", name));
   }
 }
+
+const python = (root) => process.env.JARVIS_DEMO_PYTHON ?? join(root, ".venv", "bin", "python");
 
 function main(argv) {
   if (process.env.JARVIS_DEMO_ENABLED !== "1") {
@@ -124,13 +164,24 @@ function main(argv) {
   let result;
   if (command === "request") {
     result = createRequest(root, rest.join(" "), process.env.JARVIS_DEMO_SOURCE ?? "cli");
+  } else if (command === "plate" && rest.length === 1) {
+    let params;
+    try {
+      params = JSON.parse(rest[0]);
+    } catch {
+      params = undefined;
+    }
+    const filed = createPlateRequest(root, params, process.env.JARVIS_DEMO_SOURCE ?? "cli");
+    result = filed.ok ? work(root, python(root), filed.request.id) : filed;
+    const resultPath = result.runDir && join(result.runDir, "result.json");
+    if (resultPath && existsSync(resultPath)) result.result = JSON.parse(readFileSync(resultPath, "utf8"));
   } else if (command === "work" && (rest.length === 0 || (rest[0] === "--id" && /^jd-[\w-]+$/.test(rest[1] ?? "")))) {
-    result = work(root, process.env.JARVIS_DEMO_PYTHON ?? join(root, ".venv", "bin", "python"), rest[1]);
+    result = work(root, python(root), rest[1]);
   } else if (command === "status" && rest[0] && /^jd-[\w-]+$/.test(rest[0])) {
     const path = join(root, "runs", rest[0], "outcome.json");
     result = existsSync(path) ? { ok: true, ...JSON.parse(readFileSync(path, "utf8")) } : { ok: true, state: "pending_or_unknown" };
   } else {
-    console.error("usage: jarvis-demo.mjs request <text> | work [--id <id>] | status <id>");
+    console.error("usage: jarvis-demo.mjs request <text> | work [--id <id>] | status <id> | plate <params json>");
     return 64;
   }
   console.log(JSON.stringify(result, null, 2));
