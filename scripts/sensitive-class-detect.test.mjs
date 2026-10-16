@@ -1,20 +1,26 @@
 // @vitest-environment node
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CONFIG_PATH,
+  CONFIG_REPO_PATH,
+  DETECTOR_REPO_PATH,
+  GATE_LOOSENING_LINE,
   MAX_FILES,
   classifyPath,
   classifySql,
   compileConfig,
   detect,
+  detectGateLoosening,
   fetchPullRequest,
+  formatSummary,
+  gateLooseningForPull,
   githubClient,
   globToRegExp,
   loadConfig,
@@ -437,6 +443,8 @@ describe("main", () => {
     expect(result).toMatchObject({ status: "ok", sha: "headsha", base_sha: "basesha", classes: ["migration", "auth"] });
     expect(summary).toContain("### Sensitive classes: OK");
     expect(summary).toContain('"sha": "headsha"');
+    expect(result.gate_loosening).toEqual({ detected: false, reasons: [], requires: ["grokbot_countersign", "blaine_card"] });
+    expect(summary).toContain("Gate loosening: none");
   });
 
   it("reports status error on an API failure and still exits 0", async () => {
@@ -444,6 +452,7 @@ describe("main", () => {
     expect(code).toBe(0);
     expect(result).toMatchObject({ status: "error", sha: "headsha", files: [] });
     expect(result.errors[0]).toMatch(/GitHub API error: GET \/repos\/o\/r\/pulls\/7 returned 404/);
+    expect(result.gate_loosening).toMatchObject({ detected: true, reasons: [{ kind: "not_checked" }] });
   });
 
   it("reports status error on a bad config", async () => {
@@ -460,5 +469,174 @@ describe("main", () => {
 
   it("returns 2 on bad arguments", async () => {
     expect(await main(["--pr", "x"], {})).toBe(2);
+  });
+});
+
+describe("gate_loosening: config diff against base", () => {
+  const configChanged = [{ path: CONFIG_REPO_PATH, status: "modified" }];
+  const judge = (edit) => {
+    const head = structuredClone(rawConfig);
+    edit(head);
+    return detectGateLoosening({ baseRaw: rawConfig, headRaw: head, gateFiles: configChanged });
+  };
+  const kinds = (result) => result.reasons.map((reason) => reason.kind);
+
+  it("does not flag an unchanged config or a PR that leaves the config alone", () => {
+    expect(judge(() => {})).toEqual({ detected: false, reasons: [], requires: ["grokbot_countersign", "blaine_card"] });
+    expect(detectGateLoosening({ baseRaw: rawConfig, headRaw: null, gateFiles: [] }).detected).toBe(false);
+  });
+
+  it("flags a removed class", () => {
+    const result = judge((head) => delete head.classes.billing);
+    expect(result.detected).toBe(true);
+    expect(result.reasons).toEqual([expect.objectContaining({ kind: "class_removed", entry: "classes.billing" })]);
+  });
+
+  it("flags a removed sql_content rule and a narrowed sql_content path", () => {
+    expect(kinds(judge((head) => head.sql_content.rules.pop()))).toEqual(["sql_rule_removed"]);
+    expect(judge((head) => (head.sql_content.rules[0].tokens = ["create", "policy", "now"]))).toMatchObject({
+      detected: true,
+      reasons: [{ kind: "sql_rule_removed", value: "rls:create policy" }],
+    });
+    expect(kinds(judge((head) => (head.sql_content.paths = ["**/*.sql"])))).toEqual(["rule_narrowed"]);
+  });
+
+  it("flags a deleted or narrowed glob, keyword and signal", () => {
+    expect(judge((head) => (head.classes.migration.paths = head.classes.migration.paths.slice(1)))).toMatchObject({
+      detected: true,
+      reasons: [{ kind: "rule_narrowed", entry: "classes.migration", field: "paths", value: "supabase/migrations/**" }],
+    });
+    expect(judge((head) => (head.classes.migration.paths[0] = "supabase/migrations/*.sql")).reasons).toEqual([
+      expect.objectContaining({ kind: "rule_narrowed", field: "paths", value: "supabase/migrations/**" }),
+    ]);
+    expect(judge((head) => (head.classes.auth.path_keywords = ["oauth", "permission", "session"])).reasons).toEqual([
+      expect.objectContaining({ kind: "rule_narrowed", field: "path_keywords", value: "auth" }),
+    ]);
+    expect(judge((head) => head.classes.billing.signals.pop()).reasons).toEqual([
+      expect.objectContaining({ kind: "rule_narrowed", field: "signals", value: "checkout" }),
+    ]);
+  });
+
+  it("flags a class path moved into a safe category as a downgrade", () => {
+    const result = judge((head) => {
+      head.classes.migration.paths = head.classes.migration.paths.filter((glob) => glob !== "docs/migration-drafts/**");
+      head.safe_categories.docs.paths.push("docs/migration-drafts/**");
+    });
+    expect(result.reasons).toEqual([
+      expect.objectContaining({ kind: "class_downgraded", entry: "classes.migration", value: "docs/migration-drafts/**" }),
+    ]);
+  });
+
+  it("flags a new exemption: class exclude, exclude_keywords, safe category path, keyword or category", () => {
+    expect(judge((head) => (head.classes.auth.exclude = ["src/auth/legacy/**"])).reasons).toEqual([
+      expect.objectContaining({ kind: "exemption_added", entry: "classes.auth", field: "exclude", value: "src/auth/legacy/**" }),
+    ]);
+    expect(judge((head) => (head.classes.auth.exclude_keywords = ["author"])).reasons).toEqual([
+      expect.objectContaining({ kind: "exemption_added", entry: "classes.auth", field: "exclude_keywords" }),
+    ]);
+    expect(judge((head) => head.safe_categories.tests.paths.push("supabase/tests/**")).reasons).toEqual([
+      expect.objectContaining({ kind: "exemption_added", entry: "safe_categories.tests", value: "supabase/tests/**" }),
+    ]);
+    expect(kinds(judge((head) => (head.safe_categories.docs.path_keywords = ["readme"])))).toEqual(["exemption_added"]);
+    expect(kinds(judge((head) => (head.safe_categories.misc = { description: "Misc.", paths: ["misc/**"] })))).toEqual(["exemption_added"]);
+  });
+
+  it("flags a safe category exclusion that is removed", () => {
+    expect(judge((head) => (head.safe_categories.docs.exclude = head.safe_categories.docs.exclude.filter((glob) => glob !== "AGENTS.md"))).reasons).toEqual([
+      expect.objectContaining({ kind: "exemption_widened", entry: "safe_categories.docs", value: "AGENTS.md" }),
+    ]);
+  });
+
+  it("fails closed on an unparseable, invalid or removed head config", async () => {
+    const files = [modified(CONFIG_REPO_PATH)];
+    const unparseable = await gateLooseningForPull({ files, readHeadFile: async () => "{ not json", baseRaw: rawConfig });
+    expect(unparseable).toMatchObject({ detected: true, reasons: [{ kind: "config_unreadable", ref: "head" }] });
+    const invalid = await gateLooseningForPull({ files, readHeadFile: async () => JSON.stringify({ ...rawConfig, version: 2 }), baseRaw: rawConfig });
+    expect(invalid).toMatchObject({ detected: true, reasons: [{ kind: "config_invalid", ref: "head" }] });
+    expect(invalid.reasons[0].message).toMatch(/version must be 1/);
+    const unknownKey = judge((head) => (head.classes.auth.fail_open = true));
+    expect(kinds(unknownKey)).toEqual(["config_invalid"]);
+    const removed = await gateLooseningForPull({ files: [{ filename: CONFIG_REPO_PATH, status: "removed" }], baseRaw: rawConfig });
+    expect(removed).toMatchObject({ detected: true, reasons: [{ kind: "config_unreadable", ref: "head" }] });
+    const renamed = await gateLooseningForPull({ files: [{ filename: "scripts/other.json", previous_filename: CONFIG_REPO_PATH, status: "renamed" }], baseRaw: rawConfig });
+    expect(kinds(renamed)).toEqual(["config_unreadable"]);
+    const noBase = detectGateLoosening({ baseError: "missing", headRaw: rawConfig, gateFiles: configChanged });
+    expect(noBase).toMatchObject({ detected: true, reasons: [{ kind: "config_unreadable", ref: "base" }] });
+  });
+
+  it("does not flag an added class, rule, glob or keyword", () => {
+    const result = judge((head) => {
+      head.classes.extra = { description: "New.", areas: [], signals: ["extra"], paths: ["extra/**"], path_keywords: ["extra"] };
+      head.classes.auth.path_keywords.push("signin");
+      head.classes.migration.paths.push("db/**");
+      head.classes.billing.signals.push("refund");
+      head.sql_content.rules.push({ class: "definer", tokens: ["set", "role"] });
+      head.sql_content.paths.push("**/*.ddl");
+      head.safe_categories.docs.exclude.push("docs/security/**");
+    });
+    expect(result).toMatchObject({ detected: false, reasons: [] });
+  });
+
+  it("does not flag description, syntax or areas text edits", () => {
+    const result = judge((head) => {
+      head.description = "Reworded.";
+      head.syntax.paths = "Reworded.";
+      head.classes.auth.description = "Reworded.";
+      head.classes.auth.areas = ["Auth"];
+      head.safe_categories.docs.description = "Reworded.";
+    });
+    expect(result).toMatchObject({ detected: false, reasons: [] });
+  });
+
+  it("flags an edited or removed detector, and an incomplete file list", async () => {
+    const edited = await gateLooseningForPull({ files: [modified(DETECTOR_REPO_PATH)], baseRaw: rawConfig });
+    expect(kinds(edited)).toEqual(["gate_changed"]);
+    const removed = await gateLooseningForPull({ files: [{ filename: DETECTOR_REPO_PATH, status: "removed" }], baseRaw: rawConfig });
+    expect(kinds(removed)).toEqual(["gate_removed"]);
+    const incomplete = await gateLooseningForPull({ files: [], baseRaw: rawConfig, incomplete: "the changed-file list is incomplete or stale" });
+    expect(kinds(incomplete)).toEqual(["not_checked"]);
+  });
+
+  it("is in the JSON and the job summary", () => {
+    const result = { ...detectGateLoosening({}), detected: false };
+    const base = { sha: "h", base_sha: "b", status: "ok", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors: [] };
+    expect(formatSummary({ ...base, gate_loosening: result })).toContain("Gate loosening: none");
+    const flagged = formatSummary({ ...base, gate_loosening: judge((head) => delete head.classes.billing) });
+    expect(flagged).toContain(GATE_LOOSENING_LINE);
+    expect(flagged).toContain(`- \`${CONFIG_REPO_PATH} removes class "billing".\``);
+    expect(flagged).toContain('"kind": "class_removed"');
+  });
+});
+
+describe("gate_loosening: the base copy of the differ judges", () => {
+  let dir;
+  afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
+
+  it("a PR that edits the differ to pass everything is still judged by the base script", async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "sensitive-class-base-"));
+    const baseScripts = path.join(dir, "base", "scripts");
+    mkdirSync(baseScripts, { recursive: true });
+    for (const name of ["sensitive-class-detect.mjs", "sensitive-classes.json", "proof-check.mjs"]) {
+      copyFileSync(path.join(repoRoot, "scripts", name), path.join(baseScripts, name));
+    }
+    const headConfig = structuredClone(rawConfig);
+    delete headConfig.classes.billing;
+    const headDetector = readFileSync(path.join(repoRoot, DETECTOR_REPO_PATH), "utf8")
+      .replace("export function detectGateLoosening(", "export function detectGateLoosening() { return { detected: false, reasons: [] }; }\nfunction unusedGateLoosening(");
+    expect(headDetector).toContain("unusedGateLoosening");
+
+    const routes = (key) => {
+      if (key === "/repos/o/r/pulls/7") return { ...PULL, changed_files: 2 };
+      if (key.startsWith("/repos/o/r/pulls/7/files")) return key.endsWith("page=1") ? [modified(CONFIG_REPO_PATH), modified(DETECTOR_REPO_PATH)] : [];
+      if (key === `/repos/o/r/contents/${CONFIG_REPO_PATH}?ref=headsha`) return JSON.stringify(headConfig);
+      if (key === `/repos/o/r/contents/${DETECTOR_REPO_PATH}?ref=headsha`) return headDetector;
+      return undefined;
+    };
+    const base = await import(pathToFileURL(path.join(baseScripts, "sensitive-class-detect.mjs")).href);
+    const out = path.join(dir, "out.json");
+    await base.main(["--repo", "o/r", "--pr", "7", "--json", out], {}, { fetchImpl: fakeFetch(routes), stdout: { write() {} } });
+    const result = JSON.parse(readFileSync(out, "utf8"));
+    expect(result.gate_loosening.detected).toBe(true);
+    expect(result.gate_loosening.reasons.map((reason) => reason.kind).sort()).toEqual(["class_removed", "gate_changed"]);
   });
 });

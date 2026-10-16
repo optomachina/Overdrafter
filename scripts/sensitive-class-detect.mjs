@@ -16,6 +16,10 @@ import { safeInline } from "./proof-check.mjs";
  * categories, a file matching neither is "unclassified", and any config, API
  * or truncation problem sets status "error" so a consumer fails closed.
  *
+ * gate_loosening (report only) diffs the base copy of the config against the
+ * head copy when the PR touches it, with this base copy of the differ, so a
+ * PR editing the differ or the config cannot change its own judgement.
+ *
  * OVD-845 requirement: the uploaded artifact is not a trusted gate by itself.
  * Under pull_request the workflow YAML comes from the PR, so a PR can edit
  * .github/workflows/sensitive-class.yml (or add a workflow that uploads an
@@ -228,7 +232,7 @@ export function loadConfig(file = CONFIG_PATH) {
   } catch (error) {
     return { config: null, errors: [`config could not be read: ${error instanceof Error ? error.message : String(error)}`] };
   }
-  return compileConfig(raw);
+  return { ...compileConfig(raw), raw };
 }
 
 // ---------------------------------------------------------------- paths
@@ -380,7 +384,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
       reasons.push(...result.reasons.map((reason) => label + reason));
       categories.push(result.category);
     }
-    if (readsHead(file.status) &&config.sqlContent.paths.some((re) => re.test(file.filename))) {
+    if (readsHead(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
       try {
         if (!readHeadFile) throw new Error("no head reader");
         const sql = classifySql(await readHeadFile(file.filename), config);
@@ -415,7 +419,172 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
 
 /** The result for a run that could not classify anything. */
 export function errorResult(errors, { sha = null, baseSha = null } = {}) {
-  return { version: CONFIG_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors };
+  const gate_loosening = detectGateLoosening({ incomplete: "the PR could not be classified" });
+  return { version: CONFIG_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors, gate_loosening };
+}
+
+// ---------------------------------------------------------------- gate loosening
+
+export const CONFIG_REPO_PATH = "scripts/sensitive-classes.json";
+export const DETECTOR_REPO_PATH = "scripts/sensitive-class-detect.mjs";
+export const WORKFLOW_REPO_PATH = ".github/workflows/sensitive-class.yml";
+export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
+const GATE_PATHS = [CONFIG_REPO_PATH, DETECTOR_REPO_PATH, WORKFLOW_REPO_PATH];
+// Fields whose items each widen what an entry matches. areas, description and
+// syntax are text and never change a classification.
+const MATCH_FIELDS = ["paths", "path_keywords", "signals"];
+const EXEMPT_FIELDS = ["exclude", "exclude_keywords"];
+
+const listOf = (entry, field) => (Array.isArray(entry?.[field]) ? entry[field] : []);
+const objectOf = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+const sqlRuleKey = (rule) => `${rule?.class}:${Array.isArray(rule?.tokens) ? rule.tokens.join(" ") : ""}`;
+
+/**
+ * Report-only gate_loosening classification of a config diff, run by the base
+ * copy of this script so a PR cannot change its own judgement. Each of these
+ * needs a Grok Bot countersign on top of Blaine's card:
+ * - the head config is removed, unparseable or invalid under the base
+ *   validator (fail closed), or the base config cannot be read;
+ * - a class, safe category exclusion or sql_content rule is removed;
+ * - a class glob, keyword or signal, or a sql_content path, is removed or
+ *   edited (an edit is a removal plus an addition);
+ * - a class glob or keyword moves into a safe category (class_downgraded);
+ * - a new exemption: an exclude or exclude_keywords on a class, or a new safe
+ *   category path or keyword;
+ * - the detector script or its workflow is edited or removed (CI runs the
+ *   base copy, so the edit takes effect only after merge);
+ * - the changed-file list is incomplete, so a config edit cannot be ruled out.
+ * Added classes, rules, globs and keywords and description-only edits are not
+ * loosening. gateFiles: [{ path, status }] from the PR file list.
+ */
+export function detectGateLoosening({ baseRaw = null, headRaw = null, baseError = null, headError = null, gateFiles = [], incomplete = null }) {
+  const reasons = [];
+  const at = CONFIG_REPO_PATH;
+  if (incomplete) reasons.push({ kind: "not_checked", path: at, message: `${at} loosening cannot be ruled out: ${incomplete}.` });
+  for (const { path, status } of gateFiles) {
+    if (path === CONFIG_REPO_PATH) continue;
+    reasons.push(status === "removed"
+      ? { kind: "gate_removed", path, message: `${path} is deleted.` }
+      : { kind: "gate_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` });
+  }
+  if (!gateFiles.some((file) => file.path === CONFIG_REPO_PATH)) return finish(reasons);
+  if (baseError) {
+    reasons.push({ kind: "config_unreadable", ref: "base", path: at, message: `${at} at the base commit cannot be read (${baseError}); loosening cannot be checked.` });
+    return finish(reasons);
+  }
+  if (headError) {
+    reasons.push({ kind: "config_unreadable", ref: "head", path: at, message: `${at} at head cannot be read (${headError}).` });
+    return finish(reasons);
+  }
+  const { errors } = compileConfig(headRaw);
+  if (errors.length) {
+    reasons.push({ kind: "config_invalid", ref: "head", path: at, message: `${at} at head is invalid: ${errors.join("; ")}.` });
+    return finish(reasons);
+  }
+  reasons.push(...diffConfig(baseRaw, headRaw));
+  return finish(reasons);
+}
+
+const finish = (reasons) => ({ detected: reasons.length > 0, reasons, requires: GATE_LOOSENING_REQUIRES });
+
+function diffConfig(base, head) {
+  const at = CONFIG_REPO_PATH;
+  const reasons = [];
+  const baseClasses = objectOf(base.classes);
+  const headClasses = objectOf(head.classes);
+  const baseCategories = objectOf(base.safe_categories);
+  const headCategories = objectOf(head.safe_categories);
+
+  const removals = [];
+  for (const [name, entry] of Object.entries(baseClasses)) {
+    if (!Object.hasOwn(headClasses, name)) {
+      reasons.push({ kind: "class_removed", path: at, entry: `classes.${name}`, message: `${at} removes class "${name}".` });
+      continue;
+    }
+    for (const field of MATCH_FIELDS) {
+      const kept = new Set(listOf(headClasses[name], field));
+      for (const value of listOf(entry, field)) if (!kept.has(value)) removals.push({ name, field, value });
+    }
+  }
+  for (const [name, entry] of Object.entries(headClasses)) {
+    for (const field of EXEMPT_FIELDS) {
+      const prior = new Set(listOf(baseClasses[name], field));
+      for (const value of listOf(entry, field)) {
+        if (!prior.has(value)) reasons.push({ kind: "exemption_added", path: at, entry: `classes.${name}`, field, value, message: `${at} adds ${field} ${JSON.stringify(value)} to class "${name}".` });
+      }
+    }
+  }
+
+  const additions = [];
+  for (const [name, entry] of Object.entries(headCategories)) {
+    for (const field of ["paths", "path_keywords"]) {
+      const prior = new Set(listOf(baseCategories[name], field));
+      for (const value of listOf(entry, field)) if (!prior.has(value)) additions.push({ name, field, value });
+    }
+  }
+  for (const [name, entry] of Object.entries(baseCategories)) {
+    if (!Object.hasOwn(headCategories, name)) continue;
+    for (const field of EXEMPT_FIELDS) {
+      const kept = new Set(listOf(headCategories[name], field));
+      for (const value of listOf(entry, field)) {
+        if (!kept.has(value)) reasons.push({ kind: "exemption_widened", path: at, entry: `safe_categories.${name}`, field, value, message: `${at} removes ${field} ${JSON.stringify(value)} from safe category "${name}".` });
+      }
+    }
+  }
+
+  // A class glob or keyword that reappears in a safe category is a downgrade.
+  for (const removal of removals) {
+    const index = additions.findIndex((add) => add.field === removal.field && add.value === removal.value);
+    if (index !== -1) {
+      const [add] = additions.splice(index, 1);
+      reasons.push({ kind: "class_downgraded", path: at, entry: `classes.${removal.name}`, field: removal.field, value: removal.value, message: `${at} moves ${removal.field} ${JSON.stringify(removal.value)} from class "${removal.name}" to safe category "${add.name}".` });
+    } else {
+      reasons.push({ kind: "rule_narrowed", path: at, entry: `classes.${removal.name}`, field: removal.field, value: removal.value, message: `${at} removes or edits ${removal.field} ${JSON.stringify(removal.value)} of class "${removal.name}".` });
+    }
+  }
+  for (const add of additions) {
+    reasons.push({ kind: "exemption_added", path: at, entry: `safe_categories.${add.name}`, field: add.field, value: add.value, message: `${at} adds ${add.field} ${JSON.stringify(add.value)} to safe category "${add.name}".` });
+  }
+
+  const baseSql = objectOf(base.sql_content);
+  const headSql = objectOf(head.sql_content);
+  const keptPaths = new Set(listOf(headSql, "paths"));
+  for (const value of listOf(baseSql, "paths")) {
+    if (!keptPaths.has(value)) reasons.push({ kind: "rule_narrowed", path: at, entry: "sql_content", field: "paths", value, message: `${at} removes or edits sql_content path ${JSON.stringify(value)}.` });
+  }
+  const keptRules = new Set(listOf(headSql, "rules").map(sqlRuleKey));
+  for (const rule of listOf(baseSql, "rules")) {
+    if (!keptRules.has(sqlRuleKey(rule))) reasons.push({ kind: "sql_rule_removed", path: at, entry: "sql_content", value: sqlRuleKey(rule), message: `${at} removes or edits sql_content rule ${JSON.stringify(sqlRuleKey(rule))}.` });
+  }
+  return reasons;
+}
+
+/**
+ * Gate loosening for a PR from its file list: reads the head config (as data)
+ * only when the PR touches it, so a stale branch that leaves it alone is never
+ * judged against newer base rules.
+ */
+export async function gateLooseningForPull({ files, readHeadFile, baseRaw, baseError = null, incomplete = null }) {
+  const gateFiles = [];
+  for (const file of files) {
+    for (const path of GATE_PATHS) {
+      if (file.filename === path) gateFiles.push({ path, status: file.status });
+      else if (file.previous_filename === path) gateFiles.push({ path, status: "removed" });
+    }
+  }
+  const config = gateFiles.find((file) => file.path === CONFIG_REPO_PATH);
+  let headRaw = null;
+  let headError = null;
+  if (config?.status === "removed") headError = "the file is removed";
+  else if (config) {
+    try {
+      if (!readHeadFile) throw new Error("no head reader");
+      headRaw = JSON.parse(await readHeadFile(CONFIG_REPO_PATH));
+    } catch (error) {
+      headError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  return detectGateLoosening({ baseRaw, headRaw, baseError, headError, gateFiles, incomplete });
 }
 
 // ---------------------------------------------------------------- GitHub
@@ -470,6 +639,8 @@ export async function fetchPullRequest(client, repo, number, { expectedHeadSha }
 
 // ---------------------------------------------------------------- CLI
 
+export const GATE_LOOSENING_LINE = "GATE LOOSENING: needs Grok Bot countersign + Blaine's card (report only; does not fail the PR).";
+
 export function formatSummary(result) {
   const label = result.status === "ok" ? "OK" : "ERROR";
   const lines = [`### Sensitive classes: ${label}`, "", "Mode: `report` (this check never fails the PR)", ""];
@@ -479,6 +650,13 @@ export function formatSummary(result) {
   lines.push(`Unclassified: ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  if (result.gate_loosening?.detected) {
+    lines.push(GATE_LOOSENING_LINE);
+    for (const reason of result.gate_loosening.reasons) lines.push(`- ${safeInline(reason.message)}`);
+    lines.push("");
+  } else if (result.gate_loosening) {
+    lines.push("Gate loosening: none", "");
+  }
   if (result.files.length) {
     lines.push("| File | Status | Classes | Category |", "| --- | --- | --- | --- |");
     for (const file of result.files) {
@@ -524,7 +702,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
     return 2;
   }
 
-  const { config, errors: configErrors } = loadConfig(options.config ?? CONFIG_PATH);
+  const { config, errors: configErrors, raw: baseRaw } = loadConfig(options.config ?? CONFIG_PATH);
   let result;
   if (!config) {
     result = errorResult(configErrors, { sha: options["head-sha"] ?? null });
@@ -533,6 +711,8 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
       const client = githubClient({ token: env.GITHUB_TOKEN || env.GH_TOKEN, apiUrl: env.GITHUB_API_URL, fetchImpl });
       const pull = await fetchPullRequest(client, options.repo, options.pr, { expectedHeadSha: options["head-sha"] });
       result = await detect({ ...pull, config });
+      const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
+      result.gate_loosening = await gateLooseningForPull({ ...pull, baseRaw, incomplete });
     } catch (error) {
       result = errorResult([`GitHub API error: ${error instanceof Error ? error.message : String(error)}`], { sha: options["head-sha"] ?? null });
     }
