@@ -48,16 +48,41 @@ timeline API (`GET /repos/{owner}/{repo}/issues/{n}/timeline`):
 
 A new push voids the label: Blaine removes and re-applies it, then re-runs the
 job. A label from anyone else, or one applied before the latest push, is
-ignored. Outside `pull_request` runs, when the timeline cannot be fetched,
-when a `head_ref_force_pushed` / `head_ref_restored` event has no usable
-`created_at` (the push time would be unknown), or when a `labeled` /
-`unlabeled` event for `migration-edit-approved` has no usable `created_at` (it
-cannot be ordered against the other label events, so a removal or a relabel by
-someone else could be hidden), there is no override (fail closed, status
-`unavailable`). Undated events for other labels are irrelevant.
+ignored.
 
 A waiver keeps the findings in the report (prefixed `WAIVED`), sets `ok` to
 true and is reported as `gate_loosening` (`override_used`).
+
+### Timestamps
+
+Every timestamp the decision reads goes through one parser,
+`parseGitHubTimestamp`: the push time (`--head-pushed-at`), and the
+`created_at` of each `head_ref_force_pushed` / `head_ref_restored` event and of
+each `labeled` / `unlabeled` event for `migration-edit-approved`. It accepts
+only a full ISO-8601 UTC timestamp in the form GitHub sends,
+`2026-10-10T09:00:00Z` or `2026-10-10T09:00:00.123Z`, and only when it
+round-trips: Date's own ISO form of the parsed instant must equal the input
+(fraction padded to milliseconds). Anything else is unusable. That covers
+numbers, `null`, objects and arrays; a date with no time, no seconds or no `Z`;
+an offset; `"1"`, `"2026"` or `"Oct 10"`; an expanded `+002026-…` year;
+`2026-02-30` or `24:00:00` (which `Date.parse` would roll over); and a fraction
+finer than a millisecond. `Date.parse` alone accepts several of these as real
+dates, so a malformed event used to be ordered as if it were genuine.
+
+### Fail closed
+
+There is no override (status `unavailable`):
+
+- outside `pull_request` runs, or when the timeline cannot be fetched;
+- when the push time is unusable;
+- when a `head_ref_force_pushed` / `head_ref_restored` event has an unusable
+  `created_at` (the push time would be unknown);
+- when a `labeled` / `unlabeled` event for `migration-edit-approved` has an
+  unusable `created_at` (it cannot be ordered against the other label events,
+  so a removal or a relabel by someone else could be hidden).
+
+Events for other labels and other event kinds are not read, so their
+timestamps do not matter.
 
 ## gate_loosening
 

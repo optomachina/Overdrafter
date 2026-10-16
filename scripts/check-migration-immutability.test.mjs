@@ -13,6 +13,7 @@ import {
   OVERRIDE_LABEL,
   checkerWorkflowSurface,
   evaluateOverride,
+  parseGitHubTimestamp,
   parseRawDiff,
   parseTimeline,
   run,
@@ -89,6 +90,64 @@ function check(dir, extra = []) {
 }
 
 const kinds = (report) => report.findings.map((f) => `${f.kind}:${f.path}`);
+
+/** Timestamps exactly as GitHub writes them, with the instant each one means. */
+const GITHUB_TIMESTAMPS = [
+  ["2026-10-10T09:00:00Z", Date.UTC(2026, 9, 10, 9, 0, 0)],
+  ["2026-10-10T09:00:00.123Z", Date.UTC(2026, 9, 10, 9, 0, 0, 123)],
+  ["2026-10-10T09:00:00.000Z", Date.UTC(2026, 9, 10, 9, 0, 0)],
+  ["2026-12-31T23:59:59.999Z", Date.UTC(2026, 11, 31, 23, 59, 59, 999)],
+  ["2028-02-29T00:00:00Z", Date.UTC(2028, 1, 29)],
+  // A shorter fraction is the same instant once padded to milliseconds.
+  ["2026-10-10T09:00:00.5Z", Date.UTC(2026, 9, 10, 9, 0, 0, 500)],
+];
+
+/**
+ * Values that are not a GitHub timestamp. Several of them Date.parse reads as
+ * real dates ("1", "2026", "Oct 10", 0, [0], 2026-02-30 -> March 2), which is
+ * how a malformed event used to be ordered as a genuine one.
+ */
+const UNUSABLE_TIMESTAMPS = [
+  ["undefined", undefined],
+  ["null", null],
+  ["number 0", 0],
+  ["number 1", 1],
+  ["epoch milliseconds", Date.UTC(2026, 9, 10, 10)],
+  ["NaN", Number.NaN],
+  ["true", true],
+  ["an object", {}],
+  ["an object whose toString is valid", { toString: () => "2026-10-10T10:00:00Z" }],
+  ["a Date object", new Date("2026-10-10T10:00:00Z")],
+  ["[0]", [0]],
+  ["an array holding a valid string", ["2026-10-10T10:00:00Z"]],
+  ["empty string", ""],
+  ['"not a date"', "not a date"],
+  ['"0"', "0"],
+  ['"1"', "1"],
+  ['"2026"', "2026"],
+  ['"2027"', "2027"],
+  ['"Oct 10"', "Oct 10"],
+  ['"Oct 10 2026"', "Oct 10 2026"],
+  ["a date with no time", "2026-10-10"],
+  ['"2026-10-10 9:00"', "2026-10-10 9:00"],
+  ['"2026-10-10 09:00:00"', "2026-10-10 09:00:00"],
+  ["no Z", "2026-10-10T09:00:00"],
+  ["no seconds", "2026-10-10T09:00Z"],
+  ["an offset instead of Z", "2026-10-10T09:00:00+00:00"],
+  ["lowercase t and z", "2026-10-10t09:00:00z"],
+  ["a leading space", " 2026-10-10T09:00:00Z"],
+  ["a trailing newline", "2026-10-10T09:00:00Z\n"],
+  ["an expanded year", "+002026-10-10T09:00:00Z"],
+  ["a negative expanded year", "-002026-10-10T09:00:00Z"],
+  ["an empty fraction", "2026-10-10T09:00:00.Z"],
+  ["a fraction finer than a millisecond", "2026-10-10T09:00:00.123456Z"],
+  ["February 30 (Date.parse rolls it to March 2)", "2026-02-30T00:00:00Z"],
+  ["February 29 in a non-leap year", "2026-02-29T00:00:00Z"],
+  ["April 31", "2026-04-31T00:00:00Z"],
+  ["month 13", "2026-13-01T00:00:00Z"],
+  ["24:00:00 (Date.parse rolls it to the next day)", "2026-10-10T24:00:00Z"],
+  ["a leap second", "2026-10-10T23:59:60Z"],
+];
 
 describe("status rule (only A passes)", () => {
   it("passes a new migration that sorts after the newest base timestamp", () => {
@@ -175,6 +234,23 @@ describe("backdating", () => {
   });
 });
 
+describe("parseGitHubTimestamp (the checker's one timestamp parser)", () => {
+  it.each(GITHUB_TIMESTAMPS)("accepts %s", (value, ms) => {
+    expect(parseGitHubTimestamp(value)).toBe(ms);
+  });
+
+  it.each(UNUSABLE_TIMESTAMPS)("rejects %s as unusable", (_name, value) => {
+    expect(parseGitHubTimestamp(value)).toBeNull();
+  });
+
+  it("is the only place the checker parses a date", () => {
+    const code = readFileSync(join(repoRoot, CHECKER_PATH), "utf8").split("\n").filter((line) => !/^\s*(\/\/|\/?\*)/.test(line));
+    expect(code.filter((line) => line.includes("Date.parse(")).map((line) => line.trim())).toEqual(["const ms = Date.parse(value);"]);
+    // new Date only re-serializes instants that already came out of the helper.
+    expect(code.filter((line) => line.includes("new Date(")).map((line) => /new Date\((\w+)\)/.exec(line)?.[1])).toEqual(["ms", "pushedAt"]);
+  });
+});
+
 describe("migration-edit-approved override", () => {
   const PUSHED_AT = "2026-10-10T08:00:00Z";
   const HEAD = "a".repeat(40);
@@ -255,12 +331,49 @@ describe("migration-edit-approved override", () => {
     expect(decide([approved]).status).toBe("approved");
   });
 
+  // Each timestamp an approval decision reads. valid shows the same timeline
+  // decides normally with a GitHub timestamp, so "unavailable" comes from the
+  // unusable value alone.
+  const decisionPaths = [
+    { path: "head push time", valid: "2026-10-10T08:00:00Z", validStatus: "approved", reason: "no usable head push time given", decideAt: (at) => decide([labeled("optomachina", "2026-10-10T09:00:00Z")], { headPushedAt: at }) },
+    { path: "head_ref_force_pushed created_at", valid: "2026-10-10T08:30:00Z", validStatus: "approved", reason: "head_ref_force_pushed event has no usable created_at", decideAt: (at) => decide([labeled("optomachina", "2026-10-10T09:00:00Z"), { event: "head_ref_force_pushed", created_at: at }]) },
+    { path: "head_ref_restored created_at", valid: "2026-10-10T08:30:00Z", validStatus: "approved", reason: "head_ref_restored event has no usable created_at", decideAt: (at) => decide([labeled("optomachina", "2026-10-10T09:00:00Z"), { event: "head_ref_restored", created_at: at }]) },
+    { path: "labeled created_at (Blaine's lone label)", valid: "2026-10-10T09:00:00Z", validStatus: "approved", reason: "label event has no usable created_at", decideAt: (at) => decide([labeled("optomachina", at)]) },
+    { path: "labeled created_at (a later relabel by someone else)", valid: "2026-10-10T09:10:00Z", validStatus: "ignored", reason: "label event has no usable created_at", decideAt: (at) => decide([labeled("optomachina", "2026-10-10T09:00:00Z"), labeled("someone-else", at)]) },
+    { path: "unlabeled created_at (Blaine removes the label)", valid: "2026-10-10T09:10:00Z", validStatus: "not_applied", reason: "label event has no usable created_at", decideAt: (at) => decide([labeled("optomachina", "2026-10-10T09:00:00Z"), { ...labeled("optomachina", at), event: "unlabeled" }]) },
+  ];
+
+  it.each(decisionPaths)("fails closed on every unusable $path", ({ valid, validStatus, reason, decideAt }) => {
+    expect(decideAt(valid).status).toBe(validStatus);
+    for (const [name, value] of UNUSABLE_TIMESTAMPS) {
+      const result = decideAt(value);
+      expect(result.status, name).toBe("unavailable");
+      expect(result.applied, name).toBe(false);
+      expect(result.reason, name).toContain(reason);
+    }
+  });
+
+  it("fails closed end to end on timestamps Date.parse accepts but GitHub never sends", () => {
+    const dir = overlayRepo({}, { [OLD]: "-- edited\n" });
+    const timeline = join(dir, "timeline.ndjson");
+    const approved = labeled("optomachina", "2026-10-10T09:00:00Z");
+    const cli = (events, pushedAt = PUSHED_AT) => {
+      writeFileSync(timeline, events.map((event) => JSON.stringify(event)).join("\n"));
+      return check(dir, ["--enforce", "--timeline", timeline, "--head-sha", HEAD, "--head-pushed-at", pushedAt]);
+    };
+    expect(cli([approved])).toMatchObject({ code: 0, report: { ok: true, waived: true, override: { status: "approved" } } });
+    // Blaine's removal dated "Oct 10 2026" used to read as an old date and leave the waiver applied.
+    expect(cli([approved, { ...labeled("optomachina", "Oct 10 2026"), event: "unlabeled" }])).toMatchObject({ code: 1, report: { ok: false, waived: false, override: { status: "unavailable", reason: "label event has no usable created_at" } } });
+    expect(cli([approved, { event: "head_ref_force_pushed", created_at: 0 }])).toMatchObject({ code: 1, report: { ok: false, override: { status: "unavailable" } } });
+    expect(cli([approved], "2026-10-10 08:00:00")).toMatchObject({ code: 1, report: { ok: false, override: { status: "unavailable", reason: "no usable head push time given" } } });
+  });
+
   it("ignores an undated event for an unrelated label, or a non-label event", () => {
     const approved = labeled("optomachina", "2026-10-10T09:00:00Z");
-    for (const createdAt of [undefined, null, "not a date"]) {
-      expect(decide([approved, labeled("someone-else", createdAt, "documentation")]).status).toBe("approved");
-      expect(decide([approved, { ...labeled("someone-else", createdAt, "documentation"), event: "unlabeled" }]).status).toBe("approved");
-      expect(decide([approved, { event: "commented", created_at: createdAt }]).status).toBe("approved");
+    for (const [name, createdAt] of UNUSABLE_TIMESTAMPS) {
+      expect(decide([approved, labeled("someone-else", createdAt, "documentation")]).status, name).toBe("approved");
+      expect(decide([approved, { ...labeled("someone-else", createdAt, "documentation"), event: "unlabeled" }]).status, name).toBe("approved");
+      expect(decide([approved, { event: "commented", created_at: createdAt }]).status, name).toBe("approved");
     }
     expect(decide([labeled("optomachina", "2026-10-10T09:00:00Z", "documentation")]).status).toBe("not_applied");
   });

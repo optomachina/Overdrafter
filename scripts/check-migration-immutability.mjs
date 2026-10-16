@@ -13,7 +13,9 @@
  * Override: the migration-edit-approved label waives the violations only when
  * the PR timeline shows the approver (Blaine, GitHub login optomachina by
  * default) applied it after the current head SHA was pushed. A new push voids
- * it. A waiver is reported as gate_loosening.
+ * it. A waiver is reported as gate_loosening. Every timestamp is read with
+ * parseGitHubTimestamp; if the decision depends on one it rejects, the
+ * override is unavailable (fail closed).
  *
  * Usage:
  *   --base-ref <ref> --head-ref <ref>  refs to compare (CI: HEAD^1 and HEAD).
@@ -22,7 +24,8 @@
  *   --timeline-error <message>         the timeline could not be fetched.
  *   --head-sha <sha>                   the PR head SHA being checked.
  *   --head-pushed-at <iso>             when that head was pushed (CI: the
- *                                      pull_request event's updated_at).
+ *                                      pull_request event's updated_at), as
+ *                                      GitHub writes it: 2026-10-10T09:00:00Z.
  *   --approver <login>                 override approver (default optomachina).
  *
  * Report mode is the default: findings are printed and the exit code is 0.
@@ -171,10 +174,38 @@ export function parseTimeline(text) {
   return trimmed.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
 }
 
-const time = (iso) => {
-  const ms = Date.parse(iso ?? "");
-  return Number.isNaN(ms) ? null : ms;
-};
+/**
+ * A full ISO-8601 UTC timestamp exactly as GitHub emits it (timeline
+ * created_at, the pull_request payload's updated_at): 2026-10-10T09:00:00Z,
+ * or with a fraction, 2026-10-10T09:00:00.123Z.
+ */
+const GITHUB_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$/;
+
+/**
+ * The only timestamp parser in this file. Returns the instant in ms, or null
+ * when the value is unusable. Date.parse alone is not enough: it reads "1",
+ * "2026", "Oct 10" and "2026-10-10 9:00" as real dates, so a malformed event
+ * would be ordered as if it were genuine. Unusable means:
+ * - not a string (numbers, null, objects, arrays, Date objects);
+ * - not exactly GITHUB_TIMESTAMP (no time, no seconds, no Z, an offset,
+ *   lowercase t/z, surrounding whitespace, an expanded +YYYYYY year);
+ * - does not round-trip: the input, with its fraction padded to milliseconds,
+ *   must equal Date's own ISO form of the parsed instant. Date.parse rolls
+ *   2026-02-30 over to March 2 and 24:00:00 to the next day, and truncates a
+ *   fraction finer than a millisecond, so all of those are rejected.
+ */
+export function parseGitHubTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const match = GITHUB_TIMESTAMP.exec(value);
+  if (match == null) return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return null;
+  const [, dateTime, fraction = ""] = match;
+  return new Date(ms).toISOString() === `${dateTime}.${fraction.padEnd(3, "0")}Z` ? ms : null;
+}
+
+/** Pair each event with its parsed created_at (null when unusable). */
+const dated = (events) => events.map((event) => ({ event, at: parseGitHubTimestamp(event.created_at) }));
 
 /**
  * Decide whether the override label counts. It counts only when:
@@ -183,39 +214,43 @@ const time = (iso) => {
  * - it was created strictly after the head was pushed. The push time is the
  *   later of headPushedAt and any force-push / restore event in the timeline,
  *   so a new push (or force push back to an older SHA) voids the label.
- * Fails closed: no timeline, no head SHA, no push time, a force-push /
- * restore event without a usable created_at (the head may have moved after
- * the label, and we cannot tell), or a labeled / unlabeled event for the
- * override label without a usable created_at (we cannot order it against the
- * other label events, so a removal or a non-approver relabel could be
- * hidden) means no override. Undated events for other labels are irrelevant.
+ * Every timestamp below goes through parseGitHubTimestamp; a value it rejects
+ * is unusable, and an unusable timestamp that the decision depends on means no
+ * override. Fails closed (status unavailable): no timeline, no head SHA, an
+ * unusable head push time, a force-push / restore event with an unusable
+ * created_at (the head may have moved after the label, and we cannot tell),
+ * or a labeled / unlabeled event for the override label with an unusable
+ * created_at (we cannot order it against the other label events, so a
+ * removal or a non-approver relabel could be hidden). Events for other labels
+ * and other event kinds are not read, so their timestamps are irrelevant.
  */
 export function evaluateOverride({ timeline = null, timelineError = null, headSha = null, headPushedAt = null, approver = DEFAULT_APPROVER, label = OVERRIDE_LABEL }) {
   const base = { label, approver, headSha, headPushedAt: null, applied: false };
   if (timelineError) return { ...base, status: "unavailable", reason: `timeline unavailable: ${timelineError}` };
   if (timeline == null) return { ...base, status: "unavailable", reason: "no PR timeline (not a pull_request run)" };
   if (!headSha) return { ...base, status: "unavailable", reason: "no PR head SHA given" };
-  if (time(headPushedAt) == null) return { ...base, status: "unavailable", reason: "no head push time given" };
-  const headMoves = timeline.filter((event) => HEAD_MOVE_EVENTS.has(event?.event));
-  const undated = headMoves.find((event) => time(event.created_at) == null);
-  if (undated) return { ...base, status: "unavailable", reason: `timeline ${undated.event} event has no usable created_at, so the push time is unknown` };
-  const pushedAt = Math.max(time(headPushedAt), ...headMoves.map((event) => time(event.created_at)));
+  const givenPushedAt = parseGitHubTimestamp(headPushedAt);
+  if (givenPushedAt == null) return { ...base, status: "unavailable", reason: "no usable head push time given" };
+  const headMoves = dated(timeline.filter((event) => HEAD_MOVE_EVENTS.has(event?.event)));
+  const undated = headMoves.find(({ at }) => at == null);
+  if (undated) return { ...base, status: "unavailable", reason: `timeline ${undated.event.event} event has no usable created_at, so the push time is unknown` };
+  const pushedAt = Math.max(givenPushedAt, ...headMoves.map(({ at }) => at));
   const pushed = { ...base, headPushedAt: new Date(pushedAt).toISOString() };
-  const labelEvents = timeline.filter((event) => (event?.event === "labeled" || event?.event === "unlabeled") && event.label?.name === label);
-  if (labelEvents.some((event) => time(event.created_at) == null)) {
+  const labelEvents = dated(timeline.filter((event) => (event?.event === "labeled" || event?.event === "unlabeled") && event.label?.name === label));
+  if (labelEvents.some(({ at }) => at == null)) {
     return { ...pushed, status: "unavailable", reason: "label event has no usable created_at" };
   }
-  const last = labelEvents.reduce((latest, event) => (latest == null || time(event.created_at) >= time(latest.created_at) ? event : latest), null);
-  if (last == null || last.event !== "labeled") return { ...pushed, status: "not_applied", reason: `${label} is not on the PR` };
-  const actor = last.actor?.login ?? null;
-  const event = { actor, created_at: last.created_at };
+  const last = labelEvents.reduce((latest, entry) => (latest == null || entry.at >= latest.at ? entry : latest), null);
+  if (last == null || last.event.event !== "labeled") return { ...pushed, status: "not_applied", reason: `${label} is not on the PR` };
+  const actor = last.event.actor?.login ?? null;
+  const event = { actor, created_at: last.event.created_at };
   if (actor == null || actor.toLowerCase() !== approver.toLowerCase()) {
     return { ...pushed, event, status: "ignored", reason: `${label} was applied by ${actor ?? "an unknown actor"}, not ${approver}` };
   }
-  if (time(last.created_at) <= pushedAt) {
-    return { ...pushed, event, status: "ignored", reason: `${label} was applied at ${last.created_at}, before the head ${headSha} was pushed (${pushed.headPushedAt}); a new push voids it` };
+  if (last.at <= pushedAt) {
+    return { ...pushed, event, status: "ignored", reason: `${label} was applied at ${event.created_at}, before the head ${headSha} was pushed (${pushed.headPushedAt}); a new push voids it` };
   }
-  return { ...pushed, event, applied: true, status: "approved", reason: `${approver} applied ${label} at ${last.created_at}, after the head ${headSha} was pushed (${pushed.headPushedAt})` };
+  return { ...pushed, event, applied: true, status: "approved", reason: `${approver} applied ${label} at ${event.created_at}, after the head ${headSha} was pushed (${pushed.headPushedAt})` };
 }
 
 // ---------------------------------------------------------------------------
