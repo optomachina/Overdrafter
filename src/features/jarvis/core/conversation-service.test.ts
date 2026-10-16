@@ -36,8 +36,14 @@ type HarnessOptions = {
 function setup(options: HarnessOptions = {}) {
   const repo = new InMemoryJarvisRepo();
   let runs = 0;
+  const runsByKey = new Map<string, string>();
   const graph = {
-    submit: vi.fn<DesignGraph["submit"]>(async () => `run-${++runs}`),
+    // Same contract as the OVD-801 port: one run per idempotency key.
+    submit: vi.fn<DesignGraph["submit"]>(async (_request, { idempotencyKey }) => {
+      const runId = runsByKey.get(idempotencyKey) ?? `run-${++runs}`;
+      runsByKey.set(idempotencyKey, runId);
+      return runId;
+    }),
     resolveDecision: vi.fn<DesignGraph["resolveDecision"]>(async () => ({ ok: true })),
     control: vi.fn<DesignGraph["control"]>(async () => ({ ok: true })),
     agentAvailability: vi.fn<DesignGraph["agentAvailability"]>((agent) => (agent === "cad" ? "enabled" : "disabled")),
@@ -284,6 +290,105 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     // A different seq is a different event, even with the same body.
     await h.service.handleGraphEvent({ ...status, seq: status.seq + 1000 });
     expect(h.web.sent).toHaveLength(4);
+  });
+
+  it("M1 graph.submit rejects once: the claim is released and the channel's retry is accepted once", async () => {
+    const h = await linkedOwner();
+    h.graph.submit.mockRejectedValueOnce(new Error("graph unavailable"));
+    const event = request();
+
+    await expect(h.service.handleInbound("test", event)).rejects.toThrow("graph unavailable");
+    expect(h.repo.inboundEvents.size).toBe(0);
+    expect(h.logs.at(-1)).toEqual({ channel: "test", outcome: "failed", reason: "internal_error" });
+
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "duplicate" });
+    expect(inboundCount(h)).toBe(1);
+    expect(h.repo.messages.filter((message) => message.kind === "run_accepted")).toHaveLength(1);
+    expect(h.test.sent).toHaveLength(1);
+    expect(h.graph.submit).toHaveBeenCalledTimes(2);
+    expect(new Set(h.graph.submit.mock.calls.map(([, context]) => context.idempotencyKey)).size).toBe(1);
+  });
+
+  it("M1 a failure after the graph accepted the submit retries onto the same run without a second submit", async () => {
+    const h = await linkedOwner();
+    const attachRun = vi.spyOn(h.repo, "attachRun").mockRejectedValueOnce(new Error("db timeout"));
+    const event = request();
+    await expect(h.service.handleInbound("test", event)).rejects.toThrow("db timeout");
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(inboundCount(h)).toBe(1);
+    expect(attachRun).toHaveBeenCalledTimes(2);
+
+    // Fan-out fails after the run is attached: the retry reuses the row's runId and never resubmits.
+    const second = request();
+    const deliveries = vi.spyOn(h.repo, "claimDelivery").mockRejectedValueOnce(new Error("db timeout"));
+    await expect(h.service.handleInbound("test", second)).rejects.toThrow("db timeout");
+    const submitsBefore = h.graph.submit.mock.calls.length;
+    expect(await h.service.handleInbound("test", second)).toEqual({ status: "accepted", runId: "run-2" });
+    expect(h.graph.submit).toHaveBeenCalledTimes(submitsBefore);
+    expect(inboundCount(h)).toBe(2);
+    expect(h.test.sent.map((send) => send.message.text)).toEqual(["Got it. Working on it.", "Got it. Working on it."]);
+    deliveries.mockRestore();
+  });
+
+  it("M1 graph.resolveDecision rejects once: nothing is committed and the retry resolves the decision", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    await h.service.handleGraphEvent(decisionEvent("run-1"));
+    h.graph.resolveDecision.mockRejectedValueOnce(new Error("graph unavailable"));
+    const answer = request({ action: { kind: "decision", decisionId: "dec-1", choice: "2" } });
+
+    await expect(h.service.handleInbound("test", answer)).rejects.toThrow("graph unavailable");
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: null, chosen: null, pendingKey: null });
+
+    expect(await h.service.handleInbound("test", answer)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "chosen", chosen: "304 stainless", pendingKey: null });
+    expect(h.graph.resolveDecision).toHaveBeenCalledTimes(2);
+    expect(inboundCount(h)).toBe(2);
+
+    // The graph refusing an answer commits nothing either.
+    await h.service.handleGraphEvent(decisionEvent("run-1", "dec-2"));
+    h.graph.resolveDecision.mockResolvedValueOnce({ ok: false, reason: "unknown_decision" });
+    const refused = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-2", choice: "1" } }));
+    expect(refused).toMatchObject({ status: "refused", reason: "graph_unknown_decision" });
+    expect(h.repo.decisions.get("dec-2")).toMatchObject({ resolution: null, pendingKey: null });
+  });
+
+  it("M1 a decision held pending by one event is busy for another", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    await h.service.handleGraphEvent(decisionEvent("run-1"));
+    let finish: (value: { ok: true }) => void = () => undefined;
+    h.graph.resolveDecision.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const first = h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "1" } }));
+    await vi.waitFor(() => expect(h.graph.resolveDecision).toHaveBeenCalledTimes(1));
+    const second = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "2" } }));
+    expect(second).toMatchObject({ status: "refused", reason: "decision_in_progress" });
+    finish({ ok: true });
+    expect(await first).toEqual({ status: "accepted", runId: "run-1" });
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "chosen", chosen: "6061 aluminum" });
+  });
+
+  it("M1 graph.control rejects once: the command stays pending and the retry re-sends and promotes it", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    h.graph.control.mockRejectedValueOnce(new Error("graph unavailable"));
+    const pause = request({ action: { kind: "control", runId: "run-1", command: "pause" } });
+
+    await expect(h.service.handleInbound("test", pause)).rejects.toThrow("graph unavailable");
+    expect([...h.repo.controlCommands.values()]).toEqual([expect.objectContaining({ status: "pending" })]);
+
+    expect(await h.service.handleInbound("test", pause)).toEqual({ status: "accepted", runId: "run-1" });
+    expect([...h.repo.controlCommands.values()]).toEqual([expect.objectContaining({ status: "queued", idempotencyKey: pause.eventId })]);
+    expect(h.graph.control).toHaveBeenCalledTimes(2);
+    expect(h.graph.control.mock.calls[0]).toEqual(h.graph.control.mock.calls[1]);
+    expect(await h.service.handleInbound("test", pause)).toEqual({ status: "duplicate" });
+
+    // A command the graph refuses is recorded rejected, never queued.
+    h.graph.control.mockResolvedValueOnce({ ok: false, reason: "unknown_run" });
+    const cancel = request({ action: { kind: "control", runId: "run-1", command: "cancel" } });
+    expect(await h.service.handleInbound("test", cancel)).toEqual({ status: "unavailable", reply: NOT_AVAILABLE_REPLY });
+    expect(h.repo.controlCommands.get(JSON.stringify(["run-1", cancel.eventId]))?.status).toBe("rejected");
   });
 
   it("CS-9 adding TestAdapter2 needs only a registry line (no core diff)", async () => {

@@ -58,7 +58,11 @@ export type DecisionRow = {
   rationale: string | null;
   resolvedBy: UserId | null;
   resolvedAt: string | null;
+  /** Inbound event currently handing a resolution to the graph; promoted to resolved on success. */
+  pendingKey: string | null;
 };
+
+export type DecisionClaim = "claimed" | "resolved" | "busy";
 
 export type ControlCommandRow = {
   id: string;
@@ -67,7 +71,8 @@ export type ControlCommandRow = {
   payload: unknown;
   actorUserId: UserId;
   idempotencyKey: string;
-  status: "queued" | "applied" | "rejected";
+  /** `pending` until the graph accepts it, then `queued` until a checkpoint applies it. */
+  status: "pending" | "queued" | "applied" | "rejected";
   appliedAtCheckpoint: string | null;
 };
 
@@ -102,8 +107,19 @@ export interface JarvisRepo {
   findRunOrigin(runId: string): Promise<RunOrigin | null>;
   insertDecision(row: DecisionRow): Promise<void>;
   getDecision(decisionId: string): Promise<DecisionRow | null>;
-  /** Resolves only an unresolved decision; false when it was already resolved. */
-  resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">): Promise<boolean>;
+  /**
+   * Atomically marks an unresolved decision pending for one inbound event. The same key may claim
+   * again (a retry); another key gets `busy` while it is pending and `resolved` once it is resolved.
+   */
+  claimDecision(decisionId: string, pendingKey: string): Promise<DecisionClaim>;
+  /** Clears a pending claim after the graph call failed, so a retry or another attempt can run. */
+  releaseDecision(decisionId: string, pendingKey: string): Promise<void>;
+  /** Promotes a pending claim held by pendingKey to resolved; false when that claim is not held. */
+  resolveDecision(
+    decisionId: string,
+    pendingKey: string,
+    resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">,
+  ): Promise<boolean>;
   /**
    * Applies the graph's own decision_resolved outcome: fills an unresolved row (timeouts never pass
    * through the core) and always stores the graph's rationale, which is the authoritative one.
@@ -111,6 +127,8 @@ export interface JarvisRepo {
   recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">): Promise<void>;
   /** Atomic insert on UNIQUE (graph_run_id, idempotency_key); false on a duplicate. */
   insertControlCommand(row: ControlCommandRow): Promise<boolean>;
+  getControlCommand(graphRunId: string, idempotencyKey: string): Promise<ControlCommandRow | null>;
+  setControlCommandStatus(graphRunId: string, idempotencyKey: string, status: ControlCommandRow["status"]): Promise<void>;
   /** Atomic insert on UNIQUE (message_id, channel); false when that delivery already exists. */
   claimDelivery(messageId: string, channel: ChannelId): Promise<boolean>;
   updateDelivery(messageId: string, channel: ChannelId, patch: Pick<OutboundDeliveryRow, "status" | "attempts">): Promise<void>;

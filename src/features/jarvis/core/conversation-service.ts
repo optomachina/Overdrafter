@@ -82,7 +82,15 @@ export class ConversationService {
     if (!(await this.deps.repo.claimInboundEvent(channelId, message.idempotencyKey, receivedAt))) {
       return this.finish(channelId, { status: "duplicate" });
     }
-    return this.admit(adapter, message, settings);
+    try {
+      return await this.admit(adapter, message, settings);
+    } catch (error) {
+      // Release the claim so the channel's retry (sent after our non-2xx) is processed, not dropped
+      // as a duplicate. Every write after the claim is idempotent per event, so the retry resumes.
+      await this.deps.repo.releaseInboundEvent(channelId, message.idempotencyKey).catch(() => undefined);
+      this.deps.log({ channel: channelId, outcome: "failed", reason: "internal_error" });
+      throw error;
+    }
   }
 
   /**
@@ -161,7 +169,7 @@ export class ConversationService {
       kind: message.action?.kind ?? "text",
       body: { text: message.text, action: message.action ?? null },
       graphRunId: null,
-      dedupeKey: null,
+      dedupeKey: `in:${adapter.id}:${message.idempotencyKey}`,
     });
     const origin = { userId: admitted.userId, conversationId: conversation.id, channel: adapter.id };
     return { ...admitted, origin, inbound };
@@ -179,10 +187,14 @@ export class ConversationService {
     if (message.agent && this.deps.graph.agentAvailability(message.agent) !== "enabled") {
       return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, "agent_not_enabled");
     }
-    const runId = await this.deps.graph.submit(
-      { prompt: message.text, ...(message.agent ? { domain: message.agent } : {}) },
-      { userId: origin.userId, conversationId: origin.conversationId, idempotencyKey: `${origin.channel}:${message.idempotencyKey}` },
-    );
+    // A retry whose earlier attempt already reached the graph reuses that run; otherwise the
+    // graph's idempotency key dedupes a submit whose runId never got attached.
+    const runId =
+      routed.inbound.graphRunId ??
+      (await this.deps.graph.submit(
+        { prompt: message.text, ...(message.agent ? { domain: message.agent } : {}) },
+        { userId: origin.userId, conversationId: origin.conversationId, idempotencyKey: eventKey(origin.channel, message.idempotencyKey) },
+      ));
     await this.deps.repo.attachRun(routed.inbound.id, runId);
     const event: OutboundEvent = { type: "run_accepted", runId };
     await this.fanOut(origin, await this.appendOutbound(origin, event), event);
@@ -196,14 +208,28 @@ export class ConversationService {
     if (!(await this.ownsRun(origin.userId, decision.graphRunId))) return this.refuse(origin.channel, "not_owner");
     const choice = resolveChoice(decision, action.choice);
     if (!choice) return this.refuse(origin.channel, "invalid_choice");
-    const resolved = await this.deps.repo.resolveDecision(decision.id, {
+    // Pending -> promote: the resolution is committed only after the graph accepts it.
+    const pendingKey = eventKey(origin.channel, routed.message.idempotencyKey);
+    const claim = await this.deps.repo.claimDecision(decision.id, pendingKey);
+    if (claim === "resolved") return this.refuse(origin.channel, "already_resolved");
+    if (claim === "busy") return this.refuse(origin.channel, "decision_in_progress");
+    let accepted: Awaited<ReturnType<DesignGraph["resolveDecision"]>>;
+    try {
+      accepted = await this.deps.graph.resolveDecision(decision.graphRunId, decision.id, choice.answer);
+    } catch (error) {
+      await this.deps.repo.releaseDecision(decision.id, pendingKey);
+      throw error;
+    }
+    if ("reason" in accepted) {
+      await this.deps.repo.releaseDecision(decision.id, pendingKey);
+      return this.refuse(origin.channel, `graph_${accepted.reason}`);
+    }
+    await this.deps.repo.resolveDecision(decision.id, pendingKey, {
       ...choice.row,
       resolvedBy: origin.userId,
       resolvedAt: this.deps.now().toISOString(),
     });
-    if (!resolved) return this.refuse(origin.channel, "already_resolved");
     await this.deps.repo.attachRun(routed.inbound.id, decision.graphRunId);
-    await this.deps.graph.resolveDecision(decision.graphRunId, decision.id, choice.answer);
     return this.finish(origin.channel, { status: "accepted", runId: decision.graphRunId });
   }
 
@@ -213,19 +239,27 @@ export class ConversationService {
     if (!SLICE_ONE_CONTROLS.has(action.command)) {
       return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, "control_not_enabled");
     }
-    const queued = await this.deps.repo.insertControlCommand({
+    // Pending -> promote: the row is `pending` until the graph accepts the command. A retry of the
+    // same event finds it still pending and re-sends; the graph dedupes on the idempotency key.
+    const inserted = await this.deps.repo.insertControlCommand({
       id: `${action.runId}:${message.idempotencyKey}`,
       graphRunId: action.runId,
       kind: action.command,
       payload: null,
       actorUserId: origin.userId,
       idempotencyKey: message.idempotencyKey,
-      status: "queued",
+      status: "pending",
       appliedAtCheckpoint: null,
     });
-    if (!queued) return this.finish(origin.channel, { status: "duplicate" });
+    if (!inserted && (await this.deps.repo.getControlCommand(action.runId, message.idempotencyKey))?.status !== "pending") {
+      return this.finish(origin.channel, { status: "duplicate" });
+    }
     const applied = await this.deps.graph.control(action.runId, { kind: action.command, idempotencyKey: message.idempotencyKey, actor: origin.userId });
-    if ("reason" in applied) return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, `control_${applied.reason}`);
+    if ("reason" in applied) {
+      await this.deps.repo.setControlCommandStatus(action.runId, message.idempotencyKey, "rejected");
+      return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, `control_${applied.reason}`);
+    }
+    await this.deps.repo.setControlCommandStatus(action.runId, message.idempotencyKey, "queued");
     return this.finish(origin.channel, { status: "accepted", runId: action.runId });
   }
 
@@ -279,6 +313,8 @@ export class ConversationService {
   }
 }
 
+const eventKey = (channel: ChannelId, idempotencyKey: string) => `${channel}:${idempotencyKey}`;
+
 type ResolvedChoice = {
   readonly answer: GraphDecisionAnswer;
   readonly row: Pick<DecisionRow, "resolution" | "chosen" | "rationale">;
@@ -314,5 +350,6 @@ function decisionRow(event: Extract<GraphEvent, { type: "decision_requested" }>,
     rationale: null,
     resolvedBy: null,
     resolvedAt: null,
+    pendingKey: null,
   };
 }

@@ -4,6 +4,7 @@ import type {
   ChannelSettingsRow,
   ControlCommandRow,
   ConversationRow,
+  DecisionClaim,
   DecisionRow,
   InboundEventRow,
   JarvisRepo,
@@ -119,17 +120,34 @@ export class InMemoryJarvisRepo implements JarvisRepo {
     return row ? { ...row } : null;
   }
 
-  async resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">) {
+  async claimDecision(decisionId: string, pendingKey: string): Promise<DecisionClaim> {
     const row = this.decisions.get(decisionId);
-    if (!row || row.resolution !== null) return false;
-    Object.assign(row, resolution);
+    if (!row || row.resolution !== null) return "resolved";
+    if (row.pendingKey !== null && row.pendingKey !== pendingKey) return "busy";
+    row.pendingKey = pendingKey;
+    return "claimed";
+  }
+
+  async releaseDecision(decisionId: string, pendingKey: string) {
+    const row = this.decisions.get(decisionId);
+    if (row?.pendingKey === pendingKey) row.pendingKey = null;
+  }
+
+  async resolveDecision(
+    decisionId: string,
+    pendingKey: string,
+    resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">,
+  ) {
+    const row = this.decisions.get(decisionId);
+    if (!row || row.resolution !== null || row.pendingKey !== pendingKey) return false;
+    Object.assign(row, resolution, { pendingKey: null });
     return true;
   }
 
   async recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">) {
     const row = this.decisions.get(decisionId);
     if (!row) return;
-    if (row.resolution === null) Object.assign(row, outcome);
+    if (row.resolution === null) Object.assign(row, outcome, { pendingKey: null });
     else row.rationale = outcome.rationale;
   }
 
@@ -138,6 +156,16 @@ export class InMemoryJarvisRepo implements JarvisRepo {
     if (this.controlCommands.has(id)) return false;
     this.controlCommands.set(id, { ...row });
     return true;
+  }
+
+  async getControlCommand(graphRunId: string, idempotencyKey: string) {
+    const row = this.controlCommands.get(key(graphRunId, idempotencyKey));
+    return row ? { ...row } : null;
+  }
+
+  async setControlCommandStatus(graphRunId: string, idempotencyKey: string, status: ControlCommandRow["status"]) {
+    const row = this.controlCommands.get(key(graphRunId, idempotencyKey));
+    if (row) row.status = status;
   }
 
   async claimDelivery(messageId: string, channel: ChannelId) {
