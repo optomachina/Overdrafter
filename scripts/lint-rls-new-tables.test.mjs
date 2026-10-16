@@ -1,9 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { makeLintRepo, runLintMain } from "./lint-cli-test-helpers.mjs";
 import {
   BASELINE_PATH,
   buildBaseline,
@@ -230,24 +229,8 @@ describe("RLS on new tables baseline", () => {
 });
 
 describe("RLS on new tables lint CLI", () => {
-  function makeRepo() {
-    const root = mkdtempSync(path.join(tmpdir(), "rls-new-tables-lint-"));
-    mkdirSync(path.join(root, "supabase/migrations"), { recursive: true });
-    mkdirSync(path.join(root, "scripts"), { recursive: true });
-    const git = (...args) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
-    git("init", "-q");
-    git("config", "user.email", "lint@example.invalid");
-    git("config", "user.name", "lint");
-    git("config", "commit.gpgsign", "false");
-    writeFileSync(path.join(root, "supabase/migrations/20200101000000_legacy.sql"), fixture("missing-rls.sql"));
-    return { root, git };
-  }
-
-  const run = (argv) => {
-    const out = [];
-    const code = main(argv, { stdout: (line) => out.push(line), stderr: (line) => out.push(line), env: {} });
-    return { code, out: out.join("\n") };
-  };
+  const makeRepo = () => makeLintRepo("rls-new-tables-lint-", fixture("missing-rls.sql"));
+  const run = (argv) => runLintMain(main, argv);
 
   it("writes a deterministic baseline", () => {
     const { root } = makeRepo();

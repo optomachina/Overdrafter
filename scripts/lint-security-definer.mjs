@@ -890,12 +890,26 @@ export function lintFiles({
   };
 }
 
+/** Leading report lines: the GATE LOOSENING banner and its reasons (none when not detected). */
+export function gateLooseningLines(report) {
+  if (!report.gate_loosening?.detected) return [];
+  return [
+    `${GATE_LOOSENING_LINE} (report only, does not block)`,
+    ...report.gate_loosening.reasons.map((reason) => `  gate_loosening ${reason.code}: ${reason.message}`),
+  ];
+}
+
+/** Summary line tail: stale entry count (full mode) and the PASS/FAIL verdict. */
+export function reportVerdict(report) {
+  const stale = report.summary.staleBaselineEntries;
+  return (
+    (report.mode === "full" ? `, ${stale} stale baseline entr${stale === 1 ? "y" : "ies"}` : "") +
+    (report.ok ? " — PASS" : report.enforce ? " — FAIL" : " — FAIL (report mode, not enforced)")
+  );
+}
+
 export function formatReport(report) {
-  const lines = [];
-  if (report.gate_loosening?.detected) {
-    lines.push(`${GATE_LOOSENING_LINE} (report only, does not block)`);
-    for (const reason of report.gate_loosening.reasons) lines.push(`  gate_loosening ${reason.code}: ${reason.message}`);
-  }
+  const lines = gateLooseningLines(report);
   for (const violation of report.violations.filter((v) => !v.baselined)) lines.push(...formatViolation(violation));
   for (const entry of report.baselineGrowth) {
     lines.push(`${BASELINE_PATH}: baseline entry added for ${entry.file} ${entry.signature} (baseline may only shrink)`);
@@ -904,30 +918,37 @@ export function formatReport(report) {
   lines.push(
     `security-definer-lint: ${s.files} file(s), ${s.definers} SECURITY DEFINER function(s), ` +
       `${s.failing} failing, ${s.baselined} baselined, ${s.baselineGrowth} baseline addition(s)` +
-      (report.mode === "full" ? `, ${s.staleBaselineEntries} stale baseline entr${s.staleBaselineEntries === 1 ? "y" : "ies"}` : "") +
-      (report.ok ? " — PASS" : report.enforce ? " — FAIL" : " — FAIL (report mode, not enforced)"),
+      reportVerdict(report),
   );
   return lines.join("\n");
 }
 
+export const escapeAnnotation = (value) => String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+
+/** GitHub annotations for unbaselined violations (error under --enforce, else warning). */
+export function violationAnnotations(report, formatViolationLines, title) {
+  const level = report.enforce ? "error" : "warning";
+  return report.violations
+    .filter((v) => !v.baselined)
+    .flatMap((violation) =>
+      formatViolationLines(violation).map(
+        (message) => `::${level} file=${violation.file},line=${violation.line},title=${title}::${escapeAnnotation(message)}`,
+      ),
+    );
+}
+
 function githubAnnotations(report) {
   const level = report.enforce ? "error" : "warning";
-  const escape = (value) => String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
-  const lines = [];
-  for (const violation of report.violations.filter((v) => !v.baselined)) {
-    for (const message of formatViolation(violation)) {
-      lines.push(`::${level} file=${violation.file},line=${violation.line},title=SECURITY DEFINER lint::${escape(message)}`);
-    }
-  }
+  const lines = violationAnnotations(report, formatViolation, "SECURITY DEFINER lint");
   for (const entry of report.baselineGrowth) {
-    lines.push(`::${level} file=${BASELINE_PATH},title=SECURITY DEFINER baseline::${escape(`baseline entry added for ${entry.signature}`)}`);
+    lines.push(`::${level} file=${BASELINE_PATH},title=SECURITY DEFINER baseline::${escapeAnnotation(`baseline entry added for ${entry.signature}`)}`);
   }
   if (report.gate_loosening?.detected) {
     // Report only, so always a warning even under --enforce.
     const files = [...new Set(report.gate_loosening.reasons.map((reason) => reason.file))];
     for (const file of files) {
       const messages = report.gate_loosening.reasons.filter((reason) => reason.file === file).map((reason) => reason.message);
-      lines.push(`::warning file=${file},title=${GATE_LOOSENING_LINE.replaceAll(":", "")}::${escape(messages.join("\n"))}`);
+      lines.push(`::warning file=${file},title=${GATE_LOOSENING_LINE.replaceAll(":", "")}::${escapeAnnotation(messages.join("\n"))}`);
     }
   }
   return lines;
@@ -969,8 +990,9 @@ export function listMigrationFiles(root) {
     .map((name) => `${MIGRATIONS_DIR}/${name}`);
 }
 
-function parseArgs(argv) {
+function parseArgs(argv, allowReport) {
   const options = { all: false, files: [], enforce: false, writeBaseline: false };
+  if (allowReport) options.report = false;
   const valueFlags = new Map([
     ["--root", "root"],
     ["--baseline", "baseline"],
@@ -982,6 +1004,7 @@ function parseArgs(argv) {
     const arg = argv[k];
     if (arg === "--all") options.all = true;
     else if (arg === "--enforce") options.enforce = true;
+    else if (allowReport && arg === "--report") options.report = true;
     else if (arg === "--write-baseline") options.writeBaseline = true;
     else if (valueFlags.has(arg)) {
       const value = argv[k + 1];
@@ -991,6 +1014,7 @@ function parseArgs(argv) {
     } else if (arg.startsWith("--")) throw new Error(`unknown option ${arg}`);
     else options.files.push(arg);
   }
+  if (options.enforce && options.report) throw new Error("--enforce and --report are mutually exclusive");
   if (options.writeBaseline && !options.all) throw new Error("--write-baseline requires --all");
   if (!options.all && !options.changedFilesFrom && options.files.length === 0) options.all = true;
   return options;
@@ -1009,16 +1033,34 @@ export function readRefFile(root, ref, file) {
   }
 }
 
-export function main(argv = process.argv.slice(2), { stdout = console.log, stderr = console.error, env = process.env } = {}) {
+export const toJsonText = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+/**
+ * CLI driver shared by the migration lint family (this rule and
+ * scripts/lint-rls-new-tables.mjs). rule: {name, baselinePath, parseBaseline,
+ * buildBaseline, lintFiles, formatReport, githubAnnotations}, plus optional
+ * allowReport (accept --report), withBaseFiles (pass the base copies of changed
+ * files to lintFiles) and writeBaselineFirst (write the baseline before reading
+ * the existing one).
+ */
+export function runLintCli(rule, argv, { stdout = console.log, stderr = console.error, env = process.env } = {}) {
   let options;
   try {
-    options = parseArgs(argv);
+    options = parseArgs(argv, rule.allowReport);
   } catch (error) {
-    stderr(`security-definer-lint: ${error.message}`);
+    stderr(`${rule.name}: ${error.message}`);
     return 2;
   }
   const root = path.resolve(options.root ?? process.cwd());
-  const baselineFile = options.baseline ?? BASELINE_PATH;
+  const baselineFile = options.baseline ?? rule.baselinePath;
+  const read = (file) => ({ file, sql: readFileSync(path.join(root, file), "utf8") });
+  const writeBaseline = (files, mode) => {
+    const report = rule.lintFiles({ files: files.map(read), mode });
+    const baseline = rule.buildBaseline(report.violations);
+    writeFileSync(path.resolve(root, baselineFile), toJsonText(baseline));
+    stdout(`${rule.name}: wrote ${baseline.entries.length} baseline entries to ${baselineFile}`);
+    return 0;
+  };
   try {
     let files;
     let mode;
@@ -1035,29 +1077,29 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
       mode = "files";
       files = options.files.map((file) => path.relative(root, path.resolve(root, file)).replaceAll("\\", "/"));
     }
+    if (options.writeBaseline && rule.writeBaselineFirst) return writeBaseline(files, mode);
 
     let headBaseline = null;
     try {
-      headBaseline = parseBaseline(readFileSync(path.resolve(root, baselineFile), "utf8"));
+      headBaseline = rule.parseBaseline(readFileSync(path.resolve(root, baselineFile), "utf8"));
     } catch (error) {
       if (error.code !== "ENOENT") throw new Error(`${baselineFile}: ${error.message}`);
     }
     let baseBaseline = null;
+    let baseFiles = null;
     if (options.baseRef) {
       const text = readRefFile(root, options.baseRef, baselineFile);
-      if (text !== null) baseBaseline = parseBaseline(text);
+      if (text !== null) baseBaseline = rule.parseBaseline(text);
+      if (rule.withBaseFiles && mode === "changed") {
+        baseFiles = files.map((file) => ({ file, sql: readRefFile(root, options.baseRef, file) }));
+      }
     }
 
-    if (options.writeBaseline) {
-      const report = lintFiles({ files: files.map((file) => ({ file, sql: readFileSync(path.join(root, file), "utf8") })), mode });
-      const baseline = buildBaseline(report.violations);
-      writeFileSync(path.resolve(root, baselineFile), `${JSON.stringify(baseline, null, 2)}\n`);
-      stdout(`security-definer-lint: wrote ${baseline.entries.length} baseline entries to ${baselineFile}`);
-      return 0;
-    }
+    if (options.writeBaseline) return writeBaseline(files, mode);
 
-    const report = lintFiles({
-      files: files.map((file) => ({ file, sql: readFileSync(path.join(root, file), "utf8") })),
+    const report = rule.lintFiles({
+      files: files.map(read),
+      ...(rule.withBaseFiles ? { baseFiles } : {}),
       // The base commit's baseline is the allow-list when there is one, so a PR
       // cannot widen it by editing its own copy.
       baseline: baseBaseline ?? headBaseline,
@@ -1067,14 +1109,30 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
       mode,
       enforce: options.enforce,
     });
-    if (options.jsonOut) writeFileSync(path.resolve(root, options.jsonOut), `${JSON.stringify(report, null, 2)}\n`);
-    if (env.GITHUB_ACTIONS === "true") for (const line of githubAnnotations(report)) stdout(line);
-    stdout(formatReport(report));
+    if (options.jsonOut) writeFileSync(path.resolve(root, options.jsonOut), toJsonText(report));
+    if (env.GITHUB_ACTIONS === "true") for (const line of rule.githubAnnotations(report)) stdout(line);
+    stdout(rule.formatReport(report));
     return options.enforce && !report.ok ? 1 : 0;
   } catch (error) {
-    stderr(`security-definer-lint: ${error.message}`);
+    stderr(`${rule.name}: ${error.message}`);
     return 2;
   }
+}
+
+export function main(argv = process.argv.slice(2), io = {}) {
+  return runLintCli(
+    {
+      name: "security-definer-lint",
+      baselinePath: BASELINE_PATH,
+      parseBaseline,
+      buildBaseline,
+      lintFiles,
+      formatReport,
+      githubAnnotations,
+    },
+    argv,
+    io,
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
