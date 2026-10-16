@@ -24,19 +24,28 @@ export const IGNORE_FILE = "drift-ignore.json";
 export const MAINTENANCE_BRANCH = "chore/verify-skill-maintenance";
 export const MAINTENANCE_LABEL = "verify-skill-maintenance";
 
+/** Code-unit order, identical to the default `Array#sort` for strings. */
+const compareCodeUnits = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+const stripTrailingSlashes = (route) => {
+  if (route.length <= 1) return route;
+  let end = route.length;
+  while (end > 0 && route[end - 1] === "/") end -= 1;
+  return route.slice(0, end);
+};
+
 /** `/parts/:jobId` and `/parts/<id>` both become `/parts/:param`. */
 export function normalizeRoute(route) {
-  const trimmed = route.length > 1 ? route.replace(/\/+$/, "") : route;
-  return trimmed.replace(/\/(?::[\w-]+|<[^>/]+>)/g, "/:param");
+  return stripTrailingSlashes(route).replace(/\/(?::[\w-]+|<[^>/]+>)/g, "/:param");
 }
 
 export function extractAppRoutes(source) {
   const routes = [...source.matchAll(/\bpath\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]);
-  return [...new Set(routes.filter((r) => r.startsWith("/")))].sort();
+  return [...new Set(routes.filter((r) => r.startsWith("/")))].sort(compareCodeUnits);
 }
 
 export function extractSpecPaths(text) {
-  return [...new Set([...text.matchAll(/\be2e\/[\w./-]+\.spec\.ts\b/g)].map((m) => m[0]))].sort();
+  return [...new Set([...text.matchAll(/\be2e\/[\w./-]+\.spec\.ts\b/g)].map((m) => m[0]))].sort(compareCodeUnits);
 }
 
 const stripFences = (markdown) => markdown.replace(/^```[\s\S]*?^```/gm, "");
@@ -54,7 +63,7 @@ export function extractMarkdownReferences(markdown) {
       paths.add(token.replace(/^\.\//, ""));
     }
   }
-  return { routes: [...routes].sort(), paths: [...paths].sort() };
+  return { routes: [...routes].sort(compareCodeUnits), paths: [...paths].sort(compareCodeUnits) };
 }
 
 export function readIgnore(raw) {
@@ -80,49 +89,70 @@ const matches = (value, patterns) =>
  * Pure comparison. `skill.files` is `[{ name, text }]` relative to the skill dir;
  * `app` carries the app's routes, spec paths and a path-existence predicate.
  */
-export function detectDrift({ skill, app, ignore = { routes: [], specs: [], paths: [] } }) {
-  const findings = [];
-  const add = (kind, item, source, detail) => findings.push({ kind, item, source, detail });
-  const markdown = skill.files.filter((f) => f.name.endsWith(".md"));
+function checkIndex(markdown, add) {
   const features = markdown.filter((f) => /^features\/[^/]+\.md$/.test(f.name) && f.name !== "features/README.md");
   const index = markdown.find((f) => f.name === "features/README.md");
-
-  if (!index) add("missing-index", "features/README.md", "features/", "feature map has no README index");
-  const linked = index ? [...index.text.matchAll(/\]\(\.\/([\w.-]+\.md)\)/g)].map((m) => `features/${m[1]}`) : [];
+  if (!index) {
+    add("missing-index", "features/README.md", "features/", "feature map has no README index");
+    return features;
+  }
+  const linked = [...index.text.matchAll(/\]\(\.\/([\w.-]+\.md)\)/g)].map((m) => `features/${m[1]}`);
   for (const link of new Set(linked)) {
     if (!features.some((f) => f.name === link)) add("dead-index-link", link, "features/README.md", "index links a feature file that does not exist");
   }
   for (const f of features) {
-    if (index && !linked.includes(f.name)) add("unindexed-feature", f.name, f.name, "feature file is not linked from features/README.md");
+    if (!linked.includes(f.name)) add("unindexed-feature", f.name, f.name, "feature file is not linked from features/README.md");
   }
+  return features;
+}
 
-  const appRoutes = new Map(app.routes.map((r) => [normalizeRoute(r), r]));
-  const mappedRoutes = new Set();
-  const mappedSpecs = new Set();
-  for (const file of skill.files) {
-    for (const spec of extractSpecPaths(file.text)) {
-      mappedSpecs.add(spec);
-      if (!app.specs.includes(spec)) add("stale-spec", spec, file.name, "map names an e2e spec that does not exist");
-    }
-    if (!file.name.endsWith(".md")) continue;
-    const refs = extractMarkdownReferences(file.text);
-    for (const route of refs.routes) {
-      const key = normalizeRoute(route);
-      mappedRoutes.add(key);
-      if (!appRoutes.has(key) && !matches(route, ignore.routes)) add("stale-route", route, file.name, `no route in ${APP_ROUTES_FILE}`);
-    }
-    for (const ref of refs.paths) {
-      if (!matches(ref, ignore.paths) && !app.pathExists(ref, path.posix.dirname(file.name))) {
-        add("missing-path", ref, file.name, "referenced path not found from repo root, skill dir or the citing file");
-      }
+function checkSpecs(file, app, mappedSpecs, add) {
+  for (const spec of extractSpecPaths(file.text)) {
+    mappedSpecs.add(spec);
+    if (!app.specs.includes(spec)) add("stale-spec", spec, file.name, "map names an e2e spec that does not exist");
+  }
+}
+
+function checkMarkdownRefs(file, { app, appRoutes, ignore, mappedRoutes }, add) {
+  const refs = extractMarkdownReferences(file.text);
+  for (const route of refs.routes) {
+    const key = normalizeRoute(route);
+    mappedRoutes.add(key);
+    if (!appRoutes.has(key) && !matches(route, ignore.routes)) add("stale-route", route, file.name, `no route in ${APP_ROUTES_FILE}`);
+  }
+  for (const ref of refs.paths) {
+    if (!matches(ref, ignore.paths) && !app.pathExists(ref, path.posix.dirname(file.name))) {
+      add("missing-path", ref, file.name, "referenced path not found from repo root, skill dir or the citing file");
     }
   }
+}
+
+function checkUnmapped({ app, appRoutes, ignore, mappedRoutes, mappedSpecs }, add) {
   for (const [key, route] of appRoutes) {
     if (!mappedRoutes.has(key) && !matches(route, ignore.routes)) add("unmapped-route", route, APP_ROUTES_FILE, "app route not covered by any feature file");
   }
   for (const spec of app.specs) {
     if (!mappedSpecs.has(spec) && !matches(spec, ignore.specs)) add("unmapped-spec", spec, E2E_DIR, "e2e spec not named by the feature map");
   }
+}
+
+export function detectDrift({ skill, app, ignore = { routes: [], specs: [], paths: [] } }) {
+  const findings = [];
+  const add = (kind, item, source, detail) => findings.push({ kind, item, source, detail });
+  const features = checkIndex(skill.files.filter((f) => f.name.endsWith(".md")), add);
+
+  const ctx = {
+    app,
+    appRoutes: new Map(app.routes.map((r) => [normalizeRoute(r), r])),
+    ignore,
+    mappedRoutes: new Set(),
+    mappedSpecs: new Set(),
+  };
+  for (const file of skill.files) {
+    checkSpecs(file, app, ctx.mappedSpecs, add);
+    if (file.name.endsWith(".md")) checkMarkdownRefs(file, ctx, add);
+  }
+  checkUnmapped(ctx, add);
 
   const seen = new Set();
   const unique = findings
@@ -179,7 +209,7 @@ function listFiles(dir, pattern, base = dir) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) return listFiles(full, pattern, base);
     return pattern.test(entry.name) ? [path.relative(base, full).split(path.sep).join("/")] : [];
-  }).sort();
+  }).sort(compareCodeUnits);
 }
 
 const gitIgnored = (root, rel) =>
@@ -215,7 +245,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (!flag.startsWith("--") || argv[i + 1] === undefined) throw new Error(`bad argument: ${flag}`);
-    opts[flag.slice(2)] = argv[(i += 1)];
+    i += 1;
+    opts[flag.slice(2)] = argv[i];
   }
   return opts;
 }
