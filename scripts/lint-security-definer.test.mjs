@@ -8,8 +8,12 @@ import {
   BASELINE_PATH,
   buildBaseline,
   changedMigrationFiles,
+  CHECKER_PATH,
   findBaselineGrowth,
+  findGateLoosening,
   findStaleBaselineEntries,
+  formatReport,
+  GATE_LOOSENING_LINE,
   lintFiles,
   lintSql,
   listMigrationFiles,
@@ -133,6 +137,88 @@ describe("SECURITY DEFINER baseline", () => {
   });
 });
 
+describe("SECURITY DEFINER gate loosening", () => {
+  const legacyFile = "supabase/migrations/20200101000000_legacy.sql";
+  const legacy = { file: legacyFile, sql: fixture("baseline-noncompliant.sql") };
+  const newMigration = { file: "supabase/migrations/20990101000000_new.sql", sql: fixture("missing-grant.sql") };
+  const base = buildBaseline(lintFiles({ files: [legacy, newMigration] }).violations);
+  const requires = ["grokbot_countersign", "blaine_card"];
+
+  it("detects baseline growth vs the base commit with a reason", () => {
+    const grown = buildBaseline(
+      lintFiles({ files: [legacy, newMigration, { file: "supabase/migrations/20990101000001_x.sql", sql: fixture("missing-revoke-anon.sql") }] })
+        .violations,
+    );
+    const report = lintFiles({ files: [], baseline: base, baseBaseline: base, headBaseline: grown });
+    expect(report.gate_loosening).toMatchObject({ detected: true, requires });
+    expect(report.gate_loosening.reasons).toEqual([
+      expect.objectContaining({
+        code: "baseline_entry_added",
+        file: BASELINE_PATH,
+        signature: "public.fixture_no_revoke_anon(uuid)",
+      }),
+    ]);
+    expect(formatReport(report)).toContain(GATE_LOOSENING_LINE);
+  });
+
+  it("detects a widened entry that allows more missing clauses", () => {
+    const widened = {
+      ...base,
+      entries: base.entries.map((entry) =>
+        entry.signature === "public.fixture_no_grant(uuid)" ? { ...entry, missing: ["search_path", "grant"] } : entry,
+      ),
+    };
+    const { reasons } = findGateLoosening({ baseBaseline: base, headBaseline: widened });
+    expect(reasons).toEqual([
+      expect.objectContaining({ code: "baseline_entry_widened", signature: "public.fixture_no_grant(uuid)", missing_added: ["search_path"] }),
+    ]);
+  });
+
+  it("does not flag a shrinking baseline", () => {
+    const shrunk = { ...base, entries: base.entries.slice(1) };
+    const report = lintFiles({ files: [], baseline: base, baseBaseline: base, headBaseline: shrunk });
+    expect(report.gate_loosening).toEqual({ detected: false, reasons: [], requires });
+    expect(formatReport(report)).not.toContain("GATE LOOSENING");
+  });
+
+  it("does not flag an unchanged baseline", () => {
+    const report = lintFiles({
+      files: [],
+      baseline: base,
+      baseBaseline: base,
+      headBaseline: structuredClone(base),
+      changedFiles: [{ status: "M", file: "src/unrelated.ts" }],
+    });
+    expect(report.gate_loosening.detected).toBe(false);
+    expect(report.ok).toBe(true);
+  });
+
+  it("flags an edited checker script or workflow for review without failing the report", () => {
+    const report = lintFiles({
+      files: [],
+      baseline: base,
+      baseBaseline: base,
+      headBaseline: base,
+      changedFiles: [
+        { status: "M", file: CHECKER_PATH },
+        { status: "D", file: ".github/workflows/security-definer-lint.yml" },
+      ],
+      enforce: true,
+    });
+    expect(report.gate_loosening.detected).toBe(true);
+    expect(report.gate_loosening.reasons.map((reason) => [reason.code, reason.file])).toEqual([
+      ["checker_changed", ".github/workflows/security-definer-lint.yml"],
+      ["checker_changed", CHECKER_PATH],
+    ]);
+    expect(report.ok).toBe(true);
+  });
+
+  it("does not flag adding the checker when the base has no copy", () => {
+    const { detected } = findGateLoosening({ changedFiles: [{ status: "A", file: CHECKER_PATH }] });
+    expect(detected).toBe(false);
+  });
+});
+
 describe("SECURITY DEFINER lint parsing", () => {
   it("tokenises dollar bodies, nested comments and quoted identifiers", () => {
     const tokens = tokenize(`/* a /* nested */ b */ select $x$ ; $$ $x$, "Se""mi;", E'it\\'s;' -- tail ;`);
@@ -248,9 +334,49 @@ describe("SECURITY DEFINER lint CLI", () => {
     run(["--all", "--write-baseline", "--root", root]);
     writeFileSync(path.join(root, "changed.txt"), `A\t${newFile}\nM\t${BASELINE_PATH}\n`);
 
-    const result = run(["--changed-files-from", "changed.txt", "--base-ref", "HEAD", "--root", root, "--enforce"]);
+    const result = run([
+      "--changed-files-from", "changed.txt", "--base-ref", "HEAD", "--root", root, "--enforce", "--json-out", "out.json",
+    ]);
     expect(result.code).toBe(1);
     expect(result.out).toContain("baseline may only shrink");
     expect(result.out).toContain("missing GRANT EXECUTE");
+    expect(result.out).toContain(GATE_LOOSENING_LINE);
+    const json = JSON.parse(readFileSync(path.join(root, "out.json"), "utf8"));
+    expect(json.gate_loosening).toMatchObject({
+      detected: true,
+      reasons: [expect.objectContaining({ code: "baseline_entry_added", signature: "public.fixture_no_grant(uuid)" })],
+      requires: ["grokbot_countersign", "blaine_card"],
+    });
+  });
+
+  it("reports a checker edit as gate loosening without failing --enforce", () => {
+    const { root, git } = makeRepo();
+    run(["--all", "--write-baseline", "--root", root]);
+    writeFileSync(path.join(root, CHECKER_PATH), "// base copy\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "base");
+
+    writeFileSync(path.join(root, CHECKER_PATH), "// relaxed\n");
+    writeFileSync(path.join(root, "changed.txt"), `M\t${CHECKER_PATH}\n`);
+    const result = run([
+      "--changed-files-from", "changed.txt", "--base-ref", "HEAD", "--root", root, "--enforce", "--json-out", "out.json",
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain(`${GATE_LOOSENING_LINE} (report only, does not block)`);
+    expect(result.out).toContain(`checker_changed: ${CHECKER_PATH} edited`);
+    const json = JSON.parse(readFileSync(path.join(root, "out.json"), "utf8"));
+    expect(json).toMatchObject({ ok: true, gate_loosening: { detected: true } });
+  });
+
+  it("reports no gate loosening for an unrelated change", () => {
+    const { root, git } = makeRepo();
+    run(["--all", "--write-baseline", "--root", root]);
+    git("add", ".");
+    git("commit", "-q", "-m", "base");
+    writeFileSync(path.join(root, "changed.txt"), "M\tsrc/app.ts\n");
+    const result = run(["--changed-files-from", "changed.txt", "--base-ref", "HEAD", "--root", root, "--json-out", "out.json"]);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain("GATE LOOSENING");
+    expect(JSON.parse(readFileSync(path.join(root, "out.json"), "utf8")).gate_loosening.detected).toBe(false);
   });
 });

@@ -20,6 +20,17 @@
  * any entry that the base commit's baseline does not cover is reported as
  * baseline growth.
  *
+ * Gate loosening (Release Plan §6): baseline growth (an added entry, or an
+ * entry that misses more clauses than the base copy records) and any edit to
+ * this script or its CI workflow are classified as gate_loosening, which needs
+ * a Grok Bot countersign on top of Blaine's card. The checker has no allow-list
+ * other than the baseline. Edits to the checker are flagged for review whatever
+ * they change; adding the checker (no base copy) is not flagged. Detection is
+ * report only: it adds a gate_loosening field to the JSON and a GATE LOOSENING
+ * line to the output, but never changes the exit code. --enforce still fails
+ * on baseline growth, as it does without gate loosening, and does not fail on
+ * a checker edit alone. Checker edits are seen only with --changed-files-from.
+ *
  * Usage:
  *   node scripts/lint-security-definer.mjs --all [--write-baseline]
  *   node scripts/lint-security-definer.mjs --changed-files-from <name-status.txt> --base-ref HEAD^1
@@ -42,6 +53,15 @@ export const MIGRATIONS_DIR = "supabase/migrations";
 export const BASELINE_PATH = "scripts/security-definer-baseline.json";
 export const BASELINE_SCHEMA = "security-definer-baseline.v1";
 export const REPORT_SCHEMA = "security-definer-lint.v1";
+export const CHECKER_PATH = "scripts/lint-security-definer.mjs";
+export const WORKFLOW_PATH = ".github/workflows/security-definer-lint.yml";
+const CHECKER_FILES = [CHECKER_PATH, WORKFLOW_PATH];
+
+export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
+export const GATE_LOOSENING_LINE = "GATE LOOSENING: needs Grok Bot countersign + Blaine's card";
+export const LOOSENING_BASELINE_ADDED = "baseline_entry_added";
+export const LOOSENING_BASELINE_WIDENED = "baseline_entry_widened";
+export const LOOSENING_CHECKER_CHANGED = "checker_changed";
 
 export const MISSING_SEARCH_PATH = "search_path";
 export const MISSING_REVOKE_PUBLIC = "revoke_public";
@@ -744,6 +764,54 @@ export function findBaselineGrowth(baseBaseline, headBaseline) {
   return (headBaseline?.entries ?? []).filter((entry) => !coveredBy(index, entry));
 }
 
+/**
+ * Classify a PR's changes as gate_loosening (report only).
+ * @param {{baseBaseline?: object|null, headBaseline?: object|null, changedFiles?: {status: string, file: string}[]}} input
+ * @returns {{detected: boolean, reasons: object[], requires: string[]}}
+ */
+export function findGateLoosening({ baseBaseline = null, headBaseline = null, changedFiles = [] } = {}) {
+  const reasons = [];
+  if (baseBaseline && headBaseline) {
+    const index = indexBaseline(baseBaseline);
+    for (const entry of findBaselineGrowth(baseBaseline, headBaseline)) {
+      const known = index.get(baselineKey(entry));
+      if (known) {
+        const missingAdded = entry.missing.filter((code) => !known.missing.includes(code));
+        reasons.push({
+          code: LOOSENING_BASELINE_WIDENED,
+          file: BASELINE_PATH,
+          signature: entry.signature,
+          migration: entry.file,
+          missing_added: missingAdded,
+          message: `baseline entry for ${entry.file} ${entry.signature} widened to also allow missing ${missingAdded.join(", ")}`,
+        });
+      } else {
+        reasons.push({
+          code: LOOSENING_BASELINE_ADDED,
+          file: BASELINE_PATH,
+          signature: entry.signature,
+          migration: entry.file,
+          message: `baseline entry added for ${entry.file} ${entry.signature}`,
+        });
+      }
+    }
+  }
+  // Only files with a base copy: adding the checker does not loosen it.
+  const edited = new Map();
+  for (const { status, file } of changedFiles) {
+    if (CHECKER_FILES.includes(file) && status !== "A") edited.set(file, status);
+  }
+  for (const [file, status] of [...edited].sort(([a], [b]) => a.localeCompare(b))) {
+    reasons.push({
+      code: LOOSENING_CHECKER_CHANGED,
+      file,
+      status,
+      message: `${file} ${status === "D" ? "deleted" : "edited"}; needs review (the base copy ran)`,
+    });
+  }
+  return { detected: reasons.length > 0, reasons, requires: [...GATE_LOOSENING_REQUIRES] };
+}
+
 /** Baseline entries the current violations no longer produce (safe to remove). */
 export function findStaleBaselineEntries(baseline, violations) {
   const current = new Map(violations.map((violation) => [baselineKey(violation), violation]));
@@ -773,9 +841,18 @@ export function formatViolation(violation) {
 
 /**
  * Lint a set of files and build the report object.
- * @param {{files: {file: string, sql: string}[], baseline?: object, baseBaseline?: object|null, headBaseline?: object|null, mode?: string, enforce?: boolean}} input
+ * gate_loosening is report only and never affects ok.
+ * @param {{files: {file: string, sql: string}[], baseline?: object, baseBaseline?: object|null, headBaseline?: object|null, changedFiles?: {status: string, file: string}[], mode?: string, enforce?: boolean}} input
  */
-export function lintFiles({ files, baseline = null, baseBaseline = null, headBaseline = null, mode = "files", enforce = false }) {
+export function lintFiles({
+  files,
+  baseline = null,
+  baseBaseline = null,
+  headBaseline = null,
+  changedFiles = [],
+  mode = "files",
+  enforce = false,
+}) {
   const definers = [];
   let violations = [];
   for (const { file, sql } of files) {
@@ -805,11 +882,16 @@ export function lintFiles({ files, baseline = null, baseBaseline = null, headBas
     violations,
     baselineGrowth,
     staleBaselineEntries,
+    gate_loosening: findGateLoosening({ baseBaseline, headBaseline, changedFiles }),
   };
 }
 
 export function formatReport(report) {
   const lines = [];
+  if (report.gate_loosening?.detected) {
+    lines.push(`${GATE_LOOSENING_LINE} (report only, does not block)`);
+    for (const reason of report.gate_loosening.reasons) lines.push(`  gate_loosening ${reason.code}: ${reason.message}`);
+  }
   for (const violation of report.violations.filter((v) => !v.baselined)) lines.push(...formatViolation(violation));
   for (const entry of report.baselineGrowth) {
     lines.push(`${BASELINE_PATH}: baseline entry added for ${entry.file} ${entry.signature} (baseline may only shrink)`);
@@ -836,6 +918,14 @@ function githubAnnotations(report) {
   for (const entry of report.baselineGrowth) {
     lines.push(`::${level} file=${BASELINE_PATH},title=SECURITY DEFINER baseline::${escape(`baseline entry added for ${entry.signature}`)}`);
   }
+  if (report.gate_loosening?.detected) {
+    // Report only, so always a warning even under --enforce.
+    const files = [...new Set(report.gate_loosening.reasons.map((reason) => reason.file))];
+    for (const file of files) {
+      const messages = report.gate_loosening.reasons.filter((reason) => reason.file === file).map((reason) => reason.message);
+      lines.push(`::warning file=${file},title=${GATE_LOOSENING_LINE.replaceAll(":", "")}::${escape(messages.join("\n"))}`);
+    }
+  }
   return lines;
 }
 
@@ -846,25 +936,32 @@ function githubAnnotations(report) {
 const MIGRATION_PATH = /^supabase\/migrations\/[^/]+\.sql$/;
 const NAME_STATUS_LINE = /^([A-Z])(?:\d{1,3})?\t(.+)$/;
 
-/** Changed migration files (added or modified) from `git diff --name-status --no-renames` text. */
-export function changedMigrationFiles(nameStatusText) {
-  const files = [];
+/** Parse `git diff --name-status --no-renames` text into {status, file}; bare paths count as modified. */
+export function parseNameStatus(nameStatusText) {
+  const changes = [];
   for (const raw of String(nameStatusText).split("\n")) {
     const line = raw.replaceAll("\\", "/").trim();
     if (!line) continue;
     const match = NAME_STATUS_LINE.exec(line);
     const status = match ? match[1] : "M";
     const file = (match ? match[2].split("\t").pop() : line).trim();
-    if (status === "D") continue;
-    if (MIGRATION_PATH.test(file)) files.push(file);
+    changes.push({ status, file });
   }
-  return [...new Set(files)].sort();
+  return changes;
+}
+
+/** Changed migration files (added or modified) from `git diff --name-status --no-renames` text. */
+export function changedMigrationFiles(nameStatusText) {
+  const files = parseNameStatus(nameStatusText)
+    .filter(({ status, file }) => status !== "D" && MIGRATION_PATH.test(file))
+    .map(({ file }) => file);
+  return [...new Set(files)].sort(compareCodeUnits);
 }
 
 export function listMigrationFiles(root) {
   return readdirSync(path.join(root, MIGRATIONS_DIR))
     .filter((name) => name.endsWith(".sql"))
-    .sort()
+    .sort(compareCodeUnits)
     .map((name) => `${MIGRATIONS_DIR}/${name}`);
 }
 
@@ -897,7 +994,7 @@ function parseArgs(argv) {
 
 function readRefFile(root, ref, file) {
   try {
-    return execFileSync("git", ["show", `${ref}:${file}`], {
+    return execFileSync("/usr/bin/git", ["show", `${ref}:${file}`], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -921,12 +1018,15 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
   try {
     let files;
     let mode;
+    let changedFiles = [];
     if (options.all) {
       mode = "full";
       files = listMigrationFiles(root);
     } else if (options.changedFilesFrom) {
       mode = "changed";
-      files = changedMigrationFiles(readFileSync(path.resolve(root, options.changedFilesFrom), "utf8"));
+      const nameStatus = readFileSync(path.resolve(root, options.changedFilesFrom), "utf8");
+      files = changedMigrationFiles(nameStatus);
+      changedFiles = parseNameStatus(nameStatus);
     } else {
       mode = "files";
       files = options.files.map((file) => path.relative(root, path.resolve(root, file)).replaceAll("\\", "/"));
@@ -959,6 +1059,7 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
       baseline: baseBaseline ?? headBaseline,
       baseBaseline,
       headBaseline,
+      changedFiles,
       mode,
       enforce: options.enforce,
     });
@@ -974,4 +1075,9 @@ export function main(argv = process.argv.slice(2), { stdout = console.log, stder
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = main();
+}
+
+function compareCodeUnits(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }

@@ -16,6 +16,15 @@ name: SECURITY DEFINER lint
 # cannot edit it to skip itself, and the allow-list is the base commit's
 # baseline. When the base has no copy yet (the PR that introduces the linter),
 # the head copy runs.
+#
+# Gate loosening (Release Plan §6): baseline growth (an added or widened entry)
+# and any edit to the linter or to this workflow are classified gate_loosening,
+# which needs a Grok Bot countersign on top of Blaine's card. The linter has no
+# allow-list besides the baseline. The base copy detects it, so an edit cannot
+# hide itself, and reports it in the gate_loosening field of the JSON artifact,
+# as a warning annotation and as a GATE LOOSENING line in the job summary. It is
+# report only: it never changes the exit code, even after --enforce is added
+# (--enforce fails on baseline growth either way, not on a checker edit alone).
 
 on:
   pull_request:
@@ -91,6 +100,11 @@ jobs:
             | tee "$RUNNER_TEMP/security-definer-lint.txt"
           {
             echo '## SECURITY DEFINER lint (report mode)'
+            if grep -q '^GATE LOOSENING:' "$RUNNER_TEMP/security-definer-lint.txt"; then
+              echo
+              echo "> **GATE LOOSENING: needs Grok Bot countersign + Blaine's card** (classification \`gate_loosening\`, report only)"
+              echo
+            fi
             echo '```'
             grep -v '^::' "$RUNNER_TEMP/security-definer-lint.txt" || true
             echo '```'
