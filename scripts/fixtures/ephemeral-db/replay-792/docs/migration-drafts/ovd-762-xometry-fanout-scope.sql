@@ -1,0 +1,43 @@
+-- OVD-762 item 1: let Xometry join a multi provider confirmation.
+--
+-- DRAFT ONLY. Not a migration and not applied anywhere. The lead promotes it
+-- to supabase/migrations in a migration window. Rollback:
+-- docs/migration-drafts/ovd-762-xometry-fanout-scope.rollback.sql. pgTAP:
+-- supabase/tests/ovd762_xometry_fanout_scope_draft.sql installs byte copies of
+-- both files from supabase/tests/fixtures.
+--
+-- Problem. private.resolve_xometry_beta_dispatch_scope_with_access raises
+-- xometry_beta_exact_provider_set_required unless the effective vendor set is
+-- exactly {xometry}, and api_authorize_xometry_beta_worker_dispatch refuses the
+-- same way at dispatch time. One confirmation that fans out to Xometry and
+-- another provider therefore never reaches Xometry.
+--
+-- Choice: an explicit fan out marker on new Xometry RPCs, not a move onto the
+-- generic provider path. The generic path refuses Xometry on purpose
+-- (provider_dispatch_specialized_path_required) and the Xometry worker reads
+-- only xometry_beta_dispatch_permits, so moving it would mean a second permit
+-- table, envelope and worker contract for one provider. The marker keeps every
+-- existing Xometry rule and changes one predicate.
+--
+-- What changes:
+--   * private.xometry_beta_fanout_markers: append only, one row per fan out
+--     permit, recording the confirmation reference and the provider set the
+--     customer confirmed. Unique per confirmation, so one Xometry permit per
+--     confirmation.
+--   * New four argument scope resolver and two new client RPCs. They copy the
+--     current Xometry resolver and request byte for byte except for the
+--     marker: the provider set must contain Xometry and one other provider,
+--     every provider in it must be enabled for the job, and the approval
+--     reference must be the confirmation reference or the fan out reference
+--     derived from it (the same RFC 9562 version 5 name the client derives).
+--     Scope fingerprint, notice, envelope, affirmations, permit, one active
+--     lane, rate and cost caps, and the export affirmation are unchanged.
+--   * api_authorize_xometry_beta_worker_dispatch: a permit with a marker
+--     needs every confirmed provider still enabled; a permit without one
+--     keeps the exact rule.
+-- Untouched: api_request_xometry_beta_dispatch, api_get_xometry_beta_dispatch_scope
+-- and the three argument resolver, so the single provider path is unchanged.
+-- No DROP statements.
+
+-- [header-only snapshot of docs/migration-drafts/ovd-762-xometry-fanout-scope.sql at d2b7981b (#792); body omitted]
+select 1;

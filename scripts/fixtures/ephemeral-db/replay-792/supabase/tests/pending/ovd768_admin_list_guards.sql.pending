@@ -1,0 +1,19 @@
+-- OVD-768 (OVD-766 group b): verified auth guard on the four platform admin
+-- list RPCs.
+--
+-- Targets the draft docs/migration-drafts/ovd-766-b.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- moved unchanged to supabase/tests/ovd768_admin_list_guards.sql in the same
+-- change. Plain SQL with no psql meta-commands.
+-- Pre-apply observation: anon still holds EXECUTE (PUBLIC and anon grants), the
+-- unverified admin is allowed, and search_path is public, auth, private, so the
+-- anon, unverified-admin and search_path assertions fail.
+--
+-- Per function: SECURITY DEFINER with search_path '', anon holds no EXECUTE and
+-- is refused (42501), a verified non-admin and an unverified platform admin are
+-- refused by the function body, a verified platform admin is allowed.
+-- Synthetic records only; everything rolls back.
+-- [header-only snapshot of supabase/tests/pending/ovd768_admin_list_guards.sql.pending at d2b7981b (#792); body omitted]
+select 1;
