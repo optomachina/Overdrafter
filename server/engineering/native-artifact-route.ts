@@ -27,6 +27,9 @@ export function createNativeArtifactRoute(config: NativeArtifactRouteConfig) {
     // Exact raw path. Never derive authority/origin from Host/X-Forwarded-*.
     if (incoming.url !== NATIVE_ARTIFACT_ROUTE) return false;
     const controller = new AbortController();
+    // Timers can lag a stalled event loop; inner layers check performance.now()
+    // against the same budget and may finish first, so check it here too.
+    const deadline = performance.now() + timeoutMs;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const abort = () => controller.abort();
     const close = () => { if (!outgoing.writableFinished) abort(); };
@@ -56,6 +59,7 @@ export function createNativeArtifactRoute(config: NativeArtifactRouteConfig) {
       const init: RequestInit & { duplex?: "half" } = { method, headers, signal: controller.signal };
       if (method === "PUT") { init.body = Readable.toWeb(incoming) as ReadableStream<Uint8Array>; init.duplex = "half"; }
       const response = await handle(new Request(`${publicOrigin}${NATIVE_ARTIFACT_ROUTE}`, init));
+      if (performance.now() >= deadline) abort();
       if (controller.signal.aborted || outgoing.destroyed) {
         void response.body?.cancel().catch(() => undefined);
         // A deadline is not a peer disconnect. Finish the HTTP exchange even
