@@ -5,6 +5,7 @@ import {
   OSHCUT_PROVIDER_ENVELOPE,
   resolveOshcutThicknessLabel,
 } from "./oshcut.js";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS } from "./oshcutCartCleanup.js";
 import { OSHCUT_DISPATCH_ENVELOPE } from "./oshcutDispatchAuthorization.js";
 import {
   classifyProviderPortalSnapshot,
@@ -268,6 +269,7 @@ export function buildOshcutProductionPortalDefinition(
       quantity: OSHCUT_PRODUCTION_SELECTORS.quantity,
       quantityAwaitMs: controlWaitMs,
       configuration: { ...OSHCUT_PRODUCTION_SELECTORS.configuration },
+      cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS },
     },
     supportedFileExtensions: [...OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions],
     terminalSignals: OSHCUT_TERMINAL_SIGNALS,
@@ -280,6 +282,8 @@ export function buildOshcutProductionPortalDefinition(
       configure: (configuration, input) => configureOshcutCart(configuration, input, controlWaitMs),
       classifyPortalState: classifyOshcutPortalState,
       extractOffers: (reader, input) => extractOshcutProductionOffers(reader, input.requestedQuantity, priceWaitMs),
+      // Standing rule: the uploaded test part leaves the cart once captured.
+      cleanup: cleanupOshcutCart,
     },
   };
 }

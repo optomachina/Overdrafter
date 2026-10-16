@@ -24,9 +24,11 @@ import {
   assessOshcutEligibility,
   OSHCUT_ENVELOPE_REVISION,
   OSHCUT_PROVIDER_ENVELOPE,
+  buildOshcutEvaluationDefinition,
   resolveOshcutThicknessLabel,
   OshcutAdapter,
 } from "./oshcut";
+import { cleanupOshcutCart } from "./oshcutCartCleanup";
 
 function makeConfig(overrides: Partial<WorkerConfig> = {}) {
   return {
@@ -694,5 +696,14 @@ describe("OshcutAdapter", () => {
       reasonCode: "dispatch_live_provider_not_permitted",
     });
     expect(adapterQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("OSH Cut live-harness evaluation definition (standing cleanup rule)", () => {
+  it("removes the uploaded test part from the cart after capture", () => {
+    const definition = buildOshcutEvaluationDefinition(getExtendedVendorWorkflow("oshcut")!);
+    expect(definition.hooks.cleanup).toBe(cleanupOshcutCart);
+    expect(Object.keys(definition.selectors.cleanup ?? {})).toEqual(["partRow", "removePart", "confirmRemove"]);
+    expect(definition.routes.uploadUrl).toBe("https://app.oshcut.com/cart");
   });
 });

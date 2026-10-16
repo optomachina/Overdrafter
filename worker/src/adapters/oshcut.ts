@@ -9,10 +9,13 @@ import {
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
 import { oshcutDispatchAuthorizationDenial } from "./oshcutDispatchAuthorization.js";
+import { cleanupOshcutCart, OSHCUT_CART_CLEANUP_SELECTORS } from "./oshcutCartCleanup.js";
 import {
+  buildPortalWorkflowDefinition,
   PortalQuoteWorkflowAdapter,
   type PortalQuoteWorkflow,
 } from "./portalWorkflow.js";
+import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 
 export const OSHCUT_ENVELOPE_REVISION = "oshcut-sheet-laser-6061-t6.v2" as const;
 
@@ -335,6 +338,19 @@ function finiteOutput(
 }
 
 /**
+ * Live-harness evaluation definition: the generic workflow definition plus the
+ * cart cleanup, so a capture or certification upload never stays in the cart.
+ */
+export function buildOshcutEvaluationDefinition(workflow: PortalQuoteWorkflow): ProviderPortalDefinition {
+  const base = buildPortalWorkflowDefinition(workflow);
+  return {
+    ...base,
+    selectors: { ...base.selectors, cleanup: { ...OSHCUT_CART_CLEANUP_SELECTORS } },
+    hooks: { ...base.hooks, cleanup: cleanupOshcutCart },
+  };
+}
+
+/**
  * Provider-local OSH Cut adapter behind the common `VendorAdapter.quote`
  * interface. Live evaluation stays local evidence that is never a customer
  * offer. Production dispatch (OVD-677) is default-off: it reaches the
@@ -352,7 +368,8 @@ export class OshcutAdapter extends VendorAdapter {
     evaluation?: Pick<VendorAdapter, "quote">,
   ) {
     super("oshcut", config);
-    this.evaluation = evaluation ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow);
+    this.evaluation = evaluation
+      ?? new PortalQuoteWorkflowAdapter("oshcut", config, workflow, buildOshcutEvaluationDefinition(workflow));
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {

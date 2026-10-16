@@ -53,6 +53,8 @@ type CartPageOptions = {
   /** Omits the price cells entirely. */
   noPriceCells?: boolean;
   extraHead?: string;
+  /** How the part row's remove control behaves; `none` renders no control. */
+  remove?: "immediate" | "native_confirm" | "modal_confirm" | "none";
 };
 
 function cartPage(options: CartPageOptions = {}): string {
@@ -64,6 +66,7 @@ function cartPage(options: CartPageOptions = {}): string {
     extended: options.extended ?? null,
     neverPriced: options.neverPriced === true,
     noPriceCells: options.noPriceCells === true,
+    remove: options.remove ?? "immediate",
   });
   const fileInput = options.fileInput === false ? "" : `<input type="file" id="cad" accept=".dxf,.step">`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>OSH Cut</title>${options.extraHead ?? ""}</head><body>
@@ -101,6 +104,24 @@ function cartPage(options: CartPageOptions = {}): string {
         });
         document.body.appendChild(panel);
       };
+      const removeRow = () => {
+        document.querySelector(".cartRow").remove();
+        fetch("/api/cart-part", { method: "DELETE" }).catch(() => undefined);
+      };
+      const onRemove = () => {
+        if (config.remove === "native_confirm") { if (confirm("Remove this part?")) removeRow(); return; }
+        if (config.remove === "modal_confirm") {
+          setTimeout(() => {
+            const modal = document.createElement("div");
+            modal.setAttribute("role", "dialog");
+            modal.innerHTML = "<p>Remove this part?</p><button>Cancel</button><button>Delete</button>";
+            modal.querySelectorAll("button")[1].addEventListener("click", () => { modal.remove(); removeRow(); });
+            document.body.appendChild(modal);
+          }, 150);
+          return;
+        }
+        removeRow();
+      };
       if (cad) cad.addEventListener("change", async () => {
         await fetch("/api/upload", { method: "POST", body: cad.files[0] });
         history.pushState({}, "", "/cart/O-0b6c1f2e-1111-4a2b-8c3d-000000000001/P-0b6c1f2e-2222-4a2b-8c3d-000000000002");
@@ -108,8 +129,11 @@ function cartPage(options: CartPageOptions = {}): string {
           document.getElementById("cart").innerHTML = '<div class="cartRow">'
             + '<div class="cartInformationArea">part.step <span class="error link">Select material</span></div>'
             + '<div class="cartQuantity"><input class="input" type="text" value="1"></div>'
-            + cells("-") + "</div>";
+            + cells("-")
+            + (config.remove === "none" ? "" : '<button class="removeButton" aria-label="Remove part">&times;</button>')
+            + "</div>";
           document.querySelector(".cartInformationArea .error.link").addEventListener("click", openSlideover);
+          document.querySelector(".removeButton")?.addEventListener("click", onRemove);
           document.getElementById("note").innerHTML = config.afterUpload;
         }, 300);
       });
@@ -171,6 +195,56 @@ describe("OSH Cut production portal definition in a browser fixture (OVD-677)", 
     expect(output).toBeNull();
     expect(error).toMatchObject({ code: "login_required", payload: { terminalState: "login_required", providerMutationPossible: false } });
     expect(observed.uploads).toEqual([]);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  // Standing rule (2026-10-15): the uploaded test part leaves the cart once
+  // the price is read, and after a failure that followed upload.
+  const removedFromCart = (requests: string[]) =>
+    requests.filter((request) => request === "DELETE https://app.oshcut.com/api/cart-part").length;
+
+  it.each(["immediate", "native_confirm", "modal_confirm"] as const)(
+    "removes the uploaded part from the cart after reading the price (%s remove)",
+    async (remove) => {
+      const { output, error, observed } = await session.quoteAgainst(cartPage({ remove }));
+      expect(error).toBeNull();
+      expect(output).toMatchObject({
+        totalPriceUsd: 1234.5,
+        rawPayload: { cartCleanup: { status: "removed", removed: 1, remaining: 0 } },
+      });
+      expect(removedFromCart(observed.requests)).toBe(1);
+    },
+    PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
+  );
+
+  it("still removes the uploaded part when the attempt fails after upload, keeping the failure", async () => {
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ neverPriced: true }));
+    expect(output).toBeNull();
+    expect(error).toMatchObject({
+      payload: {
+        terminalState: "selector_drift",
+        reason: "oshcut_price_pending",
+        cartCleanup: { status: "removed", removed: 1, remaining: 0 },
+      },
+    });
+    expect(removedFromCart(observed.requests)).toBe(1);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("logs a cleanup that cannot find the remove control without changing the quote", async () => {
+    const { output, error, observed } = await session.quoteAgainst(cartPage({ remove: "none" }));
+    expect(error).toBeNull();
+    expect(output).toMatchObject({
+      status: "instant_quote_received",
+      totalPriceUsd: 1234.5,
+      rawPayload: { cartCleanup: { status: "incomplete", removed: 0, remaining: 1 } },
+    });
+    expect(removedFromCart(observed.requests)).toBe(0);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
+
+  it("does not attempt cleanup when nothing was uploaded", async () => {
+    const { error, observed } = await session.quoteAgainst(cartPage({ header: "<span>OSH Cut</span><button>Sign In</button>" }));
+    expect(error).toMatchObject({ payload: { terminalState: "login_required" } });
+    expect((error!.payload as Record<string, unknown>).cartCleanup).toBeUndefined();
+    expect(removedFromCart(observed.requests)).toBe(0);
   }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   registerSharedPortalBrowserRefusals(session, {
