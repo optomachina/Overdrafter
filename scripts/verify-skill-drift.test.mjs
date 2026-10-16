@@ -13,8 +13,10 @@ import {
   extractAppRoutes,
   extractMarkdownReferences,
   normalizeRoute,
+  parseArgs,
   readIgnore,
   renderMarkdown,
+  resolveBinary,
   runDetector,
   selectMaintenancePr,
 } from "./verify-skill-drift.mjs";
@@ -79,6 +81,10 @@ describe("extraction", () => {
     );
     expect(refs).toEqual({ routes: ["/parts"], paths: ["scripts/verify.sh", "src/journeys"] });
   });
+
+  it("does not read absolute filesystem paths as app routes", () => {
+    expect(extractMarkdownReferences("`/tmp/out` `/usr/bin` `/home/x` `/tmpl`").routes).toEqual(["/tmpl"]);
+  });
 });
 
 describe("detectDrift", () => {
@@ -132,11 +138,31 @@ describe("detectDrift", () => {
     });
     expect(report.status).toBe("clean");
   });
+
+  it("matches route ignores in normalized form for both stale and unmapped routes", () => {
+    const stale = detectDrift({
+      skill: { files: files({ "features/auth.md": "`/` `/parts/<id>` `/jobs/<id>` e2e/smoke.spec.ts" }) },
+      app: app(),
+      ignore: { routes: ["/jobs/:jobId"], specs: [], paths: [], runtimePaths: [] },
+    });
+    expect(stale.status).toBe("clean");
+    const unmapped = detectDrift({
+      skill: { files: files({ "features/auth.md": "`/` e2e/smoke.spec.ts" }) },
+      app: app(),
+      ignore: { routes: ["/parts/<id>"], specs: [], paths: [], runtimePaths: [] },
+    });
+    expect(unmapped.status).toBe("clean");
+  });
+
+  it("sorts findings by code unit, not locale", () => {
+    const report = detectDrift({ skill: { files: files({ "features/auth.md": "`/` `/parts/<id>` `/b` `/B` e2e/smoke.spec.ts" }) }, app: app() });
+    expect(report.findings.map((f) => f.item)).toEqual(["/B", "/b"]);
+  });
 });
 
 describe("readIgnore", () => {
   it("requires a reason for every entry", () => {
-    expect(readIgnore("")).toEqual({ routes: [], specs: [], paths: [] });
+    expect(readIgnore("")).toEqual({ routes: [], specs: [], paths: [], runtimePaths: [] });
     expect(readIgnore('{"routes":[{"pattern":"/debug/*","reason":"dev-only gallery"}]}').routes).toEqual(["/debug/*"]);
     expect(() => readIgnore('{"routes":[{"pattern":"/x","reason":" "}]}')).toThrow(/non-empty "reason"/);
     expect(() => readIgnore('{"specs":"e2e/a.spec.ts"}')).toThrow(/must be an array/);
@@ -172,6 +198,26 @@ describe("selectMaintenancePr (at most one PR per run)", () => {
     }
     expect(() => selectMaintenancePr({ outcome: "drift" })).toThrow(/unknown outcome/);
   });
+
+  it("counts a PR returned by both the branch and label queries once", () => {
+    const both = pr(9, MAINTENANCE_BRANCH, [MAINTENANCE_LABEL]);
+    expect(selectMaintenancePr({ outcome: "changed", openPrs: [both, { ...both }] })).toMatchObject({ action: "update", pr: 9, duplicates: [] });
+  });
+});
+
+describe("resolveBinary", () => {
+  it("returns the first absolute match from the fixed dirs and never consults PATH", () => {
+    const exists = (candidate) => candidate === "/bin/git" || candidate === "/usr/local/bin/git";
+    expect(resolveBinary("git", { dirs: ["/usr/bin", "/bin", "/usr/local/bin"], exists })).toBe("/bin/git");
+    expect(() => resolveBinary("git", { dirs: ["/nowhere"], exists: () => false })).toThrow(/git not found in \/nowhere/);
+  });
+});
+
+describe("parseArgs", () => {
+  it("rejects unknown flags instead of falling back to defaults", () => {
+    expect(parseArgs(["--root", "x"], ["root"])).toEqual({ root: "x" });
+    expect(() => parseArgs(["--skilldir", "x"], ["root", "skill-dir"])).toThrow(/unknown flag: --skilldir/);
+  });
 });
 
 describe("runDetector and CLI", () => {
@@ -179,10 +225,27 @@ describe("runDetector and CLI", () => {
     const root = fixtureRepo({ "src/App.tsx": APP });
     const report = runDetector({ root, isIgnored: notIgnored });
     expect(report).toMatchObject({ status: "absent" });
-    expect(renderMarkdown(report)).toContain("No feature map at .agents/skills/verify-overdrafter/features");
+    expect(renderMarkdown(report)).toContain("No skill at .agents/skills/verify-overdrafter");
     const cli = cliRun(["--root", root]);
     expect(cli.status).toBe(0);
     expect(cli.stdout).toContain("Status: **absent**");
+  });
+
+  it("reports drift, not absent, when the skill exists without features/", () => {
+    const repo = cleanRepo();
+    delete repo[`${SKILL}/features/README.md`];
+    delete repo[`${SKILL}/features/auth.md`];
+    const root = fixtureRepo(repo);
+    const report = runDetector({ root, isIgnored: notIgnored });
+    expect(report.status).toBe("drift");
+    expect(report.findings).toContainEqual(expect.objectContaining({ kind: "missing-index", detail: expect.stringMatching(/no features\/ directory/) }));
+    expect(cliRun(["--root", root]).status).toBe(1);
+  });
+
+  it("does not count paths that resolve outside the repo as present", () => {
+    const repo = cleanRepo({ [`${SKILL}/features/auth.md`]: "`/` `/parts/<id>` e2e/smoke.spec.ts `../../../../../../etc/passwd`" });
+    const report = runDetector({ root: fixtureRepo(repo), isIgnored: () => true });
+    expect(report.findings.map((f) => `${f.kind} ${f.item}`)).toEqual(["missing-path ../../../../../../etc/passwd"]);
   });
 
   it("is clean on a consistent fixture repo and resolves skill-relative paths", () => {
@@ -191,12 +254,23 @@ describe("runDetector and CLI", () => {
     expect(renderMarkdown(report)).toContain("No drift found.");
   });
 
-  it("treats gitignored runtime paths as present", () => {
-    const repo = cleanRepo({ [`${SKILL}/features/auth.md`]: "`/` `/parts/<id>` e2e/smoke.spec.ts `playwright/.auth/`" });
+  it("treats only listed, gitignored runtime paths as present", () => {
+    const repo = cleanRepo({
+      [`${SKILL}/features/auth.md`]: "`/` `/parts/<id>` e2e/smoke.spec.ts `playwright/.auth/` `node_modules/made/up.js`",
+      [`${SKILL}/drift-ignore.json`]: '{"runtimePaths":[{"pattern":"playwright/.auth/","reason":"e2e storage state"}]}',
+    });
     const seen = [];
-    const report = runDetector({ root: fixtureRepo(repo), isIgnored: (_, rel) => seen.push(rel) && rel === "playwright/.auth/" });
-    expect(report.status).toBe("clean");
+    const report = runDetector({ root: fixtureRepo(repo), isIgnored: (_, rel) => seen.push(rel) > 0 });
+    expect(report.findings.map((f) => `${f.kind} ${f.item}`)).toEqual(["missing-path node_modules/made/up.js"]);
     expect(seen).toEqual(["playwright/.auth/"]);
+  });
+
+  it("escapes pipes and backticks in markdown table cells", () => {
+    const md = renderMarkdown({
+      status: "drift", skillDir: SKILL, checked: { featureFiles: 1, appRoutes: 0, e2eSpecs: 0 },
+      findings: [{ kind: "missing-path", item: "a|b`c", source: "features/x.md", detail: "d" }],
+    });
+    expect(md).toContain("| missing-path | `a\\|b'c` | `features/x.md` | d |");
   });
 
   it("writes JSON and markdown reports and exits 1 on drift", () => {
@@ -211,7 +285,15 @@ describe("runDetector and CLI", () => {
   it("exits 2 on bad arguments or a malformed ignore file, and prints a PR decision", () => {
     expect(cliRun(["--root"]).status).toBe(2);
     const root = fixtureRepo(cleanRepo({ [`${SKILL}/drift-ignore.json`]: '{"routes":[{"pattern":"/"}]}' }));
-    expect(cliRun(["--root", root]).status).toBe(2);
+    const bad = cliRun(["--root", root, "--json", path.join(root, "err.json"), "--markdown", path.join(root, "err.md")]);
+    expect(bad.status).toBe(2);
+    expect(JSON.parse(readFileSync(path.join(root, "err.json"), "utf8"))).toMatchObject({ status: "error", message: expect.stringMatching(/reason/) });
+    expect(readFileSync(path.join(root, "err.md"), "utf8")).toContain("Status: **error**");
+    const typo = cliRun(["--root", root, "--skilldir", "x"]);
+    expect(typo.status).toBe(2);
+    expect(typo.stderr).toContain("unknown flag: --skilldir");
+    expect(cliRun(["select-pr", "--outcome", "changed"]).status).toBe(2);
+    expect(cliRun(["select-pr", "--outcome", "changed"]).stderr).toContain("needs --prs");
     writeFileSync(path.join(root, "prs.json"), JSON.stringify([{ number: 7, headRefName: MAINTENANCE_BRANCH, labels: [] }]));
     const cli = cliRun(["select-pr", "--outcome", "changed", "--prs", path.join(root, "prs.json")]);
     expect(cli.status).toBe(0);

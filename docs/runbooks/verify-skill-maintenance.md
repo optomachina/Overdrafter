@@ -13,36 +13,45 @@ There are two parts. Only the first is automated:
 node scripts/verify-skill-drift.mjs --json /tmp/drift.json --markdown /tmp/drift.md
 ```
 
-Exit `0` means no drift, or the skill is absent (it prints `Status: **absent**` and does nothing). Exit `1` means drift. Exit `2` means a usage error or a malformed `drift-ignore.json`. The report compares the map to `src/App.tsx` routes, `e2e/**/*.spec.ts` and the repo paths the map cites in inline code:
+Exit `0` means no drift, or the skill is absent: the skill directory or its `SKILL.md` is missing (it prints `Status: **absent**` and does nothing). A skill that exists without `features/` is drift (`missing-index`), not absent. Exit `1` means drift. Exit `2` means a usage error (including an unknown flag) or a malformed `drift-ignore.json`; the report files are still written with `Status: **error**` and the message. The report compares the map to `src/App.tsx` routes, `e2e/**/*.spec.ts` and the repo paths the map cites in inline code:
 
 | Kind | Meaning | Usual fix |
 | --- | --- | --- |
 | `missing-index`, `dead-index-link`, `unindexed-feature` | `features/README.md` and the feature files disagree | Fix the index |
-| `stale-route`, `stale-spec`, `missing-path` | The map cites something the app no longer has | Doc drift: update the map, or report a product regression |
+| `stale-route`, `stale-spec`, `missing-path` | The map cites something the app no longer has (paths that resolve outside the repo count as missing) | Doc drift: update the map, or report a product regression |
 | `unmapped-route`, `unmapped-spec` | The app has a surface or spec the map never names | Add it to a feature file, or ignore it with a reason |
 
 The report is deterministic and covers structure only. It cannot see behavior drift, so the skill's live pass is still required.
 
-Intentional exclusions go in `.agents/skills/verify-overdrafter/drift-ignore.json`. Every entry needs a reason, and a trailing `*` matches a prefix:
+Intentional exclusions go in `.agents/skills/verify-overdrafter/drift-ignore.json`. Every entry needs a reason, and a trailing `*` matches a prefix. Route patterns match in normalized form, so `/parts/<id>` and `/parts/:jobId` are the same entry for both `stale-route` and `unmapped-route`:
 
 ```json
-{ "routes": [{ "pattern": "/debug/*", "reason": "dev-only galleries, not a user feature" }], "specs": [], "paths": [] }
+{
+  "routes": [{ "pattern": "/debug/*", "reason": "dev-only galleries, not a user feature" }],
+  "specs": [],
+  "paths": [],
+  "runtimePaths": [{ "pattern": "playwright/.auth/", "reason": "storage state written by e2e/auth.mjs" }]
+}
 ```
 
-Gitignored runtime paths that the map cites, such as `playwright/.auth/`, count as present.
+A cited path that does not exist counts as present only when it is listed in `runtimePaths` and git ignores it. Other gitignored paths (`node_modules/...`, `dist/...`) are still `missing-path`. Absolute filesystem paths in inline code (`/tmp/...`, `/usr/...`) are not treated as app routes.
 
 ## Run procedure
 
-1. **Get the report.** Use `gh run download --name verify-skill-drift` on the latest run, or regenerate it locally at current `origin/main`. If the status is `absent`, stop: the outcome is `clean` and there is nothing to maintain.
+1. **Get the report.** Use `gh run download --name verify-skill-drift` on the latest run, or regenerate it locally at current `origin/main`. If the status is `absent` (no skill directory or no `SKILL.md`), stop: the outcome is `clean` and there is nothing to maintain. If the skill exists but `features/` is missing, the report shows `missing-index` drift; treat it as drift and continue. If the status is `error`, fix the config error first.
 2. **Run `maintain-verification-skill`** on `.agents/skills/verify-overdrafter`. Use the report to seed its index-hygiene step (step 1) and its churn sweep (step 3). Every finding gets a disposition: fix the map, ignore it with a reason, or record a product gap. The source wave and the live pass still cover every feature. Drive the app through `scripts/verify.sh` (doctor first; use local mode only where Docker is available). Report anything unreachable with its prerequisite.
 3. **Stay in edit scope.** Edit only the skill directory, including `drift-ignore.json`. Never edit product code. File product gaps as Linear issues; they never go in this PR.
 4. **Re-run the detector** after the edits. Any drift kind that is still reported must be explained in the PR body.
 5. **Choose the PR. Only a `changed` outcome ships.**
 
    ```bash
-   gh pr list --state open --json number,headRefName,labels,isCrossRepository,state > /tmp/prs.json
+   FIELDS=number,headRefName,labels,isCrossRepository,state
+   { gh pr list --state open --head chore/verify-skill-maintenance --limit 1000 --json "$FIELDS"
+     gh pr list --state open --label verify-skill-maintenance --limit 1000 --json "$FIELDS"; } | jq -s add > /tmp/prs.json
    node scripts/verify-skill-drift.mjs select-pr --outcome changed --prs /tmp/prs.json
    ```
+
+   Query by head branch and label with `--limit 1000`, never the default 30-PR page, or the maintenance PR can drop out of the list and a second one gets opened. `--prs` is required (`select-pr` exits `2` without it), and a PR returned by both queries counts once.
 
    - `create`: branch `chore/verify-skill-maintenance` from `origin/main`, then open one PR with the label `verify-skill-maintenance`.
    - `update`: check out the returned branch, rebase it onto `origin/main`, add this run's commit, and push with `--force-with-lease` to the same PR. Do not open a new one.

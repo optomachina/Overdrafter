@@ -11,6 +11,8 @@
  *   node scripts/verify-skill-drift.mjs select-pr --outcome clean|changed|blocked --prs FILE
  *
  * Exit codes: 0 no drift (or skill absent), 1 drift, 2 usage or config error.
+ * "Absent" means the skill directory or its SKILL.md is missing; a skill without
+ * features/ is drift.
  */
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,7 +27,22 @@ export const MAINTENANCE_BRANCH = "chore/verify-skill-maintenance";
 export const MAINTENANCE_LABEL = "verify-skill-maintenance";
 
 /** Code-unit order, identical to the default `Array#sort` for strings. */
-const compareCodeUnits = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+function compareCodeUnits(a, b) {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Fixed, root-owned binary directories. The caller's PATH is never consulted. */
+const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
+const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
+
+/** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
+export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
+  const found = dirs.map((dir) => path.join(dir, name)).find((candidate) => exists(candidate));
+  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
+  return found;
+}
 
 const stripTrailingSlashes = (route) => {
   if (route.length <= 1) return route;
@@ -48,6 +65,9 @@ export function extractSpecPaths(text) {
   return [...new Set([...text.matchAll(/\be2e\/[\w./-]+\.spec\.ts\b/g)].map((m) => m[0]))].sort(compareCodeUnits);
 }
 
+/** Absolute filesystem paths (`/tmp/out`, `/usr/bin`) are not app routes. */
+const FILESYSTEM_ROOTS = /^\/(?:tmp|usr|bin|sbin|etc|var|opt|home|dev|proc|private|Users)(?:\/|$)/;
+
 const stripFences = (markdown) => markdown.replace(/^```[\s\S]*?^```/gm, "");
 const inlineCode = (markdown) => [...stripFences(markdown).matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim());
 
@@ -58,6 +78,7 @@ export function extractMarkdownReferences(markdown) {
   for (const token of inlineCode(markdown)) {
     if (/\s|[*$?]/.test(token) || /^(?:https?:|@)/.test(token)) continue;
     if (/^\/[\w\-/:<>]*$/.test(token)) {
+      if (FILESYSTEM_ROOTS.test(token)) continue;
       routes.add(token);
     } else if (/^[\w.@-]+(?:\/[\w.@-]+)+\/?$/.test(token) && !/^e2e\/.+\.spec\.ts$/.test(token)) {
       paths.add(token.replace(/^\.\//, ""));
@@ -66,10 +87,13 @@ export function extractMarkdownReferences(markdown) {
   return { routes: [...routes].sort(compareCodeUnits), paths: [...paths].sort(compareCodeUnits) };
 }
 
+/** `runtimePaths`: cited paths that exist only at run time; present when gitignored. */
+const IGNORE_KINDS = ["routes", "specs", "paths", "runtimePaths"];
+
 export function readIgnore(raw) {
   const config = raw ? JSON.parse(raw) : {};
   const out = {};
-  for (const kind of ["routes", "specs", "paths"]) {
+  for (const kind of IGNORE_KINDS) {
     const entries = config[kind] ?? [];
     if (!Array.isArray(entries)) throw new Error(`${IGNORE_FILE}: "${kind}" must be an array`);
     for (const entry of entries) {
@@ -82,8 +106,11 @@ export function readIgnore(raw) {
   return out;
 }
 
-const matches = (value, patterns) =>
+export const matches = (value, patterns) =>
   patterns.some((p) => (p.endsWith("*") ? value.startsWith(p.slice(0, -1)) : value === p));
+
+/** Route ignores match in normalized form, so `/parts/<id>` and `/parts/:jobId` are one entry. */
+const matchesRoute = (route, patterns) => matches(normalizeRoute(route), patterns.map(normalizeRoute));
 
 /**
  * Pure comparison. `skill.files` is `[{ name, text }]` relative to the skill dir;
@@ -93,7 +120,8 @@ function checkIndex(markdown, add) {
   const features = markdown.filter((f) => /^features\/[^/]+\.md$/.test(f.name) && f.name !== "features/README.md");
   const index = markdown.find((f) => f.name === "features/README.md");
   if (!index) {
-    add("missing-index", "features/README.md", "features/", "feature map has no README index");
+    const detail = features.length ? "feature map has no README index" : "skill has no features/ directory or it is empty";
+    add("missing-index", "features/README.md", "features/", detail);
     return features;
   }
   const linked = [...index.text.matchAll(/\]\(\.\/([\w.-]+\.md)\)/g)].map((m) => `features/${m[1]}`);
@@ -118,7 +146,7 @@ function checkMarkdownRefs(file, { app, appRoutes, ignore, mappedRoutes }, add) 
   for (const route of refs.routes) {
     const key = normalizeRoute(route);
     mappedRoutes.add(key);
-    if (!appRoutes.has(key) && !matches(route, ignore.routes)) add("stale-route", route, file.name, `no route in ${APP_ROUTES_FILE}`);
+    if (!appRoutes.has(key) && !matchesRoute(route, ignore.routes)) add("stale-route", route, file.name, `no route in ${APP_ROUTES_FILE}`);
   }
   for (const ref of refs.paths) {
     if (!matches(ref, ignore.paths) && !app.pathExists(ref, path.posix.dirname(file.name))) {
@@ -129,14 +157,14 @@ function checkMarkdownRefs(file, { app, appRoutes, ignore, mappedRoutes }, add) 
 
 function checkUnmapped({ app, appRoutes, ignore, mappedRoutes, mappedSpecs }, add) {
   for (const [key, route] of appRoutes) {
-    if (!mappedRoutes.has(key) && !matches(route, ignore.routes)) add("unmapped-route", route, APP_ROUTES_FILE, "app route not covered by any feature file");
+    if (!mappedRoutes.has(key) && !matchesRoute(route, ignore.routes)) add("unmapped-route", route, APP_ROUTES_FILE, "app route not covered by any feature file");
   }
   for (const spec of app.specs) {
     if (!mappedSpecs.has(spec) && !matches(spec, ignore.specs)) add("unmapped-spec", spec, E2E_DIR, "e2e spec not named by the feature map");
   }
 }
 
-export function detectDrift({ skill, app, ignore = { routes: [], specs: [], paths: [] } }) {
+export function detectDrift({ skill, app, ignore = { routes: [], specs: [], paths: [], runtimePaths: [] } }) {
   const findings = [];
   const add = (kind, item, source, detail) => findings.push({ kind, item, source, detail });
   const features = checkIndex(skill.files.filter((f) => f.name.endsWith(".md")), add);
@@ -157,7 +185,7 @@ export function detectDrift({ skill, app, ignore = { routes: [], specs: [], path
   const seen = new Set();
   const unique = findings
     .filter((f) => (seen.has(`${f.kind}|${f.item}|${f.source}`) ? false : seen.add(`${f.kind}|${f.item}|${f.source}`)))
-    .sort((a, b) => `${a.kind}|${a.item}|${a.source}`.localeCompare(`${b.kind}|${b.item}|${b.source}`));
+    .sort((a, b) => compareCodeUnits(`${a.kind}|${a.item}|${a.source}`, `${b.kind}|${b.item}|${b.source}`));
   const counts = {};
   for (const f of unique) counts[f.kind] = (counts[f.kind] ?? 0) + 1;
   return {
@@ -175,7 +203,8 @@ export function detectDrift({ skill, app, ignore = { routes: [], specs: [], path
 export function selectMaintenancePr({ outcome, openPrs = [] }) {
   if (!["clean", "changed", "blocked"].includes(outcome)) throw new Error(`unknown outcome: ${outcome}`);
   const labelNames = (pr) => (pr.labels ?? []).map((l) => (typeof l === "string" ? l : l.name));
-  const candidates = openPrs
+  const byNumber = new Map(openPrs.map((pr) => [pr.number, pr]));
+  const candidates = [...byNumber.values()]
     .filter((pr) => (pr.state ?? "OPEN").toUpperCase() === "OPEN" && !pr.isCrossRepository)
     .filter((pr) => pr.headRefName === MAINTENANCE_BRANCH || labelNames(pr).includes(MAINTENANCE_LABEL))
     .sort((a, b) => Number(b.headRefName === MAINTENANCE_BRANCH) - Number(a.headRefName === MAINTENANCE_BRANCH) || a.number - b.number);
@@ -190,9 +219,12 @@ export function selectMaintenancePr({ outcome, openPrs = [] }) {
   return { action: "create", branch: MAINTENANCE_BRANCH, label: MAINTENANCE_LABEL, reason: "no open maintenance PR", ...extra };
 }
 
+/** Table cell as inline code; pipes and backticks would break the row. */
+const cell = (value) => `\`${value.replace(/[|`]/g, (c) => (c === "|" ? "\\|" : "'"))}\``;
+
 export function renderMarkdown(report) {
   const lines = ["# verify-overdrafter feature-map drift", "", `Status: **${report.status}**`, ""];
-  if (report.status === "absent") {
+  if (report.status === "absent" || report.status === "error") {
     lines.push(report.message, "");
     return lines.join("\n");
   }
@@ -200,7 +232,7 @@ export function renderMarkdown(report) {
   lines.push(`Checked ${featureFiles} feature files against ${appRoutes} app routes and ${e2eSpecs} e2e specs in \`${report.skillDir}\`.`, "");
   if (!report.findings.length) return [...lines, "No drift found.", ""].join("\n");
   lines.push("| Kind | Item | Source | Detail |", "| --- | --- | --- | --- |");
-  for (const f of report.findings) lines.push(`| ${f.kind} | \`${f.item}\` | \`${f.source}\` | ${f.detail} |`);
+  for (const f of report.findings) lines.push(`| ${f.kind} | ${cell(f.item)} | ${cell(f.source)} | ${f.detail} |`);
   return [...lines, ""].join("\n");
 }
 
@@ -213,16 +245,21 @@ function listFiles(dir, pattern, base = dir) {
 }
 
 const gitIgnored = (root, rel) =>
-  spawnSync("git", ["check-ignore", "-q", "--no-index", rel], { cwd: root }).status === 0;
+  spawnSync(resolveBinary("git"), ["check-ignore", "-q", "--no-index", rel], { cwd: root, env: SAFE_ENV }).status === 0;
+
+const insideRoot = (root, candidate) => {
+  const rel = path.relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+};
 
 /** Filesystem layer: gather inputs, then delegate to detectDrift. */
 export function runDetector({ root, skillDir = DEFAULT_SKILL_DIR, isIgnored = gitIgnored }) {
   const absSkill = path.resolve(root, skillDir);
-  if (!existsSync(path.join(absSkill, "features"))) {
+  if (!existsSync(path.join(absSkill, "SKILL.md"))) {
     return {
       status: "absent",
       skillDir,
-      message: `No feature map at ${skillDir}/features (verify-overdrafter lands with OVD-842). Nothing to compare; exiting 0.`,
+      message: `No skill at ${skillDir} (no SKILL.md; verify-overdrafter lands with OVD-842). Nothing to compare; exiting 0.`,
     };
   }
   const ignorePath = path.join(absSkill, IGNORE_FILE);
@@ -234,37 +271,59 @@ export function runDetector({ root, skillDir = DEFAULT_SKILL_DIR, isIgnored = gi
     : [];
   const pathExists = (ref, citingDir) => {
     const candidates = [path.resolve(root, ref), path.resolve(absSkill, ref), path.resolve(absSkill, citingDir, ref)];
-    return candidates.some((c) => existsSync(c)) || isIgnored(root, ref);
+    if (candidates.some((c) => insideRoot(root, c) && existsSync(c))) return true;
+    return insideRoot(root, path.resolve(root, ref)) && matches(ref, ignore.runtimePaths) && isIgnored(root, ref);
   };
   const result = detectDrift({ skill: { files }, app: { routes: extractAppRoutes(appSource), specs, pathExists }, ignore });
   return { skillDir, ...result };
 }
 
-function parseArgs(argv) {
+const DETECT_FLAGS = ["root", "skill-dir", "json", "markdown"];
+const SELECT_FLAGS = ["outcome", "prs"];
+
+/** `--flag value` pairs; unknown flags are usage errors so a typo cannot fall back to defaults. */
+export function parseArgs(argv, allowed) {
   const opts = {};
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (!flag.startsWith("--") || argv[i + 1] === undefined) throw new Error(`bad argument: ${flag}`);
+    const name = flag.slice(2);
+    if (!allowed.includes(name)) throw new Error(`unknown flag: ${flag} (allowed: ${allowed.map((f) => `--${f}`).join(", ")})`);
     i += 1;
-    opts[flag.slice(2)] = argv[i];
+    opts[name] = argv[i];
   }
   return opts;
 }
 
-function main(argv) {
-  if (argv[0] === "select-pr") {
-    const opts = parseArgs(argv.slice(1));
-    const openPrs = opts.prs ? JSON.parse(readFileSync(opts.prs, "utf8")) : [];
-    console.log(JSON.stringify(selectMaintenancePr({ outcome: opts.outcome, openPrs }), null, 2));
-    return 0;
-  }
-  const opts = parseArgs(argv);
-  const report = { schema: "ovd858.verify-skill-drift.v1", ...runDetector({ root: path.resolve(opts.root ?? "."), skillDir: opts["skill-dir"] }) };
+function writeReport(report, opts) {
   const markdown = renderMarkdown(report);
   if (opts.json) writeFileSync(opts.json, `${JSON.stringify(report, null, 2)}\n`);
   if (opts.markdown) writeFileSync(opts.markdown, markdown);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n`);
   console.log(markdown);
+}
+
+const SCHEMA = "ovd858.verify-skill-drift.v1";
+
+function main(argv) {
+  if (argv[0] === "select-pr") {
+    const opts = parseArgs(argv.slice(1), SELECT_FLAGS);
+    if (!opts.prs) throw new Error("select-pr needs --prs FILE (gh pr list JSON); refusing to assume no open PRs");
+    const openPrs = JSON.parse(readFileSync(opts.prs, "utf8"));
+    if (!Array.isArray(openPrs)) throw new Error(`--prs ${opts.prs}: expected a JSON array`);
+    console.log(JSON.stringify(selectMaintenancePr({ outcome: opts.outcome, openPrs }), null, 2));
+    return 0;
+  }
+  const opts = parseArgs(argv, DETECT_FLAGS);
+  let report;
+  try {
+    report = { schema: SCHEMA, ...runDetector({ root: path.resolve(opts.root ?? "."), skillDir: opts["skill-dir"] }) };
+  } catch (error) {
+    // Config errors still leave a report behind for the maintenance agent.
+    writeReport({ schema: SCHEMA, status: "error", skillDir: opts["skill-dir"] ?? DEFAULT_SKILL_DIR, message: error.message }, opts);
+    throw error;
+  }
+  writeReport(report, opts);
   return report.status === "drift" ? 1 : 0;
 }
 
