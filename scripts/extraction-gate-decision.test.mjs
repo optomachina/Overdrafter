@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { decideExtractionGate, normalizeMode, parseGateResult } from "./extraction-gate-decision.mjs";
 
@@ -70,5 +72,38 @@ describe("extraction gate decision", () => {
     const decision = decideExtractionGate({ mode: "enforce", output: "", corpusPresent: "" });
     expect(decision.result).toBe("error");
     expect(decision.exitCode).toBe(1);
+  });
+});
+
+describe("extraction gate job failure", () => {
+  it("fails ci in report mode (and every mode) whatever the parsed line says", () => {
+    for (const mode of Object.values(MODES)) {
+      for (const output of Object.values(OUTPUTS)) {
+        const decision = decideExtractionGate({ mode, output, corpusPresent: "true", jobResult: "failure" });
+        expect(decision.exitCode).toBe(1);
+        expect(decision.annotation.startsWith("::error ")).toBe(true);
+      }
+    }
+  });
+
+  it("ci.yml keeps the unconditional job-failure check in Check dependency results", () => {
+    const workflow = readFileSync(fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)), "utf8");
+    const start = workflow.indexOf("- name: Check dependency results");
+    const end = workflow.indexOf("- name:", start + 1);
+    expect(start).toBeGreaterThan(-1);
+    const step = workflow.slice(start, end);
+    expect(step).toContain("EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}");
+    expect(step).toMatch(
+      /\n {10}if \[ "\$EXTRACTION_GATE_RESULT" = "failure" \]; then\n {12}exit 1\n {10}fi\n/,
+    );
+    // The check must not depend on the mode: the step neither reads it nor is skipped by it.
+    expect(step).not.toContain("EXTRACTION_GATE_MODE");
+    expect(step).not.toMatch(/^\s+if:/m);
+  });
+
+  it("gate steps exit non-zero on a crash after emitting the result line", () => {
+    const workflow = readFileSync(fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)), "utf8");
+    const crashExits = workflow.match(/if \[ "\$result" = "error" \]; then exit "\$code"; fi/g) ?? [];
+    expect(crashExits).toHaveLength(2);
   });
 });

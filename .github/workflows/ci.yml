@@ -280,9 +280,12 @@ jobs:
   # Pre-merge regression gate on extraction quality. Runs only when a corpus
   # exists and a provider key is available, and reports "skipped" otherwise so
   # an empty corpus never reads as a passing quality signal.
-  # The gate steps never fail this job: each emits one machine line
-  # EXTRACTION_GATE_RESULT=pass|fail|error (eval:gate exit 0 / 1 / anything
-  # else) and the `ci` job decides from it per EXTRACTION_GATE_MODE (OVD-869).
+  # Each gate step emits one machine line EXTRACTION_GATE_RESULT=pass|fail|error
+  # (eval:gate exit 0 / 1 / anything else) and the `ci` job decides from it per
+  # EXTRACTION_GATE_MODE (OVD-869). Only a clean quality fail (exit 1) leaves
+  # this job green for the mode to decide; a crash (any other exit) still fails
+  # the job after emitting its line, and so does any non-gate step, which fails
+  # ci in every mode.
   extraction-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -367,6 +370,7 @@ jobs:
           echo "eval:gate exited $code"
           echo "EXTRACTION_GATE_RESULT=$result"
           echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
       - name: Run extraction gate (full production path)
         id: gate-full
@@ -380,6 +384,7 @@ jobs:
           echo "eval:gate exited $code"
           echo "EXTRACTION_GATE_RESULT=$result"
           echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
   ovd420-recovery-egress-network:
     runs-on: ubuntu-latest
@@ -462,6 +467,12 @@ jobs:
             exit 1
           fi
 
+          # The gate legitimately skips when no corpus or provider key exists,
+          # but a real failure must block the merge.
+          if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
+            exit 1
+          fi
+
       - name: Checkout extraction gate decision script
         if: ${{ always() }}
         uses: actions/checkout@v5
@@ -472,11 +483,14 @@ jobs:
       # EXTRACTION_GATE_MODE is a repository variable (base repo setting), not a
       # workflow value, so a PR editing this file cannot flip its own mode.
       # Values: report (default; unset or anything else) or enforce. Flipping
-      # the variable to enforce requires Blaine's approval.
+      # the variable to enforce requires Blaine's approval. The mode governs
+      # only the parsed result line (fail/error: warning in report, fail in
+      # enforce); a failed extraction-gate job fails ci above in every mode.
       - name: Decide extraction gate
         if: ${{ always() }}
         env:
           EXTRACTION_GATE_MODE: ${{ vars.EXTRACTION_GATE_MODE }}
           EXTRACTION_GATE_OUTPUT: ${{ needs.extraction-gate.outputs.result-line }}
           EXTRACTION_GATE_CORPUS: ${{ needs.extraction-gate.outputs.corpus }}
+          EXTRACTION_GATE_JOB_RESULT: ${{ needs.extraction-gate.result }}
         run: node scripts/extraction-gate-decision.mjs
