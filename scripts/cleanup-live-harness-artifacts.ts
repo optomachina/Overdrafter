@@ -3,7 +3,7 @@
  * 14-day retention window. Only directories named like harness run ids are
  * touched. The live harness applies the same cleanup at startup.
  *
- * Usage: worker/node_modules/.bin/tsx scripts/cleanup-live-harness-artifacts.ts [--dry-run] [--root <dir>]
+ * Usage: node --import ./worker/node_modules/tsx/dist/esm/index.mjs scripts/cleanup-live-harness-artifacts.ts [--dry-run] [--root <dir>]
  * The root defaults to LIVE_HARNESS_ARTIFACT_ROOT or ~/overnight/artifacts.
  */
 import process from "node:process";
