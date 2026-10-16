@@ -1,123 +1,112 @@
 # OVD-677 OSH Cut live readiness
 
-Last updated: October 14, 2026
+Last updated: October 15, 2026
 
 This workflow describes the OSH Cut production quote path. It mirrors the
 Quickparts and Weerg paths in `docs/workflows/ovd674-quickparts-live-readiness.md`
 and `docs/workflows/ovd675-weerg-live-readiness.md`, and was scaffolded with
-`npm run fixture:onboard -- oshcut --stage=live` (OVD-687). The path is
-implemented and disabled by default. Shipping the code does not authorize any
-of the following:
+`npm run fixture:onboard -- oshcut --stage=live` (OVD-687).
 
-- OSH Cut login
-- session capture
-- CAD upload
-- quote creation
-- live DOM capture or locator review against the real quoting app
-- deployment
-- admission
-- rollout
+**State (2026-10-15).** Blaine approved the OSH Cut go-live. The envelope
+`oshcut-quote-envelope.v1` is reviewed in code, the review-row migration is
+written, the permission basis is `owner_approved` and egress is the shared
+OVD-410 stable NAT. The adapter was rewritten against the authenticated
+capture below. The path stays **default-off**: the following are still
+protected actions under `AGENTS.md`, each needing Blaine's exact OK, and none
+is done by this branch:
 
-Each of those remains a protected action under `AGENTS.md`. Promotion follows
-the three stages in `docs/provider-integration.md` and the 1.0 beta policy in
-`RUNBOOK.md`.
+- merging the PR and applying the review-row migration to production
+- recording the approved admission revision (template below)
+- deploying a worker with `oshcut` in `WORKER_LIVE_ADAPTERS` (no deploy
+  default or env file lists it)
+- the stage 3 certification run against the live quoting app
+
+Promotion follows the three stages in `docs/provider-integration.md` and the
+1.0 beta policy in `RUNBOOK.md`.
 
 ## What the code provides
 
 | Layer | Behavior |
 | --- | --- |
-| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/adapters/oshcutDispatchAuthorization.ts`). It is **not** reviewed: it is absent from `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`, there is no review row or migration, and a test pins that absence. No real permit can name it, so production OSH Cut dispatch cannot run today. `test-fixtures/provider-dispatch-envelope/oshcut-v1.json` is a synthetic fixture for tests only. |
-| Adapter production branch | `OshcutAdapter` (`worker/src/adapters/oshcut.ts`) first applies the static OSH Cut envelope: flat-sheet laser cutting, Aluminum 6061-T6, one CAD file in a listed format, no drawing, quantities 1 to 10,000. A package outside it ends as a finite `unsupported` or `manual_vendor_followup` result. An eligible production package is then checked with the shared `providerDispatchAuthorizationDenial`. It needs provider `oshcut`, the OSH Cut envelope revision, an unexpired permit, the exact quantity, and outbound files that are exactly the staged CAD. Any denial throws a terminal `unsupported` with `providerInteractionAttempted: false` before the production delegate runs. This holds in simulate mode too. Live evaluation keeps its existing local-only path and never yields a customer offer. |
-| Abort signal (OVD-748) | After authorization and before the portal reads a session, the adapter calls `throwIfProviderAborted(input.signal, "before_navigation")`. A run whose permit expired or whose lease was lost stops with `ProviderAbortedError`, which is never retried and never feeds the block switch. Inside the portal, the kernel's kill-switch checkpoints are already abort-aware through `withProviderAbortSignal`. |
-| Production portal definition | `buildOshcutProductionPortalDefinition()` in `worker/src/adapters/oshcutProductionPortal.ts`. The only host is `app.oshcut.com`, and every other request is aborted. The routes are `https://app.oshcut.com/login` and `https://app.oshcut.com/`, taken from the existing workflow catalog. The kernel re-checks the authorization, captures the CAD bytes into memory, and requires them to hash to the authorized SHA-256. After upload it fills the quantity and selects the reviewed material option (`aluminum-6061-t6`). A missing material control stops in `selector_drift` (`oshcut_material_control_missing`) rather than quote a portal-default material. Terminal states are finite: login required (including an in-page "session expired"), captcha, unavailable, manual review, configuration required, unexpected origin, selector drift, and unsupported. |
-| Offers (USD) | Offers are read only through `OSHCUT_PRODUCTION_LOCATORS` (`oshcut-production-locators.v1`) with the shared `extractUsdOfferCards` reader (`worker/src/adapters/usdOfferCards.ts`, extracted unchanged from Quickparts). Each option needs an ID, a label, the exact requested quantity, unit and total prices that agree to within one cent, and an anchored `USD` currency field. One malformed or non-USD option withholds the whole batch. There is no currency conversion. |
+| Dispatch envelope | `oshcut-quote-envelope.v1` (`OSHCUT_DISPATCH_ENVELOPE` in `worker/src/providerDispatchEnvelope.ts`, re-exported from `oshcutDispatchAuthorization.ts`) is listed in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` with `requiredAdmission: "generic_dispatch"`. Migration `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` records it with a 7,200-second permit TTL; it admits nothing and leaves the OSH Cut admission `disabled`. It is pinned in the free-quote CI profile and in `supabase/tests/provider_dispatch_permits.sql`. Review-only admit files are in `provider-integrations/oshcut/admit/`. |
+| Adapter production branch | `OshcutAdapter` (`worker/src/adapters/oshcut.ts`) first applies the static OSH Cut envelope: flat-sheet laser cutting, Aluminum 6061-T6, one CAD file in a listed format, no drawing, quantities 1 to 10,000. A package outside it ends as a finite `unsupported` or `manual_vendor_followup` result. An eligible production package is then checked with the shared `providerDispatchAuthorizationDenial` (provider, envelope, unexpired permit, exact quantity, exact staged CAD bytes); a denial throws a terminal `unsupported` with `providerInteractionAttempted: false`. |
+| Thickness rule | The envelope leaves stock thickness to the provider, but the cart prices nothing until one is picked. The approved requirement must state `spec_snapshot.sheetThicknessInch` (`OSHCUT_SHEET_THICKNESS_RULE`): a number of inches from 0.020 to 1.000 with at most three decimals, rendered as the filter label (`0.125"`). If it is missing or invalid, the adapter returns `manual_vendor_followup` with `terminalState: "configuration_required"` (`thickness_confirmation_required`) **before** any session read or upload. |
+| Abort signal (OVD-748) | After authorization and the thickness rule, `throwIfProviderAborted(input.signal, "before_navigation")`. |
+| Production portal definition | `buildOshcutProductionPortalDefinition()` in `worker/src/adapters/oshcutProductionPortal.ts` (`oshcut-production-adapter.v2`). The only host is `app.oshcut.com`. Every route is `https://app.oshcut.com/cart`, because `/login` only redirects there. After upload the app moves to `/cart/O-<uuid>` and `/cart/O-<uuid>/P-<uuid>` on the same host, and both are accepted. A logged-out session is detected by the header `Sign In` control (or "session expired") and ends in `login_required` before upload. |
+| Configuration | The kernel waits (bounded) for `.cartQuantity input.input` and fills the quantity. The hook then clicks the "Select material" link, checks the `.Slideover .filterItem` labelled `6061 T6 Aluminum`, and checks the thickness filter whose text is exactly the reviewed label. A missing link, material or thickness filter stops in `selector_drift` (`oshcut_material_control_missing`, `oshcut_material_option_missing`, `oshcut_thickness_option_missing`) rather than quote a portal default. The kernel refuses configuration selectors that mention `cart`, so the link is anchored on its text (`span.error.link:text-is('Select material')`). The kernel's new declared `click` operation matches exact element text and refuses checkout, order, purchase, payment or cart text. |
+| Offers (USD) | `OSHCUT_PRODUCTION_LOCATORS` (`oshcut-production-locators.v2`) reads the single cart row's `.cartSinglePrice` and `.cartExtendedPrice`. `-` means "not priced yet": the read repeats within 30 s and then stops in `selector_drift` (`oshcut_price_pending`); `-` is never parsed. Amounts must be `$`-denominated (optional `USD` suffix only), and single × quantity must equal extended within one cent. More than one priced row, or anything malformed, withholds the offer. There is no currency conversion. |
+| Cart cleanup (standing rule) | Once the price is read, or after any failure that followed upload, the kernel runs the definition's cleanup hook: it deletes every cart row that shows the staged file name through a remove/delete/trash control in the row, then confirms an in-page or native dialog. The cleanup is bounded at 30 s and skipped while the kill switch is engaged. It never throws and never changes the result or error; a `providerPortalCleanup` log line and a `cartCleanup` report (`removed`, `not_found`, `incomplete`, `failed`, `skipped_kill_switch`) record it. The same cleanup runs on the live-harness evaluation definition (`buildOshcutEvaluationDefinition`). |
+| Live harness | `vendorWorkflowSmoke` (`npm --prefix worker run …` capture/certification runs) adds a `supplierCartCleanup` record per run and logs `liveHarnessSupplierCleanup`. Any run that reached upload without a confirmed removal, including through an adapter that declares no cleanup (`not_declared`), is flagged `SUPPLIER CART CLEANUP NEEDED` for manual removal. |
 | Registry | The production registry wraps the definition in `PortalQuoteWorkflowAdapter` behind `OshcutAdapter`. In live mode the registry is filtered to `WORKER_LIVE_ADAPTERS`, so a worker without `oshcut` has no OSH Cut adapter. |
-| Worker readiness | `oshcut` is now listable in `WORKER_LIVE_ADAPTERS` (registry `liveAdapter: true`). When it is listed, readiness requires an OSH Cut storage state that the portal kernel itself can open, with cookies and origins limited to `app.oshcut.com`. |
-| Deploy | The registry entry names `OSHCUT_STORAGE_STATE_SECRET_NAME` and the mount `/var/secrets/oshcut-storage-state/storage-state.json`; `provider:sync` generates the deploy wiring. Whenever `oshcut` is listed, the secret name is required, the mount is added, and the path joins `QUOTE_VENDOR_STORAGE_STATE_PATHS`. Every other deploy removes the OSH Cut mount. That extra `--remove-secrets` entry is the only change to existing deploys; contract tests pin the full Xometry-only and Xometry plus Fictiv argument lists. |
-| Stable egress | `oshcut` is an optional adapter on the governed OVD-410 service (`egress: "stable_nat"`), in canonical order `fictiv`, `oshcut`, `quickparts`, `weerg` (16 allowed values). `STABLE_EGRESS_PROVIDER_HOSTS.oshcut` declares `app.oshcut.com`, and a test pins it to the production definition. |
+| Worker readiness and deploy | `oshcut` is listable in `WORKER_LIVE_ADAPTERS` (registry `liveAdapter: true`). When it is listed, readiness requires an OSH Cut storage state limited to `app.oshcut.com`, mounted from `OSHCUT_STORAGE_STATE_SECRET_NAME` at `/var/secrets/oshcut-storage-state/storage-state.json`. The captured session is stored in Secret Manager as `oshcut-storage-state` (project `overdrafter-worker-9133`). |
+| Stable egress | Shared: `oshcut` is an optional adapter on the governed OVD-410 service (`egress: "stable_nat"`), and `STABLE_EGRESS_PROVIDER_HOSTS.oshcut` declares `app.oshcut.com`. |
 | Customer UI | Not changed. OSH Cut is outside `PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS`. |
 
 ## Default-off switches
 
-A new OSH Cut quote needs switches 1 to 5 on. Switch 2 cannot be turned on
-without a reviewed code change.
+A new OSH Cut quote needs switches 1 to 5 on.
 
 1. **Admission policy.** `private.quote_provider_admission_policies` for
-   `oshcut` stays `disabled` until a reviewed revision records `approved` with
-   `generic_dispatch_enabled = true`.
-2. **Reviewed envelope.** `oshcut-quote-envelope` must be added to
-   `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` and recorded in
-   `private.provider_dispatch_envelope_reviews`. Neither exists.
+   `oshcut` stays `disabled` until the reviewed revision in
+   `provider-integrations/oshcut/admit/oshcut_admission_revision.sql.review`
+   is recorded (`approved`, `generic_dispatch_enabled = true`).
+2. **Reviewed envelope.** Done in code; the review row exists once migration
+   `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` is applied.
 3. **Rollout.** The shared `automatic_quote_collection` rollout control.
 4. **Organization enablement.** The organization has OSH Cut enabled, and the
    part lists OSH Cut as applicable.
 5. **Worker adapters.** The worker runs with `oshcut` in
-   `WORKER_LIVE_ADAPTERS`, using an OSH Cut session secret. No deploy does
-   this today.
+   `WORKER_LIVE_ADAPTERS` and `OSHCUT_STORAGE_STATE_SECRET_NAME=oshcut-storage-state`.
+   No deploy does this today.
 
 Turning off any of switches 1 to 5 stops queued tasks before the browser
 launches. Revoke a specific permit with `private.revoke_provider_dispatch_permit`.
 
 ## Known gaps before admission
 
-- **Locators are a reviewed contract, not an observation.** The browser
-  fixture in `worker/src/adapters/oshcutProductionPortal.browser.test.ts` pins
-  `OSHCUT_PRODUCTION_LOCATORS`, the upload input, the quantity input, and the
-  material control against synthetic pages. Nobody has captured the
-  authenticated OSH Cut quoting app, because that is a protected action. A real
-  session therefore most likely ends in `selector_drift`. That is safe, but it
-  yields no offers.
-- **Thickness and units.** The envelope leaves stock thickness to the
-  provider. OSH Cut asks for units, and for 2D files a thickness, after upload.
-  The definition configures only the material, so a 2D file most likely stops
-  in `configuration_required` or `selector_drift`. A reviewed thickness rule
-  needs its own envelope revision.
-- **Hosts and cookies.** The quoting app may load assets or APIs from other
-  hosts (`www.oshcut.com`, a CDN, analytics). Each such request stops the
-  attempt in `unexpected_origin` before upload. A session whose cookies are set
-  for `.oshcut.com` or `www.oshcut.com` is refused at readiness. Any extra host
-  needs review and an update to both the definition and
-  `STABLE_EGRESS_PROVIDER_HOSTS`.
-- **Pricing latency.** After upload and configuration, the kernel waits for up
-  to one browser timeout plus 2.5 seconds. Slower pricing ends in
-  `selector_drift`.
-- **Envelope review.** Adding the envelope to `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`
-  turns on the `provider:check` gate for this provider and requires the
-  review-only SQL from `npm run fixture:onboard -- oshcut --stage=admit`.
+- **Material commit step is unobserved.** The capture opened the slideover but
+  committed no material. The hook checks the material and thickness filters.
+  If the app needs a further click to commit the stock, the cart keeps showing
+  `-` and the attempt stops in `selector_drift` (`oshcut_price_pending`) or
+  `configuration_required`. That is safe, but it yields no offer. The first
+  certification run confirms the step.
+- **Cleanup selectors are a guess.** The capture did not open the delete
+  control. A miss is reported as `not_found` or `incomplete` and flagged for
+  manual removal; it never changes the quote.
+- **Stale cart parts.** A cart row that still says "Select material" before
+  upload ends the attempt in `configuration_required`. More than one priced
+  row withholds the offer.
+- **Thickness data.** Requirements need `spec_snapshot.sheetThicknessInch`.
+  No intake flow writes it yet, so every package without it ends in
+  `thickness_confirmation_required` before upload.
+- **Pricing latency.** The price wait is bounded at 30 s after configuration.
 
 ## Inputs only Blaine can provide
 
-1. **Account and session.** An OSH Cut account approved for automated
-   quote-only use, and a Playwright storage state captured with
-   `npm --prefix worker run auth:vendor -- oshcut`. Store it in Secret Manager
-   under a name that becomes `OSHCUT_STORAGE_STATE_SECRET_NAME`, readable by the
-   worker runtime service account.
-2. **Permission basis.** Written OSH Cut authorization, a determination that
-   its terms allow automation, or `owner_approved` (OVD-641). See the
-   permissions matrix below.
-3. **Live DOM review.** One authorized capture of the quoting app. It confirms
-   or revises the routes, the allowed hosts, `OSHCUT_PRODUCTION_LOCATORS`, the
-   material option value, and the thickness and units controls.
-4. **Egress decision.** Choose one of:
-   - **Shared egress.** OSH Cut shares the OVD-410 address on
-     `overdrafter-cad-worker`. The registry is set up for this.
-   - **Separate service.** A separate OSH Cut service and egress, which would
-     flip the registry entry back to `egress: "none"`.
-5. **Envelope review, admission values and certification run.** Approve
-   `oshcut-quote-envelope.v1`, then record admission with
-   `accepted_file_extensions` limited to the reviewed formats and no drawing.
+1. **Merge and migration apply.** Approve the PR and the production apply of
+   `20261015084957_ovd677_oshcut_reviewed_dispatch_envelope.sql` as separate
+   actions.
+2. **Admission revision.** Approve recording
+   `oshcut_admission_revision.sql.review` with a reviewer UUID and policy date.
+3. **Deploy.** Approve a worker deploy that lists `oshcut` and names the
+   `oshcut-storage-state` secret.
+4. **Certification run.** Approve one exact-file certification quote. The
+   uploaded test part is removed from the cart afterwards (standing rule).
 
 ## Admission revision template (not applied)
+
+The reviewed values live in
+`provider-integrations/oshcut/admit/oshcut_admission_revision.sql.review`:
 
 ```sql
 update private.quote_provider_admission_policies
 set admission_state = 'approved',
     generic_dispatch_enabled = true,
     policy_revision = 'oshcut-generic-<yyyy-mm-dd>.v1',
-    evidence_reference = 'OVD-<n>',
-    permission_basis = '<written_provider_authorization|provider_terms_allow_automation|owner_approved>',
+    evidence_reference = 'OVD-677',
+    permission_basis = 'owner_approved',
     supported_processes = array['laser_cutting']::public.process_types[],
-    accepted_file_extensions = array['<reviewed extensions>'],
+    accepted_file_extensions = array['3dm', 'ai', 'catpart', 'dxf', 'iges', 'igs', 'ipt', 'jt', 'par', 'sab', 'sat', 'sldprt', 'step', 'svg', 'x_t'],
     session_owner = 'overdrafter_managed',
     reviewed_by = '<reviewer user uuid>',
     reviewed_at = pg_catalog.now(),
@@ -128,13 +117,15 @@ where provider = 'oshcut'::public.vendor_name;
 
 Rollback: record a new revision with `admission_state = 'disabled'`,
 `generic_dispatch_enabled = false`, and `change_reason = 'policy_disabled'`.
-Then revoke any issued permits. Redeploying without `oshcut` removes the
-session mount.
+Then revoke any issued permits and withdraw the envelope review row
+(`withdrawn_at`). Redeploying without `oshcut` removes the session mount.
 
 ## Permissions matrix (OVD-724)
 
-OSH Cut paid automated quoting is not matrix-cleared. The row is
-`draft_outreach_prepared` with `tos_stance: silent`. See
+The matrix row stays `draft_outreach_prepared` with `tos_stance: silent`. Its
+notes record the `owner_approved` admission basis (OVD-641, 2026-10-15) and
+the shared egress. Owner approval is not a matrix clearance, so the derived
+`enabled_for_paid_automation` stays false. See
 [`docs/providers/permissions-matrix.md`](../providers/permissions-matrix.md#oshcut)
 and [`docs/providers/acceptance-tables.md`](../providers/acceptance-tables.md).
 A cease-and-desist uses the OVD-722 kill switch as step one
@@ -166,9 +157,9 @@ Selector findings (the v1 locator table does NOT match the live DOM)
 - Text signals: "All parts need selected material and units to checkout",
   "Design check: Passed".
 
-Consequence: the `configure` hook and `OSHCUT_PRODUCTION_LOCATORS` need a new revision
-(material slideover + thickness pick, cart-row price cells) before certification; with the
-current table every live attempt ends in `selector_drift`, never an inferred price.
+Consequence (resolved on this branch): `oshcut-production-locators.v2` and the rewritten
+`configure` hook implement the slideover, thickness pick and cart-row price cells; see
+"What the code provides" above.
 
 ## Test-part cleanup rule (Blaine)
 
