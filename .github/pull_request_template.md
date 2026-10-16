@@ -137,11 +137,10 @@ See `docs/checklists/provider-go-live-checklist.md`.
 - [ ] Approved admission revision (`generic_dispatch_enabled=true`) reviewed and applied. Admit SQL is never committed by a generator. Evidence:
 - [ ] `automatic_quote_collection` rollout and org enablement. Evidence:
 - [ ] Certification run evidence:
-- [ ] Per-supplier on/off switch in the admin dashboard (immediate, worker-enforced at generic dispatch) and configurable daily quote cap, via OVD-829. Evidence:
+- [ ] Per-supplier on/off switch in the admin dashboard (immediate, worker-enforced at generic dispatch) and optional admin daily quote cap (default unlimited), via OVD-829. Evidence:
 
 ### Legal stance
 
-- [ ] Traffic stays at about 20 quotes per provider per day. Evidence:
 - [ ] No stored customer passwords; encrypted session tokens only. Evidence:
 - [ ] ITAR/EAR controlled or uncertain uploads are blocked to foreign providers (Geomiq, Weerg) and to LLMs. Evidence:
 

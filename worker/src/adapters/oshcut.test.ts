@@ -5,7 +5,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetProviderDailyQuoteCapsForTests } from "../providerDailyQuoteCap";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -348,7 +347,6 @@ describe("OSH Cut provider envelope", () => {
 });
 
 describe("OshcutAdapter", () => {
-  beforeEach(() => resetProviderDailyQuoteCapsForTests());
 
   it("returns unsupported guidance without invoking a provider delegate", async () => {
     const delegateQuote = vi.fn();
@@ -484,19 +482,15 @@ describe("OshcutAdapter", () => {
     expect(delegateQuote).toHaveBeenCalledExactlyOnceWith(input);
   });
 
-  it("refuses before the production delegate once the OSH Cut daily cap is used", async () => {
+  it("has no OSH Cut-specific daily cap; repeated quotes all reach the production delegate", async () => {
     const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
       vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
       leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
     }));
-    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live", oshcutDailyQuoteCap: 2 }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live" }));
 
-    await adapter.quote(authorizedProductionInput());
-    await adapter.quote(authorizedProductionInput());
-    await expect(adapter.quote(authorizedProductionInput())).rejects.toMatchObject({
-      payload: { reason: "provider_daily_cap_reached", cap: 2, quotesToday: 2, providerInteractionAttempted: false, retryable: false },
-    });
-    expect(delegateQuote).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 25; i += 1) await adapter.quote(authorizedProductionInput());
+    expect(delegateQuote).toHaveBeenCalledTimes(25);
   });
 
   it.each([

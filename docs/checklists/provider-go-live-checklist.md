@@ -22,12 +22,20 @@ Use this checklist with the **Provider go-live** section in
 - One item, **Per-supplier on/off switch in the admin dashboard**, replaces the
   rollback/disable rehearsal, the per provider kill switch rehearsal, the
   and same-day turn-off items. It is satisfied
-  by dependency on OVD-829, a separate PR that builds the switch and a
-  configurable daily quote cap for every supplier.
+  by dependency on OVD-829, a separate PR that builds the switch and an
+  optional admin daily quote cap (default unlimited) for every supplier.
 - The no stored customer passwords item stays, decoupled from one-click
   revoke: only encrypted session tokens are stored.
-- The about 20 quotes per provider per day item and the ITAR/EAR item are
-  unchanged. OVD-829 will make the daily cap configurable.
+- The ITAR/EAR item is unchanged.
+
+## Decision record (Blaine Wilson, October 16, 2026): daily quote cap
+
+- There is no default daily quote cap anywhere. The former about 20 quotes per
+  provider per day item is removed, and no adapter carries its own cap (the OSH
+  Cut worker cap and `WORKER_OSHCUT_DAILY_QUOTE_CAP` are gone).
+- Caps are optional per-supplier admin settings (default unlimited), delivered
+  only by the OVD-829 shared settings gate (PR #792). The cap is folded into the
+  per-supplier switch item below.
 
 ## When the section is required
 
@@ -121,10 +129,10 @@ alias). There is no `provider:onboard` command.
 - [ ] **Certification run evidence.** Link the hosted certification run for
       this provider. Failed certification leaves only this provider disabled.
 - [ ] **Per-supplier on/off switch in the admin dashboard (immediate,
-      worker-enforced at generic dispatch) and configurable daily quote cap,
-      via OVD-829.** Cannot be N/A. This item is satisfied by dependency on
+      worker-enforced at generic dispatch) and optional admin daily quote cap
+      (default unlimited), via OVD-829.** Cannot be N/A. This item is satisfied by dependency on
       [OVD-829](https://linear.app/overdrafter/issue/OVD-829), which builds the
-      switch and the configurable cap for every supplier in its own PR. The
+      switch and the optional admin cap for every supplier in its own PR. The
       evidence is the OVD-829 Linear issue URL or its merged PR. The automated
       test that turning a supplier off stops dispatch within one job lives in
       OVD-829, not in the go-live PR.
@@ -134,9 +142,6 @@ alias). There is no `provider:onboard` command.
 These items record the provider legal stance. None can be N/A except the
 ITAR/EAR item for a US only provider (see Evidence and N/A).
 
-- [ ] **About 20 quotes per provider per day.** Record the configured daily
-      ceiling and where it is enforced. OVD-829 will make the cap
-      configurable per supplier.
 - [ ] **No stored customer passwords.** Only encrypted session tokens are
       stored. Record where tokens are encrypted at rest.
 - [ ] **ITAR/EAR controlled or uncertain uploads are blocked** to foreign

@@ -323,17 +323,9 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
     id: "supplier-switch",
     group: "Admit",
-    text: "Per-supplier on/off switch in the admin dashboard (immediate, worker-enforced at generic dispatch) and configurable daily quote cap, via OVD-829. Evidence:",
+    text: "Per-supplier on/off switch in the admin dashboard (immediate, worker-enforced at generic dispatch) and optional admin daily quote cap (default unlimited), via OVD-829. Evidence:",
     label: "per-supplier on/off switch in the admin dashboard",
     match: /per-supplier on\/off switch/i,
-    na: false,
-  },
-  {
-    id: "rate-limit",
-    group: "Legal stance",
-    text: "Traffic stays at about 20 quotes per provider per day. Evidence:",
-    label: "about 20 quotes per provider per day",
-    match: /about 20 quotes per provider per day/i,
     na: false,
   },
   {

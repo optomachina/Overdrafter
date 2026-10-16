@@ -6,12 +6,10 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 
 describe("loadConfig", () => {
-  it("caps OSH Cut at 20 quotes per UTC day by default and only accepts 1 to 20", () => {
+  it("has no OSH Cut daily quote cap setting (caps come only from the OVD-829 admin gate)", () => {
     const base = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role-key" };
-    expect(loadConfig(base).oshcutDailyQuoteCap).toBe(20);
-    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "5" }).oshcutDailyQuoteCap).toBe(5);
-    expect(() => loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "21" })).toThrow();
-    expect(() => loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "0" })).toThrow();
+    expect(loadConfig(base)).not.toHaveProperty("oshcutDailyQuoteCap");
+    expect(loadConfig({ ...base, WORKER_OSHCUT_DAILY_QUOTE_CAP: "5" })).not.toHaveProperty("oshcutDailyQuoteCap");
   });
 
   it("applies defaults for optional worker settings", () => {

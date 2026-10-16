@@ -587,7 +587,7 @@ describe("validatePrBody", () => {
 
   it("rejects N/A on the provider:check, per-supplier switch, and legal stance items", () => {
     const naIds = MANUAL_ITEMS.filter((item) => !item.na).map((item) => item.id);
-    expect(naIds).toEqual(["provider-check", "supplier-switch", "rate-limit", "no-passwords"]);
+    expect(naIds).toEqual(["provider-check", "supplier-switch", "no-passwords"]);
     for (const id of naIds) {
       const result = validate(buildGoLiveSection({ [id]: { na: "this does not apply to the stage" } }));
       expect(result.errors.some((error) => error.startsWith("N/A is not allowed")), id).toBe(true);
@@ -744,7 +744,7 @@ describe("provider go-live docs and workflows", () => {
   it("covers the provider legal stance in the checklist", () => {
     const checklist = read("docs", "checklists", "provider-go-live-checklist.md");
     for (const phrase of ["Blaine Wilson, October 16, 2026", PROVIDER_GO_LIVE_AUTO_SIGNATURE, "OVD-829",
-      "https://linear.app/overdrafter/issue/OVD-829", "satisfied by dependency on", "20 quotes", "No stored customer passwords", "encrypted session tokens", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
+      "https://linear.app/overdrafter/issue/OVD-829", "satisfied by dependency on", "optional admin daily quote cap (default unlimited)", "no default daily quote cap", "No stored customer passwords", "encrypted session tokens", "ITAR/EAR", "Geomiq", "Weerg", "LLMs"]) {
       expect(checklist.replace(/\s+/g, " "), phrase).toContain(phrase);
     }
     const goLiveItems = (text) => text.slice(text.indexOf("## Envelope")).split(/\n(?=- \[)/).filter((line) => line.startsWith("- ["));
