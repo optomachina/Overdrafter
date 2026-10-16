@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { fetchSpendSummary, setGlobalSpendCap } from "@/features/quotes/api/platform-admin-api";
+import { STEP_UP_ENROLL_TITLE, useAal2StepUp } from "@/features/auth/use-aal2-step-up";
+import { MfaStepUpDialog } from "@/components/auth/MfaStepUpDialog";
+import { StepUpNoticeBanner } from "@/components/auth/StepUpNoticeBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +18,8 @@ import { Label } from "@/components/ui/label";
  * ceiling is applied in the worker at the point of spend, because a limit
  * checked when someone clicks a button cannot stop a retry storm or a stuck
  * loop — which is the shape a runaway bill actually takes.
+ *
+ * OVD-771: every write (ceiling or halt/resume) requires an AAL2 session.
  */
 
 function usd(value: number | null | undefined) {
@@ -49,6 +54,9 @@ export function SpendCapCard() {
       toast.error(error instanceof Error ? error.message : "Could not update the spend cap");
     },
   });
+
+  const stepUp = useAal2StepUp(mutation.mutateAsync);
+  const isBusy = mutation.isPending || stepUp.isCheckingAssurance || stepUp.isMfaOpen;
 
   const summary = summaryQuery.data;
   const spend = summary?.totalSpendUsd ?? 0;
@@ -140,7 +148,7 @@ export function SpendCapCard() {
           </div>
           <Button
             variant="outline"
-            disabled={mutation.isPending || !dailyCeilingDraft.trim()}
+            disabled={isBusy || !dailyCeilingDraft.trim()}
             onClick={() => {
               // Number() rejects a partial parse, unlike parseFloat, which would
               // read "25usd" as 25 and quietly set a ceiling nobody asked for.
@@ -150,19 +158,21 @@ export function SpendCapCard() {
                 toast.error("Enter a non-negative amount");
                 return;
               }
-              mutation.mutate({ dailyCeilingUsd: parsed });
+              void stepUp.requestWrite({ dailyCeilingUsd: parsed });
             }}
           >
             Save
           </Button>
           <Button
             variant={killSwitchOn ? "default" : "destructive"}
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate({ killSwitch: !killSwitchOn })}
+            disabled={isBusy}
+            onClick={() => void stepUp.requestWrite({ killSwitch: !killSwitchOn })}
           >
             {killSwitchOn ? "Resume spending" : "Halt all spending"}
           </Button>
         </div>
+
+        <StepUpNoticeBanner notice={stepUp.notice} onEnroll={stepUp.startEnrollment} />
 
         <p className="text-xs text-muted-foreground">
           Halting refuses new model calls and vendor lanes. Extraction continues on deterministic
@@ -171,6 +181,11 @@ export function SpendCapCard() {
           needs provider-side caps.
         </p>
       </CardContent>
+      <MfaStepUpDialog
+        {...stepUp.dialogProps}
+        title={stepUp.dialogMode === "enroll" ? STEP_UP_ENROLL_TITLE : "Verify this spend change"}
+        description="Changing the daily ceiling or halting spend requires an authenticator-app code. Your account remains the audited actor."
+      />
     </Card>
   );
 }

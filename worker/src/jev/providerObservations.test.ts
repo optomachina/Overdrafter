@@ -44,8 +44,8 @@ describe("actual Xometry source observations", () => {
     const observations: XometryProviderObservation[] = [];
     let mutationRejected = false;
     const source = `${text}\n${"local evidence ".repeat(120)}\nRevision: C`;
-    const baseline = await collectXometryOffers(quotePage([source, text.replaceAll("$40.00", "$60.00")]), 2);
-    const observed = await collectXometryOffers(quotePage([source, text.replaceAll("$40.00", "$60.00")]), 2, (record) => {
+    const baseline = await collectXometryOffers(quotePage([source, text.replace("$20.00 ea.\nUSD $40.00", "$30.00 ea.\nUSD $60.00")]), 2);
+    const observed = await collectXometryOffers(quotePage([source, text.replace("$20.00 ea.\nUSD $40.00", "$30.00 ea.\nUSD $60.00")]), 2, (record) => {
       observations.push(record);
       if (record.kind === "quote") {
         try { (record.documents[0].attributes as Record<string, string>).id = "hostile"; }
@@ -70,7 +70,7 @@ describe("actual Xometry source observations", () => {
 
   it("does not invent observed quantity, revision or firm basis from request and normalized values", async () => {
     let record: XometryProviderObservation | undefined;
-    await collectXometryOffers(quotePage(["Standard\nUSD $40.00\n5 business days"]), 7, (value) => { record = value; });
+    await collectXometryOffers(quotePage(["Standard\nUSD $5.00 ea.\nUSD $35.00\n5 business days"]), 7, (value) => { record = value; });
     expect(record).toMatchObject({ kind: "quote", requestedQuantity: 7, documents: [{ unavailableFields: ["quantity", "revision", "firmness"] }] });
   });
 
