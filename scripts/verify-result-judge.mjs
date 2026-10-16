@@ -5,13 +5,14 @@
 //   node scripts/verify-result-judge.mjs --expected-sha SHA --out verify-result.json
 //     [--features auth,quote,provider] [--harness-sha256 EXPECTED --harness-recorded RECORDED]
 //     <evidence-dir>...
-// Each evidence dir (named after its mode) holds manifest.txt and
-// playwright-report.json from verify.sh. The spec list each run must cover comes
-// from this checkout's feature map, not from the evidence.
+// Each evidence dir (named after its mode) holds manifest.txt and one
+// playwright-report-<i>.json per Playwright config from verify.sh, numbered in the
+// order the configs first appear in the feature map. The spec and config lists
+// each run must cover come from this checkout's feature map, not from the evidence.
 // Fails closed: anything other than every mapped spec running and every journey
 // passing at the expected SHA on a clean tree is FAIL. Exit 0 on PASS, 1 on FAIL,
 // 2 on bad usage.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,11 +30,28 @@ export function parseManifest(text) {
     mode: fields.mode ?? null,
     features: fields.features ?? null,
     specs: fields.specs ? fields.specs.split(/\s+/).filter(Boolean) : [],
+    configs: fields.configs ? fields.configs.split(/\s+/).filter(Boolean) : [],
     // verify.sh writes "git head: <sha> (clean tree)" or "(dirty tree)".
     gitHead: /^([0-9a-f]{40})\b/.exec(fields["git head"] ?? "")?.[1] ?? null,
     tree: /\((clean|dirty) tree\)/.exec(fields["git head"] ?? "")?.[1] ?? null,
-    exitCode: fields["exit code"] === undefined ? null : Number(fields["exit code"]),
+    // One Playwright exit code per config, e.g. "exit codes: 0 0".
+    exitCodes: fields["exit codes"] ? fields["exit codes"].split(/\s+/).filter(Boolean).map(Number) : [],
+    // verify.sh's own fail-closed verdict (verdict.mjs): PASS, FAIL or INCOMPLETE.
+    verdict: fields.verdict ?? null,
   };
+}
+
+const REPORT_NAME = /^playwright-report-(\d+)\.json$/;
+export const reportName = (i) => `playwright-report-${i}.json`;
+
+/** The feature map's runs for a mode: one per config, in verify.sh's report order. */
+export function expectedConfigRuns(features, mode) {
+  const runs = new Map();
+  for (const { spec, config } of specsFor(features, mode)) {
+    if (!runs.has(config)) runs.set(config, []);
+    runs.get(config).push(spec);
+  }
+  return [...runs].map(([config, specs], i) => ({ config, specs, report: reportName(i) }));
 }
 
 function testStatus(test) {
@@ -68,10 +86,23 @@ const specMatches = (spec, file) => Boolean(file) && (spec === file || spec.ends
 
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** Judges one evidence run; `manifestText`/`reportText` are null when the file is missing. */
-export function judgeRun({ label, manifestText, reportText, expectedSha, features }) {
+/**
+ * Judges one evidence run. `manifestText` is null when manifest.txt is missing;
+ * `reports` maps each playwright-report-<i>.json found in the dir to its text.
+ */
+export function judgeRun({ label, manifestText, reports = {}, expectedSha, features }) {
   const reasons = [];
-  const run = { label, mode: null, features: null, gitHead: null, tree: null, exitCode: null, specs: [], journeys: [] };
+  const run = { label, mode: null, features: null, gitHead: null, tree: null, exitCodes: [], verdict: null, specs: [], configs: [], journeys: [] };
+  const mode = ["fixture", "local"].includes(label) ? label : null;
+  let expected = [];
+  if (!mode) reasons.push(`${label}: evidence dir is not named after a mode (fixture or local)`);
+  else {
+    try {
+      expected = expectedConfigRuns(features, mode);
+    } catch (error) {
+      reasons.push(`${label}: ${error.message}`);
+    }
+  }
   if (manifestText == null) {
     reasons.push(`${label}: manifest.txt missing`);
   } else {
@@ -79,33 +110,43 @@ export function judgeRun({ label, manifestText, reportText, expectedSha, feature
     if (!run.gitHead) reasons.push(`${label}: manifest has no git head SHA`);
     else if (run.gitHead !== expectedSha) reasons.push(`${label}: SHA mismatch (tested ${run.gitHead}, expected ${expectedSha})`);
     if (run.tree !== "clean") reasons.push(`${label}: tested tree was ${run.tree ?? "unknown"}, not clean at the head SHA`);
-    if (run.exitCode !== 0) reasons.push(`${label}: playwright exit code ${run.exitCode ?? "missing"}`);
+    if (run.exitCodes.length !== expected.length || run.exitCodes.some((c) => c !== 0)) {
+      reasons.push(`${label}: playwright exit codes ${run.exitCodes.join(" ") || "missing"}`);
+    }
+    if (run.verdict !== "PASS") reasons.push(`${label}: verify.sh verdict ${run.verdict ?? "missing"}`);
     if (run.mode !== label) reasons.push(`${label}: manifest mode is ${run.mode ?? "missing"}`);
     if (run.features !== features.join(",")) reasons.push(`${label}: manifest features ${run.features ?? "missing"}, expected ${features.join(",")}`);
-    if (["fixture", "local"].includes(run.mode)) {
-      const expected = specsFor(features, run.mode);
-      if (!sameList(run.specs, expected)) reasons.push(`${label}: manifest specs differ from the base feature map (${expected.join(" ") || "none"})`);
-    }
+    const specs = expected.flatMap((r) => r.specs);
+    if (expected.length && !sameList(run.specs, specs)) reasons.push(`${label}: manifest specs differ from the base feature map (${specs.join(" ")})`);
+    const configs = expected.map((r) => r.config);
+    if (expected.length && !sameList(run.configs, configs)) reasons.push(`${label}: manifest configs differ from the base feature map (${configs.join(" ")})`);
     if (run.specs.length === 0) reasons.push(`${label}: manifest lists no specs`);
   }
-  if (reportText == null) {
-    reasons.push(`${label}: playwright-report.json missing`);
-    return { run, reasons };
+  for (const name of Object.keys(reports)) {
+    if (!expected.some((r) => r.report === name)) reasons.push(`${label}: unexpected report ${name}`);
   }
-  let report;
-  try {
-    report = JSON.parse(reportText);
-  } catch {
-    reasons.push(`${label}: playwright-report.json is not valid JSON`);
-    return { run, reasons };
-  }
-  for (const error of report.errors ?? []) {
-    reasons.push(`${label}: playwright error: ${String(error.message ?? error).split("\n")[0]}`);
-  }
-  run.journeys = collectJourneys(report).map((j) => ({ ...j, mode: run.mode ?? label }));
-  if (run.journeys.length === 0) reasons.push(`${label}: no journeys ran`);
-  for (const spec of run.specs) {
-    if (!run.journeys.some((j) => specMatches(spec, j.file))) reasons.push(`${label}: no journeys ran for ${spec}`);
+  for (const { config, specs, report: name } of expected) {
+    const text = reports[name];
+    if (text == null) {
+      reasons.push(`${label}: ${name} missing (${config})`);
+      continue;
+    }
+    let report;
+    try {
+      report = JSON.parse(text);
+    } catch {
+      reasons.push(`${label}: ${name} is not valid JSON`);
+      continue;
+    }
+    for (const error of report.errors ?? []) {
+      reasons.push(`${label}: playwright error (${config}): ${String(error.message ?? error).split("\n")[0]}`);
+    }
+    const journeys = collectJourneys(report).map((j) => ({ ...j, mode: run.mode ?? label, config }));
+    if (journeys.length === 0) reasons.push(`${label}: no journeys ran under ${config}`);
+    for (const spec of specs) {
+      if (!journeys.some((j) => specMatches(spec, j.file))) reasons.push(`${label}: no journeys ran for ${spec}`);
+    }
+    run.journeys.push(...journeys);
   }
   for (const j of run.journeys) {
     if (j.status !== "passed") reasons.push(`${label}: ${j.status}: ${j.name}`);
@@ -131,7 +172,8 @@ export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS)
     harness,
     headShas: [...new Set(judged.map((j) => j.run.gitHead).filter(Boolean))],
     runs: judged.map(({ run }) => ({
-      label: run.label, mode: run.mode, features: run.features, gitHead: run.gitHead, tree: run.tree, exitCode: run.exitCode, specs: run.specs,
+      label: run.label, mode: run.mode, features: run.features, gitHead: run.gitHead, tree: run.tree,
+      exitCodes: run.exitCodes, verdict: run.verdict, specs: run.specs, configs: run.configs,
     })),
     journeys,
     failingJourneys: journeys.filter((j) => j.status !== "passed").map((j) => `${j.mode}: ${j.name} (${j.status})`),
@@ -148,6 +190,12 @@ export function formatSummary(result) {
 }
 
 const readOrNull = (file) => (existsSync(file) ? readFileSync(file, "utf8") : null);
+
+/** Every playwright-report-<i>.json in an evidence dir, by file name. */
+export function readReports(dir) {
+  if (!existsSync(dir)) return {};
+  return Object.fromEntries(readdirSync(dir).filter((f) => REPORT_NAME.test(f)).map((f) => [f, readFileSync(path.join(dir, f), "utf8")]));
+}
 
 export function main(argv) {
   let expectedSha = null;
@@ -171,7 +219,7 @@ export function main(argv) {
   const runs = dirs.map((dir) => ({
     label: path.basename(dir),
     manifestText: readOrNull(path.join(dir, "manifest.txt")),
-    reportText: readOrNull(path.join(dir, "playwright-report.json")),
+    reports: readReports(dir),
   }));
   const result = judge({ runs, expectedSha, features, harness });
   writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);

@@ -4,15 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { collectJourneys, judge, main, parseManifest } from "./verify-result-judge.mjs";
+import { collectJourneys, expectedConfigRuns, judge, main, parseManifest } from "./verify-result-judge.mjs";
 
 const SHA = "a".repeat(40);
 const FEATURES = ["quote"];
 
 // Same lines verify.sh writes; scripts/verify-overdrafter-skill.test.mjs feeds a
 // manifest produced by verify.sh itself through the judge.
-const manifest = ({ sha = SHA, tree = "clean", code = 0, mode = "local", features = "quote", specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts" } = {}) =>
-  [`mode: ${mode}`, `features: ${features}`, `specs: ${specs}`, "command: npx playwright test", `git head: ${sha} (${tree} tree)`, "tests: passed=3", `exit code: ${code}`, "verdict: PASS"].join("\n");
+const manifest = ({
+  sha = SHA, tree = "clean", codes = "0", verdict = "PASS", mode = "local", features = "quote",
+  specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts", configs = "playwright.config.ts",
+} = {}) =>
+  [
+    `mode: ${mode}`, `features: ${features}`, `specs: ${specs}`, `configs: ${configs}`, "command: npx playwright test",
+    `git head: ${sha} (${tree} tree)`, `exit codes: ${codes}`, "tests: passed=3 failed=0 skipped=0 expectedFail=0 flaky=0", `verdict: ${verdict}`,
+  ].join("\n");
 
 const test = (status = "passed", extra = {}) => ({
   projectName: "",
@@ -43,7 +49,12 @@ const report = (intakeStatus = "passed", extra = {}) => JSON.stringify({
   errors: [],
 });
 
-const run = (over = {}) => ({ label: "local", manifestText: manifest(), reportText: report(), ...over });
+const run = ({ reportText = report(), ...over } = {}) => ({
+  label: "local",
+  manifestText: manifest(),
+  reports: reportText == null ? {} : { "playwright-report-0.json": reportText },
+  ...over,
+});
 const judgeOne = (over = {}, opts = {}) => judge({ runs: [run(over)], expectedSha: SHA, features: FEATURES, ...opts });
 
 describe("verify-result-judge", () => {
@@ -81,7 +92,7 @@ describe("verify-result-judge", () => {
   });
 
   it("fails on a missing report, a missing manifest or invalid JSON", () => {
-    expect(judgeOne({ reportText: null }).reasons).toContain("local: playwright-report.json missing");
+    expect(judgeOne({ reportText: null }).reasons).toContain("local: playwright-report-0.json missing (playwright.config.ts)");
     expect(judgeOne({ manifestText: null }).reasons).toContain("local: manifest.txt missing");
     expect(judgeOne({ reportText: "{" }).verdict).toBe("FAIL");
     expect(judge({ runs: [], expectedSha: SHA, features: FEATURES }).verdict).toBe("FAIL");
@@ -111,13 +122,68 @@ describe("verify-result-judge", () => {
   it("fails when a mapped spec ran no journeys, playwright exited non-zero, or reported errors", () => {
     const noJourneys = JSON.stringify({ ...JSON.parse(report()), suites: JSON.parse(report()).suites.slice(0, 1) });
     expect(judgeOne({ reportText: noJourneys }).reasons).toEqual(["local: no journeys ran for e2e/sourcing-destination.spec.ts"]);
-    expect(judgeOne({ manifestText: manifest({ code: 1 }) }).reasons).toEqual(["local: playwright exit code 1"]);
+    expect(judgeOne({ manifestText: manifest({ codes: "1", verdict: "FAIL" }) }).reasons).toEqual([
+      "local: playwright exit codes 1",
+      "local: verify.sh verdict FAIL",
+    ]);
     const errored = JSON.stringify({ ...JSON.parse(report()), errors: [{ message: "webServer exited\nstack" }] });
-    expect(judgeOne({ reportText: errored }).reasons).toEqual(["local: playwright error: webServer exited"]);
+    expect(judgeOne({ reportText: errored }).reasons).toEqual(["local: playwright error (playwright.config.ts): webServer exited"]);
+  });
+
+  it("fails an INCOMPLETE verify.sh verdict, missing exit codes and drifting configs", () => {
+    expect(judgeOne({ manifestText: manifest({ verdict: "INCOMPLETE" }) }).reasons).toEqual(["local: verify.sh verdict INCOMPLETE"]);
+    expect(judgeOne({ manifestText: manifest({ codes: "" }) }).reasons).toEqual(["local: playwright exit codes missing"]);
+    expect(judgeOne({ manifestText: manifest({ configs: "e2e/admin-operations.config.ts" }) }).reasons).toEqual([
+      "local: manifest configs differ from the base feature map (playwright.config.ts)",
+    ]);
+  });
+
+  it("requires one report per config in the feature map and rejects extra reports", () => {
+    expect(expectedConfigRuns(["provider"], "fixture")).toEqual([
+      { config: "e2e/admin-operations.config.ts", specs: ["e2e/admin-operations.spec.ts"], report: "playwright-report-0.json" },
+      {
+        config: "playwright.config.ts",
+        specs: ["e2e/journeys/jarvis-front-door.spec.ts", "e2e/engineering-admin-route.spec.ts"],
+        report: "playwright-report-1.json",
+      },
+    ]);
+    const suite = (file) => ({ title: file, file, specs: [{ title: "journey", file, tests: [test("passed")] }] });
+    const provider = (reports, codes = "0 0") => judge({
+      runs: [{
+        label: "fixture",
+        manifestText: manifest({
+          mode: "fixture", features: "provider", codes,
+          specs: "e2e/admin-operations.spec.ts e2e/journeys/jarvis-front-door.spec.ts e2e/engineering-admin-route.spec.ts",
+          configs: "e2e/admin-operations.config.ts playwright.config.ts",
+        }),
+        reports,
+      }],
+      expectedSha: SHA,
+      features: ["provider"],
+    });
+    const admin = JSON.stringify({ suites: [suite("admin-operations.spec.ts")], errors: [] });
+    const rest = JSON.stringify({ suites: [suite("journeys/jarvis-front-door.spec.ts"), suite("engineering-admin-route.spec.ts")], errors: [] });
+    const ok = provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest });
+    expect(ok.reasons).toEqual([]);
+    expect(ok.journeys.map((j) => j.config)).toEqual(["e2e/admin-operations.config.ts", "playwright.config.ts", "playwright.config.ts"]);
+    expect(provider({ "playwright-report-0.json": admin }).reasons).toEqual(["fixture: playwright-report-1.json missing (playwright.config.ts)"]);
+    // A spec that only ran under the wrong config does not count.
+    expect(provider({ "playwright-report-0.json": rest, "playwright-report-1.json": admin }).reasons).toEqual([
+      "fixture: no journeys ran for e2e/admin-operations.spec.ts",
+      "fixture: no journeys ran for e2e/journeys/jarvis-front-door.spec.ts",
+      "fixture: no journeys ran for e2e/engineering-admin-route.spec.ts",
+    ]);
+    expect(provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest, "playwright-report-2.json": rest }).reasons).toEqual([
+      "fixture: unexpected report playwright-report-2.json",
+    ]);
+    expect(provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest }, "0").reasons).toEqual(["fixture: playwright exit codes 0"]);
   });
 
   it("parses verify.sh manifests and flattens nested suites", () => {
-    expect(parseManifest(manifest())).toMatchObject({ mode: "local", gitHead: SHA, tree: "clean", exitCode: 0, specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"] });
+    expect(parseManifest(manifest({ codes: "0 1" }))).toMatchObject({
+      mode: "local", gitHead: SHA, tree: "clean", exitCodes: [0, 1], verdict: "PASS",
+      specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"], configs: ["playwright.config.ts"],
+    });
     expect(parseManifest(manifest({ tree: "dirty" })).tree).toBe("dirty");
     expect(parseManifest("git head: not-a-sha (clean tree)").gitHead).toBeNull();
     expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts"]);
@@ -128,7 +194,7 @@ describe("verify-result-judge", () => {
     const evidence = path.join(dir, "local");
     mkdirSync(evidence);
     writeFileSync(path.join(evidence, "manifest.txt"), manifest());
-    writeFileSync(path.join(evidence, "playwright-report.json"), report());
+    writeFileSync(path.join(evidence, "playwright-report-0.json"), report());
     const out = path.join(dir, "verify-result.json");
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     expect(main(["--expected-sha", SHA, "--features", "quote", "--out", out, evidence])).toBe(0);
