@@ -85,5 +85,23 @@ describe("Xometry native currency boundary", () => {
         expect(parseText(price, registryCurrency, 1)[0]).toMatchObject({ unitPriceUsd: 41.41, totalPriceUsd: 41.41 });
       }
     });
+    it("never returns a savings amount as the offer price", () => {
+      for (const registryCurrency of ["USD", null]) {
+        expect(parseText("USD 414.15\nSave $125.47", registryCurrency, 1)[0])
+          .toMatchObject({ unitPriceUsd: 414.15, totalPriceUsd: 414.15 });
+      }
+      expect(() => parseText("Save $125.47", "USD", 1)).toThrowError(expect.objectContaining({
+        payload: expect.objectContaining({ reason: "xometry_offer_price_missing" }),
+      }));
+      expect(() => parseText("USD 414.15\nUSD 500.00\nSave $125.47", "USD", 1)).toThrowError(expect.objectContaining({
+        payload: expect.objectContaining({ reason: "xometry_offer_price_missing" }),
+      }));
+    });
+    it("reports price_currency_unverified when only USD and unknown markers are observed", () => {
+      expect(() => parseText("USD $50.00 ea.\n$100.00", null)).toThrowError(unverified);
+      expect(() => parseText("USD $50.00 ea.\n$100.00 CAD", null)).toThrowError(expect.objectContaining({
+        payload: expect.objectContaining({ reason: "xometry_offer_currency_untrusted" }),
+      }));
+    });
   });
 });

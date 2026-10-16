@@ -6,9 +6,13 @@ The synthetic provider-readiness audit demonstrated that `CAD $100.00` became
 repair. Nine new regression cases failed before the guard was added (13 original
 cases total). Failure evidence is retained in the local task output directory.
 
-The USD-only offer parser now requires an explicit USD marker on every dollar
-amount. It recognizes USD before/after an amount and the US$ prefix; it rejects
-bare dollar amounts, foreign currencies and contradictory currency annotations.
+The USD-only offer parser requires a trustworthy USD boundary on every dollar
+amount. It recognizes USD before/after an amount and the US$ prefix. A bare dollar
+amount is accepted only when the provider registry currency is exactly `USD`, and
+is rejected when that currency is unknown or non-USD (see the registry section
+below). It rejects foreign currencies and contradictory currency annotations.
+Savings amounts (`Save $125.47`, `$10.00 off`) are not offer prices and are
+ignored when anchoring the price.
 The guard examines recognized currency codes case-insensitively on the entire price line to catch
 `USD/CAD` and `CAD US$` conflicts. Currency names come from the Node runtime's
 currency-code registry for detection only; this is not FX or a supported-provider
