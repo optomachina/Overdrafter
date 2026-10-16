@@ -47,22 +47,25 @@ export function assertStagingRef(ref) {
 // (postgresql://db.<staging>.supabase.co#@evil.example.com/postgres), so any
 // denylist built on URL() is bypassable.
 //
-// Hosts: the staging direct host, or the us-west-1 Supavisor pooler host this
-// org uses (aws-1-us-west-1.pooler.supabase.com; see
-// scripts/manage-ovd373-temporary-db-access.test.mjs line 29 and
-// docs/workflows/ovd361-production-deployment.md). The exact staging pooler
-// host is pending read-only confirmation from the staging project's Supabase
-// dashboard Connect panel (OVD-880); once confirmed, this allowlist must match
-// that exact value. The direct host takes user "postgres"; the pooler takes
+// Hosts: the staging direct host, or the staging project's us-west-1 Supavisor
+// pooler host, aws-0-us-west-1.pooler.supabase.com (the host
+// scripts/seed-staging.test.mjs already uses for staging). aws-1-us-west-1 is
+// refused: it is the host the prod-only ovd373 access tool targets
+// (scripts/manage-ovd373-temporary-db-access.test.mjs), so it is most likely
+// the production cluster. Evidence (OVD-880): a credential-free TLS startup
+// probe as postgres.ldmambwtksfvqdufhaam got a SASL auth request from aws-0
+// (the tenant exists there) but "tenant/user not found" from aws-1. Blaine can
+// confirm the host in the staging project's Supabase dashboard Connect panel.
+// The direct host takes user "postgres"; the pooler takes
 // "postgres.<staging ref>". The password must be unreserved characters or %XX
 // escapes, so a raw @ # ? / : (or anything else that could move the authority
 // boundary) is refused. The query is required and must be exactly
 // sslmode=require or sslmode=verify-full: no query (libpq defaults to prefer),
 // a weaker sslmode, or any other parameter (options=, host=, ...) is refused.
 export const STAGING_DIRECT_HOST = "db.ldmambwtksfvqdufhaam.supabase.co";
-export const STAGING_POOLER_HOST = "aws-1-us-west-1.pooler.supabase.com";
+export const STAGING_POOLER_HOST = "aws-0-us-west-1.pooler.supabase.com";
 export const STAGING_CONNECTION_URL_PATTERN =
-  /^postgres(?:ql)?:\/\/(?:postgres:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@db\.ldmambwtksfvqdufhaam\.supabase\.co|postgres\.ldmambwtksfvqdufhaam:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@aws-1-us-west-1\.pooler\.supabase\.com):(?:5432|6543)\/postgres\?sslmode=(?:require|verify-full)$/;
+  /^postgres(?:ql)?:\/\/(?:postgres:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@db\.ldmambwtksfvqdufhaam\.supabase\.co|postgres\.ldmambwtksfvqdufhaam:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@aws-0-us-west-1\.pooler\.supabase\.com):(?:5432|6543)\/postgres\?sslmode=(?:require|verify-full)$/;
 
 /**
  * libpq environment variables that could redirect, re-credential or weaken a

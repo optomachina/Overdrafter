@@ -43,7 +43,7 @@ describe("staging reset guard", () => {
 
   const ssl = "?sslmode=require";
   const directBase = `postgresql://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres`;
-  const poolerBase = `postgresql://postgres.${STAGING_PROJECT_REF}:pw%40x@aws-1-us-west-1.pooler.supabase.com:6543/postgres`;
+  const poolerBase = `postgresql://postgres.${STAGING_PROJECT_REF}:pw%40x@aws-0-us-west-1.pooler.supabase.com:6543/postgres`;
   const stagingDirectUrl = `postgres://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres${ssl}`;
   const stagingPoolerUrl = `${poolerBase}${ssl}`;
 
@@ -51,7 +51,7 @@ describe("staging reset guard", () => {
     stagingDirectUrl,
     stagingPoolerUrl,
     `postgresql://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co:6543/postgres${ssl}`,
-    `postgresql://postgres.${STAGING_PROJECT_REF}:A-z_0.9~%2F%3a@aws-1-us-west-1.pooler.supabase.com:5432/postgres?sslmode=verify-full`,
+    `postgresql://postgres.${STAGING_PROJECT_REF}:A-z_0.9~%2F%3a@aws-0-us-west-1.pooler.supabase.com:5432/postgres?sslmode=verify-full`,
   ])("accepts staging URL %s", (target) => {
     expect(assertStagingTarget(target)).toBe(STAGING_PROJECT_REF);
   });
@@ -90,7 +90,7 @@ describe("staging reset guard", () => {
     expect(STAGING_CONNECTION_URL_PATTERN.source.startsWith("^")).toBe(true);
     expect(STAGING_CONNECTION_URL_PATTERN.source.endsWith("$")).toBe(true);
     expect(STAGING_DIRECT_HOST).toBe(`db.${STAGING_PROJECT_REF}.supabase.co`);
-    expect(STAGING_POOLER_HOST).toBe("aws-1-us-west-1.pooler.supabase.com");
+    expect(STAGING_POOLER_HOST).toBe("aws-0-us-west-1.pooler.supabase.com");
   });
 
   it.each([
@@ -120,7 +120,7 @@ describe("staging reset guard", () => {
     ["prod ref in host", `postgresql://postgres:pw@db.${PRODUCTION_PROJECT_REF}.supabase.co:5432/postgres${ssl}`],
     [
       "prod ref in pooler user",
-      `postgresql://postgres.${PRODUCTION_PROJECT_REF}:pw@aws-1-us-west-1.pooler.supabase.com:6543/postgres${ssl}`,
+      `postgresql://postgres.${PRODUCTION_PROJECT_REF}:pw@aws-0-us-west-1.pooler.supabase.com:6543/postgres${ssl}`,
     ],
     ["wrong port", `postgresql://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co:5433/postgres${ssl}`],
     ["missing port", `postgresql://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co/postgres${ssl}`],
@@ -129,10 +129,21 @@ describe("staging reset guard", () => {
       "pooler user on direct host",
       `postgresql://postgres.${STAGING_PROJECT_REF}:pw@db.${STAGING_PROJECT_REF}.supabase.co:5432/postgres${ssl}`,
     ],
-    ["direct user on pooler host", `postgresql://postgres:pw@aws-1-us-west-1.pooler.supabase.com:6543/postgres${ssl}`],
+    ["direct user on pooler host", `postgresql://postgres:pw@aws-0-us-west-1.pooler.supabase.com:6543/postgres${ssl}`],
     [
-      "old aws-0 pooler host",
-      `postgresql://postgres.${STAGING_PROJECT_REF}:pw@aws-0-us-west-1.pooler.supabase.com:6543/postgres${ssl}`,
+      // OVD-880 probe: aws-1 answers "tenant/user not found" for the staging
+      // tenant; it is the prod-only ovd373 tool's cluster. Keep it refused so
+      // the old host cannot come back silently.
+      "aws-1 pooler host with the staging tenant user",
+      `postgresql://postgres.${STAGING_PROJECT_REF}:pw@aws-1-us-west-1.pooler.supabase.com:6543/postgres${ssl}`,
+    ],
+    [
+      "aws-1 pooler host with the staging tenant user, port 5432",
+      `postgresql://postgres.${STAGING_PROJECT_REF}:pw@aws-1-us-west-1.pooler.supabase.com:5432/postgres?sslmode=verify-full`,
+    ],
+    [
+      "other aws-N pooler host with the staging tenant user",
+      `postgresql://postgres.${STAGING_PROJECT_REF}:pw@aws-2-us-west-1.pooler.supabase.com:6543/postgres${ssl}`,
     ],
     ["wrong database", `postgresql://postgres:pw@db.${STAGING_PROJECT_REF}.supabase.co:5432/template1${ssl}`],
     [

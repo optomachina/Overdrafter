@@ -75,14 +75,14 @@ postgres[ql]://<user>:<password>@<host>:<port>/postgres?sslmode=<require|verify-
 | Part | Allowed |
 | --- | --- |
 | Scheme | `postgres://` or `postgresql://` (lowercase) |
-| Host + user | `db.ldmambwtksfvqdufhaam.supabase.co` with user `postgres` (direct), or `aws-1-us-west-1.pooler.supabase.com` with user `postgres.ldmambwtksfvqdufhaam` (us-west-1 Supavisor pooler) |
+| Host + user | `db.ldmambwtksfvqdufhaam.supabase.co` with user `postgres` (direct), or `aws-0-us-west-1.pooler.supabase.com` with user `postgres.ldmambwtksfvqdufhaam` (us-west-1 Supavisor pooler) |
 | Port | `5432` or `6543`, always explicit |
 | Password | Required, non-empty. Only `A-Z a-z 0-9 . _ ~ -` and `%XX` escapes. Percent-encode every other character (`@` → `%40`, `#` → `%23`, `?` → `%3F`, `/` → `%2F`, `:` → `%3A`, `%` → `%25`) |
 | Database | `postgres` |
 | Query | Required, exactly `?sslmode=require` or `?sslmode=verify-full`. No query (libpq would default to `prefer`), `sslmode=disable` / `allow` / `prefer` / `verify-ca`, or any other parameter (`options=`, `host=`, `hostaddr=`, `service=`, `target_session_attrs=`, `application_name=`, …), alone or alongside `sslmode`, is refused |
 
 Everything else is refused: API URLs, key=value DSNs, fragments, IPv6 or
-bracketed hosts, multi-host lists, other hosts (including `aws-0-` poolers),
+bracketed hosts, multi-host lists, other hosts (including `aws-1-` poolers),
 other users or ports, uppercase hosts, and surrounding whitespace. Error
 messages never print the URL, so a password is never echoed.
 
@@ -90,15 +90,20 @@ Accepted examples:
 
 ```text
 postgresql://postgres:<password>@db.ldmambwtksfvqdufhaam.supabase.co:5432/postgres?sslmode=require
-postgresql://postgres.ldmambwtksfvqdufhaam:<password>@aws-1-us-west-1.pooler.supabase.com:6543/postgres?sslmode=require
+postgresql://postgres.ldmambwtksfvqdufhaam:<password>@aws-0-us-west-1.pooler.supabase.com:6543/postgres?sslmode=require
 ```
 
-Pooler host: the allowlist holds only `aws-1-us-west-1.pooler.supabase.com`
-(the host this org's other projects use). The staging project's exact pooler
-host is pending read-only confirmation from its Supabase dashboard **Connect**
-panel (OVD-880). Once confirmed, the allowlist in
-`scripts/staging-reset-guard.mjs` must match that exact value; do not widen it
-to other `aws-N-` hosts.
+Pooler host: the allowlist holds only `aws-0-us-west-1.pooler.supabase.com`.
+`aws-1-us-west-1.pooler.supabase.com` is refused: it is the host the prod-only
+ovd373 access tool uses, so it is most likely the production cluster. Evidence
+(posted on OVD-880): a credential-free TLS startup probe as
+`postgres.ldmambwtksfvqdufhaam` got a SASL auth request from `aws-0-us-west-1`
+(the tenant exists there) and "tenant/user not found" from `aws-1-us-west-1`.
+`scripts/seed-staging.test.mjs` already uses `aws-0` for staging. Blaine can
+confirm the host read-only in the staging project's Supabase dashboard
+**Connect** panel. If that panel shows a different host, change the allowlist
+in `scripts/staging-reset-guard.mjs` to that exact value; do not widen it to
+other `aws-N-` hosts.
 
 Pass the connection only as that validated URL. The CLI refuses to run if any
 of these ten variables is set (even to an empty string), because libpq would
