@@ -64,6 +64,10 @@ jobs:
           printf 'test: %s\n' "${tests[@]}"
           [ "${#drafts[@]}" -gt 0 ] && [ "${#rollbacks[@]}" -eq "${#drafts[@]}" ] && [ "${#tests[@]}" -gt 0 ] \
             || { echo "::error::drafts, rollbacks and pending tests must all be selected (one rollback per draft)"; exit 1; }
+          # Later steps word-split these lists, so only plain path characters pass.
+          for f in "${drafts[@]}" "${rollbacks[@]}" "${tests[@]}"; do
+            [[ "$f" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::unsafe file name: $f"; exit 1; }
+          done
           echo "drafts=${drafts[*]}" >> "$GITHUB_OUTPUT"
           echo "rollbacks=${rollbacks[*]}" >> "$GITHUB_OUTPUT"
           echo "tests=${tests[*]}" >> "$GITHUB_OUTPUT"
@@ -89,8 +93,10 @@ jobs:
           wc -l "$RUNNER_TEMP/before.txt"
 
       - name: Apply drafts to the ephemeral database
+        env:
+          DRAFTS: ${{ steps.select.outputs.drafts }}
         run: |
-          for f in ${{ steps.select.outputs.drafts }}; do
+          for f in $DRAFTS; do
             echo "::group::apply $f"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
               psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"
@@ -98,8 +104,10 @@ jobs:
           done
 
       - name: Re-apply drafts (they must be idempotent)
+        env:
+          DRAFTS: ${{ steps.select.outputs.drafts }}
         run: |
-          for f in ${{ steps.select.outputs.drafts }}; do
+          for f in $DRAFTS; do
             echo "::group::re-apply $f"
             docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
               psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"
@@ -107,9 +115,11 @@ jobs:
           done
 
       - name: Run pending pgTAP against the drafts
+        env:
+          TESTS: ${{ steps.select.outputs.tests }}
         run: |
           stage="$(mktemp -d)"
-          for f in ${{ steps.select.outputs.tests }}; do
+          for f in $TESTS; do
             cp "$f" "$stage/$(basename "${f%.pending}")"
           done
           ls -l "$stage"
@@ -118,9 +128,11 @@ jobs:
           ! grep -Eq '^not ok|# (SKIP|TODO)' pgtap.txt
 
       - name: Apply rollbacks twice (they must replay cleanly)
+        env:
+          ROLLBACKS: ${{ steps.select.outputs.rollbacks }}
         run: |
           for pass in 1 2; do
-            for f in ${{ steps.select.outputs.rollbacks }}; do
+            for f in $ROLLBACKS; do
               echo "::group::rollback pass $pass $f"
               docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
                 psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"

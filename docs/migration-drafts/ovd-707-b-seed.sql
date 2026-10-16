@@ -93,10 +93,12 @@ begin
     v_id := v_def.id;
 
     insert into private.provider_definition_revisions (
-      definition_id, version, payload, proposed_by, reviewed_by, decision, decided_at, reason)
+      definition_id, version, payload, proposed_by, contributors, reviewed_by, decision, decided_at,
+      proposal_reason, decision_reason)
     values (
-      v_id, 1, private.provider_definition_payload(v_def), null, null, 'approved',
-      pg_catalog.clock_timestamp(), 'OVD-707 one-time seed from provider-registry.v1.json')
+      v_id, 1, private.provider_definition_payload(v_def), null, '{}', null, 'approved',
+      pg_catalog.clock_timestamp(), 'OVD-707 one-time seed from provider-registry.v1.json',
+      'OVD-707 one-time seed from provider-registry.v1.json')
     returning id into v_revision_id;
 
     update private.provider_definitions d

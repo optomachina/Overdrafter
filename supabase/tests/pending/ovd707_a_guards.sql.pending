@@ -24,7 +24,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(74);
+select plan(75);
 
 create function pg_temp.ovd707a_as(p_user_id uuid, p_role text, p_aal text default null)
 returns void
@@ -102,7 +102,7 @@ insert into ovd707a_rpcs (name, sig, call, is_service) values
 grant select on ovd707a_rpcs to anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------
--- pg_proc posture and grants (9)
+-- pg_proc posture and grants (10)
 -- ---------------------------------------------------------------------
 select is((select pg_catalog.count(*)::int from ovd707a_rpcs), 13, 'the guard table lists all 13 RPCs');
 
@@ -157,6 +157,13 @@ select is_empty(
        pg_catalog.unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr(priv)
      where pg_catalog.has_table_privilege(r.role, t.rel, pr.priv) $$,
   'no API role holds any privilege on the OVD-707 tables');
+
+select is_empty(
+  $$ select r.role
+     from pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) r(role)
+     where pg_catalog.has_sequence_privilege(r.role,
+       pg_catalog.pg_get_serial_sequence('private.provider_audit_log', 'id'), 'USAGE, SELECT, UPDATE') $$,
+  'no API role holds any privilege on the audit log identity sequence');
 
 select is_empty(
   $$ select c.oid::regclass::text from pg_catalog.pg_class c

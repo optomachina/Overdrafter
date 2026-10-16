@@ -12,7 +12,8 @@
 -- Covers:
 --   * draft -> pending_review -> approved -> active, suspend/resume, reopen,
 --     reject back to draft, retire; invalid transitions are refused
---   * four-eyes: self-approval refused; the single-admin override needs an
+--   * four-eyes: approval by any contributor (editor or submitter) refused;
+--     the single-admin override needs an
 --     override-listed caller and a reason, and is recorded
 --   * activation needs the OVD-723 export fields and a dry-run pass for the
 --     current version
@@ -25,7 +26,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(69);
+select plan(80);
 
 create function pg_temp.ovd707b_as(p_user_id uuid)
 returns void
@@ -269,8 +270,9 @@ select is(
   public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: submit v3') ->> 'status',
   'pending_review', 'b submits v3');
 
--- Four-eyes follows the revision's proposer: b proposed v3, so b cannot
--- approve it and a can.
+-- Four-eyes follows the revision's contributors: b edited and submitted v3,
+-- so b cannot approve it. a created the definition, but before the v2
+-- approval, so a is not a v3 contributor and can.
 select throws_ok(
   $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifea'), 'OVD-707 test: self approve v3')$$,
   '42501', 'four_eyes_required', 'b cannot approve the revision b proposed');
@@ -393,6 +395,67 @@ select throws_ok(
 reset role;
 
 -- ---------------------------------------------------------------------
+-- Contributors: the editor is a maker even when someone else submits (10)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_create_provider_definition('ovdlifec',
+    '{"displayName": "OVD-707 Life C", "kind": "manual",
+      "admission": {"key": "ovdlifec", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: create life C') ->> 'status',
+  'draft', 'a creates life C');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: submit C1') ->> 'status',
+  'pending_review', 'b submits the draft a wrote');
+reset role;
+select is(
+  (select r.contributors from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.decision = 'pending'),
+  array['00000000-0000-4000-8000-000000707b01', '00000000-0000-4000-8000-000000707b02']::uuid[],
+  'the revision names the editor and the submitter as contributors');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select throws_ok(
+  $$select public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: editor approves C1')$$,
+  '42501', 'four_eyes_required', 'a edits, b submits: a cannot approve');
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_reject_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: reject C1') ->> 'status',
+  'draft', 'b withdraws C1');
+
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b01');
+select is(
+  public.api_admin_update_provider_definition_draft(pg_temp.ovd707b_id('ovdlifec'),
+    '{"displayName": "OVD-707 Life C2", "kind": "manual",
+      "admission": {"key": "ovdlifec", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 test: edit C2') ->> 'displayName',
+  'OVD-707 Life C2', 'a edits the draft');
+select is(
+  public.api_admin_submit_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: submit C2') ->> 'status',
+  'pending_review', 'a submits C2');
+reset role;
+select is(
+  (select r.contributors from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.decision = 'pending'),
+  array['00000000-0000-4000-8000-000000707b01']::uuid[],
+  'the earlier submitter b is not a contributor to C2');
+
+set local role authenticated;
+select pg_temp.ovd707b_as('00000000-0000-4000-8000-000000707b02');
+select is(
+  public.api_admin_approve_provider_definition(pg_temp.ovd707b_id('ovdlifec'), 'OVD-707 test: approve C2') ->> 'version',
+  '2', 'a edits and submits, b approves: allowed');
+reset role;
+select is(
+  (select r.proposal_reason || ' / ' || r.decision_reason from private.provider_definition_revisions r
+   where r.definition_id = pg_temp.ovd707b_id('ovdlifec') and r.version = 2),
+  'OVD-707 test: submit C2 / OVD-707 test: approve C2',
+  'the approval keeps the submitter''s reason next to the approver''s');
+
+-- ---------------------------------------------------------------------
 -- Single-admin override (5)
 -- ---------------------------------------------------------------------
 set local role authenticated;
@@ -416,13 +479,13 @@ select is(
 reset role;
 select ok(
   pg_temp.ovd707b_audit('ovdlifeo') = '3:approve_override:00000000-0000-4000-8000-000000707b03'
-    and (select r.four_eyes_override and r.reviewed_by = r.proposed_by
+    and (select r.four_eyes_override and r.reviewed_by = any (r.contributors)
          from private.provider_definition_revisions r
          where r.definition_id = pg_temp.ovd707b_id('ovdlifeo') and r.decision = 'approved'),
   'the override is recorded on the revision and as one approve_override audit row');
 
 -- ---------------------------------------------------------------------
--- Append-only (6)
+-- Append-only (7)
 -- ---------------------------------------------------------------------
 select throws_ok(
   $$update private.provider_audit_log set reason = 'rewritten' where provider_id = pg_temp.ovd707b_id('ovdlifea')$$,
@@ -439,6 +502,11 @@ select throws_ok(
 select throws_ok(
   $$delete from private.provider_definition_revisions where definition_id = pg_temp.ovd707b_id('ovdlifea')$$,
   '42501', 'provider_definition_revisions is append-only', 'revisions cannot be deleted');
+-- The two tables reference each other, so TRUNCATE must name both to get past
+-- the foreign key check to the triggers.
+select throws_ok(
+  $$truncate private.provider_definition_revisions, private.provider_definitions$$,
+  '42501', null, 'revisions and definitions cannot be truncated');
 select throws_ok(
   $$delete from private.provider_definitions where slug = 'ovdlifea'$$,
   '42501', 'provider_definitions rows are retired, not deleted', 'definitions cannot be deleted');

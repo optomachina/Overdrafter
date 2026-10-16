@@ -14,8 +14,8 @@ the seed and fallback source until PR 2.
 | `ovd-707-a.rollback.sql` | Drops all of the above. Refuses while admin-written audit rows exist, unless the export is confirmed |
 | `ovd-707-b-seed.sql` | Idempotent one-time seed of the 18 registry providers as `active`, version 1 |
 | `ovd-707-b-seed.rollback.sql` | Removes seeded definitions that no admin has touched. Run before the group a rollback |
-| `supabase/tests/pending/ovd707_a_guards.sql.pending` | 74 assertions: posture, ACLs, RLS, and the denial matrix for every RPC |
-| `supabase/tests/pending/ovd707_b_lifecycle.sql.pending` | 69 assertions: lifecycle, four-eyes and override, gates, audit, append-only, service read, seed |
+| `supabase/tests/pending/ovd707_a_guards.sql.pending` | 75 assertions: posture, ACLs, RLS, and the denial matrix for every RPC |
+| `supabase/tests/pending/ovd707_b_lifecycle.sql.pending` | 80 assertions: lifecycle, four-eyes (contributors) and override, gates, audit, append-only, service read, seed |
 | `scripts/ovd707-provider-definition-seed.test.mjs` | Vitest drift check that pins the seed rows to the registry and manifests |
 | `.github/workflows/ovd707-pending-pgtap.yml` | Ephemeral local Supabase: apply the drafts twice, run the pending pgTAP, replay the rollbacks twice newest-first, and diff the catalog against the pre-draft snapshot |
 
@@ -75,6 +75,7 @@ draft | approved | active | suspended --retire--> retired (terminal)
 - **A10. Audit shape.** `actor` is text. It holds a user id for `user` rows (enforced by a check constraint) and a free label for `cli` rows. `request_id` is taken from the PostgREST `request.headers` `x-request-id` when present. `before` and `after` hold the full row state.
 - **A11. "Active" is not "admitted".** An active definition does not admit a provider or enable dispatch. Admission policies, permits, the production-certified allowlist and the kill switches still decide every dispatch.
 - **A12. Reject by the proposer** (a withdrawal) is allowed. Four-eyes applies to approval only.
+- **A13. Four-eyes covers every contributor.** At submit, the revision records `contributors`: the distinct users behind `create` and `update_draft` audit rows since the definition's last `approve` or `approve_override` (or since creation), plus the submitter. None of them may approve that revision except through the single-admin override. `contributors` and `proposal_reason` cannot change after submit; the approver's or rejecter's reason goes in `decision_reason`.
 
 ## OVD-602 privilege inventory
 
@@ -155,10 +156,38 @@ workflow above is the faithful proof on a real local Supabase stack. Results:
 
 - Each draft applies in a single transaction and re-applies as a no-op.
 - The pending pgTAP passes: 143/143 assertions (74 guards + 69 lifecycle).
+  This was before review round 1, which was not re-run locally; see below.
 - Both rollbacks replay twice, newest first, and the `public` and `private`
   catalog matches the pre-draft snapshot.
 - Two mutation checks were run: removing the kill-switch filter, and
   bypassing the AAL2 check. Each fails the suite as expected.
+
+## Review round 1
+
+- **MAJOR-1 (four-eyes missed the editor).** Approval only compared the approver
+  with the submitter, so A could edit, B submit and A approve. Revisions now
+  carry `contributors uuid[] not null` (A13), filled in submit. Approve raises
+  `42501 four_eyes_required` when the caller is a contributor, unless the
+  existing override conditions hold. The check constraint is now
+  `reviewed_by = any (contributors)` for an override, plus
+  `proposed_by = any (contributors)`. The guard trigger keeps `contributors`
+  fixed. The seed writes `'{}'`. The rollback needs no change, because the
+  column goes with its table and no new function was added.
+- **MINOR-1.** `reason` is split into `proposal_reason` (fixed by the guard
+  trigger) and `decision_reason`. The history read returns `contributors`,
+  `proposalReason` and `decisionReason`.
+- **MINOR-3 (partial).** New lifecycle cases: "A edits, B submits, A approves"
+  is refused and "A edits and submits, B approves" is allowed, with the
+  contributors and both reasons checked. TRUNCATE on revisions and definitions
+  is refused. The guards test checks that no API role has privileges on the
+  audit log identity sequence. Not yet covered: `approved_revision_mismatch`,
+  and re-deciding a revision.
+- **MINOR-4.** The workflow passes the selected file lists through `env:` and
+  rejects any name outside `^[A-Za-z0-9._/-]+$` before writing the outputs.
+- Not addressed this round: MINOR-2 (`request_id` is caller-supplied) and
+  MINOR-5 (digest pinning).
+- These changes have not been applied or run anywhere. The CI workflow is the
+  first proof.
 
 ## Promotion checklist
 

@@ -40,7 +40,9 @@
 --   suspend             active -> suspended
 --   reopen              approved | suspended -> draft
 --   retire              draft | approved | active | suspended -> retired
--- Four-eyes: the approver must differ from the revision's proposer. The one
+-- Four-eyes: the approver must not be one of the revision's contributors (its
+-- submitter and everyone who created or edited the draft since the last
+-- approval). The one
 -- exception is the single-admin override: p_override = true, the caller's
 -- email is in private.provider_definition_override_emails (Blaine), the
 -- session is AAL2 (as for every RPC here) and the reason is at least 10
@@ -262,15 +264,24 @@ create table if not exists private.provider_definition_revisions (
   -- null only for the one-time registry seed (ovd-707-b-seed.sql).
   proposed_by uuid,
   proposed_at timestamptz not null default pg_catalog.clock_timestamp(),
+  -- Everyone who shaped this revision: the distinct create/update_draft actors
+  -- since the definition's last approval (or since creation), plus the
+  -- submitter. Fixed at submit; none of them may approve it without the
+  -- override. Empty only for the registry seed.
+  contributors uuid[] not null,
+  -- The submitter's justification; fixed at submit.
+  proposal_reason text,
   reviewed_by uuid,
   decision text not null default 'pending' check (decision in ('pending', 'approved', 'rejected')),
   decided_at timestamptz,
-  reason text,
+  -- The approver's or rejecter's justification.
+  decision_reason text,
   four_eyes_override boolean not null default false,
   unique (definition_id, version),
   unique (id, definition_id),
   check ((decision = 'pending') = (decided_at is null)),
-  check (not four_eyes_override or (decision = 'approved' and reviewed_by = proposed_by))
+  check (proposed_by is null or proposed_by = any (contributors)),
+  check (not four_eyes_override or (decision = 'approved' and reviewed_by = any (contributors)))
 );
 
 create unique index if not exists provider_definition_revisions_one_pending_idx
@@ -348,7 +359,8 @@ create trigger provider_audit_log_no_truncate
   for each statement execute function private.provider_audit_log_immutable();
 
 -- A revision is decided once: only pending -> approved/rejected, and only the
--- decision columns change. Nothing deletes a revision.
+-- decision columns change (the proposal, its contributors and its reason
+-- never do). Nothing deletes a revision.
 create or replace function private.provider_definition_revisions_guard()
 returns trigger
 language plpgsql
@@ -358,8 +370,10 @@ begin
   if tg_op = 'UPDATE'
     and old.decision = 'pending'
     and new.decision in ('approved', 'rejected')
-    and (new.id, new.definition_id, new.version, new.payload, new.proposed_by, new.proposed_at)
-      is not distinct from (old.id, old.definition_id, old.version, old.payload, old.proposed_by, old.proposed_at) then
+    and (new.id, new.definition_id, new.version, new.payload, new.proposed_by, new.proposed_at,
+         new.contributors, new.proposal_reason)
+      is not distinct from (old.id, old.definition_id, old.version, old.payload, old.proposed_by, old.proposed_at,
+         old.contributors, old.proposal_reason) then
     return new;
   end if;
   raise exception 'provider_definition_revisions is append-only' using errcode = '42501';
@@ -732,17 +746,35 @@ declare
   v_before private.provider_definitions;
   v_after private.provider_definitions;
   v_revision_id uuid;
+  v_contributors uuid[];
 begin
   v_before := private.lock_provider_definition(p_id);
   perform private.require_provider_status(v_before, array['draft']::private.provider_status[], 'submit');
 
-  insert into private.provider_definition_revisions (definition_id, version, payload, proposed_by, reason)
+  -- Four-eyes covers whoever wrote the draft, not only whoever submits it.
+  -- Every writer holds the definition lock, so audit ids order the edits.
+  select pg_catalog.array_agg(c.actor order by c.actor) into v_contributors
+  from (
+    select a.actor::uuid as actor
+    from private.provider_audit_log a
+    where a.provider_id = p_id
+      and a.actor_kind = 'user'
+      and a.action in ('create', 'update_draft')
+      and a.id > coalesce((select pg_catalog.max(l.id) from private.provider_audit_log l
+                           where l.provider_id = p_id and l.action in ('approve', 'approve_override')), 0)
+    union
+    select v_actor
+  ) c;
+
+  insert into private.provider_definition_revisions (
+    definition_id, version, payload, proposed_by, contributors, proposal_reason)
   values (
     p_id,
     coalesce((select pg_catalog.max(r.version) from private.provider_definition_revisions r
               where r.definition_id = p_id), 0) + 1,
     private.provider_definition_payload(v_before),
     v_actor,
+    v_contributors,
     v_reason)
   returning id into v_revision_id;
 
@@ -785,7 +817,9 @@ begin
   where r.definition_id = p_id and r.decision = 'pending'
   for update;
 
-  if v_revision.proposed_by is not distinct from v_actor then
+  -- Anyone who created, edited or submitted this revision is a maker, not a
+  -- checker.
+  if v_actor = any (v_revision.contributors) then
     if not coalesce(p_override, false) then
       raise exception 'four_eyes_required' using errcode = '42501';
     end if;
@@ -798,7 +832,7 @@ begin
     end if;
     v_override := true;
   elsif coalesce(p_override, false) then
-    -- Keep the record honest: an override is only ever a self-approval.
+    -- Keep the record honest: an override is only ever a contributor's approval.
     raise exception 'four_eyes_override_not_needed' using errcode = '22023';
   end if;
 
@@ -806,7 +840,7 @@ begin
   set decision = 'approved',
       reviewed_by = v_actor,
       decided_at = pg_catalog.clock_timestamp(),
-      reason = v_reason,
+      decision_reason = v_reason,
       four_eyes_override = v_override
   where r.id = v_revision.id;
 
@@ -850,7 +884,7 @@ begin
 
   update private.provider_definition_revisions r
   set decision = 'rejected', reviewed_by = v_actor,
-      decided_at = pg_catalog.clock_timestamp(), reason = v_reason
+      decided_at = pg_catalog.clock_timestamp(), decision_reason = v_reason
   where r.definition_id = p_id and r.decision = 'pending'
   returning r.id into strict v_revision_id;
 
@@ -1006,8 +1040,9 @@ begin
       select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
         'id', r.id, 'version', r.version, 'payload', r.payload,
         'proposedBy', r.proposed_by, 'proposedAt', r.proposed_at,
+        'contributors', pg_catalog.to_jsonb(r.contributors), 'proposalReason', r.proposal_reason,
         'reviewedBy', r.reviewed_by, 'decision', r.decision, 'decidedAt', r.decided_at,
-        'reason', r.reason, 'fourEyesOverride', r.four_eyes_override) order by r.version)
+        'decisionReason', r.decision_reason, 'fourEyesOverride', r.four_eyes_override) order by r.version)
       from private.provider_definition_revisions r where r.definition_id = p_id
     ), '[]'::jsonb),
     'audit', coalesce((
