@@ -55,8 +55,20 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: '7acf12f06963220d917e65c2a738dfe4a6092be15aff4fc38ceff41ea7a48c13' }),
   Object.freeze({ path: 'supabase/migrations/20261014191541_ovd414_xometry_admission_read.sql', issue: 'OVD-414',
     sha256: 'ca051bd5f275517e57ed395fefa568f868276e4227e7e472148a4893762e54c8' }),
+  Object.freeze({ path: 'supabase/migrations/20261015214135_ovd768_admin_list_guards.sql', issue: 'OVD-768',
+    sha256: 'a58fd72e4a25ecebbea815d5a13233f27c68ec1c264068491a03da6934d72b58' }),
+  Object.freeze({ path: 'supabase/migrations/20261015221725_ovd771_service_kill_switch.sql', issue: 'OVD-771',
+    sha256: 'de2dd5fc7fe2583d79c27b0613a73442999758acedf8aa304743b57c117b6882' }),
+  Object.freeze({ path: 'supabase/migrations/20261016000156_ovd767_admin_write_aal2_guards.sql', issue: 'OVD-767',
+    sha256: '0dc63ded2bde449514624e7b4e6d0643eee2abaac9969ae9743c9c938b1d6721' }),
+  Object.freeze({ path: 'supabase/migrations/20261016002932_ovd769_reconcile_job_parts_guard.sql', issue: 'OVD-769',
+    sha256: 'c20052fc842f1377be330118d5da2e474eddfef42e1d6cf406839c0b55c73b47' }),
+  Object.freeze({ path: 'supabase/migrations/20261016004826_ovd770_quote_select_editor_guard.sql', issue: 'OVD-770',
+    sha256: 'e1ccedb3bc0b5655c2f63533330561377d4a5f5587cae7eea290e23f8e3e127b' }),
   Object.freeze({ path: 'supabase/migrations/20261016013742_ovd736_revoke_anon_definer_execute.sql', issue: 'OVD-736',
     sha256: 'b4ffdcced815f4ea877c177e9f41cec198530f078f0dec20be540e17cd1b351c' }),
+  Object.freeze({ path: 'supabase/migrations/20261016013832_ovd766e_job_editor_scope.sql', issue: 'OVD-766',
+    sha256: '73c33b06c2f7325f380076a7f7b70e724b56d5254bd7d6f93152172254d1b68f' }),
 ]);
 
 export function reviewedMigrationCount(reviewed = REVIEWED_APPENDED_MIGRATIONS) {
