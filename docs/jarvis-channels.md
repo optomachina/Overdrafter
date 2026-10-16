@@ -10,8 +10,16 @@ default, and nothing in the app imports it yet.
 `ConversationService.handleGraphEvent` and fan out to the web thread (always) and to the run's
 originating channel.
 
-- `core/types.ts`: the `ChannelAdapter`, `GraphEvent` and `DesignGraph` contracts. OVD-801 supplies
-  the real `DesignGraph`; the core depends only on the interface.
+- `core/types.ts`: the `ChannelAdapter`, `GraphEvent` and `DesignGraph` contracts. The graph types
+  mirror the OVD-801 graph (`server/design-graph/events.ts`, `graph.ts`) field for field: every
+  event carries `(runId, seq)`, decision options are strings, and `result` and `error` events are
+  rendered. The core cannot import server code, so the mirror is pinned by a contract test.
+- `server/jarvis/design-graph-port.ts`: adapts the OVD-801 `DesignGraph` (sync `submit`,
+  three-argument `resolveDecision`, no control surface) to the core's async port. It dedupes
+  `submit` on the idempotency key, reads agent availability from the graph's own registry (no second
+  enabled list in the core), and reports `control` as `unsupported` until OVD-801 adds one.
+  `design-graph-port.test.ts` asserts type equality with OVD-801 (it fails `npm run typecheck` on
+  drift) and drives a real graph run through the service.
 - `core/repo.ts`: the `JarvisRepo` port. Its row shapes mirror the OVD-797 draft tables
   (`access_grants`, `channel_settings`, `conversations`, `channel_identities`, `link_codes`,
   `messages`, `decisions`, `control_commands`, `inbound_events`, `outbound_deliveries`).
@@ -30,7 +38,42 @@ not revoked) -> tier >= channel.min_tier -> rate limit -> append to conversation
 DesignGraph.submit | resolveDecision | control`.
 
 Up to the append, the only write is the idempotency claim. A throttled request releases its claim
-so the retry works. Denials return a generic reply. The log carries a reason code only, never an
+so the retry works.
+
+### Failure and retry
+
+- Any throw after the claim releases it and rethrows. The webhook handler answers non-2xx, and the
+  channel's retry is processed instead of being dropped as a duplicate.
+- Every write after the claim is idempotent per event. The inbound message is insert-or-get on
+  `in:<channel>:<event id>`. A retry reuses a run already attached to that row, and the graph port
+  dedupes `submit` on the same key.
+- Decisions are pending -> promote. `claimDecision` marks the row pending for one inbound event, and
+  the resolution is committed only after `graph.resolveDecision` accepts it. A throw or a graph
+  refusal releases the claim. Another event gets `decision_in_progress` while it is pending.
+- Control commands are stored `pending`, re-sent while still `pending` on a retry of the same event,
+  and promoted to `queued` (or `rejected`) on the graph's answer.
+- Graph events are deduped on `(runId, seq)`: the outbound message row is insert-or-get on
+  `out:<runId>:<seq>`, and each `(message, channel)` delivery is claimed once. A replayed event, or
+  a retry after a partial fan-out, never sends a channel the same message twice.
+- A skipped decision records the best guess with a rationale. The graph's own `decision_resolved`
+  event then stores its authoritative rationale, and fills timeouts, which never pass through the
+  core.
+
+### Replies to the sender
+
+`reply` on a `denied`, `throttled`, `unavailable`, `refused` or `linked` result is returned in the
+synchronous webhook response (Slack response body, Telegram webhook reply, web JSON). It is never
+sent through `send()`. An unlinked sender has no stored address, so this is the only way to reach
+them. A replay of the same event returns `duplicate` with no reply, so the user gets exactly one.
+
+### Identity linking
+
+A link code typed in a channel arrives as an inbound message with `linkCode`. It goes through
+`flag -> channel enabled -> verify -> claim` like every other message, then a failed-attempt limit
+per channel + external-id hash (5 per 15 minutes), and only then consumes the code. A blocked
+sender never reaches the code table. The linked identity stores the verified sender's external-id
+hash (lookup only) and the adapter's opaque `address`, which `send()` gets back in
+`UserRef.address`. Denials return a generic reply. The log carries a reason code only, never an
 external id. External ids and link codes are stored only as keyed hashes (`deps.hash`).
 
 Identity resolution lives in the core rather than in each adapter, which is a deliberate
@@ -50,9 +93,13 @@ whatever the flag says.
    - `id` and `capabilities` (`buttons`, `images`, `model3d`, `maxText`);
    - `verifyInbound(request)`: signature, secret or session check, in constant time;
    - `normalizeInbound(request)`: map to `InboundMessage`, with `idempotencyKey` taken from the
-     channel's event id (Slack `event_id`, Telegram `update_id`, bridge guid, web client UUID);
-   - `send(userRef, rendered, deliveryKey)`: deliver the already-rendered message, using
-     `deliveryKey` to dedupe on the channel side when the API supports it.
+     channel's event id (Slack `event_id`, Telegram `update_id`, bridge guid, web client UUID),
+     `address` set to the opaque value `send` needs to reach this sender (Telegram `chat_id`, Slack
+     DM channel id, which the adapter may encrypt), and `linkCode` set for a link command;
+   - `send(userRef, rendered, deliveryKey)`: deliver the already-rendered message to
+     `userRef.address`, using `deliveryKey` to dedupe on the channel side when the API supports it.
+   - The webhook handler returns `InboundResult.reply` in its synchronous response, and answers
+     non-2xx when `handleInbound` throws, so the channel retries.
 2. Add one line to `channelAdapterFactories` in `src/features/jarvis/channels/index.ts`.
 
 Do not edit anything in `core/`. CS-9 proves a second adapter routes with only a registry entry,
@@ -68,16 +115,25 @@ reaches workers only through `DesignGraph`.
 ## Tests
 
 `src/features/jarvis/core/conversation-service.test.ts` covers CS-1..CS-14 from the OVD-798
-architect review.
+architect review, plus the review-fix cases (M1 failure and retry, CS-8b graph-event replay, CS-3c
+synchronous replies, M3 address, M4 linking). `server/jarvis/design-graph-port.test.ts` is the
+OVD-801 contract test.
 
 ```bash
-npx vitest run src/features/jarvis --maxWorkers=2
+npx vitest run src/features/jarvis server/jarvis --maxWorkers=2
 npx vitest run src/features/jarvis --maxWorkers=2 --coverage --coverage.include='src/features/jarvis/core/**'
 ```
 
+## Schema deltas for OVD-797
+
+The in-memory repo assumes these, and the OVD-797 draft needs them before the Supabase repo lands:
+`messages.dedupe_key` (UNIQUE, nullable), `channel_identities.address` (encrypted at rest),
+`decisions.pending_key`, and a `pending` value for `control_commands.status`.
+
 ## Not in this change
 
-The Supabase `JarvisRepo` (after OVD-797 is approved), the real `DesignGraph` (OVD-801), real
+The Supabase `JarvisRepo` (after OVD-797 is approved), the production relay that forwards OVD-801
+events to `handleGraphEvent` in order (replays are safe), real
 channel adapters (OVD-803 web, OVD-807 Slack, OVD-808 Telegram, OVD-809 iMessage), link-code
 issuance from an AAL2 session (OVD-806), resume and steer (OVD-812), and the per-user cap of 3
 concurrent graph runs, which needs run-completion events from OVD-801.
