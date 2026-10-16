@@ -1872,7 +1872,7 @@ export async function handleVendorQuoteTask(
       return;
     }
 
-    const quotedResult = await quoteWithRoutedDispatchPreflight({
+    const result = await quoteWithRoutedDispatchPreflight({
       supabase,
       config,
       task,
@@ -1909,7 +1909,7 @@ export async function handleVendorQuoteTask(
     // scores. Live results only; simulate output is not a supplier price.
     const sanity =
       config.workerMode === "live"
-        ? await fixtureSanityGateFor(supabase)(quotedResult, {
+        ? await fixtureSanityGateFor(supabase)(result, {
             provider: vendor,
             vendorQuoteResultId: currentResult.id,
             quoteRunId: task.quote_run_id,
@@ -1919,9 +1919,9 @@ export async function handleVendorQuoteTask(
             internalTestQuote,
           })
         : null;
-    const result = sanity?.output ?? quotedResult;
+    const gatedResult = sanity?.output ?? result;
 
-    result.artifacts.forEach((artifact: VendorArtifact) =>
+    gatedResult.artifacts.forEach((artifact: VendorArtifact) =>
       artifactDirs.add(path.dirname(artifact.localPath)),
     );
     const artifactStoragePaths = await persistVendorArtifacts(supabase, config, {
@@ -1930,7 +1930,7 @@ export async function handleVendorQuoteTask(
       quoteRunId: task.quote_run_id,
       partId: task.part_id,
       vendor,
-      artifacts: result.artifacts,
+      artifacts: gatedResult.artifacts,
     });
 
     const offerPayloads = buildVendorQuoteOfferPayloads({
@@ -1940,23 +1940,23 @@ export async function handleVendorQuoteTask(
       requestedQuantity: currentResult.requested_quantity,
       requirement: context.requirement,
       requirementCapturedAt,
-      result,
+      result: gatedResult,
     });
 
     await finalizeVendorQuoteResult(
       supabase,
       currentResult.id,
       {
-        status: result.status,
-        unit_price_usd: result.unitPriceUsd,
-        total_price_usd: result.totalPriceUsd,
-        lead_time_business_days: result.leadTimeBusinessDays,
-        quote_url: result.quoteUrl,
-        dfm_issues: result.dfmIssues,
-        notes: result.notes,
+        status: gatedResult.status,
+        unit_price_usd: gatedResult.unitPriceUsd,
+        total_price_usd: gatedResult.totalPriceUsd,
+        lead_time_business_days: gatedResult.leadTimeBusinessDays,
+        quote_url: gatedResult.quoteUrl,
+        dfm_issues: gatedResult.dfmIssues,
+        notes: gatedResult.notes,
         raw_payload: {
-          ...result.rawPayload,
-          offers: result.offers ?? [],
+          ...gatedResult.rawPayload,
+          offers: gatedResult.offers ?? [],
           artifactStoragePaths,
           requestedQuantity: currentResult.requested_quantity,
           requirementCapturedAt,
@@ -1997,7 +1997,7 @@ export async function handleVendorQuoteTask(
 
     if (requestStatusAfterResult === "canceled") {
       await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
-          vendorStatus: result.status,
+          vendorStatus: gatedResult.status,
         artifactCount: artifactStoragePaths.length,
         ignoredDueToCanceledRequest: true,
       });
@@ -2006,7 +2006,7 @@ export async function handleVendorQuoteTask(
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task, {
-      vendorStatus: result.status,
+      vendorStatus: gatedResult.status,
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
