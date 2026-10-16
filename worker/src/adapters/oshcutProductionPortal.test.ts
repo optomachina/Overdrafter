@@ -5,9 +5,15 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256File } from "../liveEvaluationFiles";
-import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { quoteWithRoutedDispatchPreflight } from "../dispatchRouting";
+import {
+  canonicalizeProviderDispatchEnvelope,
+  fingerprintProviderDispatchEnvelope,
+  REVIEWED_PROVIDER_DISPATCH_ENVELOPES,
+} from "../providerDispatchEnvelope";
 import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort";
-import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput, WorkerConfig } from "../types";
 import {
   registerProductionPortalAuthorizationRefusals,
   registerProductionPortalRoutingRefusals,
@@ -38,8 +44,9 @@ import {
  * OVD-677: the production OSH Cut branch is default-off. Without a current
  * generic provider-dispatch authorization for the OSH Cut envelope, bound to
  * the staged bytes and quantity, there is zero provider interaction: no
- * session is read and no browser launches. The envelope is not reviewed in
- * code, so no real permit can name it. Synthetic data only.
+ * session is read and no browser launches. The envelope is reviewed in code
+ * (OVD-677), so a real permit can name it only behind an approved admission.
+ * Synthetic data only.
  */
 
 const tempDirs: string[] = [];
@@ -102,7 +109,7 @@ async function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {})
 function defaultDenyHarness(): ProductionPortalDefaultDenyHarness {
   return {
     vendor: "oshcut",
-    envelopeId: OSHCUT_DISPATCH_ENVELOPE.id,
+    envelopeId: "oshcut-quote-envelope",
     taskId: "00000000-0000-4000-8000-4912acd7fd0b",
     vendorQuoteResultId: "00000000-0000-4000-8000-4912acd7fd09",
     claimedAt: "2026-10-10T12:04:00.000Z",
@@ -126,8 +133,13 @@ describe("OSH Cut production dispatch envelope (OVD-677)", () => {
     });
   });
 
-  it("keeps the OSH Cut envelope out of the reviewed dispatch envelopes", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.filter((reviewed) => reviewed.provider === "oshcut")).toEqual([]);
+  it("lists the OSH Cut envelope as reviewed for generic dispatch (OVD-677 approval)", () => {
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.filter((reviewed) => reviewed.provider === "oshcut")).toEqual([{
+      provider: "oshcut",
+      id: "oshcut-quote-envelope",
+      version: 1,
+      requiredAdmission: "generic_dispatch",
+    }]);
   });
 
   it("accepts exactly the authorized bytes and quantity at the adapter seam", async () => {
@@ -311,6 +323,56 @@ describe("OSH Cut production registry and routing (OVD-677)", () => {
   });
 
   registerProductionPortalRoutingRefusals(defaultDenyHarness());
+
+  it("hands a database-admitted, owner-approved OSH Cut decision to the adapter", async () => {
+    const input = await authorizedInput({ providerDispatchAuthorization: undefined });
+    const envelope = oshcutDispatchEnvelope({ cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3 });
+    const fingerprint = fingerprintProviderDispatchEnvelope(envelope);
+    const admitted = {
+      schema: "provider-dispatch-authorization.v1",
+      authorized: true,
+      permitId: envelope.permit.permitId,
+      provider: "oshcut",
+      envelopeFingerprint: fingerprint,
+      canonicalEnvelope: canonicalizeProviderDispatchEnvelope(envelope),
+      expiresAt: envelope.expiresAt,
+      sessionBindingId: envelope.sessionBindingId,
+      evidence: {
+        now: "2026-10-10T12:05:00.000Z",
+        permitState: "active",
+        admission: {
+          policy_present: true, provider_admitted: true, generically_dispatchable: true,
+          provider: "oshcut", admission_state: "approved",
+          policy_revision: envelope.admission.policyRevision,
+          evidence_reference: envelope.admission.evidenceReference,
+          permission_basis: "owner_approved",
+          supported_processes: ["laser_cutting"], accepted_file_extensions: ["dxf", "step"],
+          session_owner: "overdrafter_managed", reviewed_at: "2026-10-10T11:00:00+00:00",
+          expires_at: null, reason_code: "provider_approved",
+        },
+        rollout: { capability: "automatic_quote_collection", enabled: true, revision: envelope.rollout.revision },
+      },
+    };
+    const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
+    await expect(quoteWithRoutedDispatchPreflight({
+      supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
+      config: { workerMode: "live", workerName: "worker-1" },
+      task: {
+        id: envelope.task.workQueueTaskId,
+        payload: { providerDispatchPermitId: envelope.permit.permitId, providerDispatchEnvelopeFingerprint: fingerprint },
+      },
+      vendorQuoteResultId: envelope.task.vendorQuoteResultId,
+      claimedAt: "2026-10-10T12:04:00.000Z",
+      vendor: "oshcut",
+      scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "oshcut" },
+      adapter: { quote },
+      quoteInput: input,
+      killSwitchReader: async (provider) => ({
+        schema: "provider-kill-switch-state.v1", provider, engaged: false, globalEngaged: false,
+      }),
+    })).resolves.toEqual({ artifacts: [] });
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
 
   it("stops an aborted authorized run before any session read or launch (OVD-748)", async () => {
     const launch = vi.spyOn(chromium, "launch");

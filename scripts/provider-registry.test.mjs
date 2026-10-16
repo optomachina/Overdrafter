@@ -169,7 +169,7 @@ describe("provider registry contract", () => {
     expect(secrets.contents).not.toContain("SENDCUTSEND_");
   });
 
-  it("covers every checked-in manifest, including Fictiv, Quickparts and Weerg secret names", async () => {
+  it("covers every checked-in manifest, including Fictiv, OSH Cut, Quickparts and Weerg secret names", async () => {
     const registry = await readProviderRegistry(repoRoot);
     const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
     expect(() => assertRegistryCoversManifests(
@@ -177,7 +177,7 @@ describe("provider registry contract", () => {
       manifests.map(({ manifest }) => manifest.key),
     )).not.toThrow();
     const byKey = Object.fromEntries(registry.providers.map((entry) => [entry.key, entry]));
-    for (const key of ["fictiv", "quickparts", "weerg"]) {
+    for (const key of ["fictiv", "oshcut", "quickparts", "weerg"]) {
       expect(byKey[key]).toMatchObject({ liveAdapter: true, egress: "stable_nat" });
       expect(byKey[key].sessionSecrets.map((secret) => secret.secretNameEnv)).toEqual([
         `${key.toUpperCase()}_STORAGE_STATE_SECRET_NAME`,

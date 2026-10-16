@@ -136,6 +136,14 @@ export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quot
  */
 export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
 
+/**
+ * OVD-677: the reviewed OSH Cut quote-only envelope
+ * (`oshcut-quote-envelope.v1`): one CAD file, no drawing, flat-sheet laser
+ * cutting in Aluminum 6061-T6 at a reviewed thickness, uploaded through the
+ * production OSH Cut portal definition. Approved by Blaine on 2026-10-15.
+ */
+export const OSHCUT_DISPATCH_ENVELOPE = Object.freeze({ id: "oshcut-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",
@@ -159,6 +167,12 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     provider: "weerg",
     id: WEERG_DISPATCH_ENVELOPE.id,
     version: WEERG_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
+  },
+  {
+    provider: "oshcut",
+    id: OSHCUT_DISPATCH_ENVELOPE.id,
+    version: OSHCUT_DISPATCH_ENVELOPE.version,
     requiredAdmission: "generic_dispatch",
   },
 ];

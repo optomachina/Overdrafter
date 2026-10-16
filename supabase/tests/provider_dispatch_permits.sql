@@ -220,12 +220,13 @@ select ok(
   and pg_catalog.has_function_privilege('service_role', 'private.resolve_provider_dispatch_permit_state(uuid)', 'EXECUTE'),
   'private resolvers are definer-only; revocation and permit state are service_role only'
 );
--- OVD-673, OVD-674 and OVD-675 seed the reviewed Fictiv, Quickparts and Weerg
--- envelopes; their exact rows and the still-disabled admissions are asserted below.
+-- OVD-673, OVD-674, OVD-675 and OVD-677 seed the reviewed Fictiv, Quickparts,
+-- Weerg and OSH Cut envelopes; their exact rows and the still-disabled
+-- admissions are asserted below.
 select is(
-  (select count(*) from private.provider_dispatch_envelope_reviews where provider not in ('fictiv', 'quickparts', 'weerg')),
+  (select count(*) from private.provider_dispatch_envelope_reviews where provider not in ('fictiv', 'quickparts', 'weerg', 'oshcut')),
   0::bigint,
-  'no provider other than Fictiv, Quickparts and Weerg has a reviewed generic envelope by default'
+  'no provider other than Fictiv, Quickparts, Weerg and OSH Cut has a reviewed generic envelope by default'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),
@@ -400,7 +401,7 @@ begin
 end;
 $$;
 
--- OVD-673, OVD-674 and OVD-675 each record one active reviewed envelope and admit nothing.
+-- OVD-673, OVD-674, OVD-675 and OVD-677 each record one active reviewed envelope and admit nothing.
 select results_eq(
   $$select provider::text, envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
     from private.provider_dispatch_envelope_reviews
@@ -408,16 +409,17 @@ select results_eq(
     order by 1$$,
   $$values
     ('fictiv'::text, 'fictiv-quote-envelope'::text, 1, 7200, 'OVD-673'::text),
+    ('oshcut'::text, 'oshcut-quote-envelope'::text, 1, 7200, 'OVD-677'::text),
     ('quickparts'::text, 'quickparts-quote-envelope'::text, 1, 7200, 'OVD-674'::text),
     ('weerg'::text, 'weerg-quote-envelope'::text, 1, 7200, 'OVD-675'::text)$$,
-  'the migrations seed exactly one active reviewed Fictiv, Quickparts and Weerg envelope, each with a 7200 s permit TTL'
+  'the migrations seed exactly one active reviewed Fictiv, OSH Cut, Quickparts and Weerg envelope, each with a 7200 s permit TTL'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies
-    where provider in ('fictiv', 'quickparts', 'weerg')
+    where provider in ('fictiv', 'quickparts', 'weerg', 'oshcut')
       and (admission_state <> 'disabled' or generic_dispatch_enabled)),
   0::bigint,
-  'the reviewed Fictiv, Quickparts and Weerg envelopes leave those admissions disabled'
+  'the reviewed Fictiv, Quickparts, Weerg and OSH Cut envelopes leave those admissions disabled'
 );
 
 -- Default-off: the registry is the rollback switch and starts disabled.
