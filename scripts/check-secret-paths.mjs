@@ -8,9 +8,12 @@
  * line is blank, a comment, or a bare `source` / `source_env` / `dotenv` of a
  * file, so it cannot carry values itself.
  *
- * Any added, modified or deleted `.gitleaks.toml` is reported as
- * gate_loosening (Grok Bot countersign plus Blaine's card). That report never
- * changes the exit code.
+ * Any added, modified or deleted `.gitleaks.toml` or `.gitleaksignore`, in
+ * any directory, is reported as gate_loosening (Grok Bot countersign plus
+ * Blaine's card). That report never changes the exit code.
+ *
+ * The diff is merge-base(base, head)..head (`base...head` semantics), so
+ * commits that land on the base after the branch point are not counted.
  *
  * Usage:
  *   node scripts/check-secret-paths.mjs [--base-ref <ref>] [--head-ref <ref>]
@@ -29,6 +32,7 @@ export const REPORT_SCHEMA = "ovd872.secret-paths.v1";
 export const DEFAULT_BASE_REF = "HEAD^1";
 export const DEFAULT_HEAD_REF = "HEAD";
 export const GITLEAKS_CONFIG = ".gitleaks.toml";
+export const GITLEAKS_IGNORE = ".gitleaksignore";
 export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
 
 /**
@@ -88,6 +92,15 @@ export function refExists(cwd, ref) {
   }
 }
 
+/** The merge-base commit of the two refs, or null when they share no history. */
+export function mergeBase(cwd, baseRef, headRef) {
+  try {
+    return git(cwd, ["merge-base", baseRef, headRef]).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** [{ status, path }] for every change between the refs, renames split into D + A. */
 export function listChanges(cwd, baseRef, headRef) {
   const fields = git(cwd, ["diff", "--name-status", "--no-renames", "-z", baseRef, headRef, "--"]).split("\0");
@@ -108,6 +121,8 @@ export function evaluateChanges(changes, readFile) {
   for (const { status, path } of changes) {
     if (basename(path) === GITLEAKS_CONFIG) {
       gateLoosening.push({ path, status, reason: "allowlist config edited", requires: [...GATE_LOOSENING_REQUIRES] });
+    } else if (basename(path) === GITLEAKS_IGNORE) {
+      gateLoosening.push({ path, status, reason: "fingerprint ignore list edited", requires: [...GATE_LOOSENING_REQUIRES] });
     }
     if (status !== "A" && status !== "M") continue;
     const rules = matchSensitiveRules(path);
@@ -125,12 +140,15 @@ export function evaluateChanges(changes, readFile) {
 }
 
 export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, headRef = DEFAULT_HEAD_REF } = {}) {
-  const changes = listChanges(cwd, baseRef, headRef);
+  const base = mergeBase(cwd, baseRef, headRef);
+  if (!base) throw new Error(`no merge-base for ${baseRef} and ${headRef}`);
+  const changes = listChanges(cwd, base, headRef);
   const { findings, gateLoosening } = evaluateChanges(changes, (path) => git(cwd, ["show", `${headRef}:${path}`]));
   return {
     schema: REPORT_SCHEMA,
     base_ref: baseRef,
     head_ref: headRef,
+    merge_base: base,
     checked_paths: changes.filter((c) => c.status === "A" || c.status === "M").length,
     ok: findings.length === 0,
     findings,
@@ -139,7 +157,9 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
 }
 
 export function formatReport(report) {
-  const lines = [`secret-paths: ${report.base_ref}..${report.head_ref}, ${report.checked_paths} added/modified path(s)`];
+  const lines = [
+    `secret-paths: ${report.base_ref}...${report.head_ref} (merge-base ${report.merge_base.slice(0, 12)}), ${report.checked_paths} added/modified path(s)`,
+  ];
   for (const f of report.findings) lines.push(`  BLOCKED ${f.path} [${f.rules.join(",")}]: ${f.reason}`);
   for (const g of report.gate_loosening) {
     lines.push(`  gate_loosening ${g.path} (${g.status}): ${g.reason}; requires ${g.requires.join(" + ")}`);
@@ -164,7 +184,7 @@ export function parseArgs(argv) {
   return opts;
 }
 
-/** CLI entry. Returns the exit code: 0 ok/report mode, 1 enforced findings, 2 usage or missing ref. */
+/** CLI entry. Returns the exit code: 0 ok/report mode, 1 enforced findings, 2 usage, missing ref or no merge-base. */
 export function run(argv, { cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr } = {}) {
   let opts;
   try {
@@ -178,6 +198,10 @@ export function run(argv, { cwd = process.cwd(), stdout = process.stdout, stderr
       stderr.write(`secret-paths: ref not found: ${ref}${opts.enforce ? "" : " (skipped, report mode)"}\n`);
       return opts.enforce ? 2 : 0;
     }
+  }
+  if (!mergeBase(cwd, opts.baseRef, opts.headRef)) {
+    stderr.write(`secret-paths: no merge-base for ${opts.baseRef} and ${opts.headRef}${opts.enforce ? "" : " (skipped, report mode)"}\n`);
+    return opts.enforce ? 2 : 0;
   }
   const report = buildReport({ cwd, baseRef: opts.baseRef, headRef: opts.headRef });
   stdout.write(opts.json ? JSON.stringify(report, null, 2) + "\n" : formatReport(report));

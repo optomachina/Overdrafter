@@ -162,6 +162,45 @@ describe("check-secret-paths diff mode", () => {
     expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
   });
 
+  it.each([".gitleaksignore", "nested/dir/.gitleaksignore"])("flags %s add, edit and delete as gate_loosening without failing", (path) => {
+    const dir = repo({ [path]: "abc123:src/app.ts:generic-api-key:1\n" });
+    const added = check(dir, ["--enforce"]);
+    expect(added.code).toBe(0);
+    expect(added.report.gate_loosening).toEqual([
+      { path, status: "A", reason: "fingerprint ignore list edited", requires: ["grokbot_countersign", "blaine_card"] },
+    ]);
+    commit(dir, { [path]: "abc123:src/app.ts:generic-api-key:1\ndef456:src/b.ts:generic-api-key:2\n" });
+    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["M"]);
+    commit(dir, {}, [path]);
+    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
+  });
+
+  it("diffs against the merge-base, so base commits after the branch point are ignored", () => {
+    const dir = repo();
+    git(dir, "branch", "-M", "main");
+    git(dir, "checkout", "-q", "-b", "feature");
+    commit(dir, { "feature/server.pem": PEM });
+    git(dir, "checkout", "-q", "main");
+    commit(dir, { "main-only/.env.production": `KEY=${STRIPE_KEY}\n`, ".gitleaks.toml": "[extend]\nuseDefault = true\n" });
+    const branchPoint = git(dir, "merge-base", "main", "feature").trim();
+    const { report } = check(dir, ["--base-ref", "main", "--head-ref", "feature"]);
+    expect(report.merge_base).toBe(branchPoint);
+    expect(blockedPaths(report)).toEqual(["feature/server.pem"]);
+    expect(report.gate_loosening).toEqual([]);
+    expect(report.checked_paths).toBe(1);
+  });
+
+  it("skips refs with no merge-base in report mode and fails them with --enforce", () => {
+    const dir = repo();
+    git(dir, "branch", "-M", "main");
+    git(dir, "checkout", "-q", "--orphan", "unrelated");
+    commit(dir, { "other.txt": "x" });
+    const skipped = check(dir, ["--base-ref", "unrelated", "--head-ref", "main"]);
+    expect(skipped.code).toBe(0);
+    expect(skipped.err).toContain("no merge-base");
+    expect(check(dir, ["--base-ref", "unrelated", "--head-ref", "main", "--enforce"]).code).toBe(2);
+  });
+
   it("exits 0 in report mode and 1 with --enforce when blocked", () => {
     const dir = repo({ "server.pem": PEM });
     expect(check(dir).code).toBe(0);
