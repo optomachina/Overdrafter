@@ -162,6 +162,16 @@ export function createJarvisWorkerRunner(options: { env?: Env; script?: string; 
     });
 }
 
+function refusal(prompt: string): string | undefined {
+  const wrongSize = findWrongPlateSize(prompt);
+  if (wrongSize) return `this recipe builds only a 4.000 in (${CAD_PLATE_EDGE_MM} mm) square plate, got "${wrongSize}"`;
+  const thicknessMm = parseThicknessMm(prompt);
+  if (thicknessMm !== undefined && !(thicknessMm >= CAD_PLATE_THICKNESS_MIN_MM && thicknessMm <= CAD_PLATE_THICKNESS_MAX_MM)) {
+    return `plate thickness must be ${CAD_PLATE_THICKNESS_MIN_MM} to ${CAD_PLATE_THICKNESS_MAX_MM} mm, got ${Number(thicknessMm.toFixed(4))} mm`;
+  }
+  return undefined;
+}
+
 const optionValue = <T>(options: [string, T][], label: string | undefined): T | undefined =>
   options.find(([option]) => option === label)?.[1];
 
@@ -188,6 +198,8 @@ export class CadAgent implements DomainAgent {
   }
 
   conceptPicks(request: DesignRequest): DecisionSpec[] {
+    // A request run() will refuse asks nothing, so the refusal is not held behind a question.
+    if (refusal(request.prompt)) return [];
     const picks: DecisionSpec[] = [];
     if (parseThicknessMm(request.prompt) === undefined) {
       picks.push({
@@ -246,12 +258,9 @@ export class CadAgent implements DomainAgent {
   // Validates before anything is filed, so a refused request never reaches the queue.
   private plan(ctx: AgentContext): PlateJobParams {
     const prompt = ctx.request.prompt;
-    const wrongSize = findWrongPlateSize(prompt);
-    if (wrongSize) throw new Error(`this recipe builds only a 4.000 in (${CAD_PLATE_EDGE_MM} mm) square plate, got "${wrongSize}"`);
+    const refused = refusal(prompt);
+    if (refused) throw new Error(refused);
     const thicknessMm = parseThicknessMm(prompt) ?? optionValue(THICKNESS_OPTIONS, ctx.picks.thickness) ?? THICKNESS_OPTIONS[1][1];
-    if (!(thicknessMm >= CAD_PLATE_THICKNESS_MIN_MM && thicknessMm <= CAD_PLATE_THICKNESS_MAX_MM)) {
-      throw new Error(`plate thickness must be ${CAD_PLATE_THICKNESS_MIN_MM} to ${CAD_PLATE_THICKNESS_MAX_MM} mm, got ${Number(thicknessMm.toFixed(4))} mm`);
-    }
     return {
       recipe: "plate",
       edgeMm: CAD_PLATE_EDGE_MM,
