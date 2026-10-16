@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
  * Staging-only target guard (OVD-839). Seed, reset and staging smoke tooling
- * must call assertStagingTarget before any database command. The allowlist is
- * exactly the documented staging project (docs/runbooks/staging.md); the
- * production ref and every unknown ref are refused. No network, no DB calls.
+ * must call assertStagingConnectionEnv and assertStagingTarget before any
+ * database command. The allowlist is exactly the documented staging project
+ * (docs/runbooks/staging.md); the production ref and every unknown ref are
+ * refused. No network, no DB calls.
  *
- * CLI: node scripts/staging-reset-guard.mjs <project-ref | supabase URL | postgres URL>
+ * CLI: node scripts/staging-reset-guard.mjs <project-ref | postgres URL>
  * Exit codes: 0 staging target accepted, 1 refused, 2 usage error.
  */
 import { pathToFileURL } from "node:url";
@@ -40,18 +41,54 @@ export function assertStagingRef(ref) {
   return ref;
 }
 
-// libpq lets these query parameters replace the host in the URL authority.
-const HOST_OVERRIDE_PARAMS = new Set(["host", "hostaddr"]);
-const POOLER_HOST_PATTERN = /^[a-z0-9-]+\.pooler\.supabase\.com$/;
+// Strict allowlist for connection URLs. The decision is one anchored regex
+// over the whole string, never URL() parsing: Node's URL parser and libpq
+// disagree on the host when "#" or "?" precedes the last "@"
+// (postgresql://db.<staging>.supabase.co#@evil.example.com/postgres), so any
+// denylist built on URL() is bypassable.
+//
+// Hosts: the staging direct host, or the us-west-1 Supavisor pooler host this
+// org uses (aws-1-us-west-1.pooler.supabase.com; see
+// scripts/manage-ovd373-temporary-db-access.test.mjs line 29 and
+// docs/workflows/ovd361-production-deployment.md). The direct host takes user
+// "postgres"; the pooler takes "postgres.<staging ref>". The password must be
+// unreserved characters or %XX escapes, so a raw @ # ? / : (or anything else
+// that could move the authority boundary) is refused. The only query allowed
+// is a single sslmode=require|verify-full.
+export const STAGING_DIRECT_HOST = "db.ldmambwtksfvqdufhaam.supabase.co";
+export const STAGING_POOLER_HOST = "aws-1-us-west-1.pooler.supabase.com";
+export const STAGING_CONNECTION_URL_PATTERN =
+  /^postgres(?:ql)?:\/\/(?:postgres:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@db\.ldmambwtksfvqdufhaam\.supabase\.co|postgres\.ldmambwtksfvqdufhaam:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@aws-1-us-west-1\.pooler\.supabase\.com):(?:5432|6543)\/postgres(?:\?sslmode=(?:require|verify-full))?$/;
 
 /**
- * Resolve the project ref a target names: a bare ref, an API URL
- * (https://<ref>.supabase.co), a direct DB URL (db.<ref>.supabase.co) or a
- * pooler URL (user postgres.<ref> on *.pooler.supabase.com). Every ref-shaped
- * token in the target must agree, so a URL that mentions production anywhere
- * is refused. Key=value DSNs, multi-host URLs and URLs whose query string
- * overrides the host (host= / hostaddr=) are refused, because libpq would
- * connect somewhere other than the authority this guard checked.
+ * libpq environment variables that could redirect or re-credential a
+ * connection behind the validated URL (PGHOSTADDR in particular is used to
+ * connect even when the URL names a host). Callers pass the connection only as
+ * the validated URL, with none of these set.
+ */
+export const REFUSED_CONNECTION_ENV_VARS = Object.freeze([
+  "PGHOST",
+  "PGHOSTADDR",
+  "PGPORT",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+  "PGPASSFILE",
+]);
+
+export function assertStagingConnectionEnv(env = process.env) {
+  for (const name of REFUSED_CONNECTION_ENV_VARS) {
+    if (env[name] !== undefined) {
+      refuse(`${name} is set in the environment; pass the connection only as the validated URL`);
+    }
+  }
+}
+
+/**
+ * Resolve the project ref a target names: a bare ref, or a postgres URL that
+ * matches the staging allowlist exactly. Everything else (API URLs, key=value
+ * DSNs, multi-host, IPv6, extra query parameters, fragments, other ports or
+ * users) is refused. Messages never include the URL, so a password is never
+ * echoed.
  */
 export function projectRefFromTarget(target) {
   if (typeof target !== "string" || target.trim() === "") {
@@ -60,50 +97,27 @@ export function projectRefFromTarget(target) {
   const value = target.trim();
   if (PROJECT_REF_PATTERN.test(value)) return value;
 
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    refuse("target is neither a project ref nor a URL");
-  }
-  const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
-  if (authority.slice(authority.lastIndexOf("@") + 1).includes(",") || url.host.includes(",")) {
-    refuse("target URL lists more than one host");
-  }
-  for (const key of url.searchParams.keys()) {
-    if (HOST_OVERRIDE_PARAMS.has(key.trim().toLowerCase())) {
-      refuse(`target URL overrides the host with a ${key.trim().toLowerCase()} parameter`);
-    }
-  }
-
-  const candidates = new Set();
-  const host = url.hostname.toLowerCase();
-  const hostMatch = /^(?:db\.)?([a-z0-9]{20})\.supabase\.(?:co|com)$/.exec(host);
-  if (hostMatch) candidates.add(hostMatch[1]);
-  const userMatch = /^[a-z_]+\.([a-z0-9]{20})$/.exec(decodeURIComponent(url.username));
-  if (userMatch) {
-    if (!hostMatch && !POOLER_HOST_PATTERN.test(host)) {
-      refuse("target URL names a project ref in the user but its host is not a Supabase pooler");
-    }
-    candidates.add(userMatch[1]);
-  }
-  if (value.includes(PRODUCTION_PROJECT_REF)) candidates.add(PRODUCTION_PROJECT_REF);
-
-  if (candidates.size === 0) refuse("cannot determine a Supabase project ref from the target URL");
-  if (candidates.size > 1) refuse("target URL names more than one project ref");
-  return [...candidates][0];
+  // Match the untrimmed target: the caller connects with exactly this string.
+  if (STAGING_CONNECTION_URL_PATTERN.test(target)) return STAGING_PROJECT_REF;
+  if (target.includes(PRODUCTION_PROJECT_REF)) refuse("target connection URL names the production project");
+  refuse("target connection URL does not match the staging allowlist");
 }
 
 export function assertStagingTarget(target) {
   return assertStagingRef(projectRefFromTarget(target));
 }
 
-export function main(argv = process.argv.slice(2), io = { log: console.log, error: console.error }) {
+export function main(
+  argv = process.argv.slice(2),
+  io = { log: console.log, error: console.error },
+  env = process.env,
+) {
   if (argv.length !== 1) {
-    io.error("usage: node scripts/staging-reset-guard.mjs <project-ref | supabase URL | postgres URL>");
+    io.error("usage: node scripts/staging-reset-guard.mjs <project-ref | postgres URL>");
     return 2;
   }
   try {
+    assertStagingConnectionEnv(env);
     const ref = assertStagingTarget(argv[0]);
     io.log(`staging guard: target ${ref} is the documented staging project.`);
     return 0;
