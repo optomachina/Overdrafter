@@ -1,0 +1,42 @@
+# Canonical OverDrafter agent graph. Tool-neutral; runtimes read this via thin adapters.
+# Prose rules stay in AGENTS.md; this file holds the routable structure. Change = docs PR + root countersign.
+schema: overdrafter.agent-graph/v1
+version: 1.0.0-draft
+root: grok-bot            # only seat that talks to Blaine; countersigns gate-loosening changes
+nodes:
+  grok-bot:     {role: root,      runtimes: [grok-bot]}
+  jev:          {role: router,    does: [pr-screen, risk-score], script: screen.py}
+  auto-triage:  {role: router,    does: [issue-route], routine: ovd-auto-triage}
+  engineer:     {role: writer,    runtimes: [claude-code, codex], host: mac-mini}
+  designer:     {role: writer,    runtimes: [claude-code, codex], skill: verify-overdrafter-design}
+  qa:           {role: verifier,  must_not_author: true, skill: overdrafter-qa-verification}
+  release:      {role: release,   skill: architect-release-proof}
+  reviewers:
+    sonnet: {family: anthropic, when: always}
+    opus:   {family: anthropic, when: [jev-risky, sensitive-paths]}
+    codex:  {family: openai,    when: always}      # cross-family seat (Blaine to confirm)
+edges:
+  - [auto-triage, engineer, {unless: sensitive-paths, else: release}]   # architect-first
+  - [engineer, jev]
+  - [jev, reviewers]
+  - [reviewers, qa]
+  - [qa, merge-gate]
+  - [merge-gate, release, {when: protected}]
+verdicts:
+  qa:        {values: [PASS, PASS_NOTES, FAIL], bound_to: head_sha, voided_by: new_sha, rebase_reuse: patch-id-equal}
+  readiness: {type: enum, values: [READY, CONFLICTS, OPEN_THREADS, CHECKS_PENDING, CHECKS_FAILED, GATE_BLOCKED]}  # OVD-845
+merge_gate:
+  requires: [ci_green, jev_not_risky, review_no_open_findings, qa_PASS_at_head, readiness_READY]
+  forbid: [author_as_verifier, babysit_as_authorization]
+  landing: {order: bottom-up, scope: contiguous-verified-run, read_back: required}
+  auto_merge_allowlist: AGENTS.md#approval-timing-and-low-risk-auto-merge-blaine-2026-10-14
+  sensitive_paths: AGENTS.md#sensitive-paths-single-shared-list
+protected:
+  - live-database-change: manual        # never automated
+  - gate-loosening: root-countersign + blaine-ok
+first_investment: verify-overdrafter
+adapters:   # thin pointers only; no rules restated
+  - AGENTS.md          # Codex / dots / generic
+  - CLAUDE.md          # Claude Code
+  - ~/.hermes/...      # Hermes (path TBD)
+  - agent-data/workflows/agent-orchestrator-linear/SKILL.md  # Grok Bot

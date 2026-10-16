@@ -144,3 +144,7 @@ Use a skill only when it materially improves the task:
 Keep tool adapters thin and load conditional procedures only when relevant. Routine orchestration uses Astra medium; difficult architecture or causal recovery uses high; independent high-impact review uses xhigh. The dispatcher selects actual model and effort.
 
 Keep provider work behind `docs/provider-integration.md`, database releases behind the applicable runbook, and CAD work behind the engineering control-plane and native qualification documents. Product runtime retry rules do not automatically constrain disposable development-test retries.
+
+## Agent graph
+
+Routing between agents is defined in [docs/agent-graph/graph.v1.yaml](docs/agent-graph/graph.v1.yaml) (draft). This file keeps the rules; the spec holds the structure.
