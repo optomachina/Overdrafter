@@ -107,7 +107,7 @@ export class InMemoryAgentApiKeyStore implements AgentApiKeyRepository {
     if (requested.length === 0 || !requested.every(isAgentApiKeyScope)) {
       throw new AgentApiKeyRequestError("invalid_scopes");
     }
-    const scopes = [...new Set(requested as readonly AgentApiKeyScope[])].sort();
+    const scopes = [...new Set(requested as readonly AgentApiKeyScope[])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const createdAt = this.now();
     const expiresAt = input.expiresAt ?? new Date(createdAt.getTime() + AGENT_API_KEY_DEFAULT_TTL_DAYS * DAY_MS);
     if (
