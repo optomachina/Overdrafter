@@ -58,7 +58,7 @@ async function setup() {
   const web = createTestAdapter({ id: "web", testOnly: false });
   for (const adapter of [test, web]) repo.channelSettings.set(adapter.id, { channel: adapter.id, enabled: true, minTier: "owner" });
   repo.accessGrants.set("blaine", { userId: "blaine", tier: "owner", grantedBy: "admin", grantedAt: "2026-10-01T00:00:00Z", revokedAt: null });
-  await repo.insertIdentity({ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), revokedAt: null });
+  await repo.insertIdentity({ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), address: "chat-ext-blaine", revokedAt: null });
   const service = new ConversationService({
     repo,
     graph: port,

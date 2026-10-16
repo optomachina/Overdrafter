@@ -27,6 +27,13 @@ const SLICE_ONE_CONTROLS = new Set(["pause", "cancel"]);
 
 export type JarvisLogEntry = { readonly channel: ChannelId; readonly outcome: string; readonly reason?: string };
 
+/**
+ * `reply` on denied/throttled/unavailable/refused results is the user-facing answer and is never
+ * sent through `ChannelAdapter.send`: the webhook handler returns it in its synchronous response
+ * (Slack response body, Telegram webhook reply, web JSON). An unlinked sender has no stored
+ * address, so the synchronous response is the only way to reach them, and a replay of the same
+ * event returns `duplicate` with no reply, so the user gets exactly one.
+ */
 export type InboundResult =
   | { readonly status: "dropped"; readonly reason: "unknown_channel" | "flag_off" | "channel_disabled" }
   | { readonly status: "rejected"; readonly reason: "unverified" | "malformed" }
@@ -113,7 +120,7 @@ export class ConversationService {
     const linkCode = await this.deps.repo.consumeLinkCode(this.deps.hash(code), channel, this.deps.now().toISOString());
     if (!linkCode) return null;
     const externalIdHash = this.externalIdHash(channel, externalUserId);
-    const linked = await this.deps.repo.insertIdentity({ userId: linkCode.userId, channel, externalIdHash, revokedAt: null });
+    const linked = await this.deps.repo.insertIdentity({ userId: linkCode.userId, channel, externalIdHash, address: null, revokedAt: null });
     return linked ? linkCode.userId : null;
   }
 
@@ -293,8 +300,13 @@ export class ConversationService {
       return;
     }
     const identity = channel === WEB_CHANNEL ? null : await this.deps.repo.findIdentityForUser(userId, channel);
+    if (channel !== WEB_CHANNEL && !identity?.address) {
+      this.deps.log({ channel, outcome: "outbound_unaddressable" });
+      return;
+    }
+    const user = { userId, externalIdHash: identity?.externalIdHash ?? null, address: identity?.address ?? null };
     const rendered = renderEvent(event, adapter.capabilities, this.deps.webBaseUrl);
-    const outcome = await deliver(this.deps.repo, adapter, { userId, externalIdHash: identity?.externalIdHash ?? null }, message.id, rendered, this.deps.delivery);
+    const outcome = await deliver(this.deps.repo, adapter, user, message.id, rendered, this.deps.delivery);
     this.deps.log({ channel, outcome: `outbound_${outcome}` });
   }
 

@@ -4,6 +4,8 @@ export type TestInboundRequest = {
   readonly secret: string;
   readonly eventId: string;
   readonly externalUserId: string;
+  /** Opaque reply address; defaults to `chat-<externalUserId>`. */
+  readonly address?: string;
   readonly text?: string;
   readonly agent?: InboundMessage["agent"];
   readonly action?: InboundAction;
@@ -47,6 +49,7 @@ export function createTestAdapter(options: TestAdapterOptions = {}): TestAdapter
       return {
         channel: id,
         externalUserId: inbound.externalUserId,
+        address: inbound.address ?? `chat-${inbound.externalUserId}`,
         text: inbound.text ?? "",
         agent: inbound.agent,
         action: inbound.action,

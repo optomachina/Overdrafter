@@ -22,6 +22,12 @@ export type InboundAction =
 export type InboundMessage = {
   readonly channel: ChannelId;
   readonly externalUserId: string;
+  /**
+   * Opaque, adapter-owned reply address (Telegram chat_id, Slack DM channel id, ...). The core
+   * stores it next to the lookup hash when an identity is linked and hands it back in
+   * `UserRef.address`; it never logs, parses or hashes it. Adapters may encrypt it.
+   */
+  readonly address: string;
   readonly text: string;
   readonly agent?: DomainAgentId;
   readonly action?: InboundAction;
@@ -41,8 +47,16 @@ export type RenderedMessage = {
   readonly link?: string;
 };
 
-/** Address for an outbound send. External ids are only ever known by hash. */
-export type UserRef = { readonly userId: UserId; readonly externalIdHash: string | null };
+/**
+ * Address for an outbound send. `externalIdHash` is the lookup key only (a keyed hash, never
+ * reversible); `address` is the opaque value the adapter gave at link time and is what `send`
+ * uses to reach the user. Web sends carry neither.
+ */
+export type UserRef = {
+  readonly userId: UserId;
+  readonly externalIdHash: string | null;
+  readonly address: string | null;
+};
 
 export type DeliveryResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
 

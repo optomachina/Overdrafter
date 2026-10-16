@@ -71,7 +71,7 @@ function setup(options: HarnessOptions = {}) {
   const grant = (userId: string, tier: AccessTier = "owner", revokedAt: string | null = null) =>
     repo.accessGrants.set(userId, { userId, tier, grantedBy: "admin", grantedAt: "2026-10-01T00:00:00Z", revokedAt });
   const link = (userId: string, channel = test.id, revokedAt: string | null = null) =>
-    repo.insertIdentity({ userId, channel, externalIdHash: hash(`${channel}:ext-${userId}`), revokedAt });
+    repo.insertIdentity({ userId, channel, externalIdHash: hash(`${channel}:ext-${userId}`), address: `chat-ext-${userId}`, revokedAt });
   return { repo, graph, test, web, logs, sleeps, clock, service, grant, link };
 }
 
@@ -135,7 +135,8 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(inboundCount(h)).toBe(1);
     expect(h.repo.messages[0]).toMatchObject({ direction: "in", channel: "test", graphRunId: "run-1" });
     expect(h.test.sent).toHaveLength(1);
-    expect(h.test.sent[0].user).toEqual({ userId: "blaine", externalIdHash: hash("test:ext-blaine") });
+    expect(h.test.sent[0].user).toEqual({ userId: "blaine", externalIdHash: hash("test:ext-blaine"), address: "chat-ext-blaine" });
+    expect(h.web.sent[0].user).toEqual({ userId: "blaine", externalIdHash: null, address: null });
     expect(h.web.sent).toHaveLength(1);
     expect(h.web.sent[0].message.text).toBe("Got it. Working on it.");
   });
@@ -165,6 +166,34 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(graphCalls(h)).toBe(0);
     expect(h.logs).toEqual([{ channel: "test", outcome: "denied", reason: "identity_unlinked" }]);
     expect(JSON.stringify(h.logs)).not.toContain("stranger");
+  });
+
+  it("CS-3c denial and throttle replies are returned in the synchronous result, never sent, and only once", async () => {
+    const h = setup({ limiter: createSlidingWindowLimiter(1, 60_000) });
+    const unlinked = request({ externalUserId: "ext-stranger" });
+    expect(await h.service.handleInbound("test", unlinked)).toEqual({ status: "denied", reply: LINK_PROMPT });
+    expect(await h.service.handleInbound("test", unlinked)).toEqual({ status: "duplicate" });
+
+    h.grant("blaine");
+    await h.link("blaine");
+    expect(await h.service.handleInbound("test", request())).toMatchObject({ status: "accepted" });
+    const attemptsBefore = h.test.attempts.length;
+    expect(await h.service.handleInbound("test", request())).toEqual({ status: "throttled", reply: THROTTLED_REPLY });
+    expect(h.test.attempts).toHaveLength(attemptsBefore);
+    expect(h.test.attempts.every((attempt) => attempt.message.text !== LINK_PROMPT && attempt.message.text !== THROTTLED_REPLY)).toBe(true);
+  });
+
+  it("M3 send() gets the adapter's opaque address from the linked identity; no address means no send", async () => {
+    const h = await linkedOwner();
+    expect(await h.service.handleInbound("test", request())).toMatchObject({ status: "accepted" });
+    expect(h.test.sent[0].user.address).toBe("chat-ext-blaine");
+
+    h.repo.channelIdentities.get(JSON.stringify(["test", hash("test:ext-blaine")]))!.address = null;
+    await h.service.handleGraphEvent(statusEvent("run-1", "Modeling the plate"));
+    expect(h.test.attempts).toHaveLength(1);
+    expect(h.web.sent.at(-1)?.message.text).toBe("Modeling the plate");
+    expect(h.logs).toContainEqual({ channel: "test", outcome: "outbound_unaddressable" });
+    expect(JSON.stringify(h.logs)).not.toContain("chat-");
   });
 
   it("CS-3b revoked identity gets the same response as an unlinked one", async () => {
@@ -259,7 +288,7 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(h.repo.outboundDeliveries.get(JSON.stringify([messageId, "test"]))).toMatchObject({ status: "sent", attempts: 3 });
 
     const policy = { maxAttempts: 3, baseDelayMs: 100, sleep: async () => undefined };
-    const user = { userId: "blaine", externalIdHash: null };
+    const user = { userId: "blaine", externalIdHash: null, address: null };
     expect(await deliver(h.repo, h.test, user, messageId, { text: "again" }, policy)).toBe("duplicate");
     expect(h.test.attempts).toHaveLength(3);
 
@@ -561,7 +590,7 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(results.map((r) => r.status)).toContain("throttled");
     results.forEach((result, index) => expect(counts[index], `${index}:${result.status}`).toBe(result.status === "accepted" ? 1 : 0));
     expect(results.filter((r) => r.status === "rejected").map((r) => "reason" in r && r.reason)).toEqual(["unverified", "malformed"]);
-    expect(h.logs.some((entry) => JSON.stringify(entry).includes("ext-"))).toBe(false);
+    expect(h.logs.some((entry) => JSON.stringify(entry).includes("ext-") || JSON.stringify(entry).includes("chat-"))).toBe(false);
   });
 });
 
@@ -575,7 +604,7 @@ describe("Jarvis identity linking", () => {
     expect(await h.service.linkIdentity("test", "123456", "ext-blaine")).toBe("blaine");
     expect(await h.service.linkIdentity("test", "123456", "ext-other")).toBeNull();
     expect(await h.service.linkIdentity("test", "999999", "ext-other")).toBeNull();
-    expect([...h.repo.channelIdentities.values()]).toEqual([{ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), revokedAt: null }]);
+    expect([...h.repo.channelIdentities.values()]).toEqual([{ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), address: null, revokedAt: null }]);
 
     h.repo.linkCodes.set(hash("222222"), { codeHash: hash("222222"), userId: "mallory", channel: "test", expiresAt, consumedAt: null });
     expect(await h.service.linkIdentity("test", "222222", "ext-blaine")).toBeNull();

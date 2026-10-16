@@ -18,6 +18,11 @@ export type ChannelIdentityRow = {
   userId: UserId;
   channel: ChannelId;
   externalIdHash: string;
+  /**
+   * The adapter's opaque reply address (`InboundMessage.address`), stored beside the lookup hash.
+   * The Supabase repo must keep it encrypted at rest; OVD-797 needs an address column for it.
+   */
+  address: string | null;
   revokedAt: string | null;
 };
 
