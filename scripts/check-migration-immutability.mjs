@@ -183,9 +183,12 @@ const time = (iso) => {
  * - it was created strictly after the head was pushed. The push time is the
  *   later of headPushedAt and any force-push / restore event in the timeline,
  *   so a new push (or force push back to an older SHA) voids the label.
- * Fails closed: no timeline, no head SHA, no push time, or a force-push /
+ * Fails closed: no timeline, no head SHA, no push time, a force-push /
  * restore event without a usable created_at (the head may have moved after
- * the label, and we cannot tell) means no override.
+ * the label, and we cannot tell), or a labeled / unlabeled event for the
+ * override label without a usable created_at (we cannot order it against the
+ * other label events, so a removal or a non-approver relabel could be
+ * hidden) means no override. Undated events for other labels are irrelevant.
  */
 export function evaluateOverride({ timeline = null, timelineError = null, headSha = null, headPushedAt = null, approver = DEFAULT_APPROVER, label = OVERRIDE_LABEL }) {
   const base = { label, approver, headSha, headPushedAt: null, applied: false };
@@ -199,14 +202,17 @@ export function evaluateOverride({ timeline = null, timelineError = null, headSh
   const pushedAt = Math.max(time(headPushedAt), ...headMoves.map((event) => time(event.created_at)));
   const pushed = { ...base, headPushedAt: new Date(pushedAt).toISOString() };
   const labelEvents = timeline.filter((event) => (event?.event === "labeled" || event?.event === "unlabeled") && event.label?.name === label);
-  const last = labelEvents.reduce((latest, event) => (latest == null || (time(event.created_at) ?? 0) >= (time(latest.created_at) ?? 0) ? event : latest), null);
+  if (labelEvents.some((event) => time(event.created_at) == null)) {
+    return { ...pushed, status: "unavailable", reason: "label event has no usable created_at" };
+  }
+  const last = labelEvents.reduce((latest, event) => (latest == null || time(event.created_at) >= time(latest.created_at) ? event : latest), null);
   if (last == null || last.event !== "labeled") return { ...pushed, status: "not_applied", reason: `${label} is not on the PR` };
   const actor = last.actor?.login ?? null;
   const event = { actor, created_at: last.created_at };
   if (actor == null || actor.toLowerCase() !== approver.toLowerCase()) {
     return { ...pushed, event, status: "ignored", reason: `${label} was applied by ${actor ?? "an unknown actor"}, not ${approver}` };
   }
-  if ((time(last.created_at) ?? -Infinity) <= pushedAt) {
+  if (time(last.created_at) <= pushedAt) {
     return { ...pushed, event, status: "ignored", reason: `${label} was applied at ${last.created_at}, before the head ${headSha} was pushed (${pushed.headPushedAt}); a new push voids it` };
   }
   return { ...pushed, event, applied: true, status: "approved", reason: `${approver} applied ${label} at ${last.created_at}, after the head ${headSha} was pushed (${pushed.headPushedAt})` };

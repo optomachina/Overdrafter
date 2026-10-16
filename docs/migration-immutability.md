@@ -48,10 +48,13 @@ timeline API (`GET /repos/{owner}/{repo}/issues/{n}/timeline`):
 
 A new push voids the label: Blaine removes and re-applies it, then re-runs the
 job. A label from anyone else, or one applied before the latest push, is
-ignored. Outside `pull_request` runs, when the timeline cannot be fetched, or
+ignored. Outside `pull_request` runs, when the timeline cannot be fetched,
 when a `head_ref_force_pushed` / `head_ref_restored` event has no usable
-`created_at` (the push time would be unknown), there is no override (fail
-closed).
+`created_at` (the push time would be unknown), or when a `labeled` /
+`unlabeled` event for `migration-edit-approved` has no usable `created_at` (it
+cannot be ordered against the other label events, so a removal or a relabel by
+someone else could be hidden), there is no override (fail closed, status
+`unavailable`). Undated events for other labels are irrelevant.
 
 A waiver keeps the findings in the report (prefixed `WAIVED`), sets `ok` to
 true and is reported as `gate_loosening` (`override_used`).
@@ -90,9 +93,9 @@ migrations:immutability` to compare a branch with `origin/main`.
 ### Card item: `migration-immutability` job in `ci.yml`
 
 The dedicated job is not in `.github/workflows/ci.yml`; adding it is a card
-item for Blaine (workflow edits are out of agent scope). The proposed job is
-`scripts/fixtures/migration-immutability/ci-job.draft.yml`, and the vitest
-suite runs its step script so the draft stays working. It checks out the merge
+item for Blaine (workflow edits need Blaine's card before merge). The proposed
+job is `scripts/fixtures/migration-immutability/ci-job.draft.yml`, and the
+vitest suite runs its step script so the draft stays working. It checks out the merge
 commit with `fetch-depth: 2`, runs the base copy of the checker the same way,
 fetches the PR timeline with `gh api` so the override can apply, uploads the
 JSON report (`ovd871.migration-immutability.v1`) as the

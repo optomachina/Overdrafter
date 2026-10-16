@@ -238,6 +238,44 @@ describe("migration-edit-approved override", () => {
     expect(report).toMatchObject({ ok: false, waived: false, override: { status: "unavailable" } });
   });
 
+  it("fails closed on a label event with no usable created_at, instead of reading it as time 0", () => {
+    const approved = labeled("optomachina", "2026-10-10T09:00:00Z");
+    const undatedValues = [undefined, null, "", "not a date"];
+    for (const createdAt of undatedValues) {
+      // Blaine removed the label, but the removal cannot be dated: still not approved.
+      const removed = decide([approved, { ...labeled("optomachina", createdAt), event: "unlabeled" }]);
+      expect(removed).toMatchObject({ status: "unavailable", applied: false, reason: "label event has no usable created_at" });
+      // Someone else re-applied it, but undated: must not be ignored as time 0.
+      const relabeled = decide([approved, labeled("someone-else", createdAt)]);
+      expect(relabeled).toMatchObject({ status: "unavailable", applied: false, reason: "label event has no usable created_at" });
+      // An undated first event is no better.
+      expect(decide([labeled("optomachina", createdAt), approved]).status).toBe("unavailable");
+    }
+    // The approver's valid label alone still counts, so the cases above flipped it.
+    expect(decide([approved]).status).toBe("approved");
+  });
+
+  it("ignores an undated event for an unrelated label, or a non-label event", () => {
+    const approved = labeled("optomachina", "2026-10-10T09:00:00Z");
+    for (const createdAt of [undefined, null, "not a date"]) {
+      expect(decide([approved, labeled("someone-else", createdAt, "documentation")]).status).toBe("approved");
+      expect(decide([approved, { ...labeled("someone-else", createdAt, "documentation"), event: "unlabeled" }]).status).toBe("approved");
+      expect(decide([approved, { event: "commented", created_at: createdAt }]).status).toBe("approved");
+    }
+    expect(decide([labeled("optomachina", "2026-10-10T09:00:00Z", "documentation")]).status).toBe("not_applied");
+  });
+
+  it("fails closed end to end when an unlabel event has no created_at", () => {
+    const dir = overlayRepo({}, { [OLD]: "-- edited\n" });
+    const timeline = join(dir, "timeline.ndjson");
+    const undatedUnlabel = { event: "unlabeled", actor: { login: "optomachina" }, label: { name: OVERRIDE_LABEL } };
+    writeFileSync(timeline, [labeled("optomachina", "2026-10-10T09:00:00Z"), undatedUnlabel].map((event) => JSON.stringify(event)).join("\n"));
+    const { code, report } = check(dir, ["--enforce", "--timeline", timeline, "--head-sha", HEAD, "--head-pushed-at", PUSHED_AT]);
+    expect(code).toBe(1);
+    expect(report).toMatchObject({ ok: false, waived: false, override: { status: "unavailable", reason: "label event has no usable created_at" } });
+    expect(report.gate_loosening.detected).toBe(false);
+  });
+
   it("waives findings end to end and reports the waiver as gate_loosening", () => {
     const dir = overlayRepo({}, { [OLD]: "-- edited\n" });
     const timeline = join(dir, "timeline.ndjson");

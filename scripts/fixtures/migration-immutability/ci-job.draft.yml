@@ -64,8 +64,10 @@ jobs:
             fi
             override+=(--head-sha "$PR_HEAD_SHA" --head-pushed-at "$PR_HEAD_PUSHED_AT")
           fi
-          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD "${override[@]}" \
+          # ${override[@]+...} keeps an empty array from tripping set -u on bash 3.2.
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD ${override[@]+"${override[@]}"} \
             --json-out "$RUNNER_TEMP/migration-immutability.json" | tee "$RUNNER_TEMP/migration-immutability.txt"
+          test -s "$RUNNER_TEMP/migration-immutability.json"
           {
             echo '### Migration immutability (report mode)'
             # Report only (Plan §6): gate_loosening never fails this job.
