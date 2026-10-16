@@ -50,21 +50,27 @@ export function assertStagingRef(ref) {
 // Hosts: the staging direct host, or the us-west-1 Supavisor pooler host this
 // org uses (aws-1-us-west-1.pooler.supabase.com; see
 // scripts/manage-ovd373-temporary-db-access.test.mjs line 29 and
-// docs/workflows/ovd361-production-deployment.md). The direct host takes user
-// "postgres"; the pooler takes "postgres.<staging ref>". The password must be
-// unreserved characters or %XX escapes, so a raw @ # ? / : (or anything else
-// that could move the authority boundary) is refused. The only query allowed
-// is a single sslmode=require|verify-full.
+// docs/workflows/ovd361-production-deployment.md). The exact staging pooler
+// host is pending read-only confirmation from the staging project's Supabase
+// dashboard Connect panel (OVD-880); once confirmed, this allowlist must match
+// that exact value. The direct host takes user "postgres"; the pooler takes
+// "postgres.<staging ref>". The password must be unreserved characters or %XX
+// escapes, so a raw @ # ? / : (or anything else that could move the authority
+// boundary) is refused. The query is required and must be exactly
+// sslmode=require or sslmode=verify-full: no query (libpq defaults to prefer),
+// a weaker sslmode, or any other parameter (options=, host=, ...) is refused.
 export const STAGING_DIRECT_HOST = "db.ldmambwtksfvqdufhaam.supabase.co";
 export const STAGING_POOLER_HOST = "aws-1-us-west-1.pooler.supabase.com";
 export const STAGING_CONNECTION_URL_PATTERN =
-  /^postgres(?:ql)?:\/\/(?:postgres:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@db\.ldmambwtksfvqdufhaam\.supabase\.co|postgres\.ldmambwtksfvqdufhaam:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@aws-1-us-west-1\.pooler\.supabase\.com):(?:5432|6543)\/postgres(?:\?sslmode=(?:require|verify-full))?$/;
+  /^postgres(?:ql)?:\/\/(?:postgres:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@db\.ldmambwtksfvqdufhaam\.supabase\.co|postgres\.ldmambwtksfvqdufhaam:(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+@aws-1-us-west-1\.pooler\.supabase\.com):(?:5432|6543)\/postgres\?sslmode=(?:require|verify-full)$/;
 
 /**
- * libpq environment variables that could redirect or re-credential a
+ * libpq environment variables that could redirect, re-credential or weaken a
  * connection behind the validated URL (PGHOSTADDR in particular is used to
- * connect even when the URL names a host). Callers pass the connection only as
- * the validated URL, with none of these set.
+ * connect even when the URL names a host; PGSSLMODE, PGSSLROOTCERT, PGOPTIONS
+ * and PGTARGETSESSIONATTRS change TLS, session settings or host selection).
+ * Callers pass the connection only as the validated URL, with none of these
+ * set.
  */
 export const REFUSED_CONNECTION_ENV_VARS = Object.freeze([
   "PGHOST",
@@ -73,6 +79,10 @@ export const REFUSED_CONNECTION_ENV_VARS = Object.freeze([
   "PGSERVICE",
   "PGSERVICEFILE",
   "PGPASSFILE",
+  "PGSSLMODE",
+  "PGOPTIONS",
+  "PGSSLROOTCERT",
+  "PGTARGETSESSIONATTRS",
 ]);
 
 export function assertStagingConnectionEnv(env = process.env) {
@@ -86,8 +96,8 @@ export function assertStagingConnectionEnv(env = process.env) {
 /**
  * Resolve the project ref a target names: a bare ref, or a postgres URL that
  * matches the staging allowlist exactly. Everything else (API URLs, key=value
- * DSNs, multi-host, IPv6, extra query parameters, fragments, other ports or
- * users) is refused. Messages never include the URL, so a password is never
+ * DSNs, multi-host, IPv6, a missing or weak sslmode, extra query parameters,
+ * fragments, other ports or users) is refused. Messages never include the URL, so a password is never
  * echoed.
  */
 export function projectRefFromTarget(target) {
