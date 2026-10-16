@@ -1,0 +1,18 @@
+# Visibility-only CODEOWNERS (OVD-888, parent OVD-854).
+#
+# These owners are auto-requested as reviewers so changes to the listed paths
+# are visible to them. Branch protection on main does NOT require code-owner
+# review ("Require review from Code Owners" stays off). Agent PRs are authored
+# from @optomachina's own account, and an author cannot approve their own PR,
+# so a required owner review would deadlock every PR that touches these paths.
+#
+# Revisit this if agent PRs move to a separate bot account. The repo already has
+# another collaborator with write access (Hexseeker), so a second reviewer exists
+# today, but only a distinct author identity makes a required review workable.
+
+/.github/ @optomachina
+/scripts/ @optomachina
+
+# This file lands with #818. A pattern for a file that does not exist yet is
+# valid and starts matching as soon as the file does.
+/docs/sensitive-paths.json @optomachina

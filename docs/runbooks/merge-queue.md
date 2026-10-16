@@ -1,9 +1,15 @@
 # Merge queue for `main` (OVD-854)
 
-Status: **drafted, not applied.** Nothing in this runbook has been run against
-GitHub. Every change here alters branch protection, which is a protected
-action: it needs Blaine's approval card, and Grok Bot applies it only after
-approval.
+Status: **Option B (strict) approved by Blaine on 2026-10-16 and applied by
+Blaine in the GitHub settings UI, with `enforce_admins` turned on as well**, per
+the handoff. That differs from the drafted Option B table below, which left
+`enforce_admins` unchanged. The `gh api` commands under Option B were not used
+to apply it; they stay here for reference and rollback. This runbook does not
+record the live settings as verified: confirm them with the read-only snapshot
+calls under "Current settings snapshot". **Option A (merge queue) is not
+applied** and still needs the repo moved to an organization. Any further change
+to branch protection is a protected action that needs Blaine's approval card,
+and Grok Bot applies it only after approval.
 
 **Blocker: the merge queue (Option A) cannot be applied to this repo as it is
 owned today.** GitHub's docs say: "Pull request merge queues are available in

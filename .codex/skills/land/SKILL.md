@@ -54,16 +54,35 @@ python3 .codex/skills/land/land_watch.py
    - If the PR is only waiting on in-flight checks, remain in `Merging` and prefer auto-merge when available.
    - If the PR is blocked because it was moved to `Merging` too early, move it back to `Human Review`.
 
-9. Land the PR:
+9. Land the PR. `main` requires branches to be up to date (strict mode, `docs/runbooks/merge-queue.md` "Operating under strict"), so a green PR can still be behind `main`. `land_watch.py` does not treat `BEHIND` as blocked, so check it here before merging:
 
 ```bash
-gh pr merge --squash --delete-branch
+MERGE_STATE="$(gh pr view "$PR_NUMBER" --json mergeStateStatus --jq .mergeStateStatus)"
 ```
 
-10. If checks are still running but the PR is otherwise healthy, prefer enabling auto-merge instead:
+   - If `MERGE_STATE` is `BEHIND`, or a merge is refused because the head branch is not up to date (another PR merged first), update the branch. `gh pr update-branch` is asynchronous, so wait for the head to move before waiting on checks:
 
 ```bash
-gh pr merge --auto --squash --delete-branch
+OLD_HEAD="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+gh pr update-branch "$PR_NUMBER"
+for attempt in {1..24}; do
+  [[ "$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)" != "$OLD_HEAD" ]] && break
+  sleep 5
+done
+```
+
+   - Then repeat step 8's wait so `ci` and `provider-go-live` pass on the NEW head. A "not up to date" block means update and re-wait; it never moves the issue to `Rework`, which is only for failing checks that need implementation changes.
+   - Merge pinned to the head whose checks passed. Read `HEAD_SHA` from GitHub after the wait succeeds (the local branch is stale after an update), so the merge fails instead of landing a head that was not tested:
+
+```bash
+HEAD_SHA="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+gh pr merge "$PR_NUMBER" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+```
+
+10. If checks are still running but the PR is otherwise healthy, prefer enabling auto-merge instead. Auto-merge does not update an out-of-date branch by itself: it waits until someone does, so run the update-branch step above first when the PR is `BEHIND`.
+
+```bash
+gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
 ```
 
 11. After either merge command, wait for required checks and poll GitHub for up to 20 minutes until the PR state is explicitly `MERGED`:
@@ -81,6 +100,7 @@ done
 [[ "$(gh pr view "$PR_NUMBER" --json state --jq .state)" == "MERGED" ]]
 ```
 
+   - If `mergeStateStatus` turns `BEHIND` during the wait (another PR merged first), auto-merge stalls. Repeat the update-branch step from step 9, then keep waiting on the new head.
    - If required checks fail, the PR closes without merging, or the bounded wait expires, stop and report the blocker.
 12. After merge, report:
    - PR URL
@@ -96,3 +116,4 @@ done
 - Do not mark the issue `Done` before GitHub shows the PR merged.
 - Do not mark it `Done` after merge when an acceptance criterion still requires post-merge work.
 - Do not leave an issue in `Merging` when required checks are red and implementation changes are needed; move it back to `Rework`.
+- Do not move an issue to `Rework` because the branch is behind `main` or a merge was refused as not up to date; update the branch and re-wait.
