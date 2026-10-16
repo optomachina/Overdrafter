@@ -1,0 +1,139 @@
+name: OVD-707 draft pgTAP (ephemeral CI database)
+
+# Proves the parked OVD-707 migration drafts and their pending pgTAP in a
+# throwaway local Supabase database on the runner. It applies the drafts on top
+# of supabase/migrations inside the runner's own Docker, runs the pending tests,
+# then replays the rollbacks (twice, newest draft first) and checks that the
+# public and private schemas match the pre-draft catalog. It never connects to
+# a real Supabase project and uses no secrets. Non-required and path-scoped;
+# delete it once the drafts are promoted into supabase/migrations in a
+# Blaine-approved window.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/migration-drafts/ovd-707-*'
+      - 'supabase/tests/pending/ovd707*'
+      - '.github/workflows/ovd707-pending-pgtap.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  draft-pgtap:
+    name: Draft migrations + pending pgTAP (ephemeral DB)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
+        with:
+          version: 2.78.1
+
+      - name: Start local database and apply supabase/migrations
+        run: supabase db start
+
+      - name: Select drafts, rollbacks and pending tests
+        id: select
+        run: |
+          shopt -s nullglob
+          drafts=()
+          for f in docs/migration-drafts/ovd-707-*.sql; do
+            [[ "$f" == *.rollback.sql ]] || drafts+=("$f")
+          done
+          # Rollbacks run newest draft first (the reverse of apply order).
+          rollbacks=()
+          for f in docs/migration-drafts/ovd-707-*.rollback.sql; do
+            rollbacks=("$f" "${rollbacks[@]}")
+          done
+          tests=(supabase/tests/pending/ovd707*.sql.pending)
+          printf 'draft: %s\n' "${drafts[@]}"
+          printf 'rollback: %s\n' "${rollbacks[@]}"
+          printf 'test: %s\n' "${tests[@]}"
+          [ "${#drafts[@]}" -gt 0 ] && [ "${#rollbacks[@]}" -eq "${#drafts[@]}" ] && [ "${#tests[@]}" -gt 0 ] \
+            || { echo "::error::drafts, rollbacks and pending tests must all be selected (one rollback per draft)"; exit 1; }
+          echo "drafts=${drafts[*]}" >> "$GITHUB_OUTPUT"
+          echo "rollbacks=${rollbacks[*]}" >> "$GITHUB_OUTPUT"
+          echo "tests=${tests[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Snapshot the pre-draft catalog
+        run: |
+          cat > "$RUNNER_TEMP/objects.sql" <<'SQL'
+          select 'rel ' || c.oid::regclass::text || ' ' || c.relkind::text
+          from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+          where n.nspname in ('public', 'private')
+          union all
+          select 'fn ' || p.oid::regprocedure::text || ' ' || coalesce(p.proacl::text, '')
+          from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+          where n.nspname in ('public', 'private')
+          union all
+          select 'type ' || t.oid::regtype::text
+          from pg_catalog.pg_type t join pg_catalog.pg_namespace n on n.oid = t.typnamespace
+          where n.nspname in ('public', 'private') and t.typtype in ('e', 'd', 'b')
+          order by 1;
+          SQL
+          docker run --rm --network host -v "$RUNNER_TEMP:/t" postgres:17 \
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -tA -f /t/objects.sql > "$RUNNER_TEMP/before.txt"
+          wc -l "$RUNNER_TEMP/before.txt"
+
+      - name: Apply drafts to the ephemeral database
+        run: |
+          for f in ${{ steps.select.outputs.drafts }}; do
+            echo "::group::apply $f"
+            docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Re-apply drafts (they must be idempotent)
+        run: |
+          for f in ${{ steps.select.outputs.drafts }}; do
+            echo "::group::re-apply $f"
+            docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
+              psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Run pending pgTAP against the drafts
+        run: |
+          stage="$(mktemp -d)"
+          for f in ${{ steps.select.outputs.tests }}; do
+            cp "$f" "$stage/$(basename "${f%.pending}")"
+          done
+          ls -l "$stage"
+          supabase test db --local --debug "$stage" | tee pgtap.txt
+          grep -q '^Result: PASS' pgtap.txt
+          ! grep -Eq '^not ok|# (SKIP|TODO)' pgtap.txt
+
+      - name: Apply rollbacks twice (they must replay cleanly)
+        run: |
+          for pass in 1 2; do
+            for f in ${{ steps.select.outputs.rollbacks }}; do
+              echo "::group::rollback pass $pass $f"
+              docker run --rm --network host -v "$PWD:/w" -w /w postgres:17 \
+                psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q --single-transaction -f "$f"
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Verify the catalog is back to the pre-draft state
+        run: |
+          docker run --rm --network host -v "$RUNNER_TEMP:/t" postgres:17 \
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -tA -f /t/objects.sql > "$RUNNER_TEMP/after.txt"
+          diff -u "$RUNNER_TEMP/before.txt" "$RUNNER_TEMP/after.txt"
+
+      - name: Stop local database
+        if: always()
+        run: supabase stop --no-backup || true
