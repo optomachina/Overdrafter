@@ -5,23 +5,37 @@ name: Verify
 # the feature map names, in fixture and local mode. Synthetic fixtures only; no
 # hosted credentials or secrets. This is not a required check.
 #
+# npm run build is only a compile gate: both Playwright configs serve the app
+# from the vite dev server, so the journeys never load dist/.
+#
+# Each mode runs only the VERIFY_FEATURES that have specs in that mode in the
+# base feature map (provider has fixture specs only). The others are recorded
+# as "SKIPPED: no <mode> specs" in the manifest, the judge result and the
+# summary, and never count as a pass. Playwright runs with
+# --workers=$VERIFY_WORKERS: default workers timed journeys out on CI runners.
+#
 # Two jobs, so PR code never shares a filesystem with the judge:
 # - run: checks out the PR head (./head, the app under test) and the base
 #   (./base, the harness entrypoint .agents/skills/verify-overdrafter/run and its
 #   feature map), hashes the base harness right before the journeys, runs them
 #   and uploads the raw evidence.
 # - judge: checks out only the base, downloads the evidence and judges it with
-#   the base scripts/verify-result-judge.mjs. The spec list each mode must cover
-#   comes from the base feature map, and the harness hash recorded by the run job
-#   must match the base harness, so a PR cannot change which journeys count or
-#   how they are judged. When the base has no harness yet the verdict is FAIL,
-#   with a summary that says so.
+#   the base scripts/verify-result-judge.mjs. What a PR cannot change: the judge
+#   and verdict logic, and the base feature map that decides which specs and
+#   configs each mode must cover. When the base has no harness yet the verdict
+#   is FAIL, with a summary that says so.
+#
+# The harness hash is advisory only. It is taken in the run job after PR code
+# has already run (npm ci, npm run build, npm run db:start from the head's
+# package.json), and that code can write $GITHUB_ENV (BASH_ENV, PATH), leave a
+# background process, or change and restore the base harness. So the hash
+# catches accidental drift, not a hostile PR.
 #
 # Known limits: the journeys are PR code, so a PR can still forge its own
-# Playwright report or tamper with the harness and restore it before the hash
-# step. For pull_request events this workflow file itself also comes from the
-# PR merge ref. The split stops the PR from rewriting the judge or the verdict;
-# it is not full isolation of untrusted tests.
+# Playwright report. For pull_request events this workflow file itself also
+# comes from the PR merge ref, and retargeting the base without a push does not
+# re-run it (edited is not a trigger). The split stops the PR from rewriting the
+# judge or the verdict; it is not full isolation of untrusted tests.
 #
 # Fails closed: a missing harness, a skipped, cancelled, timed-out or
 # test.fail() journey, a mapped spec with no journeys, a missing result file, a
@@ -51,6 +65,7 @@ permissions:
 env:
   VERIFY_MODE: report
   VERIFY_FEATURES: auth,quote,provider
+  VERIFY_WORKERS: 1
   HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 

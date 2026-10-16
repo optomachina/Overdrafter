@@ -9,6 +9,9 @@
 // playwright-report-<i>.json per Playwright config from verify.sh, numbered in the
 // order the configs first appear in the feature map. The spec and config lists
 // each run must cover come from this checkout's feature map, not from the evidence.
+// Each mode covers only the requested features that have specs in that mode; the
+// rest are listed as "SKIPPED: no <mode> specs" and never count as a pass. Zero
+// selected specs, for a mode or across the run, is FAIL.
 // Fails closed: anything other than every mapped spec running and every journey
 // passing at the expected SHA on a clean tree is FAIL. Exit 0 on PASS, 1 on FAIL,
 // 2 on bad usage.
@@ -16,7 +19,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { FEATURE_SPECS, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
+import { CONFIG_TEST_DIRS, FEATURE_SPECS, selectFeatures, skipNote, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
 
 const RESULT_STATUS = { passed: "passed", failed: "failed", timedOut: "timedOut", interrupted: "cancelled", skipped: "skipped" };
 
@@ -29,6 +32,10 @@ export function parseManifest(text) {
   return {
     mode: fields.mode ?? null,
     features: fields.features ?? null,
+    // verify.sh writes "skipped features: a b (SKIPPED: no <mode> specs)" or "none".
+    skipped: fields["skipped features"] == null ? null
+      : fields["skipped features"] === "none" ? []
+      : fields["skipped features"].replace(/\s*\(SKIPPED: no \w+ specs\)$/, "").split(/\s+/).filter(Boolean),
     specs: fields.specs ? fields.specs.split(/\s+/).filter(Boolean) : [],
     configs: fields.configs ? fields.configs.split(/\s+/).filter(Boolean) : [],
     // verify.sh writes "git head: <sha> (clean tree)" or "(dirty tree)".
@@ -82,7 +89,9 @@ export function collectJourneys(report) {
   return out;
 }
 
-const specMatches = (spec, file) => Boolean(file) && (spec === file || spec.endsWith(`/${file}`));
+// Report files are relative to the config's testDir; resolve them exactly.
+const specMatches = (spec, file, config) =>
+  Boolean(file) && config in CONFIG_TEST_DIRS && spec === path.posix.join(CONFIG_TEST_DIRS[config], file);
 
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
@@ -92,12 +101,14 @@ const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]
  */
 export function judgeRun({ label, manifestText, reports = {}, expectedSha, features }) {
   const reasons = [];
-  const run = { label, mode: null, features: null, gitHead: null, tree: null, exitCodes: [], verdict: null, specs: [], configs: [], journeys: [] };
+  const run = { label, mode: null, features: null, skipped: null, gitHead: null, tree: null, exitCodes: [], verdict: null, specs: [], configs: [], journeys: [] };
   const mode = ["fixture", "local"].includes(label) ? label : null;
   let expected = [];
+  let skipped = [];
   if (!mode) reasons.push(`${label}: evidence dir is not named after a mode (fixture or local)`);
   else {
     try {
+      skipped = selectFeatures(features, mode).skipped;
       expected = expectedConfigRuns(features, mode);
     } catch (error) {
       reasons.push(`${label}: ${error.message}`);
@@ -116,7 +127,11 @@ export function judgeRun({ label, manifestText, reports = {}, expectedSha, featu
     if (run.verdict !== "PASS") reasons.push(`${label}: verify.sh verdict ${run.verdict ?? "missing"}`);
     if (run.mode !== label) reasons.push(`${label}: manifest mode is ${run.mode ?? "missing"}`);
     if (run.features !== features.join(",")) reasons.push(`${label}: manifest features ${run.features ?? "missing"}, expected ${features.join(",")}`);
-    const specs = expected.flatMap((r) => r.specs);
+    if (run.skipped == null || !sameList(run.skipped, skipped)) {
+      reasons.push(`${label}: manifest skipped features ${run.skipped == null ? "missing" : run.skipped.join(" ") || "none"}, expected ${skipped.join(" ") || "none"}`);
+    }
+    // verify.sh lists specs in feature-map order, not grouped by config.
+    const specs = expected.length ? specsFor(features, mode).map((x) => x.spec) : [];
     if (expected.length && !sameList(run.specs, specs)) reasons.push(`${label}: manifest specs differ from the base feature map (${specs.join(" ")})`);
     const configs = expected.map((r) => r.config);
     if (expected.length && !sameList(run.configs, configs)) reasons.push(`${label}: manifest configs differ from the base feature map (${configs.join(" ")})`);
@@ -144,14 +159,14 @@ export function judgeRun({ label, manifestText, reports = {}, expectedSha, featu
     const journeys = collectJourneys(report).map((j) => ({ ...j, mode: run.mode ?? label, config }));
     if (journeys.length === 0) reasons.push(`${label}: no journeys ran under ${config}`);
     for (const spec of specs) {
-      if (!journeys.some((j) => specMatches(spec, j.file))) reasons.push(`${label}: no journeys ran for ${spec}`);
+      if (!journeys.some((j) => specMatches(spec, j.file, config))) reasons.push(`${label}: no journeys ran for ${spec}`);
     }
     run.journeys.push(...journeys);
   }
   for (const j of run.journeys) {
     if (j.status !== "passed") reasons.push(`${label}: ${j.status}: ${j.name}`);
   }
-  return { run, reasons };
+  return { run, reasons, skipped, specCount: expected.reduce((n, r) => n + r.specs.length, 0) };
 }
 
 export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS), harness = null }) {
@@ -163,6 +178,7 @@ export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS)
   }
   const judged = runs.map((r) => judgeRun({ ...r, expectedSha, features }));
   for (const j of judged) reasons.push(...j.reasons);
+  if (judged.reduce((n, j) => n + j.specCount, 0) === 0) reasons.push("no specs selected across the run");
   const journeys = judged.flatMap((j) => j.run.journeys);
   return {
     schema: "verify-result/v1",
@@ -173,8 +189,10 @@ export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS)
     headShas: [...new Set(judged.map((j) => j.run.gitHead).filter(Boolean))],
     runs: judged.map(({ run }) => ({
       label: run.label, mode: run.mode, features: run.features, gitHead: run.gitHead, tree: run.tree,
-      exitCodes: run.exitCodes, verdict: run.verdict, specs: run.specs, configs: run.configs,
+      exitCodes: run.exitCodes, verdict: run.verdict, specs: run.specs, configs: run.configs, skipped: run.skipped,
     })),
+    // Features with no specs in a mode: not run there and never counted as a pass.
+    skippedFeatures: judged.flatMap((j) => j.skipped.map((f) => `${j.run.label}: ${f} (${skipNote(j.run.label)})`)),
     journeys,
     failingJourneys: journeys.filter((j) => j.status !== "passed").map((j) => `${j.mode}: ${j.name} (${j.status})`),
     reasons,
@@ -185,6 +203,7 @@ export function formatSummary(result) {
   const lines = [`## verify-overdrafter: ${result.verdict}`, "", `Expected head SHA: \`${result.expectedSha ?? "none"}\``];
   const passed = result.journeys.filter((j) => j.status === "passed").length;
   lines.push(`Journeys passed: ${passed}/${result.journeys.length}`);
+  if (result.skippedFeatures?.length) lines.push("", "### Skipped (not run, not counted as passing)", ...result.skippedFeatures.map((s) => `- ${s}`));
   if (result.reasons.length) lines.push("", "### Why it failed", ...result.reasons.map((r) => `- ${r}`));
   return `${lines.join("\n")}\n`;
 }

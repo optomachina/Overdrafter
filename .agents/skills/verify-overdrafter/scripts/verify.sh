@@ -27,11 +27,19 @@ done
 case "$MODE" in fixture|local) ;; *) echo "mode must be fixture or local" >&2; exit 2 ;; esac
 if [ "$MODE" = fixture ] && [ "$PREPARE" = 1 ]; then echo "--prepare only applies to --mode local" >&2; exit 2; fi
 
-# One "<config>\t<spec>" line per spec; non-zero for unknown, empty or spec-less features.
+# One "SKIPPED\t<feature>" line per feature with no specs in this mode, then one
+# "<config>\t<spec>" line per spec; non-zero for unknown or empty features, a
+# single feature with no specs in this mode, or a selection that leaves no specs.
 SPECS_OUT="$(node "$HERE/feature-specs.mjs" "$FEATURES" "$MODE")" || exit 2
-CONFIGS=() SPECS=()
+CONFIGS=() SPECS=() SKIPPED=()
+SKIP_NOTE="SKIPPED: no $MODE specs"
 while IFS=$'\t' read -r cfg spec; do
   [ -n "$spec" ] || continue
+  if [ "$cfg" = SKIPPED ]; then
+    SKIPPED+=("$spec")
+    echo "feature $spec: $SKIP_NOTE (not run, not counted as a pass)"
+    continue
+  fi
   SPECS+=("$spec")
   case " ${CONFIGS[*]-} " in *" $cfg "*) ;; *) CONFIGS+=("$cfg") ;; esac
 done <<< "$SPECS_OUT"
@@ -129,6 +137,7 @@ DIRTY=clean; [ -z "$(git status --porcelain)" ] || DIRTY=dirty
 {
   echo "mode: $MODE"
   echo "features: $FEATURES"
+  if [ "${#SKIPPED[@]}" -gt 0 ]; then echo "skipped features: ${SKIPPED[*]} ($SKIP_NOTE)"; else echo "skipped features: none"; fi
   echo "specs: ${SPECS[*]}"
   echo "configs: ${CONFIGS[*]}"
   for c in "${COMMANDS[@]}"; do echo "command: $c"; done

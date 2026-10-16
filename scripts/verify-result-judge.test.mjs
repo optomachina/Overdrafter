@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { CONFIG_TEST_DIRS, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
 import { collectJourneys, expectedConfigRuns, judge, main, parseManifest } from "./verify-result-judge.mjs";
 
 const SHA = "a".repeat(40);
@@ -13,10 +14,10 @@ const FEATURES = ["quote"];
 // manifest produced by verify.sh itself through the judge.
 const manifest = ({
   sha = SHA, tree = "clean", codes = "0", verdict = "PASS", mode = "local", features = "quote",
-  specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts", configs = "playwright.config.ts",
+  specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts", configs = "playwright.config.ts", skipped = "none",
 } = {}) =>
   [
-    `mode: ${mode}`, `features: ${features}`, `specs: ${specs}`, `configs: ${configs}`, "command: npx playwright test",
+    `mode: ${mode}`, `features: ${features}`, `skipped features: ${skipped}`, `specs: ${specs}`, `configs: ${configs}`, "command: npx playwright test",
     `git head: ${sha} (${tree} tree)`, `exit codes: ${codes}`, "tests: passed=3 failed=0 skipped=0 expectedFail=0 flaky=0", `verdict: ${verdict}`,
   ].join("\n");
 
@@ -179,12 +180,76 @@ describe("verify-result-judge", () => {
     expect(provider({ "playwright-report-0.json": admin, "playwright-report-1.json": rest }, "0").reasons).toEqual(["fixture: playwright exit codes 0"]);
   });
 
+  // What verify.sh writes for a clean run of `features` in `mode` per the feature map.
+  const cleanRun = (features, mode, skipped = "none") => {
+    const runs = expectedConfigRuns(features, mode);
+    const suite = (spec, config) => {
+      const file = path.posix.relative(CONFIG_TEST_DIRS[config], spec);
+      return { title: file, file, specs: [{ title: "journey", file, tests: [test("passed")] }] };
+    };
+    return {
+      label: mode,
+      manifestText: manifest({
+        mode, features: features.join(","), skipped, codes: runs.map(() => "0").join(" "),
+        specs: specsFor(features, mode).map((x) => x.spec).join(" "), configs: runs.map((r) => r.config).join(" "),
+      }),
+      reports: Object.fromEntries(runs.map((r) => [r.report, JSON.stringify({ suites: r.specs.map((sp) => suite(sp, r.config)), errors: [] })])),
+    };
+  };
+  const DEFAULT = ["auth", "quote", "provider"];
+
+  it("judges the workflow default (auth,quote,provider in fixture and local) without a structural FAIL", () => {
+    const result = judge({
+      runs: [cleanRun(DEFAULT, "fixture"), cleanRun(DEFAULT, "local", "provider (SKIPPED: no local specs)")],
+      expectedSha: SHA,
+      features: DEFAULT,
+    });
+    expect(result.reasons).toEqual([]);
+    expect(result.verdict).toBe("PASS");
+    expect(result.skippedFeatures).toEqual(["local: provider (SKIPPED: no local specs)"]);
+    expect(result.runs.map((r) => r.skipped)).toEqual([[], ["provider"]]);
+    // The skipped feature contributes no journeys and is not counted as passing.
+    expect(result.journeys.filter((j) => j.mode === "local").map((j) => j.file)).toEqual([
+      "smoke.spec.ts", "access-scope.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts",
+    ]);
+  });
+
+  it("fails when the manifest's skipped features differ from the base feature map", () => {
+    const local = cleanRun(DEFAULT, "local", "none");
+    expect(judge({ runs: [local], expectedSha: SHA, features: DEFAULT }).reasons).toEqual([
+      "local: manifest skipped features none, expected provider",
+    ]);
+    const noLine = { ...local, manifestText: local.manifestText.replace(/^skipped features: .*\n/m, "") };
+    expect(judge({ runs: [noLine], expectedSha: SHA, features: DEFAULT }).reasons).toEqual([
+      "local: manifest skipped features missing, expected provider",
+    ]);
+  });
+
+  it("fails provider-only in local mode and any selection with zero specs", () => {
+    const providerLocal = judge({ runs: [{ label: "local", manifestText: null, reports: {} }], expectedSha: SHA, features: ["provider"] });
+    expect(providerLocal.verdict).toBe("FAIL");
+    expect(providerLocal.reasons).toContain("local: feature provider has no local specs");
+    expect(providerLocal.reasons).toContain("no specs selected across the run");
+    expect(judge({ runs: [], expectedSha: SHA, features: DEFAULT }).reasons).toContain("no specs selected across the run");
+    expect(judge({ runs: [cleanRun(["quote"], "local")], expectedSha: SHA, features: [] }).verdict).toBe("FAIL");
+  });
+
+  it("matches report files against the config's testDir, not by suffix", () => {
+    const fixture = cleanRun(["provider"], "fixture");
+    // jarvis-front-door.spec.ts relative to e2e/ is e2e/jarvis-front-door.spec.ts, not the mapped e2e/journeys/ spec.
+    const moved = fixture.reports["playwright-report-1.json"].replaceAll("journeys/jarvis-front-door.spec.ts", "jarvis-front-door.spec.ts");
+    const result = judge({ runs: [{ ...fixture, reports: { ...fixture.reports, "playwright-report-1.json": moved } }], expectedSha: SHA, features: ["provider"] });
+    expect(result.reasons).toEqual(["fixture: no journeys ran for e2e/journeys/jarvis-front-door.spec.ts"]);
+  });
+
   it("parses verify.sh manifests and flattens nested suites", () => {
     expect(parseManifest(manifest({ codes: "0 1" }))).toMatchObject({
-      mode: "local", gitHead: SHA, tree: "clean", exitCodes: [0, 1], verdict: "PASS",
+      mode: "local", gitHead: SHA, tree: "clean", exitCodes: [0, 1], verdict: "PASS", skipped: [],
       specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"], configs: ["playwright.config.ts"],
     });
     expect(parseManifest(manifest({ tree: "dirty" })).tree).toBe("dirty");
+    expect(parseManifest(manifest({ skipped: "provider (SKIPPED: no local specs)" })).skipped).toEqual(["provider"]);
+    expect(parseManifest("mode: local").skipped).toBeNull();
     expect(parseManifest("git head: not-a-sha (clean tree)").gitHead).toBeNull();
     expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts"]);
   });

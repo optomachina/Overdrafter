@@ -9,9 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CONFIG_PORTS,
+  CONFIG_TEST_DIRS,
   DEFAULT_CONFIG,
   FEATURE_SPECS,
   parseFeatures,
+  selectFeatures,
   specsFor,
 } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
 import { isolationProblems, KEY_VARS, URL_VARS } from "../.agents/skills/verify-overdrafter/scripts/isolation.mjs";
@@ -48,6 +50,9 @@ describe("verify-overdrafter skill structure", () => {
         expect(existsSync(path.join(root, spec)), spec).toBe(true);
         expect(existsSync(path.join(root, config)), config).toBe(true);
         expect(CONFIG_PORTS[config], `${config} port`).toBeTypeOf("number");
+        // The judge resolves report files against this; it must match the config's testDir.
+        const testDir = readFileSync(path.join(root, config), "utf8").match(/testDir:\s*"([^"]+)"/)?.[1];
+        expect(path.posix.join(path.posix.dirname(config), testDir ?? "?"), `${config} testDir`).toBe(CONFIG_TEST_DIRS[config]);
       }
     }
     for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs", "scripts/verdict.mjs", "scripts/isolation.mjs", "run"]) {
@@ -57,9 +62,13 @@ describe("verify-overdrafter skill structure", () => {
     expect(() => specsFor(["nope"], "fixture")).toThrow(/unknown feature/);
   });
 
-  it("fails closed when any requested feature has no specs in the mode", () => {
-    expect(() => specsFor(["auth", "provider"], "local")).toThrow(/provider has no local specs/);
-    expect(specsFor(["auth", "provider"], "fixture").length).toBeGreaterThan(0);
+  it("drops a feature with no specs in the mode from a multi-feature request, but fails closed on a single one", () => {
+    expect(selectFeatures(["auth", "quote", "provider"], "local")).toEqual({ included: ["auth", "quote"], skipped: ["provider"] });
+    expect(selectFeatures(["auth", "quote", "provider"], "fixture")).toEqual({ included: ["auth", "quote", "provider"], skipped: [] });
+    expect(specsFor(["auth", "provider"], "local")).toEqual(specsFor(["auth"], "local"));
+    expect(() => specsFor(["provider"], "local")).toThrow(/provider has no local specs/);
+    expect(() => specsFor(["provider", "provider"], "local")).toThrow(/no local specs/);
+    expect(() => specsFor([], "fixture")).toThrow(/no fixture specs/);
   });
 
   it("rejects empty feature tokens", () => {
@@ -103,6 +112,9 @@ describe("verify-overdrafter skill structure", () => {
     expect(wf).toMatch(/^permissions:\n {2}contents: read\n\n/m);
     expect(wf).not.toMatch(/\$\{\{\s*secrets\.|pull_request_target|: write/);
     expect(wf).toContain("VERIFY_MODE: report");
+    expect(wf).toMatch(/^ {2}VERIFY_WORKERS: 1$/m);
+    // The header must not claim the harness hash stops a hostile PR.
+    expect(wf).toMatch(/harness hash is advisory/);
   });
 });
 
@@ -123,14 +135,21 @@ describe("verify-overdrafter driver behavior", () => {
       ["--features", ""],
       ["--features", "auth,"],
       ["--mode", "local", "--features", "provider"],
-      ["--mode", "local", "--features", "auth,provider"],
     ]) {
       const r = run(...args, "--dry-run");
       expect(r.status, args.join(" ")).toBe(2);
       expect(r.stdout).not.toContain("playwright test");
     }
     expect(run("--features", "auth,", "--dry-run").stderr).toContain("empty feature name");
-    expect(run("--mode", "local", "--features", "auth,provider", "--dry-run").stderr).toContain("provider has no local specs");
+    expect(run("--mode", "local", "--features", "provider", "--dry-run").stderr).toContain("provider has no local specs");
+  });
+
+  it("skips and logs a multi-feature request's feature that has no specs in the mode", () => {
+    const r = run("--mode", "local", "--features", "auth,provider", "--dry-run");
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("feature provider: SKIPPED: no local specs (not run, not counted as a pass)");
+    expect(r.stdout).toContain("e2e/access-scope.spec.ts");
+    expect(r.stdout).not.toContain("admin-operations");
   });
 
   it("runs admin-operations under its own config", () => {
@@ -333,6 +352,8 @@ describe("verify-overdrafter isolation", () => {
 // fake @playwright/test, plus a fake npx that writes a Playwright JSON report for
 // whatever specs verify.sh passes it, each journey ending in `status`.
 function fakeApp({ pwExit = 0, status = "expected" } = {}) {
+  // Local mode also needs the auth states (gitignored, as in the real repo), a
+  // local Supabase that answers (fake curl) and npm run e2e:prepare (fake npm).
   const dir = mkdtempSync(path.join(os.tmpdir(), "verify-e2e-"));
   const app = path.join(dir, "app");
   const bin = path.join(dir, "bin");
@@ -348,6 +369,9 @@ function fakeApp({ pwExit = 0, status = "expected" } = {}) {
   mkdirSync(pw, { recursive: true });
   writeFileSync(path.join(pw, "package.json"), '{"name":"@playwright/test","main":"index.js"}');
   writeFileSync(path.join(pw, "index.js"), "");
+  writeFileSync(path.join(app, ".gitignore"), "/playwright/.auth/\n");
+  mkdirSync(path.join(app, "playwright/.auth"), { recursive: true });
+  for (const a of ["client", "internal"]) writeFileSync(path.join(app, `playwright/.auth/${a}.json`), "{}");
   const git = (...args) => execFileSync("git", ["-C", app, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { encoding: "utf8" });
   git("init", "-q");
   git("add", "-A");
@@ -364,6 +388,11 @@ fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({ suite
 process.exit(${pwExit});
 `);
   chmodSync(path.join(bin, "npx"), 0o755);
+  // Each fake records its argv so tests can see what ran.
+  for (const tool of ["curl", "npm"]) {
+    writeFileSync(path.join(bin, tool), `#!/usr/bin/env bash\necho "${tool} $*" >> "${path.join(dir, "calls.log")}"\n`);
+    chmodSync(path.join(bin, tool), 0o755);
+  }
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
   for (const k of [...URL_VARS, ...KEY_VARS]) delete env[k];
   return { dir, app, sha: git("rev-parse", "HEAD").trim(), env };
@@ -371,10 +400,11 @@ process.exit(${pwExit});
 
 describe("verify-overdrafter run entrypoint and judge, end to end", () => {
   const runScript = path.join(skillDir, "run");
-  const judgeDir = (sha, dir, ...extra) => {
+  const judgeDir = (sha, dir, ...extra) => judgeFeatures("quote", sha, dir, ...extra);
+  const judgeFeatures = (features, sha, dir, ...extra) => {
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const out = path.join(dir, "verify-result.json");
-    const code = judgeMain(["--expected-sha", sha, "--features", "quote", "--out", out, ...extra]);
+    const code = judgeMain(["--expected-sha", sha, "--features", features, "--out", out, ...extra]);
     vi.restoreAllMocks();
     return { code, result: JSON.parse(readFileSync(out, "utf8")) };
   };
@@ -423,11 +453,50 @@ describe("verify-overdrafter run entrypoint and judge, end to end", () => {
     ]);
   });
 
+  const workflowEnv = (name) => readFileSync(path.join(root, ".github/workflows/verify.yml"), "utf8").match(new RegExp(`^ {2}${name}: (.+)$`, "m"))[1];
+
+  it("the workflow's default features run in both modes and pass the judge, with provider skipped in local", () => {
+    const features = workflowEnv("VERIFY_FEATURES");
+    expect(features).toBe("auth,quote,provider");
+    const { dir, app, sha, env } = fakeApp();
+    const out = path.join(dir, "out");
+    // No --features or --modes: run's own defaults must match the workflow's.
+    const r = spawnSync("bash", [runScript, "--app-root", app, "--out", out], { env: { ...env, VERIFY_WORKERS: workflowEnv("VERIFY_WORKERS") }, encoding: "utf8" });
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain("feature provider: SKIPPED: no local specs");
+    expect(readFileSync(path.join(dir, "calls.log"), "utf8")).toContain("npm run e2e:prepare");
+    const local = readFileSync(path.join(out, "local/manifest.txt"), "utf8");
+    expect(local).toContain("skipped features: provider (SKIPPED: no local specs)");
+    expect(local).toMatch(/^command: .*--workers=1$/m);
+    expect(readFileSync(path.join(out, "fixture/manifest.txt"), "utf8")).toContain("skipped features: none");
+
+    const { code, result } = judgeFeatures(features, sha, dir, path.join(out, "fixture"), path.join(out, "local"));
+    expect(result.reasons).toEqual([]);
+    expect(code).toBe(0);
+    expect(result.skippedFeatures).toEqual(["local: provider (SKIPPED: no local specs)"]);
+    expect(result.journeys.some((j) => j.mode === "local" && /admin|jarvis|engineering/.test(j.file))).toBe(false);
+  }, 60_000);
+
+  it("fails closed on provider-only in local mode, an empty selection and a bad worker count", () => {
+    const { dir, app, sha, env } = fakeApp();
+    const out = path.join(dir, "out");
+    const r = spawnSync("bash", [runScript, "--app-root", app, "--out", out, "--modes", "local", "--features", "provider"], { env, encoding: "utf8" });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("feature provider has no local specs");
+    expect(existsSync(path.join(out, "local/manifest.txt"))).toBe(false);
+    const { code, result } = judgeFeatures("provider", sha, dir, path.join(out, "local"));
+    expect(code).toBe(1);
+    expect(result.reasons).toEqual(["local: feature provider has no local specs", "local: manifest.txt missing", "no specs selected across the run"]);
+    expect(judgeFeatures("quote", sha, dir).result.reasons).toContain("no specs selected across the run");
+    const bad = spawnSync("bash", [runScript, "--app-root", app, "--out", out, "--dry-run"], { env: { ...env, VERIFY_WORKERS: "0" }, encoding: "utf8" });
+    expect(bad.status).toBe(2);
+  });
+
   it("dry-run walks every mode with the base feature map and requires --app-root and --out", () => {
     const r = spawnSync("bash", [runScript, "--app-root", root, "--out", "/tmp/vo-run", "--features", "quote", "--dry-run"], { encoding: "utf8" });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(
-      "/tmp/vo-run/fixture/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/quote-comparison.spec.ts --grep @fixture",
+      "/tmp/vo-run/fixture/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/quote-comparison.spec.ts --grep @fixture --reporter=list,json --output /tmp/vo-run/fixture/test-results-0 --workers=1",
     );
     expect(r.stdout).toContain(
       "/tmp/vo-run/local/playwright-report-0.json npx playwright test --config playwright.config.ts e2e/intake.spec.ts e2e/sourcing-destination.spec.ts --grep-invert @fixture",
