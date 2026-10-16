@@ -1,0 +1,196 @@
+// @vitest-environment node
+import { afterAll, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  GIT_BIN,
+  SENSITIVE_PATH_RULES,
+  envrcLoadsOnly,
+  matchSensitiveRules,
+  run,
+} from "./check-secret-paths.mjs";
+
+// Synthetic secret-shaped values, assembled at runtime so no matching literal
+// is ever committed to this repo.
+const AWS_KEY = ["AK", "IA", "Q7Z3", "X9W2", "V5U4", "T6S8"].join("");
+const STRIPE_KEY = ["sk", "_te", "st_", "51Hx", "Fake", "0000", "Synthetic", "Value"].join("");
+const JWT = ["ey", "JhbGciOiJIUzI1NiJ9", ".", "ey", "JyIjoic2VydmljZV9yb2xlIn0", ".", "c2lnbmF0dXJl"].join("");
+const PEM = ["-----BEGIN ", "RSA PRIVATE ", "KEY-----\n", "MIIsynthetic\n", "-----END ", "RSA PRIVATE ", "KEY-----\n"].join("");
+const SECRETS = [AWS_KEY, STRIPE_KEY, JWT, PEM.split("\n")[0]];
+
+const temps = [];
+afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+const git = (cwd, ...args) => execFileSync(GIT_BIN, [
+  "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args,
+], { cwd, encoding: "utf8" });
+
+function write(dir, files) {
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  }
+}
+
+function commit(dir, files, remove = []) {
+  write(dir, files);
+  for (const path of remove) git(dir, "rm", "-q", path);
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "--allow-empty", "-m", "fixture");
+}
+
+/** A repo with a README base commit, then one commit per entry in `commits`. */
+function repo(...commits) {
+  const dir = mkdtempSync(join(tmpdir(), "secret-paths-"));
+  temps.push(dir);
+  git(dir, "init", "-q");
+  commit(dir, { "README.md": "fixture\n" });
+  for (const files of commits) commit(dir, files);
+  return dir;
+}
+
+function check(dir, argv = []) {
+  let out = "";
+  let err = "";
+  const stdout = { write: (chunk) => { out += chunk; return true; } };
+  const stderr = { write: (chunk) => { err += chunk; return true; } };
+  const code = run(["--json", ...argv], { cwd: dir, stdout, stderr });
+  return { code, out, err, report: out ? JSON.parse(out) : null };
+}
+
+const blockedPaths = (report) => report.findings.map((f) => f.path).sort();
+
+describe("SENSITIVE_PATH_RULES", () => {
+  it.each([
+    ["certs/server.pem", "pem"],
+    ["deploy/tls.KEY", "key"],
+    ["signing/bundle.p12", "p12"],
+    ["home/.ssh/id_rsa", "id_rsa"],
+    ["id_rsa.pub", "id_rsa"],
+    [".env", "env"],
+    ["worker/.env.production", "env"],
+    ["e2e/.auth/admin-storage-state.json", "storage_state"],
+    ["storage-state.json", "storage_state"],
+  ])("%s matches %s", (path, id) => {
+    expect(matchSensitiveRules(path)).toContain(id);
+  });
+
+  it.each(["src/key.ts", "docs/env.md", "storage-state.ts", "pem/README.md", "monkey.json"])("%s is not sensitive", (path) => {
+    expect(matchSensitiveRules(path)).toEqual([]);
+  });
+
+  it("has one entry per documented pattern", () => {
+    expect(SENSITIVE_PATH_RULES.map((rule) => rule.glob)).toEqual([
+      "*.pem", "*.key", "*.p12", "id_rsa*", ".env*", "*storage-state*.json",
+    ]);
+  });
+});
+
+describe("envrcLoadsOnly", () => {
+  it.each([
+    "",
+    "# comment only\n",
+    "source_env ../.envrc\ndotenv .env.local\n\nsource scripts/dev-env.sh\n",
+    "  dotenv\n",
+  ])("accepts %j", (text) => expect(envrcLoadsOnly(text)).toBe(true));
+
+  it.each([
+    "export STRIPE_KEY=value\n",
+    "dotenv .env\nFOO=bar\n",
+    "source .env; export FOO=bar\n",
+    "source $(pass show token)\n",
+    "dotenv `cat x`\n",
+    "use nix\n",
+  ])("rejects %j", (text) => expect(envrcLoadsOnly(text)).toBe(false));
+});
+
+describe("check-secret-paths diff mode", () => {
+  it("blocks .env.local and allows .env.example", () => {
+    const dir = repo({ ".env.local": `STRIPE_SECRET_KEY=${STRIPE_KEY}\n`, ".env.example": "STRIPE_SECRET_KEY=replace-me\n" });
+    const { code, report } = check(dir);
+    expect(code).toBe(0);
+    expect(blockedPaths(report)).toEqual([".env.local"]);
+    expect(report.findings[0].rules).toEqual(["env"]);
+  });
+
+  it("blocks .envrc with values and allows .envrc that only sources or dotenvs", () => {
+    const withValues = check(repo({ ".envrc": `dotenv\nexport AWS_ACCESS_KEY_ID=${AWS_KEY}\n` })).report;
+    expect(blockedPaths(withValues)).toEqual([".envrc"]);
+    const loadsOnly = check(repo({ ".envrc": "# local env\nsource_env ..\ndotenv .env.local\n" })).report;
+    expect(loadsOnly.findings).toEqual([]);
+  });
+
+  it.each([
+    ["config/server.pem", PEM],
+    ["config/server.key", PEM],
+    ["config/client.p12", "binary-ish"],
+    ["keys/id_rsa", PEM],
+    [".env", `AWS_ACCESS_KEY_ID=${AWS_KEY}\n`],
+    ["e2e/.auth/storage-state.json", JSON.stringify({ token: JWT })],
+  ])("blocks added %s", (path, content) => {
+    const { report } = check(repo({ [path]: content }));
+    expect(blockedPaths(report)).toEqual([path]);
+    expect(report.ok).toBe(false);
+  });
+
+  it("blocks a modified sensitive file and ignores a deleted one", () => {
+    const dir = repo({ "a.pem": "one", "b.pem": "two" });
+    commit(dir, { "a.pem": "changed" }, ["b.pem"]);
+    expect(blockedPaths(check(dir).report)).toEqual(["a.pem"]);
+  });
+
+  it("is diff-only: sensitive files from older history are ignored", () => {
+    const dir = repo({ ".env.local": `KEY=${STRIPE_KEY}\n`, "old/id_rsa": PEM }, { "src/app.ts": "export {};\n" });
+    const { report } = check(dir);
+    expect(report.findings).toEqual([]);
+    expect(report.checked_paths).toBe(1);
+    expect(blockedPaths(check(dir, ["--base-ref", "HEAD~2"]).report)).toEqual([".env.local", "old/id_rsa"]);
+  });
+
+  it("flags .gitleaks.toml add, edit and delete as gate_loosening without failing", () => {
+    const dir = repo({ ".gitleaks.toml": "[extend]\nuseDefault = true\n" });
+    const added = check(dir, ["--enforce"]);
+    expect(added.code).toBe(0);
+    expect(added.report.gate_loosening).toEqual([
+      { path: ".gitleaks.toml", status: "A", reason: "allowlist config edited", requires: ["grokbot_countersign", "blaine_card"] },
+    ]);
+    commit(dir, { ".gitleaks.toml": "[extend]\nuseDefault = true\n# edited\n" });
+    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["M"]);
+    commit(dir, {}, [".gitleaks.toml"]);
+    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
+  });
+
+  it("exits 0 in report mode and 1 with --enforce when blocked", () => {
+    const dir = repo({ "server.pem": PEM });
+    expect(check(dir).code).toBe(0);
+    expect(check(dir, ["--enforce"]).code).toBe(1);
+    expect(check(repo({ "src/ok.ts": "x" }), ["--enforce"]).code).toBe(0);
+  });
+
+  it("skips a missing base ref in report mode and fails it with --enforce", () => {
+    const dir = repo();
+    const skipped = check(dir, ["--base-ref", "does-not-exist"]);
+    expect(skipped.code).toBe(0);
+    expect(skipped.err).toContain("ref not found: does-not-exist");
+    expect(check(dir, ["--base-ref", "does-not-exist", "--enforce"]).code).toBe(2);
+  });
+
+  it("never prints file contents, in JSON or human output", () => {
+    const dir = repo({
+      ".env.local": `AWS_ACCESS_KEY_ID=${AWS_KEY}\nSTRIPE=${STRIPE_KEY}\n`,
+      ".envrc": `export SUPABASE_SERVICE_ROLE_KEY=${JWT}\n`,
+      "server.pem": PEM,
+      ".gitleaks.toml": `# ${AWS_KEY}\n`,
+    });
+    const json = check(dir);
+    let human = "";
+    run([], { cwd: dir, stdout: { write: (c) => { human += c; return true; } }, stderr: { write: (c) => { human += c; return true; } } });
+    expect(json.report.findings).toHaveLength(3);
+    expect(human).toContain("BLOCKED .envrc");
+    for (const output of [json.out + json.err, human]) {
+      for (const secret of SECRETS) expect(output).not.toContain(secret);
+    }
+  });
+});
