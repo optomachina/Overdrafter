@@ -13,11 +13,14 @@ import { pathToFileURL } from "node:url";
 export const PROOF_HEADING = "Proof";
 export const PROOF_PLACEHOLDER = "<!-- proof: replace me -->";
 export const PROOF_CHECK_MODES = Object.freeze(["report", "enforce"]);
+export const JOURNEY_TEST_RULE_ID = "journey-test";
 
 const TEMPLATE_VALUES = new Set(["<path>", "<cmd>", "<url>", "<image/url>", "<output>"]);
 const ITEM_LINE = /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(Test|Command|Live|Screenshot)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*)$/i;
 const FENCE_LINE = /^\s*(`{3,}|~{3,})/;
 const URL_PATTERN = /https?:\/\/[^\s)<>"']+/i;
+const JOURNEY_SPEC_PATTERN = /(?:^|[^\w./-])((?:\.\/)?e2e\/journeys\/[\w./-]*[\w-]\.spec\.ts)(?![\w.-])/g;
+const ACTIONS_RUN_PATTERN = /https:\/\/github\.com\/optomachina\/Overdrafter\/actions\/runs\/\d+/i;
 const IMAGE_PATTERN = /!\[[^\]]*\]\([^)\s]+[^)]*\)|<img\b[^>]*\bsrc\s*=/i;
 
 function normalizeNewlines(text) {
@@ -226,9 +229,63 @@ export function checkProof(prBody, changedFiles, options = {}) {
   };
 }
 
-export function formatSummary(result, mode) {
-  const label = { pass: "PASS", fail: "FAIL", exempt: "EXEMPT" }[result.status];
-  const lines = [`### Proof check: ${label}`, "", `Mode: \`${mode}\``];
+/**
+ * OVD-825: a user-facing change (the same src/**\/*.tsx|*.css trigger as the
+ * Screenshot rule) must reference a journey e2e spec (e2e/journeys/**\/*.spec.ts)
+ * or an Actions run of it in the Proof section. When existsInRepo is given, a
+ * spec path must be in the diff or the repository.
+ * @param {string} prBody
+ * @param {string[]} changedFiles
+ * @param {{ existsInRepo?: (file: string) => boolean }} [options]
+ * @returns {{ rule: string, status: "pass" | "fail" | "exempt" | "not-applicable", reasons: string[] }}
+ */
+export function checkJourneyTest(prBody, changedFiles, options = {}) {
+  const rule = JOURNEY_TEST_RULE_ID;
+  const files = (changedFiles ?? []).map(normalizePath).filter(Boolean);
+
+  if (files.length > 0 && files.every(isDocsFile)) {
+    return { rule, status: "exempt", reasons: ["every changed file is under docs/ or is a .md file"] };
+  }
+
+  const uiFiles = files.filter(isUiFile);
+  if (uiFiles.length === 0) {
+    return { rule, status: "not-applicable", reasons: ["no user-facing files (src/**/*.tsx or src/**/*.css) changed"] };
+  }
+
+  const rawSection = extractProofSection(prBody);
+  const section = rawSection === null ? "" : stripHtmlComments(rawSection);
+  const changed = new Set(files);
+  const specs = [...section.matchAll(JOURNEY_SPEC_PATTERN)]
+    .map((match) => normalizePath(match[1]))
+    .filter((spec) => !spec.split("/").includes(".."));
+  const found = options.existsInRepo
+    ? specs.filter((spec) => changed.has(spec) || options.existsInRepo(spec) === true)
+    : specs;
+  const run = ACTIONS_RUN_PATTERN.exec(section);
+
+  if (found.length > 0 || run) {
+    return {
+      rule,
+      status: "pass",
+      reasons: [...new Set(found)].map((spec) => `journey spec: ${spec}`).concat(run ? [`journey run: ${run[0]}`] : []),
+    };
+  }
+
+  const reasons = [
+    rawSection === null
+      ? `user-facing change has no "## ${PROOF_HEADING}" section to reference a journey test`
+      : `user-facing change has no journey test reference (e2e/journeys/<name>.spec.ts or an Actions run URL) in "## ${PROOF_HEADING}"`,
+  ];
+  for (const spec of specs.filter((candidate) => !found.includes(candidate))) {
+    reasons.push(`journey spec "${spec}" is not in the diff or the repository`);
+  }
+  reasons.push(`user-facing files: ${uiFiles.join(", ")}`);
+  return { rule, status: "fail", reasons };
+}
+
+export function formatSummary(result, mode, title = "Proof check") {
+  const label = { pass: "PASS", fail: "FAIL", exempt: "EXEMPT", "not-applicable": "NOT APPLICABLE" }[result.status];
+  const lines = [`### ${title}: ${label}`, "", `Mode: \`${mode}\``];
   if (result.status === "fail" && mode === "report") {
     lines.push("", "Report mode: this result does not fail the job.");
   }
@@ -298,12 +355,15 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     return resolved.startsWith(`${repoRoot}${path.sep}`) && existsSync(resolved);
   };
 
-  const result = checkProof(body, changedFiles, { existsInRepo });
-  const summary = formatSummary(result, mode);
+  const results = [
+    { title: "Proof check", result: checkProof(body, changedFiles, { existsInRepo }) },
+    { title: `Journey test check (${JOURNEY_TEST_RULE_ID})`, result: checkJourneyTest(body, changedFiles, { existsInRepo }) },
+  ];
+  const summary = results.map(({ title, result }) => formatSummary(result, mode, title)).join("\n");
   process.stdout.write(summary);
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
 
-  return result.status === "fail" && mode === "enforce" ? 1 : 0;
+  return mode === "enforce" && results.some(({ result }) => result.status === "fail") ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -61,8 +61,9 @@ Replace the placeholder with at least one item, one per line. The proof check
 - Live: <url>
 - Screenshot: <image/url>
 
-A change to src/**/*.tsx or src/**/*.css needs a Screenshot item. A PR that
-only touches docs/ or *.md files is exempt.
+A change to src/**/*.tsx or src/**/*.css needs a Screenshot item and a journey
+test reference: an e2e/journeys/<name>.spec.ts path or the GitHub Actions run
+URL of that journey test. A PR that only touches docs/ or *.md files is exempt.
 -->
 
 ## Review findings and coverage

@@ -2,6 +2,8 @@ name: Proof check
 
 # Checks that the PR body has a "## Proof" section with at least one
 # recognised item, and a Screenshot for UI changes (scripts/proof-check.mjs).
+# A separate journey-test rule asks UI changes to reference a journey e2e spec
+# or its Actions run; the summary reports both rules.
 # Docs-only PRs are exempt. This is not a required check.
 #
 # The script runs from the base branch's checkout, never from the PR: the job
