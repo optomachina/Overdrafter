@@ -55,6 +55,23 @@ export interface CapabilitySurface {
   readonly knownMissing?: KnownMissing;
 }
 
+/** A messaging channel surface whose planned front door is a production webhook. */
+function channelSurface(
+  channel: ChannelName,
+  name: string,
+  linearIssue: LinearIssue,
+  missingReason: string,
+): CapabilitySurface {
+  return {
+    id: `jarvis-${channel}`,
+    name,
+    linearIssue,
+    channel,
+    entryPoints: [{ kind: "webhook", path: `/api/jarvis/${channel}` }],
+    knownMissing: { issue: linearIssue, reason: missingReason },
+  };
+}
+
 export const capabilityManifest: readonly CapabilitySurface[] = [
   {
     id: "jarvis-web",
@@ -73,39 +90,19 @@ export const capabilityManifest: readonly CapabilitySurface[] = [
         "Only the flag-gated, admin-only /engineering page exists; there is no public route or link to Jarvis.",
     },
   },
-  {
-    id: "jarvis-slack",
-    name: "Jarvis in Slack",
-    linearIssue: "OVD-807",
-    channel: "slack",
-    entryPoints: [{ kind: "webhook", path: "/api/jarvis/slack" }],
-    knownMissing: {
-      issue: "OVD-807",
-      reason: "Only the Hermes demo skill on the Mac mini (scripts/jarvis-demo) answers Slack; no production webhook.",
-    },
-  },
-  {
-    id: "jarvis-telegram",
-    name: "Jarvis in Telegram",
-    linearIssue: "OVD-808",
-    channel: "telegram",
-    entryPoints: [{ kind: "webhook", path: "/api/jarvis/telegram" }],
-    knownMissing: {
-      issue: "OVD-808",
-      reason: "Only the Hermes demo skill on the Mac mini (scripts/jarvis-demo) answers Telegram; no production webhook.",
-    },
-  },
-  {
-    id: "jarvis-imessage",
-    name: "Jarvis in iMessage",
-    linearIssue: "OVD-809",
-    channel: "imessage",
-    entryPoints: [{ kind: "webhook", path: "/api/jarvis/imessage" }],
-    knownMissing: {
-      issue: "OVD-809",
-      reason: "No iMessage bridge exists yet.",
-    },
-  },
+  channelSurface(
+    "slack",
+    "Jarvis in Slack",
+    "OVD-807",
+    "Only the Hermes demo skill on the Mac mini (scripts/jarvis-demo) answers Slack; no production webhook.",
+  ),
+  channelSurface(
+    "telegram",
+    "Jarvis in Telegram",
+    "OVD-808",
+    "Only the Hermes demo skill on the Mac mini (scripts/jarvis-demo) answers Telegram; no production webhook.",
+  ),
+  channelSurface("imessage", "Jarvis in iMessage", "OVD-809", "No iMessage bridge exists yet."),
   {
     id: "overdrafter-quote-flow",
     name: "OverDrafter quote flow",

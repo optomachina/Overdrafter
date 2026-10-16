@@ -7,7 +7,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { capabilityManifest, type CapabilitySurface } from "../../e2e/journeys/capability-manifest";
+import {
+  capabilityManifest,
+  type CapabilitySurface,
+  type KnownMissing,
+  type LinearIssue,
+} from "../../e2e/journeys/capability-manifest";
 import {
   evaluateManifest,
   evaluateSurface,
@@ -88,23 +93,31 @@ function surface(overrides: Partial<CapabilitySurface>): CapabilitySurface {
   return { id: "fixture", name: "Fixture", linearIssue: "OVD-825", entryPoints: [], ...overrides };
 }
 
+function knownMissing(issue: LinearIssue): KnownMissing {
+  return { issue, reason: "fixture" };
+}
+
 describe("reachability analyzer (fixture manifest)", () => {
   const reader = memoryReader(fixtureFiles);
+  const evaluate = (overrides: Partial<CapabilitySurface>, source: SourceReader = reader) =>
+    evaluateSurface(source, surface(overrides));
+  const evaluateRoute = (path: string, overrides: Partial<CapabilitySurface> = {}) =>
+    evaluate({ entryPoints: [{ kind: "route", path }], ...overrides });
 
   it("fails an unflagged surface with no entry point", () => {
-    const result = evaluateSurface(reader, surface({ id: "orphan" }));
+    const result = evaluate({ id: "orphan" });
     expect(result.status).toBe("unreachable");
     expect(result.failure).toMatch(/surface orphan has no reachable entry point/);
   });
 
   it("fails a surface whose route does not exist", () => {
-    const result = evaluateSurface(reader, surface({ entryPoints: [{ kind: "route", path: "/missing" }] }));
+    const result = evaluateRoute("/missing");
     expect(result.status).toBe("unreachable");
     expect(result.entryPoints[0].detail).toMatch(/no route/);
   });
 
   it("counts a flag-gated route as unreachable", () => {
-    const result = evaluateSurface(reader, surface({ entryPoints: [{ kind: "route", path: "/flagged" }] }));
+    const result = evaluateRoute("/flagged");
     expect(result.reachable).toBe(false);
     expect(result.entryPoints[0].detail).toMatch(/flag-gated by VITE_ENABLE_FLAGGED/);
   });
@@ -120,54 +133,42 @@ describe("reachability analyzer (fixture manifest)", () => {
 
   it("counts an admin-only route as unreachable, by page admission and by staff path", () => {
     for (const path of ["/admin-page", "/internal/ops"]) {
-      const result = evaluateSurface(reader, surface({ entryPoints: [{ kind: "route", path }] }));
+      const result = evaluateRoute(path);
       expect(result.reachable, path).toBe(false);
       expect(result.entryPoints[0].detail, path).toMatch(/admin-only/);
     }
   });
 
   it("treats a demo-switched channel handler as unreachable", () => {
-    const result = evaluateSurface(
-      reader,
-      surface({ channel: "slack", entryPoints: [{ kind: "webhook", path: "/hooks/slack" }] }),
-    );
+    const result = evaluate({ channel: "slack", entryPoints: [{ kind: "webhook", path: "/hooks/slack" }] });
     expect(result.entryPoints[0].detail).toMatch(/demo-only/);
     expect(result.channelHandlers).toEqual([]);
     expect(result.status).toBe("unreachable");
   });
 
   it("accepts an open route and a link to it", () => {
-    const result = evaluateSurface(
-      reader,
-      surface({ entryPoints: [{ kind: "route", path: "/" }, { kind: "link", from: "/", to: "/fallback" }] }),
-    );
+    const result = evaluate({ entryPoints: [{ kind: "route", path: "/" }, { kind: "link", from: "/", to: "/fallback" }] });
     expect(result.entryPoints.map((entry) => entry.reachable)).toEqual([true, true]);
     expect(result.status).toBe("reachable");
   });
 
   it("keeps a still-missing knownMissing surface green", () => {
-    const result = evaluateSurface(
-      reader,
-      surface({ entryPoints: [{ kind: "route", path: "/flagged" }], knownMissing: { issue: "OVD-805", reason: "fixture" } }),
-    );
+    const result = evaluateRoute("/flagged", { knownMissing: knownMissing("OVD-805") });
     expect(result.status).toBe("knownMissing");
     expect(result.failure).toBeNull();
   });
 
   it("ratchets: a knownMissing surface that becomes reachable fails", () => {
-    const result = evaluateSurface(
-      reader,
-      surface({ id: "fixed", entryPoints: [{ kind: "route", path: "/" }], knownMissing: { issue: "OVD-805", reason: "fixture" } }),
-    );
+    const result = evaluateRoute("/", { id: "fixed", knownMissing: knownMissing("OVD-805") });
     expect(result.status).toBe("nowReachable");
     expect(result.failure).toMatch(/surface fixed is now reachable; remove knownMissing/);
   });
 
   it("ratchets a channel when a production handler ships at an unplanned path", () => {
     const shipped = memoryReader({ ...fixtureFiles, "api/channels/slack-events.ts": "export default async function handler() {}" });
-    const result = evaluateSurface(
+    const result = evaluate(
+      { id: "slack", channel: "slack", entryPoints: [{ kind: "webhook", path: "/api/jarvis/slack" }], knownMissing: knownMissing("OVD-807") },
       shipped,
-      surface({ id: "slack", channel: "slack", entryPoints: [{ kind: "webhook", path: "/api/jarvis/slack" }], knownMissing: { issue: "OVD-807", reason: "fixture" } }),
     );
     expect(result.channelHandlers).toEqual(["api/channels/slack-events.ts"]);
     expect(result.failure).toMatch(/now reachable/);

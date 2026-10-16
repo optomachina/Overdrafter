@@ -78,6 +78,10 @@ const CHANNEL_KEYWORDS: Record<ChannelName, RegExp> = {
   imessage: /imessage|bluebubbles/i,
 };
 
+function sortStrings(values: Iterable<string>): string[] {
+  return [...values].sort((a, b) => a.localeCompare(b));
+}
+
 function normalize(path: string): string {
   const parts: string[] = [];
   for (const part of path.split("/")) {
@@ -130,20 +134,25 @@ class RouterModule {
   constructor(readonly file: string, source: string) {
     this.sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     for (const statement of this.sourceFile.statements) {
-      if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
-        const specifier = statement.moduleSpecifier.text;
-        const clause = statement.importClause;
-        if (clause?.name) this.imports.set(clause.name.text, specifier);
-        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-          for (const element of clause.namedBindings.elements) this.imports.set(element.name.text, specifier);
-        }
-      }
-      if (ts.isVariableStatement(statement)) {
-        for (const declaration of statement.declarationList.declarations) {
-          if (ts.isIdentifier(declaration.name) && declaration.initializer) {
-            this.declarations.set(declaration.name.text, declaration.initializer);
-          }
-        }
+      if (ts.isImportDeclaration(statement)) this.indexImport(statement);
+      if (ts.isVariableStatement(statement)) this.indexDeclarations(statement);
+    }
+  }
+
+  private indexImport(statement: ts.ImportDeclaration): void {
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) return;
+    const specifier = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    if (clause?.name) this.imports.set(clause.name.text, specifier);
+    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) this.imports.set(element.name.text, specifier);
+    }
+  }
+
+  private indexDeclarations(statement: ts.VariableStatement): void {
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        this.declarations.set(declaration.name.text, declaration.initializer);
       }
     }
   }
@@ -167,7 +176,7 @@ class RouterModule {
       ts.forEachChild(current, visit);
     };
     visit(node);
-    return [...flags].sort();
+    return sortStrings(flags);
   }
 
   /** The local file a component identifier renders, via import or `lazy(() => import(...))`. */
@@ -235,11 +244,78 @@ function pageGates(reader: SourceReader, file: string): RouteGate[] {
   for (const { pattern, flag } of PAGE_FLAG_PATTERNS) {
     for (const match of source.matchAll(new RegExp(pattern.source, pattern.flags))) flags.add(flag(match));
   }
-  if (flags.size > 0) gates.push({ kind: "flag", flags: [...flags].sort(), where: file });
+  if (flags.size > 0) gates.push({ kind: "flag", flags: sortStrings(flags), where: file });
   for (const { pattern, reason } of ADMIN_PAGE_MARKERS) {
     if (pattern.test(source)) gates.push({ kind: "admin", reason: `${reason} in ${file}` });
   }
   return gates;
+}
+
+function isJsxTag(node: ts.Node): node is ts.JsxSelfClosingElement | ts.JsxOpeningElement {
+  return ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node);
+}
+
+/** Tag names of every JSX element below `node`, in source order. */
+function jsxTagNames(node: ts.Node): string[] {
+  const tagNames: string[] = [];
+  const collect = (current: ts.Node) => {
+    if (isJsxTag(current)) tagNames.push(current.tagName.getText());
+    ts.forEachChild(current, collect);
+  };
+  collect(node);
+  return tagNames;
+}
+
+/** Flags in the `&&` / `?:` conditions around the `<Route>`. */
+function routeConditionGates(router: RouterModule, node: ts.JsxSelfClosingElement | ts.JsxOpeningElement): RouteGate[] {
+  const routeNode = ts.isJsxOpeningElement(node) ? node.parent : node;
+  const conditionFlags = renderConditions(routeNode, router.sourceFile).flatMap((condition) => router.envFlags(condition));
+  if (conditionFlags.length === 0) return [];
+  return [{ kind: "flag", flags: sortStrings(new Set(conditionFlags)), where: `${router.file} route condition` }];
+}
+
+/** The first local page the route element renders, and the gates of every local component in it. */
+function routeElementGates(
+  reader: SourceReader,
+  router: RouterModule,
+  node: ts.JsxSelfClosingElement | ts.JsxOpeningElement,
+): { componentFile: string | null; gates: RouteGate[] } {
+  let componentFile: string | null = null;
+  const gates: RouteGate[] = [];
+  const element = jsxAttribute(node, "element")?.initializer;
+  if (!element) return { componentFile, gates };
+  for (const tagName of jsxTagNames(element)) {
+    const specifier = router.componentSpecifier(tagName);
+    const file = specifier ? resolveModule(reader, router.file, specifier) : null;
+    if (!file) continue;
+    const componentFlags = router.envFlags(ts.factory.createIdentifier(tagName));
+    if (componentFlags.length > 0) {
+      gates.push({ kind: "flag", flags: componentFlags, where: `${router.file} ${tagName}` });
+    }
+    componentFile ??= file;
+    gates.push(...pageGates(reader, file));
+  }
+  return { componentFile, gates };
+}
+
+function adminPathGates(path: string): RouteGate[] {
+  const adminPrefix = ADMIN_PATH_PREFIXES.find((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
+  return adminPrefix ? [{ kind: "admin", reason: `staff path ${adminPrefix}` }] : [];
+}
+
+/** One gate per distinct description, ignoring where it was found. */
+function uniqueGates(gates: readonly RouteGate[]): RouteGate[] {
+  const unique = new Map(gates.map((gate) => [describeGates([gate]).replace(/ \(.*\)$/, ""), gate]));
+  return [...unique.values()];
+}
+
+function resolveRoute(reader: SourceReader, router: RouterModule, node: ts.Node): ResolvedRoute | null {
+  if (!isJsxTag(node) || node.tagName.getText() !== "Route") return null;
+  const path = stringAttribute(node, "path");
+  if (path === null || path === "*") return null;
+  const { componentFile, gates: elementGates } = routeElementGates(reader, router, node);
+  const gates = [...routeConditionGates(router, node), ...elementGates, ...adminPathGates(path)];
+  return { path, componentFile, gates: uniqueGates(gates) };
 }
 
 /** Every `<Route path=... element=...>` in the router, with what it takes to render it. */
@@ -250,45 +326,8 @@ export function resolveAppRoutes(reader: SourceReader, routerFile = APP_ROUTER_F
   const routes: ResolvedRoute[] = [];
 
   const visit = (node: ts.Node) => {
-    if ((ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && node.tagName.getText() === "Route") {
-      const path = stringAttribute(node, "path");
-      if (path !== null && path !== "*") {
-        const gates: RouteGate[] = [];
-        const routeNode = ts.isJsxOpeningElement(node) ? node.parent : node;
-        const conditionFlags = renderConditions(routeNode, router.sourceFile).flatMap((condition) => router.envFlags(condition));
-        if (conditionFlags.length > 0) {
-          gates.push({ kind: "flag", flags: [...new Set(conditionFlags)].sort(), where: `${routerFile} route condition` });
-        }
-
-        let componentFile: string | null = null;
-        const element = jsxAttribute(node, "element")?.initializer;
-        if (element) {
-          const tagNames: string[] = [];
-          const collect = (current: ts.Node) => {
-            if (ts.isJsxSelfClosingElement(current) || ts.isJsxOpeningElement(current)) tagNames.push(current.tagName.getText());
-            ts.forEachChild(current, collect);
-          };
-          collect(element);
-          for (const tagName of tagNames) {
-            const specifier = router.componentSpecifier(tagName);
-            const file = specifier ? resolveModule(reader, routerFile, specifier) : null;
-            if (!file) continue;
-            const componentFlags = router.envFlags(ts.factory.createIdentifier(tagName));
-            if (componentFlags.length > 0) {
-              gates.push({ kind: "flag", flags: componentFlags, where: `${routerFile} ${tagName}` });
-            }
-            componentFile ??= file;
-            gates.push(...pageGates(reader, file));
-          }
-        }
-
-        const adminPrefix = ADMIN_PATH_PREFIXES.find((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
-        if (adminPrefix) gates.push({ kind: "admin", reason: `staff path ${adminPrefix}` });
-
-        const unique = new Map(gates.map((gate) => [describeGates([gate]).replace(/ \(.*\)$/, ""), gate]));
-        routes.push({ path, componentFile, gates: [...unique.values()] });
-      }
-    }
+    const route = resolveRoute(reader, router, node);
+    if (route) routes.push(route);
     ts.forEachChild(node, visit);
   };
   visit(router.sourceFile);
@@ -326,7 +365,7 @@ const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$|\/(__tests__|test-support|fixtur
 const STAFF_SOURCE = /\/(admin|internal|debug)\/|\/pages\/(Internal|Commercial|Engineering|Dev)[A-Z]/;
 
 function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function resolveLinkEntry(
@@ -410,18 +449,32 @@ function isFunctionEntry(file: string): boolean {
 /** Production function files named after the channel (api/ and Supabase edge functions). */
 export function findChannelHandlers(reader: SourceReader, channel: ChannelName): string[] {
   const keyword = CHANNEL_KEYWORDS[channel];
-  return [...reader.list("api"), ...reader.list("supabase/functions")]
-    .filter((file) => isFunctionEntry(file) && keyword.test(file) && isProductionHandler(reader, file))
-    .sort();
+  const handlers = [...reader.list("api"), ...reader.list("supabase/functions")]
+    .filter((file) => isFunctionEntry(file) && keyword.test(file) && isProductionHandler(reader, file));
+  return sortStrings(handlers);
 }
 
 /** Non-production paths that mention the channel (reported, never counted). */
 export function findDemoOnlyChannelPaths(reader: SourceReader, channel: ChannelName): string[] {
   const keyword = CHANNEL_KEYWORDS[channel];
-  return reader
-    .list("scripts/jarvis-demo")
-    .filter((file) => !TEST_FILE.test(file) && keyword.test(reader.read(file) ?? ""))
-    .sort();
+  return sortStrings(
+    reader.list("scripts/jarvis-demo").filter((file) => !TEST_FILE.test(file) && keyword.test(reader.read(file) ?? "")),
+  );
+}
+
+function resolveEntryPoint(
+  reader: SourceReader,
+  routes: readonly ResolvedRoute[],
+  entryPoint: EntryPoint,
+): { reachable: boolean; detail: string } {
+  switch (entryPoint.kind) {
+    case "route":
+      return resolveRouteEntry(routes, entryPoint.path);
+    case "link":
+      return resolveLinkEntry(reader, routes, entryPoint.from, entryPoint.to);
+    case "webhook":
+      return resolveWebhookEntry(reader, entryPoint.path);
+  }
 }
 
 export function evaluateSurface(
@@ -429,15 +482,9 @@ export function evaluateSurface(
   surface: CapabilitySurface,
   routes: readonly ResolvedRoute[] = resolveAppRoutes(reader),
 ): SurfaceResult {
-  const entryPoints = surface.entryPoints.map((entryPoint): EntryPointResult => {
-    const result =
-      entryPoint.kind === "route"
-        ? resolveRouteEntry(routes, entryPoint.path)
-        : entryPoint.kind === "link"
-          ? resolveLinkEntry(reader, routes, entryPoint.from, entryPoint.to)
-          : resolveWebhookEntry(reader, entryPoint.path);
-    return { entryPoint, ...result };
-  });
+  const entryPoints = surface.entryPoints.map(
+    (entryPoint): EntryPointResult => ({ entryPoint, ...resolveEntryPoint(reader, routes, entryPoint) }),
+  );
   const channelHandlers = surface.channel ? findChannelHandlers(reader, surface.channel) : [];
   const demoOnly = surface.channel ? findDemoOnlyChannelPaths(reader, surface.channel) : [];
   const reachable = entryPoints.some((entry) => entry.reachable) || channelHandlers.length > 0;
