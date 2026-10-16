@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -176,6 +176,37 @@ describe("classifyPath: safe categories", () => {
     expect(classifyPath(file, config)).toMatchObject({ classes, category });
   });
 
+  it.each([
+    ["src/pages/Unauthorized.tsx"],
+    ["src/components/Reauthenticate.tsx"],
+    ["src/features/account/OAuthButton.tsx"],
+    ["src/pages/Login.tsx"],
+    ["src/pages/DevLogin.tsx"],
+    ["src/pages/PasswordReset.tsx"],
+    ["src/components/signIn.tsx"],
+    ["src/components/SignInDialog.tsx"],
+    ["src/pages/signup/Form.tsx"],
+    ["src/components/Logout.tsx"],
+    ["src/components/Subsessions.tsx"],
+    ["scripts/accesstoken-cache.mjs"],
+  ])("exclusion keyword inside a word: %s is not safe", (file) => {
+    expect(classifyPath(file, config).category).toBeNull();
+  });
+
+  it("matches class keywords only at a word start", () => {
+    expect(classifyPath("src/pages/Unauthorized.tsx", config).classes).toEqual([]);
+    expect(classifyPath("src/lib/authorize.ts", config).classes).toEqual(["auth"]);
+  });
+
+  it.each([
+    ["scripts/sensitive-class-detect.mjs"],
+    ["scripts/sensitive-classes.json"],
+    ["scripts/proof-check.mjs"],
+    ["scripts/validate-pr-body.mjs"],
+  ])("the gate's own files are ci, not repo_scripts: %s", (file) => {
+    expect(classifyPath(file, config)).toMatchObject({ classes: ["ci"], category: null });
+  });
+
   it("matches more than one class on one path", () => {
     expect(classifyPath(".github/workflows/deploy-stripe.yml", config).classes).toEqual(["billing", "ci"]);
   });
@@ -192,19 +223,41 @@ describe("classifySql", () => {
     ["create function f() returns int language sql security definer as $$ select 1 $$;", ["definer"]],
     ["do $$ begin create policy p on t using (true); end $$;", ["rls"]],
     ["create function f() returns void as $body$ begin alter table t force row level security; end $body$ language plpgsql;", ["rls"]],
+    // Review findings: bodies that are not right after DO or AS.
+    ["DO LANGUAGE plpgsql $$ begin create policy p on t using (true); end $$;", ["rls"]],
+    ["do $$ begin execute $q$create policy p on t using (true)$q$; end $$;", ["rls"]],
+    ["do $$ begin execute 'alter table t enable row level security'; end $$;", ["rls"]],
+    ["create function f() returns void language sql as 'drop policy p on t';", ["rls"]],
+    ["create function f() returns int as 'select 1' language sql security definer;", ["definer"]],
+    ["do $$ begin execute 'create policy p on t using (x = ''a'')'; end $$;", ["rls"]],
+    ["do $$ begin execute E'alter table t enable row level security\\n'; end $$;", ["rls"]],
+    ["do $a$ begin execute $b$ execute $c$ create policy p on t $c$ $b$; end $a$;", ["rls"]],
   ])("%s -> %j", (text, expected) => {
+    expect(sql(text)).toEqual(expected);
+  });
+
+  it("still sees tokens below the recursion limit", () => {
+    const nested = Array.from({ length: 12 }, (_, level) => `$t${level}$`);
+    const text = `do ${nested.join(" ")} create policy p on t ${nested.toReversed().join(" ")};`;
+    expect(sql(text)).toEqual(["rls"]);
+  });
+
+  it.each([
+    ["select $$ security definer $$;", ["definer"]],
+    ["select $tag$ create policy $tag$;", ["rls"]],
+    ["select 'create policy x';", ["rls"]],
+    ["select E'it\\'s security definer';", ["definer"]],
+  ])("fails closed on a string literal: %s -> %j", (text, expected) => {
     expect(sql(text)).toEqual(expected);
   });
 
   it.each([
     ["-- security definer\nselect 1;"],
     ["/* outer /* nested security definer */ create policy */ select 1;"],
-    ["select $$ security definer $$;"],
-    ["select $tag$ create policy $tag$;"],
-    ["select 'create policy x';"],
-    ["select E'it\\'s security definer';"],
     ['select "security definer" from t;'],
-    ["create function f() returns text as $$ select 'security definer' -- create policy\n $$ language sql;"],
+    ["create function f() returns text as $$ select 1 -- create policy\n $$ language sql;"],
+    ["select 'a /* create policy */ b';"],
+    ["select 'security' || 'x' || 'definer';"],
   ])("no false positive: %s", (text) => {
     expect(sql(text)).toEqual([]);
   });
@@ -249,10 +302,76 @@ describe("detect", () => {
     expect(result).toMatchObject({ status: "ok", classes: [], sensitive_count: 0, unclassified: ["worker/foo.go"], multi_class: false });
   });
 
+  it.each([
+    ["scripts/fixture.sql", "unchanged"],
+    ["scripts/fixture.pgsql", "modified"],
+    ["e2e/setup.psql", "added"],
+    ["scripts/fixture.sql", "some-future-status"],
+  ])("reads %s (%s) at the head as SQL", async (filename, status) => {
+    const read = [];
+    const result = await detect({
+      files: [{ filename, status }],
+      readHeadFile: async (file) => (read.push(file), "do $$ begin execute 'create policy p on t'; end $$;"),
+      config,
+    });
+    expect(read).toEqual([filename]);
+    expect(result.files[0]).toMatchObject({ classes: ["rls"], category: null });
+  });
+
   it("fails closed when a head .sql file cannot be read", async () => {
     const result = await detect({ files: [modified("supabase/fixtures/missing.sql")], readHeadFile, config });
     expect(result.status).toBe("error");
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
+  });
+});
+
+describe("drift: scripts CI runs are in the ci class", () => {
+  const walk = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
+  const relative = (file) => path.relative(repoRoot, file).split(path.sep).join("/");
+  const scripts = walk(path.join(repoRoot, "scripts")).map(relative);
+
+  // Every scripts/ reference in .github/** (a path, a prefix or a '*' glob),
+  // then every scripts/ reference and relative import inside those files.
+  const ciScripts = new Set();
+  const queue = [];
+  const addReferences = (text, fromFile) => {
+    for (const [ref] of text.matchAll(/scripts\/[\w*-][\w.*/-]*/g)) {
+      const pattern = new RegExp(`^${ref.replace(/\.$/, "").replace(/[.+^$()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}`);
+      for (const file of scripts.filter((candidate) => pattern.test(candidate))) queue.push(file);
+    }
+    if (!fromFile || !/\.(?:mjs|js|ts)$/.test(fromFile)) return;
+    for (const [, specifier] of text.matchAll(/(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+      const target = relative(path.resolve(path.dirname(path.join(repoRoot, fromFile)), specifier));
+      if (scripts.includes(target)) queue.push(target);
+    }
+  };
+  for (const file of walk(path.join(repoRoot, ".github"))) addReferences(readFileSync(file, "utf8"));
+  while (queue.length) {
+    const file = queue.pop();
+    if (ciScripts.has(file)) continue;
+    ciScripts.add(file);
+    if (/\.(?:mjs|js|ts|sh)$/.test(file)) addReferences(readFileSync(path.join(repoRoot, file), "utf8"), file);
+  }
+
+  it("finds the scripts CI runs", () => {
+    expect(ciScripts).toContain("scripts/sensitive-class-detect.mjs");
+    expect(ciScripts).toContain("scripts/sensitive-classes.json");
+    expect(ciScripts).toContain("scripts/proof-check.mjs");
+  });
+
+  it("classifies every one as ci", () => {
+    const missing = [...ciScripts].filter((file) => !classifyPath(file, config).classes.includes("ci"));
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("workflow", () => {
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/sensitive-class.yml"), "utf8");
+
+  it("reruns when the PR is retargeted (edited)", () => {
+    const types = workflow.split(/^\s*pull_request:/m)[1].split(/^\s*merge_group:/m)[0];
+    expect(types).toMatch(/^\s*- edited$/m);
   });
 });
 

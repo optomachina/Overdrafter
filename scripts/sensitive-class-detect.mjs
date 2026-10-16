@@ -15,6 +15,17 @@ import { safeInline } from "./proof-check.mjs";
  * data only; nothing from the PR is executed. Sensitive classes win over safe
  * categories, a file matching neither is "unclassified", and any config, API
  * or truncation problem sets status "error" so a consumer fails closed.
+ *
+ * OVD-845 requirement: the uploaded artifact is not a trusted gate by itself.
+ * Under pull_request the workflow YAML comes from the PR, so a PR can edit
+ * .github/workflows/sensitive-class.yml (or add a workflow that uploads an
+ * artifact named sensitive-class) and publish a clean result. Before OVD-845
+ * relies on this result it must either recompute it in a trusted context
+ * (workflow_run, or pull_request_target with a base checkout and no head
+ * code executed) or confirm from the API file list, independently of the
+ * artifact, that the PR touches no .github/** file. In both cases it must
+ * check that the producing run's workflow path is
+ * .github/workflows/sensitive-class.yml and its head sha is the PR head.
  */
 
 export const CONFIG_PATH = fileURLToPath(new URL("./sensitive-classes.json", import.meta.url));
@@ -95,13 +106,21 @@ export function pathWords(path) {
     .filter(Boolean);
 }
 
-function keywordMatches(words, keyword) {
+/**
+ * A keyword matches consecutive path words; its last part may prefix the last
+ * word. With `anywhere` (exclusions, which must fail closed) the first part
+ * may also end the first word, so a one-word keyword matches inside a word
+ * ('auth' matches 'unauthorized').
+ */
+function keywordMatches(words, keyword, anywhere = false) {
   const parts = keyword.split("-");
+  const last = parts.length - 1;
+  const matchPart = (word, part, offset) => {
+    if (anywhere && offset === 0) return last === 0 ? word.includes(part) : word.endsWith(part);
+    return offset === last ? word.startsWith(part) : word === part;
+  };
   for (let start = 0; start + parts.length <= words.length; start += 1) {
-    const last = parts.length - 1;
-    if (parts.every((part, offset) => (offset === last ? words[start + offset].startsWith(part) : words[start + offset] === part))) {
-      return true;
-    }
+    if (parts.every((part, offset) => matchPart(words[start + offset], part, offset))) return true;
   }
   return false;
 }
@@ -216,7 +235,7 @@ export function loadConfig(file = CONFIG_PATH) {
 
 function entryReason(entry, path, words) {
   if (entry.exclude.some((re) => re.test(path))) return null;
-  if (entry.excludeKeywords.some((keyword) => keywordMatches(words, keyword))) return null;
+  if (entry.excludeKeywords.some((keyword) => keywordMatches(words, keyword, true))) return null;
   const glob = entry.paths.findIndex((re) => re.test(path));
   if (glob !== -1) return `path:${entry.pathGlobs[glob]}`;
   const keyword = entry.keywords.find((candidate) => keywordMatches(words, candidate));
@@ -250,13 +269,16 @@ export function classifyPath(path, config) {
 // ---------------------------------------------------------------- SQL
 
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
+const MAX_SQL_DEPTH = 8;
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
- * comments, single-quoted and E'' strings, quoted identifiers and
- * dollar-quoted strings. A dollar-quoted body right after DO or AS is code (a
- * DO block or function body) and is tokenized recursively, so a CREATE POLICY
- * inside a DO block is still seen while a comment or string literal is not.
+ * comments and quoted identifiers. Every single-quoted, E'' and dollar-quoted
+ * string is tokenized recursively as SQL, because a string can be code: a DO
+ * block (`DO LANGUAGE plpgsql $$…$$`), an old-style function body
+ * (`AS '…'`) or dynamic SQL (`EXECUTE '…'`, `EXECUTE $q$…$q$`). This fails
+ * closed: a string literal that merely mentions CREATE POLICY also matches.
+ * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  */
 export function sqlWords(text, depth = 0) {
   const sql = String(text);
@@ -280,21 +302,22 @@ export function sqlWords(text, depth = 0) {
       const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
       if (backslash && words.at(-1) === "e") words.pop();
       index += 1;
+      let body = "";
       while (index < sql.length) {
-        if (backslash && sql[index] === "\\") index += 2;
-        else if (sql[index] === char && sql[index + 1] === char) index += 2;
+        // A letter escape (\n, \t, \x41) separates words; other escapes are the character.
+        if (backslash && sql[index] === "\\") (body += /[A-Za-z]/.test(sql[index + 1] ?? "") ? " " : sql.slice(index + 1, index + 2)), (index += 2);
+        else if (sql[index] === char && sql[index + 1] === char) (body += char), (index += 2);
         else if (sql[index] === char) {
           index += 1;
           break;
-        } else index += 1;
+        } else (body += sql[index]), (index += 1);
       }
+      if (char === "'") words.push(...sqlBodyWords(body, depth));
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
       const close = sql.indexOf(tag, bodyStart);
-      const bodyEnd = close === -1 ? sql.length : close;
-      const previous = words.at(-1);
-      if ((previous === "do" || previous === "as") && depth < 8) words.push(...sqlWords(sql.slice(bodyStart, bodyEnd), depth + 1));
+      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
       index = close === -1 ? sql.length : close + tag.length;
     } else if (/[A-Za-z_]/.test(char)) {
       const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
@@ -306,6 +329,11 @@ export function sqlWords(text, depth = 0) {
     }
   }
   return words;
+}
+
+function sqlBodyWords(body, depth) {
+  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1);
+  return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
 /** Classes whose token sequences occur in the SQL text, with reasons. */
@@ -324,7 +352,8 @@ export function classifySql(text, config) {
 
 // ---------------------------------------------------------------- detect
 
-const READS_HEAD = new Set(["added", "modified", "renamed", "copied", "changed"]);
+// Every status except "removed" has head content; an unknown status is read too.
+const readsHead = (status) => status !== "removed";
 
 /**
  * Classify a list of changed files.
@@ -351,7 +380,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
       reasons.push(...result.reasons.map((reason) => label + reason));
       categories.push(result.category);
     }
-    if (READS_HEAD.has(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
+    if (readsHead(file.status) &&config.sqlContent.paths.some((re) => re.test(file.filename))) {
       try {
         if (!readHeadFile) throw new Error("no head reader");
         const sql = classifySql(await readHeadFile(file.filename), config);
