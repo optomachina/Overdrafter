@@ -36,7 +36,7 @@ const xometryAuthorized = { authorized: true, reasonCode: null, permitId: "00000
 const HISTORY_COLUMNS = "vendor, unit_price_usd, created_at";
 
 /** In-memory DB; `events` records the history read, the atomic finalize and routing scores in order. */
-function database() {
+function database(options: { historyError?: boolean } = {}) {
   const events: string[] = [];
   const rpcArgs: Record<string, Record<string, unknown>> = {};
   const writes: Record<string, unknown>[] = [];
@@ -47,7 +47,7 @@ function database() {
       if (mutation) return { data: table === "work_queue" ? [{ id: "task" }] : null, error: null };
       if (table === "vendor_quote_results" && columns === HISTORY_COLUMNS) {
         events.push("sanity_history");
-        return { data: [], error: null };
+        return options.historyError ? { data: null, error: { message: "history read failed" } } : { data: [], error: null };
       }
       const data = table === "parts" ? part : table === "job_files" ? [cad]
         : table === "approved_part_requirements" ? requirement
@@ -195,6 +195,55 @@ describe("OVD-813 sanity gate on the Xometry persist path", () => {
       unit_price_usd: null,
       raw_payload: { fixtureSanity: { verdict: "pass", held: true, holdReason: "supplier_paused" } },
     });
+  });
+
+  it("xometry_history_unavailable_holds_without_pausing", async () => {
+    vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue(xometryOutput("6061-T6"));
+    const db = database({ historyError: true });
+    scoringRecordsInto(db.events);
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
+    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    expect(finalize.p_offers).toEqual([]);
+    expect(finalize.p_result).toMatchObject({
+      status: "manual_review_pending",
+      unit_price_usd: null,
+      raw_payload: { fixtureSanity: { verdict: "hold", holdReason: "sanity", pause: false,
+        findings: [{ code: "history_unavailable", class: "unavailable" }] } },
+    });
+    // Not supplier drift: Xometry stays unpaused.
+    expect(fixtureHealSupplierPause.isPaused("xometry")).toBe(false);
+  });
+
+  it("xometry_throwing_gate_holds_the_result", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(XometryAdapter.prototype, "quote").mockResolvedValue(xometryOutput("6061-T6"));
+    // The claim-time admits() check passes; the gate itself throws.
+    vi.spyOn(fixtureHealSupplierPause, "isPaused").mockImplementation(() => {
+      throw new Error("gate exploded");
+    });
+    const db = database();
+    scoringRecordsInto(db.events);
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    // Persisted held, never the unchecked price, and the task is completed (no retry).
+    expect(computeAndStoreRoutingScores).not.toHaveBeenCalled();
+    const finalize = db.rpcArgs.reconcile_vendor_quote_offers;
+    expect(finalize.p_offers).toEqual([]);
+    expect(finalize.p_result).toMatchObject({
+      status: "manual_review_pending",
+      unit_price_usd: null,
+      total_price_usd: null,
+      raw_payload: { fixtureSanity: { held: true, holdReason: "fixture_sanity_failed",
+        withheldResult: { unitPriceUsd: 45.56, totalPriceUsd: 45.56 } } },
+    });
+    expect(warn.mock.calls.some(([line]) => String(line).includes("fixture_sanity_failed"))).toBe(true);
+    expect(db.writes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "work_queue", update: expect.objectContaining({ status: "completed" }) }),
+    ]));
   });
 
   it("xometry_priced_manual_review_result_is_gated", async () => {

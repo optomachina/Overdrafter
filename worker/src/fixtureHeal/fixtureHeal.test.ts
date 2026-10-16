@@ -490,6 +490,26 @@ describe("OVD-813 fixture sanity gate", () => {
     expect(run.persist).not.toHaveBeenCalled();
   });
 
+  it("throwing_gate_fails_closed_on_pipeline", async () => {
+    const run = pipeline({});
+    run.deps.sanity = async () => {
+      throw new Error("gate exploded");
+    };
+
+    const outcome = await runProviderTaskPipeline(pipelineInput(), run.deps);
+
+    // The unchecked price is never persisted; the lane goes to manual follow-up.
+    expect(outcome).toMatchObject({ disposition: "manual_follow_up", code: "fixture_sanity_failed", stage: "validate", persisted: null });
+    expect(run.quote).toHaveBeenCalledOnce();
+    expect(run.persist).not.toHaveBeenCalled();
+
+    // A gate that returns a malformed result fails closed the same way.
+    const malformed = pipeline({});
+    malformed.deps.sanity = async () => ({ output: undefined, held: "no" }) as never;
+    expect(await runProviderTaskPipeline(pipelineInput(), malformed.deps)).toMatchObject({ code: "fixture_sanity_failed" });
+    expect(malformed.persist).not.toHaveBeenCalled();
+  });
+
   it("kill_switch_wins_over_pause_for_customer_quote", async () => {
     const pause = createSupplierPauseSwitch({ page: () => {} });
     pause.pause({ provider: "fictiv", codes: ["material_echo"], runId: "run", vendorQuoteResultId: "r", nowMs: NOW });

@@ -1,6 +1,6 @@
 import type { VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types.js";
 import type { SupplierPauseSwitch } from "./pause.js";
-import { checkQuote, type SanityInput, type SanityOffer, type SanityVerdict } from "./sanity.js";
+import { checkQuote, FIXTURE_SANITY_VERSION, type SanityInput, type SanityOffer, type SanityVerdict } from "./sanity.js";
 import type { SanityHistoryReader } from "./sanityHistory.js";
 
 /**
@@ -190,6 +190,30 @@ export function applySanityVerdict(
       },
     },
   };
+}
+
+/**
+ * Fail closed when the gate itself threw: a result that carries a price is
+ * held with its prices and offers withheld (`holdReason:
+ * "fixture_sanity_failed"`); a result without one has nothing to withhold and
+ * persists unchanged. Never pauses the supplier: this is not supplier drift.
+ */
+export function failClosedSanityOutput(
+  output: VendorQuoteAdapterOutput,
+  context: FixtureSanityContext,
+  checkedAt: string,
+): FixtureSanityGateResult {
+  const verdict: SanityVerdict = {
+    v: FIXTURE_SANITY_VERSION,
+    verdict: carriesPrice(output) ? "hold" : "skip",
+    findings: [],
+    ratios: { history: null, peer: null },
+    pause: false,
+  };
+  const applied = applySanityVerdict(output, verdict, context, checkedAt);
+  if (!applied.held || verdict.verdict !== "hold") return { ...applied, verdict, paused: false };
+  const fixtureSanity = { ...record(applied.output.rawPayload.fixtureSanity), holdReason: "fixture_sanity_failed" };
+  return { output: { ...applied.output, rawPayload: { ...applied.output.rawPayload, fixtureSanity } }, held: true, verdict, paused: false };
 }
 
 export function createFixtureSanityGate(deps: {

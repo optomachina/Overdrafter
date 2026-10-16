@@ -139,7 +139,13 @@ import {
   providerPackageId,
   type ProviderTaskOutcome,
 } from "./providerTaskPipeline.js";
-import { createFixtureSanityGate, type FixtureSanityGate } from "./fixtureHeal/gate.js";
+import {
+  createFixtureSanityGate,
+  failClosedSanityOutput,
+  type FixtureSanityContext,
+  type FixtureSanityGate,
+  type FixtureSanityGateResult,
+} from "./fixtureHeal/gate.js";
 import { createSupplierPauseSwitch, internalTestQuotePolicyFromEnv, isInternalTestQuote } from "./fixtureHeal/pause.js";
 import { createSupabaseSanityHistoryReader } from "./fixtureHeal/sanityHistory.js";
 import {
@@ -1907,18 +1913,37 @@ export async function handleVendorQuoteTask(
     // OVD-813: Xometry bypasses runProviderTaskPipeline, so the same sanity
     // gate runs here, before finalizeVendorQuoteResult and before routing
     // scores. Live results only; simulate output is not a supplier price.
-    const sanity =
-      config.workerMode === "live"
-        ? await fixtureSanityGateFor(supabase)(result, {
-            provider: vendor,
-            vendorQuoteResultId: currentResult.id,
-            quoteRunId: task.quote_run_id,
-            requestedQuantity: currentResult.requested_quantity,
-            requirement: context.requirement,
-            packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
-            internalTestQuote,
-          })
-        : null;
+    // A gate that throws never lets the unchecked price through: the result is
+    // held (fixture_sanity_failed) and persisted, so the task is not retried.
+    let sanity: FixtureSanityGateResult | null = null;
+    if (config.workerMode === "live") {
+      const sanityContext: FixtureSanityContext = {
+        provider: vendor,
+        vendorQuoteResultId: currentResult.id,
+        quoteRunId: task.quote_run_id,
+        requestedQuantity: currentResult.requested_quantity,
+        requirement: context.requirement,
+        packageId: null,
+        internalTestQuote,
+      };
+      try {
+        sanity = await fixtureSanityGateFor(supabase)(result, {
+          ...sanityContext,
+          packageId: stagedPackageId({ cad: stagedCadFile, drawing: stagedDrawingFile }),
+        });
+      } catch (sanityError) {
+        console.warn(
+          JSON.stringify({
+            service: "overdrafter-cad-worker",
+            level: "warn",
+            source: "fixture_heal.sanity",
+            message: `Fixture sanity gate failed; the result is held: ${summarizeWorkerError(sanityError)}`,
+            context: { taskId: task.id, vendorQuoteResultId: currentResult.id, failureCode: "fixture_sanity_failed" },
+          }),
+        );
+        sanity = failClosedSanityOutput(result, sanityContext, new Date().toISOString());
+      }
+    }
     const gatedResult = sanity?.output ?? result;
 
     gatedResult.artifacts.forEach((artifact: VendorArtifact) =>
