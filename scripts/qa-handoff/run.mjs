@@ -66,6 +66,22 @@ export function stepSummary(mode, lines) {
   return `### QA handoff (${mode} mode)\n\n${fence}\n${body}\n${fence}\n`;
 }
 
+const UNPRINTABLE_ERROR = "unprintable error";
+
+// Text for a log or warning line from whatever was thrown. The thrown value is
+// untrusted: a message getter can throw, a Proxy can throw on every access, a
+// Symbol or a null-prototype message cannot be stringified, and null has no
+// message at all. Reading it is therefore contained and falls back to a
+// constant, so describing a failure can never become a second failure.
+export function describeError(error, maxLen = 200) {
+  try {
+    const text = typeof error === "string" ? error : error?.message;
+    return typeof text === "string" ? sanitizeLog(text, maxLen) : UNPRINTABLE_ERROR;
+  } catch {
+    return UNPRINTABLE_ERROR;
+  }
+}
+
 // Constant apart from the validated mode, so building it cannot fail on
 // PR-derived content.
 function fallbackSummary(mode) {
@@ -74,7 +90,8 @@ function fallbackSummary(mode) {
 
 // The summary is a convenience view of the log, so it must never change the
 // job's result: a failure while building it falls back to a short constant
-// summary, and a failure while writing it is reported on stderr. Never throws.
+// summary, and a failure while writing it is reported on stderr. Never throws,
+// even when the thrown value is hostile or the warning sink itself throws.
 // Returns "full", "fallback" or "failed" for the summary that reached the file.
 export function writeStepSummary({ path, mode, lines, build = stepSummary, append = appendFileSync, warn = console.error }) {
   const attempts = [
@@ -86,7 +103,13 @@ export function writeStepSummary({ path, mode, lines, build = stepSummary, appen
       append(path, render());
       return kind;
     } catch (error) {
-      warn(`qa-handoff: could not write ${kind} step summary: ${sanitizeLog(error?.message, 500)}`);
+      // Reporting the failure must not become one: describeError never throws,
+      // and a broken warning sink has nowhere left to report to.
+      try {
+        warn(`qa-handoff: could not write ${kind} step summary: ${describeError(error, 500)}`);
+      } catch {
+        // Best effort: the next attempt, or the return value, still reports it.
+      }
     }
   }
   return "failed";
@@ -346,22 +369,37 @@ export async function main({
 } = {}) {
   const lines = [];
   // Fields are sanitized where they are formatted; the sink strips any
-  // remaining control characters without truncating the composed line.
+  // remaining control characters without truncating the composed line. The
+  // line is recorded before it is printed, so a stdout writer that throws
+  // cannot lose it from the summary or fail the run.
   const log = (line) => {
     const safe = sanitizeLog(line, Number.POSITIVE_INFINITY);
     lines.push(safe);
-    out(safe);
+    try {
+      out(safe);
+    } catch {
+      // stdout is a view of the recorded lines, not a result.
+    }
+  };
+  // stderr only carries diagnostics, so a writer that throws must not change
+  // the exit status or skip the summary.
+  const warnStderr = (message) => {
+    try {
+      err(message);
+    } catch {
+      // Nothing is left to report to.
+    }
   };
   let args;
   try {
     args = parseArgs(argv);
   } catch (error) {
-    err(`qa-handoff: ${sanitizeLog(error.message)}`);
+    warnStderr(`qa-handoff: ${describeError(error)}`);
     return exit(2);
   }
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (!token) {
-    err("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
+    warnStderr("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
     return exit(2);
   }
   const api = injectedApi ?? createGithubApi({ token, repo: args.repo });
@@ -369,7 +407,7 @@ export async function main({
   try {
     await run({ args, api, env, log });
   } catch (error) {
-    log(`ERROR: ${sanitizeLog(error.message, 500)}`);
+    log(`ERROR: ${describeError(error, 500)}`);
     status = 1;
   }
   if (env.GITHUB_STEP_SUMMARY) {
