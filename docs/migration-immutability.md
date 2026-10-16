@@ -1,5 +1,14 @@
 # Migration immutability (OVD-871)
 
+> **Scope (Blaine, 2026-10-16):** OVD-871 here covers migration immutability **only**. The design's
+> prod-push scan (flagging `supabase db push`, `--linked`, `--db-url`, `supabase migration up`,
+> `db reset --linked` and the prod project ref in runnable files) was cut from this PR and needs a
+> follow-up issue.
+>
+> **Known gap until the card's ci.yml job lands:** the node:test wrapper runs from the PR head, so a PR
+> could drop it from `test:portable-node` by editing `package.json` and `scripts/test-lane-contract.test.mjs`
+> together, and that would not be reported as gate_loosening.
+
 Applied migrations are history, so `supabase/migrations/` is append-only.
 `scripts/check-migration-immutability.mjs` checks every PR from
 `npm run test:portable-node`, which CI already runs (report mode). A dedicated
