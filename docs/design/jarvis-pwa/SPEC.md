@@ -7,7 +7,7 @@ All values in the mock and screenshots are **sample data** (labeled on screen). 
 
 ## v4.1. Recheck fixes (APPROVED, current)
 
-Applied in place to v4 after the Critiquito recheck (`recheck-v4.md`). Source `tools/index.v4.src.html` (v4.0 backed up as `tools/index.v4.0.src.html`); same build, shoot and screenshot paths as v4. v4.1 supersedes the v4 table below where they differ.
+Applied in place to v4 after the Critiquito recheck (`recheck-v4.md`). Source `tools/index.v4.src.html`; same build, shoot and screenshot paths as v4. v4.1 supersedes the v4 table below where they differ.
 
 | Id | Change in v4.1 | Where |
 |---|---|---|
