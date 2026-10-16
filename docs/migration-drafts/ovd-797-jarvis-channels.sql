@@ -32,15 +32,20 @@
 --     read only, SECURITY DEFINER (justified in the notes), search_path '',
 --     and EXECUTE is granted to authenticated only.
 --
--- Additive only: new tables, one new function, seed rows for four channels
+-- Additive only: one domain (public.jarvis_tier), new tables, one new function, seed rows for four channels
 -- (all disabled). No existing object changes.
 
 -- =====================================================================
 -- Access tiers and channel switches (admin only)
 -- =====================================================================
+create domain public.jarvis_tier as text
+  check (value in ('owner', 'beta', 'paid'));
+comment on domain public.jarvis_tier is
+  'OVD-797: Jarvis rollout tier (owner = Blaine, beta = allowlist, paid).';
+
 create table public.jarvis_access_grants (
   user_id uuid primary key references auth.users (id) on delete cascade,
-  tier text not null check (tier in ('owner', 'beta', 'paid')),
+  tier public.jarvis_tier not null,
   granted_by uuid references auth.users (id) on delete set null,
   granted_at timestamptz not null default pg_catalog.now(),
   revoked_at timestamptz,
@@ -53,7 +58,7 @@ comment on table public.jarvis_access_grants is
 create table public.jarvis_channel_settings (
   channel text primary key check (channel ~ '^[a-z][a-z0-9_]{0,31}$'),
   enabled boolean not null default false,
-  min_tier text not null default 'owner' check (min_tier in ('owner', 'beta', 'paid')),
+  min_tier public.jarvis_tier not null default 'owner',
   updated_at timestamptz not null default pg_catalog.now()
 );
 comment on table public.jarvis_channel_settings is

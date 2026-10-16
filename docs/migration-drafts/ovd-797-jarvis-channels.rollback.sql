@@ -2,7 +2,8 @@
 -- Apply: psql "$DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction -f docs/migration-drafts/ovd-797-jarvis-channels.rollback.sql
 --
 -- Removes everything docs/migration-drafts/ovd-797-jarvis-channels.sql adds:
--- the control command guard and the ten jarvis_* tables (their policies,
+-- the control command guard, the ten jarvis_* tables and the
+-- public.jarvis_tier domain (their policies,
 -- indexes, constraints and grants go with them). The schema returns to its
 -- exact pre-draft shape (fixture: empty pg_dump --schema-only diff).
 --
@@ -25,3 +26,4 @@ drop table if exists public.jarvis_channel_identities;
 drop table if exists public.jarvis_conversations;
 drop table if exists public.jarvis_channel_settings;
 drop table if exists public.jarvis_access_grants;
+drop domain if exists public.jarvis_tier;

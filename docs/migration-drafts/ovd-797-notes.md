@@ -4,8 +4,8 @@ Draft only. Nothing here is applied to any Supabase project, and nothing is in `
 
 Files:
 
-- `docs/migration-drafts/ovd-797-jarvis-channels.sql`: ten `public.jarvis_*` tables, RLS on each, seven SELECT policies, explicit grants, seed rows for four channels (all disabled), and one read only guard function.
-- `docs/migration-drafts/ovd-797-jarvis-channels.rollback.sql`: drops the function and the ten tables, children first, all `if exists`. It deletes all Jarvis data.
+- `docs/migration-drafts/ovd-797-jarvis-channels.sql`: ten `public.jarvis_*` tables, one `public.jarvis_tier` domain (`owner|beta|paid`, shared by `tier` and `min_tier`), RLS on each, seven SELECT policies, explicit grants, seed rows for four channels (all disabled), and one read only guard function.
+- `docs/migration-drafts/ovd-797-jarvis-channels.rollback.sql`: drops the function, the ten tables (children first) and the domain, all `if exists`. It deletes all Jarvis data.
 - `docs/migration-drafts/ovd-797-fixture.sh`: disposable local Postgres fixture (DM-1..DM-11, DM-1R, policy listing). It starts its own cluster on a unix socket in a temp dir and never connects to a hosted database.
 - `supabase/tests/pending/ovd797_jarvis_channels.sql.pending`: pgTAP, 74 assertions.
 - `.github/workflows/ovd797-pending-pgtap.yml`: same structure as `ovd766-pending-pgtap.yml`. It runs in a throwaway local Supabase DB on the runner: apply draft, DM-1R dump diff, re-apply, pending pgTAP, rollback twice.

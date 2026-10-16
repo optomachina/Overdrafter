@@ -145,7 +145,7 @@ select is(
    where n.nspname = 'public' and p.proname like 'jarvis\_%'),
   1, 'the guard is the only jarvis function');
 select results_eq(
-  $$select channel, enabled, min_tier from public.jarvis_channel_settings order by channel$$,
+  $$select channel, enabled, min_tier::text from public.jarvis_channel_settings order by channel$$,
   $$values ('imessage', false, 'owner'), ('slack', false, 'owner'), ('telegram', false, 'owner'), ('web', false, 'owner')$$,
   'DM-1 seed: four channels, all disabled, min_tier owner');
 
