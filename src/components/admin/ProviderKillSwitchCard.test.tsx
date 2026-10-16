@@ -4,12 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderKillSwitchCard } from "./ProviderKillSwitchCard";
 
-const { fetchMock, setMock, aal2Mock, factorsMock } = vi.hoisted(() => ({
-  fetchMock: vi.fn(), setMock: vi.fn(), aal2Mock: vi.fn(), factorsMock: vi.fn(),
+const { fetchMock, setMock, settingsMock, aal2Mock, factorsMock } = vi.hoisted(() => ({
+  fetchMock: vi.fn(), setMock: vi.fn(), settingsMock: vi.fn(), aal2Mock: vi.fn(), factorsMock: vi.fn(),
 }));
 vi.mock("@/features/quotes/api/provider-kill-switch-api", () => ({
   fetchProviderKillSwitches: fetchMock,
   setProviderKillSwitch: setMock,
+  setProviderSettings: settingsMock,
   PROVIDER_KILL_SWITCH_MIN_REASON_LENGTH: 10,
 }));
 vi.mock("@/features/auth/mfa-api", () => ({ hasAal2Session: aal2Mock, listTotpFactors: factorsMock }));
@@ -64,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
   fetchMock.mockReset();
   setMock.mockReset();
+  settingsMock.mockReset();
   aal2Mock.mockReset();
   factorsMock.mockReset();
 });
@@ -231,5 +233,86 @@ describe("ProviderKillSwitchCard (OVD-722)", () => {
     renderCard();
     expect(await screen.findByText(/migration pending/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Stop/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("ProviderKillSwitchCard daily quote cap (OVD-829)", () => {
+  const withCaps = {
+    ...available,
+    providers: [
+      { ...available.providers[0], settings: { dailyQuoteCap: 20, usedToday: 3 } },
+      { ...available.providers[1], settings: { dailyQuoteCap: null, usedToday: 41 } },
+    ],
+  };
+
+  async function confirmCap(provider: string) {
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "raise for the pilot week" } });
+    fireEvent.change(screen.getByLabelText(/to confirm/), { target: { value: provider } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  }
+
+  it("shows each supplier's cap and today's usage next to its switch", async () => {
+    fetchMock.mockResolvedValue(withCaps);
+    renderCard();
+    expect(await screen.findByLabelText("Daily quote cap for fictiv")).toHaveValue(20);
+    expect(screen.getByText("3 used today of 20")).toBeInTheDocument();
+    expect(screen.getByText("41 used today (unlimited)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Daily quote cap for xometry")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save daily cap for fictiv" })).toBeDisabled();
+  });
+
+  it("hides the cap column until the database returns caps", async () => {
+    fetchMock.mockResolvedValue(available);
+    renderCard();
+    await screen.findByText("cease and desist received");
+    expect(screen.queryByText("Daily quote cap")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Daily quote cap for/)).not.toBeInTheDocument();
+  });
+
+  it("saves a raised cap with the row version and the on/off state unchanged", async () => {
+    fetchMock.mockResolvedValue(withCaps);
+    settingsMock.mockResolvedValue({ dailyQuoteCap: 50 });
+    renderCard();
+    fireEvent.change(await screen.findByLabelText("Daily quote cap for fictiv"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save daily cap for fictiv" }));
+    expect(screen.getByText("Set the daily quote cap for fictiv to 50")).toBeInTheDocument();
+    await confirmCap("fictiv");
+    await waitFor(() => expect(settingsMock).toHaveBeenCalledOnce());
+    expect(settingsMock.mock.calls[0][0]).toEqual({
+      provider: "fictiv", engaged: true, dailyQuoteCap: 50, reason: "raise for the pilot week", expectedVersion: 7,
+    });
+    expect(setMock).not.toHaveBeenCalled();
+  });
+
+  it("saves unlimited as a null cap", async () => {
+    fetchMock.mockResolvedValue(withCaps);
+    settingsMock.mockResolvedValue({ dailyQuoteCap: null });
+    renderCard();
+    await screen.findByLabelText("Daily quote cap for fictiv");
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Unlimited" })[0]);
+    expect(screen.getByLabelText("Daily quote cap for fictiv")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save daily cap for fictiv" }));
+    await confirmCap("fictiv");
+    await waitFor(() => expect(settingsMock).toHaveBeenCalledOnce());
+    expect(settingsMock.mock.calls[0][0]).toMatchObject({ provider: "fictiv", dailyQuoteCap: null });
+  });
+
+  it.each(["0", "-2", "1.5", ""])("does not offer to save a cap of %j", async (value) => {
+    fetchMock.mockResolvedValue(withCaps);
+    renderCard();
+    fireEvent.change(await screen.findByLabelText("Daily quote cap for fictiv"), { target: { value } });
+    expect(screen.getByRole("button", { name: "Save daily cap for fictiv" })).toBeDisabled();
+    expect(screen.getByText(/whole number above 0/)).toBeInTheDocument();
+  });
+
+  it("an on/off flip keeps the supplier's cap and goes through the settings path", async () => {
+    fetchMock.mockResolvedValue(withCaps);
+    setMock.mockResolvedValue({ engaged: true });
+    renderCard();
+    await fillStopXometry();
+    await waitFor(() => expect(setMock).toHaveBeenCalledOnce());
+    expect(setMock.mock.calls[0][0]).toEqual({
+      provider: "xometry", engaged: true, reason: "cease and desist received", expectedVersion: 0, dailyQuoteCap: null,
+    });
   });
 });

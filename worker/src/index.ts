@@ -122,16 +122,16 @@ import {
 import {
   cancelVendorTaskForDisabledProvider,
   checkProviderKillSwitchAtClaim,
-  createProviderKillSwitchGuard,
-  guardProviderQuote,
+  guardProviderDispatch,
   markTaskCancelledForDisabledProvider,
-  supabaseProviderKillSwitchReader,
   failVendorResultForUnavailableKillSwitch,
+  PROVIDER_DAILY_CAP_REACHED,
   ProviderKillSwitchError,
   isProviderKillSwitchEngaged,
   providerKillSwitchSweepWarnings,
+  supabaseProviderSettingsPort,
   sweepProviderDisabledTasks,
-} from "./providerKillSwitch.js";
+} from "./providerSettings.js";
 import { createProviderAuthorizationConsumer } from "./providerExecutionSeam.js";
 import {
   createProviderDaySwitch,
@@ -1492,6 +1492,15 @@ export async function handleVendorQuoteTask(
       } else {
         failureNote = `${vendor} kill switch state could not be confirmed, so nothing was sent and automation stopped. It will not retry automatically.`;
       }
+    } else if (dispatchAuthorizationError?.boundary === "provider_settings") {
+      // OVD-829: refused by the supplier settings gate before launch.
+      if (dispatchAuthorizationError.reasonCode === PROVIDER_DAILY_CAP_REACHED) {
+        failureNote = `${vendor} reached its daily quote cap, so nothing was sent. Manual follow-up is required.`;
+      } else if (retryAt) {
+        failureNote = `${vendor} dispatch could not be counted against its daily quote cap, so nothing was sent. Retry scheduled for ${retryAt}.`;
+      } else {
+        failureNote = `${vendor} dispatch could not be counted against its daily quote cap, so nothing was sent and automation stopped. It will not retry automatically.`;
+      }
     } else if (dispatchAuthorizationError?.boundary === "provider") {
       failureNote = retryableDispatchAuthorizationError && retryAt
         ? `${vendor} dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`
@@ -1783,11 +1792,15 @@ export async function handleVendorQuoteTask(
         // adapter.quote. Both gates must pass before any provider call; the
         // kill switch is read first, so an engaged switch ends the lane as
         // cancelled_provider_disabled even when the job is also held.
+        // OVD-829: that before-launch read is the universal supplier settings
+        // gate (kill switch, then one durable reservation against the daily
+        // cap); a spent cap ends the lane provider_daily_cap_reached.
         adapter: {
           provider: vendor,
-          quote: guardProviderQuote(
-            createProviderKillSwitchGuard(supabaseProviderKillSwitchReader(supabase), vendor),
-            async (input) => {
+          quote: guardProviderDispatch({
+            provider: vendor,
+            port: supabaseProviderSettingsPort(supabase),
+            quote: async (input) => {
               try {
                 return await exportCheckedAdapter.quote(input);
               } catch (error) {
@@ -1800,7 +1813,7 @@ export async function handleVendorQuoteTask(
                 throw error;
               }
             },
-          ),
+          }),
         },
         consumer: providerAuthorizationConsumer,
         daySwitch: providerDaySwitch,

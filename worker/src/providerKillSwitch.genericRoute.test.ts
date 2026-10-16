@@ -11,6 +11,7 @@ import { createProviderAuthorizationConsumer } from "./providerExecutionSeam";
 import { markProviderMutationStarted } from "./providerMutationPhase";
 import { runGenericProviderTask } from "./providerTaskRoute";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "./types";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 /**
  * OVD-722 on the OVD-464 generic route: a live Fictiv task carrying a generic
@@ -160,6 +161,7 @@ function database() {
     const data = name === "api_worker_provider_kill_switch_state"
       ? { schema: "provider-kill-switch-state.v1", provider: args.p_provider, engaged: switches.fictiv, globalEngaged: switches.global }
       : name === "api_reserve_spend" ? { allowed: true, reservationId: "r" }
+        : name === "api_worker_reserve_provider_dispatch" ? providerDispatchReservation(args.p_provider)
         : name === "api_record_export_control_clean_scan" ? "export-scan"
         : name === "api_check_export_control_dispatch"
           ? exportControl.answers[Math.min(exportControl.calls++, exportControl.answers.length - 1)]
@@ -380,5 +382,74 @@ describe("handleVendorQuoteTask on the generic provider route with both gates", 
     expect(db.updates("vendor_quote_results")).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ raw_payload: expect.objectContaining({ exportControlHold: true }) }),
     ]));
+  });
+});
+
+describe("handleVendorQuoteTask on the generic provider route with the supplier settings gate (OVD-829)", () => {
+  function withReservation(db: ReturnType<typeof database>, answer: () => { data: unknown; error: unknown }) {
+    const rpc = db.client.rpc.bind(db.client);
+    (db.client as unknown as { rpc: typeof rpc }).rpc = ((name: string, args: Record<string, unknown>) => {
+      if (name !== "api_worker_reserve_provider_dispatch") return rpc(name, args);
+      db.writes.push({ rpc: name });
+      const result = Promise.resolve(answer());
+      return Object.assign(result, { abortSignal: () => result });
+    }) as typeof rpc;
+  }
+
+  it("a spent daily cap refuses before launch: no adapter call, provider_daily_cap_reached, manual follow-up, no requeue", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote");
+    const db = database();
+    withReservation(db, () => ({
+      data: providerDispatchReservation("fictiv", { allowed: false, reason: "provider_daily_cap_reached", cap: 20, used: 20 }),
+      error: null,
+    }));
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.rpcNames()).toContain("api_worker_reserve_provider_dispatch");
+    expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([expect.objectContaining({
+      status: "manual_vendor_followup",
+      raw_payload: expect.objectContaining({
+        failureCode: "provider_daily_cap_reached",
+        adapterStarted: false,
+        providerMutationPossible: false,
+        retryScheduledFor: null,
+      }),
+    })]));
+    expect(db.updates("work_queue")).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "queued" })]));
+  });
+
+  it("an unreachable counter fails closed before launch: no adapter call, provider_dispatch_counter_unavailable", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote");
+    const db = database();
+    withReservation(db, () => ({ data: null, error: { message: "function does not exist" } }));
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([expect.objectContaining({
+      status: "failed",
+      raw_payload: expect.objectContaining({ failureCode: "provider_dispatch_counter_unavailable", adapterStarted: false }),
+    })]));
+  });
+
+  it("a supplier switched off between the switch read and the reservation is cancelled_provider_disabled", async () => {
+    const quote = vi.spyOn(FictivAdapter.prototype, "quote");
+    const db = database();
+    withReservation(db, () => ({
+      data: providerDispatchReservation("fictiv", { allowed: false, reason: "provider_disabled" }),
+      error: null,
+    }));
+
+    await handleVendorQuoteTask(db.client, task, live);
+
+    expect(quote).not.toHaveBeenCalled();
+    expect(db.updates("vendor_quote_results")).toEqual(expect.arrayContaining([expect.objectContaining({
+      status: "failed",
+      notes: ["Provider temporarily unavailable."],
+      raw_payload: expect.objectContaining({ failureCode: "cancelled_provider_disabled", killSwitchCheckpoint: "before_launch" }),
+    })]));
+    expect(db.updates("work_queue")).toEqual([cancelledTask]);
   });
 });

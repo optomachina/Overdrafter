@@ -26,6 +26,7 @@ import { createProviderMutationPhase } from "./providerMutationPhase";
 import type { QueueTaskRecord, VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 import { failureCodeForError, isRetryableVendorTaskError } from "./vendorTaskRetry";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
+import { providerDispatchReservation } from "../test-support/providerDispatchReservation";
 
 /**
  * In-memory stand-in for private.provider_kill_switches and
@@ -81,6 +82,9 @@ function fakeSupabase(
     calls.push(name);
     if (name === PROVIDER_KILL_SWITCH_RPC) {
       return { data: store.state(args.p_provider as VendorName), error: null };
+    }
+    if (name === "api_worker_reserve_provider_dispatch") {
+      return { data: providerDispatchReservation(args.p_provider), error: null };
     }
     if (name === "api_authorize_xometry_beta_worker_dispatch" || name === "api_authorize_provider_worker_dispatch") {
       options.onPreflight?.();

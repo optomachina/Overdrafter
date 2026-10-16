@@ -11,7 +11,10 @@ import { ProviderAbortedError, withProviderAbortSignal } from "../providerAbort"
 import { REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
 import {
   createProviderKillSwitchGuard,
+  guardProviderDispatch,
   guardProviderQuote,
+  PROVIDER_DAILY_CAP_REACHED,
+  PROVIDER_DISPATCH_RESERVATION_SCHEMA,
   PROVIDER_KILL_SWITCH_ENGAGED,
   PROVIDER_KILL_SWITCH_STATE_SCHEMA,
   PROVIDER_KILL_SWITCH_UNAVAILABLE,
@@ -274,15 +277,33 @@ describe("RMFG live adapter", () => {
     expect(calls).toEqual([]);
   });
 
-  it("refuses with no request once the daily cap is spent", async () => {
+  it("keeps no daily cap of its own: 21 quotes in a row all reach RMFG (OVD-829)", async () => {
     const { calls, fetchImpl } = fakeFetch(happyPath);
-    const now = () => new Date("2026-10-13T12:00:00Z");
     const adapter = new RmfgAdapter(liveConfig(), { env: { [RMFG_API_KEY_ENV]: SYNTHETIC_KEY },
-      createTransport: (apiKey) => createRmfgHttpTransport({ apiKey, fetchImpl, now, dailyQuoteCap: 1 }) });
-    await expect(adapter.quote(await authorizedInput())).resolves.toMatchObject({ status: "instant_quote_received" });
-    await expect(adapter.quote(await authorizedInput()))
-      .rejects.toMatchObject({ payload: { reason: "provider_daily_cap_reached", providerInteractionAttempted: false } });
-    expect(calls.filter((call) => call === "/v1/analyze")).toHaveLength(1);
+      createTransport: (apiKey) => createRmfgHttpTransport({ apiKey, fetchImpl }) });
+    for (let n = 0; n < 21; n += 1) {
+      await expect(adapter.quote(await authorizedInput())).resolves.toMatchObject({ status: "instant_quote_received" });
+    }
+    expect(calls.filter((call) => call === "/v1/analyze")).toHaveLength(21);
+  });
+
+  it("is refused provider_daily_cap_reached with no request by the shared settings gate (OVD-829)", async () => {
+    const { calls, fetchImpl } = fakeFetch(happyPath);
+    const adapter = adapterWith(fetchImpl);
+    const quote = guardProviderDispatch({
+      provider: "rmfg",
+      port: {
+        readKillSwitch: async () => killSwitchState(false),
+        readSettings: async () => null,
+        reserveDispatch: async () => ({ schema: PROVIDER_DISPATCH_RESERVATION_SCHEMA, provider: "rmfg",
+          allowed: false, reason: PROVIDER_DAILY_CAP_REACHED, cap: 20, used: 20 }),
+      },
+      quote: (input) => adapter.quote(input),
+    });
+    await expect(quote(await authorizedInput())).rejects.toMatchObject({
+      name: "ProviderDispatchRefusedError", reasonCode: PROVIDER_DAILY_CAP_REACHED, dailyQuoteCap: 20,
+    });
+    expect(calls).toEqual([]);
   });
 
   it("is listed for live automation but stays out of the default live registry", () => {

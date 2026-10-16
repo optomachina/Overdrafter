@@ -91,19 +91,13 @@ describe("RMFG HTTP transport against a local stub", () => {
     },
   );
 
-  it("enforces the daily quote cap locally and resets on a new UTC day", async () => {
+  it("keeps no daily quote cap of its own; the shared supplier settings gate counts dispatches (OVD-829)", async () => {
     const { seen, baseUrl } = await stub(happyPath);
-    let clock = new Date("2026-10-12T10:00:00Z");
-    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true, dailyQuoteCap: 2, now: () => clock });
-    for (const n of [1, 2]) {
+    const transport = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
+    for (let n = 1; n <= 21; n += 1) {
       expect((await runRmfgQuoteOnly({ ...input, analyzeKey: `a${n}`, quoteKey: `q${n}` }, transport)).state).toBe("ready");
     }
-    const requestsAtCap = seen.length;
-    const over = await runRmfgQuoteOnly({ ...input, analyzeKey: "a3", quoteKey: "q3" }, transport);
-    expect(over).toMatchObject({ state: "error", reason: "rate_limited" });
-    expect(seen).toHaveLength(requestsAtCap);
-    clock = new Date("2026-10-13T00:00:01Z");
-    expect((await runRmfgQuoteOnly({ ...input, analyzeKey: "a4", quoteKey: "q4" }, transport)).state).toBe("ready");
+    expect(seen.filter((request) => request.url === "/v1/analyze")).toHaveLength(21);
   });
 
   it("makes no request while the kill switch or export block callback is set", async () => {
@@ -155,16 +149,6 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.some((reviewed) => reviewed.provider === "rmfg")).toBe(false);
   });
 
-  it.each([NaN, -1, 0, 1.5, Infinity, 21, 1000])("rejects daily cap %s at construction", (dailyQuoteCap) => {
-    expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).toThrow("daily quote cap");
-  });
-
-  it("accepts daily caps from 1 to 20", () => {
-    for (const dailyQuoteCap of [1, 20]) {
-      expect(() => createRmfgHttpTransport({ apiKey: API_KEY, dailyQuoteCap })).not.toThrow();
-    }
-  });
-
   it.each(["a\u0000b", "a\u007fb", "a\tb", "a\u0085b", " key", "key ", "key\n", "\u0000"])(
     "rejects API key %j with control characters or surrounding whitespace",
     (apiKey) => {
@@ -182,7 +166,7 @@ describe("RMFG HTTP transport against a local stub", () => {
     })).toThrow("origin");
   });
 
-  it("shares the block latch and daily count across transport instances", async () => {
+  it("shares the block latch across transport instances", async () => {
     const { seen, baseUrl } = await stub(() => ({ status: 429, body: {} }));
     const first = createRmfgHttpTransport({ apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true });
     expect((await runRmfgQuoteOnly(input, first)).state).toBe("error");
@@ -193,16 +177,6 @@ describe("RMFG HTTP transport against a local stub", () => {
     expect(seen).toHaveLength(1);
     resetRmfgProcessStateForTests();
     expect(second.blockedReason()).toBeNull();
-  });
-
-  it("shares the daily cap across instances", async () => {
-    const { seen, baseUrl } = await stub(happyPath);
-    const options = { apiKey: API_KEY, baseUrl, allowInsecureLoopbackForTests: true, dailyQuoteCap: 1 };
-    expect((await runRmfgQuoteOnly(input, createRmfgHttpTransport(options))).state).toBe("ready");
-    const requests = seen.length;
-    const over = await runRmfgQuoteOnly({ ...input, analyzeKey: "a2", quoteKey: "q2" }, createRmfgHttpTransport(options));
-    expect(over).toMatchObject({ state: "error", reason: "rate_limited" });
-    expect(seen).toHaveLength(requests);
   });
 
   it("awaits an async isBlocked hook before every request and reads it fresh", async () => {

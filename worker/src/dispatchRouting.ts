@@ -10,13 +10,14 @@ import {
   type ProviderDispatchClaim,
 } from "./providerDispatchPreflight.js";
 import {
-  createProviderKillSwitchGuard,
-  guardProviderQuote,
+  guardProviderDispatch,
   PROVIDER_KILL_SWITCH_ENGAGED,
+  ProviderDispatchRefusedError,
   ProviderKillSwitchError,
-  supabaseProviderKillSwitchReader,
+  supabaseProviderSettingsPort,
   type ProviderKillSwitchReader,
-} from "./providerKillSwitch.js";
+  type ProviderSettingsPort,
+} from "./providerSettings.js";
 import type {
   VendorName,
   VendorQuoteAdapterInput,
@@ -64,6 +65,10 @@ import {
  * stale permit cannot bypass a switch flipped in between. The same guard is
  * handed to the adapter as `providerKillSwitchCheckpoint` for its own
  * navigation, upload, and configuration checkpoints.
+ *
+ * OVD-829: that before-launch step is `assertProviderDispatchAllowed`, the
+ * universal supplier settings gate: kill switch first, then one durable
+ * reservation against the supplier's daily quote cap.
  */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };
@@ -96,6 +101,8 @@ export async function quoteWithRoutedDispatchPreflight(input: {
   onAuthorized?: () => void;
   /** Test seam; production reads `api_worker_provider_kill_switch_state` on every checkpoint. */
   killSwitchReader?: ProviderKillSwitchReader;
+  /** Test seam; production reserves through `api_worker_reserve_provider_dispatch`. */
+  reserveDispatch?: ProviderSettingsPort["reserveDispatch"];
 }): Promise<VendorQuoteAdapterOutput> {
   // OVD-414: production Xometry dispatch always supplies the upload capability
   // checkpoint, which reads its admission decision from the database. Set on
@@ -111,18 +118,20 @@ export async function quoteWithRoutedDispatchPreflight(input: {
           },
         }
       : input.adapter;
-  const guard =
-    input.config.workerMode === "live"
-      ? createProviderKillSwitchGuard(
-          input.killSwitchReader ?? supabaseProviderKillSwitchReader(input.supabase),
-          input.vendor,
-        )
-      : null;
-  // Wraps the adapter so the final kill-switch read sits between the admitted
-  // authorization and the launch; onAuthorized fires only once it passes.
+  // Wraps the adapter so the settings gate (kill switch, then the daily cap
+  // reservation) sits between the admitted authorization and the launch;
+  // onAuthorized fires only once it passes.
   const adapter: Pick<VendorAdapter, "quote"> = {
-    quote: guard
-      ? guardProviderQuote(guard, (quoteInput) => innerAdapter.quote(quoteInput), input.onAuthorized)
+    quote: input.config.workerMode === "live"
+      ? guardProviderDispatch({
+          provider: input.vendor,
+          port: supabaseProviderSettingsPort(input.supabase, {
+            ...(input.killSwitchReader ? { readKillSwitch: input.killSwitchReader } : {}),
+            ...(input.reserveDispatch ? { reserveDispatch: input.reserveDispatch } : {}),
+          }),
+          quote: (quoteInput) => innerAdapter.quote(quoteInput),
+          onLaunch: input.onAuthorized,
+        })
       : async (quoteInput) => {
           input.onAuthorized?.();
           return innerAdapter.quote(quoteInput);
@@ -271,7 +280,7 @@ export function withExportControlDispatchRecheck(
 }
 
 export type DispatchAuthorizationFailure = {
-  boundary: "xometry" | "provider" | "kill_switch";
+  boundary: "xometry" | "provider" | "kill_switch" | "provider_settings";
   reasonCode: string;
   retryable: boolean;
 };
@@ -290,6 +299,10 @@ export function dispatchAuthorizationFailure(error: unknown): DispatchAuthorizat
   }
   if (error instanceof ProviderKillSwitchError) {
     return { boundary: "kill_switch", reasonCode: error.reasonCode, retryable: error.retryable };
+  }
+  // OVD-829: refused before launch, so nothing reached the supplier.
+  if (error instanceof ProviderDispatchRefusedError) {
+    return { boundary: "provider_settings", reasonCode: error.reasonCode, retryable: error.retryable };
   }
   return null;
 }
