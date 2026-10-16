@@ -36,6 +36,7 @@ import {
   requiredCheckSpec,
   trustedMarkerAuthors,
 } from "./gate.mjs";
+import { sanitizeLog } from "./sanitize-log.mjs";
 
 const MODES = new Set(["report", "apply"]);
 
@@ -141,7 +142,7 @@ function formatRequired(checks) {
   return checks
     .map((check) => {
       const { name, appId } = requiredCheckSpec(check);
-      return appId === undefined ? name : `${name} (app ${appId})`;
+      return appId === undefined ? sanitizeLog(name) : `${sanitizeLog(name)} (app ${sanitizeLog(appId)})`;
     })
     .join(", ");
 }
@@ -172,7 +173,7 @@ export async function resolveRequiredChecks(api, env, log) {
   }
   const fromEnv = parseRequiredChecks(env.REQUIRED_CHECKS);
   const names = fromEnv.length > 0 ? fromEnv : [...DEFAULT_REQUIRED_CHECKS];
-  log(`required checks (${fromEnv.length > 0 ? "REQUIRED_CHECKS env" : "DEFAULT_REQUIRED_CHECKS"}): ${names.join(", ")}`);
+  log(`required checks (${fromEnv.length > 0 ? "REQUIRED_CHECKS env" : "DEFAULT_REQUIRED_CHECKS"}): ${names.map((name) => sanitizeLog(name)).join(", ")}`);
   return names;
 }
 
@@ -199,17 +200,18 @@ export async function handoffPr({
   const pr = await api.getPr(prNumber);
   const headSha = eventSha ?? pr?.head?.sha;
   const event = { headSha, prNumber };
+  const tag = `#${sanitizeLog(prNumber)}`;
   const sha = pr?.state === "open" && headSha === pr?.head?.sha ? headSha : undefined;
   const [checkRuns, statuses, comments] = sha
     ? await Promise.all([api.listCheckRuns(sha), api.listStatuses(sha), api.listComments(prNumber)])
     : [[], [], []];
   const decision = decide({ event, pr, checkRuns, statuses, requiredChecks, comments, trustedAuthors });
   if (!decision.handoff) {
-    log(`#${prNumber} ${decision.key}: no-op (${decision.reason})${formatChecks(decision.checks)}`);
+    log(`${tag} ${sanitizeLog(decision.key)}: no-op (${sanitizeLog(decision.reason)})${formatChecks(decision.checks)}`);
     return { ...decision, action: "noop" };
   }
   if (mode !== "apply") {
-    log(`#${prNumber} ${decision.key}: WOULD hand off (report mode)${formatChecks(decision.checks)}`);
+    log(`${tag} ${sanitizeLog(decision.key)}: WOULD hand off (report mode)${formatChecks(decision.checks)}`);
     return { ...decision, action: "would-handoff" };
   }
   return lock(`qa-handoff-${prNumber}`, async () => {
@@ -217,11 +219,11 @@ export async function handoffPr({
     // or the PR may have moved since the first read.
     const current = await api.getPr(prNumber);
     if (current?.head?.sha !== headSha || current?.state !== "open" || current?.draft) {
-      log(`#${prNumber} ${decision.key}: no-op (changed before handoff)`);
+      log(`${tag} ${sanitizeLog(decision.key)}: no-op (changed before handoff)`);
       return { ...decision, handoff: false, reason: "changed-before-handoff", action: "noop" };
     }
     if (hasMarker(await api.listComments(prNumber), headSha, trustedAuthors)) {
-      log(`#${prNumber} ${decision.key}: no-op (already-handed-off)`);
+      log(`${tag} ${sanitizeLog(decision.key)}: no-op (already-handed-off)`);
       return { ...decision, handoff: false, reason: "already-handed-off", action: "noop" };
     }
     // Label first: adding a label is idempotent, and the marker is written
@@ -229,7 +231,7 @@ export async function handoffPr({
     await api.addLabels(prNumber, [QA_READY_LABEL]);
     await api.createComment(prNumber, handoffComment(headSha));
     const removed = await dedupeMarkers({ api, prNumber, headSha, trustedAuthors });
-    log(`#${prNumber} ${decision.key}: handed off${removed > 0 ? ` (removed ${removed} duplicate marker(s))` : ""}`);
+    log(`${tag} ${sanitizeLog(decision.key)}: handed off${removed > 0 ? ` (removed ${removed} duplicate marker(s))` : ""}`);
     return { ...decision, action: "handoff", duplicatesRemoved: removed };
   });
 }
@@ -254,7 +256,7 @@ async function dedupeMarkers({ api, prNumber, headSha, trustedAuthors }) {
 
 function formatChecks(checks) {
   if (!checks) return "";
-  return ` [${checks.map((check) => `${check.name}=${check.state}`).join(", ")}]`;
+  return ` [${checks.map((check) => `${sanitizeLog(check.name)}=${sanitizeLog(check.state)}`).join(", ")}]`;
 }
 
 // Picks the PRs to evaluate, each paired with the sha to evaluate it at.
@@ -266,10 +268,10 @@ export async function selectTargets(api, { pr, sha }) {
 }
 
 export async function run({ args, api, env = {}, log = console.log, lock }) {
-  log(`qa-handoff mode=${args.mode} repo=${args.repo}${args.pr ? ` pr=${args.pr}` : ""}${args.sha ? ` sha=${args.sha}` : ""}`);
+  log(`qa-handoff mode=${sanitizeLog(args.mode)} repo=${sanitizeLog(args.repo)}${args.pr ? ` pr=${sanitizeLog(args.pr)}` : ""}${args.sha ? ` sha=${sanitizeLog(args.sha)}` : ""}`);
   const requiredChecks = await resolveRequiredChecks(api, env, log);
   const trustedAuthors = trustedMarkerAuthors(env.QA_HANDOFF_TRUSTED_MARKER_AUTHORS);
-  log(`trusted marker authors: ${trustedAuthors.join(", ")}`);
+  log(`trusted marker authors: ${trustedAuthors.map((author) => sanitizeLog(author)).join(", ")}`);
   const targets = await selectTargets(api, args);
   if (targets.length === 0) log("no matching open PR");
   const results = [];
@@ -281,15 +283,18 @@ export async function run({ args, api, env = {}, log = console.log, lock }) {
 
 async function main() {
   const lines = [];
+  // Fields are sanitized where they are formatted; the sink strips any
+  // remaining control characters without truncating the composed line.
   const log = (line) => {
-    lines.push(line);
-    console.log(line);
+    const safe = sanitizeLog(line, Number.POSITIVE_INFINITY);
+    lines.push(safe);
+    console.log(safe);
   };
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (error) {
-    console.error(`qa-handoff: ${error.message}`);
+    console.error(`qa-handoff: ${sanitizeLog(error.message)}`);
     process.exit(2);
   }
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
@@ -302,7 +307,7 @@ async function main() {
   try {
     await run({ args, api, env: process.env, log });
   } catch (error) {
-    log(`ERROR: ${error.message}`);
+    log(`ERROR: ${sanitizeLog(error.message, 500)}`);
     status = 1;
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
