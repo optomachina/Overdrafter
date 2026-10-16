@@ -139,7 +139,7 @@ function parsePrices(text: string, requestedQuantity: number) {
     const extendedMatch = currencyMatches.find((match) => (match.index ?? 0) >= unitMatchEnd);
     const totalPriceUsd = extendedMatch ? parseCurrencyValue(extendedMatch[1]) : null;
     if (unitPriceUsd === null || totalPriceUsd === null) return null;
-    return { unitPriceUsd, totalPriceUsd };
+    return { unitPriceUsd, totalPriceUsd, unitPriceExplicit: true };
   }
 
   if (currencyMatches.length !== 1) return null;
@@ -148,7 +148,41 @@ function parsePrices(text: string, requestedQuantity: number) {
   return {
     unitPriceUsd: Math.round((totalPriceUsd / requestedQuantity) * 100) / 100,
     totalPriceUsd,
+    unitPriceExplicit: false,
   };
+}
+
+/**
+ * OVD-776: a tier price is only trusted for the requested quantity. Any
+ * quantity the option states must match, and total ÷ each must equal the
+ * requested quantity within per-piece cent rounding. A lone price without a
+ * stated quantity cannot show which quantity it covers unless one piece was
+ * requested.
+ */
+export function xometryOfferQuantityFailure(
+  text: string,
+  prices: { unitPriceUsd: number; totalPriceUsd: number; unitPriceExplicit: boolean },
+  requestedQuantity: number,
+): { reason: "quantity_mismatch" | "quantity_unverified"; observedQuantity: number | null } | null {
+  const statedQuantities = [
+    ...text.matchAll(/\b(?:qty|quantity)\b\s*[:x]?\s*(\d+)\b/gi),
+    ...text.matchAll(/\b(\d+)\s*(?:pcs|pieces|parts|units)\b/gi),
+  ].map((match) => Number.parseInt(match[1], 10));
+  const stated = statedQuantities.find((quantity) => quantity !== requestedQuantity);
+  if (stated !== undefined) return { reason: "quantity_mismatch", observedQuantity: stated };
+
+  if (!prices.unitPriceExplicit) {
+    return requestedQuantity === 1 || statedQuantities.length > 0
+      ? null
+      : { reason: "quantity_unverified", observedQuantity: null };
+  }
+  if (prices.unitPriceUsd <= 0) return { reason: "quantity_unverified", observedQuantity: null };
+  const impliedQuantity = prices.totalPriceUsd / prices.unitPriceUsd;
+  const roundingToleranceUsd = 0.005 * requestedQuantity + 0.005;
+  if (Math.abs(prices.unitPriceUsd * requestedQuantity - prices.totalPriceUsd) > roundingToleranceUsd) {
+    return { reason: "quantity_mismatch", observedQuantity: Math.round(impliedQuantity) };
+  }
+  return null;
 }
 
 function parseLeadTime(text: string) {
@@ -299,6 +333,25 @@ export function parseXometryOfferSnapshots(input: {
         {
           vendor: "xometry",
           reason: "xometry_offer_price_missing",
+          containerSelector: snapshot.selector,
+          optionIndex: index,
+        },
+      );
+    }
+    const quantityFailure = xometryOfferQuantityFailure(snapshot.text, prices, input.requestedQuantity);
+    if (quantityFailure) {
+      throw new VendorAutomationError(
+        quantityFailure.reason === "quantity_mismatch"
+          ? "A Xometry option price is for a different quantity than requested."
+          : "A Xometry option price did not establish the requested quantity.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason: quantityFailure.reason,
+          requestedQuantity: input.requestedQuantity,
+          observedQuantity: quantityFailure.observedQuantity,
+          observedUnitPriceUsd: prices.unitPriceExplicit ? prices.unitPriceUsd : null,
+          observedTotalPriceUsd: prices.totalPriceUsd,
           containerSelector: snapshot.selector,
           optionIndex: index,
         },

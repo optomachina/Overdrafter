@@ -11,6 +11,7 @@
 --
 -- guard_class names how the function body refuses a caller it should not serve:
 --   verified-auth+membership  signed in caller, checked against org/project/job membership or own rows
+--   job-editor                verified auth plus user_can_edit_job on the target job
 --   internal-role             platform admin or internal user
 --   admin-aal2                platform admin with an AAL2 (MFA) check
 --   intended-public-read      harmless answer about the caller, readable by any signed in user
@@ -58,8 +59,8 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_admin_revoke_organization_entitlement(uuid,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
   ('public.api_admin_search_commercial_accounts(text,text,integer)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_admin_set_founding_beta_enrollment(uuid,boolean,text,text)', 'authenticated', 'admin-aal2', 'OVD-602'),
-  ('public.api_admin_set_global_kill_switch(boolean,text,bigint)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)', 'authenticated', 'internal-role', 'OVD-602'),
+  ('public.api_admin_set_global_kill_switch(boolean,text,bigint)', 'authenticated', 'admin-aal2', 'OVD-767'),
+  ('public.api_admin_set_provider_kill_switch(public.vendor_name,boolean,text,bigint)', 'authenticated', 'admin-aal2', 'OVD-767'),
   ('public.api_approve_job_requirements(uuid,jsonb)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_archive_job(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_archive_project(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
@@ -104,7 +105,9 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_prepare_organization_billing_session(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_prepare_part_intake(text,text)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_publish_quote_package(uuid,uuid,text,boolean)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_reconcile_job_parts(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
+  -- Guard comes from docs/migration-drafts/ovd-766-c.sql (option b); until that
+  -- draft is applied the 20260308113000 body checks org membership only.
+  ('public.api_reconcile_job_parts(uuid)', 'authenticated', 'job-editor', 'OVD-769'),
   ('public.api_record_manual_vendor_quote(uuid,uuid,public.vendor_name,public.vendor_status,text,text,text,jsonb,jsonb)', 'authenticated', 'internal-role', 'OVD-602'),
   ('public.api_remove_job_from_project(uuid,uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_remove_project_member(uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
@@ -119,10 +122,10 @@ insert into api_priv_definer_allowlist (sig, grantee, guard_class, issue) values
   ('public.api_request_quotes(uuid[],boolean)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_reset_client_part_property_overrides(uuid,text[])', 'authenticated', 'verified-auth+membership', 'OVD-602'),
-  ('public.api_review_export_control_block(uuid,text,text)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_select_quote_option(uuid,uuid,text)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
-  ('public.api_set_global_spend_cap(numeric,numeric,boolean)', 'authenticated', 'internal-role', 'OVD-602'),
-  ('public.api_set_job_selected_vendor_quote_offer(uuid,uuid)', 'authenticated', 'verified-auth+membership', 'OVD-602'),
+  ('public.api_review_export_control_block(uuid,text,text)', 'authenticated', 'admin-aal2', 'OVD-767'),
+  ('public.api_select_quote_option(uuid,uuid,text)', 'authenticated', 'verified-auth+membership', 'OVD-770'),
+  ('public.api_set_global_spend_cap(numeric,numeric,boolean)', 'authenticated', 'admin-aal2', 'OVD-767'),
+  ('public.api_set_job_selected_vendor_quote_offer(uuid,uuid)', 'authenticated', 'verified-auth+membership', 'OVD-770'),
   ('public.api_set_job_vendor_preferences(uuid,public.vendor_name[],public.vendor_name[])', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_set_project_vendor_preferences(uuid,public.vendor_name[],public.vendor_name[])', 'authenticated', 'verified-auth+membership', 'OVD-602'),
   ('public.api_spend_summary()', 'authenticated', 'internal-role', 'OVD-602'),
@@ -279,8 +282,8 @@ select set_eq($$ select rel from pg_temp.api_priv_public_tables() where has_tabl
 
 -- Allowlist hygiene.
 select is_empty($$ select sig || ':' || grantee from api_priv_definer_allowlist
-  where guard_class not in ('verified-auth+membership', 'internal-role', 'admin-aal2',
-    'intended-public-read', 'known-debt') or issue !~ '^OVD-[0-9]+$' $$,
+  where guard_class not in ('verified-auth+membership', 'job-editor', 'internal-role',
+    'admin-aal2', 'intended-public-read', 'known-debt') or issue !~ '^OVD-[0-9]+$' $$,
   'every allowlist row has a known guard_class and an OVD issue');
 select is_empty($$ select sig || ':' || grantee from api_priv_definer_allowlist
   where grantee in ('PUBLIC', 'anon') and guard_class <> 'known-debt' $$,

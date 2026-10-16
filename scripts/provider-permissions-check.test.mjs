@@ -439,7 +439,7 @@ describe("OVD-724 cease-and-desist playbook uses the OVD-722 switch", () => {
     const ovd722Present = await fs.access(ovd722Kill).then(() => true).catch(() => false);
     if (ovd722Present) {
       const source = await fs.readFile(ovd722Kill, "utf8");
-      expect(source).toMatch(/provider:kill|api_admin_set_provider_kill_switch/);
+      expect(source).toMatch(/provider:kill|api_service_set_provider_kill_switch/);
     }
   });
 });
@@ -802,6 +802,13 @@ describe("OVD-728 playbook structure and pending marker", () => {
     await fs.writeFile(
       path.join(temporaryRoot, OVD722_KILL_CLI_RELATIVE_PATH),
       "export const command = \"provider:kill\";\nexport const rpc = \"api_admin_set_provider_kill_switch\";\n",
+    );
+    // OVD-771: a CLI still on the admin RPC (MFA-dependent) is not the shipped brake.
+    await expect(assertOvd722KillSwitchShipped(temporaryRoot)).rejects.toThrow("does not call api_service_set_provider_kill_switch");
+
+    await fs.writeFile(
+      path.join(temporaryRoot, OVD722_KILL_CLI_RELATIVE_PATH),
+      "export const command = \"provider:kill\";\nexport const rpc = \"api_service_set_provider_kill_switch\";\n",
     );
     await fs.mkdir(path.dirname(path.join(temporaryRoot, OVD722_RPC_CLIENT_RELATIVE_PATH)), { recursive: true });
     await fs.writeFile(
