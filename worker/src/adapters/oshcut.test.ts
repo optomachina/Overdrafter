@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetProviderDailyQuoteCapsForTests } from "../providerDailyQuoteCap";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -347,6 +348,8 @@ describe("OSH Cut provider envelope", () => {
 });
 
 describe("OshcutAdapter", () => {
+  beforeEach(() => resetProviderDailyQuoteCapsForTests());
+
   it("returns unsupported guidance without invoking a provider delegate", async () => {
     const delegateQuote = vi.fn();
     const adapter = makeAdapter(delegateQuote);
@@ -479,6 +482,21 @@ describe("OshcutAdapter", () => {
       totalPriceUsd: 102.5,
     });
     expect(delegateQuote).toHaveBeenCalledExactlyOnceWith(input);
+  });
+
+  it("refuses before the production delegate once the OSH Cut daily cap is used", async () => {
+    const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
+      vendor: "oshcut", status: "instant_quote_received", unitPriceUsd: 1, totalPriceUsd: 25,
+      leadTimeBusinessDays: 3, quoteUrl: null, dfmIssues: [], notes: [], artifacts: [], rawPayload: {},
+    }));
+    const adapter = makeAdapter(delegateQuote, makeConfig({ workerMode: "live", oshcutDailyQuoteCap: 2 }));
+
+    await adapter.quote(authorizedProductionInput());
+    await adapter.quote(authorizedProductionInput());
+    await expect(adapter.quote(authorizedProductionInput())).rejects.toMatchObject({
+      payload: { reason: "provider_daily_cap_reached", cap: 2, quotesToday: 2, providerInteractionAttempted: false, retryable: false },
+    });
+    expect(delegateQuote).toHaveBeenCalledTimes(2);
   });
 
   it.each([

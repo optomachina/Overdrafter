@@ -516,6 +516,8 @@ export type WorkerConfig = {
   pollIntervalMs: number;
   quantityPricingLadder: number[];
   vendorRateLimitMs: number;
+  /** OSH Cut quotes per UTC day per worker process; defaults to 20 when absent. */
+  oshcutDailyQuoteCap?: number;
   pricingModelEnabled: boolean;
   pricingModelMinConfidence: number;
   httpHost: string;
