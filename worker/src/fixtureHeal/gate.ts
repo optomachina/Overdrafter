@@ -126,6 +126,16 @@ export function sanityInputFromOutput(output: VendorQuoteAdapterOutput, context:
   };
 }
 
+/** The internal marker is the gate's alone: whatever an adapter put there is dropped. */
+function withoutFixtureHeal(rawPayload: Record<string, unknown> | undefined): Record<string, unknown> {
+  const { fixtureHeal: _adapterMarker, ...rest } = rawPayload ?? {};
+  return rest;
+}
+
+function withoutOfferFixtureHeal(offers: VendorQuoteAdapterOffer[] | undefined): VendorQuoteAdapterOffer[] | undefined {
+  return offers?.map((offer) => (record(offer.rawPayload) ? { ...offer, rawPayload: withoutFixtureHeal(offer.rawPayload) } : offer));
+}
+
 function holdReason(verdict: SanityVerdict, context: FixtureSanityContext, supplierPaused: boolean) {
   if (verdict.verdict === "hold") return "sanity";
   if (context.internalTestQuote) return "internal_test_quote";
@@ -138,20 +148,27 @@ function holdReason(verdict: SanityVerdict, context: FixtureSanityContext, suppl
  * supplier was paused while it was in flight (by another lane).
  */
 export function applySanityVerdict(
-  output: VendorQuoteAdapterOutput,
+  adapterOutput: VendorQuoteAdapterOutput,
   verdict: SanityVerdict,
   context: FixtureSanityContext,
   checkedAt: string,
   supplierPaused = false,
 ): { output: VendorQuoteAdapterOutput; held: boolean } {
+  const offers = withoutOfferFixtureHeal(adapterOutput.offers);
+  const output: VendorQuoteAdapterOutput = {
+    ...adapterOutput,
+    ...(offers ? { offers } : {}),
+    rawPayload: withoutFixtureHeal(adapterOutput.rawPayload),
+  };
   const reason = holdReason(verdict, context, supplierPaused);
   const held = reason !== null;
   const fixtureSanity = { ...verdict, packageId: context.packageId, checkedAt, held, holdReason: reason };
+  // Set only from the verified task context, never from the adapter result.
   const fixtureHeal = context.internalTestQuote ? { fixtureHeal: { v: 1, internal: true } } : {};
   if (!held) {
     return { output: { ...output, rawPayload: { ...output.rawPayload, fixtureSanity, ...fixtureHeal } }, held };
   }
-  const { offers: _rawOffers, ...rawPayload } = output.rawPayload ?? {};
+  const { offers: _rawOffers, ...rawPayload } = output.rawPayload;
   return {
     held,
     output: {

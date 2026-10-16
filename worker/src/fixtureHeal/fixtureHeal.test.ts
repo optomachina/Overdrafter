@@ -14,7 +14,7 @@ import {
   type ProviderTaskPipelineDeps,
   type ProviderTaskPipelineInput,
 } from "../providerTaskPipeline";
-import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "../types";
+import type { VendorQuoteAdapterInput, VendorQuoteAdapterOffer, VendorQuoteAdapterOutput } from "../types";
 import { createFixtureSanityGate, FIXTURE_SANITY_HOLD_NOTE } from "./gate";
 import { createSupplierPauseSwitch, isInternalTestQuote, type FixtureHealPage } from "./pause";
 import { checkQuote, materialEchoMismatch, type PriceHistory, type SanityInput } from "./sanity";
@@ -384,6 +384,65 @@ describe("OVD-813 fixture sanity gate", () => {
     });
     // Running it did not release the pause.
     expect(pause.isPaused("fictiv")).toBe(true);
+  });
+
+  it("adapter_supplied_fixture_heal_marker_is_stripped", async () => {
+    const spoof = { fixtureHeal: { v: 9, internal: false } };
+    const offer: VendorQuoteAdapterOffer = {
+      providerOptionId: "standard",
+      providerLabel: "Standard",
+      quoteRef: "Q-1",
+      quoteUrl: "https://app.fictiv.com/quotes/abc",
+      quantity: 1,
+      unitPriceUsd: 12,
+      totalPriceUsd: 12,
+      leadTimeBusinessDays: 8,
+      shipReceiveBy: null,
+      tier: "Standard",
+      sourcing: null,
+      geographicOrigin: "unknown",
+      sortRank: 0,
+      provenance: {
+        containerSelector: ".option",
+        providerOptionIdSource: "attribute",
+        priceSource: "selector",
+        leadTimeSource: "selector",
+        geographicOriginSource: "none",
+      },
+      rawPayload: { priceText: "$12.00", ...spoof },
+    };
+    const spoofed = (echo = "6061-T6"): VendorQuoteAdapterOutput => ({
+      ...quoteOutput(12, { ...spoof, supplierEcho: { material: echo } }),
+      totalPriceUsd: 12,
+      offers: [offer],
+    });
+    const gate = createFixtureSanityGate({ history: async () => NO_HISTORY, pause: createSupplierPauseSwitch({ page: () => {} }), now: () => NOW });
+    const context = (internalTestQuote: boolean) => ({
+      provider: "fictiv",
+      vendorQuoteResultId: "result",
+      quoteRunId: "run",
+      requestedQuantity: 1,
+      requirement: { material: "6061-T6" },
+      packageId: null,
+      internalTestQuote,
+    });
+
+    // A customer quote that passes: no marker on the result or on any offer.
+    const passed = await gate(spoofed(), context(false));
+    expect(passed.held).toBe(false);
+    expect(passed.output.rawPayload).not.toHaveProperty("fixtureHeal");
+    expect(passed.output.offers?.[0].rawPayload).toEqual({ priceText: "$12.00" });
+
+    // A held customer quote: dropped from the result and from the withheld offers.
+    const held = await gate(spoofed("5052-H32"), context(false));
+    expect(held.held).toBe(true);
+    expect(held.output.rawPayload).not.toHaveProperty("fixtureHeal");
+    const withheld = (held.output.rawPayload.fixtureSanity as { withheldOffers: VendorQuoteAdapterOffer[] }).withheldOffers;
+    expect(withheld[0].rawPayload).toEqual({ priceText: "$12.00" });
+
+    // A verified internal test quote carries the gate's own marker, never the adapter's.
+    const internal = await gate(spoofed(), context(true));
+    expect(internal.output.rawPayload.fixtureHeal).toEqual({ v: 1, internal: true });
   });
 
   it("pause_while_in_flight_holds_the_result", async () => {
