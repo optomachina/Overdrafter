@@ -25,25 +25,40 @@ jobs:
         run: |
           node scripts/generate-free-quote-fixtures.mjs --check
           node --test scripts/ovd591-image-pull.node-test.mjs scripts/generate-free-quote-fixtures.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-ci-provisioner.node-test.mjs scripts/free-quote-platform-sources.node-test.mjs scripts/free-quote-psql-races.node-test.mjs
-      - name: Restore cached Supabase images
-        id: image-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/ecr-images
-          key: ecr-images-${{ hashFiles('.github/workflows/free-quote-sql-qualification.yml', 'scripts/ovd591-sql-qualification.mjs', 'scripts/free-quote-platform-sources.mjs') }}
-      - name: Load cached Supabase images
-        if: steps.image-cache.outputs.cache-hit == 'true'
-        run: for f in "$HOME"/ecr-images/*.tar; do docker load -i "$f"; done
-      - name: Qualify full139 schema, baseline126, atomicity132, free suites and eighteen races
-        run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
-      - name: Save pulled Supabase images for the cache
-        if: steps.image-cache.outputs.cache-hit != 'true'
+      # Cache keyed on the exact pinned image references. A loaded copy has no RepoDigests, so the fixture admits it only when
+      # its image ID equals the receipt recorded at save time from a real registry pull; otherwise it pulls as before.
+      - name: Resolve pinned Supabase image cache
+        id: images
         run: |
-          mkdir -p "$HOME/ecr-images"
-          docker save -o "$HOME/ecr-images/images.tar" $(node --input-type=module -e "
+          echo "OVD591_IMAGE_CACHE=$HOME/.cache/ovd591-images" >> "$GITHUB_ENV"
+          node --input-type=module -e "
             const { IMAGE } = await import('./scripts/ovd591-sql-qualification.mjs');
             const { PLATFORMS } = await import('./scripts/free-quote-platform-sources.mjs');
-            console.log([IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image].join(' '))")
+            const images = [IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image];
+            console.log('images=' + images.join(' ')); console.log('key=ovd591-ecr-v1-' + images.join('+'));" >> "$GITHUB_OUTPUT"
+      - name: Restore cached Supabase images
+        id: image-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ovd591-images
+          key: ${{ steps.images.outputs.key }}
+      - name: Load cached Supabase images
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: node scripts/ovd591-image-pull.mjs load "$OVD591_IMAGE_CACHE"
+      - name: Qualify full139 schema, baseline126, atomicity132, free suites and eighteen races
+        run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
+      - name: Receipt and save the registry-pulled Supabase images
+        id: image-save
+        if: ${{ !cancelled() && steps.image-cache.outputs.cache-hit != 'true' }}
+        env:
+          IMAGES: ${{ steps.images.outputs.images }}
+        run: if node scripts/ovd591-image-pull.mjs save "$OVD591_IMAGE_CACHE" $IMAGES; then echo "saved=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Store the Supabase image cache
+        if: ${{ !cancelled() && steps.image-save.outputs.saved == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ovd591-images
+          key: ${{ steps.images.outputs.key }}
       - name: Confirm exclusively owned cleanup
         if: always()
         shell: bash

@@ -9,12 +9,15 @@ export const PLATFORMS = Object.freeze({
   auth: { image: 'public.ecr.aws/supabase/gotrue:v2.187.0', path: '/usr/local/etc/auth/migrations', pattern: /^\d+_.+\.up\.sql$/ },
   storage: { image: 'public.ecr.aws/supabase/storage-api:v1.41.8', path: '/app/migrations/tenant', pattern: /^\d+-.+\.sql$/ },
 });
-export function admitPlatformImage(value) {
+/** provenance: pullFixtureImage's verified receipt for a cache-loaded copy, which has no RepoDigests of its own. */
+export function admitPlatformImage(value, provenance) {
   assert.match(value.Id, /^sha256:[a-f0-9]{64}$/);
   assert.equal(value.Os, 'linux'); assert.equal(value.Architecture, 'amd64');
   assert.equal(Object.keys(value.Config?.Volumes ?? {}).length, 0, 'platform image must not create anonymous volumes');
-  assert(Array.isArray(value.RepoDigests) && value.RepoDigests.length > 0, 'registry digest receipt required');
-  return { id: value.Id, os: value.Os, architecture: value.Architecture, repoDigests: value.RepoDigests };
+  const loaded = !value.RepoDigests?.length && provenance?.source === 'image-cache' && provenance.id === value.Id;
+  const repoDigests = loaded ? provenance.repoDigests : value.RepoDigests;
+  assert(Array.isArray(repoDigests) && repoDigests.length > 0, 'registry digest receipt required');
+  return { id: value.Id, os: value.Os, architecture: value.Architecture, repoDigests, ...(loaded ? { digestSource: 'image-cache' } : {}) };
 }
 export function platformCreateArgs(state, imageId) {
   assert.match(imageId, /^sha256:[a-f0-9]{64}$/);
@@ -68,10 +71,10 @@ export async function extractPlatformSources({ root, out, state, inputs, call, s
       out: directory, cleaned: false };
     state.platformSources.push(child); persist();
     try {
-      await pullFixtureImage({ call, image: spec.image, label: `${kind}-image-pull`, signal, deadline,
+      const pulled = await pullFixtureImage({ call, image: spec.image, label: `${kind}-image-pull`, signal, deadline,
         save: receipt => evidence.save(`${kind}-image-pull-attempts.json`, receipt), skipLoaded: true });
       const image = JSON.parse((await call('docker', ['image', 'inspect', spec.image], { private: true })).stdout)[0];
-      const imageReceipt = admitPlatformImage(image);
+      const imageReceipt = admitPlatformImage(image, pulled?.provenance);
       const names = (await call('docker', ['container', 'ls', '-a', '--format', '{{.Names}}'])).stdout.trim().split(/\r?\n/);
       assert(!names.includes(child.containerName), 'platform extraction name collision');
       child.containerAttempted = true; persist();

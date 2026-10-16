@@ -23,22 +23,38 @@ jobs:
           node-version: 20
       - name: Test fixture and qualification transport contracts
         run: node --test scripts/ovd591-image-pull.node-test.mjs scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs
-      - name: Restore cached Supabase images
+      # Cache keyed on the exact pinned image reference. A loaded copy has no RepoDigests, so the fixture admits it only when
+      # its image ID equals the receipt recorded at save time from a real registry pull; otherwise it pulls as before.
+      - name: Resolve pinned Supabase image cache
+        id: images
+        run: |
+          echo "OVD591_IMAGE_CACHE=$HOME/.cache/ovd591-images" >> "$GITHUB_ENV"
+          node --input-type=module -e "
+            const { IMAGE } = await import('./scripts/ovd591-sql-qualification.mjs');
+            console.log('images=' + IMAGE); console.log('key=ovd591-ecr-v1-' + IMAGE);" >> "$GITHUB_OUTPUT"
+      - name: Restore cached Supabase image
         id: image-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: ~/ecr-images
-          key: ecr-images-${{ hashFiles('.github/workflows/ovd591-qualification.yml', 'scripts/ovd591-sql-qualification.mjs') }}
-      - name: Load cached Supabase images
+          path: ~/.cache/ovd591-images
+          key: ${{ steps.images.outputs.key }}
+      - name: Load cached Supabase image
         if: steps.image-cache.outputs.cache-hit == 'true'
-        run: for f in "$HOME"/ecr-images/*.tar; do docker load -i "$f"; done
+        run: node scripts/ovd591-image-pull.mjs load "$OVD591_IMAGE_CACHE"
       - name: Provision and run actual SQL qualification
         run: node scripts/ovd591-ci-fixture.mjs run "$OVD591_EVIDENCE"
-      - name: Save pulled Supabase images for the cache
-        if: steps.image-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p "$HOME/ecr-images"
-          docker save -o "$HOME/ecr-images/images.tar" "$(node -e "import('./scripts/ovd591-sql-qualification.mjs').then(m => console.log(m.IMAGE))")"
+      - name: Receipt and save the registry-pulled Supabase image
+        id: image-save
+        if: ${{ !cancelled() && steps.image-cache.outputs.cache-hit != 'true' }}
+        env:
+          IMAGES: ${{ steps.images.outputs.images }}
+        run: if node scripts/ovd591-image-pull.mjs save "$OVD591_IMAGE_CACHE" $IMAGES; then echo "saved=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Store the Supabase image cache
+        if: ${{ !cancelled() && steps.image-save.outputs.saved == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ovd591-images
+          key: ${{ steps.images.outputs.key }}
       - name: Confirm exclusively owned cleanup
         if: always()
         shell: bash

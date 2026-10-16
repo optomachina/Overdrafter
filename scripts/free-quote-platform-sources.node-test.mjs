@@ -21,6 +21,16 @@ test('official platform image rejects volumes, foreign architecture and absent r
   admitPlatformImage(image());
   for (const patch of [{ Config: { Volumes: { '/data': {} } } }, { Architecture: 'arm64' }, { Os: 'windows' }, { RepoDigests: [] }]) assert.throws(() => admitPlatformImage({ ...image(), ...patch }));
 });
+test('a cache-loaded platform image without RepoDigests is admitted only through matching image-cache provenance', () => {
+  const digests = ['public.ecr.aws/supabase/gotrue@sha256:' + 'e'.repeat(64)], loaded = { ...image(), RepoDigests: [] };
+  assert.deepEqual(admitPlatformImage(loaded, { source: 'image-cache', id: imageId, repoDigests: digests }),
+    { id: imageId, os: 'linux', architecture: 'amd64', repoDigests: digests, digestSource: 'image-cache' });
+  for (const provenance of [undefined, { source: 'image-cache', id: 'sha256:' + 'f'.repeat(64), repoDigests: digests },
+    { source: 'registry', id: imageId, repoDigests: digests }, { source: 'image-cache', id: imageId, repoDigests: [] }]) {
+    assert.throws(() => admitPlatformImage(loaded, provenance), /registry digest receipt required/);
+  }
+  assert.deepEqual(admitPlatformImage(image(), { source: 'image-cache', id: imageId, repoDigests: digests }).repoDigests, image().RepoDigests);
+});
 test('extraction has fixed network-none containment and never receives a command to start', () => {
   const args = platformCreateArgs(state(), imageId);
   assert.equal(args[0], 'create'); assert.equal(args.at(-1), imageId);
