@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const CATEGORIES = [
   "type-safety",
@@ -66,7 +68,9 @@ export function validateFindings(findings) {
       errors.push(`${at} must be an object`);
       return;
     }
-    if (!normalizeCategory(finding.category)) errors.push(`${at}.category is required`);
+    const category = normalizeCategory(finding.category);
+    if (!category) errors.push(`${at}.category is required`);
+    else if (!CATEGORIES.includes(category)) errors.push(`${at}.category "${category}" is not in the taxonomy`);
     if (normalizePr(finding.pr) === null) errors.push(`${at}.pr must be a positive integer PR number`);
   });
   return errors;
@@ -133,12 +137,24 @@ export function formatReport({ needsTask, recategorize = [], conversion }) {
   return lines.join("\n");
 }
 
+/** Default ledger lives at the repo root, not under whatever directory the CLI was started from. */
+export function resolveDefaultLedgerPath() {
+  let root;
+  try {
+    root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    root = "";
+  }
+  if (!root) root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  return path.join(root, DEFAULT_LEDGER_PATH);
+}
+
 function readJson(path) {
   return JSON.parse(fs.readFileSync(path, "utf8"));
 }
 
 export function main(argv = process.argv.slice(2), io = { log: console.log, error: console.error }) {
-  const args = { findings: null, ledger: DEFAULT_LEDGER_PATH, json: false, failOnNeedsTask: false };
+  const args = { findings: null, ledger: null, json: false, failOnNeedsTask: false };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--findings") args.findings = argv[++i];
     else if (argv[i] === "--ledger") args.ledger = argv[++i];
@@ -157,7 +173,7 @@ export function main(argv = process.argv.slice(2), io = { log: console.log, erro
   let ledger;
   try {
     findings = readJson(args.findings);
-    ledger = readJson(args.ledger);
+    ledger = readJson(args.ledger ?? resolveDefaultLedgerPath());
   } catch (error) {
     io.error(`cannot read input: ${error.message}`);
     return 2;
