@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DesignGraph,
   createDefaultRegistry,
@@ -11,7 +11,7 @@ import {
   type ResolveDecisionResult,
 } from "../design-graph";
 import { createTestAdapter, TEST_ADAPTER_SECRET, type TestInboundRequest } from "../../src/features/jarvis/channels/test-adapter";
-import { ConversationService, NOT_AVAILABLE_REPLY } from "../../src/features/jarvis/core/conversation-service";
+import { ConversationService, NOT_AVAILABLE_REPLY, type GraphEventResult } from "../../src/features/jarvis/core/conversation-service";
 import { InMemoryJarvisRepo } from "../../src/features/jarvis/core/in-memory-repo";
 import { createFailedAttemptLimiter, createSlidingWindowLimiter } from "../../src/features/jarvis/core/rate-limiter";
 import { createChannelRegistry } from "../../src/features/jarvis/core/registry";
@@ -48,10 +48,15 @@ function request(overrides: Partial<TestInboundRequest> = {}): TestInboundReques
   return { secret: TEST_ADAPTER_SECRET, eventId: `evt-${eventSequence}`, externalUserId: "ext-blaine", text: "4 inch plate", ...overrides };
 }
 
-async function setup() {
+/** `live` wires the graph's onEvent straight to the service, the way a same-process relay would. */
+async function setup({ live = false } = {}) {
   const registry = createDefaultRegistry();
   let runs = 0;
-  const graph = new DesignGraph({ registry, clock: idleClock, createRunId: () => `run-${++runs}` });
+  const pushed: Promise<GraphEventResult>[] = [];
+  // eslint-disable-next-line prefer-const -- assigned below; the onEvent closure needs it declared first
+  let service: ConversationService | undefined;
+  const onEvent = live ? (event: DesignGraphEvent) => void pushed.push(service!.handleGraphEvent(event)) : undefined;
+  const graph = new DesignGraph({ registry, clock: idleClock, createRunId: () => `run-${++runs}`, onEvent });
   const port = createDesignGraphPort({ graph, registry });
   const repo = new InMemoryJarvisRepo();
   const test = createTestAdapter();
@@ -59,7 +64,7 @@ async function setup() {
   for (const adapter of [test, web]) repo.channelSettings.set(adapter.id, { channel: adapter.id, enabled: true, minTier: "owner" });
   repo.accessGrants.set("blaine", { userId: "blaine", tier: "owner", grantedBy: "admin", grantedAt: "2026-10-01T00:00:00Z", revokedAt: null });
   await repo.insertIdentity({ userId: "blaine", channel: "test", externalIdHash: hash("test:ext-blaine"), address: "chat-ext-blaine", revokedAt: null });
-  const service = new ConversationService({
+  service = new ConversationService({
     repo,
     graph: port,
     channels: createChannelRegistry([test, web]),
@@ -77,7 +82,7 @@ async function setup() {
   const relay = async (runId: string) => {
     for (const event of graph.getEvents(runId)) await service.handleGraphEvent(event);
   };
-  return { graph, port, repo, test, service, relay };
+  return { graph, port, repo, test, service, relay, pushed };
 }
 
 describe("Jarvis DesignGraph port against the OVD-801 graph (OVD-798 M5)", () => {
@@ -129,6 +134,25 @@ describe("Jarvis DesignGraph port against the OVD-801 graph (OVD-798 M5)", () =>
     const unroutedRun = "runId" in unrouted ? unrouted.runId : "";
     await h.graph.waitForTerminal(unroutedRun);
     await h.relay(unroutedRun);
+    expect(h.test.sent.at(-1)?.message.text).toBe(NO_AGENT_REPLY);
+  });
+
+  it("N1 live push: the graph's fast no_agent error, emitted before the run is linked, reaches the channel", async () => {
+    const h = await setup({ live: true });
+    // Linking is a network round trip in production; the graph's first events land before it commits.
+    const attachRun = h.repo.attachRun.bind(h.repo);
+    vi.spyOn(h.repo, "attachRun").mockImplementation(async (messageId, runId) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return attachRun(messageId, runId);
+    });
+    const accepted = await h.service.handleInbound("test", request({ text: "hello there" }));
+    expect(accepted).toEqual({ status: "accepted", runId: "run-1" });
+    expect(await h.graph.waitForTerminal("run-1")).toMatchObject({ state: "failed" });
+    const results = await Promise.all(h.pushed);
+    expect(results).toHaveLength(h.graph.getEvents("run-1").length);
+    expect(results.every((result) => result.status === "handled")).toBe(true);
+    expect(h.graph.getEvents("run-1").at(-1)).toMatchObject({ type: "error", code: "no_agent" });
+    expect(h.test.sent.at(0)?.message.text).toBe("Got it. Working on it.");
     expect(h.test.sent.at(-1)?.message.text).toBe(NO_AGENT_REPLY);
   });
 

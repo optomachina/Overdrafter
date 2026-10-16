@@ -6,6 +6,7 @@ import { createDefaultChannelRegistry } from "../channels";
 import { isJarvisUiEnabled, JARVIS_UI_FLAG } from "../jarvis-ui-flag";
 import {
   ConversationService,
+  DEFAULT_DECISION_CLAIM_TTL_MS,
   GENERIC_DENIAL,
   LINK_FAILED_REPLY,
   LINK_PROMPT,
@@ -14,6 +15,7 @@ import {
   NOT_AVAILABLE_REPLY,
   THROTTLED_REPLY,
   type ConversationServiceDeps,
+  type GraphEventResult,
   type InboundResult,
   type JarvisLogEntry,
 } from "./conversation-service";
@@ -422,6 +424,104 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     const cancel = request({ action: { kind: "control", runId: "run-1", command: "cancel" } });
     expect(await h.service.handleInbound("test", cancel)).toEqual({ status: "unavailable", reply: NOT_AVAILABLE_REPLY });
     expect(h.repo.controlCommands.get(JSON.stringify(["run-1", cancel.eventId]))?.status).toBe("rejected");
+  });
+
+  it("N1 events the graph emits inside submit, before the run is linked, reach the user after the acknowledgement", async () => {
+    const h = await linkedOwner();
+    // The link is a network round trip: attachRun resolves on a later macrotask.
+    const attachRun = h.repo.attachRun.bind(h.repo);
+    vi.spyOn(h.repo, "attachRun").mockImplementation(async (messageId, runId) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return attachRun(messageId, runId);
+    });
+    const handled: Promise<GraphEventResult>[] = [];
+    h.graph.submit.mockImplementationOnce((): Promise<string> => {
+      // Emitted synchronously inside submit, before it returns the runId: a fast failure.
+      handled.push(h.service.handleGraphEvent({ ...envelope("run-9"), type: "status", nodeId: "intake", state: "started", message: "Reading request" }));
+      handled.push(
+        h.service.handleGraphEvent({ ...envelope("run-9"), type: "error", nodeId: "intake", code: "no_agent", message: "no domain agent can handle this request" }),
+      );
+      return Promise.resolve("run-9");
+    });
+
+    expect(await h.service.handleInbound("test", request({ text: "hello there" }))).toEqual({ status: "accepted", runId: "run-9" });
+    expect(await Promise.all(handled)).toEqual([{ status: "handled" }, { status: "handled" }]);
+    expect(h.test.sent.map((send) => send.message.text)).toEqual(["Got it. Working on it.", "Reading request", NO_AGENT_REPLY]);
+    expect(h.web.sent.at(-1)?.message.text).toBe(NO_AGENT_REPLY);
+  });
+
+  it("N1 an event for a run with no link returns unknown_run, stores nothing, and a later retry is handled", async () => {
+    const h = await linkedOwner();
+    const messagesBefore = h.repo.messages.length;
+    expect(await h.service.handleGraphEvent(statusEvent("run-404", "orphan"))).toEqual({ status: "unknown_run" });
+    expect(h.repo.messages).toHaveLength(messagesBefore);
+    expect(h.test.sent).toHaveLength(0);
+
+    // The link write fails, so the run stays unknown until the channel's retry links it.
+    vi.spyOn(h.repo, "attachRun").mockRejectedValueOnce(new Error("db timeout"));
+    const event = request();
+    await expect(h.service.handleInbound("test", event)).rejects.toThrow("db timeout");
+    const early = statusEvent("run-1", "Modeling the plate");
+    expect(await h.service.handleGraphEvent(early)).toEqual({ status: "unknown_run" });
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(await h.service.handleGraphEvent(early)).toEqual({ status: "handled" });
+    expect(h.test.sent.map((send) => send.message.text)).toEqual(["Got it. Working on it.", "Modeling the plate"]);
+  });
+
+  it("N1 minor: a retry after the graph accepted the answer but the commit failed is accepted, not refused", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    await h.service.handleGraphEvent(decisionEvent("run-1"));
+    const answer = request({ action: { kind: "decision", decisionId: "dec-1", choice: "2" } });
+
+    // The graph accepted it; the promote failed. The graph no longer knows the decision on retry.
+    const promote = vi.spyOn(h.repo, "resolveDecision").mockRejectedValueOnce(new Error("db timeout"));
+    await expect(h.service.handleInbound("test", answer)).rejects.toThrow("db timeout");
+    h.graph.resolveDecision.mockResolvedValueOnce({ ok: false, reason: "unknown_decision" });
+    expect(await h.service.handleInbound("test", answer)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "chosen", chosen: "304 stainless", resolvedBy: "blaine" });
+    promote.mockRestore();
+
+    // The promote committed but attachRun failed: the retry sees its own resolution and never re-asks the graph.
+    await h.service.handleGraphEvent(decisionEvent("run-1", "dec-2"));
+    const second = request({ action: { kind: "decision", decisionId: "dec-2", choice: "1" } });
+    vi.spyOn(h.repo, "attachRun").mockRejectedValueOnce(new Error("db timeout"));
+    await expect(h.service.handleInbound("test", second)).rejects.toThrow("db timeout");
+    const graphCallsBefore = h.graph.resolveDecision.mock.calls.length;
+    expect(await h.service.handleInbound("test", second)).toEqual({ status: "accepted", runId: "run-1" });
+    expect(h.graph.resolveDecision).toHaveBeenCalledTimes(graphCallsBefore);
+
+    // Someone else's event answering an already-resolved decision is still refused.
+    const late = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-2", choice: "2" } }));
+    expect(late).toMatchObject({ status: "refused", reason: "already_resolved" });
+  });
+
+  it("N1 minor: a pending claim left by a crashed attempt expires after the TTL instead of wedging the decision", async () => {
+    const h = await linkedOwner();
+    await h.service.handleInbound("test", request());
+    await h.service.handleGraphEvent(decisionEvent("run-1"));
+    // A crash between claimDecision and the graph call leaves this claim behind.
+    const claimedAt = new Date(h.clock.ms).toISOString();
+    await h.repo.claimDecision("dec-1", "test:crashed", claimedAt, new Date(h.clock.ms - DEFAULT_DECISION_CLAIM_TTL_MS).toISOString());
+
+    h.clock.ms += DEFAULT_DECISION_CLAIM_TTL_MS - 1;
+    const busy = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "1" } }));
+    expect(busy).toMatchObject({ status: "refused", reason: "decision_in_progress" });
+
+    h.clock.ms += 1;
+    const taken = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "1" } }));
+    expect(taken).toEqual({ status: "accepted", runId: "run-1" });
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "chosen", chosen: "6061 aluminum", pendingKey: null });
+  });
+
+  it("N1 minor: a retried inbound event does not consume a second rate-limit token", async () => {
+    const h = await linkedOwner({ limiter: createSlidingWindowLimiter(1, 60_000) });
+    vi.spyOn(h.repo, "attachRun").mockRejectedValueOnce(new Error("db timeout"));
+    const event = request();
+    await expect(h.service.handleInbound("test", event)).rejects.toThrow("db timeout");
+    expect(await h.service.handleInbound("test", event)).toEqual({ status: "accepted", runId: "run-1" });
+    // The window's single token was spent once, by the first attempt.
+    expect(await h.service.handleInbound("test", request())).toEqual({ status: "throttled", reply: THROTTLED_REPLY });
   });
 
   it("CS-9 adding TestAdapter2 needs only a registry line (no core diff)", async () => {

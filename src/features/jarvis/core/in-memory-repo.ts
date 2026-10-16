@@ -99,6 +99,10 @@ export class InMemoryJarvisRepo implements JarvisRepo {
     return row;
   }
 
+  async findMessageByDedupeKey(dedupeKey: string) {
+    return this.messagesByDedupeKey.get(dedupeKey) ?? null;
+  }
+
   async attachRun(messageId: string, runId: string) {
     const row = this.messages.find((message) => message.id === messageId);
     if (row) row.graphRunId = runId;
@@ -120,17 +124,19 @@ export class InMemoryJarvisRepo implements JarvisRepo {
     return row ? { ...row } : null;
   }
 
-  async claimDecision(decisionId: string, pendingKey: string): Promise<DecisionClaim> {
+  async claimDecision(decisionId: string, pendingKey: string, claimedAt: string, staleBefore: string): Promise<DecisionClaim> {
     const row = this.decisions.get(decisionId);
     if (!row || row.resolution !== null) return "resolved";
-    if (row.pendingKey !== null && row.pendingKey !== pendingKey) return "busy";
+    const fresh = row.pendingAt !== null && row.pendingAt > staleBefore;
+    if (row.pendingKey !== null && row.pendingKey !== pendingKey && fresh) return "busy";
     row.pendingKey = pendingKey;
+    row.pendingAt = claimedAt;
     return "claimed";
   }
 
   async releaseDecision(decisionId: string, pendingKey: string) {
     const row = this.decisions.get(decisionId);
-    if (row?.pendingKey === pendingKey) row.pendingKey = null;
+    if (row?.pendingKey === pendingKey) Object.assign(row, { pendingKey: null, pendingAt: null });
   }
 
   async resolveDecision(
@@ -140,14 +146,14 @@ export class InMemoryJarvisRepo implements JarvisRepo {
   ) {
     const row = this.decisions.get(decisionId);
     if (!row || row.resolution !== null || row.pendingKey !== pendingKey) return false;
-    Object.assign(row, resolution, { pendingKey: null });
+    Object.assign(row, resolution, { pendingKey: null, pendingAt: null, resolvedKey: pendingKey });
     return true;
   }
 
   async recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">) {
     const row = this.decisions.get(decisionId);
     if (!row) return;
-    if (row.resolution === null) Object.assign(row, outcome, { pendingKey: null });
+    if (row.resolution === null) Object.assign(row, outcome, { pendingKey: null, pendingAt: null, resolvedKey: row.pendingKey });
     else row.rationale = outcome.rationale;
   }
 

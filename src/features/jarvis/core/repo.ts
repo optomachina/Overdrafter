@@ -65,6 +65,10 @@ export type DecisionRow = {
   resolvedAt: string | null;
   /** Inbound event currently handing a resolution to the graph; promoted to resolved on success. */
   pendingKey: string | null;
+  /** When pendingKey claimed the row; a claim older than the service's TTL can be taken over. */
+  pendingAt: string | null;
+  /** Inbound event whose claim was promoted (or whose answer the graph's event confirmed). */
+  resolvedKey: string | null;
 };
 
 export type DecisionClaim = "claimed" | "resolved" | "busy";
@@ -108,18 +112,22 @@ export interface JarvisRepo {
   getOrCreateConversation(userId: UserId): Promise<ConversationRow>;
   /** Atomic insert-or-get on UNIQUE (dedupe_key) when it is set: a conflict returns the existing row. */
   appendMessage(message: Omit<MessageRow, "id">): Promise<MessageRow>;
+  /** Lookup on UNIQUE (dedupe_key): lets a retried inbound event skip work its first attempt did. */
+  findMessageByDedupeKey(dedupeKey: string): Promise<MessageRow | null>;
   attachRun(messageId: string, runId: string): Promise<void>;
   findRunOrigin(runId: string): Promise<RunOrigin | null>;
   insertDecision(row: DecisionRow): Promise<void>;
   getDecision(decisionId: string): Promise<DecisionRow | null>;
   /**
-   * Atomically marks an unresolved decision pending for one inbound event. The same key may claim
-   * again (a retry); another key gets `busy` while it is pending and `resolved` once it is resolved.
+   * Atomically marks an unresolved decision pending for one inbound event at `claimedAt`. The same
+   * key may claim again (a retry); another key gets `busy` while a claim newer than `staleBefore`
+   * holds it (an older one is taken over, so a crashed holder cannot wedge the decision) and
+   * `resolved` once it is resolved.
    */
-  claimDecision(decisionId: string, pendingKey: string): Promise<DecisionClaim>;
+  claimDecision(decisionId: string, pendingKey: string, claimedAt: string, staleBefore: string): Promise<DecisionClaim>;
   /** Clears a pending claim after the graph call failed, so a retry or another attempt can run. */
   releaseDecision(decisionId: string, pendingKey: string): Promise<void>;
-  /** Promotes a pending claim held by pendingKey to resolved; false when that claim is not held. */
+  /** Promotes a pending claim held by pendingKey to resolved (recording it as resolvedKey); false when that claim is not held. */
   resolveDecision(
     decisionId: string,
     pendingKey: string,
@@ -128,6 +136,7 @@ export interface JarvisRepo {
   /**
    * Applies the graph's own decision_resolved outcome: fills an unresolved row (timeouts never pass
    * through the core) and always stores the graph's rationale, which is the authoritative one.
+   * Filling a row someone holds pending records that holder as resolvedKey: the graph accepted it.
    */
   recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">): Promise<void>;
   /** Atomic insert on UNIQUE (graph_run_id, idempotency_key); false on a duplicate. */

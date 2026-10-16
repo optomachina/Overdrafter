@@ -26,6 +26,7 @@ export const LINK_FAILED_REPLY = "That code didn't work. Get a new one from the 
 export const LINK_THROTTLED_REPLY = "Too many wrong codes. Try again later with a new code from the Jarvis web app.";
 
 const TIER_RANK: Record<AccessTier, number> = { paid: 1, beta: 2, owner: 3 };
+export const DEFAULT_DECISION_CLAIM_TTL_MS = 60_000;
 const SLICE_ONE_CONTROLS = new Set(["pause", "cancel"]);
 
 export type JarvisLogEntry = { readonly channel: ChannelId; readonly outcome: string; readonly reason?: string };
@@ -46,6 +47,14 @@ export type InboundResult =
   | { readonly status: "linked"; readonly reply: string }
   | { readonly status: "accepted"; readonly runId: string };
 
+/**
+ * `unknown_run` means no run-to-conversation link exists for the event's runId (yet): nothing was
+ * stored or sent, and the relay must retry the event later. The link is committed right after
+ * submit, so in another process this is transient; in this process events are held until any
+ * in-flight submit has linked its run.
+ */
+export type GraphEventResult = { readonly status: "handled" } | { readonly status: "unknown_run" };
+
 export type ConversationServiceDeps = {
   readonly repo: JarvisRepo;
   readonly graph: DesignGraph;
@@ -60,7 +69,10 @@ export type ConversationServiceDeps = {
   readonly linkAttempts: FailedAttemptLimiter;
   readonly delivery: DeliveryPolicy;
   readonly webBaseUrl: string;
+  /** Injectable clock for limits, receipts and decision claim expiry. */
   readonly now: () => Date;
+  /** A pending decision claim older than this can be taken over by another event (default 60 s). */
+  readonly decisionClaimTtlMs?: number;
   readonly log: (entry: JarvisLogEntry) => void;
 };
 
@@ -83,6 +95,11 @@ type AccessCheck = { readonly userId: UserId } | { readonly reason: string; read
  * Any throw after the claim releases it, so the channel's retry is processed.
  */
 export class ConversationService {
+  /** Submits whose run is not linked to its conversation yet; events for unknown runs wait on them. */
+  private readonly linking = new Set<Promise<void>>();
+  /** Per-run tail, so one run's events are stored and sent in the order they were handed over. */
+  private readonly runQueues = new Map<string, Promise<GraphEventResult>>();
+
   constructor(private readonly deps: ConversationServiceDeps) {}
 
   async handleInbound(channelId: ChannelId, request: unknown): Promise<InboundResult> {
@@ -114,14 +131,49 @@ export class ConversationService {
    * safe: the message row is keyed on the event's (runId, seq), decision writes are idempotent, and
    * each (message, channel) delivery is claimed once, so a redelivered event or a retry after a
    * partial fan-out never sends a channel the same message twice.
+   *
+   * The graph may emit during or right after `submit`, before the run is linked to its
+   * conversation. Such an event waits for in-flight submits in this process to link their runs;
+   * if the run is still unknown it returns `unknown_run` (nothing stored or sent) and the relay
+   * retries it. Callers may fire this without awaiting it, but never inside `submit` with an await.
    */
-  async handleGraphEvent(event: GraphEvent): Promise<void> {
-    const origin = await this.deps.repo.findRunOrigin(event.runId);
-    if (!origin) return;
+  handleGraphEvent(event: GraphEvent): Promise<GraphEventResult> {
+    const previous = this.runQueues.get(event.runId) ?? Promise.resolve<GraphEventResult>({ status: "handled" });
+    const current = previous.catch(() => undefined).then(() => this.processGraphEvent(event));
+    this.runQueues.set(event.runId, current);
+    const forget = () => {
+      if (this.runQueues.get(event.runId) === current) this.runQueues.delete(event.runId);
+    };
+    current.then(forget, forget);
+    return current;
+  }
+
+  private async processGraphEvent(event: GraphEvent): Promise<GraphEventResult> {
+    const origin = await this.findRunOrigin(event.runId);
+    if (!origin) return { status: "unknown_run" };
     const message = await this.appendOutbound(origin, event);
     if (event.type === "decision_requested") await this.deps.repo.insertDecision(decisionRow(event, message.id));
     if (event.type === "decision_resolved") await this.deps.repo.recordDecisionOutcome(event.decisionId, decisionOutcome(event));
     await this.fanOut(origin, message, event);
+    return { status: "handled" };
+  }
+
+  private async findRunOrigin(runId: string): Promise<RunOrigin | null> {
+    const origin = await this.deps.repo.findRunOrigin(runId);
+    if (origin || this.linking.size === 0) return origin;
+    await Promise.allSettled([...this.linking]);
+    return this.deps.repo.findRunOrigin(runId);
+  }
+
+  /** Marks a submit in flight until the returned function runs (after its run is linked and acknowledged). */
+  private trackLink(): () => void {
+    let release = () => {};
+    const linked = new Promise<void>((resolve) => (release = resolve));
+    this.linking.add(linked);
+    return () => {
+      this.linking.delete(linked);
+      release();
+    };
   }
 
   /**
@@ -172,7 +224,9 @@ export class ConversationService {
     const externalIdHash = this.externalIdHash(adapter.id, message.externalUserId);
     const access = await this.checkAccess(adapter.id, externalIdHash, settings.minTier);
     if (!("userId" in access)) return this.finish(adapter.id, { status: "denied", reply: access.reply }, access.reason);
-    if (!this.deps.rateLimiter.tryAcquire(access.userId, this.deps.now().getTime())) {
+    // A retry of an event whose first attempt was admitted (and appended) already paid its token.
+    const retry = await this.deps.repo.findMessageByDedupeKey(inboundDedupeKey(adapter.id, message.idempotencyKey));
+    if (!retry && !this.deps.rateLimiter.tryAcquire(access.userId, this.deps.now().getTime())) {
       await this.deps.repo.releaseInboundEvent(adapter.id, message.idempotencyKey);
       return this.finish(adapter.id, { status: "throttled", reply: THROTTLED_REPLY });
     }
@@ -201,7 +255,7 @@ export class ConversationService {
       kind: message.action?.kind ?? "text",
       body: { text: message.text, action: message.action ?? null },
       graphRunId: null,
-      dedupeKey: `in:${adapter.id}:${message.idempotencyKey}`,
+      dedupeKey: inboundDedupeKey(adapter.id, message.idempotencyKey),
     });
     const origin = { userId: admitted.userId, conversationId: conversation.id, channel: adapter.id };
     return { ...admitted, origin, inbound };
@@ -219,18 +273,25 @@ export class ConversationService {
     if (message.agent && this.deps.graph.agentAvailability(message.agent) !== "enabled") {
       return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, "agent_not_enabled");
     }
-    // A retry whose earlier attempt already reached the graph reuses that run; otherwise the
-    // graph's idempotency key dedupes a submit whose runId never got attached.
-    const runId =
-      routed.inbound.graphRunId ??
-      (await this.deps.graph.submit(
-        { prompt: message.text, ...(message.agent ? { domain: message.agent } : {}) },
-        { userId: origin.userId, conversationId: origin.conversationId, idempotencyKey: eventKey(origin.channel, message.idempotencyKey) },
-      ));
-    await this.deps.repo.attachRun(routed.inbound.id, runId);
-    const event: OutboundEvent = { type: "run_accepted", runId };
-    await this.fanOut(origin, await this.appendOutbound(origin, event), event);
-    return this.finish(origin.channel, { status: "accepted", runId });
+    // Events the graph emits before the run is linked wait on this, so even a fast failure reaches
+    // the user, after the acknowledgement.
+    const linked = this.trackLink();
+    try {
+      // A retry whose earlier attempt already reached the graph reuses that run; otherwise the
+      // graph's idempotency key dedupes a submit whose runId never got attached.
+      const runId =
+        routed.inbound.graphRunId ??
+        (await this.deps.graph.submit(
+          { prompt: message.text, ...(message.agent ? { domain: message.agent } : {}) },
+          { userId: origin.userId, conversationId: origin.conversationId, idempotencyKey: eventKey(origin.channel, message.idempotencyKey) },
+        ));
+      await this.deps.repo.attachRun(routed.inbound.id, runId);
+      const event: OutboundEvent = { type: "run_accepted", runId };
+      await this.fanOut(origin, await this.appendOutbound(origin, event), event);
+      return this.finish(origin.channel, { status: "accepted", runId });
+    } finally {
+      linked();
+    }
   }
 
   private async routeDecision(routed: Routed, action: Extract<InboundAction, { kind: "decision" }>): Promise<InboundResult> {
@@ -242,9 +303,18 @@ export class ConversationService {
     if (!choice) return this.refuse(origin.channel, "invalid_choice");
     // Pending -> promote: the resolution is committed only after the graph accepts it.
     const pendingKey = eventKey(origin.channel, routed.message.idempotencyKey);
-    const claim = await this.deps.repo.claimDecision(decision.id, pendingKey);
-    if (claim === "resolved") return this.refuse(origin.channel, "already_resolved");
+    const nowMs = this.deps.now().getTime();
+    const ttlMs = this.deps.decisionClaimTtlMs ?? DEFAULT_DECISION_CLAIM_TTL_MS;
+    const claim = await this.deps.repo.claimDecision(decision.id, pendingKey, new Date(nowMs).toISOString(), new Date(nowMs - ttlMs).toISOString());
+    if (claim === "resolved") {
+      // Resolved by this same event's earlier attempt (or the graph's event confirmed its answer).
+      const current = await this.deps.repo.getDecision(decision.id);
+      if (current?.resolvedKey === pendingKey) return this.acceptDecision(routed, decision);
+      return this.refuse(origin.channel, "already_resolved");
+    }
     if (claim === "busy") return this.refuse(origin.channel, "decision_in_progress");
+    // Our claim survived an earlier attempt, so the graph may already hold this answer.
+    const retried = decision.pendingKey === pendingKey;
     let accepted: Awaited<ReturnType<DesignGraph["resolveDecision"]>>;
     try {
       accepted = await this.deps.graph.resolveDecision(decision.graphRunId, decision.id, choice.answer);
@@ -252,7 +322,7 @@ export class ConversationService {
       await this.deps.repo.releaseDecision(decision.id, pendingKey);
       throw error;
     }
-    if ("reason" in accepted) {
+    if ("reason" in accepted && !(retried && accepted.reason === "unknown_decision")) {
       await this.deps.repo.releaseDecision(decision.id, pendingKey);
       return this.refuse(origin.channel, `graph_${accepted.reason}`);
     }
@@ -261,8 +331,12 @@ export class ConversationService {
       resolvedBy: origin.userId,
       resolvedAt: this.deps.now().toISOString(),
     });
+    return this.acceptDecision(routed, decision);
+  }
+
+  private async acceptDecision(routed: Routed, decision: DecisionRow): Promise<InboundResult> {
     await this.deps.repo.attachRun(routed.inbound.id, decision.graphRunId);
-    return this.finish(origin.channel, { status: "accepted", runId: decision.graphRunId });
+    return this.finish(routed.origin.channel, { status: "accepted", runId: decision.graphRunId });
   }
 
   private async routeControl(routed: Routed, action: Extract<InboundAction, { kind: "control" }>): Promise<InboundResult> {
@@ -351,6 +425,7 @@ export class ConversationService {
 }
 
 const eventKey = (channel: ChannelId, idempotencyKey: string) => `${channel}:${idempotencyKey}`;
+const inboundDedupeKey = (channel: ChannelId, idempotencyKey: string) => `in:${channel}:${idempotencyKey}`;
 
 type ResolvedChoice = {
   readonly answer: GraphDecisionAnswer;
@@ -388,5 +463,7 @@ function decisionRow(event: Extract<GraphEvent, { type: "decision_requested" }>,
     resolvedBy: null,
     resolvedAt: null,
     pendingKey: null,
+    pendingAt: null,
+    resolvedKey: null,
   };
 }

@@ -47,17 +47,40 @@ so the retry works.
 - Every write after the claim is idempotent per event. The inbound message is insert-or-get on
   `in:<channel>:<event id>`. A retry reuses a run already attached to that row, and the graph port
   dedupes `submit` on the same key.
+- A retry of an event whose first attempt was already admitted (its inbound row exists) does not
+  take another rate-limit token.
 - Decisions are pending -> promote. `claimDecision` marks the row pending for one inbound event, and
   the resolution is committed only after `graph.resolveDecision` accepts it. A throw or a graph
   refusal releases the claim. Another event gets `decision_in_progress` while it is pending.
+  A claim older than `decisionClaimTtlMs` (default 60 s, measured on the injected `now` clock) can
+  be taken over, so an attempt that crashed between the claim and the graph call cannot wedge the
+  decision. The promoted row records the event that resolved it (`resolvedKey`). If the graph
+  accepted the answer but a later write failed, the retry treats the graph's `unknown_decision`
+  (its claim is still held) or the already-resolved row (`resolvedKey` is its own key) as success
+  rather than refusing it.
 - Control commands are stored `pending`, re-sent while still `pending` on a retry of the same event,
   and promoted to `queued` (or `rejected`) on the graph's answer.
 - Graph events are deduped on `(runId, seq)`: the outbound message row is insert-or-get on
   `out:<runId>:<seq>`, and each `(message, channel)` delivery is claimed once. A replayed event, or
   a retry after a partial fan-out, never sends a channel the same message twice.
+- The run-to-conversation link is written right after `submit` returns, but the graph may emit
+  first: OVD-801 starts the run on the next microtask and fails fast (`no_agent`) without awaiting
+  anything. In one process, `handleGraphEvent` holds an event for an unlinked run until every
+  in-flight submit has linked its run and sent its acknowledgement, then handles it. Events for one
+  run are handled in the order they were handed over.
 - A skipped decision records the best guess with a rationale. The graph's own `decision_resolved`
   event then stores its authoritative rationale, and fills timeouts, which never pass through the
   core.
+
+### Graph event contract
+
+`handleGraphEvent(event)` resolves to `{ status: "handled" }` once the event is stored and fanned
+out, or `{ status: "unknown_run" }` when no conversation is linked to `event.runId` after in-flight
+submits settle. `unknown_run` stores and sends nothing. The relay must keep the event and retry it
+with backoff (the link commits moments after `submit`, or on the channel's retry if that write
+failed), and it may give up after a bounded time. Replays are always safe, so retrying a whole run's
+log is fine. A thrown error is also retryable. The graph may call `handleGraphEvent` without
+awaiting it, but must not await it from inside `submit`.
 
 ### Replies to the sender
 
@@ -128,12 +151,12 @@ npx vitest run src/features/jarvis --maxWorkers=2 --coverage --coverage.include=
 
 The in-memory repo assumes these, and the OVD-797 draft needs them before the Supabase repo lands:
 `messages.dedupe_key` (UNIQUE, nullable), `channel_identities.address` (encrypted at rest),
-`decisions.pending_key`, and a `pending` value for `control_commands.status`.
+`decisions.pending_key`, `decisions.pending_at`, `decisions.resolved_key`, and a `pending` value for `control_commands.status`.
 
 ## Not in this change
 
 The Supabase `JarvisRepo` (after OVD-797 is approved), the production relay that forwards OVD-801
-events to `handleGraphEvent` in order (replays are safe), real
+events to `handleGraphEvent` in order and retries `unknown_run` (replays are safe), real
 channel adapters (OVD-803 web, OVD-807 Slack, OVD-808 Telegram, OVD-809 iMessage), link-code
 issuance from an AAL2 session (OVD-806), resume and steer (OVD-812), and the per-user cap of 3
 concurrent graph runs, which needs run-completion events from OVD-801.

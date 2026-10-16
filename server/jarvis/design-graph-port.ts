@@ -16,6 +16,10 @@ export type DesignGraphPortOptions = {
  * inbound event that already reached the graph gets the same run back. This map is per process;
  * the durable guard is the core's inbound message row, which keeps the runId once attached.
  * OVD-801 has no control surface yet, so `control` reports `unsupported`.
+ *
+ * OVD-801 starts a run on the microtask after `submit` and can emit (even a terminal `error`)
+ * before the core has linked the runId to its conversation. The core holds such events until the
+ * link commits (ConversationService.handleGraphEvent), so `onEvent` may push straight to it.
  */
 export function createDesignGraphPort({ graph, registry }: DesignGraphPortOptions): DesignGraph {
   const runsByKey = new Map<string, string>();
