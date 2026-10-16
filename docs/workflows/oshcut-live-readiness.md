@@ -169,3 +169,11 @@ Selector findings (the v1 locator table does NOT match the live DOM)
 Consequence: the `configure` hook and `OSHCUT_PRODUCTION_LOCATORS` need a new revision
 (material slideover + thickness pick, cart-row price cells) before certification; with the
 current table every live attempt ends in `selector_drift`, never an inferred price.
+
+## Test-part cleanup rule (Blaine)
+
+Every live capture and certification run must remove the test parts it uploaded
+to the OSH Cut cart once the capture is done, and confirm the cart is empty
+again. Remove only the run's own parts and touch nothing else in the account.
+The 2026-10-15 capture's test plate was removed from `/cart/O-97bd2644-a03a-4232-a714`
+and the cart was confirmed empty.
