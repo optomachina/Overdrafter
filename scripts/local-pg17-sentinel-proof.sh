@@ -176,7 +176,7 @@ expect_sentinel_refusal() {
   set -e
   after="$(snapshot)"
   writes_after="$(attempted_writes)"
-  echo "  seed exit $status: $(grep -m1 'ERROR' <<<"$output" || echo "$output" | head -1)"
+  echo "  seed exit $status: $(grep -m1 'ERROR' <<<"$output" || echo "$output" | head -1)" >&2
   echo "  user tables snapshotted: $(wc -l <<<"$before"), rows: $(awk '{s += $2} END {print s}' <<<"$before") before, $(awk '{s += $2} END {print s}' <<<"$after") after"
   echo "  attempted row writes (pg_stat_user_tables): $writes_before before, $writes_after after"
   if [[ $status -ne 0 ]] && grep -q 'STAGING_SENTINEL_MISSING' <<<"$output"; then
@@ -332,7 +332,9 @@ fi
 echo
 echo "== case 6: static tests"
 set +e
-(cd "$ROOT" && npx vitest run --maxWorkers=2 scripts/staging-sentinel.test.mjs scripts/seed-staging.test.mjs 2>&1) | tee "$WORK/vitest.out" | grep -E '✓|✗|×|Test Files|Tests '
+VITEST_BIN="$ROOT/node_modules/.bin/vitest"
+if [[ ! -x "$VITEST_BIN" ]]; then echo "FAIL case 6: $VITEST_BIN missing; run npm ci first" >&2; exit 1; fi
+(cd "$ROOT" && "$VITEST_BIN" run --maxWorkers=2 scripts/staging-sentinel.test.mjs scripts/seed-staging.test.mjs 2>&1) | tee "$WORK/vitest.out" | grep -E '✓|✗|×|Test Files|Tests '
 vitest_status=${PIPESTATUS[0]}
 set -e
 if [[ $vitest_status -eq 0 ]]; then pass "case 6: static tests"; else fail "case 6: static tests (vitest exit $vitest_status)"; fi
