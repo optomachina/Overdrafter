@@ -112,14 +112,17 @@ function declaredFailureTerminalState(
 }
 
 /**
- * An undeclared failure on a visible, settled quote page (one offering
- * "Continue to Checkout") stopped before ordering because the saved
- * configuration needs attention, so it is a finite configuration stop.
+ * An undeclared Xometry saved_requirement_mismatch failure on a visible,
+ * settled quote page (one offering "Continue to Checkout") stopped before
+ * ordering because the saved configuration needs attention, so it is a finite
+ * configuration stop. Other failures can show the same footer mid-analysis.
  */
 function quoteReadyFailureTerminalState(
   payload: Readonly<Record<string, unknown>>,
 ): ProviderPortalTerminalState | null {
   return payload.terminalState === undefined
+    && payload.vendor === "xometry"
+    && payload.reason === "saved_requirement_mismatch"
     && typeof payload.bodyExcerpt === "string"
     && QUOTE_READY_PAGE_PATTERN.test(payload.bodyExcerpt)
     ? "configuration_required"

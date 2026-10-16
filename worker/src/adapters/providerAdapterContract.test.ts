@@ -474,6 +474,21 @@ describe("provider adapter contract harness", () => {
     )).violations).toEqual(["finite_terminal_state_missing"]);
   });
 
+  it.each(["upload_timeout", "browser_crashed"])(
+    "does not accept an unrelated %s failure that shows the quote footer",
+    (reason) => {
+      expect(evaluateProviderAdapterFailureContract(new VendorAutomationError(
+        "failed",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason,
+          bodyExcerpt: "Analyzing geometry ... Continue to Checkout",
+        },
+      )).violations).toEqual(["finite_terminal_state_missing"]);
+    },
+  );
+
   it("rejects unclassified or priced failures", () => {
     expect(evaluateProviderAdapterFailureContract(new Error("boom")).ok).toBe(false);
     expect(evaluateProviderAdapterFailureContract(new VendorAutomationError(
