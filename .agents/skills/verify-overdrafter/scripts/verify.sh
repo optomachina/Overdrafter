@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Drive the real Overdrafter app with Playwright and capture evidence.
 # Usage: verify.sh [--mode fixture|local] [--features auth,quote,provider]
-#                  [--prepare] [--doctor] [--dry-run] [-- <extra playwright args>]
+#                  [--prepare] [--doctor] [--dry-run] [--out DIR] [-- <extra playwright args>]
+# VERIFY_APP_ROOT drives a different checkout with this harness (CI uses the
+# base harness against the PR head, see ../run).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../../../.." && pwd)"
+ROOT="$(cd "${VERIFY_APP_ROOT:-$HERE/../../../..}" && pwd)"
 cd "$ROOT"
 
-MODE=fixture FEATURES=auth,quote,provider PREPARE=0 DOCTOR=0 DRY=0
+MODE=fixture FEATURES=auth,quote,provider PREPARE=0 DOCTOR=0 DRY=0 OUT=
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="$2"; shift 2 ;;
@@ -16,6 +18,7 @@ while [ $# -gt 0 ]; do
     --prepare) PREPARE=1; shift ;;
     --doctor) DOCTOR=1; shift ;;
     --dry-run) DRY=1; shift ;;
+    --out) OUT="$2"; shift 2 ;;
     --) shift; break ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -55,8 +58,7 @@ else
   GREP=(--grep-invert @fixture)
 fi
 
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT="artifacts/verify-overdrafter/$STAMP"
+[ -n "$OUT" ] || OUT="artifacts/verify-overdrafter/$(date -u +%Y%m%dT%H%M%SZ)"
 CMD=(npx playwright test "${SPECS[@]}" "${GREP[@]}" --reporter=list,json --output "$OUT/test-results" "$@")
 echo "command: PLAYWRIGHT_JSON_OUTPUT_NAME=$OUT/playwright-report.json ${CMD[*]}"
 [ "$DRY" = 1 ] && exit 0

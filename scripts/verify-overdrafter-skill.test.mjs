@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,7 +37,7 @@ describe("verify-overdrafter skill structure", () => {
         expect(existsSync(path.join(root, spec)), spec).toBe(true);
       }
     }
-    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs"]) {
+    for (const s of ["scripts/verify.sh", "scripts/feature-specs.mjs", "run"]) {
       expect(existsSync(path.join(skillDir, s)), s).toBe(true);
       expect(read("SKILL.md")).toContain(s);
     }
@@ -47,6 +47,24 @@ describe("verify-overdrafter skill structure", () => {
   it("keeps evidence gitignored and the skill listed in AGENTS.md", () => {
     expect(readFileSync(path.join(root, ".gitignore"), "utf8")).toContain("/artifacts/verify-overdrafter/");
     expect(readFileSync(path.join(root, "AGENTS.md"), "utf8")).toContain("`verify-overdrafter`");
+  });
+
+  it("drives another app root into a fixed evidence dir", () => {
+    const out = execFileSync(path.join(skillDir, "scripts/verify.sh"), ["--features", "quote", "--dry-run", "--out", "/tmp/vo-out"], {
+      env: { ...process.env, VERIFY_APP_ROOT: root },
+      encoding: "utf8",
+    });
+    expect(out).toContain("PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/vo-out/playwright-report.json");
+    expect(out).toContain("e2e/quote-comparison.spec.ts");
+  });
+
+  it("CI judges the PR head with the base harness, read-only and without secrets", () => {
+    const wf = readFileSync(path.join(root, ".github/workflows/verify.yml"), "utf8");
+    expect(wf).toContain("bash base/.agents/skills/verify-overdrafter/run --app-root head");
+    expect(wf).toContain("node base/scripts/verify-result-judge.mjs --expected-sha \"$HEAD_SHA\"");
+    expect(wf).toMatch(/^permissions:\n {2}contents: read\n\n/m);
+    expect(wf).not.toMatch(/\$\{\{\s*secrets\.|pull_request_target|: write/);
+    expect(wf).toContain("VERIFY_MODE: report");
   });
 });
 

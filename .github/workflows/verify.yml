@@ -1,0 +1,182 @@
+name: Verify
+
+# Runs the verify-overdrafter skill (OVD-843, epic OVD-840) against the PR head
+# on a local stack: supabase start, npm run build, then the Playwright journeys
+# the feature map names, in fixture and local mode. Synthetic fixtures only; no
+# hosted credentials or secrets. This is not a required check.
+#
+# The app under test is the PR head (./head). The harness entrypoint
+# (.agents/skills/verify-overdrafter/run, its feature map) and the judge
+# (scripts/verify-result-judge.mjs) come from the base checkout (./base), so a
+# PR cannot change which journeys run or how they are judged. When the base has
+# no harness yet the verdict is FAIL, with a summary that says so.
+#
+# Fails closed: a missing harness, a skipped, cancelled, timed-out or
+# test.fail() journey, a mapped spec with no journeys, a missing result file or
+# a tested SHA other than the head SHA is FAIL. Evidence (verify-result.json,
+# manifests, Playwright JSON, traces, screenshots, videos) is uploaded as an
+# artifact either way.
+#
+# VERIFY_MODE=report (default) marks the verdict in the job summary and an
+# annotation but exits 0; step failures before the judge do not fail the job.
+# Switch it to enforce to fail the job on FAIL.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  merge_group:
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERIFY_MODE: report
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+
+    steps:
+      - name: Checkout PR head (app under test)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: head
+          persist-credentials: false
+
+      - name: Checkout base (harness and judge)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          persist-credentials: false
+
+      - name: Check base harness
+        id: harness
+        run: |
+          if [ -f base/.agents/skills/verify-overdrafter/run ] && [ -f base/scripts/verify-result-judge.mjs ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::error title=Verify::Base $BASE_SHA has no verify harness (.agents/skills/verify-overdrafter/run and scripts/verify-result-judge.mjs). Verdict: FAIL."
+          fi
+
+      - name: Setup Supabase CLI
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
+        with:
+          version: 2.78.1
+
+      - name: Setup Node.js
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: head/package-lock.json
+
+      - name: Install root dependencies
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: head
+        run: npm ci --ignore-scripts
+
+      - name: Resolve Playwright version
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        id: playwright-version
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: head
+        run: |
+          version="$(node -p "require('playwright/package.json').version")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Chromium
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: head
+        run: |
+          node ./node_modules/playwright/cli.js install --with-deps chromium
+          test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version
+
+      - name: Build app
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: head
+        run: npm run build
+
+      - name: Start local Supabase
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: head
+        run: npm run db:start
+
+      - name: Run feature-map journeys (base harness, head app)
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        timeout-minutes: 25
+        run: bash base/.agents/skills/verify-overdrafter/run --app-root head --out verify-out
+
+      - name: Judge result (base judge)
+        if: ${{ always() && steps.harness.outputs.present == 'true' }}
+        run: |
+          mkdir -p verify-out
+          node base/scripts/verify-result-judge.mjs --expected-sha "$HEAD_SHA" \
+            --out verify-out/verify-result.json verify-out/fixture verify-out/local \
+            > verify-out/summary.md || true
+          cat verify-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload verify evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-evidence-${{ env.HEAD_SHA }}
+          path: verify-out/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Apply verdict
+        if: ${{ always() }}
+        env:
+          HARNESS_PRESENT: ${{ steps.harness.outputs.present }}
+        run: |
+          result=verify-out/verify-result.json
+          judged=false
+          if [ "$HARNESS_PRESENT" != true ]; then
+            verdict=FAIL; why="base $BASE_SHA has no verify harness"
+          elif [ ! -f "$result" ]; then
+            verdict=FAIL; why="verify-result.json missing"
+          elif [ "$(jq -r .expectedSha "$result")" != "$HEAD_SHA" ]; then
+            verdict=FAIL; why="verify-result.json is not for head $HEAD_SHA"
+          else
+            judged=true
+            verdict="$(jq -r '.verdict // "FAIL"' "$result")"
+            why="$(jq -r '.reasons[:5] | join("; ")' "$result")"
+          fi
+          if [ "$verdict" = PASS ]; then
+            echo "verify: PASS at $HEAD_SHA"
+            exit 0
+          fi
+          [ "$judged" = true ] || printf '## verify-overdrafter: FAIL\n\n%s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$VERIFY_MODE" = enforce ]; then
+            echo "::error title=Verify::FAIL at $HEAD_SHA: $why"
+            exit 1
+          fi
+          echo "::warning title=Verify::FAIL at $HEAD_SHA (report mode, not failing the job): $why"
