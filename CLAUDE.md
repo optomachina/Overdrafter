@@ -4,4 +4,4 @@ Follow `AGENTS.md` as the repository execution contract and the applicable produ
 
 For UI work, read `docs/DESIGN.md`. For verification and handoff, follow `docs/agent-development-control-plane.md`.
 
-Agent routing: see docs/agent-graph/graph.v1.yaml (canonical).
+Agent routing: see docs/agent-graph/graph.v1.yaml (canonical, draft).

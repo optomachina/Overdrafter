@@ -1,4 +1,4 @@
-# Canonical OverDrafter agent graph. Tool-neutral; runtimes read this via thin adapters.
+# Canonical (DRAFT v1; schema validation and edge semantics still to define). OverDrafter agent graph. Tool-neutral; runtimes read this via thin adapters.
 # Prose rules stay in AGENTS.md; this file holds the routable structure. Change = docs PR + root countersign.
 schema: overdrafter.agent-graph/v1
 version: 1.0.0-draft
@@ -11,6 +11,7 @@ nodes:
   designer:     {role: writer,    runtimes: [claude-code, codex], skill: verify-overdrafter-design}
   qa:           {role: verifier,  must_not_author: true, skill: overdrafter-qa-verification}
   release:      {role: release,   skill: architect-release-proof}
+  merge-gate:   {role: gate}
   reviewers:
     sonnet: {family: anthropic, when: always}
     opus:   {family: anthropic, when: [jev-risky, sensitive-paths]}
@@ -26,7 +27,8 @@ verdicts:
   qa:        {values: [PASS, PASS_NOTES, FAIL], bound_to: head_sha, voided_by: new_sha, rebase_reuse: patch-id-equal}
   readiness: {type: enum, values: [READY, CONFLICTS, OPEN_THREADS, CHECKS_PENDING, CHECKS_FAILED, GATE_BLOCKED]}  # OVD-845
 merge_gate:
-  requires: [ci_green, jev_not_risky, review_no_open_findings, qa_PASS_at_head, readiness_READY]
+  requires: [ci_green, review_no_open_findings, qa_PASS_or_PASS_NOTES_at_head, readiness_READY]
+  auto_merge_also_requires: [jev_not_risky, allowlisted_paths_only]
   forbid: [author_as_verifier, babysit_as_authorization]
   landing: {order: bottom-up, scope: contiguous-verified-run, read_back: required}
   auto_merge_allowlist: AGENTS.md#approval-timing-and-low-risk-auto-merge-blaine-2026-10-14
