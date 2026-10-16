@@ -66,6 +66,18 @@ describe("config", () => {
     );
   });
 
+  it("rejects a SQL rule token that is an upper-case letter or mixed-case word", () => {
+    const bad = structuredClone(rawConfig);
+    const next = bad.sql_content.rules.length;
+    bad.sql_content.rules.push({ id: "upper_rule", class: "rls", tokens: ["A", "Set"], reason: "x" });
+    expect(compileConfig(bad).errors).toEqual(
+      expect.arrayContaining([
+        `sql_content.rules[${next}].tokens has invalid keyword "A"`,
+        `sql_content.rules[${next}].tokens has invalid keyword "Set"`,
+      ]),
+    );
+  });
+
   it("supports the documented glob and keyword syntax", () => {
     expect(globToRegExp("**/token{,s}.{json,ts}").test("a/b/tokens.ts")).toBe(true);
     expect(globToRegExp("**/token{,s}.{json,ts}").test("token.json")).toBe(true);
@@ -300,6 +312,18 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     ["Create Role\n\tReader\n\tNoBypassRls\n\tNOLOGIN;", "rls_nobypassrls"],
     ["DO $$ BEGIN ALTER ROLE x BYPASSRLS; END $$;", "rls_bypassrls"],
     ["do $body$ begin perform set_config('row_security', 'off', true); end $body$;", "rls_set_config_row_security"],
+    // Review round 1: quoted names, named arguments and extra parentheses.
+    ['SET "row_security" = off;', "rls_set_row_security"],
+    ['SET SESSION "row_security" TO off;', "rls_set_session_row_security"],
+    ['SET LOCAL "ROW_SECURITY" TO off;', "rls_set_local_row_security"],
+    ['RESET "row_security";', "rls_reset_row_security"],
+    ["select \"set_config\"('row_security','off',true);", "rls_set_config_row_security"],
+    ["select pg_catalog.\"set_config\"('row_security','off',true);", "rls_set_config_row_security"],
+    ["select set_config(setting_name => 'row_security', new_value => 'off', is_local => true);", "rls_row_security"],
+    ["select set_config(new_value => 'off', is_local => true, setting_name => 'row_security');", "rls_row_security"],
+    ["select set_config(('row_security'), 'off', true);", "rls_row_security"],
+    ["select set_config('row_security'::text, 'off', true);", "rls_row_security"],
+    ["select current_setting('row_security');", "rls_row_security"],
   ])("%s -> rls (%s)", (text, id) => {
     const result = sql(text);
     expect(result.classes).toEqual(["rls"]);
@@ -312,6 +336,26 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     ["set local role service_role;", "auth_set_local_role"],
     ["SET SESSION AUTHORIZATION admin;", "auth_set_session_authorization"],
     ["select set_config('role', 'service_role', true);", "auth_set_config_role"],
+    ["set session role postgres;", "auth_set_session_role"],
+    ["set local session authorization admin;", "auth_set_local_session_authorization"],
+    ["select set_config('session_authorization', 'admin', false);", "auth_set_config_session_authorization"],
+    // Review round 1: quoted names, named arguments, extra parentheses and RESET.
+    ["SET \"role\" TO 'service_role';", "auth_set_role"],
+    ["set local \"Role\" service_role;", "auth_set_local_role"],
+    ['SET SESSION "authorization" admin;', "auth_set_session_authorization"],
+    ["select \"set_config\"('role', 'service_role', true);", "auth_set_config_role"],
+    ["select pg_catalog.\"set_config\"('role', 'service_role', true);", "auth_set_config_role"],
+    ["select set_config(('role'), 'service_role', true);", "auth_set_config_paren_role"],
+    ["select set_config(setting_name => 'role', new_value => 'service_role', is_local => true);", "auth_set_config_named_role"],
+    ["select set_config(new_value => 'service_role', is_local => true, setting_name => 'role');", "auth_set_config_named_role"],
+    ["select set_config(setting_name := 'role', new_value := 'service_role', is_local := true);", "auth_set_config_named_role_legacy"],
+    ["select set_config(setting_name => 'session_authorization', new_value => 'admin', is_local => false);", "auth_session_authorization"],
+    ["select set_config(('session_authorization'), 'admin', false);", "auth_session_authorization"],
+    ["RESET ROLE;", "auth_reset_role"],
+    ['reset "role";', "auth_reset_role"],
+    ["RESET SESSION AUTHORIZATION;", "auth_reset_session_authorization"],
+    ["reset all;", "auth_reset_all"],
+    ["do $$ begin execute 'reset role'; end $$;", "auth_reset_role"],
   ])("%s -> auth (%s)", (text, id) => {
     const result = sql(text);
     expect(result.classes).toEqual(["auth"]);
@@ -324,6 +368,11 @@ describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
     ["alter table t add column row_security_note text;"],
     ["update t set row_security_note = 'x';"],
     ["select current_setting('row_security_note');"],
+    ['select "row_security_note" from t;'],
+    ['alter table t add column "row security" text;'],
+    ["select set_config('search_path', 'pg_catalog', true);"],
+    ["select set_config('request.jwt.claims', jsonb_build_object('role', 'authenticated')::text, true);"],
+    ["create role reader;"],
   ])("no false positive: %s", (text) => {
     expect(sql(text).classes).toEqual([]);
   });
