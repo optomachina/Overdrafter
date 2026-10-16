@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # CI entrypoint (OVD-843). Runs this skill's harness and feature map against the
 # app checked out at --app-root, one evidence directory per mode under --out:
-#   run --app-root DIR --out DIR [--features auth,quote,provider] [--modes fixture,local]
-# Local mode needs the local Supabase stack already started (it runs --prepare).
+#   run --app-root DIR --out DIR [--features auth,quote,provider] [--modes fixture,local] [--dry-run]
+# Local mode always runs verify.sh --prepare (db reset, seed, auth states), so it
+# needs the local Supabase stack already started; there is no way to skip it.
+# --dry-run is passed through to verify.sh (prints each mode's command only).
 # Exits non-zero if any mode failed; the pass/fail verdict comes from
 # scripts/verify-result-judge.mjs, never from this exit code alone.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_ROOT= OUT= FEATURES=auth,quote,provider MODES=fixture,local
+APP_ROOT= OUT= FEATURES=auth,quote,provider MODES=fixture,local DRY=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --app-root) APP_ROOT="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --features) FEATURES="$2"; shift 2 ;;
     --modes) MODES="$2"; shift 2 ;;
+    --dry-run) DRY=(--dry-run); shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -28,6 +31,6 @@ for mode in "${modes[@]}"; do
   extra=()
   [ "$mode" = local ] && extra=(--prepare)
   VERIFY_APP_ROOT="$APP_ROOT" "$HERE/scripts/verify.sh" \
-    --mode "$mode" --features "$FEATURES" --out "$OUT/$mode" "${extra[@]}" || code=1
+    --mode "$mode" --features "$FEATURES" --out "$OUT/$mode" "${extra[@]}" "${DRY[@]}" || code=1
 done
 exit "$code"

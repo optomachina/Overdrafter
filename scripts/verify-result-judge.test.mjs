@@ -7,9 +7,12 @@ import { describe, expect, it, vi } from "vitest";
 import { collectJourneys, judge, main, parseManifest } from "./verify-result-judge.mjs";
 
 const SHA = "a".repeat(40);
+const FEATURES = ["quote"];
 
-const manifest = ({ sha = SHA, code = 0, specs = "e2e/intake.spec.ts e2e/journeys/jarvis.spec.ts" } = {}) =>
-  ["mode: local", "features: quote", `specs: ${specs}`, "command: npx playwright test", `git head: ${sha}`, `exit code: ${code}`, "verdict: PASS"].join("\n");
+// Same lines verify.sh writes; scripts/verify-overdrafter-skill.test.mjs feeds a
+// manifest produced by verify.sh itself through the judge.
+const manifest = ({ sha = SHA, tree = "clean", code = 0, mode = "local", features = "quote", specs = "e2e/intake.spec.ts e2e/sourcing-destination.spec.ts" } = {}) =>
+  [`mode: ${mode}`, `features: ${features}`, `specs: ${specs}`, "command: npx playwright test", `git head: ${sha} (${tree} tree)`, "tests: passed=3", `exit code: ${code}`, "verdict: PASS"].join("\n");
 
 const test = (status = "passed", extra = {}) => ({
   projectName: "",
@@ -32,19 +35,20 @@ const report = (intakeStatus = "passed", extra = {}) => JSON.stringify({
       }],
     },
     {
-      title: "journeys/jarvis.spec.ts",
-      file: "journeys/jarvis.spec.ts",
-      specs: [{ title: "front door", file: "journeys/jarvis.spec.ts", tests: [test("passed")] }],
+      title: "sourcing-destination.spec.ts",
+      file: "sourcing-destination.spec.ts",
+      specs: [{ title: "client picks a destination", file: "sourcing-destination.spec.ts", tests: [test("passed")] }],
     },
   ],
   errors: [],
 });
 
 const run = (over = {}) => ({ label: "local", manifestText: manifest(), reportText: report(), ...over });
+const judgeOne = (over = {}, opts = {}) => judge({ runs: [run(over)], expectedSha: SHA, features: FEATURES, ...opts });
 
 describe("verify-result-judge", () => {
   it("passes a clean run at the expected SHA", () => {
-    const result = judge({ runs: [run()], expectedSha: SHA });
+    const result = judgeOne();
     expect(result.reasons).toEqual([]);
     expect(result.verdict).toBe("PASS");
     expect(result.headShas).toEqual([SHA]);
@@ -53,7 +57,7 @@ describe("verify-result-judge", () => {
   });
 
   it("fails a broken journey and names it", () => {
-    const result = judge({ runs: [run({ reportText: report("failed") })], expectedSha: SHA });
+    const result = judgeOne({ reportText: report("failed") });
     expect(result.verdict).toBe("FAIL");
     expect(result.failingJourneys).toEqual(["local: intake.spec.ts › intake flow › client requests a quote (failed)"]);
   });
@@ -63,44 +67,60 @@ describe("verify-result-judge", () => {
     ["timedOut", "timedOut"],
     ["interrupted", "cancelled"],
   ])("fails a %s journey", (status, label) => {
-    const result = judge({ runs: [run({ reportText: report(status) })], expectedSha: SHA });
+    const result = judgeOne({ reportText: report(status) });
     expect(result.verdict).toBe("FAIL");
     expect(result.reasons).toContain(`local: ${label}: intake.spec.ts › intake flow › client requests a quote`);
   });
 
   it("fails test.fail() and flaky journeys instead of counting them as verified", () => {
-    const expectedFailure = judge({ runs: [run({ reportText: report("failed", { expectedStatus: "failed", status: "expected" }) })], expectedSha: SHA });
+    const expectedFailure = judgeOne({ reportText: report("failed", { expectedStatus: "failed", status: "expected" }) });
     expect(expectedFailure.verdict).toBe("FAIL");
     expect(expectedFailure.failingJourneys[0]).toMatch(/expected-failure/);
-    const flaky = judge({ runs: [run({ reportText: report("passed", { status: "flaky" }) })], expectedSha: SHA });
+    const flaky = judgeOne({ reportText: report("passed", { status: "flaky" }) });
     expect(flaky.failingJourneys[0]).toMatch(/\(flaky\)$/);
   });
 
   it("fails on a missing report, a missing manifest or invalid JSON", () => {
-    expect(judge({ runs: [run({ reportText: null })], expectedSha: SHA }).reasons).toContain("local: playwright-report.json missing");
-    expect(judge({ runs: [run({ manifestText: null })], expectedSha: SHA }).reasons).toContain("local: manifest.txt missing");
-    expect(judge({ runs: [run({ reportText: "{" })], expectedSha: SHA }).verdict).toBe("FAIL");
-    expect(judge({ runs: [], expectedSha: SHA }).verdict).toBe("FAIL");
+    expect(judgeOne({ reportText: null }).reasons).toContain("local: playwright-report.json missing");
+    expect(judgeOne({ manifestText: null }).reasons).toContain("local: manifest.txt missing");
+    expect(judgeOne({ reportText: "{" }).verdict).toBe("FAIL");
+    expect(judge({ runs: [], expectedSha: SHA, features: FEATURES }).verdict).toBe("FAIL");
   });
 
   it("fails on a SHA mismatch or no expected SHA", () => {
-    const mismatch = judge({ runs: [run({ manifestText: manifest({ sha: "b".repeat(40) }) })], expectedSha: SHA });
+    const mismatch = judgeOne({ manifestText: manifest({ sha: "b".repeat(40) }) });
     expect(mismatch.verdict).toBe("FAIL");
     expect(mismatch.reasons[0]).toMatch(/SHA mismatch/);
-    expect(judge({ runs: [run()], expectedSha: null }).verdict).toBe("FAIL");
+    expect(judgeOne({}, { expectedSha: null }).verdict).toBe("FAIL");
+  });
+
+  it("fails a dirty tree and a manifest that drifts from the base feature map", () => {
+    expect(judgeOne({ manifestText: manifest({ tree: "dirty" }) }).reasons).toEqual(["local: tested tree was dirty, not clean at the head SHA"]);
+    const dropped = judgeOne({ manifestText: manifest({ specs: "e2e/intake.spec.ts" }) });
+    expect(dropped.reasons).toEqual(["local: manifest specs differ from the base feature map (e2e/intake.spec.ts e2e/sourcing-destination.spec.ts)"]);
+    expect(judgeOne({ manifestText: manifest({ features: "auth" }) }).verdict).toBe("FAIL");
+    expect(judgeOne({ manifestText: manifest({ mode: "fixture" }) }).reasons).toContain("local: manifest mode is fixture");
+  });
+
+  it("fails when the recorded harness hash is missing or differs from the base harness", () => {
+    expect(judgeOne({}, { harness: { expected: "h1", recorded: "h1" } }).verdict).toBe("PASS");
+    expect(judgeOne({}, { harness: { expected: "h1", recorded: "h2" } }).reasons[0]).toMatch(/harness changed/);
+    expect(judgeOne({}, { harness: { expected: "h1", recorded: null } }).verdict).toBe("FAIL");
   });
 
   it("fails when a mapped spec ran no journeys, playwright exited non-zero, or reported errors", () => {
-    const missingSpec = judge({ runs: [run({ manifestText: manifest({ specs: "e2e/intake.spec.ts e2e/gone.spec.ts" }) })], expectedSha: SHA });
-    expect(missingSpec.reasons).toEqual(["local: no journeys ran for e2e/gone.spec.ts"]);
-    expect(judge({ runs: [run({ manifestText: manifest({ code: 1 }) })], expectedSha: SHA }).reasons).toEqual(["local: playwright exit code 1"]);
+    const noJourneys = JSON.stringify({ ...JSON.parse(report()), suites: JSON.parse(report()).suites.slice(0, 1) });
+    expect(judgeOne({ reportText: noJourneys }).reasons).toEqual(["local: no journeys ran for e2e/sourcing-destination.spec.ts"]);
+    expect(judgeOne({ manifestText: manifest({ code: 1 }) }).reasons).toEqual(["local: playwright exit code 1"]);
     const errored = JSON.stringify({ ...JSON.parse(report()), errors: [{ message: "webServer exited\nstack" }] });
-    expect(judge({ runs: [run({ reportText: errored })], expectedSha: SHA }).reasons).toEqual(["local: playwright error: webServer exited"]);
+    expect(judgeOne({ reportText: errored }).reasons).toEqual(["local: playwright error: webServer exited"]);
   });
 
   it("parses verify.sh manifests and flattens nested suites", () => {
-    expect(parseManifest(manifest())).toMatchObject({ mode: "local", gitHead: SHA, exitCode: 0, specs: ["e2e/intake.spec.ts", "e2e/journeys/jarvis.spec.ts"] });
-    expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "journeys/jarvis.spec.ts"]);
+    expect(parseManifest(manifest())).toMatchObject({ mode: "local", gitHead: SHA, tree: "clean", exitCode: 0, specs: ["e2e/intake.spec.ts", "e2e/sourcing-destination.spec.ts"] });
+    expect(parseManifest(manifest({ tree: "dirty" })).tree).toBe("dirty");
+    expect(parseManifest("git head: not-a-sha (clean tree)").gitHead).toBeNull();
+    expect(collectJourneys(JSON.parse(report())).map((j) => j.file)).toEqual(["intake.spec.ts", "intake.spec.ts", "sourcing-destination.spec.ts"]);
   });
 
   it("CLI writes verify-result.json and exits non-zero on FAIL", () => {
@@ -111,10 +131,12 @@ describe("verify-result-judge", () => {
     writeFileSync(path.join(evidence, "playwright-report.json"), report());
     const out = path.join(dir, "verify-result.json");
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    expect(main(["--expected-sha", SHA, "--out", out, evidence])).toBe(0);
+    expect(main(["--expected-sha", SHA, "--features", "quote", "--out", out, evidence])).toBe(0);
     expect(JSON.parse(readFileSync(out, "utf8")).verdict).toBe("PASS");
-    expect(main(["--expected-sha", SHA, "--out", out, evidence, path.join(dir, "fixture")])).toBe(1);
+    expect(main(["--expected-sha", SHA, "--features", "quote", "--out", out, evidence, path.join(dir, "fixture")])).toBe(1);
     expect(JSON.parse(readFileSync(out, "utf8")).reasons).toContain("fixture: manifest.txt missing");
     expect(write).toHaveBeenCalledWith(expect.stringContaining("verify-overdrafter: FAIL"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(main(["--expected-sha", SHA, "--features", "bogus", "--out", out, evidence])).toBe(2);
   });
 });

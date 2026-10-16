@@ -40,6 +40,6 @@ Playwright stops the dev server it started. Stop Supabase only if you started it
 ## Helpers
 - `scripts/verify.sh`: doctor, launch, drive and evidence (above).
 - `scripts/feature-specs.mjs`: prints the spec list for a feature set (`node scripts/feature-specs.mjs auth,quote`); used by `verify.sh` and the structure test.
-- `run`: CI entrypoint (`.github/workflows/verify.yml`, OVD-843). `run --app-root head --out verify-out` drives another checkout (`VERIFY_APP_ROOT`) with this harness in fixture then local mode, one evidence dir per mode. The verdict comes from the repo's `scripts/verify-result-judge.mjs`, which fails closed on skipped, `test.fail()`, timed-out or cancelled journeys, a missing report and a head SHA mismatch. CI takes both from the base checkout.
+- `run`: CI entrypoint (`.github/workflows/verify.yml`, OVD-843). `run --app-root head --out verify-out` drives another checkout (`VERIFY_APP_ROOT`) with this harness in fixture then local mode (local always gets `--prepare`), one evidence dir per mode; `--dry-run` prints the commands. The verdict comes from the repo's `scripts/verify-result-judge.mjs`, which fails closed on skipped, `test.fail()`, timed-out or cancelled journeys, a missing report, a dirty tree, a head SHA mismatch and a spec list that differs from this feature map. CI runs the journeys in one job and judges in a second job that checks out only the base.
 
 Structure is checked by `npx vitest run scripts/verify-overdrafter-skill.test.mjs --maxWorkers=2`.

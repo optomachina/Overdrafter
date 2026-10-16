@@ -5,21 +5,33 @@ name: Verify
 # the feature map names, in fixture and local mode. Synthetic fixtures only; no
 # hosted credentials or secrets. This is not a required check.
 #
-# The app under test is the PR head (./head). The harness entrypoint
-# (.agents/skills/verify-overdrafter/run, its feature map) and the judge
-# (scripts/verify-result-judge.mjs) come from the base checkout (./base), so a
-# PR cannot change which journeys run or how they are judged. When the base has
-# no harness yet the verdict is FAIL, with a summary that says so.
+# Two jobs, so PR code never shares a filesystem with the judge:
+# - run: checks out the PR head (./head, the app under test) and the base
+#   (./base, the harness entrypoint .agents/skills/verify-overdrafter/run and its
+#   feature map), hashes the base harness right before the journeys, runs them
+#   and uploads the raw evidence.
+# - judge: checks out only the base, downloads the evidence and judges it with
+#   the base scripts/verify-result-judge.mjs. The spec list each mode must cover
+#   comes from the base feature map, and the harness hash recorded by the run job
+#   must match the base harness, so a PR cannot change which journeys count or
+#   how they are judged. When the base has no harness yet the verdict is FAIL,
+#   with a summary that says so.
+#
+# Known limits: the journeys are PR code, so a PR can still forge its own
+# Playwright report or tamper with the harness and restore it before the hash
+# step. For pull_request events this workflow file itself also comes from the
+# PR merge ref. The split stops the PR from rewriting the judge or the verdict;
+# it is not full isolation of untrusted tests.
 #
 # Fails closed: a missing harness, a skipped, cancelled, timed-out or
-# test.fail() journey, a mapped spec with no journeys, a missing result file or
-# a tested SHA other than the head SHA is FAIL. Evidence (verify-result.json,
-# manifests, Playwright JSON, traces, screenshots, videos) is uploaded as an
-# artifact either way.
+# test.fail() journey, a mapped spec with no journeys, a missing result file, a
+# dirty tree or a tested SHA other than the head SHA is FAIL. Evidence
+# (manifests, Playwright JSON, traces, screenshots, videos) and
+# verify-result.json are uploaded as artifacts either way.
 #
 # VERIFY_MODE=report (default) marks the verdict in the job summary and an
-# annotation but exits 0; step failures before the judge do not fail the job.
-# Switch it to enforce to fail the job on FAIL.
+# annotation but exits 0, and every run-job step after the harness check is
+# continue-on-error. Switch it to enforce to fail the jobs on FAIL.
 
 on:
   pull_request:
@@ -36,25 +48,22 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  VERIFY_MODE: report
+  VERIFY_FEATURES: auth,quote,provider
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+
 jobs:
-  verify:
-    name: verify
+  verify-run:
+    name: verify (run journeys at head)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      VERIFY_MODE: report
-      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+    outputs:
+      harness_sha256: ${{ steps.harness-hash.outputs.sha256 }}
 
     steps:
-      - name: Checkout PR head (app under test)
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.HEAD_SHA }}
-          path: head
-          persist-credentials: false
-
-      - name: Checkout base (harness and judge)
+      - name: Checkout base (harness)
         uses: actions/checkout@v5
         with:
           ref: ${{ env.BASE_SHA }}
@@ -64,21 +73,32 @@ jobs:
       - name: Check base harness
         id: harness
         run: |
-          if [ -f base/.agents/skills/verify-overdrafter/run ] && [ -f base/scripts/verify-result-judge.mjs ]; then
+          if [ -f base/.agents/skills/verify-overdrafter/run ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::error title=Verify::Base $BASE_SHA has no verify harness (.agents/skills/verify-overdrafter/run and scripts/verify-result-judge.mjs). Verdict: FAIL."
+            echo "::error title=Verify::Base $BASE_SHA has no verify harness (.agents/skills/verify-overdrafter/run). Verdict: FAIL."
           fi
+
+      - name: Checkout PR head (app under test)
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: head
+          persist-credentials: false
 
       - name: Setup Supabase CLI
         if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0
         with:
           version: 2.78.1
 
       - name: Setup Node.js
         if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -102,7 +122,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
-        if: ${{ steps.harness.outputs.present == 'true' }}
+        if: ${{ steps.harness.outputs.present == 'true' && steps.playwright-version.outputs.version != '' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -128,27 +149,93 @@ jobs:
         working-directory: head
         run: npm run db:start
 
+      # Same command as the judge job; the judge compares the two.
+      - name: Hash base harness
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        id: harness-hash
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
+        working-directory: base/.agents/skills/verify-overdrafter
+        run: echo "sha256=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Run feature-map journeys (base harness, head app)
         if: ${{ steps.harness.outputs.present == 'true' }}
         continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         timeout-minutes: 25
-        run: bash base/.agents/skills/verify-overdrafter/run --app-root head --out verify-out
-
-      - name: Judge result (base judge)
-        if: ${{ always() && steps.harness.outputs.present == 'true' }}
         run: |
-          mkdir -p verify-out
-          node base/scripts/verify-result-judge.mjs --expected-sha "$HEAD_SHA" \
-            --out verify-out/verify-result.json verify-out/fixture verify-out/local \
-            > verify-out/summary.md || true
-          cat verify-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          code=0
+          bash base/.agents/skills/verify-overdrafter/run --app-root head --out verify-out --features "$VERIFY_FEATURES" || code=$?
+          git -C head status --porcelain > verify-out/head-status.txt
+          exit "$code"
 
-      - name: Upload verify evidence
-        if: ${{ always() }}
+      - name: Upload raw evidence
+        if: ${{ always() && steps.harness.outputs.present == 'true' }}
+        continue-on-error: ${{ env.VERIFY_MODE != 'enforce' }}
         uses: actions/upload-artifact@v4
         with:
           name: verify-evidence-${{ env.HEAD_SHA }}
           path: verify-out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  verify-judge:
+    name: verify
+    needs: verify-run
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout base (judge)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: base
+          persist-credentials: false
+
+      - name: Check base harness
+        id: harness
+        run: |
+          if [ -f base/.agents/skills/verify-overdrafter/run ] && [ -f base/scripts/verify-result-judge.mjs ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            cd base/.agents/skills/verify-overdrafter
+            echo "sha256=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download raw evidence
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: verify-evidence-${{ env.HEAD_SHA }}
+          path: evidence
+
+      - name: Setup Node.js
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Judge result (base judge)
+        if: ${{ steps.harness.outputs.present == 'true' }}
+        env:
+          HARNESS_SHA256: ${{ steps.harness.outputs.sha256 }}
+          HARNESS_RECORDED: ${{ needs.verify-run.outputs.harness_sha256 }}
+        run: |
+          mkdir -p result
+          node base/scripts/verify-result-judge.mjs --expected-sha "$HEAD_SHA" --features "$VERIFY_FEATURES" \
+            --harness-sha256 "$HARNESS_SHA256" --harness-recorded "$HARNESS_RECORDED" \
+            --out result/verify-result.json evidence/fixture evidence/local \
+            > result/summary.md || true
+          cat result/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload verify result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-result-${{ env.HEAD_SHA }}
+          path: result/
           retention-days: 14
           if-no-files-found: warn
 
@@ -157,14 +244,16 @@ jobs:
         env:
           HARNESS_PRESENT: ${{ steps.harness.outputs.present }}
         run: |
-          result=verify-out/verify-result.json
+          # Workflow-command escaping (core.escapeData): journey names come from PR specs.
+          escape() { local s="${1//%/%25}"; s="${s//$'\r'/%0D}"; printf '%s' "${s//$'\n'/%0A}"; }
+          result=result/verify-result.json
           judged=false
           if [ "$HARNESS_PRESENT" != true ]; then
-            verdict=FAIL; why="base $BASE_SHA has no verify harness"
+            verdict=FAIL; why="base $BASE_SHA has no verify harness (.agents/skills/verify-overdrafter/run and scripts/verify-result-judge.mjs)"
           elif [ ! -f "$result" ]; then
             verdict=FAIL; why="verify-result.json missing"
-          elif [ "$(jq -r .expectedSha "$result")" != "$HEAD_SHA" ]; then
-            verdict=FAIL; why="verify-result.json is not for head $HEAD_SHA"
+          elif ! jq -e --arg sha "$HEAD_SHA" '.headShas == [$sha]' "$result" > /dev/null; then
+            verdict=FAIL; why="evidence was not tested at head $HEAD_SHA (headShas: $(jq -c .headShas "$result"))"
           else
             judged=true
             verdict="$(jq -r '.verdict // "FAIL"' "$result")"
@@ -175,6 +264,7 @@ jobs:
             exit 0
           fi
           [ "$judged" = true ] || printf '## verify-overdrafter: FAIL\n\n%s\n' "$why" >> "$GITHUB_STEP_SUMMARY"
+          why="$(escape "$why")"
           if [ "$VERIFY_MODE" = enforce ]; then
             echo "::error title=Verify::FAIL at $HEAD_SHA: $why"
             exit 1
