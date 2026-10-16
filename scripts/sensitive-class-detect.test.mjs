@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CONFIG_PATH,
   MAX_FILES,
+  MAX_SQL_WORDS,
   classifyPath,
   classifySql,
   compileConfig,
@@ -322,6 +323,33 @@ describe("detect", () => {
     const result = await detect({ files: [modified("supabase/fixtures/missing.sql")], readHeadFile, config });
     expect(result.status).toBe("error");
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
+  });
+
+  describe("oversized SQL bodies", () => {
+    const file = "supabase/fixtures/big.sql";
+    const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });
+
+    it("scans a body just under the limit normally", async () => {
+      const result = await run(MAX_SQL_WORDS);
+      expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 0, unclassified: [file] });
+      expect(result.manual_review).toBeUndefined();
+    });
+
+    it("fails closed with a size message when the body is over the limit", async () => {
+      const result = await run(MAX_SQL_WORDS + 1);
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.files[0].classes).toEqual(config.classes.map((entry) => entry.name).filter((name) => config.sqlContent.rules.some((rule) => rule.class === name)));
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: ${MAX_SQL_WORDS + 1} words exceeds the limit of ${MAX_SQL_WORDS}; manual review is required`,
+      ]);
+    });
+
+    it("is deterministic across runs", async () => {
+      const first = await run(MAX_SQL_WORDS + 1);
+      expect(await run(MAX_SQL_WORDS + 1)).toEqual(first);
+    });
   });
 });
 
