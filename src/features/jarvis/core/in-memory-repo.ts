@@ -115,11 +115,18 @@ export class InMemoryJarvisRepo implements JarvisRepo {
     return row ? { ...row } : null;
   }
 
-  async resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "resolvedBy" | "resolvedAt">) {
+  async resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">) {
     const row = this.decisions.get(decisionId);
     if (!row || row.resolution !== null) return false;
     Object.assign(row, resolution);
     return true;
+  }
+
+  async recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">) {
+    const row = this.decisions.get(decisionId);
+    if (!row) return;
+    if (row.resolution === null) Object.assign(row, outcome);
+    else row.rationale = outcome.rationale;
   }
 
   async insertControlCommand(row: ControlCommandRow) {

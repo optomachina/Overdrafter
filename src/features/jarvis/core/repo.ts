@@ -1,4 +1,4 @@
-import type { AccessTier, ChannelId, ControlKind, DecisionOption, DecisionResolution, UserId } from "./types";
+import type { AccessTier, ChannelId, ControlKind, UserId } from "./types";
 
 // Row shapes mirror the OVD-797 draft (docs/migration-drafts/ovd-795-jarvis-channels.sql).
 
@@ -39,12 +39,14 @@ export type MessageRow = {
   graphRunId: string | null;
 };
 
+export type DecisionResolution = "chosen" | "skipped_best_guess" | "timeout_best_guess";
+
 export type DecisionRow = {
   id: string;
   messageId: string;
   graphRunId: string;
   graphNode: string;
-  options: readonly DecisionOption[];
+  options: readonly string[];
   bestGuess: string;
   resolution: DecisionResolution | null;
   chosen: string | null;
@@ -95,7 +97,12 @@ export interface JarvisRepo {
   insertDecision(row: DecisionRow): Promise<void>;
   getDecision(decisionId: string): Promise<DecisionRow | null>;
   /** Resolves only an unresolved decision; false when it was already resolved. */
-  resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "resolvedBy" | "resolvedAt">): Promise<boolean>;
+  resolveDecision(decisionId: string, resolution: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedBy" | "resolvedAt">): Promise<boolean>;
+  /**
+   * Applies the graph's own decision_resolved outcome: fills an unresolved row (timeouts never pass
+   * through the core) and always stores the graph's rationale, which is the authoritative one.
+   */
+  recordDecisionOutcome(decisionId: string, outcome: Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt">): Promise<void>;
   /** Atomic insert on UNIQUE (graph_run_id, idempotency_key); false on a duplicate. */
   insertControlCommand(row: ControlCommandRow): Promise<boolean>;
   /** Atomic insert on UNIQUE (message_id, channel); false when that delivery already exists. */

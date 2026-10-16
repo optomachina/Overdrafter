@@ -18,7 +18,7 @@ import { deliver } from "./delivery";
 import { InMemoryJarvisRepo } from "./in-memory-repo";
 import { createSlidingWindowLimiter } from "./rate-limiter";
 import { createChannelRegistry } from "./registry";
-import { renderEvent } from "./render";
+import { NO_AGENT_REPLY, renderEvent, RUN_FAILED_REPLY } from "./render";
 import type { AccessTier, DesignGraph, GraphEvent } from "./types";
 
 const START = Date.parse("2026-10-15T12:00:00.000Z");
@@ -37,9 +37,10 @@ function setup(options: HarnessOptions = {}) {
   const repo = new InMemoryJarvisRepo();
   let runs = 0;
   const graph = {
-    submit: vi.fn<DesignGraph["submit"]>(async () => ({ runId: `run-${++runs}` })),
-    resolveDecision: vi.fn<DesignGraph["resolveDecision"]>(async () => undefined),
-    control: vi.fn<DesignGraph["control"]>(async () => undefined),
+    submit: vi.fn<DesignGraph["submit"]>(async () => `run-${++runs}`),
+    resolveDecision: vi.fn<DesignGraph["resolveDecision"]>(async () => ({ ok: true })),
+    control: vi.fn<DesignGraph["control"]>(async () => ({ ok: true })),
+    agentAvailability: vi.fn<DesignGraph["agentAvailability"]>((agent) => (agent === "cad" ? "enabled" : "disabled")),
   };
   const test = createTestAdapter(options.test);
   const web = createTestAdapter({ id: "web", testOnly: false });
@@ -55,7 +56,6 @@ function setup(options: HarnessOptions = {}) {
     hash,
     uiEnabled: options.uiEnabled ?? true,
     testEnvironment: options.testEnvironment ?? true,
-    enabledAgents: new Set(["cad"]),
     rateLimiter: options.limiter ?? createSlidingWindowLimiter(),
     delivery: { maxAttempts: 3, baseDelayMs: 100, sleep: async (ms) => void sleeps.push(ms) },
     webBaseUrl: WEB_BASE,
@@ -88,18 +88,33 @@ async function linkedOwner(options: HarnessOptions = {}): Promise<Harness> {
 const graphCalls = (h: Harness) => h.graph.submit.mock.calls.length + h.graph.resolveDecision.mock.calls.length + h.graph.control.mock.calls.length;
 const inboundCount = (h: Harness) => h.repo.messages.filter((message) => message.direction === "in").length;
 
+// Graph events in the OVD-801 shape; every event carries its (runId, seq) identity.
+let graphSeq = 0;
+const envelope = (runId: string) => ({ runId, seq: ++graphSeq, at: START });
+
 const decisionEvent = (runId: string, decisionId = "dec-1"): GraphEvent => ({
+  ...envelope(runId),
   type: "decision_requested",
-  runId,
   decisionId,
   nodeId: "concept_picks",
   question: "Which material?",
-  options: [
-    { id: "opt-a", label: "6061 aluminum" },
-    { id: "opt-b", label: "304 stainless" },
-  ],
-  recommended: "opt-a",
-  bestGuess: "opt-a",
+  options: ["6061 aluminum", "304 stainless"],
+  recommended: "6061 aluminum",
+  bestGuess: "6061 aluminum",
+  timeoutMs: 300_000,
+});
+
+const statusEvent = (runId: string, message: string): GraphEvent => ({ ...envelope(runId), type: "status", nodeId: "domain_agent", state: "info", message });
+
+const artifactEvent = (runId: string, kind: "glb" | "step" | "png", uri: string): GraphEvent => ({
+  ...envelope(runId),
+  type: "artifact",
+  nodeId: "domain_agent",
+  agentId: "cad",
+  kind,
+  name: `plate.${kind}`,
+  mimeType: "model/gltf-binary",
+  uri,
 });
 
 describe("Jarvis ConversationService (OVD-798)", () => {
@@ -109,7 +124,8 @@ describe("Jarvis ConversationService (OVD-798)", () => {
 
     expect(result).toEqual({ status: "accepted", runId: "run-1" });
     expect(h.graph.submit).toHaveBeenCalledTimes(1);
-    expect(h.graph.submit.mock.calls[0][0]).toMatchObject({ userId: "blaine", text: "4 inch plate" });
+    expect(h.graph.submit.mock.calls[0][0]).toEqual({ prompt: "4 inch plate" });
+    expect(h.graph.submit.mock.calls[0][1]).toMatchObject({ userId: "blaine", idempotencyKey: expect.stringMatching(/^test:evt-/) });
     expect(inboundCount(h)).toBe(1);
     expect(h.repo.messages[0]).toMatchObject({ direction: "in", channel: "test", graphRunId: "run-1" });
     expect(h.test.sent).toHaveLength(1);
@@ -212,7 +228,7 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     const h = await linkedOwner({ test: { capabilities: { buttons: false, model3d: false } } });
     await h.service.handleInbound("test", request());
     await h.service.handleGraphEvent(decisionEvent("run-1"));
-    await h.service.handleGraphEvent({ type: "artifact", runId: "run-1", format: "glb", url: "https://cdn.example/plate.glb" });
+    await h.service.handleGraphEvent(artifactEvent("run-1", "glb", "https://cdn.example/plate.glb"));
 
     const [, decision, artifact] = h.test.sent.map((send) => send.message);
     expect(decision.buttons).toBeUndefined();
@@ -222,7 +238,7 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(artifact).toEqual({ text: "Your GLB is ready. Open it on the web.", link: `${WEB_BASE}/runs/run-1` });
 
     const [, webDecision, webArtifact] = h.web.sent.map((send) => send.message);
-    expect(webDecision.buttons?.map((button) => button.id)).toEqual(["opt-a", "opt-b", "skip"]);
+    expect(webDecision.buttons?.map((button) => button.id)).toEqual(["6061 aluminum", "304 stainless", "skip"]);
     expect(webArtifact.model3dUrl).toBe("https://cdn.example/plate.glb");
   });
 
@@ -267,26 +283,58 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     expect(createDefaultChannelRegistry().ids()).toEqual(["test"]);
   });
 
-  it("CS-10 a skipped decision records skipped_best_guess and the run continues", async () => {
+  it("CS-10 a skipped decision records skipped_best_guess with rationale and the run continues", async () => {
     const h = await linkedOwner();
     await h.service.handleInbound("test", request());
     await h.service.handleGraphEvent(decisionEvent("run-1"));
     const skip = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: null } }));
 
     expect(skip).toEqual({ status: "accepted", runId: "run-1" });
-    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "skipped_best_guess", chosen: "opt-a", resolvedBy: "blaine" });
-    expect(h.graph.resolveDecision).toHaveBeenCalledWith(expect.objectContaining({ runId: "run-1", resolution: "skipped_best_guess", chosen: "opt-a" }));
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "skipped_best_guess", chosen: "6061 aluminum", resolvedBy: "blaine" });
+    expect(h.repo.decisions.get("dec-1")?.rationale).toBe('User skipped; proceeding with best guess "6061 aluminum".');
+    expect(h.graph.resolveDecision).toHaveBeenCalledWith("run-1", "dec-1", { kind: "skip" });
 
-    await h.service.handleGraphEvent({ type: "status", runId: "run-1", text: "Modeling the plate" });
+    // The graph's own decision_resolved carries the authoritative rationale; the core stores it.
+    const graphRationale = 'User skipped; proceeding with best guess "6061 aluminum": cheapest default.';
+    await h.service.handleGraphEvent({
+      ...envelope("run-1"),
+      type: "decision_resolved",
+      decisionId: "dec-1",
+      nodeId: "concept_picks",
+      outcome: "skipped_best_guess",
+      cause: "skip",
+      choice: "6061 aluminum",
+      rationale: graphRationale,
+    });
+    expect(h.repo.decisions.get("dec-1")).toMatchObject({ resolution: "skipped_best_guess", rationale: graphRationale, resolvedBy: "blaine" });
+    expect(h.web.sent.at(-1)?.message.text).toBe("Skipped. Going with the best guess: 6061 aluminum.");
+
+    await h.service.handleGraphEvent(statusEvent("run-1", "Modeling the plate"));
     expect(h.web.sent.at(-1)?.message.text).toBe("Modeling the plate");
 
-    const again = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "opt-b" } }));
+    const again = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-1", choice: "304 stainless" } }));
     expect(again).toMatchObject({ status: "refused", reason: "already_resolved" });
     expect(h.graph.resolveDecision).toHaveBeenCalledTimes(1);
 
     await h.service.handleGraphEvent(decisionEvent("run-1", "dec-2"));
     await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-2", choice: "2" } }));
-    expect(h.repo.decisions.get("dec-2")).toMatchObject({ resolution: "chosen", chosen: "opt-b" });
+    expect(h.repo.decisions.get("dec-2")).toMatchObject({ resolution: "chosen", chosen: "304 stainless" });
+    expect(h.graph.resolveDecision).toHaveBeenLastCalledWith("run-1", "dec-2", { kind: "choose", choice: "304 stainless" });
+
+    // A timeout never passes through the core: the graph's event fills the row.
+    await h.service.handleGraphEvent(decisionEvent("run-1", "dec-3"));
+    await h.service.handleGraphEvent({
+      ...envelope("run-1"),
+      type: "decision_resolved",
+      decisionId: "dec-3",
+      nodeId: "concept_picks",
+      outcome: "skipped_best_guess",
+      cause: "timeout",
+      choice: "6061 aluminum",
+      rationale: "No answer within 300000 ms; proceeding with best guess.",
+    });
+    expect(h.repo.decisions.get("dec-3")).toMatchObject({ resolution: "timeout_best_guess", chosen: "6061 aluminum", resolvedBy: null });
+    expect(h.web.sent.at(-1)?.message.text).toBe("No answer in time. Going with the best guess: 6061 aluminum.");
     const invalid = await h.service.handleInbound("test", request({ action: { kind: "decision", decisionId: "dec-9", choice: "1" } }));
     expect(invalid).toMatchObject({ status: "refused", reason: "decision_unknown" });
   });
@@ -295,7 +343,13 @@ describe("Jarvis ConversationService (OVD-798)", () => {
     const h = await linkedOwner();
     expect(await h.service.handleInbound("test", request({ agent: "optics" }))).toEqual({ status: "unavailable", reply: NOT_AVAILABLE_REPLY });
     expect(graphCalls(h)).toBe(0);
+    expect(h.graph.agentAvailability).toHaveBeenCalledWith("optics");
     expect(await h.service.handleInbound("test", request({ agent: "cad" }))).toMatchObject({ status: "accepted" });
+    expect(h.graph.submit).toHaveBeenLastCalledWith({ prompt: "4 inch plate", domain: "cad" }, expect.anything());
+
+    // Without an explicit agent the graph routes; its agent_not_enabled error reaches the user the same way.
+    await h.service.handleGraphEvent({ ...envelope("run-1"), type: "error", nodeId: "intake", code: "agent_not_enabled", message: "agent not enabled: optics" });
+    expect(h.test.sent.at(-1)?.message.text).toBe(NOT_AVAILABLE_REPLY);
   });
 
   it("CS-12 pause/cancel from a non-owner is refused; the owner's passes through with its idempotency key", async () => {
@@ -328,6 +382,11 @@ describe("Jarvis ConversationService (OVD-798)", () => {
       reply: NOT_AVAILABLE_REPLY,
     });
     expect(h.graph.control).toHaveBeenCalledTimes(2);
+
+    h.graph.control.mockResolvedValueOnce({ ok: false, reason: "unsupported" });
+    const unsupported = request({ action: { kind: "control", runId: "run-1", command: "pause" } });
+    expect(await h.service.handleInbound("test", unsupported)).toEqual({ status: "unavailable", reply: NOT_AVAILABLE_REPLY });
+    expect(h.logs.at(-1)).toEqual({ channel: "test", outcome: "unavailable", reason: "control_unsupported" });
   });
 
   it("CS-13 flag JARVIS_UI_ENABLED off routes nothing for real adapters; only TestAdapter works in the test env", async () => {
@@ -403,10 +462,39 @@ describe("Jarvis render and registry", () => {
   const caps = { buttons: true, images: true, model3d: true, maxText: 12 };
 
   it("renders resolutions and truncates to the channel's maxText", () => {
-    expect(renderEvent({ type: "decision_resolved", runId: "r", decisionId: "d", resolution: "chosen", chosen: "a" }, { ...caps, maxText: 100 }, WEB_BASE)).toEqual({ text: "Decision recorded: a." });
-    expect(renderEvent({ type: "decision_resolved", runId: "r", decisionId: "d", resolution: "timeout_best_guess", chosen: "a" }, { ...caps, maxText: 100 }, WEB_BASE).text).toContain("best guess: a");
-    expect(renderEvent({ type: "notice", text: "A long notice text" }, caps, WEB_BASE)).toEqual({ text: "A long noti…" });
-    expect(renderEvent({ type: "artifact", runId: "r", format: "png", url: "u" }, caps, WEB_BASE).link).toBe(`${WEB_BASE}/runs/r`);
+    const wide = { ...caps, maxText: 100 };
+    const resolved = { ...envelope("r"), type: "decision_resolved", decisionId: "d", nodeId: "concept_picks", choice: "a", rationale: "why" } as const;
+    expect(renderEvent({ ...resolved, outcome: "chosen" }, wide, WEB_BASE)).toEqual({ text: "Decision recorded: a." });
+    expect(renderEvent(statusEvent("r", "A long status text"), caps, WEB_BASE)).toEqual({ text: "A long stat…" });
+    expect(renderEvent(artifactEvent("r", "png", "u"), caps, WEB_BASE).link).toBe(`${WEB_BASE}/runs/r`);
+  });
+
+  it("renders result and error events; error text never echoes the graph's internal message", () => {
+    const wide = { ...caps, maxText: 200 };
+    const result: GraphEvent = {
+      ...envelope("r"),
+      type: "result",
+      nodeId: "result",
+      agentId: "cad",
+      summary: "4-inch plate",
+      picks: {},
+      artifacts: [
+        { kind: "step", uri: "s.step" },
+        { kind: "glb", uri: "m.glb" },
+      ],
+    };
+    expect(renderEvent(result, wide, WEB_BASE)).toEqual({ text: "Done: 4-inch plate", model3dUrl: "m.glb", link: `${WEB_BASE}/runs/r` });
+    expect(renderEvent(result, { ...wide, model3d: false }, WEB_BASE)).toEqual({ text: "Done: 4-inch plate", link: `${WEB_BASE}/runs/r` });
+    const error = (code: "agent_failed" | "no_agent" | "agent_not_enabled"): GraphEvent => ({
+      ...envelope("r"),
+      type: "error",
+      nodeId: "domain_agent",
+      code,
+      message: "cad agent failed: ENOENT /srv/secret/path",
+    });
+    expect(renderEvent(error("agent_failed"), wide, WEB_BASE)).toEqual({ text: RUN_FAILED_REPLY, link: `${WEB_BASE}/runs/r` });
+    expect(renderEvent(error("no_agent"), wide, WEB_BASE)).toEqual({ text: NO_AGENT_REPLY });
+    expect(renderEvent(error("agent_not_enabled"), wide, WEB_BASE)).toEqual({ text: NOT_AVAILABLE_REPLY });
   });
 
   it("rejects two adapters with the same id", () => {

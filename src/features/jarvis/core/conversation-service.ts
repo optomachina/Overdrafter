@@ -1,7 +1,7 @@
 import { deliver, type DeliveryPolicy } from "./delivery";
 import type { RateLimiter } from "./rate-limiter";
 import type { ChannelRegistry } from "./registry";
-import { renderEvent, SKIP_CHOICE } from "./render";
+import { NOT_AVAILABLE_REPLY, renderEvent, SKIP_CHOICE, type OutboundEvent } from "./render";
 import type { ChannelSettingsRow, DecisionRow, JarvisRepo, MessageRow, RunOrigin } from "./repo";
 import {
   WEB_CHANNEL,
@@ -9,7 +9,7 @@ import {
   type ChannelAdapter,
   type ChannelId,
   type DesignGraph,
-  type DomainAgentId,
+  type GraphDecisionAnswer,
   type GraphEvent,
   type InboundAction,
   type InboundMessage,
@@ -19,7 +19,7 @@ import {
 export const LINK_PROMPT = "To use Jarvis here, link this chat from the Jarvis web app.";
 export const GENERIC_DENIAL = "Jarvis isn't available for this account yet.";
 export const THROTTLED_REPLY = "You're sending requests too quickly. Try again in a minute.";
-export const NOT_AVAILABLE_REPLY = "That isn't available yet.";
+export { NOT_AVAILABLE_REPLY };
 export const REFUSED_REPLY = "That action isn't allowed.";
 
 const TIER_RANK: Record<AccessTier, number> = { paid: 1, beta: 2, owner: 3 };
@@ -44,7 +44,6 @@ export type ConversationServiceDeps = {
   /** JARVIS_UI_ENABLED, read server-side. */
   readonly uiEnabled: boolean;
   readonly testEnvironment: boolean;
-  readonly enabledAgents: ReadonlySet<DomainAgentId>;
   readonly rateLimiter: RateLimiter;
   readonly delivery: DeliveryPolicy;
   readonly webBaseUrl: string;
@@ -88,11 +87,11 @@ export class ConversationService {
 
   /** Graph events fan out to the web thread (always) and the run's originating channel. */
   async handleGraphEvent(event: GraphEvent): Promise<void> {
-    if (!("runId" in event)) return;
     const origin = await this.deps.repo.findRunOrigin(event.runId);
     if (!origin) return;
     const message = await this.appendOutbound(origin, event);
     if (event.type === "decision_requested") await this.deps.repo.insertDecision(decisionRow(event, message.id));
+    if (event.type === "decision_resolved") await this.deps.repo.recordDecisionOutcome(event.decisionId, decisionOutcome(event));
     await this.fanOut(origin, message, event);
   }
 
@@ -171,18 +170,15 @@ export class ConversationService {
 
   private async routeSubmit(routed: Routed): Promise<InboundResult> {
     const { message, origin } = routed;
-    if (message.agent && !this.deps.enabledAgents.has(message.agent)) {
+    if (message.agent && this.deps.graph.agentAvailability(message.agent) !== "enabled") {
       return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, "agent_not_enabled");
     }
-    const { runId } = await this.deps.graph.submit({
-      userId: origin.userId,
-      conversationId: origin.conversationId,
-      text: message.text,
-      agent: message.agent,
-      idempotencyKey: `${origin.channel}:${message.idempotencyKey}`,
-    });
+    const runId = await this.deps.graph.submit(
+      { prompt: message.text, ...(message.agent ? { domain: message.agent } : {}) },
+      { userId: origin.userId, conversationId: origin.conversationId, idempotencyKey: `${origin.channel}:${message.idempotencyKey}` },
+    );
     await this.deps.repo.attachRun(routed.inbound.id, runId);
-    const event: GraphEvent = { type: "run_accepted", runId };
+    const event: OutboundEvent = { type: "run_accepted", runId };
     await this.fanOut(origin, await this.appendOutbound(origin, event), event);
     return this.finish(origin.channel, { status: "accepted", runId });
   }
@@ -195,13 +191,13 @@ export class ConversationService {
     const choice = resolveChoice(decision, action.choice);
     if (!choice) return this.refuse(origin.channel, "invalid_choice");
     const resolved = await this.deps.repo.resolveDecision(decision.id, {
-      ...choice,
+      ...choice.row,
       resolvedBy: origin.userId,
       resolvedAt: this.deps.now().toISOString(),
     });
     if (!resolved) return this.refuse(origin.channel, "already_resolved");
     await this.deps.repo.attachRun(routed.inbound.id, decision.graphRunId);
-    await this.deps.graph.resolveDecision({ runId: decision.graphRunId, decisionId: decision.id, ...choice, actorUserId: origin.userId });
+    await this.deps.graph.resolveDecision(decision.graphRunId, decision.id, choice.answer);
     return this.finish(origin.channel, { status: "accepted", runId: decision.graphRunId });
   }
 
@@ -222,7 +218,8 @@ export class ConversationService {
       appliedAtCheckpoint: null,
     });
     if (!queued) return this.finish(origin.channel, { status: "duplicate" });
-    await this.deps.graph.control(action.runId, { kind: action.command, idempotencyKey: message.idempotencyKey, actor: origin.userId });
+    const applied = await this.deps.graph.control(action.runId, { kind: action.command, idempotencyKey: message.idempotencyKey, actor: origin.userId });
+    if ("reason" in applied) return this.finish(origin.channel, { status: "unavailable", reply: NOT_AVAILABLE_REPLY }, `control_${applied.reason}`);
     return this.finish(origin.channel, { status: "accepted", runId: action.runId });
   }
 
@@ -231,24 +228,24 @@ export class ConversationService {
     return owner?.userId === userId;
   }
 
-  private appendOutbound(origin: RunOrigin, event: GraphEvent): Promise<MessageRow> {
+  private appendOutbound(origin: RunOrigin, event: OutboundEvent): Promise<MessageRow> {
     return this.deps.repo.appendMessage({
       conversationId: origin.conversationId,
       direction: "out",
       channel: origin.channel,
       kind: event.type,
       body: event,
-      graphRunId: "runId" in event ? event.runId : null,
+      graphRunId: event.runId,
     });
   }
 
-  private async fanOut(origin: RunOrigin, message: MessageRow, event: GraphEvent): Promise<void> {
+  private async fanOut(origin: RunOrigin, message: MessageRow, event: OutboundEvent): Promise<void> {
     for (const channel of new Set([WEB_CHANNEL, origin.channel])) {
       await this.deliverTo(channel, origin.userId, message, event);
     }
   }
 
-  private async deliverTo(channel: ChannelId, userId: UserId, message: MessageRow, event: GraphEvent): Promise<void> {
+  private async deliverTo(channel: ChannelId, userId: UserId, message: MessageRow, event: OutboundEvent): Promise<void> {
     const adapter = this.deps.channels.get(channel);
     if (!adapter || !this.routable(adapter) || !(await this.enabledSettings(channel))) {
       this.deps.log({ channel, outcome: "outbound_suppressed" });
@@ -275,13 +272,26 @@ export class ConversationService {
   }
 }
 
-type ResolvedChoice = { readonly resolution: "chosen" | "skipped_best_guess"; readonly chosen: string };
+type ResolvedChoice = {
+  readonly answer: GraphDecisionAnswer;
+  readonly row: Pick<DecisionRow, "resolution" | "chosen" | "rationale">;
+};
 
+/** A skip records the best guess with a rationale now; the graph's decision_resolved event refines it. */
 function resolveChoice(decision: DecisionRow, choice: string | null): ResolvedChoice | null {
-  if (choice === null || choice.toLowerCase() === SKIP_CHOICE) return { resolution: "skipped_best_guess", chosen: decision.bestGuess };
+  if (choice === null || choice.toLowerCase() === SKIP_CHOICE) {
+    const rationale = `User skipped; proceeding with best guess "${decision.bestGuess}".`;
+    return { answer: { kind: "skip" }, row: { resolution: "skipped_best_guess", chosen: decision.bestGuess, rationale } };
+  }
   const byIndex = /^\d+$/.test(choice) ? decision.options[Number(choice) - 1] : undefined;
-  const option = byIndex ?? decision.options.find((candidate) => candidate.id === choice);
-  return option ? { resolution: "chosen", chosen: option.id } : null;
+  const option = byIndex ?? decision.options.find((candidate) => candidate === choice);
+  if (!option) return null;
+  return { answer: { kind: "choose", choice: option }, row: { resolution: "chosen", chosen: option, rationale: `User chose "${option}".` } };
+}
+
+function decisionOutcome(event: Extract<GraphEvent, { type: "decision_resolved" }>): Pick<DecisionRow, "resolution" | "chosen" | "rationale" | "resolvedAt"> {
+  const resolution = event.outcome === "chosen" ? "chosen" : event.cause === "timeout" ? "timeout_best_guess" : "skipped_best_guess";
+  return { resolution, chosen: event.choice, rationale: event.rationale, resolvedAt: new Date(event.at).toISOString() };
 }
 
 function decisionRow(event: Extract<GraphEvent, { type: "decision_requested" }>, messageId: string): DecisionRow {
