@@ -6,9 +6,13 @@ The synthetic provider-readiness audit demonstrated that `CAD $100.00` became
 repair. Nine new regression cases failed before the guard was added (13 original
 cases total). Failure evidence is retained in the local task output directory.
 
-The USD-only offer parser now requires an explicit USD marker on every dollar
-amount. It recognizes USD before/after an amount and the US$ prefix; it rejects
-bare dollar amounts, foreign currencies and contradictory currency annotations.
+The USD-only offer parser requires a trustworthy USD boundary on every dollar
+amount. It recognizes USD before/after an amount and the US$ prefix. A bare dollar
+amount is accepted only when the provider registry currency is exactly `USD`, and
+is rejected when that currency is unknown or non-USD (see the registry section
+below). It rejects foreign currencies and contradictory currency annotations.
+Savings amounts (`Save $125.47`, `$10.00 off`) are not offer prices and are
+ignored when anchoring the price.
 The guard examines recognized currency codes case-insensitively on the entire price line to catch
 `USD/CAD` and `CAD US$` conflicts. Currency names come from the Node runtime's
 currency-code registry for detection only; this is not FX or a supported-provider
@@ -49,3 +53,21 @@ npm run provider:check
 Review follow-up: explicit `Currency: CODE`/`currency = CODE` declarations bind the whole option across lines. Three-letter prose prefixes are ignored unless they are recognized currency codes; all recognized code tokens remain conflicting evidence regardless of case or separator. The narrow complete lowercase phrases `all taxes included` and `all fees included` are excluded from that scan, including when parenthesized. Other code-like prose may still be withheld as ambiguous. The phrase `all taxes/fees included` is treated as prose; explicit `ALL` remains ambiguous currency evidence and is rejected.
 
 A `Currency:` or `currency =` declaration is validated in full: only an exact USD declaration is accepted. Mixed or unsupported values are withheld, rather than accepting their USD prefix. This intentionally conservative grammar is not a general natural-language currency interpreter.
+
+## Registry-backed bare dollar amounts (OVD-778)
+
+A saved real Xometry quote page shows tier prices as bare `$41.41 ea.` / `$414.15`
+with no USD marker, so the guard above withheld every live option. The provider
+manifest now carries an optional, evidence-reviewed `integration.quoteCurrency`
+(ISO 4217), projected into the worker provider catalog only. Xometry declares `USD`.
+
+A bare `$` amount with no prefix, suffix, alias or line-level currency code is
+treated as USD only when that registry value is exactly `USD`. When the registry
+currency is unknown (`null`) or anything other than USD, bare amounts fail closed
+with `unexpected_ui_state` and reason `price_currency_unverified` (the Fictiv
+convention). Explicit foreign or conflicting markers keep `xometry_offer_currency_untrusted`.
+`US$41.41`, `USD $41.41` and `$41.41 USD` parse regardless of registry. A symbol-less
+`USD 41.41` amount is used only when the option has no `$` amount, so existing `$` grammar is unchanged. Explicit markers decide first:
+`C$`, `CA$`, `A$`, `CAD`/`EUR`/`GBP` codes, `€`/`£`/`¥`, contradictory
+annotations and non-USD `Currency:` declarations are still rejected. No FX or
+relabeling is introduced. Coverage is in `worker/src/adapters/xometryCurrency.test.ts`.
