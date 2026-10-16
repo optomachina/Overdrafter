@@ -26,7 +26,7 @@ DRAFT="$HERE/ovd-797-jarvis-channels.sql"
 ROLLBACK="$HERE/ovd-797-jarvis-channels.rollback.sql"
 TEST="$ROOT/supabase/tests/pending/ovd797_jarvis_channels.sql.pending"
 PG_BIN="${PG_BIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
-[ -x "$PG_BIN/initdb" ] || { echo "initdb not found; set PG_BIN" >&2; exit 2; }
+[[ -x "$PG_BIN/initdb" ]] || { echo "initdb not found; set PG_BIN" >&2; exit 2; }
 command -v pg_prove >/dev/null || { echo "pg_prove not found" >&2; exit 2; }
 
 WORK="$(mktemp -d)"
@@ -85,15 +85,19 @@ grant execute on function public.is_platform_admin(), public.current_user_has_aa
 create extension pgtap with schema extensions;
 SQL
 
-dump() { "$PG_BIN/pg_dump" --schema-only --no-owner --restrict-key=ovd797 "${CONN[@]}" -f "$1"; }
+dump() {
+  local out="$1"
+  "$PG_BIN/pg_dump" --schema-only --no-owner --restrict-key=ovd797 "${CONN[@]}" -f "$out"
+}
 apply_draft() { { echo "set role migration_owner;"; cat "$DRAFT"; } | "${PSQL[@]}" --single-transaction; }
 apply_rollback() { { echo "set role migration_owner;"; cat "$ROLLBACK"; } | "${PSQL[@]}" --single-transaction; }
 dump_diff() {
-  dump "$WORK/$1.sql"
-  if diff -u "$WORK/pre.sql" "$WORK/$1.sql"; then
-    echo "ok - DM-1R $2: pg_dump --schema-only diff is empty ($(wc -l <"$WORK/pre.sql") schema lines compared)"
+  local name="$1" label="$2"
+  dump "$WORK/$name.sql"
+  if diff -u "$WORK/pre.sql" "$WORK/$name.sql"; then
+    echo "ok - DM-1R $label: pg_dump --schema-only diff is empty ($(wc -l <"$WORK/pre.sql") schema lines compared)"
   else
-    echo "FAIL: DM-1R $2: schema differs from the pre-draft dump"; exit 1
+    echo "FAIL: DM-1R $label: schema differs from the pre-draft dump" >&2; exit 1
   fi
 }
 
@@ -116,33 +120,34 @@ echo "== DM-3 / DM-9 concurrent double insert (two sessions)"
 insert into auth.users (id, email) values ('00000000-0000-4000-8000-000000797e01', 'ovd797-race@example.test');
 SQL
 race() {
-  # $1 label, $2 INSERT ... ON CONFLICT DO NOTHING, $3 count query
-  "${PSQL[@]}" -c "begin; $2; select pg_catalog.pg_sleep(2); commit;" >/dev/null &
+  # label, INSERT ... ON CONFLICT DO NOTHING, count query, row reset target
+  local label="$1" insert="$2" count_sql="$3" reset_target="$4"
+  "${PSQL[@]}" -c "begin; $insert; select pg_catalog.pg_sleep(2); commit;" >/dev/null &
   local first=$!
   sleep 0.5
   local t0 t1
   t0=$(date +%s.%N)
-  "${PSQL[@]}" -c "$2" >/dev/null
+  "${PSQL[@]}" -c "$insert" >/dev/null
   t1=$(date +%s.%N)
   wait "$first"
   local got
-  got="$("${PSQL[@]}" -tA -c "$3")"
+  got="$("${PSQL[@]}" -tA -c "$count_sql")"
   local waited
   waited=$(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.1f", b - a }')
-  [ "$got" = "1" ] || { echo "FAIL: $1 left $got rows"; exit 1; }
-  echo "ok - $1: second session waited ${waited}s on the first, then did nothing; rows = $got"
+  [[ "$got" = "1" ]] || { echo "FAIL: $label left $got rows" >&2; exit 1; }
+  echo "ok - $label: second session waited ${waited}s on the first, then did nothing; rows = $got"
   # A plain concurrent duplicate (no ON CONFLICT) gets unique_violation.
-  local plain="${2% on conflict*}"
-  "${PSQL[@]}" -c "begin; delete from ${4}; $plain; select pg_catalog.pg_sleep(2); commit;" >/dev/null &
+  local plain="${insert% on conflict*}"
+  "${PSQL[@]}" -c "begin; delete from ${reset_target}; $plain; select pg_catalog.pg_sleep(2); commit;" >/dev/null &
   first=$!
   sleep 0.5
   local out
-  if out="$("${PSQL[@]}" -c "$plain" 2>&1)"; then echo "FAIL: $1 plain duplicate succeeded"; exit 1; fi
+  if out="$("${PSQL[@]}" -c "$plain" 2>&1)"; then echo "FAIL: $label plain duplicate succeeded" >&2; exit 1; fi
   wait "$first"
-  case "$out" in *duplicate\ key*) echo "ok - $1: a plain concurrent duplicate is rejected (unique_violation)";;
-    *) echo "FAIL: $1 wrong error: $out"; exit 1;; esac
-  got="$("${PSQL[@]}" -tA -c "$3")"
-  [ "$got" = "1" ] || { echo "FAIL: $1 left $got rows after plain race"; exit 1; }
+  case "$out" in *duplicate\ key*) echo "ok - $label: a plain concurrent duplicate is rejected (unique_violation)";;
+    *) echo "FAIL: $label wrong error: $out" >&2; exit 1;; esac
+  got="$("${PSQL[@]}" -tA -c "$count_sql")"
+  [[ "$got" = "1" ]] || { echo "FAIL: $label left $got rows after plain race" >&2; exit 1; }
 }
 race "DM-3 inbound (slack, Ev797race)" \
   "insert into public.jarvis_inbound_events (channel, idempotency_key) values ('slack', 'Ev797race') on conflict do nothing" \
