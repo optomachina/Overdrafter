@@ -6,16 +6,31 @@
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
     "exclude": "Globs; a path matching one is not in this entry.",
     "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
-    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too; false positives are accepted to fail closed. Every changed file matching sql_content.paths, except a removal, is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer)."
+    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too (set_config('row_security', ...)); false positives are accepted to fail closed. A token is a whole lower-cased word or one punctuation character, so 'row_security' does not match 'row_security_note'. Each rule has a unique id and a reason; both appear in the result's reasons. Every changed file except a removal is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer) or a class from docs/sensitive-paths.json (auth)."
   },
   "sql_content": {
     "paths": ["**/*.{sql,pgsql,psql}"],
     "rules": [
-      { "class": "rls", "tokens": ["create", "policy"] },
-      { "class": "rls", "tokens": ["alter", "policy"] },
-      { "class": "rls", "tokens": ["drop", "policy"] },
-      { "class": "rls", "tokens": ["row", "level", "security"] },
-      { "class": "definer", "tokens": ["security", "definer"] }
+      { "id": "rls_create_policy", "class": "rls", "tokens": ["create", "policy"], "reason": "CREATE POLICY defines a row level security policy" },
+      { "id": "rls_alter_policy", "class": "rls", "tokens": ["alter", "policy"], "reason": "ALTER POLICY changes a row level security policy" },
+      { "id": "rls_drop_policy", "class": "rls", "tokens": ["drop", "policy"], "reason": "DROP POLICY removes a row level security policy" },
+      { "id": "rls_row_level_security", "class": "rls", "tokens": ["row", "level", "security"], "reason": "ENABLE, DISABLE, FORCE or NO FORCE ROW LEVEL SECURITY changes whether policies apply" },
+      { "id": "rls_bypassrls", "class": "rls", "tokens": ["bypassrls"], "reason": "BYPASSRLS on CREATE/ALTER ROLE or USER lets a role skip every policy" },
+      { "id": "rls_nobypassrls", "class": "rls", "tokens": ["nobypassrls"], "reason": "NOBYPASSRLS on CREATE/ALTER ROLE or USER changes whether a role skips policies" },
+      { "id": "rls_rolbypassrls", "class": "rls", "tokens": ["rolbypassrls"], "reason": "rolbypassrls is the catalog column behind BYPASSRLS" },
+      { "id": "rls_set_row_security", "class": "rls", "tokens": ["set", "row_security"], "reason": "SET row_security (also ALTER ROLE/DATABASE/SYSTEM ... SET) changes whether policies apply" },
+      { "id": "rls_set_local_row_security", "class": "rls", "tokens": ["set", "local", "row_security"], "reason": "SET LOCAL row_security changes whether policies apply" },
+      { "id": "rls_set_session_row_security", "class": "rls", "tokens": ["set", "session", "row_security"], "reason": "SET SESSION row_security changes whether policies apply" },
+      { "id": "rls_reset_row_security", "class": "rls", "tokens": ["reset", "row_security"], "reason": "RESET row_security changes whether policies apply" },
+      { "id": "rls_set_config_row_security", "class": "rls", "tokens": ["set_config", "(", "row_security"], "reason": "set_config('row_security', ...) changes whether policies apply" },
+      { "id": "definer_security_definer", "class": "definer", "tokens": ["security", "definer"], "reason": "SECURITY DEFINER runs a function with its owner's privileges" },
+      { "id": "auth_set_role", "class": "auth", "tokens": ["set", "role"], "reason": "SET ROLE switches the current role" },
+      { "id": "auth_set_local_role", "class": "auth", "tokens": ["set", "local", "role"], "reason": "SET LOCAL ROLE switches the current role" },
+      { "id": "auth_set_session_role", "class": "auth", "tokens": ["set", "session", "role"], "reason": "SET SESSION ROLE switches the current role" },
+      { "id": "auth_set_session_authorization", "class": "auth", "tokens": ["set", "session", "authorization"], "reason": "SET SESSION AUTHORIZATION switches the session user" },
+      { "id": "auth_set_local_session_authorization", "class": "auth", "tokens": ["set", "local", "session", "authorization"], "reason": "SET LOCAL SESSION AUTHORIZATION switches the session user" },
+      { "id": "auth_set_config_role", "class": "auth", "tokens": ["set_config", "(", "role"], "reason": "set_config('role', ...) switches the current role" },
+      { "id": "auth_set_config_session_authorization", "class": "auth", "tokens": ["set_config", "(", "session_authorization"], "reason": "set_config('session_authorization', ...) switches the session user" }
     ]
   },
   "safe_categories": {

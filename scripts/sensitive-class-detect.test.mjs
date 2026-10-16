@@ -75,15 +75,31 @@ describe("config", () => {
     withKey.safe_categories.docs.path_keyword = ["readme"];
     expect(compileConfig(withKey).errors).toContain('safe_categories.docs: unknown rule key "path_keyword"');
     expect(compileConfig({ ...structuredClone(rawConfig), version: 2 }).config).toBeNull();
-    // Only rls and definer come from SQL content; path classes come from the shared list.
-    for (const name of ["nope", "auth", "migrations"]) {
+    // SQL content gives rls, definer and (OVD-866) auth; other path classes come only from the shared list.
+    for (const name of ["nope", "migrations", "payments"]) {
       const badRule = structuredClone(rawConfig);
-      badRule.sql_content.rules.push({ class: name, tokens: ["x"] });
+      badRule.sql_content.rules.push({ id: "nope_rule", class: name, tokens: ["x"], reason: "x" });
       expect(compileConfig(badRule).errors).toContain(`sql_content.rules[${badRule.sql_content.rules.length - 1}]: unknown class "${name}"`);
     }
     const collides = structuredClone(rawConfig);
     collides.safe_categories.infra_ci = { paths: ["x/**"] };
     expect(compileConfig(collides).errors).toContain("safe_categories.infra_ci: name collides with a class");
+  });
+
+  it("requires every SQL rule to have a unique id and a reason", () => {
+    const ids = rawConfig.sql_content.rules.map((rule) => rule.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const bad = structuredClone(rawConfig);
+    const next = bad.sql_content.rules.length;
+    bad.sql_content.rules.push({ class: "rls", tokens: ["x"] }, { id: ids[0], class: "rls", tokens: ["x"], reason: "dup" });
+    expect(compileConfig(bad).errors).toEqual(
+      expect.arrayContaining([
+        `sql_content.rules[${next}]: invalid id`,
+        `sql_content.rules[${next}]: reason must be a non-empty string`,
+        `sql_content.rules[${next + 1}]: duplicate id "${ids[0]}"`,
+      ]),
+    );
   });
 
   it("compiles category and SQL globs with the shared matcher's syntax", () => {
@@ -421,6 +437,66 @@ describe("classifySql", () => {
     ["select 'security' || 'x' || 'definer';"],
   ])("no false positive: %s", (text) => {
     expect(sql(text)).toEqual([]);
+  });
+});
+
+describe("classifySql: BYPASSRLS and row_security (OVD-866)", () => {
+  const sql = (text) => classifySql(text, config);
+
+  it.each([
+    ["ALTER ROLE x BYPASSRLS;", "rls_bypassrls"],
+    ["create role y with nobypassrls;", "rls_nobypassrls"],
+    ["SET row_security = off;", "rls_set_row_security"],
+    ["set local row_security to off;", "rls_set_local_row_security"],
+    ["set session row_security = off;", "rls_set_session_row_security"],
+    ["reset row_security;", "rls_reset_row_security"],
+    ["select set_config('row_security','off',true);", "rls_set_config_row_security"],
+    ["select pg_catalog.set_config( 'row_security' , 'off', false);", "rls_set_config_row_security"],
+    ["ALTER DATABASE d SET row_security = off;", "rls_set_row_security"],
+    ["alter role app in database d set row_security to off;", "rls_set_row_security"],
+    ["create user u password 'x' bypassrls;", "rls_bypassrls"],
+    ["update pg_authid set rolbypassrls = true where rolname = 'x';", "rls_rolbypassrls"],
+    ["Alter\n  ROLE App_User\n  WITH LOGIN\n  ByPassRLS;", "rls_bypassrls"],
+    ["Create Role\n\tReader\n\tNoBypassRls\n\tNOLOGIN;", "rls_nobypassrls"],
+    ["DO $$ BEGIN ALTER ROLE x BYPASSRLS; END $$;", "rls_bypassrls"],
+    ["do $body$ begin perform set_config('row_security', 'off', true); end $body$;", "rls_set_config_row_security"],
+  ])("%s -> rls (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["rls"]);
+    const rule = rawConfig.sql_content.rules.find((entry) => entry.id === id);
+    expect(result.reasons).toContain(`rls:sql:${id}: ${rule.reason}`);
+  });
+
+  it.each([
+    ["set role authenticated;", "auth_set_role"],
+    ["set local role service_role;", "auth_set_local_role"],
+    ["SET SESSION AUTHORIZATION admin;", "auth_set_session_authorization"],
+    ["select set_config('role', 'service_role', true);", "auth_set_config_role"],
+  ])("%s -> auth (%s)", (text, id) => {
+    const result = sql(text);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.reasons.some((reason) => reason.startsWith(`auth:sql:${id}: `))).toBe(true);
+  });
+
+  it.each([
+    ["-- bypassrls\nselect 1;"],
+    ["/* set row_security = off */ select 1;"],
+    ["alter table t add column row_security_note text;"],
+    ["update t set row_security_note = 'x';"],
+    ["select current_setting('row_security_note');"],
+  ])("no false positive: %s", (text) => {
+    expect(sql(text).classes).toEqual([]);
+  });
+
+  it("does not read a docs .md file outside the SQL paths", async () => {
+    const read = [];
+    const result = await detect({
+      files: [modified("docs/database-notes.md")],
+      readHeadFile: async (file) => (read.push(file), "ALTER ROLE x BYPASSRLS; SET row_security = off;"),
+      config,
+    });
+    expect(read).toEqual([]);
+    expect(result.files[0]).toMatchObject({ classes: [], category: "docs" });
   });
 });
 

@@ -101,6 +101,8 @@ export const CONFIG_VERSION = 1;
 export const OUTPUT_VERSION = 2;
 /** Classes that only SQL content rules give. */
 export const SQL_CONTENT_CLASSES = Object.freeze(["rls", "definer"]);
+/** Classes a SQL content rule may give: the SQL-only classes, plus auth from the shared list (SET ROLE and friends, OVD-866). */
+export const SQL_RULE_CLASSES = Object.freeze([...SQL_CONTENT_CLASSES, "auth"]);
 /** The pseudo-class of a file with no sensitive class and no safe category (fail closed). */
 export const UNCLASSIFIED = "unclassified";
 /** Every output class, in output order. */
@@ -111,7 +113,9 @@ const PER_PAGE = 100;
 const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules"]);
-const SQL_RULE_KEYS = new Set(["class", "tokens"]);
+const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason"]);
+// A whole lower-cased word as sqlWords emits it, or one punctuation character.
+const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sa-z0-9_$])$/;
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -229,16 +233,21 @@ export function compileConfig(raw) {
   } else {
     for (const key of Object.keys(sql)) if (!SQL_KEYS.has(key)) errors.push(`sql_content: unknown rule key "${key}"`);
     const rules = Array.isArray(sql.rules) ? sql.rules : (errors.push("sql_content.rules must be an array"), []);
+    const ids = new Set();
     sqlContent = {
       paths: compileGlobs(stringList(sql.paths, "sql_content.paths", errors), "sql_content.paths", errors),
       rules: rules.flatMap((rule, index) => {
         const where = `sql_content.rules[${index}]`;
         if (!rule || typeof rule !== "object") return errors.push(`${where} must be an object`), [];
         for (const key of Object.keys(rule)) if (!SQL_RULE_KEYS.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
-        if (!SQL_CONTENT_CLASSES.includes(rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
-        const tokens = stringList(rule.tokens, `${where}.tokens`, errors, /^[a-z_]+$/);
+        if (typeof rule.id !== "string" || !NAME_PATTERN.test(rule.id)) errors.push(`${where}: invalid id`);
+        else if (ids.has(rule.id)) errors.push(`${where}: duplicate id "${rule.id}"`);
+        ids.add(rule.id);
+        if (typeof rule.reason !== "string" || rule.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
+        if (!SQL_RULE_CLASSES.includes(rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
+        const tokens = stringList(rule.tokens, `${where}.tokens`, errors, SQL_TOKEN_PATTERN);
         if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
-        return [{ class: rule.class, tokens }];
+        return [{ id: rule.id, class: rule.class, tokens, reason: rule.reason }];
       }),
     };
   }
@@ -384,7 +393,10 @@ function sqlBodyWords(body, depth) {
   return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
-/** Classes whose token sequences occur in the SQL text, with reasons. */
+/**
+ * Classes whose token sequences occur in the SQL text. Each matching rule adds
+ * the reason `<class>:sql:<id>: <reason>`.
+ */
 export function classifySql(text, config) {
   const words = sqlWords(text);
   const classes = [];
@@ -393,7 +405,7 @@ export function classifySql(text, config) {
     const found = words.some((_, start) => rule.tokens.every((token, offset) => words[start + offset] === token));
     if (!found) continue;
     if (!classes.includes(rule.class)) classes.push(rule.class);
-    reasons.push(`${rule.class}:sql:${rule.tokens.join(" ")}`);
+    reasons.push(`${rule.class}:sql:${rule.id}: ${rule.reason}`);
   }
   return { classes, reasons };
 }
