@@ -55,32 +55,42 @@ export function validateSpec(spec, expectedSkill) {
     return errors;
   }
   const caseIds = new Set();
-  spec.cases.forEach((c, i) => {
-    const at = `cases[${i}]`;
-    if (!c || typeof c !== "object") return err(`${at} must be an object`);
-    if (!SKILL_NAME.test(c.id ?? "")) err(`${at}.id must be kebab-case`);
-    else if (caseIds.has(c.id)) err(`${at}.id "${c.id}" is duplicated`);
-    else caseIds.add(c.id);
-    if (typeof c.task !== "string" || !c.task.trim()) err(`${at}.task must be a non-empty string`);
-    if (!Array.isArray(c.expectedBehaviors) || c.expectedBehaviors.length === 0 || c.expectedBehaviors.some((b) => typeof b !== "string" || !b.trim())) {
-      err(`${at}.expectedBehaviors must be a non-empty array of strings`);
-    }
-    if (!Array.isArray(c.rubric) || c.rubric.length === 0) return err(`${at}.rubric must be a non-empty array`);
-    const ids = new Set();
-    let total = 0;
-    for (const r of c.rubric) {
-      if (!r || typeof r.id !== "string" || !r.id || typeof r.criterion !== "string" || !r.criterion.trim()) {
-        err(`${at}.rubric entries need id and criterion`);
-        continue;
-      }
-      if (ids.has(r.id)) err(`${at}.rubric id "${r.id}" is duplicated`);
-      ids.add(r.id);
-      if (!Number.isInteger(r.points) || r.points < 1) err(`${at}.rubric "${r.id}" points must be a positive integer`);
-      else total += r.points;
-    }
-    if (total !== MAX_SCORE) err(`${at}.rubric points must sum to ${MAX_SCORE} (got ${total})`);
-  });
+  spec.cases.forEach((c, i) => validateCase(c, `cases[${i}]`, caseIds, err));
   return errors;
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function validateCase(c, at, caseIds, err) {
+  if (!c || typeof c !== "object") return err(`${at} must be an object`);
+  if (!SKILL_NAME.test(c.id ?? "")) err(`${at}.id must be kebab-case`);
+  else if (caseIds.has(c.id)) err(`${at}.id "${c.id}" is duplicated`);
+  else caseIds.add(c.id);
+  if (!isNonEmptyString(c.task)) err(`${at}.task must be a non-empty string`);
+  const behaviors = c.expectedBehaviors;
+  if (!Array.isArray(behaviors) || behaviors.length === 0 || !behaviors.every(isNonEmptyString)) {
+    err(`${at}.expectedBehaviors must be a non-empty array of strings`);
+  }
+  if (!Array.isArray(c.rubric) || c.rubric.length === 0) return err(`${at}.rubric must be a non-empty array`);
+  validateRubric(c.rubric, at, err);
+}
+
+function validateRubric(rubric, at, err) {
+  const ids = new Set();
+  let total = 0;
+  for (const r of rubric) {
+    if (!r || typeof r.id !== "string" || !r.id || !isNonEmptyString(r.criterion)) {
+      err(`${at}.rubric entries need id and criterion`);
+      continue;
+    }
+    if (ids.has(r.id)) err(`${at}.rubric id "${r.id}" is duplicated`);
+    ids.add(r.id);
+    if (!Number.isInteger(r.points) || r.points < 1) err(`${at}.rubric "${r.id}" points must be a positive integer`);
+    else total += r.points;
+  }
+  if (total !== MAX_SCORE) err(`${at}.rubric points must sum to ${MAX_SCORE} (got ${total})`);
 }
 
 export function loadSpecs(root) {
@@ -118,13 +128,25 @@ export function validateAll(root) {
   for (const name of dirs.keys()) {
     if (!specs.has(name)) errors.push(`${dirs.get(name)}: skill has no eval spec at ${SPEC_ROOT}/${name}/${SPEC_FILE}`);
   }
-  const absent = [...specs.keys()].filter((n) => !dirs.has(n)).sort();
-  return { ok: errors.length === 0, errors, absent, specs: [...specs.keys()].sort(), skills: [...dirs.keys()].sort() };
+  const absent = [...specs.keys()].filter((n) => !dirs.has(n)).sort(compareCodeUnits);
+  return {
+    ok: errors.length === 0,
+    errors,
+    absent,
+    specs: [...specs.keys()].sort(compareCodeUnits),
+    skills: [...dirs.keys()].sort(compareCodeUnits),
+  };
+}
+
+/** Default Array#sort ordering (UTF-16 code units), made explicit. */
+function compareCodeUnits(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 /** Map a repo-relative path to the skill it belongs to, or null. */
 export function skillForPath(file) {
-  const p = file.replace(/\\/g, "/");
+  const p = file.replaceAll("\\", "/");
   for (const base of SKILL_ROOTS) {
     if (p.startsWith(`${base}/`)) return p.slice(base.length + 1).split("/")[0] || null;
   }
@@ -133,7 +155,7 @@ export function skillForPath(file) {
 }
 
 export function changedSkillsFromPaths(paths) {
-  return [...new Set(paths.map(skillForPath).filter(Boolean))].sort();
+  return [...new Set(paths.map(skillForPath).filter(Boolean))].sort(compareCodeUnits);
 }
 
 export function changedSkills(root, base, head) {
@@ -181,6 +203,11 @@ export function scoreResult(result, spec) {
   return { total, problems, caseDef: c };
 }
 
+function caseStatus(problems, total, passScore) {
+  if (problems.length) return "invalid";
+  return total >= passScore ? "pass" : "fail";
+}
+
 export function buildReport(specs, results) {
   const skills = [];
   for (const [name, spec] of [...specs].sort(([a], [b]) => a.localeCompare(b))) {
@@ -188,9 +215,10 @@ export function buildReport(specs, results) {
       const mine = results.filter((r) => r.skill === name && r.case === c.id);
       if (mine.length === 0) return { id: c.id, status: "unscored", total: null, problems: ["no judge result"] };
       // Latest result wins so a re-run replaces earlier attempts.
-      const { total, problems } = scoreResult(mine[mine.length - 1], spec);
-      const status = problems.length ? "invalid" : total >= spec.passScore ? "pass" : "fail";
-      return { id: c.id, status, total, problems, runner: mine[mine.length - 1].runner, judge: mine[mine.length - 1].judge };
+      const latest = mine[mine.length - 1];
+      const { total, problems } = scoreResult(latest, spec);
+      const status = caseStatus(problems, total, spec.passScore);
+      return { id: c.id, status, total, problems, runner: latest.runner, judge: latest.judge };
     });
     skills.push({ skill: name, status: cases.every((c) => c.status === "pass") ? "pass" : "fail", cases });
   }
@@ -241,36 +269,49 @@ const USAGE = `Usage: node scripts/skill-evals.mjs <command>
   check-judge --runner <m> --judge <m>   fail unless the judge model differs
   report [--json] <scores.json>...  aggregate judge results (exit 1 unless all 10/10)`;
 
+function runValidate(f, root, out) {
+  const r = validateAll(root);
+  for (const e of r.errors) out(`error: ${e}\n`);
+  for (const n of r.absent) out(`note: skill "${n}" is not present in this checkout; spec kept\n`);
+  out(r.ok ? `ok: ${r.specs.length} specs, ${r.skills.length} skills present\n` : "validation failed\n");
+  return r.ok ? 0 : 1;
+}
+
+function runChanged(f, root, out) {
+  if (typeof f.base !== "string" || typeof f.head !== "string") throw new Error("--base and --head are required");
+  const names = changedSkills(root, f.base, f.head);
+  out(names.length ? `${names.join("\n")}\n` : "");
+  return 0;
+}
+
+function runCheckJudge(f, _root, out) {
+  assertDistinctJudge(f.runner, f.judge);
+  out(`ok: judge ${normalizeModel(f.judge)} differs from runner ${normalizeModel(f.runner)}\n`);
+  return 0;
+}
+
+function runReport(f, root, out) {
+  if (f._.length === 0) throw new Error("at least one scores file is required");
+  const { specs, errors } = loadSpecs(root);
+  if (errors.length) throw new Error(`invalid specs: ${errors.join("; ")}`);
+  const report = buildReport(specs, readResults(f._));
+  out(f.json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report));
+  return report.ok ? 0 : 1;
+}
+
+const COMMANDS = new Map([
+  ["validate", runValidate],
+  ["changed", runChanged],
+  ["check-judge", runCheckJudge],
+  ["report", runReport],
+]);
+
 export function main(argv, { root = process.cwd(), out = (s) => process.stdout.write(s) } = {}) {
   const [cmd, ...rest] = argv;
   const f = parseFlags(rest);
   try {
-    if (cmd === "validate") {
-      const r = validateAll(root);
-      for (const e of r.errors) out(`error: ${e}\n`);
-      for (const n of r.absent) out(`note: skill "${n}" is not present in this checkout; spec kept\n`);
-      out(r.ok ? `ok: ${r.specs.length} specs, ${r.skills.length} skills present\n` : "validation failed\n");
-      return r.ok ? 0 : 1;
-    }
-    if (cmd === "changed") {
-      if (typeof f.base !== "string" || typeof f.head !== "string") throw new Error("--base and --head are required");
-      const names = changedSkills(root, f.base, f.head);
-      out(names.length ? `${names.join("\n")}\n` : "");
-      return 0;
-    }
-    if (cmd === "check-judge") {
-      assertDistinctJudge(f.runner, f.judge);
-      out(`ok: judge ${normalizeModel(f.judge)} differs from runner ${normalizeModel(f.runner)}\n`);
-      return 0;
-    }
-    if (cmd === "report") {
-      if (f._.length === 0) throw new Error("at least one scores file is required");
-      const { specs, errors } = loadSpecs(root);
-      if (errors.length) throw new Error(`invalid specs: ${errors.join("; ")}`);
-      const report = buildReport(specs, readResults(f._));
-      out(f.json ? `${JSON.stringify(report, null, 2)}\n` : renderReport(report));
-      return report.ok ? 0 : 1;
-    }
+    const run = COMMANDS.get(cmd);
+    if (run) return run(f, root, out);
     out(`${USAGE}\n`);
     return cmd ? 2 : 0;
   } catch (e) {
