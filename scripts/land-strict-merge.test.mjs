@@ -153,7 +153,7 @@ it('stops without merging when the update changes the diff', async () => {
   expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
   expect(calls.filter(a => String(a[1]).includes('check_name='))).toEqual([]);
 });
-it('does not merge when the post-update diff cannot be read', async () => {
+it('does not merge when the pre-update diff cannot be read', async () => {
   writeFileSync(join(root, 'git'), `#!/bin/bash
 if [ "$1" = diff ]; then exit 1; fi
 exec '${realGit}' "$@"
@@ -161,6 +161,21 @@ exec '${realGit}' "$@"
   const calls = await run(scenario([pr(H, 'BEHIND'), pr(U)]), 5, 'could not read the pre-update diff', ['7'], { PATH: `${root}:${process.env.PATH}` });
   expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
   expect(calls.filter(a => a.includes('PUT'))).toHaveLength(1);
+});
+it('does not merge when the post-update diff cannot be read', async () => {
+  writeFileSync(join(root, 'git'), `#!/bin/bash
+if [ "$1" = diff ]; then
+  for arg in "$@"; do
+    if [ "$arg" = '${M}...${U}' ]; then exit 1; fi
+  done
+fi
+exec '${realGit}' "$@"
+`, { mode: 0o755 });
+  const calls = await run(scenario([pr(H, 'BEHIND'), pr(U)]), 5, 'could not read the post-update diff; not merging', ['7'], { PATH: `${root}:${process.env.PATH}` });
+  expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+  expect(calls.filter(a => a.includes('PUT'))).toEqual([['api', '-X', 'PUT', 'repos/{owner}/{repo}/pulls/7/update-branch', '-f', `expected_head_sha=${H}`]]);
+  expect(calls.output).not.toContain('diff unchanged');
+  expect(calls.output).not.toContain('new pinned head');
 });
 it('rejects head movement during checks at the first poll', async () => {
   const s = scenario([pr(), pr(X)]);
