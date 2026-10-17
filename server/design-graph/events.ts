@@ -7,7 +7,7 @@ export type NodeId = (typeof NODE_IDS)[number];
 export const DOMAIN_IDS = ["cad", "optics", "electronics", "analysis"] as const;
 export type DomainId = (typeof DOMAIN_IDS)[number];
 
-export const ARTIFACT_KINDS = ["png", "glb", "step"] as const;
+export const ARTIFACT_KINDS = ["png", "glb", "step", "usdz"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 export const STATUS_STATES = ["started", "completed", "info"] as const;
