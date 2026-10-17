@@ -8,6 +8,10 @@ import {
   DELIVERY_UNAVAILABLE_REASON,
   QA_UNIT,
   buildSnapshot,
+  attributePullRequest,
+  normalizePullRequest,
+  parseReviewVerdict,
+  computeBots,
   computeLiveQuotes,
   computeMerges,
   computeQa,
@@ -213,14 +217,15 @@ describe("snapshot", () => {
   it("has the v1 shape in a stable key order", () => {
     const snapshot = fixtureSnapshot();
     expect(Object.keys(snapshot)).toEqual([
-      "schemaVersion", "generatedAt", "window", "sources", "merges", "qa", "reverts", "timeToMerge", "liveQuotes", "bots",
+      "schemaVersion", "generatedAt", "window", "sources", "merges", "qa", "reverts", "timeToMerge", "liveQuotes", "bots", "botAttribution",
     ]);
     expect(snapshot).toMatchObject({
       schemaVersion: "trust-snapshot.v1",
       generatedAt: "2026-10-15T23:59:59Z",
       window: { start: "2026-09-28", end: "2026-10-15" },
       sources: { repository: "optomachina/Overdrafter", baseBranch: "main", harnessResultFiles: 1 },
-      bots: [],
+      bots: [{ bot: "unknown", prs: 6, qa: { pass: 2, fail: 2, noVerdict: 2, passRate: 0.5 }, reverts: { reverts: 1, rollbacks: 2 }, reviews: { approved: 0, changesRequired: 0 } }],
+      botAttribution: { attributed: 0, noSignal: 6, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } },
     });
   });
 
@@ -299,5 +304,109 @@ describe("resolveBinary", () => {
 
   it("fails closed when no fixed directory has the binary", () => {
     expect(() => resolveBinary("gh", { dirs: ["/nowhere"], exists: () => false })).toThrow(/gh not found in \/nowhere/);
+  });
+});
+
+
+describe("bot attribution", () => {
+  const botPrs = readFixture("bots-prs.json");
+  const botComments = readFixture("bots-comments.json");
+  const snapshot = (overrides = {}) => fixtureSnapshot({ pullRequests: botPrs, comments: botComments, ...overrides });
+  const row = (bot, prs, pass, fail, noVerdict, passRate, reverts = 0, rollbacks = 0, approved = 0, changesRequired = 0) => ({
+    bot, prs, qa: { pass, fail, noVerdict, passRate }, reverts: { reverts, rollbacks }, reviews: { approved, changesRequired },
+  });
+
+  it("counts builders and reviewers separately with exact aggregates", () => {
+    const result = snapshot();
+    expect(result.bots).toEqual([
+      row("codex", 3, 2, 1, 0, 0.6667, 1, 0, 1),
+      row("opus", 2, 1, 1, 0, 0.5, 0, 1, 0, 1),
+      row("sonnet", 0, 0, 0, 0, null, 0, 0, 1),
+      row("unknown", 6, 0, 0, 6, null),
+    ]);
+    expect(result.botAttribution).toEqual({ attributed: 5, noSignal: 4, conflicting: 2, bySource: { label: 4, body: 1, author: 1 } });
+    expect(result.bots.reduce((sum, bot) => sum + bot.prs, 0)).toBe(result.merges.total);
+    for (const key of ["pass", "fail", "noVerdict"]) {
+      expect(result.bots.reduce((sum, bot) => sum + bot.qa[key], 0)).toBe(result.qa[key]);
+    }
+    for (const key of ["reverts", "rollbacks"]) {
+      expect(result.bots.reduce((sum, bot) => sum + bot.reverts[key], 0)).toBe(result.reverts[key]);
+    }
+    const { attributed, noSignal, conflicting } = result.botAttribution;
+    expect(attributed + noSignal + conflicting).toBe(result.merges.total);
+    expect(result.bots.at(-1).bot).toBe("unknown");
+    expect(Object.keys(result.bots[0])).toEqual(["bot", "prs", "qa", "reverts", "reviews"]);
+  });
+
+  it("is deterministic and keeps bodies and human identities private", () => {
+    const json = serializeSnapshot(snapshot({ repository: "example/project" }));
+    expect(serializeSnapshot(snapshot({ repository: "example/project", pullRequests: [...botPrs].reverse(), comments: [...botComments].reverse() }))).toBe(json);
+    expect(json).not.toMatch(/optomachina|Private fixture PR body text|Model: opus per Release|Codex review @/);
+  });
+
+  it("handles empty and entirely unattributable inputs", () => {
+    const empty = snapshot({ pullRequests: [], comments: [] });
+    expect(empty.bots).toEqual([]);
+    expect(empty.botAttribution).toEqual({ attributed: 0, noSignal: 0, conflicting: 0, bySource: { label: 0, body: 0, author: 0 } });
+    expect(computeBots(mergedInWindow([botPrs[2]], window), [], window)).toEqual([row("unknown", 1, 0, 0, 1, null)]);
+  });
+
+  it.each([
+    "Model: opus per Release",
+    "**model:opus** · **Needs Blaine's card**",
+    "Build model: **opus** (source: handoff)",
+    "> - Builder model: opus",
+    "+ Model: opus",
+  ])("reads explicit body evidence: %s", (body) => {
+    expect(attributePullRequest(normalizePullRequest({ body }))).toEqual({ bot: "opus", status: "attributed", sources: ["body"] });
+  });
+
+  it("accepts explicit handoff lines and preserves keys without aliases", () => {
+    expect(attributePullRequest({ body: "Model: sonnet per Grok Bot triage handoff (no model label exists)" }).bot).toBe("sonnet");
+    expect(attributePullRequest({ labels: ["model:Claude"] }).bot).toBe("claude");
+    expect(attributePullRequest({ labels: ["model:z-bot.2_v1"] }).bot).toBe("z-bot.2_v1");
+  });
+
+  it.each(["Codex and other reviewers: pending", "Opus review: CHANGES REQUIRED", "Generated with Claude Code", "Co-Authored-By: Claude ...", "```\nModel: opus\n```", "Model: unknown"])("ignores prose, fences and reserved keys: %s", (body) => {
+    expect(attributePullRequest({ body })).toEqual({ bot: "unknown", status: "no_signal", sources: [] });
+  });
+
+  it("reports every agreeing or conflicting source without choosing a winner", () => {
+    expect(attributePullRequest(normalizePullRequest({ labels: ["model:codex", "model:codex"], body: "Model: codex", user: { login: "codex[bot]", type: "Bot" } }))).toEqual({ bot: "codex", status: "attributed", sources: ["author", "body", "label"] });
+    expect(attributePullRequest({ labels: ["model:codex"], body: "Model: opus" })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body", "label"] });
+    expect(attributePullRequest({ labels: ["model:codex", "model:opus"] })).toEqual({ bot: "unknown", status: "conflicting", sources: ["label"] });
+    expect(attributePullRequest({ labels: ["model:unknown", "model:invalid/key"] })).toEqual({ bot: "unknown", status: "no_signal", sources: [] });
+  });
+
+  it("keeps only bot author keys during normalization", () => {
+    for (const author of [{ login: "robot[bot]" }, { login: "robot", is_bot: true }]) {
+      expect(normalizePullRequest({ author }).authorBot).toBe("robot");
+    }
+    const human = normalizePullRequest({ user: { login: "optomachina", type: "User" } });
+    expect(human.authorBot).toBeNull();
+    expect(human.body).toBe("");
+    expect(JSON.stringify(human)).not.toContain("optomachina");
+    expect(attributePullRequest(human).status).toBe("no_signal");
+  });
+
+  it("sorts bot keys in code-unit order with unknown last", () => {
+    const input = ["z", "a_", "a-", "unknown"].map((bot, number) => normalizePullRequest({ number, labels: [`model:${bot}`] }));
+    expect(computeBots(input, [], window).map((bot) => bot.bot)).toEqual(["a-", "a_", "z", "unknown"]);
+  });
+
+  it("counts id-zero reviews individually and allows comments before window start", () => {
+    const comment = { prNumber: 1, body: "Codex review @ deadbeef: APPROVED", created_at: "2026-09-01T00:00:00Z" };
+    const bots = computeBots(mergedInWindow(botPrs, window), [comment, comment], window);
+    expect(bots[0].reviews.approved).toBe(2);
+  });
+});
+
+describe("review verdicts", () => {
+  it("parses the standard first-line format", () => {
+    expect(parseReviewVerdict("Codex review @ 1a2b3c4d: APPROVED")).toEqual({ bot: "codex", round: "review", sha: "1a2b3c4d", verdict: "approved" });
+    expect(parseReviewVerdict("\n**Opus re-review @ DEADBEEF: CHANGES REQUIRED** details")).toEqual({ bot: "opus", round: "re-review", sha: "deadbeef", verdict: "changes_required" });
+  });
+  it.each([undefined, "Opus review: CHANGES REQUIRED @ 7717135c", "Intro\nCodex review @ deadbeef: APPROVED", "unknown review @ deadbeef: APPROVED", "Codex review @ abc: APPROVED", `Codex review @ ${"a".repeat(41)}: APPROVED`, "2bot review @ deadbeef: APPROVED"])("rejects nonstandard verdict %s", (body) => {
+    expect(parseReviewVerdict(body)).toBeNull();
   });
 });
