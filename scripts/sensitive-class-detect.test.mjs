@@ -202,20 +202,36 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
   });
 
   // Names 0163daf7's path keywords matched and the shared list now matches too
-  // (review @ f786b942): rls after a dot, and provider admission or upload
-  // split by a directory, a dot or any other character.
+  // (reviews @ f786b942 and 6e96e47c): rls after a dot or a comma, provider
+  // admission or upload split by a directory, by any characters next to it, by
+  // a one-character directory, or by any other character, and checkout with
+  // the Kelvin sign (0163daf7 lower-cased it to k). scripts/sensitive-class-sweep.test.mjs
+  // checks every character in every position.
   it.each([
     ["src/features/q/x.rls.ts", ["auth"]],
     ["scripts/x.rls.ts", ["auth"]],
+    ["src/features/q/x,rls.ts", ["auth"]],
     ["src/features/provider/upload/Form.tsx", ["provider_dispatch"]],
     ["src/features/provider/admission/Form.tsx", ["provider_dispatch"]],
     ["src/features/provider.upload.tsx", ["provider_dispatch"]],
     ["scripts/provider/admission.mjs", ["provider_dispatch"]],
     ["docs/provider admission.md", ["provider_dispatch"]],
     ["src/components/provider+uploads.tsx", ["provider_dispatch"]],
+    ["src/features/provider/_upload/Form.tsx", ["provider_dispatch"]],
+    ["src/features/provider/_upload.tsx", ["provider_dispatch"]],
+    ["src/pages/provider/(admission)/index.tsx", ["provider_dispatch"]],
+    ["src/features/provider/[upload]/Form.tsx", ["provider_dispatch"]],
+    ["src/features/provider/@upload/Form.tsx", ["provider_dispatch"]],
+    ["src/features/x-provider_/upload.tsx", ["provider_dispatch"]],
+    ["src/provider_/upload/x.ts", ["provider_dispatch"]],
+    ["scripts/provider/_admission.mjs", ["provider_dispatch"]],
+    ["worker/src/provider/_admission.ts", ["provider_dispatch"]],
+    ["docs/provider/ upload.md", ["provider_dispatch"]],
+    ["src/features/provider/_/upload.tsx", ["provider_dispatch"]],
+    ["src/features/checKout.tsx", ["payments"]],
     ["docs/a.pgsql", ["schema"]],
     ["src/assets/b.psql", ["schema"]],
-  ])("restored coverage: %s -> %j", (file, classes) => {
+  ])("restored coverage: %j -> %j", (file, classes) => {
     expect(classifyPath(file, config)).toMatchObject({ classes, category: null });
   });
 

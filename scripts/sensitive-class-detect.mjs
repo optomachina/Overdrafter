@@ -50,8 +50,12 @@ import { safeInline } from "./proof-check.mjs";
  *   ci, infra  -> infra_ci
  *   auth, secrets, deps -> unchanged
  *   rls, definer -> unchanged, from SQL content only (a path naming rls at
- *                 the start of a name or after -, _ or . is auth on the
- *                 shared list; a camelCase name such as quoteRls is not)
+ *                 the start of a name or after -, _, . or , is auth on the
+ *                 shared list; rls after any other character, or at a
+ *                 camelCase boundary such as quoteRls, is not: a glob that
+ *                 matched it would also match src/lib/urls.ts. The coverage
+ *                 sweep test, sensitive-class-sweep.test.mjs, checks the
+ *                 residual against 0163daf7's rules)
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
  * "<class>:sql:<tokens>" or "<category>:path:<glob>"; a rename's old name is
  * prefixed "previous:". gate_loosening.reasons hold this detector's reasons

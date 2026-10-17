@@ -24,6 +24,7 @@
     { "glob": "**/*.rls*{,/**}", "class": "auth" },
     { "glob": "**/*permission*{,/**}", "class": "auth" },
     { "glob": "**/*session*{,/**}", "class": "auth" },
+    { "glob": "**/*,rls*{,/**}", "class": "auth" },
 
     { "glob": "**/*payment*{,/**}", "class": "payments" },
     { "glob": "**/*billing*{,/**}", "class": "payments" },
@@ -31,6 +32,7 @@
     { "glob": "**/*pricing*{,/**}", "class": "payments" },
     { "glob": "**/*invoice*{,/**}", "class": "payments" },
     { "glob": "**/*checkout*{,/**}", "class": "payments" },
+    { "glob": "**/*chec?out*{,/**}", "class": "payments" },
 
     { "glob": "**/*dispatch*{,/**}", "class": "provider_dispatch" },
     { "glob": "worker/src/adapters/**", "class": "provider_dispatch" },
@@ -42,6 +44,7 @@
     { "glob": "**/*provider_upload*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider*{admission,upload}*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider/{admission,upload}*{,/**}", "class": "provider_dispatch" },
+    { "glob": "**/*provider*/**/*{admission,upload}*{,/**}", "class": "provider_dispatch" },
 
     { "glob": "**/*secret*{,/**}", "class": "secrets" },
     { "glob": "**/*credential*{,/**}", "class": "secrets" },
