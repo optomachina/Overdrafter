@@ -10,6 +10,7 @@ and `supabase db reset` does not load these files.
 | `staging.sql` | The seed. One statement batch with no `begin`/`commit` and no psql meta-commands, so the Supabase SQL API (MCP `execute_sql`) can run it as one transaction. |
 | `staging-counts.sql` | Read only. Total and fixture row counts per seeded table, including the rows insert triggers derive. |
 | `staging-smoke.sql` | Read only. The OVD-813 sanity-gate history read (`worker/src/fixtureHeal/sanityHistory.ts`) as SQL, `limit 50`. Expect more than 0 rows (4 with the current seed). |
+| `../staging/bootstrap-marker.sql` | OVD-879. Run **once**, on staging only, before the first seed. Creates the environment marker the seed checks for. |
 
 ## What it seeds
 
@@ -44,6 +45,17 @@ the window. Without it, the 90-day history read would stop finding it.
 
 ## Running it
 
+Bootstrap once, then seed. The first time a staging database is seeded, run
+`supabase/staging/bootstrap-marker.sql` on it once, through the OVD-839 URL guard.
+Until that guard lands, prove the target first with
+`node scripts/seed-staging.mjs --ref ldmambwtksfvqdufhaam --check-target`.
+The bootstrap creates `overdrafter.environment_marker` with the single row
+`env = 'staging'`. The table has a `check (env = 'staging')` constraint, RLS with no
+policies, and no access for `public`, `anon` or `authenticated`. It is idempotent.
+It is the only file that creates the marker, and it is not a migration, so
+production and fresh databases never have it. Without the marker row the seed
+refuses with `STAGING_SENTINEL_MISSING` (see "In-SQL guards" below).
+
 Runner (psql required). psql is resolved to an absolute path: `PSQL_BIN` if set
 (it must be absolute), otherwise the first `psql` in a fixed list of directories
 (`/usr/bin`, `/usr/local/bin`, `/bin`, `/opt/homebrew/bin`, Homebrew libpq). The
@@ -71,18 +83,39 @@ The runner uses an allowlist. `--ref`, `SUPABASE_URL` and `STAGING_DATABASE_URL`
 - a ref cannot be derived;
 - no target is given.
 
-In-SQL guard: `staging.sql` starts with a `do` block that raises an exception,
-before any write, unless the transaction-local setting `ovd837.seed_target_ref`
-is `ldmambwtksfvqdufhaam`. A Supabase database does not expose its own project
+In-SQL guards, both before any write and inside the seed's single transaction:
+
+1. Environment sentinel (OVD-879), the first statement. It raises
+   `STAGING_SENTINEL_MISSING` unless `overdrafter.environment_marker` exists and
+   holds the row `env = 'staging'`. The seed never creates or writes the marker.
+2. Target guard (OVD-837). It raises an exception unless the transaction-local
+   setting `ovd837.seed_target_ref` is `ldmambwtksfvqdufhaam`.
+
+For the target guard: a Supabase database does not expose its own project
 ref, so the caller that already proved the target asserts it: the runner sets it
 with `set local` inside the seed's single transaction. Pasting the file alone
 anywhere writes nothing.
 
-Supabase MCP: first run the `--check-target` command above. Then pass `project_id`
+Supabase MCP: first run the `--check-target` command above. On a staging database
+that has never been bootstrapped, run `supabase/staging/bootstrap-marker.sql` once. Then pass `project_id`
 `ldmambwtksfvqdufhaam` to `execute_sql`, and run `staging.sql` as one call,
 prefixed with
 `select set_config('ovd837.seed_target_ref', 'ldmambwtksfvqdufhaam', true);`.
 Run `staging-counts.sql` before and after, and run the seed twice to confirm
 the counts match. Finish with `staging-smoke.sql`.
 
-Guard test: `npx vitest run --maxWorkers=2 scripts/seed-staging.test.mjs`. It needs no network.
+Guard tests: `npx vitest run --maxWorkers=2 scripts/seed-staging.test.mjs scripts/staging-sentinel.test.mjs`.
+They need no network.
+
+Local proof (OVD-879): `bash scripts/local-pg17-sentinel-proof.sh` starts a
+throwaway PostgreSQL 17 cluster on a unix socket. It applies every migration over a
+minimal Supabase shim and checks these cases:
+
+- the seed refuses with no marker schema, and with an empty marker table, and writes nothing;
+- bootstrap then seed gives the expected counts, and a second run is idempotent;
+- `env = 'prod'` fails the check;
+- `anon` and `authenticated` cannot read the marker;
+- the static tests pass.
+
+It refuses to start if `PGHOST`, `PGHOSTADDR`, `PGSERVICE` or `PGPORT` is set, and
+deletes the cluster on exit.
