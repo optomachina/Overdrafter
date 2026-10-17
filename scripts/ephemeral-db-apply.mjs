@@ -27,7 +27,8 @@
  * pgTAP, applies the rollbacks newest first twice (the second pass must succeed),
  * and requires an empty DM-1R diff against the first dump. A family with no
  * rollback files is reported as rollback "none" and does not fail the run.
- * --rollback exits 1 unless the result is pass.
+ * Every family runs and is reported (dm1r, replay, reapply, pgtap) even after
+ * an earlier family fails; --rollback then exits 1 unless the result is pass.
  *
  * Usage:
  *   node scripts/ephemeral-db-apply.mjs [--root DIR] [--base HEAD^1] [--head HEAD]
@@ -54,6 +55,12 @@ export const DEFAULT_PATHS = Object.freeze({
 
 const SAFE_PATH = /^[A-Za-z0-9._/-]+$/;
 const ERROR_EXCERPT_LINES = 20;
+
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
 
 /** Parses `git diff --name-status --no-renames` output into { status, path } entries. */
 export function parseNameStatus(text) {
@@ -184,10 +191,10 @@ export function resolveDraftFamilies({ touched, drafts, tests }) {
   }
   const inFamily = (path) => seeds.has(find(path));
   const familyDrafts = liveDrafts.filter(inFamily);
-  const byStem = (left, right) => (draftStem(left) < draftStem(right) ? -1 : draftStem(left) > draftStem(right) ? 1 : 0);
+  const byStem = (left, right) => compareStrings(draftStem(left), draftStem(right));
   const touchedSet = new Set(touched);
   const selectedDrafts = familyDrafts.filter((path) => claimed.has(path)).sort(byStem);
-  const selectedTests = tests.map((test) => test.path).filter(inFamily).sort();
+  const selectedTests = tests.map((test) => test.path).filter(inFamily).sort(compareStrings);
   const groups = new Map();
   const addMember = (path, bucket) => {
     const root = find(path);
@@ -201,9 +208,9 @@ export function resolveDraftFamilies({ touched, drafts, tests }) {
     .map((group) => ({
       id: familyId([...group.drafts, ...group.pendingTests]),
       drafts: group.drafts.sort(byStem),
-      pendingTests: [...group.pendingTests].sort(),
+      pendingTests: [...group.pendingTests].sort(compareStrings),
     }))
-    .sort((left, right) => familyKey(left.id) - familyKey(right.id) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+    .sort((left, right) => familyKey(left.id) - familyKey(right.id) || compareStrings(left.id, right.id));
   return {
     drafts: selectedDrafts,
     pendingTests: selectedTests,
@@ -259,8 +266,8 @@ export function isIdempotentDraft(text) {
 
 /** Empty when two schema-only dumps match. Otherwise a short added/removed line diff. */
 export function schemaDiff(before, after) {
-  const left = String(before ?? "").replace(/\s+$/, "");
-  const right = String(after ?? "").replace(/\s+$/, "");
+  const left = String(before ?? "").trimEnd();
+  const right = String(after ?? "").trimEnd();
   if (left === right) return "";
   const leftLines = left.split("\n");
   const rightLines = right.split("\n");
@@ -288,131 +295,119 @@ function dumpSchema({ exec, psql, dbUrl, root }) {
 function familyRollbackOk(family) {
   const rollback = family?.rollback;
   if (rollback == null || rollback === "none" || rollback === "not-run") return true;
-  return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped");
+  return rollback.dm1r === "pass" && rollback.replay === "pass" && (rollback.reapply === "pass" || rollback.reapply === "skipped") && rollback.pgtap !== "fail";
 }
 
-const skippedRollback = (reapply = "skipped") => ({ dm1r: "skipped", replay: "skipped", reapply });
+const skippedRollback = () => ({ dm1r: "skipped", replay: "skipped", reapply: "skipped", pgtap: "skipped" });
+
+function recordRollbackError(rollback, message) {
+  rollback.error ??= message;
+  rollback.errors ??= [];
+  rollback.errors.push(message);
+}
+
+function replayFamily(family, applyFile, rollback) {
+  for (const pass of [1, 2]) {
+    const rolled = applyInOrder(family.rollbacks, applyFile);
+    if (rolled.failed) {
+      rollback.replay = "fail";
+      recordRollbackError(rollback, `family ${family.id}: rollback replay failed on pass ${pass} (${rolled.failed.file}): ${rolled.failed.error}`);
+      return;
+    }
+  }
+  rollback.replay = "pass";
+}
+
+function checkFamilyDrafts({ root, family, applyFile, rollback }) {
+  const idempotent = family.drafts.filter((file) => isIdempotentDraft(readFileSync(join(root, file), "utf8")));
+  if (idempotent.length === 0) return;
+  const again = applyInOrder(idempotent, applyFile);
+  rollback.reapply = "pass";
+  if (again.failed) {
+    rollback.reapply = "fail";
+    recordRollbackError(rollback, `family ${family.id}: re-apply of ${again.failed.file} failed: ${again.failed.error}`);
+  }
+}
+
+function checkFamilyPending({ root, family, workDir, exec, project, rollback }) {
+  if (family.pendingTests.length === 0) return { status: "skipped" };
+  const dir = join(workDir, "rollback-tests", family.id);
+  const expectedFiles = stagePendingTests(root, family.pendingTests, dir);
+  const tap = runPgTap({ exec, root, project, dir, expectedFiles });
+  rollback.pgtap = tap.status;
+  if (tap.status !== "pass") recordRollbackError(rollback, `family ${family.id}: pending pgTAP failed: ${tap.error ?? "unknown"}`);
+  return { ...tap, files: expectedFiles };
+}
+
+function checkFamilyDiff(options, before, rollback) {
+  if (rollback.replay !== "pass") return;
+  const after = dumpSchema(options);
+  rollback.dm1r = "fail";
+  if (!after.ok) {
+    recordRollbackError(rollback, `family ${options.family.id}: post-rollback pg_dump failed: ${after.error}`);
+    return;
+  }
+  const diff = schemaDiff(before.text, after.text);
+  if (diff) recordRollbackError(rollback, `family ${options.family.id}: ${diff}`);
+  else rollback.dm1r = "pass";
+}
+
+function rollbackOneFamily(options) {
+  const { family, applyFile, log = () => {} } = options;
+  if (family.rollbacks.length === 0) return { result: { ...family, rollback: "none" }, applied: [] };
+  log(`rollback family ${family.id}`);
+  const rollback = skippedRollback();
+  const outcome = { result: { ...family, rollback }, applied: [] };
+  const before = dumpSchema(options);
+  if (!before.ok) {
+    rollback.dm1r = "fail";
+    recordRollbackError(rollback, `family ${family.id}: pre-draft pg_dump failed: ${before.error}`);
+    return outcome;
+  }
+  const apply = applyInOrder(family.drafts, applyFile);
+  outcome.applied = apply.applied;
+  if (apply.failed) {
+    outcome.draftFailed = apply.failed;
+    outcome.skipped = apply.skipped;
+    recordRollbackError(rollback, `family ${family.id}: draft ${apply.failed.file} failed: ${apply.failed.error}`);
+    for (const file of family.rollbacks) applyFile(file);
+    return outcome;
+  }
+  checkFamilyDrafts({ ...options, rollback });
+  outcome.pending = checkFamilyPending({ ...options, rollback });
+  replayFamily(family, applyFile, rollback);
+  checkFamilyDiff(options, before, rollback);
+  return outcome;
+}
 
 /**
- * Proves each family that has rollback files: dump, apply, re-apply idempotent
- * drafts, pending pgTAP, rollbacks newest-first twice, dump, empty DM-1R diff.
- * Stops after the first family that fails so a dirty schema is not the next
- * family's baseline. Families with no rollback files are `rollback: "none"`.
+ * Proves every resolved family against its own pre-draft schema baseline:
+ * dump, apply, re-apply idempotent drafts, pending pgTAP, rollbacks newest-first
+ * twice, dump, empty DM-1R diff. A failing family does not stop the loop; later
+ * families carry `afterFailedFamily` because their baseline may hold leftovers.
+ * Families with no rollback files are `rollback: "none"`.
  */
-export function runFamilyRollbacks({ root, families, exec, psql, dbUrl, workDir, project, log = () => {}, applyFile }) {
+export function runFamilyRollbacks(options) {
   const applied = [];
   let draftFailed = null;
   let skipped = [];
   const results = [];
-  let stop = false;
+  let failedFamily;
   let pending = { status: "skipped", reason: "no pending tests in families that ran the rollback stage" };
-  let sawPending = false;
-
-  for (const family of families) {
-    if (stop) {
-      results.push({
-        ...family,
-        rollback: family.rollbacks.length === 0 ? "none" : { ...skippedRollback(), error: `family ${family.id}: not reached` },
-      });
-      continue;
+  for (const family of options.families) {
+    const outcome = rollbackOneFamily({ ...options, family });
+    if (failedFamily) outcome.result.afterFailedFamily = failedFamily;
+    results.push(outcome.result);
+    applied.push(...outcome.applied);
+    if (!draftFailed && outcome.draftFailed) {
+      draftFailed = outcome.draftFailed;
+      skipped = outcome.skipped;
     }
-    if (family.rollbacks.length === 0) {
-      results.push({ ...family, rollback: "none" });
-      continue;
-    }
-
-    log(`rollback family ${family.id}`);
-    const before = dumpSchema({ exec, psql, dbUrl, root });
-    if (!before.ok) {
-      results.push({
-        ...family,
-        rollback: { ...skippedRollback(), dm1r: "fail", error: `family ${family.id}: pre-draft pg_dump failed: ${before.error}` },
-      });
-      stop = true;
-      continue;
-    }
-
-    const apply = applyInOrder(family.drafts, applyFile);
-    applied.push(...apply.applied);
-    if (apply.failed) {
-      draftFailed = apply.failed;
-      skipped = apply.skipped;
-      results.push({
-        ...family,
-        rollback: { ...skippedRollback(), error: `family ${family.id}: draft ${apply.failed.file} failed: ${apply.failed.error}` },
-      });
-      stop = true;
-      continue;
-    }
-
-    const idempotent = family.drafts.filter((file) => isIdempotentDraft(readFileSync(join(root, file), "utf8")));
-    let reapply = "skipped";
-    if (idempotent.length > 0) {
-      const again = applyInOrder(idempotent, applyFile);
-      if (again.failed) {
-        results.push({
-          ...family,
-          rollback: {
-            ...skippedRollback("fail"),
-            error: `family ${family.id}: re-apply of ${again.failed.file} failed: ${again.failed.error}`,
-          },
-        });
-        stop = true;
-        continue;
-      }
-      reapply = "pass";
-    }
-
-    if (family.pendingTests.length > 0) {
-      sawPending = true;
-      const dir = join(workDir, "rollback-tests", family.id);
-      const expectedFiles = stagePendingTests(root, family.pendingTests, dir);
-      const tap = runPgTap({ exec, root, project, dir, expectedFiles });
-      if (tap.status !== "pass") {
-        pending = { status: "fail", error: tap.error };
-        results.push({
-          ...family,
-          rollback: { ...skippedRollback(reapply), error: `family ${family.id}: pending pgTAP failed: ${tap.error ?? "unknown"}` },
-        });
-        stop = true;
-        continue;
-      }
-      pending = { status: "pass", files: (pending.status === "pass" ? pending.files ?? 0 : 0) + expectedFiles };
-    }
-
-    let replayError = null;
-    for (const pass of [1, 2]) {
-      const rolled = applyInOrder(family.rollbacks, applyFile);
-      if (rolled.failed) {
-        replayError = `family ${family.id}: rollback replay failed on pass ${pass} (${rolled.failed.file}): ${rolled.failed.error}`;
-        break;
-      }
-    }
-    if (replayError) {
-      results.push({ ...family, rollback: { dm1r: "skipped", replay: "fail", reapply, error: replayError } });
-      stop = true;
-      continue;
-    }
-
-    const after = dumpSchema({ exec, psql, dbUrl, root });
-    if (!after.ok) {
-      results.push({
-        ...family,
-        rollback: { dm1r: "fail", replay: "pass", reapply, error: `family ${family.id}: post-rollback pg_dump failed: ${after.error}` },
-      });
-      stop = true;
-      continue;
-    }
-    const diff = schemaDiff(before.text, after.text);
-    if (diff) {
-      results.push({ ...family, rollback: { dm1r: "fail", replay: "pass", reapply, error: `family ${family.id}: ${diff}` } });
-      stop = true;
-      continue;
-    }
-    results.push({ ...family, rollback: { dm1r: "pass", replay: "pass", reapply } });
+    if (!familyRollbackOk(outcome.result)) failedFamily = family.id;
+    if (pending.status === "fail" || !outcome.pending || outcome.pending.status === "skipped") continue;
+    if (outcome.pending.status === "fail") pending = { status: "fail", error: outcome.pending.error };
+    else pending = { status: "pass", files: (pending.files ?? 0) + outcome.pending.files };
   }
-
-  if (!sawPending) pending = { status: "skipped", reason: "no pending tests in families that ran the rollback stage" };
   return { families: results, applied, draftFailed, skipped, pending };
 }
 
@@ -632,7 +627,7 @@ export function runEphemeralDb({ root, base, head, dbUrl = DEFAULT_DB_URL, psql 
     });
     report.families = outcome.families;
     report.drafts = { ...report.drafts, applied: outcome.applied, failed: outcome.draftFailed, skipped: outcome.skipped };
-    report.pendingTests = pendingTests(outcome.draftFailed ? skippedTests(`draft ${outcome.draftFailed.file} failed`) : outcome.pending);
+    report.pendingTests = pendingTests(outcome.pending);
     return { ...report, result: decideResult(report) };
   }
 
@@ -678,13 +673,13 @@ export function renderSummary(report) {
     const rollback = family.rollback;
     if (!rollback || rollback === "not-run") continue;
     if (rollback === "none") lines.push(`- Family \`${family.id}\` rollback: none`);
-    else lines.push(`- Family \`${family.id}\` rollback: dm1r ${rollback.dm1r}, replay ${rollback.replay}, reapply ${rollback.reapply}`);
+    else lines.push(`- Family \`${family.id}\` rollback: dm1r ${rollback.dm1r}, replay ${rollback.replay}, reapply ${rollback.reapply}, pgtap ${rollback.pgtap}`);
   }
   for (const warning of report.warnings) lines.push(`- Warning: ${warning}`);
   const failure = report.migrations.failed ?? report.drafts.failed;
-  const familyError = (report.families ?? []).map((family) => (family.rollback && typeof family.rollback === "object" ? family.rollback.error : null)).find(Boolean);
-  const error = failure?.error ?? familyError ?? report.error ?? report.baseline.error ?? report.policyTests.error ?? report.pendingTests.error;
-  if (error) lines.push("", "```", error, "```");
+  const familyErrors = (report.families ?? []).flatMap((family) => family.rollback?.errors ?? (family.rollback?.error ? [family.rollback.error] : []));
+  const error = failure?.error ?? report.error ?? report.baseline.error ?? report.policyTests.error ?? report.pendingTests.error;
+  for (const message of new Set([error, ...familyErrors].filter(Boolean))) lines.push("", "```", message, "```");
   if (report.stage === "rollback") lines.push("", "_Rollback stage: a family failure fails the job. The job is not a required check._");
   else if (report.mode === "report") lines.push("", "_Report mode: this check never blocks the PR._");
   return `${lines.join("\n")}\n`;

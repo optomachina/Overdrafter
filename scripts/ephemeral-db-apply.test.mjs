@@ -531,7 +531,7 @@ const ORDER_A_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-a.rollback.sql`;
 const ORDER_B_ROLLBACK = `${FIXTURES}/drafts/ovd-9909-b.rollback.sql`;
 
 /** Stubbed psql/pg_dump: schema stays put unless a rollback says it left an extra column. */
-function rollbackFake({ diff }) {
+function rollbackFake({ diff, failPendingFamily }) {
   const calls = [];
   let schema = "base-schema\n";
   const counts = new Map();
@@ -541,7 +541,10 @@ function rollbackFake({ diff }) {
     if (cmd === "git" && args[0] === "ls-tree") return { status: 0, stdout: "supabase/migrations/20261015074957_ovd736_revoke_anon_definer_execute.sql\n" };
     if (cmd === "git" || cmd === "tar") return { status: 0, stdout: "" };
     if (cmd === "supabase" && args[0] === "db") return { status: 0, stdout: "", stderr: "" };
-    if (cmd === "supabase" && args[0] === "test") return { status: 0, stdout: pgProve(args.at(-1)) };
+    if (cmd === "supabase" && args[0] === "test") {
+      if (failPendingFamily && args.at(-1).endsWith(`/rollback-tests/${failPendingFamily}`)) return { status: 1, stderr: "pending test failed" };
+      return { status: 0, stdout: pgProve(args.at(-1)) };
+    }
     if (cmd === "docker" && args.includes("pg_dump")) return { status: 0, stdout: schema, stderr: "" };
     if (cmd === "docker" && args.includes("psql")) {
       const file = args.at(-1);
@@ -572,7 +575,7 @@ describe("rollback stage", () => {
     expect(report.result).toBe("pass");
     expect(report.stage).toBe("rollback");
     expect(report.families).toEqual([
-      expect.objectContaining({ id: "9904", rollback: { dm1r: "pass", replay: "pass", reapply: "pass" } }),
+      expect.objectContaining({ id: "9904", rollback: { dm1r: "pass", replay: "pass", reapply: "pass", pgtap: "pass" } }),
     ]);
     expect(psqlFiles(fake.calls)).toEqual([IDEMPOTENT, IDEMPOTENT, IDEMPOTENT_ROLLBACK, IDEMPOTENT_ROLLBACK]);
     expect(dumpCount(fake.calls)).toBe(2);
@@ -608,14 +611,17 @@ describe("rollback stage", () => {
     expect(report.families[0].rollback.reapply).toBe("fail");
     expect(report.families[0].rollback.error).toMatch(/family 9905/);
     expect(report.families[0].rollback.error).toMatch(/re-apply/);
-    expect(psqlFiles(fake.calls)).toEqual([REAPPLY, REAPPLY]);
+    const rollback = REAPPLY.replace(".sql", ".rollback.sql");
+    expect(psqlFiles(fake.calls)).toEqual([REAPPLY, REAPPLY, rollback, rollback]);
+    expect(report.families[0].rollback).toMatchObject({ replay: "pass", dm1r: "pass", pgtap: "pass" });
+    expect(dumpCount(fake.calls)).toBe(2);
   });
 
   it("does not re-apply a draft without the idempotent header", () => {
     const { fake, report } = rollbackRun(`M\t${DRAFT_OK}\n`);
     expect(report.result).toBe("pass");
     expect(report.families[0].id).toBe("9901");
-    expect(report.families[0].rollback).toEqual({ dm1r: "pass", replay: "pass", reapply: "skipped" });
+    expect(report.families[0].rollback).toEqual({ dm1r: "pass", replay: "pass", reapply: "skipped", pgtap: "pass" });
     expect(psqlFiles(fake.calls).filter((file) => file === DRAFT_OK)).toEqual([DRAFT_OK]);
   });
 
@@ -626,6 +632,33 @@ describe("rollback stage", () => {
     expect(psqlFiles(fake.calls)).toEqual([]);
     expect(dumpCount(fake.calls)).toBe(0);
     expect(report.drafts.failed).toBeNull();
+  });
+
+  it("keeps running later families after one fails and reports both", () => {
+    const { fake, report } = rollbackRun(`M\t${REAPPLY}\nM\t${ORDER_A}\n`);
+    expect(report.result).toBe("fail");
+    const [failed, later] = report.families;
+    expect(failed.id).toBe("9905");
+    expect(failed.rollback).toMatchObject({ reapply: "fail", error: expect.stringContaining("family 9905") });
+    expect(later).toMatchObject({ id: "9909", afterFailedFamily: "9905", rollback: { dm1r: "pass", replay: "pass" } });
+    expect(psqlFiles(fake.calls)).toContain(ORDER_A);
+    expect(psqlFiles(fake.calls)).toContain(ORDER_B_ROLLBACK);
+    expect(dumpCount(fake.calls)).toBe(4);
+    expect(JSON.stringify(report.families)).not.toContain("not reached");
+    const summary = renderSummary(report);
+    expect(summary).toContain("Family `9905`");
+    expect(summary).toContain("Family `9909`");
+    expect(summary).toContain(failed.rollback.error);
+  });
+
+  it("still replays rollbacks and measures DM-1R after pending pgTAP fails", () => {
+    const fake = rollbackFake({ diff: `M\t${IDEMPOTENT}\n`, failPendingFamily: "9904" });
+    const report = run(fake, { rollback: true });
+    expect(report.result).toBe("fail");
+    expect(report.pendingTests).toMatchObject({ status: "fail" });
+    expect(report.families[0].rollback).toMatchObject({ pgtap: "fail", replay: "pass", dm1r: "pass" });
+    expect(psqlFiles(fake.calls)).toEqual([IDEMPOTENT, IDEMPOTENT, IDEMPOTENT_ROLLBACK, IDEMPOTENT_ROLLBACK]);
+    expect(dumpCount(fake.calls)).toBe(2);
   });
 
   it("applies rollbacks newest first, twice", () => {
