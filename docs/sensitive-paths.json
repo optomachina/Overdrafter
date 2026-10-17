@@ -133,7 +133,7 @@
     { "glob": "scripts/xometry-stable-egress-contract*", "class": "infra_ci" },
     { "glob": "scripts/window2-packet*", "class": "infra_ci" },
     { "glob": "**/WORKFLOW.md", "class": "infra_ci" },
-    { "glob": "scripts/symphony-*", "class": "infra_ci" },
+    { "glob": "scripts/symphony*{,/**}", "class": "infra_ci" },
     { "glob": "scripts/vite-*", "class": "infra_ci" },
     { "glob": "**/GEMINI.md", "class": "infra_ci" },
     { "glob": "**/.codex/config*", "class": "infra_ci" },

@@ -309,6 +309,18 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     },
   );
 
+  // Release, final round 3: every Symphony script name shape is infra_ci, not
+  // only scripts/symphony-*; a Symphony directory is covered too.
+  it.each(["scripts/symphony.sh", "scripts/symphony/run.sh", "scripts/symphony_agent.sh", "scripts/symphonyHook.mjs"])(
+    "Symphony script %s is infra_ci, never a safe category (Release, final round 3)",
+    async (file) => {
+      expect(classifyPath(file, config)).toMatchObject({ classes: ["infra_ci"], category: null });
+      const result = await detect({ files: [modified(file)], config });
+      expect(result).toMatchObject({ status: "ok", sensitive_count: 1, unclassified: [] });
+      expect(result.files[0].classes).toEqual(["infra_ci"]);
+    },
+  );
+
   // Known residual (documented in the PR): 0163daf7 split camelCase words, so
   // quoteRls was rls. The shared list is case-insensitive and its fixture keeps
   // src/lib/urls.ts out, so a camelCase rls cannot be matched without urls.
