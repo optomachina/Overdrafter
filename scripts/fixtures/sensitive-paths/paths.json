@@ -11,7 +11,7 @@
     { "path": "db/quote\"name.sql", "classes": ["schema"] },
     { "path": "src/lib/auth/guard.ts", "classes": ["auth"] },
     { "path": "src/features/oauth-callback.tsx", "classes": ["auth"] },
-    { "path": "scripts/check-rls-deny-coverage.mjs", "classes": ["auth"] },
+    { "path": "scripts/check-rls-deny-coverage.mjs", "classes": ["auth", "infra_ci"] },
     { "path": "src/pages/Permissions.tsx", "classes": ["auth"] },
     { "path": "worker/src/sessions/store.ts", "classes": ["auth"] },
     { "path": "SRC/AUTH/LOGIN.TSX", "classes": ["auth"] },
