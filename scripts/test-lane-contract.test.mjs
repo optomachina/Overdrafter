@@ -23,6 +23,7 @@ const portableSuites = [
   "scripts/window2-packet.node-test.mjs",
   "scripts/lint-rls-new-tables.node-test.mjs",
   "scripts/sensitive-paths-report.node-test.mjs",
+  "scripts/check-migration-immutability.node-test.mjs",
 ];
 
 function portableCommand() {
