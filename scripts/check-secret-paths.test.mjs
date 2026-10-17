@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,7 +28,7 @@ const temps = [];
 afterAll(() => temps.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 const git = (cwd, ...args) => execFileSync(GIT_BIN, [
-  "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args,
+  "-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", ...args,
 ], { cwd, encoding: "utf8" });
 
 function write(dir, files) {
@@ -198,7 +198,47 @@ describe("check-secret-paths diff mode", () => {
     const { report } = check(dir);
     expect(git(dir, "diff", "--name-status", "HEAD^1", "HEAD").trim()).toBe("T\tdeploy/server.key");
     expect(blockedPaths(report)).toEqual(["deploy/server.key"]);
+    expect(report.findings[0].rules).toEqual(["symlink", "key"]);
     expect(report.checked_paths).toBe(1);
+  });
+
+  // `git show HEAD:<symlink>` returns the link target, so a `.envrc` symlink
+  // to a file named `dotenv` used to pass the content check.
+  it.each([
+    [".envrc", "dotenv"],
+    [".envrc", "source_env"],
+    ["config/.envrc", "../dotenv"],
+    [".env.example", "dotenv"],
+    ["worker/.env.local", "../dotenv"],
+  ])("blocks %s as a symlink (to %s), whatever it points to", (path, target) => {
+    const dir = repo({ dotenv: `export DB_PASSWORD=${STRIPE_KEY}\n`, source_env: "x\n" });
+    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    symlinkSync(target, join(dir, path));
+    commit(dir, {});
+    const { report } = check(dir);
+    expect(report.findings).toEqual([{ path, rules: ["symlink", "env"], reason: "sensitive path is a symlink, not a regular file" }]);
+    expect(report.ok).toBe(false);
+  });
+
+  it("blocks a gitlink at a sensitive path", () => {
+    const dir = repo();
+    git(dir, "update-index", "--add", "--cacheinfo", `160000,${git(dir, "rev-parse", "HEAD").trim()},.envrc`);
+    git(dir, "commit", "-q", "-m", "gitlink");
+    expect(check(dir).report.findings).toEqual([
+      { path: ".envrc", rules: ["gitlink", "env"], reason: "sensitive path is a gitlink, not a regular file" },
+    ]);
+  });
+
+  it("still allows an executable .envrc that only loads files, and a symlink at a path that is not sensitive", () => {
+    const dir = repo({ dotenv: "x\n" });
+    write(dir, { ".envrc": "dotenv .env.local\n" });
+    chmodSync(join(dir, ".envrc"), 0o755);
+    symlinkSync("README.md", join(dir, "readme-link.md"));
+    commit(dir, {});
+    expect(git(dir, "ls-files", "-s", ".envrc").split(" ")[0]).toBe("100755");
+    const { report } = check(dir);
+    expect(report.findings).toEqual([]);
+    expect(report.checked_paths).toBe(2);
   });
 
   it("blocks a modified sensitive file and ignores a deleted one", () => {
@@ -219,26 +259,34 @@ describe("check-secret-paths diff mode", () => {
     const dir = repo({ ".gitleaks.toml": "[extend]\nuseDefault = true\n" });
     const added = check(dir, ["--enforce"]);
     expect(added.code).toBe(0);
-    expect(added.report.gate_loosening).toEqual([
-      { path: ".gitleaks.toml", status: "A", reason: "allowlist config edited", requires: ["grokbot_countersign", "blaine_card"] },
-    ]);
+    expect(added.report.gate_loosening).toEqual({
+      detected: true,
+      reasons: [{ kind: "gitleaks_config_changed", path: ".gitleaks.toml", status: "A", message: ".gitleaks.toml (A): allowlist config edited" }],
+      requires: ["grokbot_countersign", "blaine_card"],
+    });
     commit(dir, { ".gitleaks.toml": "[extend]\nuseDefault = true\n# edited\n" });
-    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["M"]);
+    expect(check(dir).report.gate_loosening.reasons.map((g) => g.status)).toEqual(["M"]);
     commit(dir, {}, [".gitleaks.toml"]);
-    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
+    expect(check(dir).report.gate_loosening.reasons.map((g) => g.status)).toEqual(["D"]);
   });
 
   it.each([".gitleaksignore", "nested/dir/.gitleaksignore"])("flags %s add, edit and delete as gate_loosening without failing", (path) => {
     const dir = repo({ [path]: "abc123:src/app.ts:generic-api-key:1\n" });
     const added = check(dir, ["--enforce"]);
     expect(added.code).toBe(0);
-    expect(added.report.gate_loosening).toEqual([
-      { path, status: "A", reason: "fingerprint ignore list edited", requires: ["grokbot_countersign", "blaine_card"] },
-    ]);
+    expect(added.report.gate_loosening).toEqual({
+      detected: true,
+      reasons: [{ kind: "gitleaksignore_lines_added", path, status: "A", added_lines: 1, message: `${path} (A): adds 1 fingerprint exemption line(s)` }],
+      requires: ["grokbot_countersign", "blaine_card"],
+    });
+    expect(added.out).not.toContain("abc123");
     commit(dir, { [path]: "abc123:src/app.ts:generic-api-key:1\ndef456:src/b.ts:generic-api-key:2\n" });
-    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["M"]);
+    expect(check(dir).report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "gitleaksignore_lines_added", status: "M", added_lines: 1 })]);
+    // Removing an exemption tightens the gate, but the file is still edited.
+    commit(dir, { [path]: "def456:src/b.ts:generic-api-key:2\n# note\n" });
+    expect(check(dir).report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "gitleaksignore_changed", status: "M" })]);
     commit(dir, {}, [path]);
-    expect(check(dir).report.gate_loosening.map((g) => g.status)).toEqual(["D"]);
+    expect(check(dir).report.gate_loosening.reasons).toEqual([expect.objectContaining({ kind: "gitleaksignore_changed", status: "D" })]);
   });
 
   it("diffs against the merge-base, so base commits after the branch point are ignored", () => {
@@ -252,7 +300,7 @@ describe("check-secret-paths diff mode", () => {
     const { report } = check(dir, ["--base-ref", "main", "--head-ref", "feature"]);
     expect(report.merge_base).toBe(branchPoint);
     expect(blockedPaths(report)).toEqual(["feature/server.pem"]);
-    expect(report.gate_loosening).toEqual([]);
+    expect(report.gate_loosening).toEqual({ detected: false, reasons: [], requires: ["grokbot_countersign", "blaine_card"] });
     expect(report.checked_paths).toBe(1);
   });
 

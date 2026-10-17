@@ -12,9 +12,18 @@
  * (line feed, carriage return, tab, ...) or a Unicode line separator is
  * blocked whatever its name, and printed with those characters escaped.
  *
+ * Fail closed on odd file types: a sensitive path (including `.env.example`
+ * and `.envrc`) that is a symlink or a gitlink is blocked. The exemptions
+ * above apply to regular files only; `git show` of a symlink returns its
+ * target, not a file to check.
+ *
  * Any added, modified or deleted `.gitleaks.toml` or `.gitleaksignore`, in
- * any directory, is reported as gate_loosening (Grok Bot countersign plus
- * Blaine's card). That report never changes the exit code.
+ * any directory, is reported as gate_loosening ({ detected, reasons[],
+ * requires }, the same shape as check-rls-deny-coverage; Grok Bot countersign
+ * plus Blaine's card). A `.gitleaksignore` line the base does not have gets its
+ * own reason kind, gitleaksignore_lines_added: exemptions come only from the
+ * base branch's root `.gitleaksignore`, and inline `gitleaks:allow` is never
+ * honoured. That report never changes the exit code.
  *
  * The diff is merge-base(base, head)..head (`base...head` semantics), so
  * commits that land on the base after the branch point are not counted.
@@ -69,6 +78,12 @@ const CONTROL_CHARS_ALL = /[\p{Cc}\u2028\u2029]/gu;
 
 /** Git statuses whose head-side path is checked: added, modified, type change. */
 const CHECKED_STATUSES = new Set(["A", "M", "T"]);
+
+/** Head-side git modes that are not a regular file, by the rule id they get. */
+const SPECIAL_MODES = Object.freeze({ "120000": "symlink", "160000": "gitlink" });
+
+/** One `git diff --raw -z` record: ":<old mode> <new mode> <old oid> <new oid> <status>". */
+const RAW_RECORD = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z])\d*$/;
 
 // `s` (dotAll) lets `*` match any character, including a line feed, so a
 // name such as "a<LF>.pem" cannot slip past `*.pem`.
@@ -126,30 +141,55 @@ export function mergeBase(cwd, baseRef, headRef) {
   }
 }
 
-/** [{ status, path }] for every change between the refs, renames split into D + A. */
+/**
+ * [{ status, path, mode }] for every change between the refs, renames split
+ * into D + A. `mode` is the head-side git mode ("000000" for a delete).
+ * Anything that is not a well-formed record throws, so the caller fails.
+ */
 export function listChanges(cwd, baseRef, headRef) {
-  const fields = git(cwd, ["diff", "--name-status", "--no-renames", "-z", baseRef, headRef, "--"]).split("\0");
+  const fields = git(cwd, ["diff", "--raw", "--no-renames", "--no-abbrev", "-z", baseRef, headRef, "--"]).split("\0");
   const changes = [];
   for (let i = 0; i + 1 < fields.length; i += 2) {
-    if (fields[i]) changes.push({ status: fields[i][0], path: fields[i + 1] });
+    const record = RAW_RECORD.exec(fields[i]);
+    if (!record) throw new Error("unexpected git diff --raw output");
+    changes.push({ status: record[3], path: fields[i + 1], mode: record[2] });
   }
   return changes;
 }
 
-function gateLooseningEntry({ status, path }) {
+const ignoreLines = (text) => new Set((text ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#")));
+
+/**
+ * One gate_loosening reason for a change, or null. readRef(ref, path) returns
+ * a file's text at "base" or "head" (null when absent). A `.gitleaksignore`
+ * entry that the base does not have is an exemption the PR grants itself, so
+ * every added fingerprint line is a reason of its own kind. Only counts are
+ * reported, never the lines.
+ */
+function gateLooseningReason({ status, path }, readRef) {
   const name = basename(path);
-  let reason = null;
-  if (name === GITLEAKS_CONFIG) reason = "allowlist config edited";
-  else if (name === GITLEAKS_IGNORE) reason = "fingerprint ignore list edited";
-  return reason ? { path, status, reason, requires: [...GATE_LOOSENING_REQUIRES] } : null;
+  if (name === GITLEAKS_CONFIG) {
+    return { kind: "gitleaks_config_changed", path, status, message: `${displayPath(path)} (${status}): allowlist config edited` };
+  }
+  if (name !== GITLEAKS_IGNORE) return null;
+  if (status !== "D" && readRef) {
+    const before = ignoreLines(status === "A" ? "" : readRef("base", path));
+    const added = [...ignoreLines(readRef("head", path))].filter((l) => !before.has(l)).length;
+    if (added > 0) {
+      return { kind: "gitleaksignore_lines_added", path, status, added_lines: added, message: `${displayPath(path)} (${status}): adds ${added} fingerprint exemption line(s)` };
+    }
+  }
+  return { kind: "gitleaksignore_changed", path, status, message: `${displayPath(path)} (${status}): fingerprint ignore list edited` };
 }
 
-function pathFinding({ path }, readFile) {
+function pathFinding({ path, mode }, readFile) {
   const rules = matchSensitiveRules(path);
   if (hasControlChars(path)) {
     return { path, rules: ["control_char", ...rules], reason: "path contains a control character or line separator" };
   }
   if (rules.length === 0) return null;
+  const special = SPECIAL_MODES[mode];
+  if (special) return { path, rules: [special, ...rules], reason: `sensitive path is a ${special}, not a regular file` };
   const name = basename(path);
   if (name === ".env.example") return null;
   if (name === ".envrc") {
@@ -160,26 +200,31 @@ function pathFinding({ path }, readFile) {
 
 /**
  * Evaluate a change list. readFile(path) returns the head copy of a file; it
- * is only called for `.envrc` and its result never reaches the report.
+ * is only called for a regular `.envrc` and its result never reaches the
+ * report. A change with no `mode` is taken as a regular file.
  */
-export function evaluateChanges(changes, readFile) {
+export function evaluateChanges(changes, readFile, readRef) {
   const findings = [];
-  const gateLoosening = [];
+  const reasons = [];
   for (const change of changes) {
-    const gate = gateLooseningEntry(change);
-    if (gate) gateLoosening.push(gate);
+    const reason = gateLooseningReason(change, readRef);
+    if (reason) reasons.push(reason);
     if (!CHECKED_STATUSES.has(change.status)) continue;
     const finding = pathFinding(change, readFile);
     if (finding) findings.push(finding);
   }
-  return { findings, gateLoosening };
+  return { findings, gateLoosening: { detected: reasons.length > 0, reasons, requires: [...GATE_LOOSENING_REQUIRES] } };
 }
 
 export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, headRef = DEFAULT_HEAD_REF } = {}) {
   const base = mergeBase(cwd, baseRef, headRef);
   if (!base) throw new Error(`no merge-base for ${baseRef} and ${headRef}`);
   const changes = listChanges(cwd, base, headRef);
-  const { findings, gateLoosening } = evaluateChanges(changes, (path) => git(cwd, ["show", `${headRef}:${path}`]));
+  const show = (ref, path) => git(cwd, ["show", `${ref}:${path}`]);
+  const readRef = (side, path) => {
+    try { return show(side === "base" ? base : headRef, path); } catch { return null; }
+  };
+  const { findings, gateLoosening } = evaluateChanges(changes, (path) => show(headRef, path), readRef);
   return {
     schema: REPORT_SCHEMA,
     base_ref: baseRef,
@@ -199,9 +244,8 @@ export function formatReport(report) {
   // Escaped, so a PR-chosen name cannot start a line of its own (for example
   // a fake "secret-paths: OK" or a closing code fence in the step summary).
   for (const f of report.findings) lines.push(`  BLOCKED ${displayPath(f.path)} [${f.rules.join(",")}]: ${f.reason}`);
-  for (const g of report.gate_loosening) {
-    lines.push(`  gate_loosening ${displayPath(g.path)} (${g.status}): ${g.reason}; requires ${g.requires.join(" + ")}`);
-  }
+  const gate = report.gate_loosening;
+  for (const r of gate.reasons) lines.push(`  gate_loosening ${r.kind} ${r.message}; requires ${gate.requires.join(" + ")}`);
   lines.push(report.ok ? "secret-paths: OK" : `secret-paths: ${report.findings.length} blocked path(s)`);
   return lines.join("\n") + "\n";
 }

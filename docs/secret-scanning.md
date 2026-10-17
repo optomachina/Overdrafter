@@ -135,9 +135,19 @@ each, with a description naming the approving card. gitleaks also skips any
 finding whose fingerprint is listed in a `.gitleaksignore` file. **Any edit to
 `.gitleaks.toml` or `.gitleaksignore`, in any directory** (add, modify or
 delete), is **gate_loosening**: it needs a Grok Bot countersign plus Blaine's
-card. The path block reports these as `gate_loosening` entries with
-`requires: ["grokbot_countersign", "blaine_card"]`. They are report-only and
-never change `ok` or the exit code.
+card. The path block reports them as `gate_loosening: { detected, reasons[],
+requires }` (the same shape as `check-rls-deny-coverage`), with
+`requires: ["grokbot_countersign", "blaine_card"]`. Reason kinds are
+`gitleaks_config_changed`, `gitleaksignore_lines_added` (a fingerprint line the
+base does not have; only the count is reported) and `gitleaksignore_changed`
+(any other edit, including a delete). They are report-only and never change
+`ok` or the exit code.
+
+**Release ruling (exemptions).** Inline `gitleaks:allow` is forbidden and never
+honoured. The only fingerprint exemptions are the lines of the **base branch's
+root `.gitleaksignore`**; any line a PR adds there is flagged as
+`gitleaksignore_lines_added` and takes effect only after it merges with the
+countersign and card.
 
 ### What a PR cannot use to hide its own content
 
@@ -146,7 +156,9 @@ Each of these comes with the PR, and none of them changes what the scan sees:
 - **The PR's `.gitleaks.toml` and path block.** Both are read from the
   **base** commit.
 - **A head-side `.gitleaksignore`.** The job deletes the checked-out copy and
-  passes `--gitleaks-ignore-path` pointing to an empty file in `$RUNNER_TEMP`.
+  passes `--gitleaks-ignore-path` pointing to the base commit's root
+  `.gitleaksignore`, copied to `$RUNNER_TEMP` (an empty file when the base has
+  none).
 - **Inline `gitleaks:allow` comments.** gitleaks normally skips any finding
   whose line carries one. The scan passes `--ignore-gitleaks-allow` (defined
   in `cmd/root.go` and checked in `detect/detect.go` in v8.30.1), so such a
