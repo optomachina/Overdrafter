@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,7 +13,6 @@ import {
   renderProviderRegistryOutputs,
   validateProviderRegistry,
 } from "./provider-registry.mjs";
-
 import { STABLE_EGRESS_LIVE_ADAPTER_VALUES } from "./xometry-stable-egress-contract.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -110,83 +109,87 @@ async function runDeployScript({
   envOverrides = {},
 } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-contract-"));
-  const stub = await makeStubGcloud(dir, {
-    describeError,
-    describeWarning,
-    describeSucceeds,
-    metadataContent,
-    projectDescribeError,
-    projectDescribeSucceeds,
-    targetProjectNumber,
-  });
-  const env = { ...process.env };
-  for (const name of [
-    "SERVICE_NAME",
-    "GOOGLE_CLOUD_PROJECT",
-    "CLOUD_RUN_REGION",
-    "SUPABASE_URL",
-    "OVERDRAFTER_DEPLOY_ENV",
-    "SUPABASE_SERVICE_ROLE_SECRET_NAME",
-    "XOMETRY_STORAGE_STATE_SECRET_NAME",
-    "FICTIV_STORAGE_STATE_SECRET_NAME",
-    "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
-    "WORKER_PROVIDER_SESSION_LEASE",
-    "WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME",
-    "WEERG_STORAGE_STATE_SECRET_NAME",
-    "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
-    "XOMETRY_PROFILE_SNAPSHOT_OBJECT",
-    "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
-    "OPENAI_API_KEY_SECRET_NAME",
-    "ANTHROPIC_API_KEY_SECRET_NAME",
-    "WORKER_MODE",
-    "WORKER_LIVE_ADAPTERS",
-    "WORKER_POLL_INTERVAL_MS",
-    "WORKER_BUILD_VERSION",
-    "QUOTE_ARTIFACT_BUCKET",
-    "PLAYWRIGHT_HEADLESS",
-    "PLAYWRIGHT_CAPTURE_TRACE",
-    "PLAYWRIGHT_BROWSER_TIMEOUT_MS",
-    "PLAYWRIGHT_DISABLE_SANDBOX",
-    "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE",
-    "XOMETRY_BROWSER_ENGINE",
-    "CLOUD_RUN_SERVICE_ACCOUNT",
-    "CLOUD_RUN_MIN_INSTANCES",
-    "CLOUD_RUN_MAX_INSTANCES",
-    "CLOUD_RUN_NETWORK",
-    "CLOUD_RUN_SUBNET",
-    "CLOUD_RUN_VPC_EGRESS",
-    "GCLOUD_BIN",
-  ]) {
-    delete env[name];
-  }
-  Object.assign(env, {
-    GOOGLE_CLOUD_PROJECT: "synthetic-project",
-    SUPABASE_URL: "https://synthetic.supabase.co",
-    GCLOUD_BIN: stub,
-    ...envOverrides,
-  });
-  if (snapshot) {
-    env.XOMETRY_PROFILE_SNAPSHOT_BUCKET = "synthetic-bucket";
-    env.XOMETRY_PROFILE_SNAPSHOT_OBJECT = "profiles/synthetic.tgz";
-  }
-
-  let failure = null;
   try {
-    await execFileAsync("bash", [DEPLOY_SCRIPT], { env });
-  } catch (error) {
-    failure = error;
-  }
+    const stub = await makeStubGcloud(dir, {
+      describeError,
+      describeWarning,
+      describeSucceeds,
+      metadataContent,
+      projectDescribeError,
+      projectDescribeSucceeds,
+      targetProjectNumber,
+    });
+    const env = { ...process.env };
+    for (const name of [
+      "SERVICE_NAME",
+      "GOOGLE_CLOUD_PROJECT",
+      "CLOUD_RUN_REGION",
+      "SUPABASE_URL",
+      "OVERDRAFTER_DEPLOY_ENV",
+      "SUPABASE_SERVICE_ROLE_SECRET_NAME",
+      "XOMETRY_STORAGE_STATE_SECRET_NAME",
+      "FICTIV_STORAGE_STATE_SECRET_NAME",
+      "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+      "WORKER_PROVIDER_SESSION_LEASE",
+      "WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME",
+      "WEERG_STORAGE_STATE_SECRET_NAME",
+      "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
+      "XOMETRY_PROFILE_SNAPSHOT_OBJECT",
+      "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
+      "OPENAI_API_KEY_SECRET_NAME",
+      "ANTHROPIC_API_KEY_SECRET_NAME",
+      "WORKER_MODE",
+      "WORKER_LIVE_ADAPTERS",
+      "WORKER_POLL_INTERVAL_MS",
+      "WORKER_BUILD_VERSION",
+      "QUOTE_ARTIFACT_BUCKET",
+      "PLAYWRIGHT_HEADLESS",
+      "PLAYWRIGHT_CAPTURE_TRACE",
+      "PLAYWRIGHT_BROWSER_TIMEOUT_MS",
+      "PLAYWRIGHT_DISABLE_SANDBOX",
+      "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE",
+      "XOMETRY_BROWSER_ENGINE",
+      "CLOUD_RUN_SERVICE_ACCOUNT",
+      "CLOUD_RUN_MIN_INSTANCES",
+      "CLOUD_RUN_MAX_INSTANCES",
+      "CLOUD_RUN_NETWORK",
+      "CLOUD_RUN_SUBNET",
+      "CLOUD_RUN_VPC_EGRESS",
+      "GCLOUD_BIN",
+    ]) {
+      delete env[name];
+    }
+    Object.assign(env, {
+      GOOGLE_CLOUD_PROJECT: "synthetic-project",
+      SUPABASE_URL: "https://synthetic.supabase.co",
+      GCLOUD_BIN: stub,
+      ...envOverrides,
+    });
+    if (snapshot) {
+      env.XOMETRY_PROFILE_SNAPSHOT_BUCKET = "synthetic-bucket";
+      env.XOMETRY_PROFILE_SNAPSHOT_OBJECT = "profiles/synthetic.tgz";
+    }
 
-  let calls = [];
-  try {
-    calls = (await readFile(path.join(dir, "calls.log"), "utf8"))
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.split("\x1f"));
-  } catch {
-    calls = [];
+    let failure = null;
+    try {
+      await execFileAsync("bash", [DEPLOY_SCRIPT], { env });
+    } catch (error) {
+      failure = error;
+    }
+
+    let calls = [];
+    try {
+      calls = (await readFile(path.join(dir, "calls.log"), "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\x1f"));
+    } catch {
+      calls = [];
+    }
+    return { failure, calls };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
-  return { failure, calls };
 }
 
 function findCall(calls, prefix) {
@@ -326,56 +329,53 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     );
   });
 
-  it("rejects every partial stable-egress tuple before invoking gcloud", async () => {
-    const cases = [
-      { CLOUD_RUN_NETWORK: "synthetic-network" },
-      { CLOUD_RUN_SUBNET: "synthetic-subnet" },
-      { CLOUD_RUN_VPC_EGRESS: "all-traffic" },
+  it.each([
+    [{ CLOUD_RUN_NETWORK: "synthetic-network" }],
+    [{ CLOUD_RUN_SUBNET: "synthetic-subnet" }],
+    [{ CLOUD_RUN_VPC_EGRESS: "all-traffic" }],
+    [
       {
         CLOUD_RUN_NETWORK: "synthetic-network",
         CLOUD_RUN_SUBNET: "synthetic-subnet",
       },
+    ],
+    [
       {
         CLOUD_RUN_NETWORK: "synthetic-network",
         CLOUD_RUN_VPC_EGRESS: "all-traffic",
       },
+    ],
+    [
       {
         CLOUD_RUN_SUBNET: "synthetic-subnet",
         CLOUD_RUN_VPC_EGRESS: "all-traffic",
       },
-    ];
-
-    for (const envOverrides of cases) {
-      const { failure, calls } = await runDeployScript({ envOverrides });
-      expect(failure).not.toBeNull();
-      expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
-      expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
-    }
+    ],
+  ])("rejects partial stable-egress tuple %j before invoking gcloud", async (envOverrides) => {
+    const { failure, calls } = await runDeployScript({ envOverrides });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
   });
 
-  it("rejects unsafe stable-egress values before invoking gcloud", async () => {
-    const base = STABLE_EGRESS_ENV;
-    const cases = [
-      { CLOUD_RUN_VPC_EGRESS: "private-ranges-only" },
-      { CLOUD_RUN_MIN_INSTANCES: "1" },
-      { CLOUD_RUN_MAX_INSTANCES: "2" },
-      { WORKER_MODE: "mock" },
-      { WORKER_LIVE_ADAPTERS: "fictiv", FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-state" },
-      { WORKER_LIVE_ADAPTERS: "fictiv,xometry", FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-state" },
-      { WORKER_LIVE_ADAPTERS: "xometry,fictiv" },
-      { PLAYWRIGHT_CAPTURE_TRACE: "true" },
-      { CLOUD_RUN_SERVICE_ACCOUNT: "" },
-    ];
-
-    for (const unsafe of cases) {
-      const { failure, calls } = await runDeployScript({
-        snapshot: true,
-        envOverrides: { ...base, ...unsafe },
-      });
-      expect(failure).not.toBeNull();
-      expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
-      expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
-    }
+  it.each([
+    [{ CLOUD_RUN_VPC_EGRESS: "private-ranges-only" }],
+    [{ CLOUD_RUN_MIN_INSTANCES: "1" }],
+    [{ CLOUD_RUN_MAX_INSTANCES: "2" }],
+    [{ WORKER_MODE: "mock" }],
+    [{ WORKER_LIVE_ADAPTERS: "fictiv", FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-state" }],
+    [{ WORKER_LIVE_ADAPTERS: "fictiv,xometry", FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-state" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,fictiv" }],
+    [{ PLAYWRIGHT_CAPTURE_TRACE: "true" }],
+    [{ CLOUD_RUN_SERVICE_ACCOUNT: "" }],
+  ])("rejects unsafe stable-egress values %j before invoking gcloud", async (unsafe) => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { ...STABLE_EGRESS_ENV, ...unsafe },
+    });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
   });
 
   it("refuses a production worker deploy that omits the governed network tuple", async () => {
@@ -874,29 +874,34 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     expect(JSON.parse(parseAssignments(rawEnv).QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({ quickparts: QUICKPARTS_MOUNT });
   });
 
-  it.each([...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "quickparts", "quickparts,xometry", "fictiv,quickparts"])(
-    "accepts on the stable egress exactly the allowed adapter value %s",
-    async (adapters) => {
-      expect(STABLE_EGRESS_LIVE_ADAPTER_VALUES).toEqual(
-        expect.arrayContaining(["xometry,quickparts", "xometry,fictiv,quickparts"]),
-      );
-      const { failure, calls } = await runDeployScript({
-        snapshot: true,
-        envOverrides: {
-          WORKER_LIVE_ADAPTERS: adapters,
-          FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
-          QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
-          WEERG_STORAGE_STATE_SECRET_NAME: "synthetic-weerg-storage-state",
-          ...STABLE_EGRESS_ENV,
-        },
-      });
-      const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
-      expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
-      if (allowed) {
-        expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
-      }
-    },
-  );
+  it("includes the Quickparts adapter values in the stable-egress contract", () => {
+    expect(STABLE_EGRESS_LIVE_ADAPTER_VALUES).toEqual(
+      expect.arrayContaining(["xometry,quickparts", "xometry,fictiv,quickparts"]),
+    );
+  });
+
+  it.each([
+    ...STABLE_EGRESS_LIVE_ADAPTER_VALUES,
+    "quickparts",
+    "quickparts,xometry",
+    "fictiv,quickparts",
+  ])("accepts on the stable egress exactly the allowed adapter values: %s", async (adapters) => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        WORKER_LIVE_ADAPTERS: adapters,
+        FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+        QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+        WEERG_STORAGE_STATE_SECRET_NAME: "synthetic-weerg-storage-state",
+        ...STABLE_EGRESS_ENV,
+      },
+    });
+    const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
+    expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
+    if (allowed) {
+      expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
+    }
+  });
 
   it.each([
     [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts" }],
@@ -983,36 +988,43 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
     expect(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS).toBe(`{"quickparts":"${QUICKPARTS_MOUNT}"}`);
   });
 
-  it.each([...STABLE_EGRESS_LIVE_ADAPTER_VALUES, "weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,fictiv", "quickparts,weerg"])(
-    "accepts on the stable egress exactly the allowed adapter value %s",
-    async (adapters) => {
-      expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
-        "xometry",
-        "xometry,fictiv",
-        "xometry,quickparts",
-        "xometry,fictiv,quickparts",
-        "xometry,weerg",
-        "xometry,fictiv,weerg",
-        "xometry,quickparts,weerg",
-        "xometry,fictiv,quickparts,weerg",
-      ]);
-      const { failure, calls } = await runDeployScript({
-        snapshot: true,
-        envOverrides: {
-          WORKER_LIVE_ADAPTERS: adapters,
-          FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
-          QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
-          WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET,
-          ...STABLE_EGRESS_ENV,
-        },
-      });
-      const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
-      expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
-      if (allowed) {
-        expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
-      }
-    },
-  );
+  it("pins the stable-egress adapter values the egress contract allows", () => {
+    expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
+      "xometry",
+      "xometry,fictiv",
+      "xometry,quickparts",
+      "xometry,fictiv,quickparts",
+      "xometry,weerg",
+      "xometry,fictiv,weerg",
+      "xometry,quickparts,weerg",
+      "xometry,fictiv,quickparts,weerg",
+    ]);
+  });
+
+  it.each([
+    ...STABLE_EGRESS_LIVE_ADAPTER_VALUES,
+    "weerg",
+    "weerg,xometry",
+    "xometry,weerg,quickparts",
+    "xometry,weerg,fictiv",
+    "quickparts,weerg",
+  ])("accepts on the stable egress exactly the allowed adapter values: %s", async (adapters) => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        WORKER_LIVE_ADAPTERS: adapters,
+        FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+        QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+        WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET,
+        ...STABLE_EGRESS_ENV,
+      },
+    });
+    const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
+    expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
+    if (allowed) {
+      expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
+    }
+  });
 
   it.each([
     [{ WORKER_LIVE_ADAPTERS: "xometry,weerg" }],
@@ -1035,8 +1047,12 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-message-"));
     const scriptPath = path.join(dir, "provider-secrets.sh");
     await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);
-    const { stdout } = await execFileAsync("bash", [scriptPath]);
-    return stdout.trim();
+    try {
+      const { stdout } = await execFileAsync("bash", [scriptPath]);
+      return stdout.trim();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   it("prints the current registry-built message and lists a temporary fourth adapter", async () => {
@@ -1103,13 +1119,17 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     // does not prove 3.2 compatibility; a real bash 3.2 lane is a follow up.
     const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-posix-"));
     const scriptPath = path.join(dir, "provider-secrets.sh");
-    await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);
-    const { stdout, stderr } = await execFileAsync("bash", ["--posix", scriptPath]);
-    expect(stderr).toBe("");
-    expect(stdout.trim()).toBe(formatStableEgressRestrictionMessage(
-      registry.stableEgressRequiredKey,
-      deriveStableEgressOptionalAdapters(registry),
-    ));
+    try {
+      await writeFile(scriptPath, `${script}\nprovider_registry_stable_egress_restriction_message\n`);
+      const { stdout, stderr } = await execFileAsync("bash", ["--posix", scriptPath]);
+      expect(stderr).toBe("");
+      expect(stdout.trim()).toBe(formatStableEgressRestrictionMessage(
+        registry.stableEgressRequiredKey,
+        deriveStableEgressOptionalAdapters(registry),
+      ));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("uses the generated helper when a stable-egress deploy is rejected", async () => {
