@@ -96,6 +96,99 @@
         "type": "string"
       }
     },
+    "runtime_routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cloud",
+        "local",
+        "bottleneck",
+        "priority"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "cloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "does",
+            "limited_by"
+          ],
+          "properties": {
+            "does": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "limited_by": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "local": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "does",
+            "runtimes",
+            "limited_by"
+          ],
+          "properties": {
+            "does": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "runtimes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "where": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            },
+            "why": {
+              "type": "string"
+            },
+            "limited_by": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "bottleneck": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issue"
+          ],
+          "properties": {
+            "issue": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "adapters": {
       "type": "array",
       "items": {

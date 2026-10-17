@@ -208,6 +208,43 @@
     "live-database-change": "manual; never automated",
     "gate-loosening": "root-agent countersign plus Blaine's OK"
   },
+  "runtime_routing": {
+    "note": "Where work runs (Blaine, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate.",
+    "cloud": {
+      "does": [
+        "coordinate",
+        "routines",
+        "24/7",
+        "parallel-fan-out"
+      ],
+      "limited_by": [
+        "usage-credits",
+        "review-and-merge-capacity"
+      ]
+    },
+    "local": {
+      "does": [
+        "heavy-builds"
+      ],
+      "runtimes": [
+        "claude-code",
+        "codex"
+      ],
+      "where": "Blaine's Macs",
+      "when": "Blaine's subscriptions have spare capacity",
+      "why": "local runs avoid Cursor usage credits",
+      "limited_by": [
+        "machine",
+        "5h-rate-caps",
+        "mac-sleep"
+      ]
+    },
+    "bottleneck": "review and Blaine's approval queue",
+    "priority": {
+      "issue": "OVD-845",
+      "note": "auto-merge eligibility"
+    }
+  },
   "adapters": [
     "AGENTS.md",
     "CLAUDE.md",
