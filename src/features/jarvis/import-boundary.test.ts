@@ -29,6 +29,9 @@ export function boundaryViolations(file: string, source: string): string[] {
   const relativeFile = path.relative(repoRoot, file).split(path.sep).join("/");
   return [...source.matchAll(pattern)].flatMap((match) => {
     const target = resolveSpecifier(file, match[1]).split(path.sep).join("/");
+    // UI runtime dependencies are allowed only in the thread; server imports remain forbidden.
+    if (relativeFile.startsWith("src/features/jarvis/thread/") &&
+      (target === "react" || (target === "@google/model-viewer" && relativeFile.endsWith("/model-loader.ts")))) return [];
     if (WORKER_OR_QUEUE.test(target)) return [`${relativeFile} -> ${target} (worker/queue module)`];
     if (!target.startsWith("src/features/jarvis/")) return [`${relativeFile} -> ${target} (outside src/features/jarvis)`];
     return [];
