@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,14 +97,46 @@ describe("vercel-ignore-build.sh", () => {
   });
 
   it.each([
-    ["missing", "0123456789abcdef0123456789abcdef01234567"],
-    ["garbage", "not-a-sha; rm -rf /"],
-  ])("builds when VERCEL_GIT_PREVIOUS_SHA is %s even if main exists", (_label, previous) => {
+    ["missing", "0123456789abcdef0123456789abcdef01234567", /BUILD - VERCEL_GIT_PREVIOUS_SHA does not resolve/],
+    ["garbage", "not-a-sha; rm -rf /", /BUILD - VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA/],
+    ["a ref name", "main", /BUILD - VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA/],
+    ["uppercase hex", "0123456789ABCDEF0123456789ABCDEF01234567", /BUILD - VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA/],
+  ])("builds when VERCEL_GIT_PREVIOUS_SHA is %s even if main exists", (_label, previous, message) => {
     const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
     const result = runScript(dir, {
       VERCEL_ENV: "preview",
       VERCEL_GIT_COMMIT_REF: "feature",
       VERCEL_GIT_PREVIOUS_SHA: previous,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(message);
+  });
+
+  it("never passes an option-shaped VERCEL_GIT_PREVIOUS_SHA to git, even in a shallow clone", () => {
+    const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
+    const shallow = mkdtempSync(join(tmpdir(), "vib-shallow-"));
+    temps.push(shallow);
+    execFileSync("git", ["clone", "-q", "--depth=1", `file://${dir}`, shallow]);
+    const marker = join(tmpdir(), `vib-pwn-${process.pid}-${Date.now()}`);
+    const result = runScript(shallow, {
+      VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: "feature",
+      VERCEL_GIT_PREVIOUS_SHA: `--upload-pack=touch ${marker};`,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(/BUILD - VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA/);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("builds in a shallow clone when a well-formed previous SHA cannot be fetched", () => {
+    const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
+    const shallow = mkdtempSync(join(tmpdir(), "vib-shallow-"));
+    temps.push(shallow);
+    execFileSync("git", ["clone", "-q", "--depth=1", `file://${dir}`, shallow]);
+    const result = runScript(shallow, {
+      VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: "feature",
+      VERCEL_GIT_PREVIOUS_SHA: "0123456789abcdef0123456789abcdef01234567",
     });
     expect(result.status, result.stdout + result.stderr).toBe(1);
     expect(result.stdout).toMatch(/BUILD - VERCEL_GIT_PREVIOUS_SHA does not resolve/);

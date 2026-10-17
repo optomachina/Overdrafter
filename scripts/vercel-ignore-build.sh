@@ -31,10 +31,15 @@ base=""
 base_source=""
 previous_sha="${VERCEL_GIT_PREVIOUS_SHA:-}"
 if [ -n "$previous_sha" ]; then
+  # Accept only a full lowercase hex SHA: refs like "main" or option-shaped
+  # values ("--upload-pack=...") never reach git.
+  if ! printf '%s' "$previous_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+    build "VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA"
+  fi
   base="$(resolve_commit "$previous_sha")"
   if [ -z "$base" ] && [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
     # Vercel clones shallowly; try to fetch the previous deployment's commit.
-    git fetch --quiet --depth=100 origin "$previous_sha" >/dev/null 2>&1
+    git fetch --quiet --depth=100 -- origin "$previous_sha" >/dev/null 2>&1
     base="$(resolve_commit "$previous_sha")"
   fi
   if [ -z "$base" ]; then
