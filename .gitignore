@@ -58,3 +58,6 @@ worker/#
 
 # verify-overdrafter skill evidence
 /artifacts/verify-overdrafter/
+
+# Local spend data (public repository)
+evals/spend-ledger/*.jsonl

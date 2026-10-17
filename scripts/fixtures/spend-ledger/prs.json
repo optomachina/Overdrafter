@@ -1,0 +1,5 @@
+[
+  {"number":100,"title":"OVD-100 synthetic change","mergedAt":"2026-10-05T12:00:00Z","labels":[],"headRefName":"ovd-100","body":"OVD-200","author":{"login":"synthetic"}},
+  {"number":200,"title":"OVD-200 synthetic change","merged_at":"2026-10-06T12:00:00Z","labels":[{"name":"model:claude"}],"headRefName":"synthetic","body":"","author":{"login":"synthetic"}},
+  {"number":300,"title":"Synthetic unattributed change","mergedAt":"2026-10-07T12:00:00Z","labels":[],"headRefName":"synthetic","body":"","author":{"login":"synthetic"}}
+]
