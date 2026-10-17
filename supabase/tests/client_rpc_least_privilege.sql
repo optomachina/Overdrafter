@@ -187,10 +187,10 @@ insert into rpc_case values
     null, jsonb_build_object('jobId', :'job_a', 'accepted', false, 'canceled', false,
       'quoteRequestId', :'request_a', 'quoteRunId', null, 'status', 'queued', 'reasonCode', 'forbidden',
       'reason', 'You do not have permission to cancel this quote request.')::text, :'raised', :'unverified'),
-  -- No verified-auth gate: an unverified member passes (section 5).
+  -- OVD-769: require_verified_auth() runs first, then user_can_edit_job.
   (6, 'api_reconcile_job_parts',
     format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
-    :'raised', :'job_denied', null, null), -- NOSONAR: psql variable references, not repeated string literals
+    :'raised', :'job_denied', :'raised', :'unverified'), -- NOSONAR: psql variable references, not repeated string literals
   (7, 'api_request_extraction',
     format('select public.api_request_extraction(%L::uuid)', :'job_a'),
     :'raised', :'job_denied', :'raised', :'unverified'),
@@ -209,10 +209,11 @@ insert into rpc_case values
   (11, 'api_publish_quote_package',
     format('select public.api_publish_quote_package(%L::uuid, %L::uuid, null, true)', :'job_a', :'run_a'),
     :'raised', 'Only internal users can publish quote packages.', :'raised', :'unverified'),
-  -- The body has no verified-auth gate (section 5).
+  -- OVD-770: require_verified_auth() runs before any read or lock, then
+  -- user_can_edit_job on the package's job.
   (12, 'api_select_quote_option',
     format('select public.api_select_quote_option(%L::uuid, %L::uuid, %L)', :'package_a', :'option_a', 'least privilege'),
-    :'raised', format('You do not have access to package %s', :'package_a'), null, null),
+    :'raised', format('You do not have access to package %s', :'package_a'), :'raised', :'unverified'),
   (13, 'api_list_client_part_metadata',
     format('select public.api_list_client_part_metadata(array[%L::uuid])', :'job_a'),
     null, :'empty_list', null, null), -- NOSONAR: psql variable references, not repeated string literals
@@ -275,19 +276,13 @@ select is((select count(*) from public.audit_events where organization_id = :'or
 
 -- 5. KNOWN GAP (characterized, not fixed): these RPCs have no verified-auth
 -- gate, so an unverified member of org A can still use them. Update these
--- assertions when the gate is added.
+-- assertions when the gate is added. (OVD-769 and OVD-770 closed the
+-- reconcile and quote-select gaps; both are now refused in section 3.)
 select pg_temp.act_as(:'user_u');
 set local role authenticated;
 select ok(pg_temp.run(c.call_sql)::jsonb @> :'job_a_rows'::jsonb,
   'KNOWN GAP: unverified org A member reads org A rows through ' || c.rpc)
 from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal asc;
-select is(pg_temp.run(c.call_sql)::jsonb,
-  '{"totalParts": 1, "matchedPairs": 0, "missingDrawings": 1, "missingCad": 0}'::jsonb,
-  'KNOWN GAP: unverified org A member can reconcile job parts')
-from pg_temp.rpc_case c where c.ordinal = 6;
-select isnt(pg_temp.run(c.call_sql), null,
-  'KNOWN GAP: unverified org A member can select a published quote option')
-from pg_temp.rpc_case c where c.ordinal = 12;
 reset role;
 
 -- 6. Positive controls: the same calls succeed for org A's verified client.
