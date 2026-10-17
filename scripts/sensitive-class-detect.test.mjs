@@ -798,20 +798,63 @@ describe("classifySql: tokenizer stays in step with Postgres (OVD-878 final roun
     expect(classifySql("select 'x' as \u00e9;", config, tests).reasons).toEqual([]);
   });
 
-  // Belt and braces: an unclassified character means the tokenizer may be out of step, so the file gets no exemption.
+  // Extra round: as in scan.l, every code point >= U+0080 is an identifier and dollar-tag character.
+  it("flags the re-review repro ALTER ROLE x PASSWORD $\u2014$;$\u2014$ SUPERUSER; with the role class", () => {
+    const result = classifySql("ALTER ROLE x PASSWORD $\u2014$;$\u2014$ SUPERUSER;", config, migration);
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_role_superuser", line: 1, sensitive: true })]);
+    expect(unknownReason(result)).toEqual([]);
+  });
+
   it.each([
-    ["set role anon;\u00a0-- grant service_role to x\n", ["auth_set_role", "auth_grant_service_role"], "U+00A0", 1],
-    ["select 1;\n/* \u2014 */ select '\u{1F600}';\nset role anon; -- reset role\n", ["auth_reset_role", "auth_set_role"], "U+1F600", 2],
-    ["\ufeffset role anon;", ["auth_set_role"], "U+FEFF", 1],
-    ["select 1;\u0007\nset local role authenticated; /* set role postgres */", ["auth_set_local_role", "auth_set_role"], "U+0007", 1],
-  ])("an unclassified character turns off every exemption: %j", (text, expected, code, line) => {
+    ["select 1 as a\u2014b, $\u{1F600}$ ; x $\u{1F600}$;\nset role anon;"],
+    ["select \u00a0x\u00a0, $\u00a0$;$\u00a0$, $\ufeff$ -- $\ufeff$;\nset role anon;"],
+    ["select $\u2014$ /* $\u2014$; set role anon;"],
+  ])("parses non-ASCII identifiers and dollar tags cleanly: %j", (text) => {
+    const result = classifySql(text, config, tests);
+    expect(result.reasons).toEqual([]);
+    expect(result.classes).toEqual([]);
+    expect(ids(result)).toEqual(["auth_set_role[EXEMPT]"]);
+  });
+
+  it.each([
+    ["set role anon\u00a0;", "auth_set_role"],
+    ["\ufeffset role anon; set local role service_role;", "auth_set_local_role"],
+    ["select a\u2014$$ /* $$ ' -- */ ; grant service_role to x; /* ' */", "auth_grant_service_role"],
+  ])("a non-ASCII character joins the word it touches, as in Postgres: %j", (text, id) => {
     const result = classifySql(text, config, tests);
     expect(result.classes).toEqual(["auth"]);
-    expect([...ids(result)].sort()).toEqual([...expected].sort());
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    expect(unknownReason(result)).toEqual([]);
+  });
+
+  // Belt and braces: an unexpected ASCII control character means the tokenizer may be out of step,
+  // so the file gets no exemption and fails closed with every SQL class plus the reason.
+  const SQL_CLASSES = ["auth", "definer", "rls"];
+  const failsClosed = (result, code, line) => {
+    expect([...result.classes].sort()).toEqual(SQL_CLASSES);
     expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
     expect(unknownReason(result)).toEqual([
-      `sql:tokenizer_unknown_char: ${code} on line ${line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file`,
+      `sql:tokenizer_unknown_char: ${code} on line ${line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file and it fails closed`,
     ]);
+  };
+
+  it.each([
+    ["set role anon;\u0007-- grant service_role to x\n", ["auth_set_role", "auth_grant_service_role"], "U+0007", 1],
+    ["select 1;\n/* \u2014 */ select '\u001b';\nset role anon; -- reset role\n", ["auth_reset_role", "auth_set_role"], "U+001B", 2],
+    ["\u0000set role anon;", ["auth_set_role"], "U+0000", 1],
+    ["select 1;\u007f\nset local role authenticated; /* set role postgres */", ["auth_set_local_role", "auth_set_role"], "U+007F", 1],
+  ])("an unexpected ASCII control character fails closed: %j", (text, expected, code, line) => {
+    const result = classifySql(text, config, tests);
+    failsClosed(result, code, line);
+    expect([...ids(result)].sort()).toEqual([...expected].sort());
+  });
+
+  it("fails closed on an unexpected ASCII character even with no rule hit", () => {
+    const result = classifySql("select 1;\u0008\nselect 2;", config, migration);
+    failsClosed(result, "U+0008", 1);
+    expect(result.hits).toEqual([]);
   });
 
   // Re-review @ 2c113e9a: the raw reading alone splits at every ';' and counts every ')', so the
@@ -823,28 +866,27 @@ describe("classifySql: tokenizer stays in step with Postgres (OVD-878 final roun
     ["CREATE ROLE x -- ;\nIN ROLE postgres;", "auth_in_role_postgres"],
     ["select format(')' || 'set %s anon', 'role');", "auth_dynamic_role"],
     ["EXECUTE 'x;' || 'role';", "auth_dynamic_role"],
-  ])("with an unclassified character, still reports what the parsed tokens find: %j", (text, id) => {
-    const result = classifySql(`select 'a \u2014 b';\n${text}`, config, tests);
-    expect(result.classes).toEqual(["auth"]);
-    expect(unknownReason(result)).toHaveLength(1);
+  ])("with an unexpected character, still reports what the parsed tokens find: %j", (text, id) => {
+    const result = classifySql(`select 'a \u0007 b';\n${text}`, config, tests);
+    failsClosed(result, "U+0007", 1);
     expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
   });
 
   it("reports a hit both readings find once", () => {
-    const result = classifySql("select '\u2014';\ngrant service_role to x; grant service_role to y;", config, tests);
+    const result = classifySql("select '\u0007';\ngrant service_role to x; grant service_role to y;", config, tests);
     expect(ids(result)).toEqual(["auth_grant_service_role", "auth_grant_service_role"]);
   });
 
-  it("does not count a non-ASCII character inside a comment as unknown", () => {
-    const result = classifySql("-- caf\u00e9 \u2014 \u{1F600}\n/* \u00a0 */ set role anon;", config, tests);
+  it("does not count a control character inside a comment as unknown", () => {
+    const result = classifySql("-- caf\u00e9 \u0007 \u{1F600}\n/* \u001b */ set role anon;", config, tests);
     expect(ids(result)).toEqual(["auth_set_role[EXEMPT]"]);
     expect(result.reasons).toEqual([]);
   });
 
-  it("counts an unclassified character inside a string body as unknown", () => {
-    const result = classifySql("select 'a \u2014 b'; set role anon;", config, tests);
+  it("counts an unexpected character inside a string body as unknown", () => {
+    const result = classifySql("select 'a \u0007 b'; set role anon;", config, tests);
     expect(ids(result)).toEqual(["auth_set_role"]);
-    expect(unknownReason(result)).toHaveLength(1);
+    failsClosed(result, "U+0007", 1);
   });
 });
 

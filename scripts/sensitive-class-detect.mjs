@@ -335,15 +335,18 @@ export function classifyPath(path, config) {
 
 // ---------------------------------------------------------------- SQL
 
-// Identifiers and dollar-quote tags take Unicode letters and digits, as Postgres takes every byte >= 0x80:
-// a non-ASCII letter must not split a word (aé$$ is one identifier) or a tag ($é$...$é$).
-// A word starts with a letter, '_' or a non-ASCII digit and continues with [\p{L}\p{N}_$].
-const IDENT_START = "(?:[\\p{L}_]|(?![0-9])\\p{N})";
-const IDENTIFIER = new RegExp(`${IDENT_START}[\\p{L}\\p{N}_$]*`, "uy");
-const IDENTIFIERS = new RegExp(`${IDENT_START}[\\p{L}\\p{N}_$]*`, "gu");
-const DOLLAR_TAG = new RegExp(`\\$(?:${IDENT_START}[\\p{L}\\p{N}_]*)?\\$`, "uy");
-const WORD_CHAR_BEFORE = /[\p{L}\p{N}_]$/u;
-// Everything else the tokenizer classifies: SQL whitespace and printable ASCII.
+// As in the Postgres scanner (scan.l ident_start/ident_cont, dolq_start/dolq_cont), every code point
+// at or above U+0080 is an identifier and dollar-tag character: aé$$ and a—$$ are one identifier,
+// $—$...$—$ is one dollar-quoted string. A word starts with [A-Za-z_] or a non-ASCII code point
+// and continues with [A-Za-z0-9_$] or a non-ASCII code point; a tag takes the same without '$'.
+const IDENT_START = "(?:[A-Za-z_]|[^\\x00-\\x7f])";
+const IDENT_CONT = "(?:[A-Za-z0-9_$]|[^\\x00-\\x7f])";
+const IDENTIFIER = new RegExp(`${IDENT_START}${IDENT_CONT}*`, "uy");
+const IDENTIFIERS = new RegExp(`${IDENT_START}${IDENT_CONT}*`, "gu");
+const DOLLAR_TAG = new RegExp(`\\$(?:${IDENT_START}(?:[A-Za-z0-9_]|[^\\x00-\\x7f])*)?\\$`, "uy");
+const WORD_CHAR_BEFORE = /(?:[A-Za-z0-9_]|[^\x00-\x7f])$/u;
+// Everything else the tokenizer classifies: SQL whitespace and printable ASCII. What is left is an
+// unexpected ASCII control character (U+0000-U+0008, U+000E-U+001F, U+007F).
 const SQL_PLAIN_CHAR = /[ \t\n\r\f\v\x21-\x7e]/;
 // Postgres ends a -- comment at LF or CR (non_newline is [^\n\r]).
 const LINE_END = /[\n\r]/g;
@@ -381,8 +384,8 @@ export function sqlWords(text) {
  * a space and the text trimmed; `statement` is the index of the statement each
  * word sits in (a word inside a string gets the statement holding the string).
  * A -- comment ends at LF or CR. `unknown` is the first character (code point
- * and line), at any string depth, that is not SQL whitespace, printable ASCII
- * or part of a word, or null.
+ * and line), at any string depth, that is an unexpected ASCII control character
+ * (not SQL whitespace, printable ASCII or a non-ASCII word character), or null.
  * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[], unknown: {char: number, line: number}|null}}
  */
 export function sqlTokens(text, depth = 0, firstLine = 1) {
@@ -498,8 +501,8 @@ function sqlBodyTokens(body, depth, firstLine) {
     words.push(match[0].toLowerCase());
     lines.push(firstLine + (body.slice(0, match.index).match(/\n/g)?.length ?? 0));
   }
-  // Too deep to tokenize: any character outside letters, digits and printable ASCII still counts as unknown.
-  const odd = /[^ \t\n\r\f\v\x21-\x7e\p{L}\p{N}]/u.exec(body);
+  // Too deep to tokenize: an unexpected ASCII control character still counts as unknown.
+  const odd = /[\x00-\x08\x0e-\x1f\x7f]/.exec(body);
   const unknown = odd ? { char: odd[0].codePointAt(0), line: firstLine + (body.slice(0, odd.index).match(/\n/g)?.length ?? 0) } : null;
   return { words, lines, starts: words.map(() => 0), ends: words.map(() => 0), unknown };
 }
@@ -518,10 +521,10 @@ function rawSqlTokens(text) {
   let line = 1;
   let statementIndex = 0;
   let last = 0;
-  for (const match of sql.matchAll(new RegExp(`${IDENT_START}[\\p{L}\\p{N}_$]*|[^\\s'"$]`, "gu"))) {
+  for (const match of sql.matchAll(new RegExp(`${IDENT_START}${IDENT_CONT}*|[^ \\t\\n\\r\\f\\v'"$]`, "gu"))) {
     line += sql.slice(last, match.index).split("\n").length - 1;
     last = match.index;
-    words.push(/^[\p{L}\p{N}_]/u.test(match[0]) ? match[0].toLowerCase() : match[0]);
+    words.push(match[0].toLowerCase());
     lines.push(line);
     statement.push(statementIndex);
     if (match[0] === ";") statementIndex += 1;
@@ -611,8 +614,9 @@ function insideArgument({ words, statement, ends }, levels, start, inside) {
  * When the tokenizer meets a character it does not classify, the file gets no
  * exemption: the rules run over both the parsed tokens and rawSqlTokens (which
  * reads comments and quotes as code), the hits are the union of both (per rule
- * and line, the larger count), every hit stays sensitive and the reason
- * `sql:tokenizer_unknown_char: …` is added.
+ * and line, the larger count), every hit stays sensitive, the reason
+ * `sql:tokenizer_unknown_char: …` is added and the file fails closed with every
+ * class a non-informational SQL rule can add (rls, definer, auth).
  * @returns {{classes: string[], reasons: string[], hits: object[]}}
  */
 export function classifySql(text, config, path = null) {
@@ -630,7 +634,9 @@ export function classifySql(text, config, path = null) {
   const hits = [];
   if (unknown) {
     const code = `U+${unknown.char.toString(16).toUpperCase().padStart(4, "0")}`;
-    reasons.push(`sql:tokenizer_unknown_char: ${code} on line ${unknown.line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file`);
+    reasons.push(`sql:tokenizer_unknown_char: ${code} on line ${unknown.line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file and it fails closed`);
+    // Fail closed: the tokenizer may be out of step with Postgres, so any SQL class could be hidden.
+    for (const rule of config.sqlContent.rules) if (!rule.informational && !classes.includes(rule.class)) classes.push(rule.class);
   }
   for (const rule of config.sqlContent.rules) {
     // Per reading, this rule's hits; with two readings, keep per line the larger count.
