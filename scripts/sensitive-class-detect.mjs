@@ -397,6 +397,7 @@ const IDENT_START = "(?:[A-Za-z_]|[^\\x00-\\x7f])";
 const IDENT_CONT = "(?:[A-Za-z0-9_$]|[^\\x00-\\x7f])";
 const IDENTIFIER = new RegExp(`${IDENT_START}${IDENT_CONT}*`, "uy");
 const IDENTIFIERS = new RegExp(`${IDENT_START}${IDENT_CONT}*`, "gu");
+const WHOLE_IDENTIFIER = new RegExp(`^${IDENT_START}${IDENT_CONT}*(?![\\s\\S])`, "u");
 const DOLLAR_TAG = new RegExp(`\\$(?:${IDENT_START}(?:[A-Za-z0-9_]|[^\\x00-\\x7f])*)?\\$`, "uy");
 const WORD_CHAR_BEFORE = /(?:[A-Za-z0-9_]|[^\x00-\x7f])$/u;
 // Everything else the tokenizer classifies: SQL whitespace and printable ASCII. What is left is an
@@ -406,10 +407,26 @@ const SQL_PLAIN_CHAR = /[ \t\n\r\f\v\x21-\x7e]/;
 const LINE_END = /[\n\r]/g;
 const MAX_SQL_DEPTH = 8;
 
+function quotedIdentifierWord(body) {
+  const word = body.toLowerCase();
+  return WHOLE_IDENTIFIER.test(body) ? word : `"${word}"`;
+}
+
+function trimSqlSpace(text) {
+  const whitespace = " \t\n\r\f\v";
+  let start = 0;
+  let end = text.length;
+  while (start < end && whitespace.includes(text[start])) start += 1;
+  while (end > start && whitespace.includes(text[end - 1])) end -= 1;
+  return text.slice(start, end);
+}
+
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
  * comments. A double-quoted identifier becomes one lower-cased word, because
- * Postgres accepts quoted names (`SET "row_security"`, `"set_config"(…)`).
+ * Postgres accepts quoted names (`SET "row_security"`, `"set_config"(…)`). A quoted name that is not
+ * identifier-shaped keeps its quotes in the word, so a quoted ';', '(' or ')'
+ * never acts as SQL syntax.
  * Every single-quoted, E'' and dollar-quoted string is tokenized recursively
  * as SQL, because a string can be code: a DO block
  * (`DO LANGUAGE plpgsql $$…$$`), an old-style function body (`AS '…'`) or
@@ -435,7 +452,7 @@ export function sqlWords(text) {
  * (a word can open or close several nested bodies at once). `statements` holds
  * the text of every statement split at a ';' outside strings, quoted
  * identifiers, dollar-quoted bodies and comments, with each comment replaced by
- * a space and the text trimmed; `statement` is the index of the statement each
+ * a space and only SQL whitespace trimmed; `statement` is the index of the statement each
  * word sits in (a word inside a string gets the statement holding the string).
  * A -- comment ends at LF or CR. `unknown` is the first character (code point
  * and line), at any string depth, that is an unexpected ASCII control character
@@ -519,7 +536,7 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
         } else (body += sql[index]), (index += 1);
       }
       if (char === "'") pushBody(body, start);
-      else if (body !== "") push(body.toLowerCase(), lineAt(start));
+      else if (body !== "") push(quotedIdentifierWord(body), lineAt(start));
       current += sql.slice(from, index);
     } else if (char === "$" && !WORD_CHAR_BEFORE.test(sql.slice(Math.max(0, index - 2), index)) && DOLLAR_TAG.test(sql)) {
       DOLLAR_TAG.lastIndex = index;
@@ -540,10 +557,10 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
       if (!/[ \t\n\r\f\v]/.test(char)) push(char, lineAt(index));
       index += 1;
       current += char;
-      if (char === ";") statements.push(current.trim()), (current = "");
+      if (char === ";") statements.push(trimSqlSpace(current)), (current = "");
     }
   }
-  statements.push(current.trim());
+  statements.push(trimSqlSpace(current));
   return { words, lines, starts, ends, statement, statements, unknown };
 }
 
@@ -662,7 +679,8 @@ function insideArgument({ words, statement, ends }, levels, start, inside) {
  * When `path` matches an exemption that lists the rule and the hit's whole
  * top-level statement (comments stripped) is exactly SET [LOCAL] ROLE with one
  * of the exemption's unquoted targets, the hit is exempt and is marked
- * gate_loosening; the rule adds its class only for a hit that is not exempt.
+ * gate_loosening: true and reported in the result's top-level sql_exemptions
+ * list and job summary; the rule adds its class only for a hit that is not exempt.
  * A hit inside a string or dollar-quoted body is never exempt: its statement
  * holds the quoted text, which the statement pattern cannot match.
  * When the tokenizer meets a character it does not classify, the file gets no

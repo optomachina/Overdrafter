@@ -36,6 +36,7 @@ import {
   loadConfig,
   main,
   pathWords,
+  sqlTokens,
 } from "./sensitive-class-detect.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -1061,6 +1062,51 @@ describe("classifySql: tokenizer stays in step with Postgres (OVD-878 final roun
     const result = classifySql("select 'a \u0007 b'; set role anon;", config, tests);
     expect(ids(result)).toEqual(["auth_set_role"]);
     failsClosed(result, "U+0007", 1);
+  });
+});
+
+describe("classifySql: quoted punctuation and SQL-only trimming (OVD-878)", () => {
+  it.each([
+    ['CREATE ROLE ";" SUPERUSER;', "auth_role_superuser"],
+    ['CREATE ROLE ";" CREATEROLE;', "auth_role_createrole"],
+    ['ALTER ROLE ";" REPLICATION;', "auth_role_replication"],
+    ['CREATE ROLE ";" IN ROLE postgres;', "auth_in_role_postgres"],
+    ['GRANT ";", postgres TO x;', "auth_grant_postgres"],
+    [`select format(")" || 'set %s anon', 'role');`, "auth_dynamic_role"],
+  ])("flags quoted punctuation without losing parsed hits in the raw-token union: %s", (text, id) => {
+    for (const prefix of ["", "select '\u0007';\n"]) {
+      const result = classifySql(prefix + text, config, "supabase/migrations/x.sql");
+      expect(result.classes).toContain("auth");
+      expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+      expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+      if (prefix) expect([...result.classes].sort()).toEqual(["auth", "definer", "rls"]);
+    }
+  });
+
+  it.each([";", "(", ")"])("keeps quoted %s distinct from syntax without splitting statements", (punctuation) => {
+    const text = `select "${punctuation}";`;
+    const tokens = sqlTokens(text);
+    expect(tokens.words).toEqual(["select", `"${punctuation}"`, ";"]);
+    expect(tokens.statements).toEqual([text, ""]);
+  });
+
+  it.each([
+    ["SET ROLE anon\u00a0", "auth_set_role"],
+    ["SET ROLE anon\ufeff", "auth_set_role"],
+    ["SET ROLE anon\u2028", "auth_set_role"],
+    ["set local role authenticated\u3000", "auth_set_local_role"],
+  ])("does not exempt a role with trailing non-SQL whitespace at EOF: %j", (text, id) => {
+    const result = classifySql(text, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual(["auth"]);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+    expect(result.hits.some((hit) => hit.gate_loosening)).toBe(false);
+    expect(sqlTokens(text).statements).toEqual([text]);
+  });
+
+  it.each(["\n", "\t", "\r\n", "\f", "\v"])("keeps SET ROLE exempt with trailing SQL whitespace at EOF: %j", (whitespace) => {
+    const result = classifySql(`SET ROLE anon${whitespace}`, config, "supabase/tests/x.sql");
+    expect(result.classes).toEqual([]);
+    expect(result.hits).toEqual([expect.objectContaining({ id: "auth_set_role", sensitive: false, gate_loosening: true })]);
   });
 });
 
