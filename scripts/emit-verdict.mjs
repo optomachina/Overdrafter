@@ -5,8 +5,9 @@
  * Used by the independent verifier (role verifier, gate input) and by
  * reviewers (role reviewer, advisory, with --findings). --base and --head are
  * required commit SHAs (the tool never resolves refs); it fills sha from head,
- * patch_id from `git patch-id --verbatim` over base...head, and a UTC
- * timestamp. It exits 1 with `emit-verdict: <reason>` on stderr, and prints no
+ * patch_id from `git patch-id --verbatim` over base...head, diff_id from the
+ * SHA-256 of `git diff --raw -z` over the same range, and a UTC timestamp.
+ * It exits 1 with `emit-verdict: <reason>` on stderr, and prints no
  * verdict, on any error, including a diff that git patch-id cannot hash to a
  * single id (a NUL byte, or a line that makes it split the diff). Prints the
  * comment body to stdout; it only posts (via `gh pr comment`) when --post and
@@ -32,6 +33,7 @@
  * See docs/verdict-format.md.
  */
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   accessSync,
   constants as fsConstants,
@@ -153,10 +155,12 @@ const PINNED_DIFF = [
  * parsePatchIdOutput); the CLI reports each as `emit-verdict: <message>` on
  * stderr and exits 1.
  *
- * The id deliberately ignores hunk line numbers and `index` lines (that is what
- * keeps it stable across a rebase), so equal ids do not prove an identical
- * change: the verdict binds to `sha` (the head SHA), and `patch_id` is only a
- * rebase-reuse aid. See docs/verdict-format.md.
+ * The id is lossy by git's design: it ignores hunk line numbers, ignores the
+ * `index` lines of text diffs, and does not hash the path of an entry without
+ * `---`/`+++` lines that follows a binary patch. Equal ids therefore do not
+ * prove an identical change. The verdict binds to `sha` (the head SHA), and
+ * reuse across a rebase must also require an equal `diff_id`
+ * (computeDiffId). See docs/verdict-format.md.
  */
 export function computePatchId({ base, head, cwd }) {
   const baseSha = assertSha(base, "--base");
@@ -182,6 +186,42 @@ export function computePatchId({ base, head, cwd }) {
     );
   }
   return parsePatchIdOutput(git(["patch-id", "--verbatim"], { cwd, input: diff }), `${baseSha}...${headSha}`);
+}
+
+/**
+ * The `git diff --raw` options for diff_id. `--raw -z --no-abbrev --no-renames
+ * --full-index` select the format; `--no-relative`, `--ignore-submodules=none`,
+ * `-O/dev/null` and `--no-color` pin the settings git config could otherwise
+ * change (which paths are listed, how, and in what order).
+ */
+const PINNED_RAW_DIFF = [
+  "diff", "--raw", "-z", "--no-abbrev", "--no-renames", "--full-index",
+  "--no-relative", "--ignore-submodules=none", "-O/dev/null", "--no-color",
+];
+
+/**
+ * `diff_id`: the lowercase hex SHA-256 of the exact bytes of `git diff --raw -z`
+ * over base...head (merge-base to head, the same range as computePatchId).
+ * That output has one NUL-terminated record per changed path with its old and
+ * new mode, its full old and new blob ids, a status letter and the path, so
+ * two diffs share a diff_id only if the same paths changed between the same
+ * blobs with the same modes. Unlike patch_id it hashes no diff text, so hunk
+ * positions, binary patches, NUL bytes and encodings cannot make two different
+ * diffs collide. A rebase onto a base that did not touch any of the changed
+ * paths keeps the diff_id; a base that changed one of them gives a new one.
+ *
+ * Same argument rules as computePatchId: both ends must be full commit SHAs,
+ * checked before any git call, and follow `--end-of-options`. The output stays
+ * a Buffer and is hashed without decoding. Throws on an empty diff.
+ */
+export function computeDiffId({ base, head, cwd }) {
+  const baseSha = assertSha(base, "--base");
+  const headSha = assertSha(head, "--head");
+  assertCommit(baseSha, "--base", { cwd });
+  assertCommit(headSha, "--head", { cwd });
+  const raw = git([...PINNED_RAW_DIFF, "--end-of-options", `${baseSha}...${headSha}`, "--"], { cwd, encoding: "buffer" });
+  if (raw.length === 0) throw new Error(`computeDiffId: ${baseSha}...${headSha} has an empty diff`);
+  return createHash("sha256").update(raw).digest("hex");
 }
 
 /** One `git patch-id` output line: `<patch id> <commit id or 40 zeros>`. */
@@ -225,12 +265,13 @@ const parseEvidence = (entry) => {
 };
 
 /**
- * Build a verdict object (sha/patch_id/timestamp may be passed explicitly for
- * tests or computed from git) and validate it. Throws with every schema error.
+ * Build a verdict object (sha/patch_id/diff_id/timestamp may be passed
+ * explicitly for tests or computed from git) and validate it. Throws with
+ * every schema error.
  */
 export function buildVerdict(input, { cwd, now = new Date() } = {}) {
   if (input.findings !== undefined && !Array.isArray(input.findings)) throw new Error("findings must be a JSON array of finding objects");
-  // Diff the exact head commit, so sha and patch_id always describe the same tree.
+  // Diff the exact head commit, so sha, patch_id and diff_id always describe the same tree.
   const sha = input.sha ?? assertSha(input.head, "--head");
   const verdict = {
     schema: SCHEMA_ID,
@@ -238,6 +279,7 @@ export function buildVerdict(input, { cwd, now = new Date() } = {}) {
     verdict: input.verdict,
     sha,
     patch_id: input.patchId ?? computePatchId({ base: input.base, head: sha, cwd }),
+    diff_id: input.diffId ?? computeDiffId({ base: input.base, head: sha, cwd }),
     verifier: { id: input.verifierId, model_family: input.modelFamily, github_login: input.githubLogin },
     evidence: input.evidence ?? [],
     notes: input.notes ?? [],

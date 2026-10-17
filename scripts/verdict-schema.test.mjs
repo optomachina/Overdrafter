@@ -14,6 +14,7 @@ import {
 const SHA = "a".repeat(40);
 const OLD_SHA = "b".repeat(40);
 const PATCH = "c".repeat(40);
+const DIFF = "e".repeat(64);
 
 const valid = (overrides = {}) => ({
   schema: SCHEMA_ID,
@@ -21,6 +22,7 @@ const valid = (overrides = {}) => ({
   verdict: "PASS",
   sha: SHA,
   patch_id: PATCH,
+  diff_id: DIFF,
   verifier: { id: "astra-verifier", model_family: "opus", github_login: "verifier-bot" },
   evidence: [{ kind: "verify-run", url: "https://github.com/o/r/actions/runs/1" }],
   notes: [],
@@ -42,7 +44,7 @@ describe("validateVerdict", () => {
 
   it("exposes a JSON Schema object that lists every required field", () => {
     expect(schema.$schema).toContain("json-schema.org");
-    expect(schema.required).toEqual(expect.arrayContaining(["schema", "verdict", "sha", "patch_id", "verifier", "evidence", "readiness", "timestamp"]));
+    expect(schema.required).toEqual(expect.arrayContaining(["schema", "verdict", "sha", "patch_id", "diff_id", "verifier", "evidence", "readiness", "timestamp"]));
   });
 
   const cases = [
@@ -54,6 +56,12 @@ describe("validateVerdict", () => {
     ["unknown verdict", valid({ verdict: "LGTM" }), 'verdict.verdict: must be one of PASS, PASS_NOTES, FAIL (got "LGTM")'],
     ["short sha", valid({ sha: "abc123" }), "verdict.sha: must match ^[0-9a-f]{40}$"],
     ["numeric sha", valid({ sha: 1234 }), "verdict.sha: must be string (got integer)"],
+    ["missing diff_id", without("diff_id"), "verdict.diff_id: is required"],
+    ["40-hex diff_id", valid({ diff_id: "e".repeat(40) }), "verdict.diff_id: must match ^[0-9a-f]{64}$"],
+    ["65-hex diff_id", valid({ diff_id: "e".repeat(65) }), "verdict.diff_id: must match ^[0-9a-f]{64}$"],
+    ["uppercase diff_id", valid({ diff_id: "E".repeat(64) }), "verdict.diff_id: must match ^[0-9a-f]{64}$"],
+    ["non-hex diff_id", valid({ diff_id: `${"e".repeat(63)}g` }), "verdict.diff_id: must match ^[0-9a-f]{64}$"],
+    ["numeric diff_id", valid({ diff_id: 7 }), "verdict.diff_id: must be string (got integer)"],
     ["string conflicts", valid({ readiness: { conflicts: "0", open_threads: 0, checks: "green" } }), "verdict.readiness.conflicts: must be integer (got string)"],
     ["negative threads", valid({ readiness: { conflicts: 0, open_threads: -1, checks: "green" } }), "verdict.readiness.open_threads: must be >= 0 (got -1)"],
     ["evidence object", valid({ evidence: {} }), "verdict.evidence: must be array (got object)"],
@@ -194,6 +202,12 @@ describe("parseVerdictComments", () => {
     expect(result).toMatchObject({ verdict: null, comment_id: null, conflict: true });
     expect(result.latest.comment_id).toBe(3);
     expect(result.conflicts.map((e) => e.comment_id)).toEqual([1, 2]);
+  });
+
+  it("flags verdicts for the same SHA that differ only in diff_id", () => {
+    const result = parseVerdictComments([comment(1, valid()), comment(2, valid({ diff_id: "f".repeat(64) }))], { sha: SHA });
+    expect(result).toMatchObject({ verdict: null, conflict: true });
+    expect(result.conflicts.map((e) => e.comment_id)).toEqual([1]);
   });
 
   it("orders by created_at instant, not by string", () => {

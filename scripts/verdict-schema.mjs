@@ -10,6 +10,8 @@
  *   (https URLs, real UTC timestamps, role-dependent findings).
  * - Only `role: "verifier"` verdicts are gate input. `role: "reviewer"`
  *   verdicts are advisory and carry `findings`.
+ * - A verdict binds to `sha`. `patch_id` is lossy; reuse across a rebase must
+ *   also require an equal `diff_id` (exact changed paths, modes and blobs).
  * - `parseVerdictComments` reads GitHub issue comments and returns the latest
  *   valid verifier verdict for a SHA, conflicting verdicts, and every
  *   rejected block. Edited comments are rejected; post a new comment instead.
@@ -22,6 +24,8 @@ export const FENCE_INFO = "overdrafter-verdict";
 
 const SEVERITIES = ["high", "medium", "low", "info"];
 const HEX40 = "^[0-9a-f]{40}$";
+/** diff_id: lowercase hex SHA-256 of `git diff --raw -z` (see scripts/emit-verdict.mjs computeDiffId). */
+const HEX64 = "^[0-9a-f]{64}$";
 const MODEL_FAMILY = "^[a-z][a-z0-9-]{0,31}$";
 
 export const schema = {
@@ -30,13 +34,14 @@ export const schema = {
   title: "OverDrafter review verdict v1",
   type: "object",
   additionalProperties: false,
-  required: ["schema", "role", "verdict", "sha", "patch_id", "verifier", "evidence", "notes", "readiness", "timestamp"],
+  required: ["schema", "role", "verdict", "sha", "patch_id", "diff_id", "verifier", "evidence", "notes", "readiness", "timestamp"],
   properties: {
     schema: { const: SCHEMA_ID },
     role: { enum: ["verifier", "reviewer"] },
     verdict: { enum: ["PASS", "PASS_NOTES", "FAIL"] },
     sha: { type: "string", pattern: HEX40 },
     patch_id: { type: "string", pattern: HEX40 },
+    diff_id: { type: "string", pattern: HEX64 },
     verifier: {
       type: "object",
       additionalProperties: false,
@@ -265,7 +270,8 @@ const byCreatedAt = (a, b) => {
  * - verdict: latest valid verifier verdict (by comment created_at, then block order), or null.
  *   Always null when `conflict` is true, so a consumer that ignores conflicts cannot pass;
  * - conflict: true when any valid verifier verdict for the SHA disagrees with the latest one;
- * - conflicts: those disagreeing entries (the latest itself is `latest`);
+ * - conflicts: those disagreeing entries (`verdict`, `patch_id` or `diff_id` differs;
+ *   the latest itself is `latest`);
  * - latest: the latest verifier entry, kept for diagnostics even when conflicting;
  * - reviews: valid advisory reviewer verdicts for the SHA;
  * - other_sha: valid verdicts for other SHAs (stale for this head);
@@ -304,7 +310,11 @@ export function parseVerdictComments(comments, { sha } = {}) {
   const verifierEntries = forSha.filter((entry) => entry.verdict.role === "verifier");
   const latest = verifierEntries.at(-1) ?? null;
   const conflicts = latest
-    ? verifierEntries.filter((entry) => entry.verdict.verdict !== latest.verdict.verdict || entry.verdict.patch_id !== latest.verdict.patch_id)
+    ? verifierEntries.filter(
+      (entry) => entry.verdict.verdict !== latest.verdict.verdict
+        || entry.verdict.patch_id !== latest.verdict.patch_id
+        || entry.verdict.diff_id !== latest.verdict.diff_id,
+    )
     : [];
   const conflict = conflicts.length > 0;
   return {

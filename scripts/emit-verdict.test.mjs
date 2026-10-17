@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertSha, buildVerdict, computePatchId, formatComment, isEntryPoint, main, parsePatchIdOutput, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
+import { assertSha, buildVerdict, computeDiffId, computePatchId, formatComment, isEntryPoint, main, parsePatchIdOutput, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -19,6 +19,7 @@ const commit = (file, content, message) => {
 /** Resolve a ref in the fixture repo; the tool itself only accepts SHAs. */
 const sha = (ref) => git("rev-parse", "--verify", `${ref}^{commit}`);
 const patchId = (base, head) => computePatchId({ base: sha(base), head: sha(head), cwd: repo });
+const diffId = (base, head) => computeDiffId({ base: sha(base), head: sha(head), cwd: repo });
 
 beforeAll(() => {
   repo = mkdtempSync(join(tmpdir(), "ovd851-verdict-"));
@@ -188,6 +189,37 @@ describe("computePatchId ignores hunk positions", () => {
 
   it("still gives a different id when the inserted text differs", () => {
     expect(patchId("pos-base", "pos-other")).not.toBe(patchId("pos-base", "pos-4"));
+  });
+});
+
+describe("diff_id separates what patch_id cannot", () => {
+  // git patch-id does not hash the `diff --git` line that follows a binary
+  // patch, so a mode-only change after a binary file has no path in the id.
+  const BIN = Buffer.from([0, 1, 2, 3, 0, 255, 254, 0]);
+  beforeAll(() => {
+    git("checkout", "-q", "-b", "bin-base", "main");
+    writeFileSync(join(repo, "x.sh"), "echo x\n");
+    writeFileSync(join(repo, "y.sh"), "echo y\n");
+    git("add", "x.sh", "y.sh");
+    git("commit", "-q", "-m", "scripts");
+    for (const target of ["x.sh", "y.sh"]) {
+      git("checkout", "-q", "-b", `bin-${target}`, "bin-base");
+      writeFileSync(join(repo, "a.bin"), BIN);
+      chmodSync(join(repo, target), 0o755);
+      git("add", "a.bin", target);
+      git("commit", "-q", "-m", `binary + chmod ${target}`);
+    }
+    git("checkout", "-q", "main");
+  });
+
+  it("gives different diff_ids where patch_id collides (binary, then chmod of a different file)", () => {
+    expect(patchId("bin-base", "bin-x.sh")).toBe(patchId("bin-base", "bin-y.sh"));
+    expect(diffId("bin-base", "bin-x.sh")).not.toBe(diffId("bin-base", "bin-y.sh"));
+    expect(diffId("bin-base", "bin-x.sh")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("keeps the diff_id across a rebase onto a base that touched other paths", () => {
+    expect(diffId("main", "feature")).toBe(diffId(git("merge-base", "main", "feature"), "feature"));
   });
 });
 
@@ -612,7 +644,7 @@ describe("posting", () => {
 
   it("requires a PR number and surfaces gh failures", () => {
     const verdict = buildVerdict(
-      { role: "verifier", verdict: "FAIL", sha: "a".repeat(40), patchId: "b".repeat(40), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "red" } },
+      { role: "verifier", verdict: "FAIL", sha: "a".repeat(40), patchId: "b".repeat(40), diffId: "c".repeat(64), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "red" } },
       { now: NOW },
     );
     const body = formatComment(verdict);

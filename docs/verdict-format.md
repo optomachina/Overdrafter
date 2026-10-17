@@ -21,6 +21,7 @@ doesn't gate anything on its own.
   "verdict": "PASS",
   "sha": "<40-hex head SHA verified>",
   "patch_id": "<git patch-id --verbatim of base...head>",
+  "diff_id": "<sha256 of git diff --raw -z --no-abbrev --no-renames --full-index of base...head>",
   "verifier": { "id": "astra-verifier", "model_family": "opus", "github_login": "verifier-bot" },
   "evidence": [{ "kind": "verify-run", "url": "https://github.com/optomachina/Overdrafter/actions/runs/1" }],
   "notes": ["low: rename helper for clarity"],
@@ -149,29 +150,6 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   anything is posted. OVD-845 must treat a throw from `computePatchId` as
   "cannot carry this verdict over", never as a match.
 
-### What `patch_id` is, and what it is not
-
-The verdict binds to `sha`, the head SHA it was verified at. `patch_id` is only
-an aid for reusing a verdict after a rebase. It is not a proof that two heads
-hold the same change.
-
-`git patch-id` ignores line numbers by design: it drops the hunk headers
-(`@@ -a,b +c,d @@`) and the `index` lines, and that is what keeps the id the same
-when a rebase moves a change to a different position or onto a different base.
-The rebase-reuse rule (`patch-id-equal`) relies on exactly that, so
-`computePatchId` does not change the mechanism or add a position-aware hash.
-The consequence is that the same edit made at two different positions in a file,
-with identical surrounding context lines, has the same `patch_id`. For example,
-inserting the same line at line 4 or at line 7 of a file of identical lines
-(`@@ -1,6 +1,7 @@` versus `@@ -4,6 +4,7 @@`) gives one id. Equal `patch_id`s
-therefore do not show that two heads contain an identical change, only that
-their diffs are equal once positions are ignored.
-
-When OVD-845 considers carrying a verdict over to a head whose SHA differs from
-the verdict's `sha`, it must decide for itself what reuse requires on top of an
-equal `patch_id`, for example the same changed-file list and hunk positions, or
-tree equality when the base has not changed. This format does not provide that
-check.
 - `timestamp` is the current UTC time, to the second.
 - Reviewers add `--role reviewer --findings findings.json`. The file must hold a
   JSON array. The script tags the findings with `corroborated` before printing
@@ -197,6 +175,41 @@ The comment has one summary line, the fenced block, and a do-not-edit footer:
 **Never edit a verdict comment.** An edited comment (`updated_at !=
 created_at`) is rejected. To change a verdict, post a new comment.
 
+### `diff_id`, and why `patch_id` is advisory only
+
+The verdict binds to `sha`, the head SHA it was verified at. Both ids exist only
+to decide whether a verdict may be reused after a rebase.
+
+`diff_id` is the lowercase hex SHA-256 of the exact bytes of
+`git diff --raw -z --no-abbrev --no-renames --full-index` over `base...head`
+(with `--no-relative --ignore-submodules=none -O/dev/null --no-color` pinned,
+`--end-of-options`, both ends full SHAs; `computeDiffId`). Each record holds a
+changed path, its old and new mode, its full old and new blob ids and a status
+letter, so two heads share a `diff_id` only when the same paths changed between
+the same blobs with the same modes. It hashes no diff text, so hunk positions,
+binary patches, NUL bytes and encodings cannot make two different changes
+collide. A rebase onto a base that touched none of the changed paths keeps it.
+
+`patch_id` (`git patch-id --verbatim`) is **advisory only**. It is lossy by
+git's design:
+
+- it drops hunk headers, so the same edit at two positions with identical
+  context gets one id;
+- it drops `index` lines for text diffs (binary diffs do hash their blob ids);
+- after a `GIT binary patch`, git does not hash the next `diff --git` line, so
+  an entry with no `---`/`+++` lines (an empty file added or deleted, a
+  mode-only change, another binary) contributes no path at all. Different
+  heads, for example `chmod +x x.sh` versus `chmod +x y.sh` after a binary
+  file, get one `patch_id`.
+
+Equal `patch_id`s therefore never show that two heads hold the same change.
+
+**OVD-845 rebase-reuse rule (hard requirement).** A verdict for an earlier SHA
+may carry over to the current head only when the `diff_id` recomputed for the
+current head equals the verdict's `diff_id`. An equal `patch_id` alone is never
+enough. A throw from `computeDiffId` or `computePatchId` means "cannot carry
+this verdict over", never a match.
+
 ## Parsing
 
 `parseVerdictComments(comments, { sha })` takes GitHub issue comments
@@ -209,7 +222,7 @@ created_at`) is rejected. To change a verdict, post a new comment.
 | `conflicts` | Those disagreeing verifier verdicts (`verdict` or `patch_id` differs from the latest one). |
 | `latest` | The latest verifier entry, `{ comment_id, block, created_at, verdict }`, kept for diagnostics even when conflicting. Never use it as gate input. |
 | `reviews` | Valid advisory `reviewer` verdicts for `sha`. |
-| `other_sha` | Valid verdicts for other SHAs. These are stale for this head. Under the OVD-845 rebase rule, a verdict carries over only when its `patch_id` equals the patch-id recomputed for the current head; equal ids ignore hunk positions, so see OVD-845 responsibilities. |
+| `other_sha` | Valid verdicts for other SHAs. These are stale for this head. Under the OVD-845 rebase rule, a verdict carries over only when its `diff_id` equals the diff_id recomputed for the current head; `patch_id` is advisory only. |
 | `rejected` | `{ comment_id, block, reason, errors }`, where `reason` is one of `edited_comment`, `missing_comment_timestamps`, `invalid_json`, `schema_error` or `author_mismatch`. |
 
 The parser only reads blocks that start with a ```` ```overdrafter-verdict ````
@@ -238,9 +251,8 @@ gate. The gate must do each of them; none is enforced here.
   combined list.
 - **Staleness.** The parser doesn't compare `sha` with the live PR head.
   OVD-845 does, using the PR commits API, and applies the rebase rule above
-  with a patch-id it recomputes itself. An equal `patch_id` does not prove an
-  identical change (it ignores hunk positions, see "What `patch_id` is, and what
-  it is not"), so OVD-845 owns deciding what reuse requires beyond it.
+  with a `diff_id` it recomputes itself (see "`diff_id`, and why `patch_id` is
+  advisory only"). An equal `patch_id` alone never allows reuse.
 
 ## Corroboration
 
