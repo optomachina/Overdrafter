@@ -61,7 +61,7 @@ outcome parent's ID for a new source PR.
 
 See `TEST_STRATEGY.md` for the policy and `docs/debugging-workflows.md` for the lane details.
 
-`bash scripts/preflight.sh test` locally skips three Docker-dependent OVD-417 validation cases when Docker is unavailable; CI always runs them.
+`bash scripts/preflight.sh test` locally skips three Docker-dependent OVD-417 validation cases when Docker is unavailable; CI always runs them (a non-empty `CI` or `GITHUB_ACTIONS` disables the skip).
 
 Use these defaults:
 

@@ -10,7 +10,7 @@ const dockerTests = [...preflight.match(/docker_only_tests=\(([\s\S]*?)\)/)[1].m
 const bashPath = process.env.PATH.split(":").map((dir) => join(dir, "bash")).find(existsSync);
 const dirnamePath = process.env.PATH.split(":").map((dir) => join(dir, "dirname")).find(existsSync);
 
-function runPreflight({ docker = "available", ci = false, npmStatus = 0, inheritedDockerUnavailable = false } = {}) {
+function runPreflight({ docker = "available", ci = false, githubActions = false, npmStatus = 0, inheritedDockerUnavailable = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "ovd909-preflight-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -30,9 +30,11 @@ function runPreflight({ docker = "available", ci = false, npmStatus = 0, inherit
     }
     const env = { ...process.env, PATH: bin, NPM_CALLS: callsPath, NPM_STATUS: String(npmStatus), DOCKER_CALLS: probePath };
     delete env.CI;
+    delete env.GITHUB_ACTIONS;
     delete env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE;
     if (inheritedDockerUnavailable) env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE = "1";
     if (ci) env.CI = "true";
+    if (githubActions) env.GITHUB_ACTIONS = "true";
     const result = spawnSync(bashPath, [preflightPath, "test"], { env, encoding: "utf8", stdio: "pipe" });
     expect(result.error).toBeUndefined();
     expect(result.stderr).toBe("");
@@ -64,8 +66,8 @@ function expectSkipped(result, failed = false) {
 describe("preflight local Docker skips", () => {
   it("keeps the skip names identical to the qualification parameterized tests", () => {
     const qualification = readFileSync(resolve("scripts/qualify-ovd417-four-migration-suffix.test.mjs"), "utf8");
-    const cases = qualification.match(/\.each\(\[([\s\S]*?)\]\)\("([^"]+)"/);
-    const names = [...cases[1].matchAll(/\["([^"]+)"/g)].map((match) => cases[2].replace("%s", match[1]));
+    const cases = qualification.match(/\.each\(\[((?:(?!\.each\(\[)[\s\S])*?)\]\)\("(rejects \$name before qualification)"/);
+    const names = [...cases[1].matchAll(/name: "([^"]+)"/g)].map((match) => cases[2].replace("$name", () => `'${match[1]}'`));
     expect(dockerTests).toEqual(names);
   });
 
@@ -105,6 +107,14 @@ describe("preflight local Docker skips", () => {
 
   it.each(["missing", "failing", "available"])("preserves CI behavior with %s Docker without probing", (docker) => {
     const result = runPreflight({ docker, ci: true });
+    expect(result.status).toBe(0);
+    expect(result.npmCalls).toBe("run --silent test\nunset\n");
+    expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
+    expect(result.dockerCalls).toBe("");
+  });
+
+  it("never skips under GitHub Actions with CI unset and Docker missing", () => {
+    const result = runPreflight({ docker: "missing", githubActions: true, inheritedDockerUnavailable: true });
     expect(result.status).toBe(0);
     expect(result.npmCalls).toBe("run --silent test\nunset\n");
     expect(result.output).toBe("preflight: test start\npreflight: test PASS\n");
