@@ -1,6 +1,5 @@
 /** Generate the paired OVD-649 restoration SQL from the OVD-575 migration and
  * the staged replacement. Usage: node <this file> [--check]. */
-import { isEntryPoint } from "../../../lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -106,7 +105,7 @@ commit;
   return { sql, pins };
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.some((arg) => arg !== "--check")) throw new Error("ovd649_unsupported_argument");
   const { sql, pins } = buildRestoreSql();

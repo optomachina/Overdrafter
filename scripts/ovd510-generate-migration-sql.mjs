@@ -1,5 +1,4 @@
 /** Generate reviewable, inert OVD-558 SQL from the pinned OVD-557 manifest. */
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -270,7 +269,7 @@ rollback;
 `;
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const postSha = process.argv[2];
   const checkOnly = process.argv.includes("--check");
   if (postSha && !/^[0-9a-f]{64}$/.test(postSha)) throw new Error("post_catalog_sha_required");

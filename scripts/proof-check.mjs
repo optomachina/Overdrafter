@@ -1,7 +1,7 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { readFileSync, appendFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 /**
  * Proof check: a PR body needs a "## Proof" section with at least one
@@ -613,6 +613,6 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   return mode === "enforce" && report.status === "fail" ? 1 : 0;
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(main());
 }

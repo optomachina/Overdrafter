@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -96,4 +97,11 @@ export function isImmutableImage(value) {
   return IMMUTABLE_IMAGE_PATTERN.test(value ?? "");
 }
 
-export { isEntryPoint as isDirectCli } from "./lib/entry-point.mjs";
+export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(importMetaUrl)) === realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}

@@ -1,4 +1,4 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
+import { pathToFileURL } from "node:url";
 import { snapshotData } from "./engineering-inbox-fixture-boundary.mjs";
 
 const INPUT_LIMIT_BYTES = 64 * 1024;
@@ -147,4 +147,4 @@ async function main() {
   }
 }
 
-if (isEntryPoint(import.meta.url)) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

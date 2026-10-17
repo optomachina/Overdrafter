@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { isEntryPoint } from "./lib/entry-point.mjs";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 const KEYS = ["project", "region", "job", "scheduler", "image", "runtimeServiceAccount", "schedulerServiceAccount", "timeoutSeconds"];
 const PROJECT = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
@@ -73,6 +73,6 @@ export async function runCli(args, { read = readFile, write = console.log } = {}
   }
 }
 
-if (isEntryPoint(import.meta.url)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exitCode = await runCli(process.argv.slice(2));
 }

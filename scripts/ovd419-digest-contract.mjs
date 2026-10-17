@@ -1,5 +1,6 @@
-import { isEntryPoint } from "./lib/entry-point.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
 const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -198,7 +199,17 @@ export function evaluatePreMutationChecks(record, observed) {
   });
 }
 
-if (isEntryPoint(import.meta.url)) {
+/** Return whether this module is the process entry point. */
+export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(importMetaUrl)) === realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCli(import.meta.url)) {
   const mode = process.argv[2];
   if (mode !== "--stdin" || process.argv.length !== 3) {
     process.stderr.write(
@@ -221,5 +232,3 @@ if (isEntryPoint(import.meta.url)) {
     process.exit(1);
   }
 }
-
-export { isEntryPoint as isDirectCli } from "./lib/entry-point.mjs";
