@@ -32,3 +32,6 @@ class ClassifyChecksTests(unittest.TestCase):
             dict(context="expected", state="EXPECTED"),
             dict(context="bad", state="ERROR"),
         ]), (["bad: ERROR"], ["pending", "expected"]))
+
+    def test_empty_rollup_is_pending(self):
+        self.assertEqual(land_watch.classify_checks([]), ([], ["no checks reported yet"]))

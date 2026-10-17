@@ -7,10 +7,12 @@
 # Actions on that exact SHA, and is still the PR head right before the merge.
 #
 #   1. Read the PR once and pin its head SHA.
-#   2. If the head does not contain origin/<base> (or GitHub says BEHIND), update
-#      it with the REST update-branch API. That API always MERGES the base into
-#      the head (it has no rebase mode) and takes expected_head_sha, so GitHub
-#      refuses if the head moved. Never a rebase, never a force push.
+#   2. If the head does not contain a freshly fetched origin/<base>, update it
+#      with the REST update-branch API. Git decides: GitHub's BEHIND can be
+#      stale right after an update, so it only triggers a re-check. That API
+#      always MERGES the base into the head (it has no rebase mode) and takes
+#      expected_head_sha, so GitHub refuses if the head moved. Never a rebase,
+#      never a force push.
 #   3. Wait for the new head, prove it is exactly that update merge (two
 #      parents: the old pin, then a commit already on the base), and re-pin.
 #   4. Wait for the required checks on the pin, re-reading the head each poll.
@@ -70,13 +72,15 @@ gh_cmd() {
 pause() { "${LAND_SLEEP:-sleep}" "$LAND_POLL_INTERVAL" || stop 5 'sleep failed'; }
 progress() { printf 'land: poll %s/%s %s\n' "$1" "$2" "$3" >&2; }
 
-# FIELD=<string value of a top-level-ish path in $JSON>, "" if absent or not a
-# string. jq -j prints no trailing newline and the "." sentinel stops command
-# substitution from stripping trailing newlines, so a value such as
-# "<sha>\n" stays malformed instead of being silently repaired.
+# FIELD=<string value of a path in $JSON>, "" if absent or not a string.
+# Two ways a malformed value could be "repaired" on its way into bash are
+# closed here: NUL characters (bash drops them silently, so "\u0000<40 hex>"
+# would become a valid SHA) are mapped to "!" inside jq, and the "." sentinel
+# stops command substitution from stripping trailing newlines, so "<sha>\n"
+# stays malformed.
 field() {
   local value
-  value="$(printf '%s' "$JSON" | jq -j "$1 | if type == \"string\" then . else \"\" end" && printf '.')" \
+  value="$(printf '%s' "$JSON" | jq -j "$1 | if type == \"string\" then (explode | map(if . == 0 then 33 else . end) | implode) else \"\" end" && printf '.')" \
     || stop 5 'unreadable JSON field'
   FIELD="${value%.}"
 }

@@ -131,8 +131,9 @@ it('waits for checks to register', async () => {
   const s = scenario([pr(), pr(), pr(), pr(), pr(U, 'CLEAN', 'MERGED')]);
   s['check-runs:ci'].unshift(response({ total_count: 0, check_runs: [] })); expectMerge(await run(s, 0, 'merged and verified'), U);
 });
-it.each(['short', 'long', 'upper', 'newline', 'injection', 'empty'])('rejects malformed SHA: %s', async kind => {
-  const bad = { short: H.slice(1), long: H+'a', upper: 'A'.repeat(40), newline: H+'\n', injection: H+'\n$(touch pwned)', empty: '' }[kind];
+it.each(['short', 'long', 'upper', 'newline', 'injection', 'empty', 'nul'])('rejects malformed SHA: %s', async kind => {
+  // nul: bash drops NUL bytes, so "\u0000<40 hex>" must not become a valid SHA.
+  const bad = { short: H.slice(1), long: H+'a', upper: 'A'.repeat(40), newline: H+'\n', injection: H+'\n$(touch pwned)', empty: '', nul: '\u0000'+H }[kind];
   await run(scenario([pr(bad)]), 5, 'malformed SHA'); expect(existsSync(join(cwd, 'pwned'))).toBe(false);
 });
 it('rejects merged head mismatch', async () => await run(scenario([pr(), pr(), pr(), pr(X, 'CLEAN', 'MERGED')]), 5, 'differs from the verified head'));
@@ -209,4 +210,20 @@ it('rejects a PR whose base is not main', async () => {
 it('rejects an unknown merge state', async () => await run(scenario([pr(U, 'SOMETHING_NEW')]), 5, 'unknown merge state'));
 it('rejects an update merge whose first parent is not the pinned head', async () => {
   await run(scenario([pr(H, 'BEHIND'), pr(W)]), 5, 'not the pinned');
+});
+it('rejects a merge commit SHA hidden behind a NUL byte', async () => {
+  const merged = pr(U, 'CLEAN', 'MERGED'); merged.stdout.mergeCommit = { oid: '\u0000' + M };
+  expectMerge(await run(scenario([pr(), pr(), pr(), merged]), 5, 'merge not verified'), U);
+});
+it('queries check runs bound to the pinned SHA, by name, latest only', async () => {
+  const calls = await run(scenario(), 0, 'merged and verified');
+  const api = calls.filter(a => a[0] === 'api');
+  expect(api).toEqual([
+    ['api', `repos/{owner}/{repo}/commits/${U}/check-runs?check_name=ci&filter=latest&per_page=100`],
+    ['api', `repos/{owner}/{repo}/commits/${U}/check-runs?check_name=provider-go-live&filter=latest&per_page=100`],
+  ]);
+});
+it('rejects a head change in the pre-merge re-read', async () => {
+  // pin, check-poll read, then the pre-merge read shows another head.
+  await run(scenario([pr(), pr(), pr(X)]), 5, 'head changed');
 });

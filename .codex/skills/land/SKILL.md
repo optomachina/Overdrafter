@@ -52,10 +52,10 @@ LAND_EXIT=0
 echo "land_strict_merge.sh exit: $LAND_EXIT"
 ```
 
-   - It pins the PR head SHA once. If that head does not contain `origin/main` (or GitHub reports `BEHIND`), it updates the branch with the REST update-branch API, which always merges `main` into the branch and is sent with `expected_head_sha`, so GitHub refuses if the head moved. It never rebases and never force-pushes.
+   - It pins the PR head SHA once. If that head does not contain a freshly fetched `origin/main`, it updates the branch with the REST update-branch API, which always merges `main` into the branch and is sent with `expected_head_sha`, so GitHub refuses if the head moved. It never rebases and never force-pushes.
    - It waits for the new head and proves it is exactly that update merge: two parents, the old pin first and a commit already on `main` second. Only then does it re-pin.
    - It waits (bounded) for `ci` and `provider-go-live` from GitHub Actions (app 15368) on that exact SHA. Checks not yet registered on a new head count as pending, never as failed. Every poll re-reads the PR head and stops if it changed.
-   - Right before merging it re-reads state, head and mergeability, then runs `gh pr merge --squash --match-head-commit <pin>`. If `main` moved again it does another update round, at most 3 per run.
+   - Right before merging it re-reads state, head and mergeability, then runs `gh pr merge --squash --match-head-commit <pin>`. If GitHub then reports `BEHIND`, it re-fetches `origin/main` and, only if `main` really moved, does another update round (at most 3 per run).
    - It reports success only when GitHub shows `MERGED` with `headRefOid` equal to the pin and a valid merge commit. A failed merge command is verified against the same pin; it never re-reads and re-pins the head. The repo deletes merged branches itself, so there is no `--delete-branch`.
    - Every unreadable, unknown, mismatched or timed-out state stops with `land: STOP: ...`.
 

@@ -29,6 +29,10 @@ def read_pr():
 def classify_checks(checks):
     """Classify GraphQL CheckRun and StatusContext entries without I/O."""
     failing, pending = [], []
+    if not checks:
+        # Nothing registered yet (typical right after a push or update-branch):
+        # wait, never report "looks mergeable".
+        pending.append("no checks reported yet")
     for check in checks:
         name = check.get("name") or check.get("context") or "unnamed-check"
         if "context" in check and "conclusion" not in check:
