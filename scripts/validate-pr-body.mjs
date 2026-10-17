@@ -133,6 +133,19 @@ function isInsideRange(ranges, index) {
 }
 
 const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/;
+// Any heading form a reader sees: ATX of any level, indented up to 3 spaces,
+// optional closing hashes, or a setext underline on the next line.
+const ANY_ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+
+function anyHeadingKey(lines, index) {
+  const atx = lines[index].match(ANY_ATX_HEADING);
+  if (atx) return normalizeHeading((atx[1] ?? "").replace(/[ \t]+#+$/, ""));
+  if (index + 1 < lines.length && SETEXT_UNDERLINE.test(lines[index + 1]) && /\S/.test(lines[index])) {
+    return normalizeHeading(lines[index]);
+  }
+  return null;
+}
 
 function collectSections(body) {
   const normalizedBody = normalizeText(body);
@@ -145,14 +158,16 @@ function collectSections(body) {
 
   lines.forEach((line, index) => {
     const match = line.match(SECTION_HEADING_LINE);
-    // A heading after an unresolved fence still counts toward duplicates, and still
-    // splits sections so ordinary PR bodies keep working; its checkboxes stay hidden.
-    if (match && (!hidden.fenced[index] || hidden.uncertain[index])) {
+    const visibleToCount = !hidden.fenced[index] || hidden.uncertain[index];
+    // Every heading outside a code fence counts toward duplicates, in any heading
+    // form and even where the splitter skips it (an HTML comment, the legacy ```
+    // ranges), so a second copy can never quietly stand in for the real section.
+    const anyKey = visibleToCount ? anyHeadingKey(lines, index) : null;
+    if (anyKey !== null) totals.set(anyKey, (totals.get(anyKey) ?? 0) + 1);
+    // A heading after an unresolved fence still splits sections so ordinary PR
+    // bodies keep working; its checkboxes stay hidden.
+    if (match && visibleToCount) {
       const key = normalizeHeading(match[1]);
-      // Every heading outside a code fence counts toward duplicates, even one the
-      // splitter skips (inside an HTML comment or the legacy ``` ranges), so a
-      // second copy can never quietly stand in for the real section.
-      totals.set(key, (totals.get(key) ?? 0) + 1);
       if (!hidden.comment[index] && !isInsideRange(fences, offset)) {
         headings.push({ index, key, heading: match[1].trim() });
       }

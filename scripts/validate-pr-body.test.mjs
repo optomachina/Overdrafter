@@ -630,6 +630,20 @@ describe("validatePrBody", () => {
       });
     });
 
+    it("counts a duplicate section in any heading form", () => {
+      const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+      for (const heading of [
+        "## Provider go-live ##",
+        "  ## Provider go-live",
+        "# Provider go-live",
+        "### Provider go-live",
+        "Provider go-live\n---",
+      ]) {
+        const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
+        expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
+      }
+    });
+
     it("counts a duplicate section even where the legacy ``` scan would hide its heading", () => {
       const unticked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
       const body = `\n## Notes\n\nInline \`\`\` text\n${unticked}\n\nInline \`\`\` text\n${buildGoLiveSection()}`;
