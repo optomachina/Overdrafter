@@ -22,6 +22,7 @@
     { "glob": "**/{rls,*-rls,*_rls}*{,/**}", "class": "auth" },
     { "glob": "**/*permission*{,/**}", "class": "auth" },
     { "glob": "**/*session*{,/**}", "class": "auth" },
+    { "glob": "scripts/run-supabase-policy-tests*", "class": "auth" },
 
     { "glob": "**/*payment*{,/**}", "class": "payments" },
     { "glob": "**/*billing*{,/**}", "class": "payments" },
@@ -38,6 +39,7 @@
     { "glob": "**/*providerUpload*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider_admission*{,/**}", "class": "provider_dispatch" },
     { "glob": "**/*provider_upload*{,/**}", "class": "provider_dispatch" },
+    { "glob": "scripts/provider-kill*", "class": "provider_dispatch" },
 
     { "glob": "**/*secret*{,/**}", "class": "secrets" },
     { "glob": "**/*credential*{,/**}", "class": "secrets" },
@@ -66,6 +68,13 @@
     { "glob": "scripts/jev-pr-screen*", "class": "infra_ci" },
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
+    { "glob": "scripts/lib/jev-*", "class": "infra_ci" },
+    { "glob": "scripts/validate-pr-body.mjs", "class": "infra_ci" },
+    { "glob": "scripts/ephemeral-db-apply.mjs", "class": "infra_ci" },
+    { "glob": "scripts/run-supabase-policy-tests.mjs", "class": "infra_ci" },
+    { "glob": "scripts/provider-kill.mjs", "class": "infra_ci" },
+    { "glob": "scripts/staging-reset-guard.mjs", "class": "infra_ci" },
+    { "glob": "scripts/run-ovd*-production-*", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
