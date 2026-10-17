@@ -23,6 +23,9 @@ on:
       - reopened
       - synchronize
       - edited
+      # Draft -> ready re-runs this gate so a workflow_run completes and the
+      # QA handoff workflow (qa-handoff.yml) re-evaluates the PR (OVD-865).
+      - ready_for_review
   merge_group:
     types:
       - checks_requested
