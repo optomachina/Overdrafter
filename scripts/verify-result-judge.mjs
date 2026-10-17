@@ -10,8 +10,10 @@
 // order the configs first appear in the feature map. The spec and config lists
 // each run must cover come from this checkout's feature map, not from the evidence.
 // Each mode covers only the requested features that have specs in that mode; the
-// rest are listed as "SKIPPED: no <mode> specs" and never count as a pass. Zero
-// selected specs, for a mode or across the run, is FAIL.
+// rest are listed as "SKIPPED: no <mode> specs" and never count as a pass. Specs
+// the feature map holds as pending (with the issue that unblocks them) are not
+// run and are listed as pending, never as passing. Zero selected specs, for a
+// mode or across the run, is FAIL.
 // Fails closed: anything other than every mapped spec running and every journey
 // passing at the expected SHA on a clean tree is FAIL. Exit 0 on PASS, 1 on FAIL,
 // 2 on bad usage.
@@ -19,7 +21,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CONFIG_TEST_DIRS, FEATURE_SPECS, selectFeatures, skipNote, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
+import { CONFIG_TEST_DIRS, FEATURE_SPECS, pendingFor, selectFeatures, skipNote, specsFor } from "../.agents/skills/verify-overdrafter/scripts/feature-specs.mjs";
 
 const RESULT_STATUS = { passed: "passed", failed: "failed", timedOut: "timedOut", interrupted: "cancelled", skipped: "skipped" };
 
@@ -180,6 +182,7 @@ export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS)
   for (const j of judged) reasons.push(...j.reasons);
   if (judged.reduce((n, j) => n + j.specCount, 0) === 0) reasons.push("no specs selected across the run");
   const journeys = judged.flatMap((j) => j.run.journeys);
+  const modes = judged.map((j) => j.run.label).filter((l) => ["fixture", "local"].includes(l));
   return {
     schema: "verify-result/v1",
     verdict: reasons.length === 0 ? "PASS" : "FAIL",
@@ -193,6 +196,8 @@ export function judge({ runs, expectedSha, features = Object.keys(FEATURE_SPECS)
     })),
     // Features with no specs in a mode: not run there and never counted as a pass.
     skippedFeatures: judged.flatMap((j) => j.skipped.map((f) => `${j.run.label}: ${f} (${skipNote(j.run.label)})`)),
+    // Specs held back by the base feature map until their issue lands: not run, never a pass.
+    pendingSpecs: modes.flatMap((mode) => pendingFor(features, mode).map((p) => `${mode}: ${p.feature} ${p.spec} (${p.issue}: ${p.reason})`)),
     journeys,
     failingJourneys: journeys.filter((j) => j.status !== "passed").map((j) => `${j.mode}: ${j.name} (${j.status})`),
     reasons,
@@ -204,6 +209,7 @@ export function formatSummary(result) {
   const passed = result.journeys.filter((j) => j.status === "passed").length;
   lines.push(`Journeys passed: ${passed}/${result.journeys.length}`);
   if (result.skippedFeatures?.length) lines.push("", "### Skipped (not run, not counted as passing)", ...result.skippedFeatures.map((s) => `- ${s}`));
+  if (result.pendingSpecs?.length) lines.push("", "### Pending (not run, not counted as passing)", ...result.pendingSpecs.map((s) => `- ${s}`));
   if (result.reasons.length) lines.push("", "### Why it failed", ...result.reasons.map((r) => `- ${r}`));
   return `${lines.join("\n")}\n`;
 }
