@@ -4,7 +4,7 @@
     { "path": "{migrations}/20261016000000_ovd873_example.sql", "classes": ["schema", "migrations"] },
     { "path": "supabase/tests/supplier_directory_foundation_rls.sql", "classes": ["schema", "auth"] },
     { "path": "supabase/config.toml", "classes": ["schema"] },
-    { "path": "docs/migration-drafts/ovd707/providers.md", "classes": ["schema"] },
+    { "path": "docs/migration-drafts/ovd707/providers.md", "classes": ["schema", "provider_dispatch"] },
     { "path": "docs/release/window-2/apply.sql", "classes": ["schema"] },
     { "path": "scripts/fixtures/security-definer/compliant.sql", "classes": ["schema"] },
     { "path": "db/café.sql", "classes": ["schema"] },
@@ -71,7 +71,7 @@
     { "path": "scripts/AGENTS.override.md", "classes": ["infra_ci"] },
     { "path": ".codex/skills/AGENTS.override.md", "classes": ["infra_ci"] },
     { "path": "scripts/verify-migration-lineage.mjs", "classes": ["infra_ci"] },
-    { "path": "scripts/provider-check.mjs", "classes": ["infra_ci"] },
+    { "path": "scripts/provider-check.mjs", "classes": ["provider_dispatch", "infra_ci"] },
     { "path": "scripts/seed-dev.mjs", "classes": ["infra_ci"] },
     { "path": "scripts/verify-public-assets.mjs", "classes": ["infra_ci"] },
     { "path": "scripts/agent-control/launch.py", "classes": ["infra_ci"] },
@@ -96,6 +96,11 @@
     { "path": ".mcp.json", "classes": ["infra_ci"] },
     { "path": ".husky/pre-commit", "classes": ["infra_ci"] },
     { "path": "scripts/hooks/pre-commit", "classes": ["infra_ci"] },
+    { "path": "src/features/providers/ProviderCard.tsx", "classes": ["provider_dispatch"] },
+    { "path": "src/lib/quoteAdapter.ts", "classes": ["provider_dispatch"] },
+    { "path": "src/components/ProviderBadge.tsx", "classes": ["provider_dispatch"] },
+    { "path": "docs/adapters/README.md", "classes": ["provider_dispatch"] },
+    { "path": "scripts/qa-handoff/gate.mjs", "classes": ["infra_ci"] },
     { "path": "README.md", "classes": [] },
     { "path": "src/components/QuoteTable.tsx", "classes": [] },
     { "path": "src/lib/urls.ts", "classes": [] },
@@ -104,7 +109,6 @@
     { "path": ".github/ISSUE_TEMPLATE/bug.md", "classes": [] },
     { "path": "scripts/jev-agent-decisions-eval.mjs", "classes": [] },
     { "path": "docs/agents/README.md", "classes": [] },
-    { "path": "src/hooks/use-toast.ts", "classes": [] },
-    { "path": "src/features/providers/ProviderCard.tsx", "classes": [] }
+    { "path": "src/hooks/use-toast.ts", "classes": [] }
   ]
 }

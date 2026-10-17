@@ -32,10 +32,13 @@ import { safeInline } from "./proof-check.mjs";
  * The CLI runs from the base checkout. It reads the changed files and their
  * status from the GitHub API and reads changed SQL files at the PR head as
  * data only; nothing from the PR is executed. Sensitive classes win over safe
- * categories, a file matching neither is "unclassified", and any config, API,
- * truncation or file-list problem sets status "error" so a consumer fails
- * closed. Every path is checked to be a non-empty string, and an empty file
- * list must be the PR's own count of zero, before the shared matcher sees it:
+ * categories, and the detector fails closed: a file is non-sensitive only when
+ * it has a safe category and no sensitive class. Any other file (no class and
+ * no safe category, or a rename whose two names land in different categories)
+ * gets the pseudo-class "unclassified". Any config, API, truncation or
+ * file-list problem sets status "error" so a consumer fails closed. Every
+ * path is checked to be a non-empty string, and an empty file list must be
+ * the PR's own count of zero, before the shared matcher sees it:
  * the matcher reads a non-string as its string form and an empty list as not
  * sensitive.
  *
@@ -56,9 +59,18 @@ import { safeInline } from "./proof-check.mjs";
  *                 matched it would also match src/lib/urls.ts. The coverage
  *                 sweep test, sensitive-class-sweep.test.mjs, checks the
  *                 residual against 0163daf7's rules)
+ *   unclassified -> now a pseudo-class owned by this detector (below)
+ * Fail closed (still version 2; changed before OVD-845 consumed any result):
+ * a file with no sensitive class and no safe category has classes
+ * ["unclassified"] and reason "unclassified:no-safe-category", so it counts in
+ * sensitive_count and in classes / multi_class like any other class. The
+ * result's classes list "unclassified" last. The top-level unclassified array
+ * still lists those files' paths. A file with a safe category and no
+ * sensitive class (classes [], category set) is the only non-sensitive file.
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
- * "<class>:sql:<tokens>" or "<category>:path:<glob>"; a rename's old name is
- * prefixed "previous:". gate_loosening.reasons hold this detector's reasons
+ * "<class>:sql:<tokens>", "<category>:path:<glob>" or
+ * "unclassified:no-safe-category"; a rename's old name is prefixed
+ * "previous:". gate_loosening.reasons hold this detector's reasons
  * ({kind, path, message, ...}) and the shared list's findGateLoosening
  * reasons, which keep every field and gain kind (its code), path (its file)
  * and source "sensitive-paths".
@@ -89,8 +101,10 @@ export const CONFIG_VERSION = 1;
 export const OUTPUT_VERSION = 2;
 /** Classes that only SQL content rules give. */
 export const SQL_CONTENT_CLASSES = Object.freeze(["rls", "definer"]);
+/** The pseudo-class of a file with no sensitive class and no safe category (fail closed). */
+export const UNCLASSIFIED = "unclassified";
 /** Every output class, in output order. */
-export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES]);
+export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
 export const MAX_FILES = 3000;
 const PER_PAGE = 100;
 
@@ -278,7 +292,9 @@ function entryReason(entry, path, words) {
 /**
  * Classify one path. Its classes are the shared list's (config.matcher, every
  * spelling of the path); the first matching safe category applies only when
- * no class matched. Throws on a path isValidPath rejects.
+ * no class matched. A path with neither has classes [] and category null here;
+ * detect gives its file the "unclassified" class. Throws on a path isValidPath
+ * rejects.
  * @returns {{classes: string[], category: string|null, reasons: string[]}}
  */
 export function classifyPath(path, config) {
@@ -447,6 +463,11 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     }
     // A rename keeps its safe category only when both names share it.
     if (!classes.length && categories.every((name) => name && name === categories[0])) category = categories[0];
+    // Fail closed: only a safe category makes a file with no class non-sensitive.
+    if (!classes.length && !category) {
+      classes.push(UNCLASSIFIED);
+      reasons.push(`${UNCLASSIFIED}:no-safe-category`);
+    }
     classes.sort((a, b) => OUTPUT_CLASSES.indexOf(a) - OUTPUT_CLASSES.indexOf(b));
     const entry = { path: file.filename, status: file.status, classes, category, reasons };
     if (paths.length > 1) entry.previous_path = file.previous_filename;
@@ -463,7 +484,7 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     sensitive_count: results.filter((file) => file.classes.length).length,
     multi_class: classes.length > 1,
     files: results,
-    unclassified: results.filter((file) => !file.classes.length && !file.category).map((file) => file.path),
+    unclassified: results.filter((file) => file.classes.includes(UNCLASSIFIED)).map((file) => file.path),
     errors: allErrors,
   };
 }
@@ -771,7 +792,7 @@ export function formatSummary(result) {
   lines.push(`Head: ${safeInline(result.sha ?? "unknown")} · base: ${safeInline(result.base_sha ?? "unknown")}`, "");
   lines.push(`Classes: ${result.classes.length ? result.classes.map(safeInline).join(", ") : "none"}`);
   lines.push(`Sensitive files: ${result.sensitive_count} of ${result.files.length}${result.multi_class ? " (multi-class)" : ""}`);
-  lines.push(`Unclassified: ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
+  lines.push(`Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
   if (result.gate_loosening?.detected) {
@@ -785,7 +806,8 @@ export function formatSummary(result) {
     lines.push("| File | Status | Classes | Category |", "| --- | --- | --- | --- |");
     for (const file of result.files) {
       const name = safeInline(file.path).replaceAll("|", "\\|");
-      lines.push(`| ${name} | ${file.status ?? ""} | ${file.classes.join(", ") || "-"} | ${file.category ?? (file.classes.length ? "-" : "**unclassified**")} |`);
+      const classes = file.classes.map((entry) => (entry === UNCLASSIFIED ? `**${entry}**` : entry)).join(", ");
+      lines.push(`| ${name} | ${file.status ?? ""} | ${classes || "-"} | ${file.category ?? "-"} |`);
     }
     lines.push("");
   }

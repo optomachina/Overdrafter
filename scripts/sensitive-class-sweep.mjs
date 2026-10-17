@@ -541,7 +541,7 @@ const codeSpan = (text) => {
 /** The PR-body summary, generated from a sweep. Examples are shown as JSON strings. */
 export function formatSweep(stats) {
   const lines = [
-    `Names generated: ${stats.total}. Sensitive at ${V1_COMMIT}: ${stats.v1Sensitive}. Still sensitive: ${stats.kept}. Lost: ${stats.lost} (${stats.lostToSafe} to a safe category, ${stats.lostToUnclassified} to unclassified). Unexplained: ${stats.unexplained.length}. Not safe at ${V1_COMMIT} and safe here: ${stats.newlySafe}.`,
+    `Names generated: ${stats.total}. Sensitive at ${V1_COMMIT}: ${stats.v1Sensitive}. Still sensitive: ${stats.kept}. Lost a path class: ${stats.lost} (${stats.lostToSafe} to a safe category, the only non-sensitive outcome; ${stats.lostToUnclassified} to unclassified, which detect() reports as sensitive). Unexplained: ${stats.unexplained.length}. Not safe at ${V1_COMMIT} and safe here: ${stats.newlySafe}.`,
     "",
     "| Residual class | Lost names | Of which safe here | Example |",
     "| --- | --- | --- | --- |",

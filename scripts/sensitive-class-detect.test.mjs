@@ -21,6 +21,7 @@ import {
   OUTPUT_CLASSES,
   OUTPUT_VERSION,
   SQL_CONTENT_CLASSES,
+  UNCLASSIFIED,
   WORKFLOW_REPO_PATH,
   classifyPath,
   classifySql,
@@ -64,7 +65,8 @@ describe("config", () => {
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
     expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer"]);
-    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES]);
+    expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
+    expect(UNCLASSIFIED).toBe("unclassified");
   });
 
   it("rejects a classes section, unknown rule keys, bad versions and SQL rules for other classes", () => {
@@ -275,10 +277,37 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     for (const file of [...read, SENSITIVE_PATHS_FILE]) expect(classifyPath(file, config).classes, file).toContain("infra_ci");
   });
 
-  it("leaves React hooks and provider pages without admission or upload alone", () => {
+  it("leaves React hooks alone and makes every provider page provider_dispatch (Release, final round)", () => {
     expect(classifyPath("src/hooks/use-toast.ts", config)).toMatchObject({ classes: [], category: null });
-    expect(classifyPath("src/features/providers/ProviderCard.tsx", config)).toMatchObject({ classes: [], category: "frontend_ui" });
+    expect(classifyPath("src/features/providers/ProviderCard.tsx", config)).toMatchObject({ classes: ["provider_dispatch"], category: null });
   });
+
+  // Release, final round: any provider, adapter or dispatch path is sensitive.
+  it.each([
+    "src/features/provider/_upload/Form.tsx",
+    "src/pages/provider/(admission)/index.tsx",
+    "src/features/provider/[upload]/Form.tsx",
+    "scripts/provider/_admission.mjs",
+    "worker/src/provider_/upload/x.ts",
+    "src/lib/quoteAdapter.ts",
+    "src/features/dispatch/Panel.tsx",
+    "src/components/ProviderBadge.tsx",
+    "docs/adapters/README.md",
+  ])("provider path %s is provider_dispatch, never a safe category", async (file) => {
+    expect(classifyPath(file, config)).toMatchObject({ category: null });
+    expect(classifyPath(file, config).classes).toContain("provider_dispatch");
+    const result = await detect({ files: [modified(file)], config });
+    expect(result).toMatchObject({ status: "ok", sensitive_count: 1, unclassified: [] });
+    expect(result.files[0].classes).toContain("provider_dispatch");
+  });
+
+  it.each(["WORKFLOW.md", "scripts/symphony-ensure-branch.sh", "scripts/symphony-agent.sh", "scripts/symphony-preflight.sh"])(
+    "agent-contract file %s is infra_ci, never a safe category (Release, final round)",
+    (file) => {
+      expect(existsSync(path.join(repoRoot, file)), file).toBe(true);
+      expect(classifyPath(file, config)).toMatchObject({ classes: ["infra_ci"], category: null });
+    },
+  );
 
   // Known residual (documented in the PR): 0163daf7 split camelCase words, so
   // quoteRls was rls. The shared list is case-insensitive and its fixture keeps
@@ -430,9 +459,39 @@ describe("detect", () => {
     expect(result.files.map((file) => file.classes)).toEqual([["auth"], ["schema", "migrations"]]);
   });
 
-  it("reports an unmatched file as unclassified", async () => {
-    const result = await detect({ files: [modified("worker/foo.go"), modified("README.md")], config });
-    expect(result).toMatchObject({ status: "ok", classes: [], sensitive_count: 0, unclassified: ["worker/foo.go"], multi_class: false });
+  // Release, final round: fail closed. Only a safe category makes a file with no class non-sensitive.
+  it.each(["vite.config.ts", "some/new/dir/file.xyz", "worker/foo.go", "src/lib/urls.ts"])(
+    "an unmatched path %s is sensitive with classes [unclassified]",
+    async (file) => {
+      expect(classifyPath(file, config)).toMatchObject({ classes: [], category: null });
+      const result = await detect({ files: [modified(file)], config });
+      expect(result).toMatchObject({ status: "ok", classes: [UNCLASSIFIED], sensitive_count: 1, unclassified: [file], multi_class: false });
+      expect(result.files[0]).toMatchObject({ classes: [UNCLASSIFIED], category: null, reasons: ["unclassified:no-safe-category"] });
+    },
+  );
+
+  it.each(["docs/guide.md", "src/components/Button.tsx", "README.md"])("a safe-only path %s is the non-sensitive case", async (file) => {
+    const result = await detect({ files: [modified(file)], config });
+    expect(result).toMatchObject({ status: "ok", classes: [], sensitive_count: 0, unclassified: [] });
+    expect(result.files[0].classes).toEqual([]);
+    expect(result.files[0].category).not.toBeNull();
+  });
+
+  it("counts unclassified with the other classes and lists it last", async () => {
+    const result = await detect({ files: [modified("worker/foo.go"), modified("src/lib/auth.ts"), modified("README.md")], config });
+    expect(result).toMatchObject({ classes: ["auth", UNCLASSIFIED], sensitive_count: 2, multi_class: true, unclassified: ["worker/foo.go"] });
+  });
+
+  it("gives unclassified to a rename whose names land in different safe categories", async () => {
+    const result = await detect({ files: [{ filename: "src/components/Guide.tsx", previous_filename: "docs/guide.md", status: "renamed" }], config });
+    expect(result.files[0]).toMatchObject({ classes: [UNCLASSIFIED], category: null });
+    expect(result.sensitive_count).toBe(1);
+  });
+
+  it("renders unclassified files as sensitive in the summary", async () => {
+    const summary = formatSummary(await detect({ files: [modified("worker/foo.go")], config }));
+    expect(summary).toContain("Unclassified (sensitive, no safe category): `worker/foo.go`");
+    expect(summary).toContain("| `worker/foo.go` | modified | **unclassified** | - |");
   });
 
   it.each([
@@ -700,7 +759,8 @@ describe("workflow", () => {
 
   // GitHub runs a run: block with no shell as `bash -e {0}`, and with
   // `shell: bash` as `bash --noprofile --norc -eo pipefail {0}`.
-  const shells = [["bash", "-e"], ["bash", "--noprofile", "--norc", "-eo", "pipefail"]];
+  // The third form passes the block itself with -c, as Release's checklist asks.
+  const shells = [["bash", "-e"], ["bash", "--noprofile", "--norc", "-eo", "pipefail"], ["bash", "-e", "-c"]];
   const writeArgs = 'import { appendFileSync, writeFileSync } from "node:fs";\nwriteFileSync(`${process.env.RUNNER_TEMP}/argv.json`, JSON.stringify(process.argv.slice(2)));\n';
   const writeResult = (status) => `${writeArgs}writeFileSync(process.argv[process.argv.indexOf("--json") + 1], JSON.stringify({ status: "${status}" }));\nappendFileSync(process.env.GITHUB_STEP_SUMMARY, "### Sensitive classes: ${status === "ok" ? "OK" : "ERROR"}\\n");\n`;
   const runStep = (shell, stub) => {
@@ -712,7 +772,8 @@ describe("workflow", () => {
     writeFileSync(script, step.run);
     const summary = path.join(dir, "summary.md");
     writeFileSync(summary, "");
-    const child = spawnSync(shell[0], [...shell.slice(1), script], {
+    const args = shell.includes("-c") ? [...shell.slice(1), step.run] : [...shell.slice(1), script];
+    const child = spawnSync(shell[0], args, {
       cwd: work,
       encoding: "utf8",
       env: { PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary, PR_NUMBER: "7", HEAD_SHA: "headsha", REPOSITORY: "o/r", GITHUB_TOKEN: "test-token" },
