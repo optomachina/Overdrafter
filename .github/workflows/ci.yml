@@ -471,6 +471,107 @@ jobs:
   free-quote-sql-qualification:
     uses: ./.github/workflows/free-quote-sql-qualification.yml
 
+  # OVD-871: supabase/migrations is append-only (docs/migration-immutability.md).
+  # Only added files with a timestamp after the newest base migration pass;
+  # modified, deleted, renamed, copied and mode-only changes are violations.
+  # Report mode (Blaine approved shipping it, 2026-10-16): continue-on-error and
+  # not in the `ci` aggregate's needs, so it never blocks a merge. Making it
+  # required or passing --enforce is a separate, later approval.
+  # The checker runs from the base copy (HEAD^1), so a PR's edits to it take
+  # effect only after merge. When the base has no copy yet, the head copy runs.
+  # The migration-edit-approved label waives violations only when the PR
+  # timeline shows Blaine applied it after the head was pushed; that waiver and
+  # edits to the checker or this job are reported as gate_loosening.
+  migration-immutability:
+    name: migration-immutability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      # pull_request checks out the PR merged into the base tip, so HEAD^1 is
+      # the base as merged; push and merge_group commits have their base there too.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check migration immutability
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # The synchronize/opened payload's updated_at is at or after the push
+          # of this head, and re-runs keep the same payload.
+          PR_HEAD_PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+        # GitHub runs this as `bash -e`; the checker's exit is captured, never
+        # trips -e, so the summary is always written.
+        run: |
+          set -uo pipefail
+          checker="$RUNNER_TEMP/check-migration-immutability.mjs"
+          file=scripts/check-migration-immutability.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$checker"
+            echo "Checker taken from: base"
+          else
+            cp "$file" "$checker"
+            echo "Checker taken from: head"
+          fi
+          override=()
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${PR_NUMBER:-}" ]; then
+            timeline="$RUNNER_TEMP/migration-immutability-timeline.ndjson"
+            if gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline" --jq '.[]' > "$timeline" 2> /dev/null; then
+              override=(--timeline "$timeline")
+            else
+              override=(--timeline-error "gh api timeline request failed")
+            fi
+            override+=(--head-sha "$PR_HEAD_SHA" --head-pushed-at "$PR_HEAD_PUSHED_AT")
+          fi
+          report="$RUNNER_TEMP/migration-immutability.json"
+          text="$RUNNER_TEMP/migration-immutability.txt"
+          # Report mode: findings exit 0. A non-zero exit means the checker could not run.
+          rc=0
+          # ${override[@]+...} keeps an empty array from tripping set -u on bash 3.2.
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD ${override[@]+"${override[@]}"} \
+            --json-out "$report" > "$text" 2>&1 || rc=$?
+          cat "$text"
+          {
+            echo '### Migration immutability (report mode)'
+            if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then
+              echo "**ERROR: the checker did not produce a report (exit $rc), so nothing was checked.**"
+              echo
+            fi
+            # Report only: gate_loosening never fails this job.
+            if grep -q '^GATE LOOSENING' "$text"; then
+              echo "**GATE LOOSENING: needs Blaine's explicit OK before merge.**"
+              echo
+            fi
+            echo '```'
+            cat "$text"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # A checker that could not run fails this job loudly (red) but never
+          # blocks a merge: the job has continue-on-error and is not in `ci`.
+          if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then exit 1; fi
+
+      - name: Upload migration immutability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-immutability
+          path: ${{ runner.temp }}/migration-immutability.json
+          if-no-files-found: warn
+
   ci:
     name: ci
     if: ${{ always() }}
