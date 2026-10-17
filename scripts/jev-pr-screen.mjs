@@ -20,20 +20,25 @@
  * (filesProblem), because an empty list is what a failed fetch looks like.
  *
  * Dedupe: uses GitHub commit status markers (context "jev-screen") keyed by
- * (full 40-hex SHA, screener, question-set hash, model). Reading is fail-safe:
- * re-screens on anything missing, mismatched or untrusted. Writing fails open:
- * a write failure never fails the screen.
+ * (full 40-hex SHA, screener, question-set hash, model). A marker is used only
+ * when pr is a real PR number and sha is that PR's current head SHA on GitHub.
+ * Reading is fail-safe: re-screens on anything missing, mismatched or
+ * untrusted. Only an accepted (confident) Jev answer is written, and writing
+ * fails open: a write failure never fails the screen. A hit replays the stored
+ * answer at its stored confidence, and the final tier is the highest of the
+ * local deterministic tier, the replayed Jev tier and the marker's tier, so a
+ * hit never lowers a tier.
  *
  * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] [--caller <id>] <input.json> [log.jsonl]
  * input.json: [{ pr, sha, title, files: [path | {path}, ...], additions?, deletions?, deterministic: "low"|"normal"|"risky", notes? }]
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
-import { readMarker, writeMarker, claimPendingMarker, waitForPendingMarker, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
+import { GITHUB_MARKER_IO, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORK_DIR = `${homedir()}/work/claude-jobs`;
@@ -161,12 +166,14 @@ export function deterministicTier(pr, sensitivePaths, { skipSensitivePaths = fal
  * screens risky with sensitivePathsUnavailable. skipSensitivePaths: true
  * skips the path check (tier-logic tests only).
  */
-export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false, markerHit = false, caller = null } = {}) {
+export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false, markerHit = false, markerTier = null, caller = null } = {}) {
   const gate = gatedChoice(result, "tier", floorOf(minConfidence));
   const skip = skipSensitivePaths === true;
   const list = skip ? null : usableSensitivePaths(sensitivePaths);
   const { tier: deterministic, sensitiveClasses, filesProblem } = deterministicTier(pr, list, { skipSensitivePaths: skip });
   const incident = result?.ok ? result.answers?.incident?.noul : undefined;
+  const marker = markerHit ? markerFloor(markerTier) : null;
+  const final = finalTier(deterministic, gate);
   return {
     ts: now.toISOString(),
     kind: "pr_risk_screen",
@@ -185,12 +192,24 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     sensitiveClasses,
     sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
-    final: finalTier(deterministic, gate),
-    latency_ms: markerHit ? null : (Number.isFinite(result?.latencyMs) ? result.latencyMs : null),
+    final: marker ? maxTier(final, marker) : final,
+    latency_ms: loggedLatency(result, markerHit),
     marker_hit: markerHit,
+    marker_tier: marker,
     caller: caller ? sanitizeToken(caller) : null,
     screener: SCREENER_ID,
   };
+}
+
+/** A marker's final tier as a floor; an unknown tier counts as risky, so a bad marker never lowers review. */
+function markerFloor(tier) {
+  return TIERS.includes(tier) ? tier : "risky";
+}
+
+/** Jev's latency, or null on a marker hit (no call was made) or when it is not a number. */
+function loggedLatency(result, markerHit) {
+  if (markerHit) return null;
+  return Number.isFinite(result?.latencyMs) ? result.latencyMs : null;
 }
 
 /** Recompute final tiers from logged decisions under a different confidence floor (rule replay). */
@@ -199,118 +218,138 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
   return records.map((record) => {
     const { tier, confidence } = record.jev ?? {};
     const accepted = record.ok === true && isProbability(confidence) && confidence >= floor;
-    const final = finalTier(record.deterministic, accepted ? { status: "accepted", choice: tier } : { status: "uncertain" });
+    const recomputed = finalTier(record.deterministic, accepted ? { status: "accepted", choice: tier } : { status: "uncertain" });
+    const final = record.marker_hit === true ? maxTier(recomputed, markerFloor(record.marker_tier)) : recomputed;
     return { pr: record.pr, sha: record.sha, before: record.final, after: final, changed: final !== record.final };
   });
 }
 
+/** What Jev sees for one PR. */
+function screenState(pr) {
+  return { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
+}
+
+/**
+ * fn over items with at most limit calls in flight, results in input order.
+ * Each worker takes the next item when its last one settles.
+ */
+export async function mapBounded(items, limit, fn) {
+  const results = [];
+  let next = 0;
+  const worker = async () => {
+    if (next >= items.length) return;
+    const index = next;
+    next += 1;
+    results[index] = await fn(items[index], index);
+    await worker();
+  };
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * The SHA a marker may be read or written under: pr.sha (lowercase) when pr.pr
+ * is a real PR number and pr.sha is that PR's current head SHA, else null
+ * (screen without a marker). A stale SHA with fresh files never touches a marker.
+ */
+async function markerSha(pr, io, warn) {
+  if (!isValidSha(pr.sha) || !Number.isInteger(pr.pr) || pr.pr <= 0) return null;
+  let head = null;
+  try {
+    head = await io.headSha(pr.pr);
+  } catch {
+    head = null;
+  }
+  const sha = pr.sha.toLowerCase();
+  if (typeof head === "string" && head.toLowerCase() === sha) return sha;
+  warn(`jev-pr-screen: #${pr.pr} sha ${sanitizeToken(pr.sha)} is not the PR head (${head === null ? "head unknown" : sanitizeToken(head)}); screening without a marker`);
+  return null;
+}
+
+/** A hit replayed as the Jev answer that wrote it, at its stored confidence (never a synthetic 1.0). */
+function resultFromMarker(hit) {
+  const answers = { tier: { type: "choice", choice: hit.jevTier, confidence: hit.confidence } };
+  if (hit.pIncident !== null && hit.pIncident !== undefined) answers.incident = { type: "noul", noul: hit.pIncident };
+  return { ok: true, model: hit.model, answers, latencyMs: null };
+}
+
+async function readHit(sha, io) {
+  try {
+    const hit = await io.read(sha, JEV_MODEL, hashQuestions(SCREEN_QUESTIONS));
+    return hit?.found === true ? hit : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write a marker only for an accepted (confident) Jev answer. Fails open with a warning. */
+async function recordMarker(pr, sha, result, { io, floor, sensitivePaths, warn }) {
+  const gate = gatedChoice(result, "tier", floor);
+  if (gate.status !== "accepted" || !TIERS.includes(gate.choice)) return;
+  const incident = result.answers?.incident?.noul;
+  const marker = {
+    tier: finalTier(deterministicTier(pr, sensitivePaths).tier, gate),
+    jevTier: gate.choice,
+    confidence: gate.confidence,
+    pIncident: isProbability(incident) ? incident : null,
+    model: result.model,
+    questionHash: hashQuestions(SCREEN_QUESTIONS),
+  };
+  let written;
+  try {
+    written = await io.write(sha, marker);
+  } catch (error) {
+    written = { success: false, reason: String(error?.message ?? error) };
+  }
+  if (written?.success !== true) warn(`jev-pr-screen: marker write for #${pr.pr} failed (${sanitizeToken(written?.reason) ?? "unknown"}); the screen result stands`);
+}
+
+/** Screen one PR: a valid marker hit skips Jev; otherwise ask Jev and write a marker. */
+async function screenOne(pr, context) {
+  const sha = await markerSha(pr, context.io, context.warn);
+  const hit = sha ? await readHit(sha, context.io) : null;
+  if (hit) return { result: resultFromMarker(hit), markerHit: true, markerTier: hit.tier };
+  const result = await context.ask(screenState(pr), SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+  if (sha && result?.ok) await recordMarker(pr, sha, result, context);
+  return { result, markerHit: false, markerTier: null };
+}
+
+/**
+ * Screen prs and append one record per PR to log. marker is the marker I/O
+ * ({ read, write, headSha }); it defaults to GitHub and tests pass a stub.
+ */
 export async function screen(
   prs,
-  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, caller = null, usePendingClaim = false } = {},
+  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, caller = null, marker = GITHUB_MARKER_IO, warn = (message) => console.error(message) } = {},
 ) {
   // Always screened against a list: only null or undefined loads it, and any
   // other value that is not a valid list (false, 0, "", NaN ...) screens every
   // PR risky. screen() has no opt-out.
   const sensitivePaths = given === null || given === undefined ? loadScreenSensitivePaths({ root, baseRef }) : usableSensitivePaths(given);
-  
-  const questionHash = hashQuestions(SCREEN_QUESTIONS);
-  const results = [];
-  const markerHits = [];
-  
+  const context = { ask, io: marker, floor: floorOf(minConfidence), sensitivePaths, warn };
+
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
-  for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
-    const chunk = prs.slice(start, start + MAX_CONCURRENT_CALLS).map(async (pr) => {
-      // Validate SHA
-      if (!isValidSha(pr.sha)) {
-        // Invalid SHA: screen without marker
-        const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
-        const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
-        return { result, markerHit: false };
-      }
-      
-      // Try to read marker
-      const marker = await readMarker(pr.sha, JEV_MODEL, questionHash);
-      
-      if (marker.found) {
-        // Marker hit: reconstruct result from marker
-        const jevTier = marker.jevTier || marker.tier;
-        const result = {
-          ok: true,
-          model: marker.model,
-          answers: {
-            tier: { type: "choice", choice: jevTier, confidence: 1.0 },
-            incident: { type: "noul", noul: 0 }
-          },
-          latencyMs: 0
-        };
-        return { result, markerHit: true };
-      }
-      
-      // Marker miss: claim pending (optional), wait briefly, then screen
-      if (usePendingClaim) {
-        await claimPendingMarker(pr.sha, caller || SCREENER_ID, JEV_MODEL, questionHash);
-        
-        // Wait for another worker's result
-        const waited = await waitForPendingMarker(pr.sha, JEV_MODEL, questionHash, { maxWaitMs: 30000 });
-        if (waited.found) {
-          const jevTier = waited.jevTier || waited.tier;
-          const result = {
-            ok: true,
-            model: waited.model,
-            answers: {
-              tier: { type: "choice", choice: jevTier, confidence: 1.0 },
-              incident: { type: "noul", noul: 0 }
-            },
-            latencyMs: 0
-          };
-          return { result, markerHit: true };
-        }
-      }
-      
-      // Call Jev
-      const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
-      const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
-      
-      // Write marker on success
-      if (result?.ok && isValidSha(pr.sha)) {
-        const gate = gatedChoice(result, "tier", floorOf(minConfidence));
-        const jevTier = TIERS.includes(gate.choice) ? gate.choice : null;
-        if (jevTier) {
-          // Compute deterministic tier to get final tier
-          const { tier: detTier } = deterministicTier(pr, sensitivePaths);
-          const final = maxTier(detTier, jevTier);
-          await writeMarker(pr.sha, final, jevTier, result.model, questionHash);
-        }
-      }
-      
-      return { result, markerHit: false };
-    });
-    
-    const chunkResults = await Promise.all(chunk);
-    results.push(...chunkResults.map(r => r.result));
-    markerHits.push(...chunkResults.map(r => r.markerHit));
-  }
-  
+  const outcomes = await mapBounded(prs, MAX_CONCURRENT_CALLS, (pr) => screenOne(pr, context));
+
   // Ensure log directory exists (fail open)
   try {
-    const logDir = dirname(log);
-    if (!existsSync(logDir)) {
-      mkdirSync(logDir, { recursive: true });
-    }
+    mkdirSync(dirname(log), { recursive: true });
   } catch {
     // Fail open: if we can't create the log dir, continue without logging
   }
-  
+
   // Append in input order so the log reads like the batch.
-  const records = prs.map((pr, index) => 
-    decisionRecord(pr, results[index], new Date(), { 
-      minConfidence, 
-      sensitivePaths, 
-      markerHit: markerHits[index],
-      caller 
-    })
+  const records = prs.map((pr, index) =>
+    decisionRecord(pr, outcomes[index].result, new Date(), {
+      minConfidence,
+      sensitivePaths,
+      markerHit: outcomes[index].markerHit,
+      markerTier: outcomes[index].markerTier,
+      caller,
+    }),
   );
-  
+
   try {
     for (const record of records) {
       append(log, `${JSON.stringify(record)}\n`);
@@ -318,7 +357,7 @@ export async function screen(
   } catch {
     // Fail open: if we can't write the log, continue
   }
-  
+
   return records;
 }
 

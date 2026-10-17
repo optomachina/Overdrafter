@@ -17,6 +17,7 @@ import {
   deterministicTier,
   finalTier,
   loadScreenSensitivePaths,
+  mapBounded,
   maxTier,
   parseScreenArgs,
   prFilePaths,
@@ -24,13 +25,20 @@ import {
   screen,
 } from "./jev-pr-screen.mjs";
 import {
+  FIXED_PATH,
+  MARKER_CONTEXT,
   buildMarkerDescription,
-  parseMarkerDescription,
+  canonicalJson,
   hashQuestions,
   isValidSha,
-  MARKER_VERSION,
+  parseMarkerDescription,
+  readMarker,
+  readPrHeadSha,
+  resolveTrustedExecutable,
+  writeMarker,
   SCREENER_ID,
 } from "./lib/jev-screen-marker.mjs";
+import { JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -65,7 +73,7 @@ const accepted = (choice, confidence = 0.9) => ({ status: "accepted", choice, co
 const askLow = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
 const MIGRATION_SQL = ["supabase", "migrations", "x.sql"].join("/");
 /** A readable label for a value (JSON would print NaN as null and drop undefined). */
-const labelOf = (value) => (typeof value === "number" || value === "undefined" ? String(value) : JSON.stringify(value));
+const labelOf = (value) => (typeof value === "number" || value === undefined ? String(value) : JSON.stringify(value));
 /** Tier-logic tests only: the one explicit way to skip the sensitive-path check. */
 const SKIP = { skipSensitivePaths: true };
 
@@ -340,112 +348,302 @@ describe("jev PR screen", () => {
     expect(isValidSha(null)).toBe(false);
   });
 
-  it("hashes question sets to detect schema changes", () => {
-    const hash1 = hashQuestions(SCREEN_QUESTIONS);
-    expect(hash1).toMatch(/^[0-9a-f]{8}$/);
-    
-    const hash2 = hashQuestions(SCREEN_QUESTIONS);
-    expect(hash2).toBe(hash1);
-    
-    const modified = { ...SCREEN_QUESTIONS, tier: { ...SCREEN_QUESTIONS.tier, instructions: "different" } };
-    const hash3 = hashQuestions(modified);
-    expect(hash3).not.toBe(hash1);
-  });
-
-  it("builds and parses marker descriptions", () => {
-    const desc = buildMarkerDescription("risky", "normal", "jev-1.13.0", "abc12345");
-    expect(desc).toBe("v1 tier=risky jev=normal model=jev-1.13.0 q=abc12345 screener=mjs");
-    
-    const parsed = parseMarkerDescription(desc);
-    expect(parsed).toEqual({
-      version: "v1",
-      tier: "risky",
-      jev: "normal",
-      model: "jev-1.13.0",
-      q: "abc12345",
-      screener: "mjs"
-    });
-    
-    expect(parseMarkerDescription("v2 tier=low")).toBeNull();
-    expect(parseMarkerDescription("v1 tier=low")).toBeNull(); // missing required fields
-    expect(parseMarkerDescription("")).toBeNull();
-    expect(parseMarkerDescription(null)).toBeNull();
-  });
-
-  it("logs marker hits with null latency", async () => {
-    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
-    temps.push(dirname(tempLog));
-    const lines = [];
-    
+  it("logs marker hits with null latency", () => {
     const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 250 };
-    
-    // Cache miss: latency should be logged
-    const recordMiss = decisionRecord(
-      { pr: 100, sha: "test-sha-1234567890123456789012345678901234567890", deterministic: "low" },
-      result,
-      new Date(0),
-      { sensitivePaths: SKIP.skipSensitivePaths, markerHit: false }
-    );
+    const recordMiss = decisionRecord({ pr: 100, sha: "a".repeat(40), deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: false });
     expect(recordMiss.latency_ms).toBe(250);
     expect(recordMiss.marker_hit).toBe(false);
-    
-    // Marker hit: latency should be null
-    const recordHit = decisionRecord(
-      { pr: 101, sha: "test-sha-1234567890123456789012345678901234567890", deterministic: "low" },
-      result,
-      new Date(0),
-      { sensitivePaths: SKIP.skipSensitivePaths, markerHit: true }
-    );
+    expect(recordMiss.marker_tier).toBeNull();
+    const recordHit = decisionRecord({ pr: 101, sha: "a".repeat(40), deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low" });
     expect(recordHit.latency_ms).toBeNull();
     expect(recordHit.marker_hit).toBe(true);
+    expect(recordHit.marker_tier).toBe("low");
   });
 
-  it("records caller and screener fields", async () => {
-    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
-    temps.push(dirname(tempLog));
-    
+  it("records caller and screener fields", () => {
     const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 100 };
-    
-    const record = decisionRecord(
-      { pr: 102, sha: "abc1234567890123456789012345678901234567", deterministic: "low" },
-      result,
-      new Date(0),
-      { sensitivePaths: SKIP.skipSensitivePaths, caller: "test_caller" }
-    );
-    
+    const record = decisionRecord({ pr: 102, sha: "b".repeat(40), deterministic: "low" }, result, new Date(0), { ...SKIP, caller: "test_caller" });
     expect(record.caller).toBe("test_caller");
     expect(record.screener).toBe(SCREENER_ID);
   });
 
-  it("marker miss on model version change", async () => {
-    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
-    temps.push(dirname(tempLog));
-    
-    // Temporarily change JEV_MODEL to simulate a version upgrade
-    const originalModel = "jev-1.13.0";
-    const oldModel = "jev-1.12.0";
-    
-    // Mock readMarker to return a marker with the old model
-    let markerReadCalled = false;
-    let jevCallCount = 0;
-    
-    const mockAsk = async () => {
-      jevCallCount++;
-      return { ok: true, model: originalModel, answers: { tier: { type: "choice", choice: "normal", confidence: 0.95 }, incident: { type: "noul", noul: 0.15 } }, latencyMs: 200 };
+  it("replays a marker hit without lowering below the marker's tier", () => {
+    const hit = { pr: 1, sha: "c", ok: true, deterministic: "low", final: "risky", marker_hit: true, marker_tier: "risky", jev: { tier: "low", confidence: 0.99 } };
+    expect(replay([hit])).toEqual([{ pr: 1, sha: "c", before: "risky", after: "risky", changed: false }]);
+  });
+
+  it("runs at most the limit at once and keeps input order", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const out = await mapBounded([5, 1, 4, 2, 3, 0, 6], 3, async (value) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, value));
+      inFlight -= 1;
+      return value * 10;
+    });
+    expect(out).toEqual([50, 10, 40, 20, 30, 0, 60]);
+    expect(peak).toBe(3);
+    expect(await mapBounded([], 4, async () => 1)).toEqual([]);
+  });
+});
+
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+const OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98";
+const Q = hashQuestions(SCREEN_QUESTIONS);
+const markerText = (fields = {}) =>
+  buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, ...fields });
+const status = (description, { context = MARKER_CONTEXT, state = "success", login = "optomachina" } = {}) => ({ context, state, description, creator: { login } });
+const STATUSES_PATH = /^repos\/optomachina\/Overdrafter\/commits\/([0-9a-f]{40})\/statuses\?per_page=100$/;
+const POST_PATH = /^repos\/optomachina\/Overdrafter\/statuses\/([0-9a-f]{40})$/;
+const PULL_PATH = /^repos\/optomachina\/Overdrafter\/pulls\/(\d+)$/;
+const field = (args, name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+
+/**
+ * An in-memory GitHub standing in for gh: statuses per SHA (newest first) and
+ * PR heads. Every call is recorded; nothing touches the network.
+ */
+function fakeGitHub({ statuses = {}, heads = {}, failWrites = false } = {}) {
+  const store = Object.fromEntries(Object.entries(statuses).map(([sha, list]) => [sha, [...list]]));
+  const calls = [];
+  const run = (args) => {
+    calls.push(args);
+    const path = args[1];
+    const read = STATUSES_PATH.exec(path);
+    if (read) return JSON.stringify(store[read[1]] ?? []);
+    const post = POST_PATH.exec(path);
+    if (post) {
+      if (failWrites) throw new Error("HTTP 403");
+      store[post[1]] = [status(field(args, "description"), { context: field(args, "context"), state: field(args, "state") }), ...(store[post[1]] ?? [])];
+      return "{}";
+    }
+    const pull = PULL_PATH.exec(path);
+    if (pull && heads[pull[1]]) return `${heads[pull[1]]}\n`;
+    throw new Error(`HTTP 404 for ${args.join(" ")}`);
+  };
+  const io = {
+    read: (sha, model, questionHash) => readMarker(sha, model, questionHash, { run }),
+    write: (sha, marker) => writeMarker(sha, marker, { run }),
+    headSha: (pr) => readPrHeadSha(pr, { run }),
+  };
+  const posts = () => calls.filter((args) => POST_PATH.test(args[1]));
+  return { run, io, calls, store, posts };
+}
+
+/** A Jev stub that counts calls and answers tier at confidence. */
+function countingJev(choice = "normal", confidence = 0.9, noul = 0.15) {
+  const jev = { calls: 0 };
+  jev.ask = async () => {
+    jev.calls += 1;
+    return { ok: true, model: JEV_MODEL, answers: { tier: { type: "choice", choice, confidence }, incident: { type: "noul", noul } }, latencyMs: 200 };
+  };
+  return jev;
+}
+
+const quiet = { log: "/dev/null", append: () => {}, warn: () => {} };
+const readme = (pr = 846, sha = SHA) => ({ pr, sha, deterministic: "low", files: ["README.md"], title: "Docs" });
+
+describe("jev screen marker", () => {
+  it("hashes the whole question set, independent of key order", () => {
+    const hash = hashQuestions(SCREEN_QUESTIONS);
+    expect(hash).toMatch(/^[0-9a-f]{8}$/);
+    expect(hash).toBe(hashQuestions(SCREEN_QUESTIONS));
+    expect(hash).not.toBe("0801abcf"); // the old hash, which ignored every nested field
+    const changes = [
+      { ...SCREEN_QUESTIONS, tier: { ...SCREEN_QUESTIONS.tier, instructions: "different" } },
+      { ...SCREEN_QUESTIONS, tier: { ...SCREEN_QUESTIONS.tier, criteria: { ...SCREEN_QUESTIONS.tier.criteria, low: "x" } } },
+      { ...SCREEN_QUESTIONS, incident: { ...SCREEN_QUESTIONS.incident, type: "choice" } },
+    ];
+    for (const changed of changes) expect(hashQuestions(changed)).not.toBe(hash);
+    const reordered = { incident: SCREEN_QUESTIONS.incident, tier: { criteria: SCREEN_QUESTIONS.tier.criteria, instructions: SCREEN_QUESTIONS.tier.instructions, type: "choice" } };
+    expect(hashQuestions(reordered)).toBe(hash);
+    expect(canonicalJson({ b: [2, { d: 1, c: undefined }], a: "x" })).toBe('{"a":"x","b":[2,{"d":1}]}');
+  });
+
+  it("builds and parses marker descriptions", () => {
+    const text = markerText({ tier: "risky", jevTier: "normal", confidence: 0.87654, pIncident: 0.12301, questionHash: "abc12345" });
+    expect(text).toBe("v1 tier=risky jev=normal c=0.876 p=0.124 model=jev-1.13.0 q=abc12345 screener=mjs");
+    expect(text.length).toBeLessThanOrEqual(140);
+    expect(parseMarkerDescription(text)).toEqual({ version: "v1", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs" });
+    expect(parseMarkerDescription(markerText({ pIncident: null })).pIncident).toBeNull();
+    for (const bad of ["v2 tier=low jev=low c=0.9 model=m q=h screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 model=m q=h screener=mjs", "v1 tier=low jev=low c=1.5 model=m q=h screener=mjs", "v1 tier=low jev=low model=m q=h screener=mjs", "", null]) {
+      expect(parseMarkerDescription(bad), String(bad)).toBeNull();
+    }
+  });
+
+  it("resolves gh only from the trusted directories, never PATH", () => {
+    const executable = new Set(["/usr/local/bin/gh", "/opt/homebrew/bin/gh"]);
+    const canExecute = (path) => executable.has(path);
+    expect(resolveTrustedExecutable("gh", { canExecute })).toBe("/usr/local/bin/gh");
+    expect(resolveTrustedExecutable("gh", { canExecute: () => false })).toBeNull();
+    expect(resolveTrustedExecutable("../gh", { canExecute: () => true })).toBeNull();
+    expect(FIXED_PATH).toBe("/usr/bin:/usr/local/bin:/opt/homebrew/bin");
+  });
+
+  it("reads a trusted marker for the key and ignores everything else", async () => {
+    const github = fakeGitHub({
+      statuses: {
+        [SHA]: [
+          status(markerText({ tier: "risky" }), { login: "mallory" }),
+          status(markerText({ tier: "risky" }), { state: "pending" }),
+          status(markerText({ tier: "risky" }), { context: "jev-screen/other" }),
+          status(markerText({ tier: "risky", model: "jev-1.12.0" })),
+          status(markerText({ tier: "risky", questionHash: "deadbeef" })),
+          status(markerText({ tier: "risky" }).replace("screener=mjs", "screener=py")),
+          status("v1 tier=risky garbage"),
+          status(markerText({ tier: "low", jevTier: "low" })),
+        ],
+      },
+    });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: true, version: "v1", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs" });
+    // Reads the raw JSON (no --jq filter, which made gh exit 1 on the array).
+    expect(github.calls).toEqual([["api", `repos/optomachina/Overdrafter/commits/${SHA}/statuses?per_page=100`]]);
+  });
+
+  it("takes the highest tier when several markers match", async () => {
+    const github = fakeGitHub({ statuses: { [SHA]: [status(markerText({ tier: "normal" })), status(markerText({ tier: "risky" })), status(markerText({ tier: "low", jevTier: "low" }))] } });
+    expect((await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).tier).toBe("risky");
+  });
+
+  it("misses fail-safe on no marker, an invalid SHA, an API error or a bad response", async () => {
+    const github = fakeGitHub({ statuses: { [SHA]: [status("all good", { context: "CodeRabbit" })] } });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
+    expect(await readMarker(OTHER_SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "no_marker" });
+    expect(await readMarker("head", JEV_MODEL, Q, { run: github.run })).toEqual({ found: false, reason: "invalid_sha" });
+    expect(github.calls).toHaveLength(2);
+    const failing = () => {
+      throw new Error("gh: HTTP 502");
     };
-    
-    // The marker system will look for a marker with the current JEV_MODEL (jev-1.13.0)
-    // but the old marker has model jev-1.12.0, so it should be a cache miss
-    // We test this by verifying that Jev is called (not skipped)
-    const pr = { pr: 103, sha: "def4567890123456789012345678901234567890", deterministic: "low", files: ["README.md"], title: "Test" };
-    
-    // Call screen - it should call Jev because there's no marker for the current model
-    const [record] = await screen([pr], { ask: mockAsk, log: tempLog, append: () => {}, sensitivePaths: null });
-    
-    // Verify Jev was called (not a marker hit)
-    expect(jevCallCount).toBe(1);
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: failing })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => "{}" })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => "not json" })).toMatchObject({ found: false, reason: "api_error" });
+  });
+
+  it("writes a success marker and fails open", async () => {
+    const github = fakeGitHub();
+    const marker = { tier: "risky", jevTier: "normal", confidence: 0.9, pIncident: 0.2, model: JEV_MODEL, questionHash: Q };
+    expect(await writeMarker(SHA, marker, { run: github.run })).toEqual({ success: true });
+    expect(github.calls).toEqual([
+      ["api", `repos/optomachina/Overdrafter/statuses/${SHA}`, "-X", "POST", "-f", "state=success", "-f", `description=${markerText({ tier: "risky", pIncident: 0.2 })}`, "-f", "context=jev-screen"],
+    ]);
+    expect((await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).tier).toBe("risky");
+    expect(await writeMarker("abc123", marker, { run: github.run })).toEqual({ success: false, reason: "invalid_sha" });
+    expect(await writeMarker(SHA, { ...marker, tier: "high" }, { run: github.run })).toEqual({ success: false, reason: "invalid_tier" });
+    expect(await writeMarker(SHA, { ...marker, confidence: 1.2 }, { run: github.run })).toEqual({ success: false, reason: "invalid_probability" });
+    expect(await writeMarker(SHA, { ...marker, model: "bad model" }, { run: github.run })).toEqual({ success: false, reason: "invalid_key" });
+    expect(await writeMarker(SHA, marker, { run: fakeGitHub({ failWrites: true }).run })).toMatchObject({ success: false, reason: "api_error" });
+  });
+
+  it("reads a PR's head SHA, or null", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA.toUpperCase() } });
+    expect(await readPrHeadSha(846, { run: github.run })).toBe(SHA);
+    expect(await readPrHeadSha(847, { run: github.run })).toBeNull();
+    expect(await readPrHeadSha(0, { run: github.run })).toBeNull();
+    expect(github.calls).toEqual([
+      ["api", "repos/optomachina/Overdrafter/pulls/846", "--jq", ".head.sha"],
+      ["api", "repos/optomachina/Overdrafter/pulls/847", "--jq", ".head.sha"],
+    ]);
+  });
+
+  it("screens once per head SHA: the second screen hits the marker and skips Jev", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const jev = countingJev("normal", 0.9, 0.15);
+    const [first] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(first).toMatchObject({ marker_hit: false, final: "normal", latency_ms: 200 });
+    expect(github.posts()).toHaveLength(1);
+    const [second] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
+    expect(second).toMatchObject({ marker_hit: true, marker_tier: "normal", final: "normal", latency_ms: null, model: JEV_MODEL });
+    // The hit replays the stored answer, never a synthetic certainty.
+    expect(second.jev).toEqual({ tier: "normal", confidence: 0.9, status: "accepted", pIncident: 0.15 });
+    expect(github.posts()).toHaveLength(1);
+  });
+
+  it("misses when the model changed and screens again under the new model", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", model: "jev-1.12.0" }))] } });
+    const jev = countingJev("normal");
+    const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
+    expect(record).toMatchObject({ marker_hit: false, final: "normal" });
+    const latest = parseMarkerDescription(github.store[SHA][0].description);
+    expect(latest).toMatchObject({ model: JEV_MODEL, tier: "normal" });
+  });
+
+  it("misses when the question set changed", async () => {
+    const oldQuestions = { ...SCREEN_QUESTIONS, tier: { ...SCREEN_QUESTIONS.tier, instructions: "older wording" } };
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", questionHash: hashQuestions(oldQuestions) }))] } });
+    const jev = countingJev("normal");
+    const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
     expect(record.marker_hit).toBe(false);
-    expect(record.model).toBe(originalModel);
-    expect(record.jev.tier).toBe("normal");
+  });
+
+  it("never lowers a tier on a hit", async () => {
+    const jev = countingJev("low", 0.99);
+    // The marker's own final tier is a floor.
+    const riskyMarker = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "risky", jevTier: "low", confidence: 0.99 }))] } });
+    const [floor] = await screen([readme()], { ...quiet, ask: jev.ask, marker: riskyMarker.io });
+    expect(floor).toMatchObject({ marker_hit: true, deterministic: "low", final: "risky" });
+    // The local path tier still applies: a low marker cannot lower a migration.
+    const lowMarker = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }))] } });
+    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io });
+    expect(migration).toMatchObject({ marker_hit: true, deterministic: "risky", final: "risky" });
+    // A stored confidence below the current floor is uncertain, so at least normal.
+    const [stricter] = await screen([readme()], { ...quiet, ask: jev.ask, marker: lowMarker.io, minConfidence: 0.995 });
+    expect(stricter).toMatchObject({ marker_hit: true, final: "normal" });
+    expect(stricter.jev.status).toBe("uncertain");
+    // A hit with a tier the reader does not know counts as risky.
+    const odd = { read: async () => ({ found: true, tier: "unknown", jevTier: "low", confidence: 0.99, pIncident: null, model: JEV_MODEL }), write: async () => ({ success: true }), headSha: async () => SHA };
+    const [unknown] = await screen([readme()], { ...quiet, ask: jev.ask, marker: odd });
+    expect(unknown).toMatchObject({ marker_hit: true, marker_tier: "risky", final: "risky" });
+    expect(jev.calls).toBe(0);
+  });
+
+  it("writes markers only for accepted answers, and a failed write keeps the result", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const [uncertain] = await screen([readme()], { ...quiet, ask: countingJev("low", 0.4).ask, marker: github.io });
+    expect(uncertain).toMatchObject({ final: "normal", marker_hit: false });
+    const failed = async () => ({ ok: false, reason: "timeout" });
+    await screen([readme()], { ...quiet, ask: failed, marker: github.io });
+    expect(github.posts()).toHaveLength(0);
+
+    const warnings = [];
+    const broken = fakeGitHub({ heads: { 846: SHA }, failWrites: true });
+    const [record] = await screen([readme()], { ...quiet, ask: countingJev("normal").ask, marker: broken.io, warn: (line) => warnings.push(line) });
+    expect(record).toMatchObject({ ok: true, final: "normal", marker_hit: false });
+    expect(warnings.join("\n")).toMatch(/marker write for #846 failed \(api_error\)/);
+  });
+
+  it("uses a marker only when the SHA is the PR's current head", async () => {
+    const warnings = [];
+    const marked = { [SHA]: [status(markerText({ tier: "low", jevTier: "low" }))] };
+    const stale = fakeGitHub({ heads: { 846: OTHER_SHA }, statuses: marked });
+    const jev = countingJev("normal");
+    const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: stale.io, warn: (line) => warnings.push(line) });
+    expect(record.marker_hit).toBe(false);
+    expect(jev.calls).toBe(1);
+    expect(stale.calls.map((args) => args[1])).toEqual(["repos/optomachina/Overdrafter/pulls/846"]);
+    expect(warnings.join("\n")).toMatch(/is not the PR head/);
+
+    const unknownHead = fakeGitHub({ statuses: marked });
+    await screen([readme()], { ...quiet, ask: jev.ask, marker: unknownHead.io });
+    expect(unknownHead.posts()).toHaveLength(0);
+    expect(jev.calls).toBe(2);
+
+    // No PR number or a short SHA: no GitHub call at all.
+    const none = fakeGitHub({ heads: { 846: SHA }, statuses: marked });
+    await screen([readme(0), readme(-1), readme(846, "abc123"), { ...readme(), pr: undefined }], { ...quiet, ask: jev.ask, marker: none.io });
+    expect(none.calls).toEqual([]);
+    expect(jev.calls).toBe(6);
+  });
+
+  it("treats a throwing marker reader or head lookup as a miss", async () => {
+    const boom = async () => {
+      throw new Error("boom");
+    };
+    const jev = countingJev("normal");
+    const [readFails] = await screen([readme()], { ...quiet, ask: jev.ask, marker: { read: boom, write: async () => ({ success: true }), headSha: async () => SHA } });
+    const [headFails] = await screen([readme()], { ...quiet, ask: jev.ask, marker: { read: boom, write: boom, headSha: boom } });
+    expect([readFails.marker_hit, headFails.marker_hit, jev.calls]).toEqual([false, false, 2]);
   });
 });

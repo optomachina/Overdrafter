@@ -8,10 +8,18 @@ deterministic tier, the matched sensitive-path classes (`sensitiveClasses`, from
 tier, confidence and incident probability, the final tier, latency (null on
 marker hits), marker hit status, caller, and screener identity.
 
-Dedupe: uses GitHub commit status markers (context `jev-screen`) keyed by
-(full 40-hex SHA, screener, question-set hash, model). Reading is fail-safe:
-re-screens on anything missing, mismatched or untrusted. Writing fails open:
-a write failure never fails the screen.
+Dedupe: uses GitHub commit status markers (context `jev-screen`, state
+`success`) keyed by (full 40-hex SHA, screener, question-set hash, model). The
+question-set hash covers every nested field of the questions. A marker is read
+or written only when the input's `pr` is a real PR number and its `sha` is that
+PR's current head SHA on GitHub; anything else screens without a marker.
+Reading is fail-safe: re-screens on anything missing, mismatched or untrusted.
+Only an accepted (confident) Jev answer is written, with its confidence and
+incident probability, and writing fails open: a write failure is warned about
+and never fails the screen. A hit replays the stored answer at its stored
+confidence, and the final tier is the highest of the local deterministic tier,
+the replayed Jev tier and the marker's tier (`marker_tier`), so a hit never
+lowers a tier. There is no pending claim: overlapping screens both call Jev.
 
 Rules the log encodes, and the review each tier gets:
 
