@@ -7,7 +7,10 @@
  * two overlapping screens both call Jev, and both results are valid.
  *
  * Reading is fail-safe: re-screen on anything missing, malformed, mismatched or
- * from an untrusted author. Writing fails open: a write failure never fails the
+ * from an untrusted author. A trusted jev-screen status that is rejected (not
+ * success, malformed, or naming another commit) makes the whole read a miss,
+ * so a lower valid marker never wins over it. A status list that changes while
+ * it is paged is a miss too. Writing fails open: a write failure never fails the
  * screen.
  *
  * gh is resolved once to an absolute path from a fixed list of trusted
@@ -172,21 +175,40 @@ export function parseMarkerDescription(description) {
   return { version: MARKER_VERSION, tier: fields.tier, jevTier: fields.jev, confidence, pIncident, model: fields.model, questionHash: fields.q, screener: fields.screener };
 }
 
+/** Thrown when page 1 differs after the last page: a status was added while paging. */
+class StatusesChangedError extends Error {}
+
+function fetchStatusPage(sha, page, { owner, repo, run }) {
+  const batch = JSON.parse(run(["api", `repos/${owner}/${repo}/commits/${sha}/statuses?per_page=${STATUS_PAGE_SIZE}&page=${page}`]));
+  if (!Array.isArray(batch)) throw new Error("statuses response is not an array");
+  if (batch.length > STATUS_PAGE_SIZE) throw new Error("statuses page is larger than requested");
+  return batch;
+}
+
 /**
  * Every status on sha (newest first), read page by page until a short page, as
  * parsed JSON. Throws on any gh or shape error, or past MAX_STATUS_PAGES, so a
- * truncated list is a miss and never a hit on a weaker marker.
+ * truncated list is a miss and never a hit on a weaker marker. When more than
+ * one page was read, page 1 is read again at the end: GitHub lists newest
+ * first, so a status added while paging shifts every page and could hide the
+ * newest marker. Any change throws StatusesChangedError.
  */
 function fetchStatuses(sha, { owner = DEFAULT_OWNER, repo = DEFAULT_REPO, run = runGh } = {}) {
-  const statuses = [];
-  for (let page = 1; page <= MAX_STATUS_PAGES; page += 1) {
-    const batch = JSON.parse(run(["api", `repos/${owner}/${repo}/commits/${sha}/statuses?per_page=${STATUS_PAGE_SIZE}&page=${page}`]));
-    if (!Array.isArray(batch)) throw new Error("statuses response is not an array");
-    if (batch.length > STATUS_PAGE_SIZE) throw new Error("statuses page is larger than requested");
-    statuses.push(...batch);
-    if (batch.length < STATUS_PAGE_SIZE) return statuses;
+  const gh = { owner, repo, run };
+  const first = fetchStatusPage(sha, 1, gh);
+  const statuses = [...first];
+  let last = first;
+  let pages = 1;
+  while (last.length === STATUS_PAGE_SIZE) {
+    if (pages === MAX_STATUS_PAGES) throw new Error(`more than ${MAX_STATUS_PAGES} pages of statuses`);
+    pages += 1;
+    last = fetchStatusPage(sha, pages, gh);
+    statuses.push(...last);
   }
-  throw new Error(`more than ${MAX_STATUS_PAGES} pages of statuses`);
+  if (pages > 1 && canonicalJson(fetchStatusPage(sha, 1, gh)) !== canonicalJson(first)) {
+    throw new StatusesChangedError("statuses changed while paging");
+  }
+  return statuses;
 }
 
 /** False when status names a commit other than sha (its url ends in /statuses/<sha>). */
@@ -195,15 +217,21 @@ function statusForSha(status, sha) {
   return typeof status.url === "string" && status.url.toLowerCase().endsWith(`/statuses/${sha.toLowerCase()}`);
 }
 
-/** The parsed marker when status is a trusted success marker for this key, else null. */
-function validMarker(status, { sha, model, questionHash, allowedAuthors }) {
-  if (status?.context !== MARKER_CONTEXT || status.state !== "success") return null;
-  if (!allowedAuthors.includes(status.creator?.login)) return null;
-  if (!statusForSha(status, sha)) return null;
+/** A jev-screen status from a trusted author (the only kind that can be a marker). */
+const isTrustedMarkerStatus = (status, allowedAuthors) => status?.context === MARKER_CONTEXT && allowedAuthors.includes(status.creator?.login);
+
+/**
+ * Classify a trusted jev-screen status: { rejected: true } when it is not a
+ * success, names another commit or is malformed (its key cannot be known, so
+ * it may outrank any valid marker); otherwise { marker } with the parsed
+ * marker when it matches this key, or { marker: null } for another key.
+ */
+function classifyTrusted(status, { sha, model, questionHash }) {
+  if (status.state !== "success" || !statusForSha(status, sha)) return { rejected: true };
   const parsed = parseMarkerDescription(status.description);
-  if (!parsed) return null;
+  if (!parsed) return { rejected: true };
   const matches = parsed.model === model && parsed.questionHash === questionHash && parsed.screener === SCREENER_ID;
-  return matches ? parsed : null;
+  return { marker: matches ? parsed : null };
 }
 
 /**
@@ -219,7 +247,9 @@ function strongestMarker(markers) {
 /**
  * Read the marker for sha. Returns { found: true, tier, jevTier, confidence,
  * pIncident, model, questionHash, screener } on a valid hit, or
- * { found: false, reason } on a miss. Fail-safe: any error is a miss.
+ * { found: false, reason } on a miss (reasons include api_error,
+ * statuses_changed, no_marker, rejected_marker, no_valid_marker). Fail-safe:
+ * any error is a miss.
  * options: { owner, repo, allowedAuthors, run } (run is the gh seam for tests).
  */
 export async function readMarker(sha, model, questionHash, options = {}) {
@@ -229,10 +259,12 @@ export async function readMarker(sha, model, questionHash, options = {}) {
   try {
     statuses = fetchStatuses(sha, ghOptions);
   } catch (error) {
-    return miss("api_error", { error: errorText(error) });
+    return miss(error instanceof StatusesChangedError ? "statuses_changed" : "api_error", { error: errorText(error) });
   }
   if (!statuses.some((status) => status?.context === MARKER_CONTEXT)) return miss("no_marker");
-  const valid = statuses.map((status) => validMarker(status, { sha, model, questionHash, allowedAuthors })).filter(Boolean);
+  const trusted = statuses.filter((status) => isTrustedMarkerStatus(status, allowedAuthors)).map((status) => classifyTrusted(status, { sha, model, questionHash }));
+  if (trusted.some((entry) => entry.rejected)) return miss("rejected_marker");
+  const valid = trusted.map((entry) => entry.marker).filter(Boolean);
   if (valid.length === 0) return miss("no_valid_marker");
   return { found: true, ...strongestMarker(valid) };
 }
