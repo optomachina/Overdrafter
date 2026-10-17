@@ -149,6 +149,7 @@
     { "glob": "**/.pre-commit-config.yaml", "class": "infra_ci" },
     { "glob": "scripts/qa-handoff/**", "class": "infra_ci" },
     { "glob": "scripts/check-secret-paths*", "class": "infra_ci" },
+    { "glob": "scripts/verify-result-judge*", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
     { "glob": "**/{package-lock.json,npm-shrinkwrap.json,yarn.lock,pnpm-lock.yaml,bun.lockb,deno.lock}", "class": "deps" },
