@@ -18,6 +18,7 @@ import {
   DETECTOR_REPO_PATH,
   GATE_LOOSENING_LINE,
   MAX_FILES,
+  MAX_SQL_TOKENS,
   OUTPUT_CLASSES,
   OUTPUT_VERSION,
   SQL_CONTENT_CLASSES,
@@ -526,6 +527,50 @@ describe("detect", () => {
     const result = await detect({ files: [modified("supabase/fixtures/missing.sql")], readHeadFile, config });
     expect(result.status).toBe("error");
     expect(result.errors[0]).toMatch(/could not read supabase\/fixtures\/missing\.sql/);
+  });
+
+  describe("oversized SQL bodies", () => {
+    const file = "supabase/fixtures/big.sql";
+    const run = (words) => detect({ files: [modified(file)], readHeadFile: async () => Array(words).fill("select").join(" "), config });
+
+    it("scans a body just under the limit normally", async () => {
+      const result = await run(MAX_SQL_TOKENS);
+      expect(result).toMatchObject({ version: OUTPUT_VERSION, status: "ok", errors: [], sensitive_count: 1, unclassified: [], classes: ["schema"] });
+      expect(result.manual_review).toBeUndefined();
+    });
+
+    it("fails closed with a size message when the body is over the limit", async () => {
+      const result = await run(MAX_SQL_TOKENS + 1);
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.version).toBe(OUTPUT_VERSION);
+      expect(result.files[0].classes).toEqual(["schema", ...SQL_CONTENT_CLASSES]);
+      expect(result.files[0].reasons).toContain(`sql:oversized:>${MAX_SQL_TOKENS}`);
+      expect(formatSummary(result)).toContain("manual review: `SQL body " + file + " rejected for size");
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it.each([
+      ["a quoted string", `select '${";".repeat(500_000)}'`],
+      ["a dollar-quoted body", `do $$${";".repeat(500_000)}$$`],
+      ["a comment exceeding the character cap", `--${"x".repeat(MAX_SQL_TOKENS * 256)}`],
+    ])("fails closed on a dense space-free body in %s", async (_name, body) => {
+      const result = await detect({ files: [modified(file)], readHeadFile: async () => body, config });
+      expect(result.status).toBe("ok");
+      expect(result.errors).toEqual([]);
+      expect(result.sensitive_count).toBe(1);
+      expect(result.manual_review).toEqual([
+        `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
+      ]);
+    });
+
+    it("is deterministic across runs", async () => {
+      const first = await run(MAX_SQL_TOKENS + 1);
+      expect(await run(MAX_SQL_TOKENS + 1)).toEqual(first);
+    });
   });
 });
 

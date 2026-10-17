@@ -68,7 +68,8 @@ import { safeInline } from "./proof-check.mjs";
  * still lists those files' paths. A file with a safe category and no
  * sensitive class (classes [], category set) is the only non-sensitive file.
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
- * "<class>:sql:<tokens>", "<category>:path:<glob>" or
+ * "<class>:sql:<tokens>", "sql:oversized:><MAX_SQL_TOKENS>" (SQL_OVERSIZED_REASON),
+ * "<category>:path:<glob>" or
  * "unclassified:no-safe-category"; a rename's old name is prefixed
  * "previous:". gate_loosening.reasons hold this detector's reasons
  * ({kind, path, message, ...}) and the shared list's findGateLoosening
@@ -317,6 +318,32 @@ export function classifyPath(path, config) {
 
 const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
 const MAX_SQL_DEPTH = 8;
+/** SQL bodies that tokenize to more than this many tokens are not scanned; they fail closed. */
+export const MAX_SQL_TOKENS = 100_000;
+// Bound scanning work even for comments or literals with very few tokens.
+const MAX_SQL_CHARS = MAX_SQL_TOKENS * 256;
+
+/** Thrown by sqlWords when a body exceeds the token budget. */
+export class SqlTooLargeError extends Error {}
+/** The reason a SQL file too large to scan gets (it fails closed). */
+export const SQL_OVERSIZED_REASON = `sql:oversized:>${MAX_SQL_TOKENS}`;
+
+/** A fresh token budget, shared by one sqlWords call and its nested bodies. */
+const newSqlBudget = () => ({ left: MAX_SQL_TOKENS });
+
+/** Fail closed before scanning a body longer than MAX_SQL_CHARS. */
+function checkSqlChars(sql) {
+  if (sql.length > MAX_SQL_CHARS) throw new SqlTooLargeError(`more than ${MAX_SQL_CHARS} characters`);
+}
+
+/** Append tokens one at a time (no spread, so no stack overflow), spending the budget. */
+function addSqlTokens(words, budget, tokens) {
+  for (const token of tokens) {
+    budget.left -= 1;
+    if (budget.left < 0) throw new SqlTooLargeError(`more than ${MAX_SQL_TOKENS} tokens`);
+    words.push(token);
+  }
+}
 
 /**
  * Tokenize SQL text into lower-case words, dropping line and (nested) block
@@ -327,8 +354,9 @@ const MAX_SQL_DEPTH = 8;
  * closed: a string literal that merely mentions CREATE POLICY also matches.
  * Below MAX_SQL_DEPTH nesting levels the body is split into plain words.
  */
-export function sqlWords(text, depth = 0) {
+export function sqlWords(text, depth = 0, budget = newSqlBudget()) {
   const sql = String(text);
+  checkSqlChars(sql);
   const words = [];
   let index = 0;
   while (index < sql.length) {
@@ -348,7 +376,7 @@ export function sqlWords(text, depth = 0) {
       }
     } else if (char === "'" || char === '"') {
       const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop();
+      if (backslash && words.at(-1) === "e") (words.pop(), (budget.left += 1));
       index += 1;
       let body = "";
       while (index < sql.length) {
@@ -360,33 +388,51 @@ export function sqlWords(text, depth = 0) {
           break;
         } else (body += sql[index]), (index += 1);
       }
-      if (char === "'") words.push(...sqlBodyWords(body, depth));
+      if (char === "'") addSqlTokens(words, budget, sqlBodyWords(body, depth, budget));
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
       const close = sql.indexOf(tag, bodyStart);
-      words.push(...sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth));
+      addSqlTokens(words, budget, sqlBodyWords(sql.slice(bodyStart, close === -1 ? sql.length : close), depth, budget));
       index = close === -1 ? sql.length : close + tag.length;
     } else if (/[A-Za-z_]/.test(char)) {
       const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      words.push(match[0].toLowerCase());
+      addSqlTokens(words, budget, [match[0].toLowerCase()]);
       index += match[0].length;
     } else {
-      if (!/\s/.test(char)) words.push(char);
+      if (!/\s/.test(char)) addSqlTokens(words, budget, [char]);
       index += 1;
     }
   }
   return words;
 }
 
-function sqlBodyWords(body, depth) {
-  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1);
+function sqlBodyWords(body, depth, budget) {
+  if (depth < MAX_SQL_DEPTH) return sqlWords(body, depth + 1, budget);
   return body.toLowerCase().match(/[a-z_][a-z0-9_$]*/g) ?? [];
 }
 
-/** Classes whose token sequences occur in the SQL text, with reasons. */
+/**
+ * The fail-closed result for SQL too large to scan: every class a SQL rule
+ * could give, with SQL_OVERSIZED_REASON.
+ */
+function oversizedSql(config) {
+  return { classes: [...new Set(config.sqlContent.rules.map((rule) => rule.class))], reasons: [SQL_OVERSIZED_REASON] };
+}
+
+/**
+ * Classes whose token sequences occur in the SQL text, with reasons. A body
+ * over MAX_SQL_CHARS characters or MAX_SQL_TOKENS tokens is not scanned and
+ * fails closed (oversizedSql); detect() lists it under manual_review.
+ */
 export function classifySql(text, config) {
-  const words = sqlWords(text);
+  let words;
+  try {
+    words = sqlWords(text);
+  } catch (error) {
+    if (!(error instanceof SqlTooLargeError)) throw error;
+    return oversizedSql(config);
+  }
   const classes = [];
   const reasons = [];
   for (const rule of config.sqlContent.rules) {
@@ -486,7 +532,16 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     files: results,
     unclassified: results.filter((file) => file.classes.includes(UNCLASSIFIED)).map((file) => file.path),
     errors: allErrors,
+    ...manualReview(results),
   };
+}
+
+/** A manual_review list for files whose SQL was too large to scan, or nothing. */
+function manualReview(results) {
+  const notices = results
+    .filter((file) => file.reasons.includes(SQL_OVERSIZED_REASON))
+    .map((file) => `SQL body ${file.path} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`);
+  return notices.length ? { manual_review: notices } : {};
 }
 
 /** The result for a run that could not classify anything. */
@@ -795,6 +850,8 @@ export function formatSummary(result) {
   lines.push(`Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  for (const notice of result.manual_review ?? []) lines.push(`- manual review: ${safeInline(notice)}`);
+  if (result.manual_review?.length) lines.push("");
   if (result.gate_loosening?.detected) {
     lines.push(GATE_LOOSENING_LINE);
     for (const reason of result.gate_loosening.reasons) lines.push(`- ${safeInline(reason.message)}`);
