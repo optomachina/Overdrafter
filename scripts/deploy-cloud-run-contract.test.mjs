@@ -634,6 +634,9 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
   });
 });
 
+// Each sweep runs the deploy script once per allowed egress value and refusal.
+const STABLE_EGRESS_SWEEP_TIMEOUT_MS = 60_000;
+
 describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
   const FICTIV_SECRET = "synthetic-fictiv-storage-state";
 
@@ -648,6 +651,7 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
   });
 
   it("pins the xometry,fictiv deploy argv", async () => {
+    const OSHCUT_MOUNT = "/var/secrets/oshcut-storage-state/storage-state.json";
     const QUICKPARTS_MOUNT = "/var/secrets/quickparts-storage-state/storage-state.json";
     const WEERG_MOUNT = "/var/secrets/weerg-storage-state/storage-state.json";
     const envVars = [
@@ -694,6 +698,7 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
         "XOMETRY_STORAGE_STATE_JSON",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
+        OSHCUT_MOUNT,
         QUICKPARTS_MOUNT,
         WEERG_MOUNT,
         "OPENROUTER_API_KEY",
@@ -790,7 +795,8 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
 
   // The governed Xometry-only stable-egress deploy exactly as the
   // pre-OVD-674 script issued it, with the only additions being removal of
-  // any stale Quickparts (OVD-674) and Weerg (OVD-675) session mounts.
+  // any stale OSH Cut (OVD-677), Quickparts (OVD-674) and Weerg (OVD-675)
+  // session mounts.
   const XOMETRY_ONLY_ARGV = [
     "run", "deploy", "overdrafter-cad-worker",
     "--project", "synthetic-project",
@@ -817,13 +823,14 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
       "OPENAI_API_KEY",
       "ANTHROPIC_API_KEY",
       "FICTIV_STORAGE_STATE_JSON",
+      "/var/secrets/oshcut-storage-state/storage-state.json",
       QUICKPARTS_MOUNT,
       "/var/secrets/weerg-storage-state/storage-state.json",
       "OPENROUTER_API_KEY",
     ].join(","),
   ];
 
-  it("leaves the Xometry-only deploy unchanged except for stripping stale Quickparts and Weerg mounts", async () => {
+  it("leaves the Xometry-only deploy unchanged except for stripping stale OSH Cut, Quickparts and Weerg mounts", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
       envOverrides: { WORKER_BUILD_VERSION: "pinned", ...STABLE_EGRESS_ENV },
@@ -885,6 +892,7 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
         envOverrides: {
           WORKER_LIVE_ADAPTERS: adapters,
           FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+          OSHCUT_STORAGE_STATE_SECRET_NAME: "synthetic-oshcut-storage-state",
           QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
           WEERG_STORAGE_STATE_SECRET_NAME: "synthetic-weerg-storage-state",
           ...STABLE_EGRESS_ENV,
@@ -988,19 +996,28 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
     async (adapters) => {
       expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
         "xometry",
-        "xometry,fictiv",
-        "xometry,quickparts",
-        "xometry,fictiv,quickparts",
-        "xometry,weerg",
-        "xometry,fictiv,weerg",
-        "xometry,quickparts,weerg",
-        "xometry,fictiv,quickparts,weerg",
-      ]);
+          "xometry,fictiv",
+          "xometry,oshcut",
+          "xometry,fictiv,oshcut",
+          "xometry,quickparts",
+          "xometry,fictiv,quickparts",
+          "xometry,oshcut,quickparts",
+          "xometry,fictiv,oshcut,quickparts",
+          "xometry,weerg",
+          "xometry,fictiv,weerg",
+          "xometry,oshcut,weerg",
+          "xometry,fictiv,oshcut,weerg",
+          "xometry,quickparts,weerg",
+          "xometry,fictiv,quickparts,weerg",
+          "xometry,oshcut,quickparts,weerg",
+          "xometry,fictiv,oshcut,quickparts,weerg",
+        ]);
       const { failure, calls } = await runDeployScript({
         snapshot: true,
         envOverrides: {
           WORKER_LIVE_ADAPTERS: adapters,
           FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+          OSHCUT_STORAGE_STATE_SECRET_NAME: "synthetic-oshcut-storage-state",
           QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
           WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET,
           ...STABLE_EGRESS_ENV,
@@ -1030,6 +1047,75 @@ describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
   });
 });
 
+describe("deploy-cloud-run.sh OSH Cut live-adapter contract (OVD-677)", () => {
+  const OSHCUT_SECRET = "synthetic-oshcut-storage-state";
+  const OSHCUT_MOUNT = "/var/secrets/oshcut-storage-state/storage-state.json";
+  const QUICKPARTS_SECRET = "synthetic-quickparts-storage-state";
+  const QUICKPARTS_MOUNT = "/var/secrets/quickparts-storage-state/storage-state.json";
+  const WEERG_MOUNT = "/var/secrets/weerg-storage-state/storage-state.json";
+
+  it("keeps OSH Cut disabled by default with no session binding or path map", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry");
+    expect(envVars).not.toHaveProperty("QUOTE_VENDOR_STORAGE_STATE_PATHS");
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))).not.toHaveProperty(OSHCUT_MOUNT);
+    expect((optionValue(deployCall, "--remove-secrets") ?? "").split(",")).toContain(OSHCUT_MOUNT);
+  });
+
+  it("mounts the named OSH Cut secret and points the vendor path map at it", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "xometry,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry,oshcut");
+    expect(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS).toBe(`{"oshcut":"${OSHCUT_MOUNT}"}`);
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))[OSHCUT_MOUNT]).toBe(`${OSHCUT_SECRET}:latest`);
+    const removed = (optionValue(deployCall, "--remove-secrets") ?? "").split(",");
+    expect(removed).not.toContain(OSHCUT_MOUNT);
+    // Fictiv, Quickparts and Weerg stay independently off.
+    expect(removed).toEqual(expect.arrayContaining(["FICTIV_STORAGE_STATE_JSON", QUICKPARTS_MOUNT, WEERG_MOUNT]));
+  });
+
+  it("merges OSH Cut and Quickparts sessions into one vendor path map in registry order", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        WORKER_LIVE_ADAPTERS: "xometry,oshcut,quickparts",
+        OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET,
+        QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+        ...STABLE_EGRESS_ENV,
+      },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    expect(optionValue(deployCall, "--network")).toBe("synthetic-network");
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS).toBe(
+      `{"oshcut":"${OSHCUT_MOUNT}","quickparts":"${QUICKPARTS_MOUNT}"}`,
+    );
+  });
+
+  it.each([
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut" }],
+    [{ WORKER_LIVE_ADAPTERS: "oshcut" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry, oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,oshcut,", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,oshcut", OSHCUT_STORAGE_STATE_SECRET_NAME: OSHCUT_SECRET, QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET, ...STABLE_EGRESS_ENV }],
+  ])("refuses unsafe OSH Cut configuration %j before invoking gcloud", async (envOverrides) => {
+    const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
 describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () => {
   async function restrictionMessageFromScript(script) {
     const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-stable-egress-message-"));
@@ -1039,7 +1125,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     return stdout.trim();
   }
 
-  it("prints the current registry-built message and lists a temporary fourth adapter", async () => {
+  it("prints the current registry-built message and lists a temporary extra adapter", async () => {
     const repoRoot = path.resolve(process.cwd());
     const registry = await readProviderRegistry(repoRoot);
     const currentScript = renderProviderRegistryOutputs(registry)
@@ -1047,7 +1133,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
       .contents;
     const currentMessage = await restrictionMessageFromScript(currentScript);
     expect(currentMessage).toBe(
-      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Oshcut, Quickparts, and/or Weerg in that order.",
     );
     expect(currentMessage).toBe(formatStableEgressRestrictionMessage(
       registry.stableEgressRequiredKey,
@@ -1074,6 +1160,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(deriveStableEgressOptionalAdapters(withFourth)).toEqual([
       "fictiv",
       "geomiq",
+      "oshcut",
       "quickparts",
       "weerg",
     ]);
@@ -1082,7 +1169,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
       .contents;
     const fourthMessage = await restrictionMessageFromScript(fourthScript);
     expect(fourthMessage).toBe(
-      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Geomiq, Quickparts, and/or Weerg in that order.",
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Geomiq, Oshcut, Quickparts, and/or Weerg in that order.",
     );
     expect(fourthMessage).toContain("Geomiq");
   });
@@ -1124,7 +1211,7 @@ describe("deploy-cloud-run.sh stable-egress restriction message (OVD-727)", () =
     expect(failure).not.toBeNull();
     const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
     expect(output).toContain(
-      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Oshcut, Quickparts, and/or Weerg in that order.",
     );
   });
 });

@@ -71,9 +71,15 @@ export const PROVIDER_REGISTRY = {
   },
   "oshcut": {
     "key": "oshcut",
-    "liveAdapter": false,
-    "sessionSecrets": [],
-    "egress": "none"
+    "liveAdapter": true,
+    "sessionSecrets": [
+      {
+        "secretNameEnv": "OSHCUT_STORAGE_STATE_SECRET_NAME",
+        "mountPath": "/var/secrets/oshcut-storage-state/storage-state.json",
+        "requiredWhenListed": true
+      }
+    ],
+    "egress": "stable_nat"
   },
   "partsbadger": {
     "key": "partsbadger",
@@ -164,8 +170,8 @@ export const PROVIDER_REGISTRY = {
 } as const;
 
 /** Live-deploy allow-list. Presence here does not grant production authority. */
-export const PRODUCTION_LIVE_ADAPTERS = ["xometry","fictiv","quickparts","weerg"] as const;
+export const PRODUCTION_LIVE_ADAPTERS = ["xometry","fictiv","oshcut","quickparts","weerg"] as const;
 
 export const STABLE_EGRESS_REQUIRED_ADAPTER = "xometry";
 
-export const STABLE_EGRESS_OPTIONAL_ADAPTERS = ["fictiv","quickparts","weerg"] as const;
+export const STABLE_EGRESS_OPTIONAL_ADAPTERS = ["fictiv","oshcut","quickparts","weerg"] as const;

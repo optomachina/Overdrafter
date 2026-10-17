@@ -71,6 +71,14 @@ function envValue(manifest, name) {
   )?.value;
 }
 
+function serviceWithLiveAdapters(value) {
+  const service = currentService();
+  service.spec.template.spec.containers[0].env.find(
+    (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+  ).value = value;
+  return service;
+}
+
 describe("configuration-only worker egress manifest", () => {
   it("preserves the retained image while attaching bounded Direct VPC egress", () => {
     const manifest = buildWorkerEgressManifest(currentService(), EXPECTED);
@@ -97,65 +105,43 @@ describe("configuration-only worker egress manifest", () => {
     expect(manifest.metadata.annotations["run.googleapis.com/ingress"]).toBe("all");
   });
 
-  it("accepts Fictiv only alongside Xometry on the governed egress (OVD-673)", () => {
-    const withFictiv = currentService();
-    withFictiv.spec.template.spec.containers[0].env.find(
-      (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-    ).value = "xometry,fictiv";
-    expect(envValue(buildWorkerEgressManifest(withFictiv, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(
-      "xometry,fictiv",
-    );
+  const liveAdapterContracts = [
+    {
+      name: "accepts Fictiv only alongside Xometry on the governed egress (OVD-673)",
+      accepted: ["xometry,fictiv"],
+      rejected: ["fictiv", "fictiv,xometry", "xometry,geomiq", ""],
+    },
+    {
+      name: "accepts Quickparts only alongside Xometry, in canonical order, on the governed egress (OVD-674)",
+      accepted: ["xometry,quickparts", "xometry,fictiv,quickparts"],
+      rejected: ["quickparts", "quickparts,xometry", "xometry,quickparts,fictiv", "fictiv,quickparts"],
+    },
+    {
+      name: "accepts Weerg only alongside Xometry, in canonical order, on the governed egress (OVD-675)",
+      accepted: ["xometry,weerg", "xometry,quickparts,weerg", "xometry,fictiv,quickparts,weerg"],
+      rejected: ["weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,weerg", "quickparts,weerg"],
+    },
+    {
+      name: "accepts OSH Cut only alongside Xometry, in canonical order, on the governed egress (OVD-677)",
+      accepted: ["xometry,oshcut", "xometry,fictiv,oshcut", "xometry,oshcut,quickparts,weerg"],
+      rejected: ["oshcut", "oshcut,xometry", "xometry,quickparts,oshcut", "xometry,oshcut,oshcut"],
+    },
+  ];
 
-    for (const value of ["fictiv", "fictiv,xometry", "xometry,oshcut", ""]) {
-      const unsafe = currentService();
-      unsafe.spec.template.spec.containers[0].env.find(
-        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-      ).value = value;
-      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
-        "current service safety contract is invalid",
-      );
-    }
-  });
+  for (const contract of liveAdapterContracts) {
+    it(contract.name, () => {
+      for (const value of contract.accepted) {
+        const manifest = buildWorkerEgressManifest(serviceWithLiveAdapters(value), EXPECTED);
+        expect(envValue(manifest, "WORKER_LIVE_ADAPTERS")).toBe(value);
+      }
 
-  it("accepts Quickparts only alongside Xometry, in canonical order, on the governed egress (OVD-674)", () => {
-    for (const value of ["xometry,quickparts", "xometry,fictiv,quickparts"]) {
-      const service = currentService();
-      service.spec.template.spec.containers[0].env.find(
-        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-      ).value = value;
-      expect(envValue(buildWorkerEgressManifest(service, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(value);
-    }
-
-    for (const value of ["quickparts", "quickparts,xometry", "xometry,quickparts,fictiv", "fictiv,quickparts"]) {
-      const unsafe = currentService();
-      unsafe.spec.template.spec.containers[0].env.find(
-        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-      ).value = value;
-      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
-        "current service safety contract is invalid",
-      );
-    }
-  });
-
-  it("accepts Weerg only alongside Xometry, in canonical order, on the governed egress (OVD-675)", () => {
-    for (const value of ["xometry,weerg", "xometry,quickparts,weerg", "xometry,fictiv,quickparts,weerg"]) {
-      const service = currentService();
-      service.spec.template.spec.containers[0].env.find(
-        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-      ).value = value;
-      expect(envValue(buildWorkerEgressManifest(service, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(value);
-    }
-
-    for (const value of ["weerg", "weerg,xometry", "xometry,weerg,quickparts", "xometry,weerg,weerg", "quickparts,weerg"]) {
-      const unsafe = currentService();
-      unsafe.spec.template.spec.containers[0].env.find(
-        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-      ).value = value;
-      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
-        "current service safety contract is invalid",
-      );
-    }
-  });
+      for (const value of contract.rejected) {
+        expect(() => buildWorkerEgressManifest(serviceWithLiveAdapters(value), EXPECTED)).toThrow(
+          "current service safety contract is invalid",
+        );
+      }
+    });
+  }
 
   it("accepts an omitted minScale annotation and preserves the omission", () => {
     const service = currentService();

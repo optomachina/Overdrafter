@@ -138,14 +138,17 @@ export function buildPortalWorkflowDefinition(
 
 /** OVD-773: the quietly blocked off-host summary (host and count only), when a browser session ran. */
 function portalBoundaryEvidence(result: ProviderPortalKernelResult): Record<string, unknown> {
-  return result.portalBoundary
-    ? {
-      portalBoundary: {
-        blockedOffhostCount: result.portalBoundary.blockedOffhostCount,
-        blockedOffhostByHost: result.portalBoundary.blockedOffhostByHost,
-      },
-    }
-    : {};
+  return {
+    ...(result.portalBoundary
+      ? {
+        portalBoundary: {
+          blockedOffhostCount: result.portalBoundary.blockedOffhostCount,
+          blockedOffhostByHost: result.portalBoundary.blockedOffhostByHost,
+        },
+      }
+      : {}),
+    ...(result.cartCleanup ? { cartCleanup: result.cartCleanup } : {}),
+  };
 }
 
 function terminalErrorCode(state: ProviderPortalTerminalState) {

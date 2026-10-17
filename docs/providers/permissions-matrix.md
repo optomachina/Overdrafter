@@ -141,7 +141,7 @@ Each row's `- replies: N` line must equal the length of that row's `replies` arr
 - enabled_for_paid_automation: false
 - tos_automation_clause: [OSH Cut Terms of Service](https://www.oshcut.com/terms-of-service) — no published clause addresses automated access, robots, or a customer quote API.
 - replies: 0
-- notes: Ask for partner API access and written permission.
+- notes: Ask for partner API access and written permission. Admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15 for the OVD-677 go-live; it is not a matrix clearance, so enabled_for_paid_automation stays derived false. Egress: shared OVD-410 stable NAT.
 
 ### sendcutsend
 

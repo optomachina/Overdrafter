@@ -1,9 +1,6 @@
 // @vitest-environment node
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sha256File } from "../liveEvaluationFiles";
 import { QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
@@ -12,6 +9,7 @@ import {
   registerProductionPortalRoutingRefusals,
   type ProductionPortalDefaultDenyHarness,
 } from "../../test-support/productionPortalDefaultDeny";
+import { observedLiveConfig, productionCadStager } from "../../test-support/productionPortalTestHarness";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { buildAdapterRegistry } from "./index";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization";
@@ -30,33 +28,8 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
-const STORAGE_STATE = JSON.stringify({ cookies: [], origins: [] });
-
-/** A live config whose session lookups are observable. */
-function observedConfig() {
-  const sessionRead = vi.fn(() => ({ quickparts: STORAGE_STATE }));
-  const config = {
-    workerMode: "live",
-    workerLiveAdapters: ["quickparts"],
-    workerTempDir: os.tmpdir(),
-    browserTimeoutMs: 100,
-    playwrightHeadless: true,
-    playwrightDisableSandbox: false,
-    playwrightDisableDevShmUsage: false,
-    vendorStorageStatePaths: {},
-    vendorStorageStateDir: null,
-  } as unknown as WorkerConfig;
-  Object.defineProperty(config, "vendorStorageStateJson", { get: sessionRead, enumerable: true });
-  return { config, sessionRead };
-}
-
-async function stagedCad(name = "part.step", bytes = "synthetic quickparts cad bytes") {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "quickparts-production-"));
-  tempDirs.push(dir);
-  const localPath = path.join(dir, name);
-  await fs.writeFile(localPath, bytes);
-  return { originalName: name, localPath, storageBucket: "job-files", storagePath: `cad/${name}`, trustedContentSha256: await sha256File(localPath) };
-}
+const observedConfig = () => observedLiveConfig("quickparts");
+const stagedCad = productionCadStager("quickparts", tempDirs);
 
 async function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {}): Promise<VendorQuoteAdapterInput> {
   const cad = await stagedCad();

@@ -129,10 +129,10 @@ function buildRegistry(
 ): Partial<Record<VendorName, VendorAdapter>> {
   const evaluationAdapter = (adapter: VendorAdapter) =>
     liveEvaluation ? new LiveEvaluationAdapter(adapter, config) : adapter;
-  // Production keeps the Quickparts and Weerg definitions default-off: the
-  // registry is filtered to WORKER_LIVE_ADAPTERS in live mode, and each
+  // Production keeps the Quickparts, Weerg and OSH Cut definitions default-off:
+  // the registry is filtered to WORKER_LIVE_ADAPTERS in live mode, and each
   // definition launches only behind a generic provider-dispatch authorization
-  // (OVD-674, OVD-675).
+  // (OVD-674, OVD-675, OVD-677). OSH Cut's is built by its own adapter.
   const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
     ? {
       quickparts: buildQuickpartsOfflinePortalDefinition(),

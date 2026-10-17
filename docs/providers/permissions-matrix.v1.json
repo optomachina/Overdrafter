@@ -196,7 +196,7 @@
       "written_permission": null,
       "enabled_for_paid_automation": false,
       "replies": [],
-      "notes": "Sales terms are silent on automation. Ask for partner API access and written permission."
+      "notes": "Sales terms are silent on automation. Ask for partner API access and written permission. Admission permission basis: owner_approved (OVD-641), recorded by Blaine on 2026-10-15 for the OVD-677 go-live; it is not a matrix clearance, so enabled_for_paid_automation stays derived false. Egress: shared OVD-410 stable NAT."
     },
     {
       "key": "sendcutsend",

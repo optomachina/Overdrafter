@@ -95,11 +95,11 @@ describe("provider registry contract", () => {
 
   it("migrates existing providers without changing live, secret, or egress behavior", async () => {
     const registry = await readProviderRegistry(repoRoot);
-    expect(deriveLiveAdapters(registry)).toEqual(["xometry", "fictiv", "quickparts", "weerg"]);
-    expect(deriveStableEgressOptionalAdapters(registry)).toEqual(["fictiv", "quickparts", "weerg"]);
-    expect([...STABLE_EGRESS_OPTIONAL_ADAPTERS]).toEqual(["fictiv", "quickparts", "weerg"]);
+    expect(deriveLiveAdapters(registry)).toEqual(["xometry", "fictiv", "oshcut", "quickparts", "weerg"]);
+    expect(deriveStableEgressOptionalAdapters(registry)).toEqual(["fictiv", "oshcut", "quickparts", "weerg"]);
+    expect([...STABLE_EGRESS_OPTIONAL_ADAPTERS]).toEqual(["fictiv", "oshcut", "quickparts", "weerg"]);
     expect(formatLiveAdapterPhrase(deriveLiveAdapters(registry))).toBe(
-      "xometry, fictiv, quickparts, and/or weerg",
+      "xometry, fictiv, oshcut, quickparts, and/or weerg",
     );
 
     const byKey = Object.fromEntries(registry.providers.map((entry) => [entry.key, entry]));
@@ -116,6 +116,9 @@ describe("provider registry contract", () => {
     expect(byKey.fictiv.sessionSecrets[0].secretNameEnv).toBe("FICTIV_STORAGE_STATE_SECRET_NAME");
     expect(byKey.quickparts.sessionSecrets[0].mountPath).toBe(
       "/var/secrets/quickparts-storage-state/storage-state.json",
+    );
+    expect(byKey.oshcut.sessionSecrets[0].mountPath).toBe(
+      "/var/secrets/oshcut-storage-state/storage-state.json",
     );
     expect(byKey.weerg.sessionSecrets[0].mountPath).toBe(
       "/var/secrets/weerg-storage-state/storage-state.json",
@@ -166,7 +169,7 @@ describe("provider registry contract", () => {
     expect(secrets.contents).not.toContain("SENDCUTSEND_");
   });
 
-  it("covers every checked-in manifest, including Fictiv, Quickparts and Weerg secret names", async () => {
+  it("covers every checked-in manifest, including Fictiv, OSH Cut, Quickparts and Weerg secret names", async () => {
     const registry = await readProviderRegistry(repoRoot);
     const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
     expect(() => assertRegistryCoversManifests(
@@ -174,7 +177,7 @@ describe("provider registry contract", () => {
       manifests.map(({ manifest }) => manifest.key),
     )).not.toThrow();
     const byKey = Object.fromEntries(registry.providers.map((entry) => [entry.key, entry]));
-    for (const key of ["fictiv", "quickparts", "weerg"]) {
+    for (const key of ["fictiv", "oshcut", "quickparts", "weerg"]) {
       expect(byKey[key]).toMatchObject({ liveAdapter: true, egress: "stable_nat" });
       expect(byKey[key].sessionSecrets.map((secret) => secret.secretNameEnv)).toEqual([
         `${key.toUpperCase()}_STORAGE_STATE_SECRET_NAME`,
@@ -527,13 +530,13 @@ describe("provider registry hardening (OVD-727)", () => {
 
   it("keeps current checked-in providers valid after the stricter rules", async () => {
     const registry = await readProviderRegistry(repoRoot);
-    expect(deriveLiveAdapters(registry)).toEqual(["xometry", "fictiv", "quickparts", "weerg"]);
+    expect(deriveLiveAdapters(registry)).toEqual(["xometry", "fictiv", "oshcut", "quickparts", "weerg"]);
     expect(() => validateProviderRegistry(registry)).not.toThrow();
     expect(formatStableEgressRestrictionMessage(
       registry.stableEgressRequiredKey,
       deriveStableEgressOptionalAdapters(registry),
     )).toBe(
-      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Oshcut, Quickparts, and/or Weerg in that order.",
     );
   });
 
