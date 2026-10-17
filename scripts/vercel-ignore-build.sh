@@ -33,7 +33,12 @@ previous_sha="${VERCEL_GIT_PREVIOUS_SHA:-}"
 if [ -n "$previous_sha" ]; then
   # Accept only a full lowercase hex SHA: refs like "main" or option-shaped
   # values ("--upload-pack=...") never reach git.
-  if ! printf '%s' "$previous_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+  # Whole-string check (grep would match per line and let a multi-line value
+  # through): exactly 40 characters, none outside 0-9a-f.
+  case "$previous_sha" in
+    *[!0-9a-f]*) build "VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA" ;;
+  esac
+  if [ "${#previous_sha}" -ne 40 ]; then
     build "VERCEL_GIT_PREVIOUS_SHA is not a 40-character hex SHA"
   fi
   base="$(resolve_commit "$previous_sha")"

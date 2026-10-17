@@ -128,6 +128,17 @@ describe("vercel-ignore-build.sh", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("rejects a multi-line VERCEL_GIT_PREVIOUS_SHA whose first line is valid hex", () => {
+    const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
+    const result = runScript(dir, {
+      VERCEL_ENV: "preview",
+      VERCEL_GIT_COMMIT_REF: "feature",
+      VERCEL_GIT_PREVIOUS_SHA: `${"a".repeat(40)}\n--upload-pack=touch /tmp/never`,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout).toMatch(/not a 40-character hex SHA/);
+  });
+
   it("builds in a shallow clone when a well-formed previous SHA cannot be fetched", () => {
     const { dir } = fixtureRepo(["docs/guide.txt"], { withMain: true });
     const shallow = mkdtempSync(join(tmpdir(), "vib-shallow-"));
