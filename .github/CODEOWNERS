@@ -1,0 +1,19 @@
+# Visibility-only CODEOWNERS (OVD-888, parent OVD-854).
+#
+# GitHub requests review from the listed owners on PRs that touch these paths,
+# except that it never requests review from a PR's own author. Agent PRs are
+# authored from @optomachina's own account, so for those PRs this file requests
+# nobody. It mainly matters for PRs from other authors (for example Hexseeker,
+# who has write access), where it requests @optomachina's review.
+#
+# Branch protection on main does NOT require code-owner review ("Require
+# review from Code Owners" stays off). An author cannot approve their own PR,
+# so a required owner review would deadlock every PR authored by @optomachina
+# that touches these paths.
+#
+# Revisit this if agent PRs move to a separate bot account; only a distinct
+# author identity makes a required review workable.
+
+/.github/ @optomachina
+/scripts/ @optomachina
+/docs/sensitive-paths.json @optomachina
