@@ -235,22 +235,39 @@ function checkArray(node, value, path, errors) {
   if (node.items) value.forEach((item, i) => check(node.items, item, `${path}[${i}]`, errors));
 }
 
-function checkObject(node, value, path, errors) {
+function checkRequired(node, value, path, errors) {
   for (const key of node.required ?? []) {
     if (!Object.hasOwn(value, key)) errors.push(`${path}.${key}: is required`);
   }
+}
+
+function checkDependentRequired(node, value, path, errors) {
   for (const [key, deps] of Object.entries(node.dependentRequired ?? {})) {
     if (!Object.hasOwn(value, key)) continue;
     for (const dep of deps) {
       if (!Object.hasOwn(value, dep)) errors.push(`${path}.${dep}: is required when ${key} is present`);
     }
   }
+}
+
+function ownSchemaProperty(properties, key) {
+  // Own properties only: `constructor`, `__proto__`, `valueOf`, ... must not resolve to Object.prototype.
+  if (!properties || !Object.hasOwn(properties, key)) return undefined;
+  return properties[key];
+}
+
+function checkProperties(node, value, path, errors) {
   for (const [key, child] of Object.entries(value)) {
-    // Own properties only: `constructor`, `__proto__`, `valueOf`, ... must not resolve to Object.prototype.
-    const sub = node.properties && Object.hasOwn(node.properties, key) ? node.properties[key] : undefined;
+    const sub = ownSchemaProperty(node.properties, key);
     if (sub) check(sub, child, `${path}.${key}`, errors);
     else if (node.additionalProperties === false) errors.push(`${path}.${key}: is not an allowed field`);
   }
+}
+
+function checkObject(node, value, path, errors) {
+  checkRequired(node, value, path, errors);
+  checkDependentRequired(node, value, path, errors);
+  checkProperties(node, value, path, errors);
 }
 
 function preferredOneOfErrors(options, results, value) {
