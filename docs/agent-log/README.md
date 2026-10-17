@@ -1,10 +1,34 @@
 # Agent decision log
 
-`jev-decisions.jsonl` records every Jev (TypeSafe, `jev-1.13.0`) decision the
-lead engineer uses to size review, one JSON object per line: PR, head SHA,
-deterministic tier, the matched sensitive-path classes (`sensitiveClasses`, from
-`docs/sensitive-paths.json` through `scripts/lib/sensitive-paths.mjs`), Jev's
-tier, confidence and incident probability, the final tier, and latency.
+`jev-decisions.jsonl` (written to `~/work/claude-jobs/jev-decisions.jsonl`, 
+outside the repository) records every Jev (TypeSafe, `jev-1.13.0`) decision the
+lead engineer uses to size review, one JSON object per line: PR, head SHA
+(`head_sha`), deterministic tier, the matched sensitive-path classes
+(`sensitiveClasses`, from `docs/sensitive-paths.json` through
+`scripts/lib/sensitive-paths.mjs`), Jev's tier, confidence and incident
+probability, the final tier, `latency_ms` (null on cache hits), `tokens`,
+`cache_hit`, `marker_tier`, `caller`, and `screener`.
+
+* `cache_hit` (bool) is true when a `jev-screen` marker answered and Jev was
+  not called.
+* `tokens` is `{ input_tokens, output_tokens }` from the Jev response's
+  `usage` (each a count or null), or null on a cache hit or when the response
+  has no usage. It is never estimated.
+* `sha` and `marker_hit` are duplicate aliases of `head_sha` and `cache_hit`,
+  kept for older readers. `replay()` accepts either name.
+
+Dedupe: uses GitHub commit status markers (context `jev-screen`, state
+`success`) keyed by (full 40-hex SHA, screener, question-set hash, model). The
+question-set hash covers every nested field of the questions. A marker is read
+or written only when the input's `pr` is a real PR number and its `sha` is that
+PR's current head SHA on GitHub; anything else screens without a marker.
+Reading is fail-safe: re-screens on anything missing, mismatched or untrusted.
+Only an accepted (confident) Jev answer is written, with its confidence and
+incident probability, and writing fails open: a write failure is warned about
+and never fails the screen. A hit replays the stored answer at its stored
+confidence, and the final tier is the highest of the local deterministic tier,
+the replayed Jev tier and the marker's tier (`marker_tier`), so a hit never
+lowers a tier. There is no pending claim: overlapping screens both call Jev.
 
 Rules the log encodes, and the review each tier gets:
 

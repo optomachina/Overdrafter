@@ -65,6 +65,7 @@
     { "glob": "scripts/fixtures/sensitive-paths/**", "class": "infra_ci" },
     { "glob": "scripts/jev-pr-screen*", "class": "infra_ci" },
     { "glob": "scripts/jev-client*", "class": "infra_ci" },
+    { "glob": "scripts/lib/jev-screen-marker*", "class": "infra_ci" },
     { "glob": "scripts/validate-agent-contract*", "class": "infra_ci" },
 
     { "glob": "**/package.json", "class": "deps" },
