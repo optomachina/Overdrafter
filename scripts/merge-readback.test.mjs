@@ -9,10 +9,12 @@ import {
   appendDecision,
   assertRef,
   checkMergesAgainstPlan,
+  gitEnv,
   isAncestor,
   logDigest,
   openStop,
   planContiguousVerified,
+  planLogMismatch,
   readBack,
   readBackRun,
   readDecisions,
@@ -24,12 +26,23 @@ import {
 let dir;
 let repo;
 
+// Fixture git never inherits GIT_* (e.g. GIT_DIR from a hook), so fixture
+// commits cannot land in another repo.
 function g(...args) {
   return execFileSync("git", ["-C", repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args], {
     encoding: "utf8",
+    env: gitEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
 }
+
+// Logs plan-land rows for plan.land, as `plan --log` does, so a plan-bound
+// read-back on logPath sees a matching plan.
+function logPlan(logPath, plan) {
+  for (const entry of plan.land) appendDecision(logPath, { ...entry, action: "plan-land", result: "verified-at-head" });
+}
+
+const readbackRows = (logPath) => readDecisions(logPath).filter((row) => row.action === "readback");
 
 function commitFile(file, content, message) {
   fs.writeFileSync(path.join(repo, file), content);
@@ -55,7 +68,7 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-readback-"));
   repo = path.join(dir, "repo");
   fs.mkdirSync(repo);
-  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  execFileSync("git", ["init", "-q", "-b", "main", repo], { env: gitEnv() });
   commitFile("README.md", "base\n", "base");
 });
 
@@ -99,7 +112,7 @@ describe("readBack", () => {
     fs.writeFileSync(path.join(repo, "a.txt"), "tampered\n");
     g("commit", "-q", "-a", "--amend", "--no-edit");
     const result = readBack({ repo, mergeSha: g("rev-parse", "HEAD"), verifiedHead });
-    expect(result.tree_match).toBe(false);
+    expect(result).toMatchObject({ tree_match: false, on_main: true, reason: "tree-mismatch-patch-id-differs" });
   });
 
   it("does not treat a commit that is not on main as merged", () => {
@@ -120,14 +133,30 @@ describe("readBack", () => {
     expect(result).toMatchObject({ tree_match: false, mode: null, reason: "tree-mismatch-patch-id-differs" });
   });
 
-  it("honours an explicit verified base", () => {
-    const base = g("rev-parse", "main");
+  it("rejects a verifiedBase override instead of using it", () => {
     const verifiedHead = branchWith("pr1", "main", "a.txt", "a\n");
-    g("checkout", "-q", "main");
-    const moved = commitFile("other.txt", "unrelated\n", "unrelated main change");
     const mergeSha = squashMerge("pr1", "PR 1 (#1)");
-    expect(readBack({ repo, mergeSha, verifiedHead, verifiedBase: base })).toMatchObject({ tree_match: true, mode: "rebased" });
-    expect(readBack({ repo, mergeSha, verifiedHead, verifiedBase: moved }).tree_match).toBe(false);
+    expect(() => readBack({ repo, mergeSha, verifiedHead, verifiedBase: `${mergeSha}` })).toThrow(/verified_base override is not accepted/);
+    expect(() => readBack({ repo, mergeSha, verifiedHead, verifiedBase: undefined })).toThrow(/verified_base override is not accepted/);
+  });
+
+  it("ignores GIT_DIR, GIT_INDEX_FILE, and GIT_WORK_TREE inherited from the parent environment", () => {
+    const verifiedHead = branchWith("pr1", "main", "a.txt", "a\n");
+    const mergeSha = squashMerge("pr1", "PR 1 (#1)");
+    const other = path.join(dir, "other.git");
+    execFileSync("git", ["init", "-q", "--bare", other], { env: gitEnv() });
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_INDEX_FILE: process.env.GIT_INDEX_FILE, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+    Object.assign(process.env, { GIT_DIR: other, GIT_INDEX_FILE: path.join(dir, "bogus-index"), GIT_WORK_TREE: dir });
+    try {
+      expect(Object.keys(gitEnv()).filter((key) => key.startsWith("GIT_"))).toEqual([]);
+      expect(readBack({ repo, mergeSha, verifiedHead })).toMatchObject({ tree_match: true, mode: "exact", on_main: true });
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+    expect(gitEnv({ GIT_DIR: "x", git_config_parameters: "y", HOME: "/h", PATH: "/evil" })).toEqual({ HOME: "/h", PATH: "/usr/bin:/bin:/usr/local/bin" });
   });
 
   it("rejects a two-parent merge commit", () => {
@@ -187,48 +216,87 @@ describe("verified base must be an ancestor of the verified head", () => {
     return { write: (chunk) => chunks.push(chunk), json: () => JSON.parse(chunks.join("")), text: () => chunks.join("") };
   };
 
-  it("fails a reverting squash when the base is the merge's parent, not the fork point", () => {
+  it("fails a reverting squash when the plan base is the merge's parent, not the fork point", () => {
     const { forkPoint, head, mainTip, bad } = revertOnMainTip();
     expect(isAncestor(repo, mainTip, head)).toBe(false);
-    const result = readBack({ repo, mergeSha: bad, verifiedHead: head, verifiedBase: mainTip });
-    expect(result).toMatchObject({ tree_match: false, mode: null, reason: "verified-base-not-ancestor-of-head" });
-    expect(readBack({ repo, mergeSha: bad, verifiedHead: head, verifiedBase: forkPoint }).tree_match).toBe(false);
+    const land = [{ pr: 1, head_sha: head, verdict_ref: "v1" }];
+    const tipLog = path.join(dir, "tip.tsv");
+    logPlan(tipLog, { land });
+    expect(readBackRun({ repo, logPath: tipLog, plan: { base: mainTip, land, stop: null }, merges: [{ pr: 1, merge_sha: bad }] }).stop).toMatchObject({
+      tree_match: false,
+      mode: null,
+      reason: "verified-base-not-ancestor-of-head",
+    });
+    const forkLog = path.join(dir, "fork.tsv");
+    logPlan(forkLog, { land });
+    expect(readBackRun({ repo, logPath: forkLog, plan: { base: forkPoint, land, stop: null }, merges: [{ pr: 1, merge_sha: bad }] }).stop).toMatchObject({
+      tree_match: false,
+      reason: "tree-mismatch-patch-id-differs",
+    });
   });
 
-  it("stops readBackRun with the main tip as plan base or as a verified_base override", () => {
+  it("stops readBackRun with the main tip as plan base, and refuses a verified_base override without logging", () => {
     const { forkPoint, head, mainTip, bad } = revertOnMainTip();
     const land = [{ pr: 1, head_sha: head, verdict_ref: "v1" }];
-    const viaPlan = readBackRun({ repo, logPath: path.join(dir, "plan-base.tsv"), plan: { base: mainTip, land, stop: null }, merges: [{ pr: 1, merge_sha: bad }] });
+    const planLog = path.join(dir, "plan-base.tsv");
+    logPlan(planLog, { land });
+    const viaPlan = readBackRun({ repo, logPath: planLog, plan: { base: mainTip, land, stop: null }, merges: [{ pr: 1, merge_sha: bad }] });
     expect(viaPlan.landed).toEqual([]);
     expect(viaPlan.stop).toMatchObject({ pr: 1, tree_match: false, reason: "verified-base-not-ancestor-of-head" });
-    expect(readDecisions(path.join(dir, "plan-base.tsv"))[0]).toMatchObject({ tree_match: "false", result: expect.stringMatching(/^STOP verified-base-not-ancestor-of-head/) });
+    expect(readbackRows(planLog)[0]).toMatchObject({ tree_match: "false", result: expect.stringMatching(/^STOP verified-base-not-ancestor-of-head/) });
 
-    const viaOverride = readBackRun({
-      repo,
-      logPath: path.join(dir, "override.tsv"),
-      plan: { base: forkPoint, land, stop: null },
-      merges: [{ pr: 1, merge_sha: bad, verified_base: mainTip }],
-    });
-    expect(viaOverride.stop).toMatchObject({ tree_match: false, reason: "verified-base-not-ancestor-of-head" });
+    const overrideLog = path.join(dir, "override.tsv");
+    logPlan(overrideLog, { land });
+    const before = fs.readFileSync(overrideLog, "utf8");
+    // Even an override equal to the derived base is refused: there is no override path.
+    for (const verified_base of [mainTip, forkPoint, undefined]) {
+      const viaOverride = readBackRun({ repo, logPath: overrideLog, plan: { base: forkPoint, land, stop: null }, merges: [{ pr: 1, merge_sha: bad, verified_base }] });
+      expect(viaOverride).toMatchObject({ landed: [], stop: null, refused: "verified-base-override-not-allowed: 1" });
+    }
+    expect(fs.readFileSync(overrideLog, "utf8")).toBe(before);
   });
 
-  it("fails the CLI --verified-base override, standalone and plan-bound", () => {
+  it("rejects the CLI --verified-base option, standalone and plan-bound", () => {
     const { forkPoint, head, mainTip, bad } = revertOnMainTip();
-    const standalone = sink();
-    expect(runCli(["readback", "--repo", repo, "--merge-sha", bad, "--verified-head", head, "--verified-base", mainTip], standalone, sink())).toBe(1);
-    expect(standalone.json()).toMatchObject({ tree_match: false, reason: "verified-base-not-ancestor-of-head" });
+    expect(() => runCli(["readback", "--repo", repo, "--merge-sha", bad, "--verified-head", head, "--verified-base", mainTip], sink())).toThrow(/--verified-base is not accepted/);
 
     const planPath = path.join(dir, "plan.json");
     const logPath = path.join(dir, "decisions.tsv");
-    fs.writeFileSync(planPath, JSON.stringify({ base: forkPoint, land: [{ pr: 1, head_sha: head, verdict_ref: "v1" }], stop: null }));
-    const bound = sink();
-    const args = ["readback", "--repo", repo, "--merge-sha", bad, "--verified-head", head, "--verified-base", mainTip, "--log", logPath, "--plan", planPath, "--pr", "1"];
-    expect(runCli(args, bound, sink())).toBe(1);
-    expect(bound.json()).toMatchObject({ tree_match: false, reason: "verified-base-not-ancestor-of-head" });
-    expect(openStop(readDecisions(logPath))).toMatchObject({ pr: "1", tree_match: "false" });
+    const plan = { base: forkPoint, land: [{ pr: 1, head_sha: head, verdict_ref: "v1" }], stop: null };
+    fs.writeFileSync(planPath, JSON.stringify(plan));
+    logPlan(logPath, plan);
+    const before = fs.readFileSync(logPath, "utf8");
+    const args = ["readback", "--repo", repo, "--merge-sha", bad, "--verified-head", head, "--verified-base", forkPoint, "--log", logPath, "--plan", planPath, "--pr", "1"];
+    expect(() => runCli(args, sink())).toThrow(/--verified-base is not accepted/);
+    expect(fs.readFileSync(logPath, "utf8")).toBe(before);
   });
 
-  it("warns when the bottom PR's base is not merge-base(head, main), and not for PRs above it", () => {
+  // Opus repro (review of 67b8a160): a two-commit PR where only the second
+  // commit reached main. A base of head~1 is an ancestor of the head, so only
+  // the fork-point check catches the partial landing.
+  it("stops a partial landing when the bottom plan base is an ancestor but not the fork point", () => {
+    const forkPoint = g("rev-parse", "main");
+    branchWith("pr1", "main", "a.txt", "a\n");
+    const head = commitFile("b.txt", "b\n", "pr1: b.txt");
+    g("checkout", "-q", "main");
+    g("cherry-pick", head);
+    const partial = g("rev-parse", "HEAD");
+    const land = [{ pr: 1, head_sha: head, verdict_ref: "v1" }];
+    const logPath = path.join(dir, "partial.tsv");
+    logPlan(logPath, { land });
+    const run = readBackRun({ repo, logPath, plan: { base: g("rev-parse", `${head}~1`), land, stop: null }, merges: [{ pr: 1, merge_sha: partial }] });
+    expect(run.landed).toEqual([]);
+    expect(run.stop).toMatchObject({ tree_match: false, reason: expect.stringMatching(/^bottom-base-differs-from-merge-base: plan base [0-9a-f]{40} != merge-base\(head, main\) /) });
+    expect(run.stop.reason).toContain(forkPoint);
+    const forkLog = path.join(dir, "partial-fork.tsv");
+    logPlan(forkLog, { land });
+    expect(readBackRun({ repo, logPath: forkLog, plan: { base: forkPoint, land, stop: null }, merges: [{ pr: 1, merge_sha: partial }] }).stop).toMatchObject({
+      tree_match: false,
+      reason: "tree-mismatch-patch-id-differs",
+    });
+  });
+
+  it("stops when the bottom PR's base is not merge-base(head, main), and does not apply that check above it", () => {
     const early = g("rev-parse", "main");
     commitFile("seed.txt", "seed\n", "seed");
     const head1 = branchWith("pr1", "main", "a.txt", "a\n");
@@ -241,18 +309,22 @@ describe("verified base must be an ancestor of the verified head", () => {
     ];
     const merges = [{ pr: 1, merge_sha: merge1 }, { pr: 2, merge_sha: merge2 }];
 
-    const good = readBackRun({ repo, plan: { base: g("rev-parse", `${merge1}~1`), land, stop: null }, merges });
-    expect(good.landed.map((entry) => [entry.pr, entry.tree_match, entry.warnings])).toEqual([[1, true, []], [2, true, []]]);
+    const goodLog = path.join(dir, "good.tsv");
+    logPlan(goodLog, { land });
+    const good = readBackRun({ repo, logPath: goodLog, plan: { base: g("rev-parse", `${merge1}~1`), land, stop: null }, merges });
+    expect(good.landed.map((entry) => [entry.pr, entry.tree_match])).toEqual([[1, true], [2, true]]);
 
-    const logPath = path.join(dir, "warn.tsv");
+    const logPath = path.join(dir, "stop.tsv");
     const planPath = path.join(dir, "plan.json");
     const mergesPath = path.join(dir, "merges.json");
     fs.writeFileSync(planPath, JSON.stringify({ base: early, land, stop: null }));
     fs.writeFileSync(mergesPath, JSON.stringify(merges));
-    const err = sink();
-    expect(runCli(["readback-run", "--repo", repo, "--merges", mergesPath, "--plan", planPath, "--log", logPath], sink(), err)).toBe(1);
-    expect(err.text()).toMatch(/^merge-readback: warning: bottom-base-differs-from-merge-base: verified base [0-9a-f]{40} != merge-base\(head, main\) [0-9a-f]{40}\n$/);
-    expect(readDecisions(logPath)[0].result).toMatch(/; warning: bottom-base-differs-from-merge-base/);
+    logPlan(logPath, { land });
+    const out = sink();
+    expect(runCli(["readback-run", "--repo", repo, "--merges", mergesPath, "--plan", planPath, "--log", logPath], out)).toBe(1);
+    expect(out.json()).toMatchObject({ landed: [], stop: { pr: 1, tree_match: false, reason: expect.stringMatching(/^bottom-base-differs-from-merge-base/) } });
+    expect(readbackRows(logPath)).toHaveLength(1);
+    expect(readbackRows(logPath)[0].result).toMatch(/^STOP bottom-base-differs-from-merge-base/);
   });
 });
 
@@ -342,10 +414,64 @@ describe("checkMergesAgainstPlan", () => {
     expect(checkMergesAgainstPlan({ plan, merges: [{ pr: 2 }], rows }).merges[0].verified_base).toBe("a".repeat(40));
   });
 
-  it("lets an explicit verified_base override the derived one and fails closed without a plan base", () => {
-    expect(checkMergesAgainstPlan({ plan, merges: [{ pr: 1, verified_base: "e".repeat(40) }] }).merges[0].verified_base).toBe("e".repeat(40));
+  it("refuses any verified_base on a merge and fails closed without a plan base", () => {
+    expect(checkMergesAgainstPlan({ plan, merges: [{ pr: 1, verified_base: "e".repeat(40) }] })).toEqual({ ok: false, reason: "verified-base-override-not-allowed: 1" });
+    expect(checkMergesAgainstPlan({ plan, merges: [{ pr: 1, verified_base: "0".repeat(40) }] })).toEqual({ ok: false, reason: "verified-base-override-not-allowed: 1" });
     expect(checkMergesAgainstPlan({ plan: { ...plan, base: null }, merges: [{ pr: 1 }] })).toMatchObject({ ok: false, reason: expect.stringMatching(/^plan-base-missing/) });
     expect(checkMergesAgainstPlan({ plan: undefined, merges: [{ pr: 1 }] })).toMatchObject({ ok: false, reason: "plan-missing" });
+  });
+});
+
+describe("plan must match the log", () => {
+  const land = [{ pr: 1, head_sha: "a".repeat(40), verdict_ref: "v1" }];
+  const merges = [{ pr: 1, head_sha: "a".repeat(40), verdict_ref: "v1" }];
+  const planLand = { action: "plan-land", pr: "1", head_sha: "a".repeat(40), verdict_ref: "v1" };
+
+  it("needs the latest plan row for each PR to be a matching plan-land", () => {
+    expect(planLogMismatch([planLand], merges)).toBeNull();
+    expect(planLogMismatch([], merges)).toMatch(/^plan-not-in-log: no plan row for PR 1/);
+    expect(planLogMismatch([{ ...planLand, verdict_ref: "other" }], merges)).toMatch(/^plan-not-in-log: PR 1 /);
+    expect(planLogMismatch([{ ...planLand, head_sha: "b".repeat(40) }], merges)).toMatch(/^plan-not-in-log: PR 1 /);
+    expect(planLogMismatch([planLand, { ...planLand, action: "plan-stop" }], merges)).toMatch(/latest plan row for PR 1 is plan-stop/);
+    expect(planLogMismatch([{ ...planLand, action: "plan-stop" }, planLand], merges)).toBeNull();
+  });
+
+  it("refuses a hand-written or edited plan.json, via readback-run and readback, without logging", () => {
+    const base = g("rev-parse", "main");
+    const head1 = branchWith("pr1", "main", "a.txt", "a\n");
+    const merge1 = squashMerge("pr1", "PR 1 (#1)");
+    const sink = () => {
+      const chunks = [];
+      return { write: (chunk) => chunks.push(chunk), json: () => JSON.parse(chunks.join("")) };
+    };
+    const logPath = path.join(dir, "decisions.tsv");
+    const planPath = path.join(dir, "plan.json");
+    const mergesPath = path.join(dir, "merges.json");
+    fs.writeFileSync(mergesPath, JSON.stringify([{ pr: 1, merge_sha: merge1 }]));
+    const hand = { base, land: [{ pr: 1, head_sha: head1, verdict_ref: "v1" }], stop: null };
+    fs.writeFileSync(planPath, JSON.stringify(hand));
+
+    // Never planned on this log.
+    expect(runCli(["init-log", "--log", logPath])).toBe(0);
+    const before = fs.readFileSync(logPath, "utf8");
+    const run = sink();
+    expect(runCli(["readback-run", "--repo", repo, "--merges", mergesPath, "--plan", planPath, "--log", logPath], run)).toBe(1);
+    expect(run.json()).toMatchObject({ landed: [], refused: "plan-not-in-log: no plan row for PR 1" });
+    const single = sink();
+    expect(runCli(["readback", "--repo", repo, "--merge-sha", merge1, "--verified-head", head1, "--log", logPath, "--plan", planPath, "--pr", "1"], single)).toBe(1);
+    expect(single.json()).toMatchObject({ refused: "plan-not-in-log: no plan row for PR 1" });
+    expect(readBackRun({ repo, plan: hand, merges: [{ pr: 1, merge_sha: merge1 }] }).refused).toBe("plan-not-in-log: no plan row for PR 1");
+    expect(fs.readFileSync(logPath, "utf8")).toBe(before);
+
+    // Planned with one verdict, plan.json edited to another afterwards.
+    logPlan(logPath, { land: [{ pr: 1, head_sha: head1, verdict_ref: "v0" }] });
+    const edited = fs.readFileSync(logPath, "utf8");
+    expect(readBackRun({ repo, logPath, plan: hand, merges: [{ pr: 1, merge_sha: merge1 }] }).refused).toMatch(/^plan-not-in-log: PR 1 /);
+    expect(fs.readFileSync(logPath, "utf8")).toBe(edited);
+
+    // The matching plan-land row lets the same read-back through.
+    logPlan(logPath, hand);
+    expect(readBackRun({ repo, logPath, plan: hand, merges: [{ pr: 1, merge_sha: merge1 }] })).toMatchObject({ stop: null, landed: [{ pr: 1, tree_match: true }] });
   });
 });
 
@@ -370,6 +496,7 @@ describe("readBackRun", () => {
       ],
       stop: null,
     };
+    logPlan(logPath, plan);
     const run = readBackRun({
       repo,
       logPath,
@@ -385,8 +512,9 @@ describe("readBackRun", () => {
     expect(run.stop).toMatchObject({ pr: 2, tree_match: false });
     const rows = fs.readFileSync(logPath, "utf8").trim().split("\n");
     expect(rows[0]).toBe(DECISION_HEADER.trim());
-    expect(rows).toHaveLength(3);
-    const cells = rows[2].split("\t");
+    expect(rows).toHaveLength(6);
+    expect(rows.slice(1).map((line) => line.split("\t")[5])).toEqual(["plan-land", "plan-land", "plan-land", "readback", "readback"]);
+    const cells = rows[5].split("\t");
     expect(cells.slice(1, 3)).toEqual(["2", head2]);
     expect(cells.slice(5, 8)).toEqual(["readback", merge2, "false"]);
     expect(cells[8]).toMatch(/^STOP .*Grok Bot.*no auto-revert$/);
@@ -398,13 +526,15 @@ describe("readBackRun", () => {
     const merge1 = squashMerge("pr1", "PR 1 (#1)");
     const logPath = path.join(dir, "decisions.tsv");
     const plan = { base, land: [{ pr: 1, head_sha: head1, verdict_ref: "v1" }], stop: null };
+    logPlan(logPath, plan);
+    const before = fs.readFileSync(logPath, "utf8");
     expect(readBackRun({ repo, logPath, merges: [{ pr: 1, merge_sha: merge1 }] })).toMatchObject({ landed: [], refused: "plan-missing" });
     const unplanned = readBackRun({ repo, logPath, plan, merges: [{ pr: 9, head_sha: head1, merge_sha: merge1 }] });
     expect(unplanned).toMatchObject({ landed: [], refused: "pr-not-in-plan-land: 9" });
-    expect(fs.existsSync(logPath)).toBe(false);
+    expect(fs.readFileSync(logPath, "utf8")).toBe(before);
     const run = readBackRun({ repo, logPath, plan, merges: [{ pr: 1, merge_sha: merge1 }] });
     expect(run).toMatchObject({ stop: null, landed: [{ pr: 1, tree_match: true }] });
-    expect(readDecisions(logPath)).toMatchObject([{ pr: "1", verdict_ref: "v1", action: "readback", tree_match: "true" }]);
+    expect(readbackRows(logPath)).toMatchObject([{ pr: "1", verdict_ref: "v1", action: "readback", tree_match: "true" }]);
   });
 
   it("reads back a real stacked base -> pr1 -> pr2 squash-merged bottom-up onto main", () => {
@@ -422,6 +552,7 @@ describe("readBackRun", () => {
     // The old merge-base(parent, head) default saw pr1's change inside pr2.
     expect(readBack({ repo, mergeSha: merge2, verifiedHead: head2 }).tree_match).toBe(false);
 
+    logPlan(path.join(dir, "together.tsv"), plan);
     const together = readBackRun({ repo, plan, logPath: path.join(dir, "together.tsv"), merges: [{ pr: 1, merge_sha: merge1 }, { pr: 2, merge_sha: merge2 }] });
     expect(together.stop).toBeNull();
     expect(together.landed).toMatchObject([
@@ -431,9 +562,10 @@ describe("readBackRun", () => {
 
     // One PR per run, as merges land: pr2 derives its base from pr1's verified head.
     const logPath = path.join(dir, "stack.tsv");
+    logPlan(logPath, plan);
     expect(readBackRun({ repo, plan, logPath, merges: [{ pr: 1, merge_sha: merge1 }] }).landed).toMatchObject([{ pr: 1, tree_match: true }]);
     expect(readBackRun({ repo, plan, logPath, merges: [{ pr: 2, merge_sha: merge2 }] }).landed).toMatchObject([{ pr: 2, tree_match: true }]);
-    expect(readDecisions(logPath).map((row) => [row.pr, row.tree_match])).toEqual([
+    expect(readbackRows(logPath).map((row) => [row.pr, row.tree_match])).toEqual([
       ["1", "true"],
       ["2", "true"],
     ]);
@@ -445,6 +577,7 @@ describe("readBackRun", () => {
     const merge1 = squashMerge("pr1", "PR 1 (#1)");
     const logPath = path.join(dir, "decisions.tsv");
     const plan = { base, land: [{ pr: 1, head_sha: head1, verdict_ref: "v1" }], stop: null };
+    logPlan(logPath, plan);
     expect(readBackRun({ repo, logPath, plan, merges: [{ pr: 1, merge_sha: merge1 }] }).landed).toHaveLength(1);
     const before = fs.readFileSync(logPath, "utf8");
     expect(readBackRun({ repo, logPath, plan, merges: [{ pr: 1, merge_sha: merge1.slice(0, 12) }] })).toMatchObject({
@@ -475,6 +608,7 @@ describe("open stop", () => {
     const merge1 = squashMerge("pr1", "PR 1 (#1)");
     const logPath = path.join(dir, "decisions.tsv");
     const plan = { base: g("rev-parse", `${merge1}~1`), land: [{ pr: 1, head_sha: head1, verdict_ref: "v1" }], stop: null };
+    logPlan(logPath, plan);
     expect(readBackRun({ repo, logPath, plan, merges: [{ pr: 1, merge_sha: merge1 }] }).stop).toMatchObject({ pr: 1, tree_match: false });
     expect(openStop(readDecisions(logPath))).toMatchObject({ pr: "1", tree_match: "false" });
 
@@ -605,7 +739,7 @@ describe("CLI", () => {
     expect(() => runCli(["readback", "--repo", repo])).toThrow(/missing --merge-sha/);
     expect(() => runCli(["readback", "--repo", repo, "--merge-sha", "-all", "--verified-head", head1])).toThrow(/--merge-sha must be a hex/);
     expect(() => runCli(["readback", "--repo", repo, "--merge-sha", "HEAD~1", "--verified-head", head1])).toThrow(/--merge-sha must be a hex/);
-    expect(() => runCli(["readback", "--repo", repo, "--merge-sha", merge1, "--verified-head", head1, "--verified-base", "main"])).toThrow(/--verified-base must be a hex/);
+    expect(() => runCli(["readback", "--repo", repo, "--merge-sha", merge1, "--verified-head", head1, "--verified-base", "main"])).toThrow(/--verified-base is not accepted/);
     expect(() => runCli(["readback", "--repo", repo, "--merge-sha", merge1, "--verified-head", head1, "--main", "-x"])).toThrow(/--main must be a git ref/);
     expect(() => runCli(["readback", "--repo", "-C", "--merge-sha", merge1, "--verified-head", head1])).toThrow(/--repo must not start/);
     expect(() => runCli(["merge"])).toThrow(/unknown command/);

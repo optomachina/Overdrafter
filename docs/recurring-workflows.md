@@ -209,11 +209,16 @@ and race past the stop guard.
    with `merges.json` as `[{"pr":101,"merge_sha":"…"},{"pr":102,"merge_sha":"…"}]`.
    `--plan` is required. The verified head SHA and verdict ref come from
    `plan.json`, and so does the verified base: the plan's `base` for the bottom
-   PR, and the verified head of the PR below for every PR above it. A
-   `"verified_base"` on a `merges.json` entry overrides the derived base. The
-   run refuses (exit 1, no row written) any PR outside the plan's `land` list, a
-   `head_sha` other than the verified one, or a merge out of bottom-up order. It
-   also refuses a merge above a PR that has no passing read-back in the log. A
+   PR, and the verified head of the PR below for every PR above it. There is
+   no override: a `merges.json` entry that carries `"verified_base"` is refused,
+   and the CLI rejects `--verified-base`. The run refuses (exit 1, no row
+   written) any PR outside the plan's `land` list, a `head_sha` other than the
+   verified one, or a merge out of bottom-up order. It also refuses a merge above
+   a PR that has no passing read-back in the log, and a `plan.json` that does not
+   match the log: for each merge, the latest plan row for that PR in the same log
+   must be a `plan-land` row with the same `head_sha` and `verdict_ref`. A
+   hand-written or edited `plan.json`, or one superseded by a later `plan-stop`
+   for that PR, is refused. A
    PR that already read back true at the same head and merge SHA is skipped
    with no new row; the same PR and head at a different merge SHA is refused.
    SHAs must be hex, and `--main` must not start with `-`. Without `--main`, the
@@ -228,26 +233,32 @@ and race past the stop guard.
    would silently revert what landed in between. In both cases the verified
    base must be an ancestor of the verified head
    (`git merge-base --is-ancestor`). If it is not, the read-back fails with
-   `verified-base-not-ancestor-of-head`, including when the base comes from a
-   `verified_base` or `--verified-base` override. This catches a base set to
-   the current `main` tip instead of the commit the branch started from, which
-   would otherwise pass a squash that reverts `main` since that start. For the
-   bottom PR, the script also warns on stderr and in the row's `result` when the
-   verified base is not `git merge-base <head> <main>`. The warning does not
-   stop the run, but check the base before you rely on the row.
+   `verified-base-not-ancestor-of-head`. This catches a base set to the current
+   `main` tip instead of the commit the branch started from, which would
+   otherwise pass a squash that reverts `main` since that start. For the bottom
+   PR, the plan's `base` must also equal `git merge-base <head> <main>`, or the
+   read-back fails with `bottom-base-differs-from-merge-base`. That catches an
+   ancestor such as `head~1` that would hide the commits below it and pass a
+   partial landing.
+
+   Every git subprocess runs with all `GIT_*` variables removed from its
+   environment (`GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`,
+   `GIT_OBJECT_DIRECTORY`, `GIT_CONFIG_PARAMETERS`, and the rest), so a hook or
+   wrapper cannot point the read-back at another repo than `--repo`.
 
    For a single merge, use
    `readback --repo . --main origin/main --merge-sha <sha> --verified-head <sha> --log <tsv> --plan plan.json --pr <n>`.
    Only the plan-bound read-back (`readback-run`, or `readback` with `--log`,
    `--plan`, and `--pr`) counts as proof that a merge landed. `readback`
    without `--log` is a diagnostic: it does not check plan order, writes no
-   row, and accepts any `--verified-base`.
+   row, and derives the base as `git merge-base <merge parent> <head>`, which
+   is only right for an unstacked PR.
 
    A restacked PR has a new head SHA, so it needs a fresh verdict and a fresh
-   plan. Re-derive its verified base from the new branch, usually
+   plan. If it is now the bottom PR, set `stack.json`'s `base` to
    `git merge-base <new head> origin/main` once the PR below has squashed in.
-   Do not copy the old `verified_base` or the old head of the PR below: that
-   commit is no longer an ancestor of the new head, so the read-back fails.
+   Do not reuse the old base or the old head of the PR below: that commit is no
+   longer an ancestor of the new head, so the read-back fails.
 4. **Stop on `tree_match=false`.** The run stops at that row (exit 1) and later
    merges are not reported as landed. Flag it to Grok Bot, who brings it to
    Blaine. Do not auto-revert. While the log's latest failed read-back is
