@@ -132,13 +132,30 @@ function isInsideRange(ranges, index) {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
+/** Character ranges of fenced code blocks by line-based fence rules (``` and ~~~). */
+function fencedLineRanges(text) {
+  const lines = text.split("\n");
+  const flags = fencedLineFlags(lines);
+  const ranges = [];
+  let offset = 0;
+  lines.forEach((line, index) => {
+    if (flags[index]) ranges.push([offset, offset + line.length + 1]);
+    offset += line.length + 1;
+  });
+  return ranges;
+}
+
 const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/gm;
 
 function collectSections(body) {
   const normalizedBody = normalizeText(body);
   const fences = fencedCodeRanges(normalizedBody);
+  const lineFences = fencedLineRanges(normalizedBody);
   const matches = [...normalizedBody.matchAll(SECTION_HEADING_LINE)].filter(
-    (match) => typeof match.index === "number" && !isInsideRange(fences, match.index),
+    (match) =>
+      typeof match.index === "number" &&
+      !isInsideRange(fences, match.index) &&
+      !isInsideRange(lineFences, match.index),
   );
   const sections = new Map();
 
@@ -260,7 +277,8 @@ export const PROVIDER_GO_LIVE_AUTO_SIGNATURE = "Grok Bot under Blaine Wilson sta
  * need a real evidence link. Legal stance items are never N/A, with one
  * exception: the ITAR/EAR item may be N/A for a US only provider. `auto: true`
  * items are filled by the renderer, pre-checked with the automatic signature;
- * the gate never asks a human for them and never fails on them.
+ * the gate never asks a human for evidence on them, but rejects the section
+ * when the automatic line is missing or unticked.
  */
 export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
@@ -366,18 +384,65 @@ export function enablesProvider(options = {}) {
 
 export const GATE_CHANGE_HEADING = "Gate change review";
 
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Mark the lines of `lines` that sit inside a fenced code block (CommonMark
+ * rules): a fence opens with 3+ backticks or tildes indented at most 3 spaces
+ * (a backtick fence's info string may not contain a backtick), and closes with
+ * a line of the same character, at least as long, indented at most 3 spaces,
+ * with nothing after it but whitespace. An unclosed fence runs to the end.
+ * Fence lines themselves count as inside.
+ */
+function fencedLineFlags(lines) {
+  const flags = [];
+  let fence = null;
+
+  for (const line of lines) {
+    if (fence) {
+      flags.push(true);
+      const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+
+    const open = line.match(FENCE_OPEN);
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      fence = open[1];
+      flags.push(true);
+      continue;
+    }
+
+    flags.push(false);
+  }
+
+  return flags;
+}
+
 function parseCheckboxLines(content) {
   const boxes = [];
+  const lines = content.split("\n");
+  const fenced = fencedLineFlags(lines);
+  let continuing = false;
 
-  for (const line of content.split("\n")) {
+  for (const [index, line] of lines.entries()) {
+    // A checkbox shown inside a code fence is an example, never a real answer.
+    if (fenced[index]) {
+      continuing = false;
+      continue;
+    }
+
     const match = line.match(CHECKBOX_LINE);
     if (match) {
       boxes.push({ checked: match[1] !== " ", text: match[2], line: line });
+      continuing = true;
       continue;
     }
 
     const last = boxes.at(-1);
-    if (last && /^[ \t]+\S/.test(line)) {
+    if (continuing && last && /^[ \t]+\S/.test(line)) {
       last.text += ` ${line.trim()}`;
     }
   }
@@ -511,6 +576,9 @@ export function validateGateChangeNote(body, findings = []) {
   return errors;
 }
 
+/** Text of the automatic envelope line, ticked or not (bold markers allowed). */
+const AUTO_LINE_TEXT = /^\**[ \t]*envelope reviewed \(automatic\)/i;
+
 function validateProviderGoLiveSection(body, findings) {
   const sections = collectSections(body);
   const section = sections.get(normalizeHeading(PROVIDER_GO_LIVE_HEADING));
@@ -529,13 +597,21 @@ function validateProviderGoLiveSection(body, findings) {
   const unused = [...boxes];
   for (const required of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
     if (required.auto) {
-      // Prefer a ticked automatic line. Also swallow an unticked real auto line so
-      // it never fails the gate, but never consume lookalikes like "not envelope reviewed".
-      let index = unused.findIndex((box) => required.match.test(box.line));
-      if (index === -1) {
-        index = unused.findIndex((box) => /^envelope reviewed \(automatic\)/i.test(box.text));
+      // The automatic line must be present and ticked. A ticked line satisfies it;
+      // an unticked real line is consumed and rejected; lookalikes such as
+      // "not envelope reviewed" are never consumed and fail as extra lines.
+      const ticked = unused.findIndex((box) => box.checked && required.match.test(box.line));
+      if (ticked !== -1) {
+        unused.splice(ticked, 1);
+        continue;
       }
-      if (index !== -1) unused.splice(index, 1);
+      const unticked = unused.findIndex((box) => !box.checked && AUTO_LINE_TEXT.test(box.text));
+      if (unticked !== -1) {
+        unused.splice(unticked, 1);
+        errors.push(`"${required.label}" must be ticked`);
+        continue;
+      }
+      errors.push(`missing Provider go-live item "${required.label}"`);
       continue;
     }
     const index = unused.findIndex((box) => required.match.test(box.text));

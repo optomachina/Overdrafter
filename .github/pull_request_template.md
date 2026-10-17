@@ -119,7 +119,7 @@ Worker secret, egress, admission, rollout, and certification items may be marked
 stage. The provider:check, per-supplier on/off switch, and legal stance items
 cannot be N/A, except the ITAR/EAR item for a US only provider. The envelope
 review item is automatic: it stays pre-checked with its signature and needs no
-human evidence.
+human evidence; the gate rejects it unticked or missing.
 See `docs/checklists/provider-go-live-checklist.md`.
 
 ### Envelope

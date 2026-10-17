@@ -521,15 +521,107 @@ describe("validatePrBody", () => {
     expect(result).toEqual({ ok: true, errors: [] });
   });
 
-  it("treats the envelope review item as automatic: signed, unsigned, or absent, it never fails", () => {
+  it("treats the envelope review item as automatic but rejects it unticked or missing", () => {
     const auto = PROVIDER_GO_LIVE_REQUIRED_ITEMS.filter((item) => item.auto);
     expect(auto.map((item) => item.id)).toEqual(["envelope-reviewer"]);
     expect(auto[0].text).toContain(PROVIDER_GO_LIVE_AUTO_SIGNATURE);
     expect(PROVIDER_GO_LIVE_AUTO_SIGNATURE).toBe("Grok Bot under Blaine Wilson standing authority");
     expect(validate(buildGoLiveSection())).toEqual({ ok: true, errors: [] });
-    expect(validate(buildGoLiveSection({ "envelope-reviewer": null }))).toEqual({ ok: true, errors: [] });
+    expect(validate(buildGoLiveSection({ "envelope-reviewer": null }))).toEqual({
+      ok: false,
+      errors: ['missing Provider go-live item "envelope reviewed (automatic)"'],
+    });
     const unchecked = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
-    expect(validate(unchecked)).toEqual({ ok: true, errors: [] });
+    expect(unchecked).toContain(`- [ ] Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`);
+    expect(validate(unchecked)).toEqual({ ok: false, errors: ['"envelope reviewed (automatic)" must be ticked'] });
+    const uncheckedBold = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+      "## Provider go-live",
+      "## Provider go-live\n\n- [ ] **Envelope reviewed (automatic).** Signed: x\n",
+    );
+    expect(validate(uncheckedBold)).toEqual({ ok: false, errors: ['"envelope reviewed (automatic)" must be ticked'] });
+  });
+
+  it("does not take the automatic envelope line from prose, a blockquote, or mid-line text", () => {
+    for (const extra of [
+      "The envelope reviewed (automatic) item is pending.",
+      "> - [x] envelope reviewed (automatic)",
+      "Note: - [x] envelope reviewed (automatic)",
+    ]) {
+      const section = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+        "## Provider go-live",
+        `## Provider go-live\n\n${extra}\n`,
+      );
+      expect(validate(section).errors, extra).toContain('missing Provider go-live item "envelope reviewed (automatic)"');
+    }
+  });
+
+  describe("ignores checkboxes inside fenced code blocks", () => {
+    const withExtra = (extra, overrides = { "envelope-reviewer": null }) =>
+      buildGoLiveSection(overrides).replace("## Provider go-live", `## Provider go-live\n\n${extra}\n`);
+    const fences = [
+      ["```", "```"],
+      ["~~~", "~~~"],
+      ["````md", "````"],
+      ["   ```", "  ```"],
+      ["~~~~", "~~~~~"],
+    ];
+
+    it("a fenced ticked automatic line alone does not satisfy the item", () => {
+      for (const [open, close] of fences) {
+        const result = validate(withExtra(`${open}\n- [x] envelope reviewed (automatic)\n${close}`));
+        expect(result, open).toEqual({
+          ok: false,
+          errors: ['missing Provider go-live item "envelope reviewed (automatic)"'],
+        });
+      }
+    });
+
+    it("a fenced unticked line plus a real ticked line passes with no error", () => {
+      for (const [open, close] of fences) {
+        const result = validate(withExtra(`${open}\n- [ ] envelope reviewed (automatic)\n${close}`, {}));
+        expect(result, open).toEqual({ ok: true, errors: [] });
+      }
+    });
+
+    it("a fenced ticked line plus a real unticked line fails", () => {
+      for (const [open, close] of fences) {
+        const section = withExtra(`${open}\n- [x] envelope reviewed (automatic)\n${close}`, {}).replace(
+          "- [x] Envelope reviewed",
+          "- [ ] Envelope reviewed",
+        );
+        expect(validate(section), open).toEqual({
+          ok: false,
+          errors: ['"envelope reviewed (automatic)" must be ticked'],
+        });
+      }
+    });
+
+    it("closes a fence only on a matching, long enough, bare fence line", () => {
+      // None of the inner lines close the ```` fence, so the ticked box stays fenced.
+      for (const inner of ["```", "~~~~", "```` not a close", "    ````"]) {
+        const result = validate(withExtra(`\`\`\`\`\n${inner}\n- [x] envelope reviewed (automatic)\n\`\`\`\``));
+        expect(result.errors, inner).toEqual(['missing Provider go-live item "envelope reviewed (automatic)"']);
+      }
+    });
+
+    it("an unclosed fence hides everything after it", () => {
+      const result = validate(withExtra("~~~\n- [x] envelope reviewed (automatic)"));
+      expect(result.ok).toBe(false);
+    });
+
+    it("an indented code line of 4 spaces is not a fence", () => {
+      // Tildes: the section splitter still treats any ``` as a fence, which only fails closed.
+      // The leading prose keeps section trimming from eating the 4-space indent (also fail-closed).
+      const result = validate(withExtra("Example:\n    ~~~\n- [x] envelope reviewed (automatic)\n    ~~~"));
+      expect(result).toEqual({ ok: true, errors: [] });
+    });
+
+    it("ignores a fake Provider go-live section inside a tilde fence", () => {
+      const fake = `~~~\n## Provider go-live\n\n- [x] envelope reviewed (automatic)\n~~~`;
+      const broken = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");
+      const result = validate(`${broken}\n\n## Notes\n\n${fake}\n`);
+      expect(result.errors).toContain('"envelope reviewed (automatic)" must be ticked');
+    });
   });
 
   it("matches only a ticked envelope-reviewed (automatic) checkbox line", () => {
