@@ -86,6 +86,16 @@
     { "path": "provider-integrations/fictiv/admit/fictiv_admission_revision.sql.review", "classes": ["provider_dispatch"] },
     { "path": "src/features/q/x,rls.ts", "classes": ["auth"] },
     { "path": "src/features/chec\u212Aout.tsx", "classes": ["payments"] },
+    { "path": "WORKFLOW.md", "classes": ["infra_ci"] },
+    { "path": "GEMINI.md", "classes": ["infra_ci"] },
+    { "path": "scripts/symphony-ensure-branch.sh", "classes": ["infra_ci"] },
+    { "path": "scripts/vite-sample-plate-plugin.ts", "classes": ["infra_ci"] },
+    { "path": ".codex/config.toml", "classes": ["infra_ci"] },
+    { "path": ".claude/settings.json", "classes": ["infra_ci"] },
+    { "path": ".claude/hooks/pre-tool.sh", "classes": ["infra_ci"] },
+    { "path": ".mcp.json", "classes": ["infra_ci"] },
+    { "path": ".husky/pre-commit", "classes": ["infra_ci"] },
+    { "path": "scripts/hooks/pre-commit", "classes": ["infra_ci"] },
     { "path": "README.md", "classes": [] },
     { "path": "src/components/QuoteTable.tsx", "classes": [] },
     { "path": "src/lib/urls.ts", "classes": [] },
@@ -93,6 +103,8 @@
     { "path": "src/lib/token-utils.ts", "classes": [] },
     { "path": ".github/ISSUE_TEMPLATE/bug.md", "classes": [] },
     { "path": "scripts/jev-agent-decisions-eval.mjs", "classes": [] },
-    { "path": "docs/agents/README.md", "classes": [] }
+    { "path": "docs/agents/README.md", "classes": [] },
+    { "path": "src/hooks/use-toast.ts", "classes": [] },
+    { "path": "src/features/providers/ProviderCard.tsx", "classes": [] }
   ]
 }

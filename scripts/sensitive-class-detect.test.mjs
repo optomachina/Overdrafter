@@ -235,6 +235,51 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     expect(classifyPath(file, config)).toMatchObject({ classes, category: null });
   });
 
+  // The agent contract and agent configuration (review @ 6e96e47c): WORKFLOW.md
+  // sets Codex's approval policy, sandbox and network access and runs the
+  // Symphony hooks; the others configure Codex or Claude, start MCP servers or
+  // run as git hooks. At 6e96e47c (and 0163daf7) WORKFLOW.md and both GEMINI.md
+  // rows were docs; symphony-ensure-branch.sh, the vite plugins and
+  // scripts/hooks/pre-commit were repo_scripts; symphony-agent.sh was already
+  // infra_ci (repo_scripts at 0163daf7); the rest were unclassified.
+  it.each([
+    ["WORKFLOW.md"],
+    ["GEMINI.md"],
+    ["docs/GEMINI.md"],
+    ["scripts/symphony-ensure-branch.sh"],
+    ["scripts/symphony-agent.sh"],
+    ["scripts/vite-sample-plate-plugin.ts"],
+    ["scripts/vite-private-fixture-plugin.ts"],
+    [".codex/config.toml"],
+    [".codex/hooks.json"],
+    [".claude/settings.json"],
+    [".claude/settings.local.json"],
+    [".claude/hooks/pre-tool.sh"],
+    [".claude/rules/style.md"],
+    [".claude/launch.json"],
+    [".mcp.json"],
+    [".husky/pre-commit"],
+    [".githooks/pre-push"],
+    ["scripts/hooks/pre-commit"],
+    ["lefthook.yml"],
+    [".pre-commit-config.yaml"],
+  ])("agent contract or configuration file %s is infra_ci, never a safe category", (file) => {
+    expect(classifyPath(file, config)).toMatchObject({ classes: ["infra_ci"], category: null });
+  });
+
+  it("classifies every file validate-agent-contract reads as infra_ci", () => {
+    const source = readFileSync(path.join(repoRoot, "scripts/validate-agent-contract.mjs"), "utf8");
+    const read = [...source.matchAll(/\bread\("([^"]+)"\)/g)].map(([, file]) => file);
+    expect(read).toEqual(["AGENTS.md", "CLAUDE.md", "WORKFLOW.md"]);
+    expect(source).toContain("read(SENSITIVE_PATHS_FILE)");
+    for (const file of [...read, SENSITIVE_PATHS_FILE]) expect(classifyPath(file, config).classes, file).toContain("infra_ci");
+  });
+
+  it("leaves React hooks and provider pages without admission or upload alone", () => {
+    expect(classifyPath("src/hooks/use-toast.ts", config)).toMatchObject({ classes: [], category: null });
+    expect(classifyPath("src/features/providers/ProviderCard.tsx", config)).toMatchObject({ classes: [], category: "frontend_ui" });
+  });
+
   // Known residual (documented in the PR): 0163daf7 split camelCase words, so
   // quoteRls was rls. The shared list is case-insensitive and its fixture keeps
   // src/lib/urls.ts out, so a camelCase rls cannot be matched without urls.
@@ -457,18 +502,25 @@ describe("detect: strict file list", () => {
   });
 });
 
-// The scripts CI runs, found by walking from .github/**:
-// - every scripts/ reference in a .github/** file (a path, a prefix or a glob);
+// The scripts CI runs, found by walking from .github/**, from WORKFLOW.md (the
+// Symphony hooks and agent command run on agent hosts) and from the root tool
+// configs CI's commands load (*.config.{ts,js,...}: vite build, vitest, eslint,
+// playwright):
+// - every scripts/ reference in a .github/** file or WORKFLOW.md (a path, a
+//   prefix or a glob), and every relative import in a root tool config;
 // - every `npm run <name>` (also `npm test`, `npm start`, `npm --prefix <dir>`,
 //   pre and post scripts, and the install lifecycle scripts of `npm ci` or
-//   `npm install` without --ignore-scripts) in a .github/** file, in a
-//   package.json script reached that way, and in a shell script reached;
+//   `npm install` without --ignore-scripts) in a .github/** file, in
+//   WORKFLOW.md, in a package.json script reached that way, and in a shell
+//   script reached;
 // - the scripts/ files those package.json scripts name;
 // - in each script reached: every scripts/ reference (except a ** glob, which
 //   is prose) and every relative import, require or new URL.
 // JavaScript files are not read for npm runs; a test checks that none starts
 // npm. Python files are not read for imports; CI names their directory.
-// Vitest's own discovery (`vitest run` with no file) is not followed.
+// Vitest's own discovery (`vitest run` with no file) is not followed, nor are
+// string paths in a tool config (vite.config.ts's opt-in setup file, which CI
+// does not enable, and its test include globs).
 const DYNAMIC_NPM_RUNS = { "scripts/preflight.sh": ["lint", "typecheck", "test"] };
 const INSTALL_LIFECYCLE = ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"];
 
@@ -544,6 +596,14 @@ function ciRunScripts(root) {
     addScriptRefs(text, relative(file));
     addNpmRuns(text, relative(file));
   }
+  if (existsSync(path.join(root, "WORKFLOW.md"))) {
+    const text = readFileSync(path.join(root, "WORKFLOW.md"), "utf8");
+    addScriptRefs(text, "WORKFLOW.md");
+    addNpmRuns(text, "WORKFLOW.md");
+  }
+  for (const entry of readdirSync(root)) {
+    if (/^[^/]+\.config\.(?:ts|mts|cts|js|mjs|cjs)$/.test(entry)) addImports(readFileSync(path.join(root, entry), "utf8"), entry);
+  }
   while (queue.length) {
     const [file, from] = queue.pop();
     if (found.has(file)) continue;
@@ -576,6 +636,12 @@ describe("drift: scripts CI runs are infra_ci on the shared list", () => {
       "scripts/agent-control/launch.py",
       "scripts/agent-control/run_store.py",
       "scripts/check-migration-immutability.mjs", // npm run test:portable-node
+      // Review @ 6e96e47c: reached from WORKFLOW.md and from vite.config.ts.
+      "scripts/symphony-ensure-branch.sh", // WORKFLOW.md before_run
+      "scripts/symphony-agent.sh", // WORKFLOW.md codex.command
+      "scripts/symphony-preflight.sh", // WORKFLOW.md after_create
+      "scripts/vite-private-fixture-plugin.ts", // vite.config.ts import (npm run build, vitest)
+      "scripts/vite-sample-plate-plugin.ts",
     ]) {
       expect(ciScripts.has(file), file).toBe(true);
     }
