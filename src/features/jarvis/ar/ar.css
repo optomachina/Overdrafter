@@ -5,5 +5,12 @@
 .jarvis-ar-card, .jarvis-ar-sheet { max-width: 430px; margin: 24px auto; border: 1px solid #6A6A72; border-radius: 4px; }
 .jarvis-ar-card { padding: 16px; }
 .jarvis-ar-sheet { background: #18181b; padding: 16px 0; }
-.jarvis-ar-sheet h2 { padding: 0 16px; font-size: 20px; }
+.jarvis-ar-sheet h2 { padding: 0 16px; font: 13px monospace; }
 .jarvis-ar-outline { border: 1px solid #6A6A72; border-radius: 4px; }
+.jarvis-ar-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; color: #eeeeef; }
+.jarvis-ar-backdrop .jarvis-ar-sheet { width: 100%; margin: 0; max-height: 90vh; overflow: auto; border-radius: 12px 12px 0 0; padding: 12px 0 0; background: #18181B; }
+.jarvis-ar-grabber { width: 36px; height: 5px; border-radius: 3px; background: #6A6A72; margin: 0 auto 16px; }
+.jarvis-ar-cancel { height: 52px; width: 100%; border-top: 1px solid #6A6A72; margin-top: 12px; }
+.jarvis-ar-controls { max-width: 430px; margin: auto; border: 1px solid #6A6A72; }
+.jarvis-ar-controls input { accent-color: #eeeeef; }
+.jarvis-ar-row:focus-visible, .jarvis-ar-sheet:focus-visible { outline: 2px solid #eeeeef; outline-offset: -2px; }
