@@ -95,7 +95,7 @@ Do not open or refresh a PR with placeholder template text.
 When you want a structured PR body and consistent template formatting, use this sequence:
 
 1. Write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`.
-2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`. Add `proof` lines for the `## Proof` section that `scripts/proof-check.mjs` reads (`Test: <path>`, `Command: <cmd>` with a fenced output block, `Live: <url>`, or `Screenshot: <image/url>`; UI changes need a Screenshot). The proof check runs in report mode and is not a required check.
+2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`. Add `proof` lines for the `## Proof` section that `scripts/proof-check.mjs` reads (`Test: <path>`, `Command: <cmd>` with a fenced output block, `Live: <url>`, or `Screenshot: <image/url>`; UI changes need a Screenshot). The proof check runs in report mode and is not a required check; see `docs/proof-check.md` for the Command rules and JSON report.
 3. Render the markdown to a temporary file, add the issue ownership answer from the PR template and an honest pending-review status, then validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
 4. Create the PR with `gh pr create --base main --body-file <path-to-rendered-markdown>` or refresh it with `gh pr edit --body-file <path-to-rendered-markdown>`.
 5. After hosted checks and reviews finish on the final head, replace pending review status with the findings and actual coverage, update the PR body, and optionally validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
@@ -169,6 +169,13 @@ exists. After GitHub shows the approved PR merged and the
 merge and move the issue to `Done` automatically unless an acceptance criterion
 still requires deployment, live verification, an external operation, or other
 post-merge work.
+
+The drafted merge queue for `main` (required checks, settings, re-run policy,
+rollback, and the rule that every required check triggers on `merge_group`)
+lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
+needs an organization-owned repo, so the runbook also drafts the applicable
+fallback (`strict: true` up to date checks). Neither is applied until Blaine
+approves it, and the `land` skill must be updated in the same change.
 
 ### Release bot merge plan and decision log
 

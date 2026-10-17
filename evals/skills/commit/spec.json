@@ -1,0 +1,65 @@
+{
+  "skill": "commit",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "dirty-tree",
+      "task": "Branch has the intended change plus an unrelated local edit to a config file. Commit it.",
+      "expectedBehaviors": [
+        "Runs/confirms preflight and reviews git status and diff stat",
+        "Excludes the unrelated edit",
+        "Message starts with the Linear identifier",
+        "Reports commit SHA, message and files changed"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Runs/confirms preflight and reviews git status and diff stat",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Excludes the unrelated edit",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Message starts with the Linear identifier",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Reports commit SHA, message and files changed",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "missing-verification",
+      "task": "Implementation is done but required docs and verification are missing.",
+      "expectedBehaviors": [
+        "Stops and fixes the gap before committing",
+        "Does not amend someone else's commit",
+        "Reports what was missing"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Stops and fixes the gap before committing",
+          "points": 6
+        },
+        {
+          "id": "b2",
+          "criterion": "Does not amend someone else's commit",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Reports what was missing",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-797: Jarvis channels data model (DRAFT) + RLS.
+--
+-- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
+-- to any database outside a Blaine-approved migration window (a separate
+-- approval card). When approved, it ships as ONE migration (next timestamp
+-- from `npm run migration:new`), and
+-- supabase/tests/pending/ovd797_jarvis_channels.sql.pending is renamed to
+-- supabase/tests/ovd797_jarvis_channels.sql in the same change.
+-- Rollback: docs/migration-drafts/ovd-797-jarvis-channels.rollback.sql.
+-- Notes and fixture log: docs/migration-drafts/ovd-797-notes.md.
+--
+-- Requires (already applied): auth.users, auth.uid(), auth.jwt(),
+-- public.is_platform_admin(), public.current_user_has_aal2().
+--
+-- Transaction: no begin/commit of its own. The migration runner wraps it in
+-- one transaction. By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Access model:
+--   * RLS is enabled on every table. anon has no grant on any table.
+--   * authenticated has SELECT only, and only on its own rows: its
+--     conversation, that conversation's messages and decisions, its channel
+--     identities, and control commands filed under its conversation.
+--     Grants and channel settings are readable by a platform admin at AAL2.
+--     Link codes, inbound events and outbound deliveries are server only.
+--   * There is no INSERT, UPDATE or DELETE grant or policy for any client
+--     role. Every write goes through the service role in server code.
+--   * One function: public.jarvis_control_command_guard(uuid, text). It is
+--     read only, SECURITY DEFINER (justified in the notes), search_path '',
+--     and EXECUTE is granted to authenticated only.
+--
+-- Additive only: one domain (public.jarvis_tier), new tables, one new function, seed rows for four channels
+-- (all disabled). No existing object changes.
+
+-- =====================================================================
+-- Access tiers and channel switches (admin only)
+-- =====================================================================
+-- [header-only snapshot of docs/migration-drafts/ovd-797-jarvis-channels.sql at d2b7981b (#792); body omitted]
+select 1;

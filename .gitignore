@@ -41,6 +41,7 @@ test-results/
 .claude/skills/
 .agents/
 skills/
+!evals/skills/
 skills-lock.json
 .playwright-cli/
 output/playwright/
@@ -54,3 +55,6 @@ worker/#
 \#
 
 /dist-sample-plate/
+
+# verify-overdrafter skill evidence
+/artifacts/verify-overdrafter/
