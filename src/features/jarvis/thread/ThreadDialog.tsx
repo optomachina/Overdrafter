@@ -20,6 +20,6 @@ export function ThreadDialog({ children, close, sheet = false }: { children: Rea
   }, [close]);
   return <div className={`jt-overlay ${sheet ? 'jt-sheet' : ''}`} onClick={e => { if (e.target === e.currentTarget) close(); }}>
     <div ref={ref} role={sheet ? 'alertdialog' : 'dialog'} aria-modal="true" aria-label={sheet ? 'Cancel request?' : '3D review'}>
-      <button onClick={close}>{sheet ? 'CANCEL' : 'CLOSE'}</button>{children}</div>
+      <button className={sheet ? 'jt-primary' : undefined} onClick={close}>{sheet ? 'KEEP COOKING' : 'CLOSE'}</button>{children}</div>
   </div>;
 }

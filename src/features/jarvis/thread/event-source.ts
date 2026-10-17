@@ -14,7 +14,7 @@ export function createEventSource(transport: ConversationTransport, conversation
   return {
     retry: () => retry(),
     listen(deliver, connection) {
-      let disposed = false, failed = false, pollFailed = false, busy = false, delay = 5000;
+      let disposed = false, failed = false, pollFailed = false, busy = false, healthy = false, catchUp = false, delay = 5000;
       let timer: ReturnType<typeof setTimeout>;
       const seen = new Set<string>();
       const emit = (events: GraphEvent[]) => {
@@ -40,15 +40,19 @@ export function createEventSource(transport: ConversationTransport, conversation
           if (!disposed) { pollFailed = true; connection(true); delay = Math.min(delay * 2, 60000); }
         } finally {
           busy = false;
-          if (needsPoll()) schedule();
+          if (catchUp && !disposed) { catchUp = false; void poll(); }
+          else if (needsPoll()) schedule();
         }
       };
       retry = () => { clearTimeout(timer); void poll(); };
       const visibility = () => { if (needsPoll()) schedule(); else clearTimeout(timer); };
       const unsubscribe = transport.subscribe(conversationId, e => { if (!disposed) emit([e]); }, down => {
         if (disposed) return;
+        const recovered = !down && !healthy;
+        healthy = !down;
         failed = down; connection(down || pollFailed);
         if (needsPoll()) schedule(); else clearTimeout(timer);
+        if (recovered) { if (busy) catchUp = true; else void poll(); }
       });
       document.addEventListener('visibilitychange', visibility);
       void poll();

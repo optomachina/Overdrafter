@@ -32,3 +32,30 @@ it('does not deliver or reconnect after an in flight poll completes after dispos
   stop(); finish([event]); await vi.advanceTimersByTimeAsync(60000);
   expect(deliver).not.toHaveBeenCalled(); expect(poll).toHaveBeenCalledTimes(1);
 });
+
+it.each([false, true])('catches up exactly once on initial subscription and recovery (in-flight: %s)', async inFlight => {
+  let health: (down: boolean) => void = () => {};
+  let push: (e: GraphEvent) => void = () => {};
+  let finish: (events: GraphEvent[]) => void = () => {};
+  const poll = vi.fn().mockImplementationOnce(() => inFlight ? new Promise<GraphEvent[]>(resolve => { finish = resolve; }) : Promise.resolve([]));
+  poll.mockResolvedValue([]);
+  const deliver = vi.fn();
+  const stop = createEventSource({ poll, subscribe: (_id, e, f) => { push = e; health = f; return () => {}; } }, 'own').listen(deliver, vi.fn());
+  try {
+    if (!inFlight) await Promise.resolve();
+    poll.mockResolvedValue([event]);
+    health(false);
+    if (inFlight) finish([]);
+    await Promise.resolve(); await Promise.resolve();
+    push(event);
+    expect(deliver.mock.calls.flatMap(call => call[0])).toEqual([event]);
+    health(true);
+    const recovered = { ...event, seq: 2 };
+    poll.mockResolvedValue([event, recovered]);
+    health(false);
+    await Promise.resolve(); await Promise.resolve();
+    push(recovered); health(false);
+    expect(deliver.mock.calls.flatMap(call => call[0])).toEqual([event, recovered]);
+    expect(poll).toHaveBeenCalledTimes(3);
+  } finally { stop(); }
+});

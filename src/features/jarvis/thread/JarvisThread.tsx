@@ -6,15 +6,25 @@ import { ModelView } from './ModelView';
 import { ThreadDialog } from './ThreadDialog';
 import './thread.css';
 
+function createKey(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function safeArtifactUrl(uri: string): boolean {
+  try { return ['https:', 'blob:'].includes(new URL(uri, 'https://relative.invalid').protocol); }
+  catch { return false; }
+}
+
 function Decision({ event, resolved, client, offline }: { event: GraphDecisionRequestedEvent; resolved?: GraphDecisionResolvedEvent; client: ThreadClient; offline: boolean }) {
   const [selected, select] = useState(event.recommended);
   const [pending, setPending] = useState(false), [error, setError] = useState('');
-  const locked = useRef(false), key = useRef(crypto.randomUUID());
+  const locked = useRef(false), key = useRef<string | null>(null);
   const send = async (skip: boolean) => {
     if (locked.current) return;
     locked.current = true; setPending(true); setError('');
     try {
-      const response = await client.resolve(event.runId, event.decisionId, { resolution: skip ? 'skipped_best_guess' : 'chosen', choice: skip ? undefined : selected, idempotencyKey: key.current });
+      const response = await client.resolve(event.runId, event.decisionId, { resolution: skip ? 'skipped_best_guess' : 'chosen', choice: skip ? undefined : selected, idempotencyKey: key.current ?? (key.current = createKey()) });
       if (response.status >= 400) throw new Error(response.status === 403 ? '403 · This decision could not be resolved.' : 'The decision could not be saved.');
     } catch (e) { setError(e instanceof Error ? e.message : 'The decision could not be saved.'); locked.current = false; setPending(false); }
   };
@@ -28,7 +38,7 @@ function Decision({ event, resolved, client, offline }: { event: GraphDecisionRe
         if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
         e.preventDefault(); const next = e.key === 'Home' ? 0 : e.key === 'End' ? event.options.length - 1 : (i + (['ArrowDown', 'ArrowRight'].includes(e.key) ? 1 : -1) + event.options.length) % event.options.length;
         select(event.options[next]); (e.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
-      }}>{selected === option ? '●' : '○'} {option}</button>)}</div>
+      }}><span aria-hidden="true">{selected === option ? '●' : '○'}</span> {option}</button>)}</div>
       <p id={`skip-${event.seq}`}>If you skip, Jarvis uses its best guess, {event.bestGuess}, records it in the design history, and keeps going. You can change it later.</p>
       <div className="jt-actions">
         <button className="jt-primary" disabled={pending || offline} onClick={() => void send(false)}>APPROVE {selected}</button>
@@ -56,19 +66,19 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const resolutions = events.filter(e => e.type === 'decision_resolved');
   const pending = decisions.some(d => !resolutions.some(r => r.decisionId === d.decisionId));
   const control = events.filter(e => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected').at(-1);
-  useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; setCommand(''); } }, [control]);
+  useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; keys.current.delete(control.kind); setCommand(''); } }, [control]);
   const applied = control?.type === 'control_applied' ? control : undefined;
   const result = events.find(e => e.type === 'result');
   const failure = events.find(e => e.type === 'error');
-  const artifacts = events.filter(e => e.type === 'artifact');
-  const refs = applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts;
+  const artifacts = events.filter(e => e.type === 'artifact').filter(a => safeArtifactUrl(a.uri));
+  const refs = (applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts).filter(a => safeArtifactUrl(a.uri));
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), glb = refs.find(a => a.kind === 'glb'), step = refs.find(a => a.kind === 'step');
   const working = artifacts.length ? workingName : !pending && !failure && status?.nodeId === 'domain_agent' ? `${workingName}${offline ? '' : ' (in progress)'}` : 'none';
   const state = applied?.state ?? (control?.type === 'control_requested' ? control.kind === 'pause' ? 'Pausing' : 'Cancelling' : command);
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
     inFlight.current = true; setCommand(kind === 'pause' ? 'Pausing' : 'Cancelling'); setError('');
-    const key = keys.current.get(kind) ?? crypto.randomUUID(); keys.current.set(kind, key);
+    const key = keys.current.get(kind) ?? createKey(); keys.current.set(kind, key);
     try { const response = await client.control(runId, { kind, idempotencyKey: key }); if (response.status >= 400) throw new Error('Control request failed.'); }
     catch { inFlight.current = false; setCommand(''); setError('Control request failed. Try again.'); }
   };
@@ -77,7 +87,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       <h1>Jarvis</h1>
     </header>
     <div className="jt-state" aria-label="Baseline and design state">{offline && 'Offline · '}Working {working} · Committed none{offline && <button onClick={() => source.retry()}>RETRY</button>}</div>
-    <div className="jt-log" aria-live="polite">{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
+    <p aria-live="polite" className="sr-only">{status && `${({ concept_picks: 'Concept picks', domain_agent: 'CAD model', verify: 'Independent check' } as Record<string, string>)[status.nodeId] ?? status.nodeId} · ${pending ? 'WAITS FOR YOU' : state || status.state}`}</p>
+    <div className="jt-log">{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map((node, i) => <li key={node}>
         <span>{['Concept picks', 'CAD model', 'Independent check'][i]}</span>
         <span>{node === 'domain_agent' && pending ? 'WAITS FOR YOU' : status?.nodeId === node ? `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s` : events.some(e => e.type === 'status' && e.nodeId === node && e.state === 'completed') ? 'DONE' : 'WAITING'}</span>

@@ -16,7 +16,7 @@ function setup() {
   render(<JarvisThread source={source} client={client} runId="run" />);
   return { client, send: (...events: GraphEvent[]) => act(() => push(events)) };
 }
-const artifact = (seq: number, kind: 'png' | 'glb' | 'step'): GraphEvent => ({ ...base, seq, type: 'artifact', agentId: 'cad', kind, name: kind, mimeType: '', uri: `/${kind}`, dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } });
+const artifact = (seq: number, kind: 'png' | 'glb' | 'step'): Extract<GraphEvent, { type: 'artifact' }> => ({ ...base, seq, type: 'artifact', agentId: 'cad', kind, name: kind, mimeType: '', uri: `/${kind}`, dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } });
 
 describe('web thread', () => {
   it('T1 renders status, decision, then result pictures and 3D action', () => {
@@ -40,8 +40,8 @@ describe('web thread', () => {
   });
   it('T3 Choose submits once with radio arrow selection', () => {
     const s = setup(); s.send(decision);
-    fireEvent.keyDown(screen.getByRole('radio', { name: '○ Thick' }), { key: 'ArrowLeft' });
-    fireEvent.keyDown(screen.getByRole('radio', { name: '● Thin' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Thick' }), { key: 'ArrowLeft' });
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Thin' }), { key: 'ArrowRight' });
     const approve = screen.getByRole('button', { name: 'APPROVE Thick' }); fireEvent.click(approve); fireEvent.click(approve);
     expect(s.client.resolve).toHaveBeenCalledTimes(1); expect(s.client.resolve).toHaveBeenCalledWith('run', 'd', expect.objectContaining({ resolution: 'chosen', choice: 'Thick' }));
   });
@@ -49,7 +49,7 @@ describe('web thread', () => {
     const s = setup(); s.client.resolve.mockResolvedValue({ status: 403 }); s.send(decision);
     fireEvent.click(screen.getByRole('button', { name: 'SKIP' }));
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', '403 · This decision could not be resolved.');
-    expect(screen.getByRole('radio', { name: '● Thin' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('radio', { name: 'Thin' }).getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByText(/Best guess recorded/)).toBeNull(); expect(screen.getByRole('button', { name: 'SKIP' }).hasAttribute('disabled')).toBe(false);
   });
   it('T7 pause is submitted once and remains pausing until checkpoint', () => {
@@ -63,6 +63,7 @@ describe('web thread', () => {
   it('T7 and T8 cancel confirms once and lists exactly the kept artifacts', () => {
     const s = setup(); s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' }, artifact(2, 'glb'));
     fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'KEEP COOKING' }));
     const cancel = screen.getByRole('button', { name: 'CANCEL REQUEST' }); fireEvent.click(cancel); fireEvent.click(cancel);
     expect(s.client.control).toHaveBeenCalledTimes(1); expect(s.client.control).toHaveBeenCalledWith('run', { kind: 'cancel', idempotencyKey: expect.any(String) });
     s.send({ ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [{ kind: 'step', uri: '/kept.step' }] });
@@ -114,4 +115,59 @@ it('viewer loads and supports button alternatives for orbit and zoom', () => {
   fireEvent.click(screen.getByRole('button', { name: 'ROTATE' })); expect(model.cameraOrbit).toBe(`${Math.PI / 4}rad 1rad 2m`);
   fireEvent.click(screen.getByRole('button', { name: 'ZOOM IN' })); expect(model.fieldOfView).toBe('24deg');
   fireEvent.click(screen.getByRole('button', { name: 'FIT' })); expect(model.cameraOrbit).toBe('auto auto auto');
+});
+
+it('announces only stage and state while the elapsed timer advances', () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(11000);
+    const s = setup();
+    s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
+    const live = document.querySelector('[aria-live="polite"]')!;
+    expect(document.querySelector('.jt-log')?.hasAttribute('aria-live')).toBe(false);
+    expect(live.textContent).toBe('CAD model · started');
+    expect(screen.getByText('WORKING · 10s')).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText('WORKING · 11s')).toBeTruthy();
+    expect(live.textContent).toBe('CAD model · started');
+    s.send({ ...base, seq: 2, nodeId: 'verify', type: 'status', state: 'started', message: 'Checking' });
+    expect(live.textContent).toBe('Independent check · started');
+  } finally { vi.useRealTimers(); }
+});
+
+it.each(['control_applied', 'control_rejected'] as const)('renews cancel keys after %s, with insecure-origin crypto fallback', type => {
+  const uuid = vi.spyOn(crypto, 'randomUUID').mockImplementation(() => { throw new Error('unexpected UUID call'); });
+  Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined });
+  try {
+    const s = setup();
+    s.send({ ...base, seq: 1, type: 'status', state: 'started', message: 'Making plate' });
+    const cancel = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'CANCEL' }));
+      fireEvent.click(screen.getByRole('button', { name: 'CANCEL REQUEST' }));
+    };
+    cancel();
+    s.send(type === 'control_applied'
+      ? { ...base, seq: 2, type, kind: 'cancel', commandId: 'c', checkpoint: 'agent', state: 'cancelled', kept: [] }
+      : { ...base, seq: 2, type, kind: 'cancel', commandId: 'c', reason: 'terminal' });
+    // A subsequent server status/request permits another cancel command.
+    s.send({ ...base, seq: 3, type: 'control_requested', kind: 'pause', commandId: 'next', actorId: 'owner', idempotencyKey: 'remote' });
+    cancel();
+    const keys = s.client.control.mock.calls.map(call => call[1].idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[a-f0-9]{32}$/);
+    expect(keys[1]).not.toBe(keys[0]);
+  } finally { uuid.mockRestore(); }
+});
+
+it('drops unsafe event, result and kept artifact URLs', () => {
+  const s = setup();
+  s.send({ ...artifact(1, 'png'), uri: 'javascript:alert(1)' }, {
+    ...base, seq: 2, type: 'result', nodeId: 'result', agentId: 'cad', summary: 'Ready', picks: {},
+    artifacts: [{ kind: 'step', uri: 'javascript:alert(1)' }, { kind: 'png', uri: 'data:image/png,bad' }, { kind: 'glb', uri: 'https://example.com/model.glb' }],
+  });
+  expect(screen.queryByRole('img')).toBeNull();
+  expect(screen.queryByRole('link', { name: 'DOWNLOAD STEP' })).toBeNull();
+  expect(screen.getByRole('link').getAttribute('href')).toBe('https://example.com/model.glb');
+  s.send({ ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [{ kind: 'step', uri: 'javascript:alert(1)' }] });
+  expect(screen.queryByRole('link')).toBeNull();
 });
