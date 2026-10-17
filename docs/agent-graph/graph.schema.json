@@ -186,6 +186,66 @@
               "type": "string"
             }
           }
+        },
+        "usage_balancer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "balancer",
+            "rules"
+          ],
+          "properties": {
+            "note": {
+              "type": "string"
+            },
+            "balancer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "repo",
+                "script"
+              ],
+              "properties": {
+                "repo": {
+                  "type": "string"
+                },
+                "script": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "rule"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "rule": {
+                    "type": "string"
+                  },
+                  "overrides": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

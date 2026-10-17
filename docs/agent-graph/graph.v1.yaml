@@ -243,6 +243,51 @@
     "priority": {
       "issue": "OVD-845",
       "note": "auto-merge eligibility"
+    },
+    "usage_balancer": {
+      "note": "Pool selection and Jev-first screening (Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate.",
+      "balancer": {
+        "repo": "optomachina/pstack-project-template",
+        "script": "scripts/usage-balancer/usage-balancer.mjs",
+        "args": [
+          "--source",
+          "claude=web",
+          "--source",
+          "codex=oauth",
+          "--jev-log",
+          "~/.local/state/usage-balancer/jev-calls.jsonl",
+          "--jev-probe"
+        ]
+      },
+      "rules": [
+        {
+          "id": "jev-first",
+          "rule": "Jev goes first for screening, triage, risk and review screens, and scoring. Jev only decides; it never writes code or text. Log every call, and fall back to the reviewer when Jev is throttled, failing or low-confidence."
+        },
+        {
+          "id": "build-furthest-behind-pace",
+          "rule": "New builds go to the build-mode pool furthest behind pace."
+        },
+        {
+          "id": "burn-before-reset",
+          "rule": "A pool within 24h of its reset with budget left gets backlog work that is okay to burn."
+        },
+        {
+          "id": "weekly-review-only",
+          "rule": "At >=90% of the weekly budget the pool is review only. This overrides burn-before-reset.",
+          "overrides": [
+            "burn-before-reset"
+          ]
+        },
+        {
+          "id": "five-hour-no-builds",
+          "rule": "If the 5-hour window is >=90%, no new builds."
+        },
+        {
+          "id": "skip-no-data",
+          "rule": "Skip pools with no usage data."
+        }
+      ]
     }
   },
   "adapters": [

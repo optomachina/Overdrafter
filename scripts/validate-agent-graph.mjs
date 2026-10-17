@@ -40,6 +40,14 @@ export function validateGraph(graph, schema) {
   if (!verifiers.length || verifiers.some((n) => n.must_not_author !== true)) errors.push("every verifier must set must_not_author: true");
   const families = new Set(Object.values(graph.nodes).filter((n) => n.role === "reviewer").map((n) => n.family));
   if (families.size < 2) errors.push("reviewers must span at least two model families");
+  const rules = graph.runtime_routing?.usage_balancer?.rules ?? [];
+  const ruleIds = new Set();
+  for (const r of rules) {
+    if (ruleIds.has(r.id)) errors.push(`usage_balancer: duplicate rule id ${r.id}`);
+    ruleIds.add(r.id);
+    if (!r.rule.trim()) errors.push(`usage_balancer: rule ${r.id} has empty text`);
+  }
+  for (const r of rules) for (const o of r.overrides ?? []) if (!ruleIds.has(o)) errors.push(`usage_balancer: rule ${r.id} overrides unknown rule ${o}`);
   return errors;
 }
 
