@@ -682,6 +682,19 @@ describe("validatePrBody", () => {
       expect(passes).toEqual({ ok: true, errors: [] });
     });
 
+    it("never takes item text or evidence from an HTML comment", () => {
+      const real = buildGoLiveSection().split("\n").find((line) => line.startsWith("- [x] provider:check green"));
+      for (const replacement of [
+        "- [x] Pending\n  <!-- provider:check green. Evidence: https://github.com/optomachina/Overdrafter/pull/123\n  This claim is commented out.\n  -->",
+        "- [x] Pending <!-- provider:check green. Evidence: https://github.com/optomachina/Overdrafter/pull/123 -->",
+        "- [x] provider:check green. Evidence: <!-- https://github.com/optomachina/Overdrafter/pull/123 -->",
+        "- [x] provider:check green. Evidence: <!--\n  https://github.com/optomachina/Overdrafter/pull/123 -->",
+      ]) {
+        const result = validate(buildGoLiveSection().replace(real, replacement));
+        expect(result.ok, replacement).toBe(false);
+      }
+    });
+
     it("ignores a fake Provider go-live section inside a tilde fence", () => {
       const fake = `~~~\n## Provider go-live\n\n- [x] envelope reviewed (automatic)\n~~~`;
       const broken = buildGoLiveSection().replace("- [x] Envelope reviewed", "- [ ] Envelope reviewed");

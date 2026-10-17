@@ -501,10 +501,7 @@ function hiddenLineFlags(lines) {
       fenced.push(false);
       comment.push(true);
       uncertain.push(false);
-      const closeAt = line.indexOf("-->");
-      if (closeAt !== -1) {
-        inComment = line.lastIndexOf("<!--") > line.lastIndexOf("-->");
-      }
+      inComment = stripComments(line, true).inComment;
       continue;
     }
 
@@ -521,13 +518,35 @@ function hiddenLineFlags(lines) {
     fenced.push(false);
     comment.push(false);
     uncertain.push(false);
-    const openAt = line.lastIndexOf("<!--");
-    if (openAt !== -1 && line.indexOf("-->", openAt + 4) === -1) {
-      inComment = true;
-    }
+    inComment = stripComments(line, false).inComment;
   }
 
   return { fenced, comment, uncertain };
+}
+
+/**
+ * Remove HTML comment text from one line. `inComment` says whether the line
+ * starts inside a comment; the result says whether it ends inside one.
+ */
+function stripComments(line, inComment) {
+  let text = "";
+  let rest = line;
+  let open = inComment;
+  while (rest.length > 0) {
+    if (open) {
+      const close = rest.indexOf("-->");
+      if (close === -1) return { text, inComment: true };
+      rest = rest.slice(close + 3);
+      open = false;
+    } else {
+      const start = rest.indexOf("<!--");
+      if (start === -1) return { text: text + rest, inComment: false };
+      text += rest.slice(0, start);
+      rest = rest.slice(start + 4);
+      open = true;
+    }
+  }
+  return { text, inComment: open };
 }
 
 /** Parse checkbox lines from a section's `lines` ({ line, hidden }) entries. */
@@ -542,16 +561,20 @@ function parseCheckboxLines(sectionLines) {
       continue;
     }
 
+    // Comment text never counts: the box must be a checkbox as written, and only
+    // its text outside "<!-- ... -->" can match an item or carry evidence.
+    const visible = stripComments(line, false).text;
     const match = line.match(CHECKBOX_LINE);
     if (match) {
-      boxes.push({ checked: match[1] !== " ", text: match[2], line: line });
+      const visibleMatch = visible.match(CHECKBOX_LINE);
+      boxes.push({ checked: match[1] !== " ", text: visibleMatch ? visibleMatch[2] : "", line: visible });
       continuing = true;
       continue;
     }
 
     const last = boxes.at(-1);
     if (continuing && last && /^[ \t]+\S/.test(line)) {
-      last.text += ` ${line.trim()}`;
+      last.text += ` ${visible.trim()}`;
     }
   }
 
