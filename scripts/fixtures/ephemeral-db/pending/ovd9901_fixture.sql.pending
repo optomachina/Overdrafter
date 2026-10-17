@@ -1,0 +1,6 @@
+-- OVD-849 fixture: pgTAP for the draft scripts/fixtures/ephemeral-db/drafts/ovd-9901-fixture.sql.
+begin;
+select plan(1);
+select has_table('public', 'ephemeral_fixture_draft', 'fixture draft table exists');
+select * from finish();
+rollback;

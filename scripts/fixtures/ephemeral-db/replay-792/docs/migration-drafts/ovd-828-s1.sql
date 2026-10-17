@@ -1,0 +1,101 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-828 S1 (OVD-829): universal per-supplier settings. One row per supplier
+-- in private.provider_kill_switches now carries both the on/off switch and an
+-- optional daily quote cap, and the worker counts every dispatch durably.
+-- There is NO default cap (Blaine, 2026-10-16): the column defaults to null
+-- (unlimited) and existing rows are not backfilled. A supplier is capped only
+-- when an admin sets a positive integer.
+--
+-- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
+-- to any database outside a Blaine-approved migration window. When approved,
+-- it ships as ONE migration (next timestamp from `npm run migration:new`), and
+-- supabase/tests/pending/ovd829_provider_settings.sql.pending is renamed to
+-- supabase/tests/ovd829_provider_settings.sql in the same change.
+-- Rollback: docs/migration-drafts/ovd-828-s1.rollback.sql.
+--
+-- Requires: 20261013043100_ovd722_provider_kill_switch.sql (applied).
+--
+-- Transaction: no begin/commit of its own. The migration runner wraps it in
+-- one transaction. By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Companion changes in the same window/PR as the migration:
+--   * supabase/tests/ovd722_provider_kill_switch.sql: its pg_temp.ovd722_as
+--     helper must add 'aal': 'aal2' to the JWT claims. This draft adds the
+--     AAL2 check to api_admin_set_provider_kill_switch, so the admin calls in
+--     that suite fail without it.
+--   * supabase/tests/api_role_privilege_inventory.sql: add
+--     ('public.api_admin_set_provider_settings(public.vendor_name,boolean,integer,text,bigint)',
+--      'authenticated', 'admin-aal2', 'OVD-829').
+--
+-- Interaction with other unapplied drafts:
+--   * ovd-766-a.sql replaces api_admin_set_provider_kill_switch with the same
+--     require_verified_auth() + current_user_has_aal2() guard used here. Either
+--     order is safe: if 766-a runs after this draft, its body writes only the
+--     on/off columns and leaves daily_quote_cap untouched (its audit rows carry
+--     a null cap). Prefer running this draft last so the delegating body wins.
+--   * ovd-771.sql changes provider_kill_switch_audit.actor to text. The uuid
+--     actor inserted below assigns to text through the standard assignment
+--     cast, so either order works. Its service_role list RPC does not return
+--     the cap; the CLI keeps flipping on/off only.
+--   * ovd-678-provider-daily-quote-cap.sql (worker passes the cap in) and the
+--     v_daily_cap constant in provider-fanout-guards.sql are superseded by the
+--     database cap here. Neither is applied; rebind fan-out guards to
+--     private.provider_daily_quote_usage and the row cap before review.
+--
+-- Deploy gate (worker flag WORKER_PROVIDER_DURABLE_DISPATCH_CAP, default off):
+--   * The OVD-829 worker may merge and deploy before this migration with the
+--     flag off. Off keeps the kill switch (fail closed) and counts an
+--     admin-set cap per worker process, using the cap read through
+--     api_worker_provider_settings_state. While that RPC does not exist yet,
+--     or whenever the read fails, there is no cap (never a default). It never
+--     calls api_worker_reserve_provider_dispatch.
+--   * Turn the flag on (worker and operator tool env) AFTER this migration is
+--     applied, in the same window. With the flag on, every live dispatch
+--     reserves through api_worker_reserve_provider_dispatch. If that RPC is
+--     missing or failing, the worker re-reads the settings: a supplier with a
+--     readable positive cap is refused (provider_dispatch_counter_unavailable);
+--     otherwise there is no cap to enforce and the dispatch goes ahead
+--     uncounted. The kill switch fails closed in every case.
+--   * Rollback order is the reverse: flag off first, then the rollback file.
+--
+-- Not changed here: api_admin_set_global_kill_switch stays AAL1 until
+-- ovd-766-a.sql is applied. That draft owns the global switch's AAL2 guard;
+-- this draft deliberately touches only the per-supplier RPCs.
+--
+-- Counting: a reservation is taken immediately before the adapter launches,
+-- ahead of the generic route's inner export-control recheck, and is never
+-- refunded. A lane refused after reserving, or a reservation that commits
+-- after the worker's 2s client timeout, still counts. usedToday can therefore
+-- run slightly above real sends; it never runs below.
+--
+-- What changes:
+--   * private.provider_kill_switches.daily_quote_cap: integer, default null
+--     (unlimited), otherwise > 0. No backfill: every existing row stays null.
+--     The check constraint refuses <= 0, so a cap is only ever a positive
+--     integer an admin set.
+--   * private.provider_kill_switch_audit gains daily_quote_cap and
+--     previous_daily_quote_cap (both null on global rows and on rows written
+--     before this migration).
+--   * private.provider_daily_quote_usage: durable per supplier, per UTC day
+--     dispatch counter. Shared by every worker and survives restarts.
+--   * public.api_worker_reserve_provider_dispatch (service_role): atomic
+--     check and increment. Kill switch beats cap.
+--   * public.api_worker_provider_settings_state (service_role): read only.
+--   * public.api_admin_set_provider_settings (authenticated, admin + AAL2).
+--   * api_admin_set_provider_kill_switch: CREATE OR REPLACE, adds
+--     require_verified_auth() and the AAL2 check, delegates to the shared
+--     private writer and preserves the cap under the row lock.
+--   * api_admin_list_provider_kill_switches: CREATE OR REPLACE, returns
+--     dailyQuoteCap and usedToday per provider. Same schema tag; the client
+--     treats the new keys as optional.
+-- =====================================================================
+
+-- =====================================================================
+-- Settings columns
+-- =====================================================================
+-- No default and no backfill: null is unlimited.
+-- [header-only snapshot of docs/migration-drafts/ovd-828-s1.sql at d2b7981b (#792); body omitted]
+select 1;

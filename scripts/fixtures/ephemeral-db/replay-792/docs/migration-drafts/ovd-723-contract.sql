@@ -1,0 +1,39 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-723 CONTRACT migration (window 2, about Nov 9; before any provider
+-- goes live for beta users). Requires the EXPAND migration (ovd-723.sql) and
+-- a deployed web client that uses the declaring upload overloads and a
+-- deployed worker that calls api_check_export_control_dispatch.
+--
+-- This file is a DRAFT. It is not under supabase/migrations/. Rollback:
+-- ovd-723-contract.rollback.sql (guarded; refuses unless the OVD-723
+-- wrappers are the outermost preflights).
+--
+-- After this migration the server side block is complete, for any client
+-- and any worker:
+--   C.1-C.3 the legacy 6- and 8-argument upload RPCs refuse
+--           (export_declaration_missing); their bodies move to private cores
+--           that only the declaring overloads reach;
+--   C.4     both provider preflights are wrapped by the export gate;
+--   C.5     the old job-files Storage INSERT policy is dropped, so only the
+--           grant policy added by the expand migration remains;
+--   C.6     client manual quote requests (api_request_manual_quote, and
+--           api_request_manual_quotes through it) are refused for a held
+--           part, so held files never reach the admin manual quote inbox.
+--
+-- Promote together with: the contract pgTAP suite
+-- (ovd723_export_control_contract.sql.pending, renamed into supabase/tests/),
+-- and the free_confirmed_quote_access seed in
+-- ovd-723-contract-free-confirmed-seed.patch, which needs the expanded fixture
+-- regenerated (node scripts/generate-free-quote-fixtures.mjs) and its pin in
+-- scripts/fixtures/free-quote-ci-source.json refreshed. Without the seed that
+-- suite's one authorized dispatch is refused by the wrapped preflight.
+--
+-- Every statement here changes an existing object, so none of it can be
+-- expand. C.5 takes ACCESS EXCLUSIVE on storage.objects; the lock timeout
+-- makes the migration fail fast and roll back whole. On a timeout, rerun at
+-- lower traffic.
+
+-- [header-only snapshot of docs/migration-drafts/ovd-723-contract.sql at d2b7981b (#792); body omitted]
+select 1;

@@ -1,0 +1,32 @@
+-- OVD-831: agent-caller API keys (table, RLS, RPCs, audit, rate limits).
+--
+-- Targets the draft docs/migration-drafts/ovd-831-agent-api-keys.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. .github/workflows/ovd831-pending-pgtap.yml runs it against a
+-- throwaway database with the draft applied. In the approved window, the draft
+-- is promoted and this file is renamed to
+-- supabase/tests/ovd831_agent_api_keys.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers the OVD-831 hardening checklist:
+--   K-1  shape: RLS on; audit and rate-limit tables RLS forced, no API grant
+--   K-2  anon denied on the table and every RPC
+--   K-3  key_hash is not selectable by any client role (column grant)
+--   K-4  cross-org isolation: org B sees none of org A's keys
+--   K-5  no client INSERT/UPDATE/DELETE; one SELECT policy
+--   K-6  RPC grants: user/admin RPCs to authenticated only, service RPCs to
+--        service_role only; SECURITY DEFINER with search_path ''
+--   K-7  create needs AAL2 + org membership; default scope quotes:read,
+--        default expiry 90 days, max 1 year; no admin scope; plaintext returned
+--        once in ovd_<16 hex>_<43 base64url> form, stored only as sha256
+--   K-8  revoke needs AAL2 and creator/org admin; idempotent; immediate
+--   K-9  admin RPCs need AAL2 AND platform admin
+--   K-10 service admit: revoked / expired / creator removed refused;
+--        per-key and per-org rate limits; last_used_at stamped
+--   K-11 audit rows for create / revoke / use with key id + endpoint +
+--        result and no key material; append-only
+-- DM-1R (rollback returns the exact pre-draft schema) is checked outside
+-- pgTAP by the workflow and the fixture: pg_dump --schema-only diff is empty.
+-- [header-only snapshot of supabase/tests/pending/ovd831_agent_api_keys.sql.pending at d2b7981b (#792); body omitted]
+select 1;

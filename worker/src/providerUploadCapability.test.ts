@@ -3,6 +3,7 @@ import {
   decideProviderUploadCapability,
   normalizeProviderUploadExtensions,
   normalizeProviderUploadMimeTypes,
+  uploadCapabilityAllowsStagedExtensions,
 } from "./providerUploadCapability.js";
 
 const envelope = {
@@ -382,5 +383,50 @@ describe("provider upload capability contract", () => {
 
   it("returns only exact public issue references and omits internal evidence payloads", () => {
     expect(decide({ observed: { ...observed, evidenceRefs: ["issue:OVD-387", "policy:OVD-373", "release:xometry-controlled-beta-2026-08-17.v1", "surface:account_quote_modal", "sha256:0123456789abcdef0123456789abcdef", "token:secret"] } })).toMatchObject({ evidenceRefs: ["issue:OVD-387"], normalizedObservedMimeTypes: ["model/step"] });
+  });
+});
+
+describe("uploadCapabilityAllowsStagedExtensions (OVD-863)", () => {
+  const withObserved = (extensions: string[]) => decide({ observed: { ...observed, extensions } });
+
+  it("allows staged STEP/STP within admission ∩ live accept list when Xometry adds a format", () => {
+    const decision = withObserved(["step", "stp", "sldprt"]);
+    expect(decision.classification).toBe("format_added");
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".step"])).toEqual({ allowed: true, drift: true });
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".STP", "Step"])).toEqual({ allowed: true, drift: true });
+  });
+
+  it("allows matches_policy without drift and compares case-insensitively", () => {
+    expect(uploadCapabilityAllowsStagedExtensions(withObserved(["step", "stp"]), [".STP"])).toEqual({ allowed: true, drift: false });
+  });
+
+  it("denies on format_removed only when a staged extension left the live list", () => {
+    const decision = withObserved(["stp"]);
+    expect(decision.classification).toBe("format_removed");
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".step"])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".stp"])).toEqual({ allowed: true, drift: true });
+  });
+
+  it("denies staged extensions outside admission even when the live list advertises them", () => {
+    const decision = withObserved(["step", "stp", "sldprt"]);
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".sldprt"])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [".step", ".sldprt"])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+  });
+
+  it("denies an empty, missing, or extension-free live accept list", () => {
+    expect(uploadCapabilityAllowsStagedExtensions(withObserved([]), [".step"])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+    expect(uploadCapabilityAllowsStagedExtensions(decide({ observed: { ...observed, acceptAttributePresent: false } }), [".step"]))
+      .toEqual({ allowed: false, reason: "accept_missing" });
+    expect(uploadCapabilityAllowsStagedExtensions(decide({ observed: { ...observed, extensions: undefined } }), [".step"]))
+      .toEqual({ allowed: false, reason: "ambiguous_input" });
+  });
+
+  it("denies no staged files, unsafe extensions, other classifications, and malformed decisions", () => {
+    const decision = withObserved(["step", "stp"]);
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+    expect(uploadCapabilityAllowsStagedExtensions(decision, [""])).toEqual({ allowed: false, reason: "extension_not_allowed" });
+    expect(uploadCapabilityAllowsStagedExtensions({ ...decision, classification: "observation_stale" }, [".step"]))
+      .toEqual({ allowed: false, reason: "observation_stale" });
+    expect(uploadCapabilityAllowsStagedExtensions(undefined, [".step"])).toEqual({ allowed: false, reason: "decision_malformed" });
   });
 });
