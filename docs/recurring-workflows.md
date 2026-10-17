@@ -173,9 +173,15 @@ post-merge work.
 The drafted merge queue for `main` (required checks, settings, re-run policy,
 rollback, and the rule that every required check triggers on `merge_group`)
 lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
-needs an organization-owned repo, so the runbook also drafts the applicable
-fallback (`strict: true` up to date checks). Neither is applied until Blaine
-approves it, and the `land` skill must be updated in the same change.
+needs an organization-owned repo, so it is not applied. The runbook also covers
+the applicable fallback, Option B (`strict: true` up to date checks), which
+Blaine approved on 2026-10-16 together with `enforce_admins`. Both are now in
+force (confirmed by a protection read-back on 2026-10-16), so an out-of-date PR
+cannot merge until it is brought current. The read-only command in the
+runbook's Status paragraph re-verifies the live settings. The `land` skill does
+not handle strict mode yet (tracked in OVD-889); until it does, bring an
+out-of-date PR current with `gh pr update-branch` and re-check it by hand
+before `gh pr merge --match-head-commit`.
 
 ### Release bot merge plan and decision log
 
