@@ -129,17 +129,21 @@ it('updates behind main, ignores stale checks, waits for the merge head', async 
   expect(calls.filter(a => a[0] === 'api' && !a.includes('PUT') && !a[1].includes('/protection/')).every(a => a[1].includes(`/commits/${U}/`))).toBe(true);
 });
 it('stops without merging when the update changes the diff', async () => {
-  git('checkout', '-q', '-b', 'pr-diff', B);
-  const H2 = commit('shared', 'base\npr-line\n');
-  git('checkout', '-q', '-b', 'main-diff', B);
-  const M2 = commit('shared', 'main-line\nbase\n');
+  // Both sides edit `base` in different regions, so the merge is clean and the
+  // blob pair in the reviewable diff still changes.
+  git('checkout', '-q', '-b', 'fork', B);
+  const fork = commit('base', 'line1\nline2\nline3\nline4\nline5\nline6\nline7\n');
+  git('checkout', '-q', '-b', 'pr-diff');
+  const H2 = commit('base', 'line1\nline2\nline3\nPR\nline4\nline5\nline6\nline7\n');
+  git('checkout', '-q', '-b', 'main-diff', fork);
+  const M2 = commit('base', 'MAIN\nline1\nline2\nline3\nline4\nline5\nline6\nline7\n');
   git('checkout', '-q', 'pr-diff');
-  git('merge', '-q', '--no-ff', '-m', 'update', M2);
+  git('merge', '-q', '--no-ff', '-m', 'update', 'main-diff');
   const U2 = git('rev-parse', 'HEAD');
   git('push', '-q', 'origin', 'pr-diff');
   git('push', '-q', '--force', 'origin', 'main-diff:main');
   git('push', '-q', 'origin', `${U2}:refs/heads/update-diff`);
-  expect(reviewDiffId(B, H2)).not.toBe(reviewDiffId(M2, U2));
+  expect(reviewDiffId(fork, H2)).not.toBe(reviewDiffId(M2, U2));
   const calls = await run(scenario([pr(H2, 'BEHIND'), pr(U2)]), 10, 're-run land when checks pass');
   expect(calls.output).toContain(`updated ${H2} -> ${U2} but the diff changed`);
   expect(calls.output).toContain('diff changed');
