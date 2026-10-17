@@ -20,9 +20,8 @@ Use this checklist with the **Provider go-live** section in
 - The envelope review item is automatic, signed "Grok Bot under Blaine Wilson
   standing authority". It is no longer a manual blocker.
 - One item, **Per-supplier on/off switch in the admin dashboard**, replaces the
-  rollback/disable rehearsal, the per provider kill switch rehearsal, the
-  and same-day turn-off items. It is satisfied
-  by dependency on OVD-829, a separate PR that builds the switch and an
+  rollback/disable rehearsal, the per provider kill switch rehearsal, and the
+  same-day turn-off items. It is satisfied by dependency on OVD-829, a separate PR that builds the switch and an
   optional admin daily quote cap (default unlimited) for every supplier.
 - The no stored customer passwords item stays, decoupled from one-click
   revoke: only encrypted session tokens are stored.
@@ -31,8 +30,7 @@ Use this checklist with the **Provider go-live** section in
 ## Decision record (Blaine Wilson, October 16, 2026): daily quote cap
 
 - There is no default daily quote cap anywhere. The former about 20 quotes per
-  provider per day item is removed, and no adapter carries its own cap (the OSH
-  Cut worker cap and `WORKER_OSHCUT_DAILY_QUOTE_CAP` are gone).
+  provider per day item is removed, and no adapter carries its own cap.
 - Caps are optional per-supplier admin settings (default unlimited), delivered
   only by the OVD-829 shared settings gate (PR #792). The cap is folded into the
   per-supplier switch item below.
