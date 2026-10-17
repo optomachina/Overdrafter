@@ -15,7 +15,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const script = fileURLToPath(new URL('../.codex/skills/land/land_strict_merge.sh', import.meta.url));
-let template, root, cwd, B, H, M, U, R, X, W;
+// The script must set these itself; never inherit them from the test runner.
+delete process.env.GIT_HTTP_LOW_SPEED_LIMIT; delete process.env.GIT_HTTP_LOW_SPEED_TIME;
+const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+let template, root, cwd, B, H, M, U, R, X, W, S;
 function git(...args) {
   const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { cwd, encoding: 'utf8' });
   if (r.status !== 0) throw Error(r.stderr);
@@ -41,6 +44,8 @@ beforeAll(() => {
   git('checkout', '-qb', 'pr'); H = commit('feature', 'feature');
   git('checkout', '-q', 'main'); M = commit('main', 'main'); git('push', '-q', 'origin', 'main');
   git('checkout', '-q', 'pr'); git('merge', '-q', '--no-ff', '-m', 'update', M); U = git('rev-parse', 'HEAD');
+  S = git('commit-tree', `${U}^{tree}`, '-p', M, '-m', 'squash');
+  git('push', '-q', 'origin', `${S}:refs/heads/squash`);
   git('branch', 'update', U); git('checkout', '-qb', 'replayed', M); R = commit('feature', 'feature');
   git('checkout', '-qb', 'other', H); X = commit('other', 'other');
   git('checkout', '-qb', 'wrongparent', X); git('merge', '-q', '--no-ff', '-m', 'wrong parent', M); W = git('rev-parse', 'HEAD');
@@ -53,13 +58,14 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.LAND_STUB_LOG, JSON.stringify(args)+'\\n');
 const scenario = JSON.parse(fs.readFileSync(process.env.LAND_STUB_SCENARIO));
-let kind = args[0]==='pr' && args[1]==='view' ? 'pr-view' : args[0]==='pr' && args[1]==='merge' ? 'merge' : args.includes('PUT') ? 'update-branch' : args.join(' ').includes('check_name=') ? 'check-runs:'+args.join(' ').match(/check_name=([^&]+)/)[1] : 'unknown';
+let kind = args[0]==='pr' && args[1]==='view' ? 'pr-view' : args[0]==='pr' && args[1]==='merge' ? 'merge' : args.includes('PUT') ? 'update-branch' : args.join(' ').includes('/protection/required_status_checks') ? 'protection' : args.join(' ').includes('/statuses') ? 'statuses' : args.join(' ').includes('check_name=') ? 'check-runs:'+args.join(' ').match(/check_name=([^&]+)/)[1] : 'unknown';
 const path = process.env.LAND_STUB_LOG+'.counts';
 const counts = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path)) : {};
 const responses = scenario[kind];
 if (!responses) process.exit(99);
 const r = responses[Math.min(counts[kind] || 0, responses.length-1)];
 counts[kind]=(counts[kind]||0)+1; fs.writeFileSync(path,JSON.stringify(counts));
+if (r.sleep) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, r.sleep * 1000);
 process.stdout.write(typeof r.stdout==='object'?JSON.stringify(r.stdout):r.stdout||'');
 process.stderr.write(r.stderr||''); process.exit(r.code||0);
 `, { mode: 0o755 });
@@ -72,10 +78,10 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 const response = stdout => ({ stdout });
-const pr = (head = U, mergeStateStatus = 'CLEAN', state = 'OPEN') => response({ state, isDraft: false, mergeStateStatus, headRefOid: head, baseRefName: 'main', mergeCommit: { oid: M } });
+const pr = (head = U, mergeStateStatus = 'CLEAN', state = 'OPEN') => response({ state, isDraft: false, mergeStateStatus, headRefOid: head, baseRefName: 'main', mergeCommit: { oid: S } });
 const runs = (name, head = U, status = 'completed', conclusion = 'success', app = 15368) => response({ total_count: 1, check_runs: [{ name, head_sha: head, status, conclusion, app: { id: app } }] });
 function scenario(views = [pr(), pr(), pr(), pr(U, 'CLEAN', 'MERGED')]) {
-  return { 'pr-view': views, 'check-runs:ci': [runs('ci')], 'check-runs:provider-go-live': [runs('provider-go-live')], merge: [response('')], 'update-branch': [response('')] };
+  return { protection: [response({ checks: [{ context: 'ci', app_id: 15368 }, { context: 'provider-go-live', app_id: 15368 }] })], statuses: [response([])], 'pr-view': views, 'check-runs:ci': [runs('ci')], 'check-runs:provider-go-live': [runs('provider-go-live')], merge: [response('')], 'update-branch': [response('')] };
 }
 function runScript(args, env) {
   return new Promise((resolve, reject) => {
@@ -93,7 +99,8 @@ async function run(s, code, message, args = ['7'], env = {}) {
   expect(r.status, r.stderr).toBe(code); expect(r.stderr + r.stdout).toContain(message);
   const calls = existsSync(join(root, 'log')) ? readFileSync(join(root, 'log'), 'utf8').trim().split('\n').map(JSON.parse) : [];
   expect(calls.every(a => ['pr', 'api'].includes(a[0]))).toBe(true);
-  if (code !== 0 && !message.includes('differs from the verified head') && !message.includes('merge refused') && !message.includes('merge not verified')) expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+  if (code !== 0 && code !== 9 && code !== 8 && !message.includes('differs from the verified head') && !message.includes('merge refused') && !message.includes('merge not verified')) expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+  Object.defineProperty(calls, 'output', { value: r.stderr + r.stdout });
   return calls;
 }
 function expectMerge(calls, pin) {
@@ -102,13 +109,15 @@ function expectMerge(calls, pin) {
 it('merges an up to date head pinned exactly', async () => {
   const calls = await run(scenario(), 0, 'merged and verified'); expectMerge(calls, U);
   expect(calls.some(a => a.includes('PUT'))).toBe(false);
+  expect(calls.output).toContain('update chain: none');
 });
 it('updates behind main, ignores stale checks, waits for the merge head', async () => {
   const s = scenario([pr(H, 'BEHIND'), pr(H), pr(U), pr(U), pr(U), pr(U, 'CLEAN', 'MERGED')]);
   s['check-runs:ci'][0].stdout.check_runs.push(runs('ci', H, 'completed', 'failure').stdout.check_runs[0]);
   const calls = await run(s, 0, 'new pinned head'); expectMerge(calls, U);
   expect(calls.filter(a => a.includes('PUT'))).toEqual([['api', '-X', 'PUT', 'repos/{owner}/{repo}/pulls/7/update-branch', '-f', `expected_head_sha=${H}`]]);
-  expect(calls.filter(a => a[0] === 'api' && !a.includes('PUT')).every(a => a[1].includes(`/commits/${U}/`))).toBe(true);
+  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U} (origin/main ${M}, second parent ${M})`);
+  expect(calls.filter(a => a[0] === 'api' && !a.includes('PUT') && !a[1].includes('/protection/')).every(a => a[1].includes(`/commits/${U}/`))).toBe(true);
 });
 it('rejects head movement during checks at the first poll', async () => {
   const s = scenario([pr(), pr(X)]);
@@ -151,6 +160,7 @@ it('caps update rounds when the base keeps moving', async () => {
   git('checkout', '-q', 'main'); commit('main2', 'main2'); git('push', '-q', 'origin', 'main');
   const s = scenario([pr(H, 'BEHIND'), pr(U), pr(U), pr(U, 'BEHIND')]);
   const calls = await run(s, 7, 'update rounds used', ['7'], { LAND_MAX_UPDATES: '1' }); expect(calls.filter(a => a.includes('PUT'))).toHaveLength(1);
+  expect(calls.output).toContain('update round 1/1:');
 });
 it('fails closed on unreadable PR', async () => await run(scenario([{ code: 1 }]), 5, 'PR unreadable'));
 it.each([[], ['abc'], ['07'], ['1;rm']])('rejects usage %j without gh', async (...args) => {
@@ -205,7 +215,8 @@ it('rejects a draft PR before calling anything mutating', async () => {
 });
 it('rejects a PR whose base is not main', async () => {
   const other = pr(); other.stdout.baseRefName = 'release';
-  await run(scenario([other]), 2, "expected 'main'");
+  const calls = await run(scenario([other]), 2, "expected 'main'");
+  expect(calls.filter(a => a[1] !== 'view')).toEqual([]);
 });
 it('rejects an unknown merge state', async () => await run(scenario([pr(U, 'SOMETHING_NEW')]), 5, 'unknown merge state'));
 it('rejects an update merge whose first parent is not the pinned head', async () => {
@@ -219,6 +230,7 @@ it('queries check runs bound to the pinned SHA, by name, latest only', async () 
   const calls = await run(scenario(), 0, 'merged and verified');
   const api = calls.filter(a => a[0] === 'api');
   expect(api).toEqual([
+    ['api', 'repos/{owner}/{repo}/branches/main/protection/required_status_checks'],
     ['api', `repos/{owner}/{repo}/commits/${U}/check-runs?check_name=ci&filter=latest&per_page=100`],
     ['api', `repos/{owner}/{repo}/commits/${U}/check-runs?check_name=provider-go-live&filter=latest&per_page=100`],
   ]);
@@ -226,4 +238,134 @@ it('queries check runs bound to the pinned SHA, by name, latest only', async () 
 it('rejects a head change in the pre-merge re-read', async () => {
   // pin, check-poll read, then the pre-merge read shows another head.
   await run(scenario([pr(), pr(), pr(X)]), 5, 'head changed');
+});
+
+it.each(['0', 'abc'])('rejects invalid overall deadline %s', async value => {
+  await run({}, 2, 'invalid numeric configuration', ['7'], { LAND_DEADLINE: value });
+});
+it('enforces the overall deadline across pending polls', async () => {
+  const s = scenario([pr()]); s['check-runs:ci'] = [runs('ci', U, 'in_progress')];
+  const start = Date.now();
+  const calls = await run(s, 8, 'deadline', ['7'], { LAND_SLEEP: 'sleep', LAND_POLL_INTERVAL: '1', LAND_CHECK_POLLS: '1000', LAND_DEADLINE: '2' });
+  expect(Date.now() - start).toBeLessThan(10000);
+  expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+});
+it('bounds a hung gh without coreutils timeout', async () => {
+  expect(readFileSync(script, 'utf8')).not.toMatch(/\btimeout\s+["$]/);
+  const s = scenario([{ sleep: 30, ...pr() }]); const start = Date.now();
+  await run(s, 8, 'deadline', ['7'], { LAND_DEADLINE: '2' });
+  expect(Date.now() - start).toBeLessThan(10000);
+});
+it('bounds hung git fetch and exports low speed limits', async () => {
+  writeFileSync(join(root, 'git'), `#!/bin/bash
+if [ "$1" = fetch ]; then
+  printf '%s/%s' "$GIT_HTTP_LOW_SPEED_LIMIT" "$GIT_HTTP_LOW_SPEED_TIME" > "${root}/fetch-env"
+  sleep 30
+else
+  exec '${realGit}' "$@"
+fi
+`, { mode: 0o755 });
+  const start = Date.now();
+  // The low-speed limits must come from the script, not from the caller
+  // (they are deleted from this worker's environment at the top of the file).
+  await run(scenario(), 8, 'deadline', ['7'], { LAND_DEADLINE: '2', PATH: root + ':' + process.env.PATH });
+  expect(Date.now() - start).toBeLessThan(10000);
+  expect(readFileSync(join(root, 'fetch-env'), 'utf8')).toBe('1000/30');
+});
+it('warns if deadline expires after sending merge', async () => {
+  const s = scenario(); s.merge = [{ sleep: 30 }];
+  await run(s, 8, 'merge command was sent', ['7'], { LAND_DEADLINE: '3' });
+});
+it('enforces extra protection checks and ignores configured overrides', async () => {
+  const s = scenario([pr()]); s.protection[0].stdout.checks.push({ context: 'lint', app_id: 15368 });
+  s['check-runs:lint'] = [response({ check_runs: [] })];
+  const calls = await run(s, 4, 'timed out', ['7'], { LAND_REQUIRED_CHECKS: 'ci' });
+  expect(calls.some(a => a[1]?.includes('check_name=lint&'))).toBe(true);
+});
+it.each([{ code: 1 }, response({}), response({ checks: [] }), response([]), response({ checks: [{ context: '-bad', app_id: 15368 }] }), response({ checks: [{ context: 'ci\n', app_id: 15368 }] }), response({ checks: [{ context: 'ci', app_id: 0 }] })])('fails closed on unreadable protection %j', async protection => {
+  const s = scenario(); s.protection = [protection];
+  const calls = await run(s, 2, 'required checks unreadable from branch protection');
+  expect(calls.filter(a => a.includes('PUT') || a[1]?.includes('check_name='))).toEqual([]);
+});
+it('uses explicit fallback when protection cannot be read', async () => {
+  const s = scenario(); s.protection = [{ code: 1 }];
+  expectMerge(await run(s, 0, 'USING EXPLICIT FALLBACK', ['7'], { LAND_ALLOW_FALLBACK_CHECKS: '1' }), U);
+});
+it('rejects invalid fallback flag', async () => {
+  await run({}, 2, 'invalid LAND_ALLOW_FALLBACK_CHECKS', ['7'], { LAND_ALLOW_FALLBACK_CHECKS: 'yes' });
+});
+it('encodes spaces in protection check names', async () => {
+  const s = scenario(); s.protection = [response({ checks: [{ context: 'build app', app_id: 15368 }] })];
+  s['check-runs:build%20app'] = [runs('build app')];
+  expectMerge(await run(s, 0, 'build app(app 15368)'), U);
+});
+it.each(['success', 'failure', 'in_progress'])('uses only latest check run: %s', async latest => {
+  const s = scenario(latest === 'success' ? undefined : [pr()]);
+  const old = runs('ci', U, 'completed', latest === 'success' ? 'failure' : 'success').stdout.check_runs[0];
+  const newer = runs('ci', U, latest === 'in_progress' ? latest : 'completed', latest).stdout.check_runs[0];
+  s['check-runs:ci'] = [response({ check_runs: [{ ...newer, id: 20 }, { ...old, id: 10 }] })];
+  await run(s, latest === 'success' ? 0 : latest === 'failure' ? 3 : 4, latest === 'success' ? 'merged and verified' : latest === 'failure' ? 'FAILED' : 'timed out');
+});
+it.each(['success', 'failure', 'pending'])('uses latest app-less commit status: %s', async state => {
+  const s = scenario(state === 'success' ? undefined : [pr()]);
+  s.protection = [response({ contexts: ['ci'] })]; s['check-runs:ci'] = [response({ check_runs: [] })];
+  s.statuses = [response([{ context: 'ci', state: 'success', id: 1 }, { context: 'ci', state, id: 2 }])];
+  await run(s, state === 'success' ? 0 : state === 'failure' ? 3 : 4, state === 'success' ? 'merged and verified' : state === 'failure' ? 'FAILED' : 'timed out');
+});
+it.each(['CLOSED', 'MERGED', 'DRAFT'])('rejects pin precondition %s before protection', async state => {
+  const s = scenario([state === 'DRAFT' ? pr(U, 'DRAFT') : pr(U, 'CLEAN', state)]);
+  const calls = await run(s, 2, state === 'DRAFT' ? 'draft' : `PR is ${state}`);
+  expect(calls.filter(a => a[1] !== 'view')).toEqual([]);
+});
+it('allows explicitly selected non-main base through to protection', async () => {
+  const view = pr(); view.stdout.baseRefName = 'release';
+  const s = scenario([view]); s.protection = [{ code: 1 }];
+  const calls = await run(s, 2, 'unreadable', ['7'], { LAND_BASE: 'release' });
+  expect(calls).toContainEqual(['api', 'repos/{owner}/{repo}/branches/release/protection/required_status_checks']);
+});
+it.each([false, true])('refuses unverifiable landed tree: missing=%s', async missing => {
+  const merged = pr(U, 'CLEAN', 'MERGED'); merged.stdout.mergeCommit.oid = missing ? 'a'.repeat(40) : M;
+  await run(scenario([pr(), pr(), pr(), merged]), 9, missing ? 'could not read' : 'do NOT auto-revert');
+});
+
+it('reports the proven update chain on success', async () => {
+  const calls = await run(scenario([pr(H, 'BEHIND'), pr(U), pr(U), pr(U), pr(U, 'CLEAN', 'MERGED')]), 0, `update chain: ${H} -> ${U} (main ${M})`);
+  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U}`);
+});
+it.each(['failure', 'pending', 'success'])('combines latest status and run: status=%s', async state => {
+  const s = scenario(state === 'success' ? undefined : [pr()]);
+  s.protection = [response({ checks: [{ context: 'ci', app_id: null }] })];
+  s.statuses = [response([{ context: 'ci', state, id: 2 }])];
+  await run(s, state === 'failure' ? 3 : state === 'pending' ? 4 : 0, state === 'failure' ? 'FAILED' : state === 'pending' ? 'timed out' : 'merged and verified');
+});
+it('documents deadline, protection, tree read-back and supervised first run', () => {
+  const header = readFileSync(script, 'utf8').split('set -u')[0];
+  for (const text of ['LAND_DEADLINE', 'LAND_CALL_TIMEOUT', 'LAND_ALLOW_FALLBACK_CHECKS', 'fallback only', '8  overall', '9  merged']) expect(header).toContain(text);
+  const skill = readFileSync(fileURLToPath(new URL('../.codex/skills/land/SKILL.md', import.meta.url)), 'utf8');
+  for (const text of ['First live run', 'supervision by Release', '| 8 |', '| 9 |', 'latest run', 'commit status', 'tree', 'update chain']) expect(skill).toContain(text);
+});
+
+it('stops 9, not 8, when the post-merge tree fetch hits the deadline', async () => {
+  writeFileSync(join(root, 'git'), `#!/bin/bash
+if [ "$1" = fetch ] && [ "\${!#}" = '${S}' ]; then
+  sleep 30
+else
+  exec '${realGit}' "$@"
+fi
+`, { mode: 0o755 });
+  const start = Date.now();
+  const calls = await run(scenario(), 9, 'could not read merge commit', ['7'], { LAND_DEADLINE: '3', PATH: root + ':' + process.env.PATH });
+  expect(Date.now() - start).toBeLessThan(10000);
+  expectMerge(calls, U);
+});
+it('stops before a poll sleep that would cross the deadline', async () => {
+  const s = scenario([pr()]); s['check-runs:ci'] = [runs('ci', U, 'in_progress')];
+  const start = Date.now();
+  await run(s, 8, 'poll would cross deadline', ['7'], { LAND_SLEEP: 'sleep', LAND_POLL_INTERVAL: '5', LAND_CHECK_POLLS: '10', LAND_DEADLINE: '3' });
+  expect(Date.now() - start).toBeLessThan(4500);
+});
+it('a protection read killed by the deadline exits 8, not the fail-closed 2', async () => {
+  const s = scenario(); s.protection = [{ sleep: 30, ...s.protection[0] }];
+  const calls = await run(s, 8, 'deadline', ['7'], { LAND_DEADLINE: '2' });
+  expect(calls.filter(a => a.includes('PUT') || a[1]?.includes('check_name='))).toEqual([]);
 });

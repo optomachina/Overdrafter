@@ -54,9 +54,11 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 
    - It pins the PR head SHA once. If that head does not contain a freshly fetched `origin/main`, it updates the branch with the REST update-branch API, which always merges `main` into the branch and is sent with `expected_head_sha`, so GitHub refuses if the head moved. It never rebases and never force-pushes.
    - It waits for the new head and proves it is exactly that update merge: two parents, the old pin first and a commit already on `main` second. Only then does it re-pin.
-   - It waits (bounded) for `ci` and `provider-go-live` from GitHub Actions (app 15368) on that exact SHA. Checks not yet registered on a new head count as pending, never as failed. Every poll re-reads the PR head and stops if it changed.
+   - Required checks come from branch protection, failing closed if unreadable. `LAND_REQUIRED_CHECKS` and `LAND_REQUIRED_APP_ID` are fallback-only, enabled explicitly by `LAND_ALLOW_FALLBACK_CHECKS=1`. The latest run per name and required app counts; only `success` passes. For app-less contexts it also reads the latest commit status, and every present source must succeed. Missing checks remain pending. Every poll re-reads the head and stops if it changed.
+   - `LAND_DEADLINE` (3600 seconds) bounds the whole run across polls and update rounds. Each gh call and git fetch is bounded by the lesser of `LAND_CALL_TIMEOUT` (60 seconds) and remaining time. `LAND_BASE` defaults to `main`; a non-main base requires setting it explicitly.
+   - Each proven update logs its round, old/new heads, fetched base and second parent; success prints the accumulated update chain (or `none`).
    - Right before merging it re-reads state, head and mergeability, then runs `gh pr merge --squash --match-head-commit <pin>`. If GitHub then reports `BEHIND`, it re-fetches `origin/main` and, only if `main` really moved, does another update round (at most 3 per run).
-   - It reports success only when GitHub shows `MERGED` with `headRefOid` equal to the pin and a valid merge commit. A failed merge command is verified against the same pin; it never re-reads and re-pins the head. The repo deletes merged branches itself, so there is no `--delete-branch`.
+   - It reports success only when GitHub shows `MERGED` with `headRefOid` equal to the pin and a valid merge commit whose fetched tree equals the pinned head tree. A failed read-back stops with exit 9: do not mark Done, do NOT auto-revert, escalate to Human Review. A failed merge command is verified against the same pin; it never re-reads and re-pins the head. The repo deletes merged branches itself, so there is no `--delete-branch`.
    - Every unreadable, unknown, mismatched or timed-out state stops with `land: STOP: ...`.
 
 9. Route on the exit code and summarize the `land: STOP:` line in the workpad:
@@ -65,15 +67,17 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 | --- | --- | --- |
 | 0 | Merged and verified against the pinned head | Continue to step 12 |
 | 2 | Usage or precondition (not OPEN, draft, wrong base, missing tool) | Stop; fix the precondition, then re-run from step 8 |
-| 3 | `ci` or `provider-go-live` failed on the pinned head | Move to `Rework` |
+| 3 | A required check failed on the pinned head | Move to `Rework` |
 | 4 | A bounded wait timed out (head, checks, mergeability, merge confirmation) | Stay in `Merging`; report, then re-run from step 8 |
 | 5 | Head changed, malformed SHA, unexpected history, unknown state, merge refused or not verified | Stop; do not mark `Done`; move to `Human Review` and report |
 | 6 | Merge conflict with `main` | Move to `Rework` |
 | 7 | `main` kept moving through 3 update rounds | Stay in `Merging`; report, then re-run from step 8 |
+| 8 | Overall deadline exceeded | Stay in `Merging`; if the message says the merge command was sent, check the PR by hand before re-running |
+| 9 | Merged but tree read-back failed | Do not mark `Done`, do not revert; move to `Human Review` |
 | other | Unexpected failure | Treat as 5 |
 
 10. A re-run starts from step 8, not step 4: after an update-branch the local branch is behind its remote, so step 4's push would be rejected. A re-run pins afresh from GitHub; a PR that already merged stops at the precondition check (exit 2) instead of verifying a head against itself, so check a merged PR's head by hand against the SHA the earlier run pinned.
-11. `python3 .codex/skills/land/land_watch.py` is an optional read-only status view. It does not merge and does not replace step 8.
+11. `python3 .codex/skills/land/land_watch.py` is an optional read-only status view. It does not merge and does not replace step 8. It never reports mergeable for behind, closed, draft or conflicted PRs.
 
 12. After merge, report:
    - PR URL
@@ -93,3 +97,7 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 - Never merge without `--match-head-commit`; never use `--admin`.
 - A "behind" or "not up to date" block is never a reason for `Rework`; it means update and re-check (step 8 does this).
 - Never re-pin by re-reading the head after a failed merge; verify against the pin the run already holds.
+
+## First live run
+
+Until a supervised first landing on a low-risk PR is recorded in the PR or Linear (OVD-889 checklist), run the helper only under supervision by Release.

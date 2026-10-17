@@ -13,10 +13,13 @@ gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .re
 The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
 out-of-date PR current with the update-branch API as a merge (never a rebase or
-force push), proves the new head is that merge, waits for `ci` and
-`provider-go-live` on the new head, and merges with
+force push), proves the new head is that merge, waits for the required checks
+read from branch protection (`ci` and `provider-go-live` today) on the new
+head, and merges with
 `gh pr merge --match-head-commit <head>`, failing closed on any mismatch,
-timeout or unknown state. The manual fallback is the same sequence by hand:
+timeout or unknown state. It reads back the merge commit tree and requires it
+to equal the pinned head tree before reporting success. The manual fallback
+is the same sequence by hand:
 `gh pr update-branch`, re-check state, head and both checks on the new head,
 then `gh pr merge --match-head-commit <head>`. The `gh api` commands under Option B
 stay here as the rollback and re-apply reference. **Option A (merge queue) is
@@ -346,7 +349,9 @@ them.
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
   updates it. The `land` skill handles strict mode through
   `.codex/skills/land/land_strict_merge.sh` (`SKILL.md` steps 8 to 11,
-  OVD-889). As a manual fallback, update an
+  OVD-889). It waits for the required checks read from branch protection
+  (`ci` and `provider-go-live` today) and verifies the landed tree against the
+  pinned head. As a manual fallback, update an
   out-of-date PR with `gh pr update-branch`, wait for `ci` and
   `provider-go-live` on the new head, re-check the PR state and head by hand,
   and merge with `gh pr merge --match-head-commit <head>` pinned to the head

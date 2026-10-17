@@ -3,8 +3,8 @@
 #
 # Lands one OverDrafter PR under strict branch protection (OVD-889). Run it from
 # inside the repo checkout. It never merges unless one pinned head SHA is OPEN,
-# contains the current base, has `ci` and `provider-go-live` green from GitHub
-# Actions on that exact SHA, and is still the PR head right before the merge.
+# contains the current base, has the protection-required checks successful on
+# that exact SHA, and is still the PR head right before the merge.
 #
 #   1. Read the PR once and pin its head SHA.
 #   2. If the head does not contain a freshly fetched origin/<base>, update it
@@ -15,11 +15,14 @@
 #      never a force push.
 #   3. Wait for the new head, prove it is exactly that update merge (two
 #      parents: the old pin, then a commit already on the base), and re-pin.
-#   4. Wait for the required checks on the pin, re-reading the head each poll.
+#   4. Read required checks from protection before updates; fail closed. Wait
+#      for latest runs (and statuses for app-less contexts); only success passes.
 #   5. Re-read state, head and mergeability, then
 #      `gh pr merge --squash --match-head-commit <pin>`.
 #   6. Report success only after GitHub shows MERGED with headRefOid == pin and
-#      a valid merge commit. A failed merge command is verified against the
+#      a valid merge commit whose fetched tree equals the pin. Log every update
+#      round and the update chain. All calls and polls share an overall deadline.
+#      A failed merge command is verified against the
 #      same pin; the head is never re-read and re-pinned after a merge attempt.
 #
 # Fails closed: any unreadable, unknown, mismatched or timed-out state stops
@@ -35,13 +38,18 @@
 #      refused or not verified                                -> Human Review
 #   6  merge conflict (DIRTY, or update-branch refused for a conflict) -> Rework
 #   7  update round cap exceeded because the base kept moving
+#   8  overall deadline exceeded; if merge sent, inspect PR by hand
+#   9  merged but tree read-back failed -> Human Review; never auto-revert
 #
 # Settings (non-negative integers unless noted; defaults in brackets):
 #   LAND_POLL_INTERVAL [15] seconds between polls   LAND_HEAD_POLLS [24]
 #   LAND_CHECK_POLLS [80]   LAND_MERGEABLE_POLLS [20]   LAND_MERGE_POLLS [40]
-#   LAND_MAX_UPDATES [3]    LAND_REQUIRED_APP_ID [15368, GitHub Actions]
-#   LAND_REQUIRED_CHECKS ["ci provider-go-live"]   LAND_BASE [main]
-#   LAND_GH [gh]  LAND_SLEEP [sleep]  LAND_GH_TIMEOUT [60] (tests stub these)
+#   LAND_MAX_UPDATES [3]    LAND_REQUIRED_APP_ID [15368, GitHub Actions, fallback only]
+#   LAND_REQUIRED_CHECKS ["ci provider-go-live", fallback only]
+#   LAND_BASE [main]; non-main requires an explicit LAND_BASE override
+#   LAND_DEADLINE [3600, >=1] overall seconds; LAND_CALL_TIMEOUT [60, >=1]
+#   LAND_ALLOW_FALLBACK_CHECKS [0]; 1 explicitly permits fallback if protection is unreadable
+#   LAND_GH [gh]  LAND_SLEEP [sleep]  LAND_GH_TIMEOUT (legacy alias for LAND_CALL_TIMEOUT)
 #
 # Portable to bash 3.2 (macOS): no ${var,,}, no mapfile, no associative arrays.
 
@@ -49,7 +57,17 @@ set -u -o pipefail
 # ASCII collation, so the [!0-9a-f] style patterns below mean exactly that.
 export LC_ALL=C
 
-stop() { printf 'land: STOP: %s\n' "$2" >&2; exit "$1"; }
+MERGE_SENT=false
+DEADLINE_AT=2147483647
+stop() {
+  local code="$1" reason="$2"
+  if { [ "$code" = 4 ] || [ "$code" = 5 ]; } && [ "$SECONDS" -ge "$DEADLINE_AT" ]; then code=8; fi
+  if [ "$code" = 8 ]; then
+    reason="$reason; overall deadline of ${LAND_DEADLINE} s exceeded"
+    if [ "$MERGE_SENT" = true ]; then reason="$reason; merge command was sent; PR state must be checked by hand"; fi
+  fi
+  printf 'land: STOP: %s\n' "$reason" >&2; exit "$code"
+}
 note() { printf 'land: %s\n' "$1" >&2; }
 
 # A full commit SHA: the WHOLE string is exactly 40 lowercase hex characters.
@@ -61,15 +79,52 @@ is_sha() {
   return 0
 }
 
-gh_cmd() {
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "${LAND_GH_TIMEOUT:-60}" "${LAND_GH:-gh}" "$@"
-  else
-    "${LAND_GH:-gh}" "$@"
-  fi
+deadline() { [ "$SECONDS" -lt "$DEADLINE_AT" ] || stop 8 'deadline reached'; }
+# Include descendants of wrappers so they cannot retain command-substitution pipes.
+kill_tree() {
+  local child
+  while IFS= read -r child; do
+    [ -z "$child" ] || kill_tree "$child" "$2"
+  done < <(ps -eo pid=,ppid= | awk -v parent="$1" '$2 == parent {print $1}')
+  kill -"$2" "$1" 2>/dev/null || :
 }
-
-pause() { "${LAND_SLEEP:-sleep}" "$LAND_POLL_INTERVAL" || stop 5 'sleep failed'; }
+bounded() {
+  local budget="$1" command_pid watchdog_pid result
+  shift
+  "$@" &
+  command_pid=$!
+  (
+    sleeper=''
+    trap 'if [ -n "$sleeper" ]; then kill "$sleeper" 2>/dev/null; fi; exit 0' TERM INT
+    sleep "$budget" &
+    sleeper=$!
+    wait "$sleeper"
+    kill_tree "$command_pid" TERM
+    sleep 2 &
+    sleeper=$!
+    wait "$sleeper"
+    kill_tree "$command_pid" KILL
+  ) >/dev/null 2>&1 &
+  watchdog_pid=$!
+  result=0
+  wait "$command_pid" || result=$?
+  kill "$watchdog_pid" 2>/dev/null
+  wait "$watchdog_pid" 2>/dev/null || :
+  return "$result"
+}
+call() {
+  deadline
+  local budget=$((DEADLINE_AT - SECONDS))
+  if [ "$budget" -gt "$LAND_CALL_TIMEOUT" ]; then budget="$LAND_CALL_TIMEOUT"; fi
+  bounded "$budget" "$@"
+}
+gh_cmd() { call "${LAND_GH:-gh}" "$@"; }
+fetch_cmd() { call git fetch "$@"; }
+pause() {
+  deadline
+  [ "$((SECONDS + LAND_POLL_INTERVAL))" -lt "$DEADLINE_AT" ] || stop 8 'poll would cross deadline'
+  "${LAND_SLEEP:-sleep}" "$LAND_POLL_INTERVAL" || stop 5 'sleep failed'
+}
 progress() { printf 'land: poll %s/%s %s\n' "$1" "$2" "$3" >&2; }
 
 # FIELD=<string value of a path in $JSON>, "" if absent or not a string.
@@ -113,7 +168,7 @@ require_pinned_open() {
 
 # BASE_TIP=<fresh origin/<base> SHA>.
 fetch_base() {
-  git fetch --quiet --no-tags -- origin "+refs/heads/$LAND_BASE:refs/remotes/origin/$LAND_BASE" \
+  fetch_cmd --quiet --no-tags -- origin "+refs/heads/$LAND_BASE:refs/remotes/origin/$LAND_BASE" \
     || stop 5 'git fetch of the base failed'
   BASE_TIP="$(git rev-parse --verify --quiet "refs/remotes/origin/$LAND_BASE^{commit}")" \
     || stop 5 'base ref unreadable'
@@ -122,7 +177,7 @@ fetch_base() {
 
 # Only called with SHAs that passed is_sha.
 fetch_sha() {
-  git fetch --quiet --no-tags -- origin "$1" || stop 5 "git fetch of $1 failed"
+  fetch_cmd --quiet --no-tags -- origin "$1" || stop 5 "git fetch of $1 failed"
 }
 
 # BASE_IN_PIN=0 when the fresh base tip is an ancestor of (or equal to) PIN,
@@ -156,9 +211,15 @@ LAND_MAX_UPDATES="${LAND_MAX_UPDATES-3}"
 LAND_REQUIRED_APP_ID="${LAND_REQUIRED_APP_ID-15368}"
 LAND_REQUIRED_CHECKS="${LAND_REQUIRED_CHECKS-ci provider-go-live}"
 LAND_BASE="${LAND_BASE:-main}"
+LAND_DEADLINE="${LAND_DEADLINE-3600}"
+LAND_CALL_TIMEOUT="${LAND_CALL_TIMEOUT-${LAND_GH_TIMEOUT-60}}"
+LAND_ALLOW_FALLBACK_CHECKS="${LAND_ALLOW_FALLBACK_CHECKS-0}"
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT-1000}"
+export GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME-30}"
+case "$LAND_ALLOW_FALLBACK_CHECKS" in ''|0|1) ;; *) stop 2 'invalid LAND_ALLOW_FALLBACK_CHECKS' ;; esac
 
 for setting in LAND_POLL_INTERVAL LAND_HEAD_POLLS LAND_CHECK_POLLS LAND_MERGEABLE_POLLS \
-  LAND_MERGE_POLLS LAND_MAX_UPDATES LAND_REQUIRED_APP_ID; do
+  LAND_MERGE_POLLS LAND_MAX_UPDATES LAND_REQUIRED_APP_ID LAND_DEADLINE LAND_CALL_TIMEOUT; do
   value="${!setting}"
   case "$value" in ''|*[!0-9]*) stop 2 "invalid numeric configuration: $setting" ;; esac
   # Strip leading zeros so bash arithmetic does not read the value as octal.
@@ -171,22 +232,45 @@ done
 case "$LAND_BASE" in -*|*[!A-Za-z0-9._/-]*) stop 2 'invalid base branch name' ;; esac
 git check-ref-format "refs/heads/$LAND_BASE" >/dev/null 2>&1 || stop 2 'invalid base branch name'
 
-case "$LAND_REQUIRED_CHECKS" in *[!A-Za-z0-9._\ -]*) stop 2 'invalid required check names' ;; esac
-# shellcheck disable=SC2206  # word splitting on spaces is intended; names are validated above
-checks=($LAND_REQUIRED_CHECKS)
-[ "${#checks[@]}" -gt 0 ] || stop 2 'no required checks configured'
+[ "$LAND_DEADLINE" -ge 1 ] && [ "$LAND_CALL_TIMEOUT" -ge 1 ] || stop 2 'invalid numeric configuration: deadline/call budget must be positive'
+DEADLINE_AT=$((SECONDS + LAND_DEADLINE))
 
 # ---- 1. pin ----------------------------------------------------------------
 
 read_pr || stop 5 'PR unreadable'
 [ "$STATE" = OPEN ] || stop 2 "PR is $STATE, expected OPEN"
+[ "$MS" != DRAFT ] || stop 2 'PR is draft; mark it ready first'
 [ "$DRAFT" = false ] || stop 2 'PR is draft; mark it ready first'
 [ "$BASE" = "$LAND_BASE" ] || stop 2 "PR base is '$BASE', expected '$LAND_BASE'"
 PIN="$HEAD"
 note "pinned head $PIN"
 
+# Protection is authoritative; fallback requires an explicit opt-in.
+protection="$(gh_cmd api "repos/{owner}/{repo}/branches/$LAND_BASE/protection/required_status_checks" 2>/dev/null)" || protection=''
+deadline
+required="$(printf '%s' "$protection" | jq -ce '
+  def valid: type == "object" and (.context | type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._ -]*$") and (test("[^A-Za-z0-9._ -]") | not)) and
+    (.app_id == null or (.app_id | type == "number" and . > 0 and floor == .));
+  if type != "object" then error("object required") else
+    (if has("checks") then .checks else [.contexts[] | {context: ., app_id: null}] end) |
+    if type == "array" and length > 0 and all(.[]; valid) then . else error("invalid checks") end end
+' 2>/dev/null)" || required=''
+if [ -z "$required" ]; then
+  [ "$LAND_ALLOW_FALLBACK_CHECKS" = 1 ] || stop 2 'required checks unreadable from branch protection (no valid checks)'
+  note 'WARNING: required checks unreadable from branch protection; USING EXPLICIT FALLBACK CHECKS'
+  required="$(jq -cn --arg names "$LAND_REQUIRED_CHECKS" --argjson app "$LAND_REQUIRED_APP_ID" '
+    $names | split(" ") | map(select(length > 0)) |
+    if length > 0 and all(.[]; test("^[A-Za-z0-9._][A-Za-z0-9._-]*$")) and $app > 0
+    then map({context: ., app_id: $app}) else error("invalid fallback") end')" || stop 2 'invalid fallback required checks'
+fi
+checks=()
+while IFS= read -r entry; do checks+=("$entry"); done < <(printf '%s' "$required" | jq -c '.[]')
+note "required checks from protection: $(printf '%s' "$required" | jq -r 'map(.context + "(app " + (.app_id | tostring) + ")") | join(" ")')"
+chain=''
+
 round=0
 while :; do
+  deadline
   [ "$MS" != DIRTY ] || stop 6 'merge conflict (mergeStateStatus DIRTY)'
 
   # ---- 2-3. update a behind branch with a merge, then re-pin ----------------
@@ -209,9 +293,10 @@ while :; do
     i=1
     while [ "$i" -le "$LAND_HEAD_POLLS" ]; do
       pause
+      deadline
       progress "$i" "$LAND_HEAD_POLLS" 'waiting for the updated head'
       i=$((i + 1))
-      read_pr || continue
+      read_pr || { deadline; continue; }
       [ "$STATE" = OPEN ] || stop 5 "PR is $STATE during the update"
       [ "$BASE" = "$LAND_BASE" ] && [ "$DRAFT" = false ] || stop 5 'PR base or draft state changed during the update'
       if [ "$HEAD" != "$PIN" ]; then moved=true; break; fi
@@ -236,6 +321,8 @@ while :; do
     git merge-base --is-ancestor "$3" "$BASE_TIP" \
       || stop 5 "unexpected history: second parent $3 is not on origin/$LAND_BASE"
 
+    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3)"
+    chain="${chain}${chain:+; }$PIN -> $NEW ($LAND_BASE $BASE_TIP)"
     PIN="$NEW"   # the only re-pin, and only after the checks above
     round=$((round + 1))
     note "updated branch; new pinned head $PIN"
@@ -246,28 +333,47 @@ while :; do
   i=1
   while [ "$i" -le "$LAND_CHECK_POLLS" ]; do
     [ "$i" -eq 1 ] || pause
+    deadline
     progress "$i" "$LAND_CHECK_POLLS" "waiting for required checks on $PIN"
     i=$((i + 1))
     all=true
-    for name in "${checks[@]}"; do
-      if ! JSON="$(gh_cmd api "repos/{owner}/{repo}/commits/$PIN/check-runs?check_name=$name&filter=latest&per_page=100" 2>/dev/null)"; then
-        all=false; continue
+    for entry in "${checks[@]}"; do
+      deadline
+      name="$(printf '%s' "$entry" | jq -r '.context')"
+      app="$(printf '%s' "$entry" | jq -r '.app_id')"
+      encoded="$(printf '%s' "$entry" | jq -r '.context | @uri')"
+      if ! JSON="$(gh_cmd api "repos/{owner}/{repo}/commits/$PIN/check-runs?check_name=$encoded&filter=latest&per_page=100" 2>/dev/null)"; then
+        deadline; all=false; continue
       fi
       # Only runs from the required app, for this exact SHA and name, count.
       # None yet (not registered on a new head) is pending, never a failure.
-      verdict="$(printf '%s' "$JSON" | jq -r --arg pin "$PIN" --arg name "$name" --argjson app "$LAND_REQUIRED_APP_ID" '
+      verdict="$(printf '%s' "$JSON" | jq -r --arg pin "$PIN" --arg name "$name" --argjson app "$app" '
         if type != "object" or (.check_runs | type) != "array" then "invalid" else
-        [.check_runs[] | select(type == "object" and .app.id == $app and .head_sha == $pin and .name == $name)] as $runs |
-        if any($runs[]; .status == "completed" and .conclusion != "success") then "failed"
-        elif ($runs | length) == 0 or any($runs[]; .status != "completed") then "pending"
-        else "pass" end end' 2>/dev/null)" || verdict=invalid
+        [.check_runs[] | select(type == "object" and ($app == null or .app.id == $app) and .head_sha == $pin and .name == $name)] as $runs |
+        ($runs | sort_by(.id // 0) | last) as $run |
+        if $run == null then "absent" elif $run.status != "completed" then "pending"
+        elif $run.conclusion == "success" then "pass" else "failed" end end' 2>/dev/null)" || verdict=invalid
+      if [ "$app" = null ]; then
+        status_verdict=invalid
+        if statuses="$(gh_cmd api "repos/{owner}/{repo}/commits/$PIN/statuses?per_page=100" 2>/dev/null)"; then
+          status_verdict="$(printf '%s' "$statuses" | jq -r --arg name "$name" '
+            if type != "array" then "invalid" else
+            ([.[] | select(.context == $name)] | sort_by(.id // 0) | last) as $s |
+            if $s == null then "absent" elif $s.state == "success" then "pass"
+            elif $s.state == "pending" then "pending" else "failed" end end' 2>/dev/null)" || status_verdict=invalid
+        else deadline; fi
+        if [ "$verdict" = failed ] || [ "$status_verdict" = failed ]; then verdict=failed
+        elif [ "$status_verdict" = pass ] && { [ "$verdict" = pass ] || [ "$verdict" = absent ]; }; then verdict=pass
+        elif [ "$verdict" = pass ] && [ "$status_verdict" = absent ]; then verdict=pass
+        else verdict=pending; fi
+      fi
       case "$verdict" in
         failed) stop 3 "required check $name FAILED on $PIN" ;;
         pass) ;;
         *) all=false ;;
       esac
     done
-    if read_pr; then require_pinned_open; else all=false; fi
+    if read_pr; then require_pinned_open; else deadline; all=false; fi
     if [ "$all" = true ]; then passed=true; break; fi
   done
   [ "$passed" = true ] || stop 4 "timed out waiting for required checks on $PIN"
@@ -278,9 +384,10 @@ while :; do
   i=1
   while [ "$i" -le "$LAND_MERGEABLE_POLLS" ]; do
     [ "$i" -eq 1 ] || pause
+    deadline
     progress "$i" "$LAND_MERGEABLE_POLLS" 'waiting for mergeability'
     i=$((i + 1))
-    read_pr || continue
+    read_pr || { deadline; continue; }
     require_pinned_open
     case "$MS" in
       CLEAN|HAS_HOOKS|UNSTABLE) ready=true; break ;;
@@ -304,16 +411,19 @@ done
 
 # ---- 6. merge pinned, then verify against the same pin ------------------------
 note "merging $PIN with --match-head-commit"
+MERGE_SENT=true
 merge_code=0
 merge_output="$(gh_cmd pr merge "$PR" --squash --match-head-commit "$PIN" 2>&1)" || merge_code=$?
+deadline
 
 bad_merge_commit=false
 i=1
 while [ "$i" -le "$LAND_MERGE_POLLS" ]; do
   [ "$i" -eq 1 ] || pause
+  deadline
   progress "$i" "$LAND_MERGE_POLLS" 'verifying the merge'
   i=$((i + 1))
-  JSON="$(gh_cmd pr view "$PR" --json state,headRefOid,mergeCommit 2>/dev/null)" || continue
+  JSON="$(gh_cmd pr view "$PR" --json state,headRefOid,mergeCommit 2>/dev/null)" || { deadline; continue; }
   printf '%s' "$JSON" | jq -e 'type == "object"' >/dev/null 2>&1 || continue
   field '.headRefOid'; HEAD="$FIELD"
   is_sha "$HEAD" || stop 5 'malformed SHA in PR headRefOid after merge'
@@ -323,6 +433,13 @@ while [ "$i" -le "$LAND_MERGE_POLLS" ]; do
       [ "$HEAD" = "$PIN" ] || stop 5 "merged head $HEAD differs from the verified head $PIN; do not mark Done"
       field '.mergeCommit.oid'; oid="$FIELD"
       if is_sha "$oid"; then
+        # Exit 9 is never converted to the deadline exit: the PR is MERGED, so
+        # an unreadable tree is an unverified landing, not a retryable timeout.
+        fetch_cmd --quiet --no-tags -- origin "$oid" || stop 9 "MERGED but could not read merge commit $oid; do not mark Done, do NOT auto-revert, escalate to Human Review"
+        landed_tree="$(git rev-parse --verify --quiet "$oid^{tree}")" || stop 9 'MERGED but could not read merge tree; do not mark Done, do NOT auto-revert, escalate to Human Review'
+        pinned_tree="$(git rev-parse --verify --quiet "$PIN^{tree}")" || stop 9 'MERGED but could not read pinned tree; do not mark Done, do NOT auto-revert, escalate to Human Review'
+        [ "$landed_tree" = "$pinned_tree" ] || stop 9 "MERGED but the merge commit $oid tree $landed_tree differs from the pinned head $PIN tree $pinned_tree; do not mark Done, do NOT auto-revert, escalate to Human Review"
+        printf 'land: update chain: %s\n' "${chain:-none}"
         printf 'land: merged and verified: head %s landed as %s\n' "$PIN" "$oid"
         exit 0
       fi

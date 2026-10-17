@@ -35,3 +35,27 @@ class ClassifyChecksTests(unittest.TestCase):
 
     def test_empty_rollup_is_pending(self):
         self.assertEqual(land_watch.classify_checks([]), ([], ["no checks reported yet"]))
+
+
+class EvaluateTests(unittest.TestCase):
+    def test_pr_state_matrix(self):
+        good = dict(state="OPEN", isDraft=False, mergeStateStatus="CLEAN",
+                    statusCheckRollup=[dict(name="ci", status="COMPLETED", conclusion="SUCCESS")])
+        for changes, verdict, message in [
+            ({}, "mergeable", "looks mergeable"),
+            ({"mergeStateStatus": "BEHIND"}, "stop", "behind main"),
+            ({"state": "CLOSED"}, "stop", "PR is closed"),
+            ({"isDraft": True}, "wait", "draft"),
+            ({"mergeStateStatus": "DIRTY"}, "stop", "merge conflict"),
+            ({"mergeStateStatus": "NEW"}, "stop", "unknown"),
+            ({"mergeStateStatus": None}, "stop", "unknown"),
+            ({"state": None}, "stop", "unknown"),
+            ({"state": "MERGED"}, "merged", "already merged"),
+            ({"mergeStateStatus": "BLOCKED"}, "wait", "not mergeable"),
+            ({"statusCheckRollup": []}, "wait", "Waiting"),
+            ({"statusCheckRollup": [dict(context="ci", state="FAILURE")]}, "stop", "failing"),
+        ]:
+            with self.subTest(changes=changes):
+                result = land_watch.evaluate({**good, **changes})
+                self.assertEqual(result[0], verdict)
+                self.assertIn(message, result[1])
