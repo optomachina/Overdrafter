@@ -18,8 +18,61 @@ function safeArtifactUrl(uri: string): boolean {
   catch { return false; }
 }
 
-function Decision({ event, resolved, client, offline }: { event: GraphDecisionRequestedEvent; resolved?: GraphDecisionResolvedEvent; client: ThreadClient; offline: boolean }) {
-  const [selected, select] = useState(event.recommended);
+type StatusEvent = Extract<GraphEvent, { type: 'status' }>;
+type ControlEvent = Extract<GraphEvent, { type: 'control_requested' | 'control_applied' | 'control_rejected' }>;
+
+// Reverse scan instead of Array#findLast: the app tsconfig targets ES2020 without the ES2023 lib.
+function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: GraphEvent) => e is T): T | undefined {
+  for (let i = events.length - 1; i >= 0; i--) { const e = events[i]; if (match(e)) return e; }
+  return undefined;
+}
+
+function decisionLabel(resolved: GraphDecisionResolvedEvent): string {
+  if (resolved.outcome !== 'skipped_best_guess') return 'Choice recorded';
+  return resolved.cause === 'timeout' ? 'No answer in time. Best guess recorded' : 'Best guess recorded';
+}
+
+function nextOption(key: string, index: number, count: number): number {
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return (index + (['ArrowDown', 'ArrowRight'].includes(key) ? 1 : -1) + count) % count;
+}
+
+function workingLabel(hasArtifacts: boolean, workingName: string, pending: boolean, failed: boolean, status: StatusEvent | undefined, offline: boolean): string {
+  if (hasArtifacts) return workingName;
+  if (!pending && !failed && status?.nodeId === 'domain_agent') return `${workingName}${offline ? '' : ' (in progress)'}`;
+  return 'none';
+}
+
+function controlState(control: ControlEvent | undefined, command: string): string {
+  if (control?.type === 'control_applied') return control.state;
+  if (control?.type === 'control_requested') return control.kind === 'pause' ? 'Pausing' : 'Cancelling';
+  return command;
+}
+
+function laneLabel(node: string, pending: boolean, status: StatusEvent | undefined, offline: boolean, state: string, now: number, events: GraphEvent[]): string {
+  if (node === 'domain_agent' && pending) return 'WAITS FOR YOU';
+  if (status?.nodeId === node) return `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s`;
+  return events.some(e => e.type === 'status' && e.nodeId === node && e.state === 'completed') ? 'DONE' : 'WAITING';
+}
+
+function controlMessage(control: ControlEvent): string {
+  if (control.type === 'control_applied') return `You ${control.state} the job at a checkpoint.`;
+  if (control.type === 'control_rejected') return `Control rejected · ${control.reason}`;
+  return control.kind === 'pause' ? 'Pausing · Waiting for checkpoint' : 'Cancelling · Waiting for checkpoint';
+}
+
+function Dimensions({ artifacts }: Readonly<{ artifacts: Extract<GraphEvent, { type: 'artifact' }>[] }>) {
+  const d = artifacts.find(a => a.dimensionsMm)?.dimensionsMm;
+  if (!d) return null;
+  return <>
+    <p>{[d.x, d.y, d.z].map(n => (n / 25.4).toFixed(3)).join(' × ')} in</p>
+    <p className="jt-muted">{[d.x, d.y, d.z].map(n => n.toFixed(3)).join(' × ')} mm</p>
+  </>;
+}
+
+function Decision({ event, resolved, client, offline }: Readonly<{ event: GraphDecisionRequestedEvent; resolved?: GraphDecisionResolvedEvent; client: ThreadClient; offline: boolean }>) {
+  const [selected, setSelected] = useState(event.recommended);
   const [pending, setPending] = useState(false), [error, setError] = useState('');
   const locked = useRef(false), key = useRef<string | null>(null);
   const send = async (skip: boolean) => {
@@ -32,14 +85,14 @@ function Decision({ event, resolved, client, offline }: { event: GraphDecisionRe
   };
   return <section>
     <h2>{event.question}</h2>{resolved ? <>
-      <p>{resolved.outcome === 'skipped_best_guess' ? resolved.cause === 'timeout' ? 'No answer in time. Best guess recorded' : 'Best guess recorded' : 'Choice recorded'} · {resolved.choice}</p>
+      <p>{decisionLabel(resolved)} · {resolved.choice}</p>
       <p>{resolved.rationale}</p>
       <a href="#jarvis-message" onClick={() => document.getElementById("jarvis-message")?.focus()}>Change</a>
     </> : <>
-      <div role="radiogroup" aria-label={event.question}>{event.options.map((option, i) => <button key={option} role="radio" aria-checked={selected === option} tabIndex={selected === option ? 0 : -1} disabled={pending || offline} onClick={() => select(option)} onKeyDown={e => {
+      <div role="radiogroup" aria-label={event.question}>{event.options.map((option, i) => <button key={option} role="radio" aria-checked={selected === option} tabIndex={selected === option ? 0 : -1} disabled={pending || offline} onClick={() => setSelected(option)} onKeyDown={e => {
         if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
-        e.preventDefault(); const next = e.key === 'Home' ? 0 : e.key === 'End' ? event.options.length - 1 : (i + (['ArrowDown', 'ArrowRight'].includes(e.key) ? 1 : -1) + event.options.length) % event.options.length;
-        select(event.options[next]); (e.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
+        e.preventDefault(); const next = nextOption(e.key, i, event.options.length);
+        setSelected(event.options[next]); (e.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
       }}><span aria-hidden="true">{selected === option ? '●' : '○'}</span> {option}</button>)}</div>
       <p id={`skip-${event.seq}`}>If you skip, Jarvis uses its best guess, {event.bestGuess}, records it in the design history, and keeps going. You can change it later.</p>
       <div className="jt-actions">
@@ -49,7 +102,7 @@ function Decision({ event, resolved, client, offline }: { event: GraphDecisionRe
     </>}{error && <p role="alert">{error}</p>}</section>;
 }
 
-export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate" }: { source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode }) {
+export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate" }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode }>) {
   const [events, setEvents] = useState<GraphEvent[]>([]), [offline, setOffline] = useState(false);
   const [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -63,11 +116,11 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   }, [source, runId]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const closeConfirm = useCallback(() => setConfirm(false), []);
-  const status = events.filter(e => e.type === 'status').at(-1);
+  const status = lastOf(events, (e): e is StatusEvent => e.type === 'status');
   const decisions = events.filter(e => e.type === 'decision_requested');
   const resolutions = events.filter(e => e.type === 'decision_resolved');
   const pending = decisions.some(d => !resolutions.some(r => r.decisionId === d.decisionId));
-  const control = events.filter(e => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected').at(-1);
+  const control = lastOf(events, (e): e is ControlEvent => e.type === 'control_requested' || e.type === 'control_applied' || e.type === 'control_rejected');
   useEffect(() => { if (control?.type === 'control_applied' || control?.type === 'control_rejected') { inFlight.current = false; keys.current.delete(control.kind); setCommand(''); } }, [control]);
   const applied = control?.type === 'control_applied' ? control : undefined;
   const result = events.find(e => e.type === 'result');
@@ -75,8 +128,8 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const artifacts = events.filter(e => e.type === 'artifact').filter(a => safeArtifactUrl(a.uri));
   const refs = (applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts).filter(a => safeArtifactUrl(a.uri));
   const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), step = refs.find(a => a.kind === 'step');
-  const working = artifacts.length ? workingName : !pending && !failure && status?.nodeId === 'domain_agent' ? `${workingName}${offline ? '' : ' (in progress)'}` : 'none';
-  const state = applied?.state ?? (control?.type === 'control_requested' ? control.kind === 'pause' ? 'Pausing' : 'Cancelling' : command);
+  const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
+  const state = controlState(control, command);
   const sendControl = async (kind: 'pause' | 'cancel') => {
     if (inFlight.current) return;
     inFlight.current = true; setCommand(kind === 'pause' ? 'Pausing' : 'Cancelling'); setError('');
@@ -93,16 +146,11 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     <div className="jt-log">{!events.length && <p>No requests yet. Example: Make a 4 inch square plate.</p>}{status && <p>{status.message}</p>}{events.length > 0 && !result && <>
       <ol className="jt-lanes">{(['concept_picks', 'domain_agent', 'verify'] as const).map((node, i) => <li key={node}>
         <span>{['Concept picks', 'CAD model', 'Independent check'][i]}</span>
-        <span>{node === 'domain_agent' && pending ? 'WAITS FOR YOU' : status?.nodeId === node ? `${offline ? 'LAST SEEN ' : ''}${state || 'WORKING'} · ${Math.max(0, Math.floor((now - status.at) / 1000))}s` : events.some(e => e.type === 'status' && e.nodeId === node && e.state === 'completed') ? 'DONE' : 'WAITING'}</span>
+        <span>{laneLabel(node, pending, status, offline, state, now, events)}</span>
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
-      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{control.type === 'control_applied' ? `You ${control.state} the job at a checkpoint.` : control.type === 'control_rejected' ? `Control rejected · ${control.reason}` : control.kind === 'pause' ? 'Pausing · Waiting for checkpoint' : 'Cancelling · Waiting for checkpoint'}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => <img key={p} src={p} alt={i === 0 ? 'Iso' : 'Top view'} />)}{arActionSlot}{artifacts.find(a => a.dimensionsMm)?.dimensionsMm && (() => {
-          const d = artifacts.find(a => a.dimensionsMm)!.dimensionsMm!; return <>
-            <p>{[d.x, d.y, d.z].map(n => (n / 25.4).toFixed(3)).join(' × ')} in</p>
-            <p className="jt-muted">{[d.x, d.y, d.z].map(n => n.toFixed(3)).join(' × ')} mm</p>
-          </>;
-        })()}{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => <img key={p} src={p} alt={i === 0 ? 'Iso' : 'Top view'} />)}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />

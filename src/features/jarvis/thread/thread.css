@@ -12,7 +12,7 @@
 .jt-state button { margin-left: auto; padding: 0; border: 0; font-size: 11px; }
 .jt-log { padding-bottom: 16px; }
 .jt section { margin: 24px 0; }
-.jt [role=radiogroup] { display: grid; gap: 8px; }
+.jt [role=radiogroup] { display: grid; gap: 8px; margin-bottom: 112px; }
 .jt [role=radio] { text-align: left; min-height: 56px; }
 .jt [aria-checked=true] { border: 2px solid #f2f1ee; }
 .jt-actions { position: fixed; bottom: 144px; left: 50%; transform: translateX(-50%); width: min(668px, calc(100% - 32px)); display: flex; gap: 8px; background: #0e0e10; padding: 8px 0; z-index: 1; }
@@ -25,11 +25,10 @@
 .jt footer { position: sticky; bottom: 0; background: #0e0e10; padding-top: 8px; z-index: 2; }
 .jt textarea { display: block; width: 100%; font-size: 16px; resize: vertical; }
 .jt-overlay { position: fixed; inset: 0; background: #0e0e10; z-index: 50; overflow-y: auto; }
-.jt-overlay > div { min-height: 100%; padding: 16px; }
+.jt-overlay > dialog { position: relative; z-index: 1; margin: 0; inset: auto; color: inherit; max-width: none; max-height: none; border: 0; background: transparent; width: 100%; min-height: 100%; padding: 16px; }
+.jt-overlay > .jt-scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; min-height: 0; min-width: 0; }
 .jt-sheet { background: #0008; display: flex; align-items: end; }
-.jt-sheet > div { background: #161619; min-height: 0; width: 100%; }
-
-.jt [role=radiogroup] { margin-bottom: 112px; }
+.jt-sheet > dialog { background: #161619; min-height: 0; width: 100%; }
 
 .jt .sr-only {
   position: absolute;

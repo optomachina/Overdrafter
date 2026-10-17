@@ -28,16 +28,16 @@ export function createPreview() {
     }
   };
   const client: ThreadClient = {
-    async resolve(_run, decisionId, answer) {
+    resolve(_run, decisionId, answer) {
       publish({ ...envelope(), type: 'decision_resolved', nodeId: 'concept_picks', decisionId, choice: answer.choice ?? '0.250 in', rationale: 'Default thickness for this synthetic plate preview.', ...(answer.resolution === 'chosen' ? { outcome: 'chosen' as const } : { outcome: 'skipped_best_guess' as const, cause: 'skip' as const }) });
       publish({ ...envelope(), type: 'status', nodeId: 'domain_agent', state: 'started', message: 'Preparing the CAD review' });
-      later(result); return { status: 200 };
+      later(result); return Promise.resolve({ status: 200 });
     },
-    async control(_run, command) {
+    control(_run, command) {
       timers.forEach(clearTimeout); timers.clear();
       publish({ ...envelope(), type: 'control_requested', nodeId: 'domain_agent', commandId: command.idempotencyKey, actorId: 'sample', ...command });
       later(() => publish({ ...envelope(), type: 'control_applied', nodeId: 'domain_agent', commandId: command.idempotencyKey, checkpoint: 'agent', ...(command.kind === 'pause' ? { kind: 'pause' as const, state: 'paused' as const } : { kind: 'cancel' as const, state: 'cancelled' as const, kept: [artifacts[0]] }) }));
-      return { status: 202 };
+      return Promise.resolve({ status: 202 });
     },
   };
   return { source, client };

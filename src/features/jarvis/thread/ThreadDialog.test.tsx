@@ -30,6 +30,6 @@ it('focuses primary KEEP COOKING in the cancel sheet and dismisses without cance
   expect(keep.className).toBe('jt-primary');
   fireEvent.click(keep);
   fireEvent.keyDown(keep, { key: 'Escape' });
-  fireEvent.click(screen.getByRole('alertdialog').parentElement!);
+  fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
   expect(close).toHaveBeenCalledTimes(3);
 });

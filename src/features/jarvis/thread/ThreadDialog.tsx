@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
-export function ThreadDialog({ children, close, sheet = false }: { children: ReactNode; close(): void; sheet?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
+export function ThreadDialog({ children, close, sheet = false }: Readonly<{ children: ReactNode; close(): void; sheet?: boolean }>) {
+  const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement;
     const root = ref.current!;
@@ -18,8 +18,9 @@ export function ThreadDialog({ children, close, sheet = false }: { children: Rea
     document.addEventListener('keydown', keyboard);
     return () => { document.removeEventListener('keydown', keyboard); opener?.focus(); };
   }, [close]);
-  return <div className={`jt-overlay ${sheet ? 'jt-sheet' : ''}`} onClick={e => { if (e.target === e.currentTarget) close(); }}>
-    <div ref={ref} role={sheet ? 'alertdialog' : 'dialog'} aria-modal="true" aria-label={sheet ? 'Cancel request?' : '3D review'}>
-      <button className={sheet ? 'jt-primary' : undefined} onClick={close}>{sheet ? 'KEEP COOKING' : 'CLOSE'}</button>{children}</div>
+  return <div className={`jt-overlay ${sheet ? 'jt-sheet' : ''}`}>
+    <button type="button" className="jt-scrim" aria-label="Close dialog" tabIndex={-1} onClick={close} />
+    <dialog open ref={ref} role={sheet ? 'alertdialog' : 'dialog'} aria-modal="true" aria-label={sheet ? 'Cancel request?' : '3D review'}>
+      <button className={sheet ? 'jt-primary' : undefined} onClick={close}>{sheet ? 'KEEP COOKING' : 'CLOSE'}</button>{children}</dialog>
   </div>;
 }
