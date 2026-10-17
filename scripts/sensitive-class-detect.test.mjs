@@ -176,6 +176,56 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     expect(classifyPath("src/pages/Unauthorized.tsx", config).classes).toEqual(["auth"]);
     expect(classifyPath("src/lib/authorize.ts", config).classes).toEqual(["auth"]);
   });
+
+  // Agent instruction files in any directory (review @ f786b942): Codex reads
+  // one per directory and prefers AGENTS.override.md, so each can replace the
+  // contract for its tree. They were safe (docs, frontend_ui, repo_scripts,
+  // agent_skills) or unclassified before.
+  it.each([
+    ["AGENTS.md"],
+    ["AGENTS.override.md"],
+    ["CLAUDE.md"],
+    ["CLAUDE.local.md"],
+    ["src/features/quotes/AGENTS.override.md"],
+    ["docs/AGENTS.md"],
+    ["docs/CLAUDE.md"],
+    ["scripts/AGENTS.override.md"],
+    [".codex/skills/AGENTS.override.md"],
+    [".claude/agents/CLAUDE.md"],
+    ["worker/src/CLAUDE.local.md"],
+  ])("agent instruction file %s is infra_ci, never a safe category", (file) => {
+    expect(classifyPath(file, config)).toMatchObject({ classes: ["infra_ci"], category: null });
+  });
+
+  it("covers the tracked AGENTS.override.md", () => {
+    expect(existsSync(path.join(repoRoot, "src/features/quotes/AGENTS.override.md"))).toBe(true);
+  });
+
+  // Names 0163daf7's path keywords matched and the shared list now matches too
+  // (review @ f786b942): rls after a dot, and provider admission or upload
+  // split by a directory, a dot or any other character.
+  it.each([
+    ["src/features/q/x.rls.ts", ["auth"]],
+    ["scripts/x.rls.ts", ["auth"]],
+    ["src/features/provider/upload/Form.tsx", ["provider_dispatch"]],
+    ["src/features/provider/admission/Form.tsx", ["provider_dispatch"]],
+    ["src/features/provider.upload.tsx", ["provider_dispatch"]],
+    ["scripts/provider/admission.mjs", ["provider_dispatch"]],
+    ["docs/provider admission.md", ["provider_dispatch"]],
+    ["src/components/provider+uploads.tsx", ["provider_dispatch"]],
+    ["docs/a.pgsql", ["schema"]],
+    ["src/assets/b.psql", ["schema"]],
+  ])("restored coverage: %s -> %j", (file, classes) => {
+    expect(classifyPath(file, config)).toMatchObject({ classes, category: null });
+  });
+
+  // Known residual (documented in the PR): 0163daf7 split camelCase words, so
+  // quoteRls was rls. The shared list is case-insensitive and its fixture keeps
+  // src/lib/urls.ts out, so a camelCase rls cannot be matched without urls.
+  it("does not match a camelCase rls, which would also match urls", () => {
+    expect(classifyPath("src/features/quotes/quoteRls.ts", config)).toMatchObject({ classes: [], category: "frontend_ui" });
+    expect(classifyPath("src/lib/urls.ts", config)).toMatchObject({ classes: [], category: null });
+  });
 });
 
 describe("classifyPath: safe categories", () => {
@@ -183,12 +233,12 @@ describe("classifyPath: safe categories", () => {
     ["README.md", "docs"],
     ["docs/agent-graph-metrics.md", "docs"],
     ["src/lib/quote.test.ts", "tests"],
-    ["scripts/catalog-parity-diff.node-test.mjs", "tests"],
+    ["scripts/check-compiled-worker-scope.node-test.mjs", "tests"],
     ["e2e/journeys/quote.spec.ts", "tests"],
     ["src/components/QuoteTable.tsx", "frontend_ui"],
     ["src/index.css", "styles_assets"],
     ["public/favicon.svg", "styles_assets"],
-    ["scripts/inventory-worktrees.mjs", "repo_scripts"],
+    ["scripts/generate-favicons.mjs", "repo_scripts"],
     [".codex/skills/commit/SKILL.md", "agent_skills"],
     [".claude/agents/implementer.md", "agent_skills"],
   ])("%s -> %s", (file, category) => {
@@ -204,7 +254,7 @@ describe("classifyPath: safe categories", () => {
     ["src/features/auth/x.tsx", ["auth"], null],
     ["scripts/rotate-token-cache.mjs", [], null],
     ["AGENTS.md", ["infra_ci"], null],
-    ["CLAUDE.md", [], null],
+    ["CLAUDE.md", ["infra_ci"], null],
   ])("exclusion: %s -> classes %j, category %s", (file, classes, category) => {
     expect(classifyPath(file, config)).toMatchObject({ classes, category });
   });
@@ -247,6 +297,9 @@ describe("classifySql", () => {
     ["do $$ begin execute 'create policy p on t using (x = ''a'')'; end $$;", ["rls"]],
     ["do $$ begin execute E'alter table t enable row level security\\n'; end $$;", ["rls"]],
     ["do $a$ begin execute $b$ execute $c$ create policy p on t $c$ $b$; end $a$;", ["rls"]],
+    // Postgres ends a line comment at CR too (review @ f786b942).
+    ["-- x\rCREATE POLICY p ON t USING (true);", ["rls"]],
+    ["select 1; -- note\r\nalter table t enable row level security;", ["rls"]],
   ])("%s -> %j", (text, expected) => {
     expect(sql(text)).toEqual(expected);
   });
@@ -323,8 +376,8 @@ describe("detect", () => {
 
   it.each([
     ["scripts/fixture.sql", "unchanged", ["schema", "rls"]],
-    ["scripts/fixture.pgsql", "modified", ["rls"]],
-    ["e2e/setup.psql", "added", ["rls"]],
+    ["scripts/fixture.pgsql", "modified", ["schema", "rls"]],
+    ["e2e/setup.psql", "added", ["schema", "rls"]],
     ["scripts/fixture.sql", "some-future-status", ["schema", "rls"]],
   ])("reads %s (%s) at the head as SQL", async (filename, status, classes) => {
     const read = [];
@@ -388,42 +441,160 @@ describe("detect: strict file list", () => {
   });
 });
 
-describe("drift: scripts CI runs are infra_ci on the shared list", () => {
+// The scripts CI runs, found by walking from .github/**:
+// - every scripts/ reference in a .github/** file (a path, a prefix or a glob);
+// - every `npm run <name>` (also `npm test`, `npm start`, `npm --prefix <dir>`,
+//   pre and post scripts, and the install lifecycle scripts of `npm ci` or
+//   `npm install` without --ignore-scripts) in a .github/** file, in a
+//   package.json script reached that way, and in a shell script reached;
+// - the scripts/ files those package.json scripts name;
+// - in each script reached: every scripts/ reference (except a ** glob, which
+//   is prose) and every relative import, require or new URL.
+// JavaScript files are not read for npm runs; a test checks that none starts
+// npm. Python files are not read for imports; CI names their directory.
+// Vitest's own discovery (`vitest run` with no file) is not followed.
+const DYNAMIC_NPM_RUNS = { "scripts/preflight.sh": ["lint", "typecheck", "test"] };
+const INSTALL_LIFECYCLE = ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"];
+
+function ciRunScripts(root) {
   const walk = (dir) =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
-  const relative = (file) => path.relative(repoRoot, file).split(path.sep).join("/");
-  const scripts = walk(path.join(repoRoot, "scripts")).map(relative);
-
-  // Every scripts/ reference in .github/** (a path, a prefix or a '*' glob),
-  // then every scripts/ reference and relative import inside those files.
-  const ciScripts = new Set();
+  const relative = (file) => path.relative(root, file).split(path.sep).join("/");
+  const scripts = walk(path.join(root, "scripts")).map(relative);
+  const found = new Map();
+  const npmRuns = new Map();
+  const problems = [];
   const queue = [];
-  const addReferences = (text, fromFile) => {
-    for (const [ref] of text.matchAll(/scripts\/[\w*-][\w.*/-]*/g)) {
-      const pattern = new RegExp(`^${ref.replace(/\.$/, "").replace(/[.+^$()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}`);
-      for (const file of scripts.filter((candidate) => pattern.test(candidate))) queue.push(file);
-    }
-    if (!fromFile || !/\.(?:mjs|js|ts)$/.test(fromFile)) return;
-    for (const [, specifier] of text.matchAll(/(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
-      const target = relative(path.resolve(path.dirname(path.join(repoRoot, fromFile)), specifier));
-      if (scripts.includes(target)) queue.push(target);
+
+  const addScriptRefs = (text, from, { dir = "", prose = false } = {}) => {
+    for (const [, lead, ref] of text.matchAll(/((?:\.{1,2}\/)*)(scripts\/[\w*-][\w.*/-]*)/g)) {
+      if (prose && ref.includes("**")) continue;
+      const resolved = dir ? path.posix.normalize(path.posix.join(dir, lead, ref)) : ref;
+      if (!resolved.startsWith("scripts/")) continue;
+      const pattern = new RegExp(`^${resolved.replace(/\.$/, "").replace(/[.+^$()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}`);
+      for (const file of scripts.filter((candidate) => pattern.test(candidate))) queue.push([file, from]);
     }
   };
-  for (const file of walk(path.join(repoRoot, ".github"))) addReferences(readFileSync(file, "utf8"));
-  while (queue.length) {
-    const file = queue.pop();
-    if (ciScripts.has(file)) continue;
-    ciScripts.add(file);
-    if (/\.(?:mjs|js|ts|sh)$/.test(file)) addReferences(readFileSync(path.join(repoRoot, file), "utf8"), file);
-  }
+  const packageScripts = (dir) => JSON.parse(readFileSync(path.join(root, dir, "package.json"), "utf8")).scripts ?? {};
+  const followNpm = (dir, names, from, { optional = false } = {}) => {
+    const defined = packageScripts(dir);
+    for (const name of names) {
+      if (!Object.hasOwn(defined, name)) {
+        if (!optional) problems.push(`${from}: npm run ${name} has no script in ${dir || "."}/package.json`);
+        continue;
+      }
+      for (const step of [`pre${name}`, name, `post${name}`]) {
+        const key = `${dir || "."}/package.json#${step}`;
+        if (!Object.hasOwn(defined, step) || npmRuns.has(key)) continue;
+        npmRuns.set(key, from);
+        addScriptRefs(defined[step], key, { dir });
+        addNpmRuns(defined[step], key, dir);
+      }
+    }
+  };
+  const addNpmRuns = (text, from, dir = "") => {
+    const invocation = /\bnpm((?:\s+(?:--prefix[= ]\s*\S+|-C\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(run-script|run|test|start|t|ci|install|i)\b((?:\s+--?[\w-]+)*)(?:\s+(["']?)([^\s"'`;&|)]+)\4)?([^\n;&|]*)/g;
+    for (const [, options, verb, , , rawName, rest] of text.matchAll(invocation)) {
+      const prefix = /(?:--prefix[= ]\s*|-C\s+)(\S+)/.exec(options)?.[1];
+      const target = prefix ? path.posix.normalize(path.posix.join(dir || ".", prefix)).replace(/^\.$/, "") : dir;
+      if (["ci", "install", "i"].includes(verb)) {
+        if (!/--ignore-scripts\b/.test(`${options} ${rawName ?? ""} ${rest}`)) followNpm(target, INSTALL_LIFECYCLE, from, { optional: true });
+        continue;
+      }
+      if (verb !== "run" && verb !== "run-script") {
+        followNpm(target, [verb === "t" ? "test" : verb], from);
+        continue;
+      }
+      if (!rawName) continue;
+      const name = rawName.replace(/[.,:]+$/, "");
+      if (name.includes("$")) {
+        if (DYNAMIC_NPM_RUNS[from]) followNpm(target, DYNAMIC_NPM_RUNS[from], from);
+        else problems.push(`${from}: npm run ${rawName} takes its name from a variable; list its names in DYNAMIC_NPM_RUNS`);
+        continue;
+      }
+      followNpm(target, [name], from);
+    }
+  };
+  const addImports = (text, from) => {
+    for (const [, specifier] of text.matchAll(/(?:\bfrom|\bimport|\brequire|\bnew URL)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+      const target = relative(path.resolve(path.dirname(path.join(root, from)), specifier));
+      const hits = scripts.filter((file) => [target, `${target}.mjs`, `${target}.js`, `${target}.ts`].includes(file) || file.startsWith(`${target}/`));
+      for (const file of hits) queue.push([file, from]);
+    }
+  };
 
-  it("finds the scripts CI runs", () => {
-    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH]) expect(ciScripts).toContain(file);
+  for (const file of walk(path.join(root, ".github"))) {
+    const text = readFileSync(file, "utf8");
+    addScriptRefs(text, relative(file));
+    addNpmRuns(text, relative(file));
+  }
+  while (queue.length) {
+    const [file, from] = queue.pop();
+    if (found.has(file)) continue;
+    found.set(file, from);
+    if (!/\.(?:mjs|cjs|js|ts|sh)$/.test(file)) continue;
+    const text = readFileSync(path.join(root, file), "utf8");
+    addScriptRefs(text, file, { prose: true });
+    if (file.endsWith(".sh")) addNpmRuns(text, file);
+    else addImports(text, file);
+  }
+  return { scripts: found, npmRuns, problems };
+}
+
+describe("drift: scripts CI runs are infra_ci on the shared list", () => {
+  const { scripts: ciScripts, npmRuns, problems } = ciRunScripts(repoRoot);
+
+  it("finds the scripts CI runs, including through npm run and package.json", () => {
+    for (const file of [DETECTOR_REPO_PATH, CONFIG_REPO_PATH, DETECTOR_HELPER_REPO_PATH, MATCHER_PATH, "scripts/preflight.sh"]) expect(ciScripts.has(file), file).toBe(true);
+    // Reached only through npm run (the f786b942 reviews' examples).
+    for (const file of [
+      "scripts/verify-migration-lineage.mjs", // ci.yml: npm run verify:migration-lineage
+      "scripts/provider-check.mjs", // npm run provider:check
+      "scripts/provider-sync.mjs", // imported by provider-check.mjs
+      "scripts/provider-registry.mjs",
+      "scripts/default-deny-execution.mjs",
+      "scripts/reviewed-envelope-check.mjs",
+      "scripts/seed-dev.mjs", // npm run seed:dev
+      "scripts/verify-public-assets.mjs", // npm run build
+      "scripts/inventory-worktrees.mjs", // npm run test:agent-control-plane
+      "scripts/agent-control/launch.py",
+      "scripts/agent-control/run_store.py",
+      "scripts/check-migration-immutability.mjs", // npm run test:portable-node
+    ]) {
+      expect(ciScripts.has(file), file).toBe(true);
+    }
+    // preflight.sh runs npm run "$stage"; the stages are followed too.
+    for (const step of ["./package.json#lint", "./package.json#typecheck", "./package.json#test", "worker/package.json#verify"]) expect(npmRuns.has(step), step).toBe(true);
+  });
+
+  it("resolves every npm run name, and lists the names a variable can take", () => {
+    expect(problems).toEqual([]);
+    // DYNAMIC_NPM_RUNS must follow preflight.sh's own stage list.
+    expect(readFileSync(path.join(repoRoot, "scripts/preflight.sh"), "utf8")).toMatch(/^\s*lint \| typecheck \| test\) ;;$/m);
+    const probe = tempDir("sensitive-class-npm-");
+    mkdirSync(path.join(probe, ".github", "workflows"), { recursive: true });
+    mkdirSync(path.join(probe, "scripts"));
+    writeFileSync(path.join(probe, "package.json"), JSON.stringify({ scripts: { prechecks: "node scripts/a.mjs", checks: "npm run inner", inner: "bash scripts/b.sh" } }));
+    writeFileSync(path.join(probe, "scripts", "a.mjs"), "");
+    writeFileSync(path.join(probe, "scripts", "b.sh"), 'npm run "$x"\nnpm run missing\n');
+    writeFileSync(path.join(probe, ".github", "workflows", "ci.yml"), "steps:\n  - run: npm run checks -- --flag\n");
+    const walked = ciRunScripts(probe);
+    expect([...walked.scripts.keys()].sort()).toEqual(["scripts/a.mjs", "scripts/b.sh"]);
+    expect(walked.problems).toEqual([
+      "scripts/b.sh: npm run $x takes its name from a variable; list its names in DYNAMIC_NPM_RUNS",
+      "scripts/b.sh: npm run missing has no script in ./package.json",
+    ]);
+  });
+
+  it("no CI-run JavaScript file starts npm itself (the walk reads only shell scripts for npm runs)", () => {
+    const starts = [...ciScripts.keys()].filter((file) => /\.(?:mjs|cjs|js|ts)$/.test(file)).filter((file) =>
+      /\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(\s*["'`]npm(?:["'`]|\s)/.test(readFileSync(path.join(repoRoot, file), "utf8")));
+    expect(starts).toEqual([]);
   });
 
   it("classifies every one as infra_ci in docs/sensitive-paths.json", () => {
     const matcher = createMatcher(loadSensitivePaths({ root: repoRoot }));
-    const missing = [...ciScripts].filter((file) => !matcher.classify(file).includes("infra_ci"));
+    const missing = [...ciScripts].filter(([file]) => !matcher.classify(file).includes("infra_ci")).map(([file, from]) => `${file} (from ${from})`);
     expect(missing).toEqual([]);
   });
 });

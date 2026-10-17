@@ -49,8 +49,9 @@ import { safeInline } from "./proof-check.mjs";
  *   provider   -> provider_dispatch
  *   ci, infra  -> infra_ci
  *   auth, secrets, deps -> unchanged
- *   rls, definer -> unchanged, from SQL content only (an rls-named path is
- *                 auth on the shared list)
+ *   rls, definer -> unchanged, from SQL content only (a path naming rls at
+ *                 the start of a name or after -, _ or . is auth on the
+ *                 shared list; a camelCase name such as quoteRls is not)
  * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
  * "<class>:sql:<tokens>" or "<category>:path:<glob>"; a rename's old name is
  * prefixed "previous:". gate_loosening.reasons hold this detector's reasons
@@ -314,8 +315,9 @@ export function sqlWords(text, depth = 0) {
     const char = sql[index];
     const next = sql[index + 1];
     if (char === "-" && next === "-") {
-      const end = sql.indexOf("\n", index);
-      index = end === -1 ? sql.length : end + 1;
+      // Postgres ends a line comment at CR as well as LF.
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
+      index += 1;
     } else if (char === "/" && next === "*") {
       let level = 1;
       index += 2;
