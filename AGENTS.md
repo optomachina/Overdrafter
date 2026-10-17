@@ -110,7 +110,7 @@ Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) be
 - One writer per PR owns every repair. Total budget is 2 repair rounds across local and CI combined; each round gets all current failure logs at once, not one check at a time.
 - Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
 - A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
-- Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch [sensitive paths](#sensitive-paths-single-shared-list) or provider/customer data. Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks.
+- Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch [sensitive paths](#sensitive-paths-single-shared-list) or provider/customer data. Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks. Linear model labels are mapped in `docs/agent-graph/model-routing.yaml`.
 - Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
 
 ## Completion and failure

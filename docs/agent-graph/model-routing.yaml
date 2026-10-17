@@ -1,0 +1,27 @@
+# This file is the source of truth for model labels.
+# A report-mode check that fails when a dispatched issue or PR has no model
+# label is planned in a separate Linear issue.
+
+- label: "model:opus"
+  provider: Anthropic
+  model: Claude Opus
+  use_for: architecture-first work
+  notes: Architecture-first work.
+
+- label: "model:sonnet"
+  provider: Anthropic
+  model: Claude Sonnet
+  use_for: standard builds
+  notes: Standard builds.
+
+- label: "model:codex"
+  provider: OpenAI
+  model: Codex / GPT
+  use_for: default builds and scripts
+  notes: Default builds and scripts.
+
+- label: "model:grok-overflow"
+  provider: Cursor
+  model: Grok
+  use_for: overflow builds only
+  notes: Cursor cloud agent on a Grok model. Limited to the plan's included usage, stops at about 90%, and never uses on-demand.
