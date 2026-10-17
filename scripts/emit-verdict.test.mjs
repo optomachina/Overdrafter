@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertSha, buildVerdict, computeDiffId, computePatchId, formatComment, isEntryPoint, main, parsePatchIdOutput, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
+import { assertSha, buildVerdict, computeDiffId, computePatchId, formatComment, main, parsePatchIdOutput, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -562,8 +562,6 @@ describe("emit -> validate round trip", () => {
 
 describe("CLI entry guard", () => {
   const script = fileURLToPath(new URL("./emit-verdict.mjs", import.meta.url));
-  const other = fileURLToPath(new URL("./emit-verdict.test.mjs", import.meta.url));
-  const moduleUrl = new URL("./emit-verdict.mjs", import.meta.url).href;
   let dir;
   let link;
   beforeAll(() => {
@@ -573,20 +571,6 @@ describe("CLI entry guard", () => {
     symlinkSync(link, join(dir, "link-to-link.mjs"));
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
-
-  it("recognises the module as the entry point by realpath, including through symlinks", () => {
-    expect(isEntryPoint(moduleUrl, script)).toBe(true);
-    expect(isEntryPoint(moduleUrl, link)).toBe(true);
-    expect(isEntryPoint(moduleUrl, join(dir, "link-to-link.mjs"))).toBe(true);
-  });
-
-  it("is false when argv[1] is missing, unresolvable or another file", () => {
-    expect(isEntryPoint(moduleUrl, undefined)).toBe(false);
-    expect(isEntryPoint(moduleUrl, "")).toBe(false);
-    expect(isEntryPoint(moduleUrl, join(dir, "missing.mjs"))).toBe(false);
-    expect(isEntryPoint(moduleUrl, other)).toBe(false);
-    expect(isEntryPoint("not a url", script)).toBe(false);
-  });
 
   const cli = (entry, args) => {
     try {
