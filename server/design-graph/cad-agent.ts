@@ -38,7 +38,7 @@ export interface PlateWorkerResult {
   stepBboxMm: ArtifactDimensionsMm;
   allChecksPass: boolean;
   checks: { check: string; pass: boolean; detail: string }[];
-  files: { step: string; glb: string; iso: string; top: string };
+  files: { step: string; glb: string; usdz?: string | null; iso: string; top: string };
 }
 
 export interface PlateWorkerOutcome {
@@ -284,6 +284,10 @@ export class CadAgent implements DomainAgent {
     await ctx.checkpoint();
     emit({ type: "artifact", kind: "glb", name: result.files.glb, mimeType: "model/gltf-binary", uri: uri(result.files.glb), dimensionsMm });
     await ctx.checkpoint();
+    if (result.files.usdz) {
+      emit({ type: "artifact", kind: "usdz", name: result.files.usdz, mimeType: "model/vnd.usdz+zip", uri: uri(result.files.usdz), dimensionsMm });
+      await ctx.checkpoint();
+    }
     emit({ type: "artifact", kind: "png", name: result.files.iso, mimeType: "image/png", uri: uri(result.files.iso) });
     await ctx.checkpoint();
     emit({ type: "artifact", kind: "png", name: result.files.top, mimeType: "image/png", uri: uri(result.files.top) });
