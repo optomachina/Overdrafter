@@ -1,0 +1,12 @@
+[
+  { "number": 1, "title": "OVD-1: add feature", "created_at": "2026-09-28T00:00:00Z", "merged_at": "2026-09-28T10:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-1" }, "labels": [] },
+  { "number": 2, "title": "OVD-2: fix bug", "created_at": "2026-09-29T00:00:00Z", "merged_at": "2026-09-30T00:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-2" }, "labels": [{ "name": "bug" }] },
+  { "number": 3, "title": "Revert \"OVD-1: add feature\"", "created_at": "2026-10-05T12:00:00Z", "merged_at": "2026-10-05T14:00:00Z", "base": { "ref": "main" }, "head": { "ref": "revert-1-bot/ovd-1" }, "labels": [] },
+  { "number": 4, "title": "OVD-9: Rollback provider dispatch default", "created_at": "2026-10-06T00:00:00Z", "merged_at": "2026-10-06T04:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-9" }, "labels": [] },
+  { "number": 5, "title": "OVD-419 Preserve rollback-unverified promotion cause", "created_at": "2026-10-01T00:00:00Z", "merged_at": "2026-10-13T00:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-419" }, "labels": [] },
+  { "number": 6, "title": "OVD-6: merged after the window", "created_at": "2026-10-15T20:00:00Z", "merged_at": "2026-10-16T03:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-6" }, "labels": [] },
+  { "number": 7, "title": "OVD-7: merged before the window", "created_at": "2026-09-27T20:00:00Z", "merged_at": "2026-09-27T23:59:59Z", "base": { "ref": "main" }, "head": { "ref": "bot/ovd-7" }, "labels": [] },
+  { "number": 8, "title": "OVD-8: closed without merge", "created_at": "2026-10-02T00:00:00Z", "merged_at": null, "base": { "ref": "main" }, "head": { "ref": "bot/ovd-8" }, "labels": [] },
+  { "number": 9, "title": "Restore quote cache", "created_at": "2026-10-14T00:00:00Z", "merged_at": "2026-10-14T06:00:00Z", "base": { "ref": "main" }, "head": { "ref": "bot/cache" }, "labels": [{ "name": "Rollback" }] },
+  { "number": 10, "title": "OVD-10: stacked change into a feature branch", "created_at": "2026-10-07T00:00:00Z", "merged_at": "2026-10-07T01:00:00Z", "base": { "ref": "feature/ovd-10" }, "head": { "ref": "bot/ovd-10-part-2" }, "labels": [] }
+]
