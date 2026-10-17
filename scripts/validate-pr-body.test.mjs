@@ -651,6 +651,8 @@ describe("validatePrBody", () => {
         "<h2>Provider go-live</h2>",
         "## Notes\n\n<h2>\nProvider go-live\n</h2>",
         "## Notes\n\n<h2>Notes</h2><h2>Provider go-live</h2>",
+        "- item\n\n    ## Provider go-live",
+        "- item\n\n\t## Provider go-live",
       ]) {
         const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
         expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
@@ -730,6 +732,10 @@ describe("validatePrBody", () => {
       for (const line of ["+ [x] Envelope reviewed (automatic)", "1. [x] Envelope reviewed (automatic)", "- [x] __Envelope reviewed (automatic)__", "- - [x] Envelope reviewed (automatic)"]) {
         expect(validate(withExtra(line)), line).toEqual({ ok: true, errors: [] });
       }
+      // The automatic text must be on the checkbox line itself, not a continuation.
+      expect(validate(withExtra("- [x]\n  Envelope reviewed (automatic)")).errors).toContain(
+        'missing Provider go-live item "envelope reviewed (automatic)"',
+      );
       expect(validate(withExtra("> - [x] Envelope reviewed (automatic)")).errors).toContain(
         'missing Provider go-live item "envelope reviewed (automatic)"',
       );

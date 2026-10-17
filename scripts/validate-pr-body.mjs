@@ -135,7 +135,9 @@ function isInsideRange(ranges, index) {
 const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/;
 // Any heading form a reader sees: ATX of any level, indented up to 3 spaces,
 // optional closing hashes, or a setext underline on the next line.
-const ANY_ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]+(.*))?$/;
+// Any indent counts (list-nested headings sit deeper); for duplicates only, so
+// an indented code line that looks like a heading just fails closed.
+const ANY_ATX_HEADING = /^[ \t]*#{1,6}(?:[ \t]+(.*))?$/;
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
 const CONTAINER_PREFIX = /^(?:[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))[ \t]*)+/;
 const NAMED_ENTITIES = { nbsp: " ", amp: "&", hyphen: "-", dash: "-", ndash: "-", mdash: "-", minus: "-" };
@@ -641,6 +643,7 @@ function parseCheckboxLines(sectionLines) {
       boxes.push({
         checked: match[2] !== " ",
         text: visibleMatch ? visibleMatch[3] : "",
+        firstLine: visibleMatch ? visibleMatch[3] : "",
         line: visible,
         quoted: match[1].includes(">"),
       });
@@ -812,12 +815,12 @@ function validateProviderGoLiveSection(body, findings) {
       // The automatic line must be present and ticked. A ticked line satisfies it;
       // an unticked real line is consumed and rejected; lookalikes such as
       // "not envelope reviewed" are never consumed and fail as extra lines.
-      const ticked = unused.findIndex((box) => !box.quoted && box.checked && AUTO_LINE_TEXT.test(box.text));
+      const ticked = unused.findIndex((box) => !box.quoted && box.checked && AUTO_LINE_TEXT.test(box.firstLine));
       if (ticked !== -1) {
         unused.splice(ticked, 1);
         continue;
       }
-      const unticked = unused.findIndex((box) => !box.quoted && !box.checked && AUTO_LINE_TEXT.test(box.text));
+      const unticked = unused.findIndex((box) => !box.quoted && !box.checked && AUTO_LINE_TEXT.test(box.firstLine));
       if (unticked !== -1) {
         unused.splice(unticked, 1);
         errors.push(`"${required.label}" must be ticked`);
