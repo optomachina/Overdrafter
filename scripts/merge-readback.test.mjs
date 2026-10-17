@@ -914,6 +914,40 @@ describe("F5: the log digest is refreshed after every append", () => {
     expect(refused.json()).toEqual({ refused: "prior-rows-rewritten" });
     expect(fs.readFileSync(logPath, "utf8")).toBe(flipped);
   });
+
+  it("refuses the next PR's read-back after a stop's recorded digest and a flipped row", () => {
+    const base = g("rev-parse", "main");
+    const h1 = branchWith("pr1", base, "a.txt", "a\n");
+    const h2 = branchWith("pr2", h1, "b.txt", "b\n");
+    squashMerge("pr1", "PR 1 (#1)");
+    fs.writeFileSync(path.join(repo, "rider.txt"), "rider\n");
+    g("add", "rider.txt");
+    g("commit", "-q", "--amend", "--no-edit");
+    const m1 = g("rev-parse", "HEAD");
+    g("update-ref", "refs/heads/main", m1);
+    const m2 = squashMerge("pr2", "PR 2 (#2)");
+    const plan = { base, land: [{ pr: 1, head_sha: h1, verdict_ref: "v1" }, { pr: 2, head_sha: h2, verdict_ref: "v2" }], stop: null };
+    const logPath = path.join(dir, "per-pr-digest.tsv");
+    const planPath = path.join(dir, "plan.json");
+    const d0 = path.join(dir, "d0.json");
+    const d1 = path.join(dir, "d1.json");
+    const d2 = path.join(dir, "d2.json");
+    fs.writeFileSync(planPath, JSON.stringify(cliPlan(plan, logPath, d0)));
+    const args = ["readback", "--repo", repo, "--main", "main", "--log", logPath, "--plan", planPath];
+    const out = sink();
+    expect(runCli([...args, "--merge-sha", m1, "--verified-head", h1, "--pr", "1", "--prior", d0, "--digest-out", d1], out)).toBe(1);
+    expect(out.json().tree_match).toBe(false);
+    expect(fs.existsSync(d1)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(d1, "utf8"))).toEqual(out.json().log_digest);
+
+    const flipped = fs.readFileSync(logPath, "utf8").split("\n").map((line) => line.split("\t")[5] === "readback" ? line.replace("\tfalse\t", "\ttrue\t") : line).join("\n");
+    fs.writeFileSync(logPath, flipped);
+    const refused = sink();
+    expect(runCli([...args, "--merge-sha", m2, "--verified-head", h2, "--pr", "2", "--prior", d1, "--digest-out", d2], refused)).toBe(1);
+    expect(refused.json()).toEqual({ refused: expect.stringMatching(/^(log-truncated|prior-rows-rewritten)$/) });
+    expect(fs.readFileSync(logPath, "utf8")).toBe(flipped);
+    expect(fs.existsSync(d2)).toBe(false);
+  });
 });
 
 describe("F7: large diffs", () => {
