@@ -1,0 +1,65 @@
+{
+  "skill": "implement-linear-issue",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "scoped-issue",
+      "task": "Implement: 'Show provider name on the quote row'. Acceptance: name renders; falls back to 'Unknown' when absent.",
+      "expectedBehaviors": [
+        "Restates acceptance criteria as a checklist before coding",
+        "Makes the smallest safe change without silent scope expansion",
+        "Adds or updates tests and reports the exact commands run",
+        "Provides summary, files modified, risks, follow-ups and a PR-ready summary"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Restates acceptance criteria as a checklist before coding",
+          "points": 2
+        },
+        {
+          "id": "b2",
+          "criterion": "Makes the smallest safe change without silent scope expansion",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Adds or updates tests and reports the exact commands run",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "Provides summary, files modified, risks, follow-ups and a PR-ready summary",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "incomplete-edge",
+      "task": "While implementing, one acceptance item cannot be verified locally because it needs a hosted service.",
+      "expectedBehaviors": [
+        "Documents the unverified edge honestly rather than claiming success",
+        "Records it as risk or follow-up, not as silently dropped",
+        "Still reports tests actually run with exact commands"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Documents the unverified edge honestly rather than claiming success",
+          "points": 4
+        },
+        {
+          "id": "b2",
+          "criterion": "Records it as risk or follow-up, not as silently dropped",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Still reports tests actually run with exact commands",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}

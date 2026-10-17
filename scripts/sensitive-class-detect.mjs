@@ -1,20 +1,88 @@
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
+import {
+  GATE_LOOSENING_LINE as SHARED_GATE_LOOSENING_LINE,
+  GATE_LOOSENING_REQUIRES,
+  SENSITIVE_CLASSES,
+  SENSITIVE_PATHS_FILE,
+  compileGlob,
+  createMatcher,
+  findGateLoosening,
+  loadSensitivePaths,
+  normalizePath,
+  readSensitivePathsText,
+} from "./lib/sensitive-paths.mjs";
 import { safeInline } from "./proof-check.mjs";
 
 /**
  * Sensitive-class detector (OVD-844, report mode). Classifies every file a PR
- * changes into the sensitive classes and auto-merge safe categories of
- * scripts/sensitive-classes.json, the shared encoding of the AGENTS.md
- * sensitive paths table.
+ * changes into sensitive classes and auto-merge safe categories and writes a
+ * head-sha-keyed JSON result for the auto-merge eligibility check (OVD-845).
+ *
+ * Path classes come only from the shared sensitive-paths list (OVD-873):
+ * docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs, both
+ * read from this checkout's working tree (the base, in CI), never from a ref.
+ * This detector never copies those globs. scripts/sensitive-classes.json
+ * holds only what this detector adds: SQL content rules (rls, definer, auth) over
+ * changed SQL read at the PR head, and the auto-merge safe categories.
  *
  * The CLI runs from the base checkout. It reads the changed files and their
- * status from the GitHub API and reads changed .sql files at the PR head as
+ * status from the GitHub API and reads changed SQL files at the PR head as
  * data only; nothing from the PR is executed. Sensitive classes win over safe
- * categories, a file matching neither is "unclassified", and any config, API
- * or truncation problem sets status "error" so a consumer fails closed.
+ * categories, and the detector fails closed: a file is non-sensitive only when
+ * it has a safe category and no sensitive class. Any other file (no class and
+ * no safe category, or a rename whose two names land in different categories)
+ * gets the pseudo-class "unclassified". Any config, API, truncation or
+ * file-list problem sets status "error" so a consumer fails closed. Every
+ * path is checked to be a non-empty string, and an empty file list must be
+ * the PR's own count of zero, before the shared matcher sees it:
+ * the matcher reads a non-string as its string form and an empty list as not
+ * sensitive.
+ *
+ * Output schema change for OVD-845 (version 2). The OVD-844 design's version 1
+ * example used this detector's own class names; classes are now the shared
+ * list's (schema, migrations, auth, payments, provider_dispatch, secrets,
+ * infra_ci, deps) followed by the SQL content classes (rls, definer):
+ *   migration  -> migrations, plus schema for any .sql, supabase/config.toml
+ *                 and docs/migration-drafts/** (so a migration is both)
+ *   billing    -> payments
+ *   provider   -> provider_dispatch
+ *   ci, infra  -> infra_ci
+ *   auth, secrets, deps -> unchanged
+ *   rls covers policies, ROW LEVEL SECURITY, BYPASSRLS/NOBYPASSRLS,
+ *                 rolbypassrls and row_security; definer covers SECURITY DEFINER.
+ *   auth also covers SQL role and session authorization switches.
+ *   rls, definer -> unchanged, from SQL content only (a path naming rls at
+ *                 the start of a name or after -, _, . or , is auth on the
+ *                 shared list; rls after any other character, or at a
+ *                 camelCase boundary such as quoteRls, is not: a glob that
+ *                 matched it would also match src/lib/urls.ts. The coverage
+ *                 sweep test, sensitive-class-sweep.test.mjs, checks the
+ *                 residual against 0163daf7's rules)
+ *   unclassified -> now a pseudo-class owned by this detector (below)
+ * Fail closed (still version 2; changed before OVD-845 consumed any result):
+ * a file with no sensitive class and no safe category has classes
+ * ["unclassified"] and reason "unclassified:no-safe-category", so it counts in
+ * sensitive_count and in classes / multi_class like any other class. The
+ * result's classes list "unclassified" last. The top-level unclassified array
+ * still lists those files' paths. A file with a safe category and no
+ * sensitive class (classes [], category set) is the only non-sensitive file.
+ * files[].reasons read "<class>:path:<glob>" (one per matching shared glob),
+ * "<class>:sql:<id>: <reason>", "<category>:path:<glob>" or
+ * "unclassified:no-safe-category"; a rename's old name is prefixed
+ * "previous:". gate_loosening.reasons hold this detector's reasons
+ * ({kind, path, message, ...}) and the shared list's findGateLoosening
+ * reasons, which keep every field and gain kind (its code), path (its file)
+ * and source "sensitive-paths".
+ *
+ * gate_loosening (report only) is judged by this base copy, so a PR editing
+ * the detector, its config, the shared list or the matcher cannot change its
+ * own judgement: this detector diffs the base and head copies of its config,
+ * and the shared list's findGateLoosening judges docs/sensitive-paths.json and
+ * the code that applies it (GATE_CODE_FILES).
  *
  * OVD-845 requirement: the uploaded artifact is not a trusted gate by itself.
  * Under pull_request the workflow YAML comes from the PR, so a PR can edit
@@ -25,16 +93,27 @@ import { safeInline } from "./proof-check.mjs";
  * code executed) or confirm from the API file list, independently of the
  * artifact, that the PR touches no .github/** file. In both cases it must
  * check that the producing run's workflow path is
- * .github/workflows/sensitive-class.yml and its head sha is the PR head.
+ * .github/workflows/sensitive-class.yml and its head sha is the PR head, and
+ * treat a missing artifact as needs-Blaine.
  */
 
-export const CONFIG_PATH = fileURLToPath(new URL("./sensitive-classes.json", import.meta.url));
+export const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
+export const CONFIG_REPO_PATH = "scripts/sensitive-classes.json";
+export const CONFIG_PATH = path.join(REPO_ROOT, CONFIG_REPO_PATH);
 export const CONFIG_VERSION = 1;
+export const OUTPUT_VERSION = 2;
+/** Classes that only SQL content rules give. */
+export const SQL_CONTENT_CLASSES = Object.freeze(["rls", "definer"]);
+/** Classes SQL rules may name, including shared-list auth. */
+export const SQL_RULE_CLASSES = Object.freeze([...SQL_CONTENT_CLASSES, "auth"]);
+/** The pseudo-class of a file with no sensitive class and no safe category (fail closed). */
+export const UNCLASSIFIED = "unclassified";
+/** Every output class, in output order. */
+export const OUTPUT_CLASSES = Object.freeze([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
 export const MAX_FILES = 3000;
 const PER_PAGE = 100;
 
-const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "classes", "safe_categories"]);
-const CLASS_KEYS = new Set(["description", "areas", "signals", "paths", "path_keywords", "exclude", "exclude_keywords"]);
+const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "safe_categories"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules"]);
 const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason"]);
@@ -43,59 +122,16 @@ const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sA-Za-z0-9_$])$/;
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// ---------------------------------------------------------------- globs
+const messageOf = (error) => (error instanceof Error ? error.message : String(error));
 
-function expandBraces(pattern) {
-  const open = pattern.indexOf("{");
-  if (open === -1) return [pattern];
-  let depth = 0;
-  for (let index = open; index < pattern.length; index += 1) {
-    if (pattern[index] === "{") depth += 1;
-    else if (pattern[index] === "}" && --depth === 0) {
-      const parts = [];
-      let start = open + 1;
-      let level = 0;
-      for (let cursor = open + 1; cursor < index; cursor += 1) {
-        if (pattern[cursor] === "{") level += 1;
-        else if (pattern[cursor] === "}") level -= 1;
-        else if (pattern[cursor] === "," && level === 0) {
-          parts.push(pattern.slice(start, cursor));
-          start = cursor + 1;
-        }
-      }
-      parts.push(pattern.slice(start, index));
-      const prefix = pattern.slice(0, open);
-      const rest = expandBraces(pattern.slice(index + 1));
-      return parts.flatMap((part) => expandBraces(prefix + part).flatMap((head) => rest.map((tail) => head + tail)));
-    }
-  }
-  throw new Error(`unbalanced brace in glob "${pattern}"`);
-}
+// ---------------------------------------------------------------- paths
 
-function segmentSource(segment) {
-  let source = "";
-  for (const char of segment) {
-    if (char === "*") source += "[^/]*";
-    else if (char === "?") source += "[^/]";
-    else source += char.replace(/[.+^$()|[\]\\]/g, "\\$&");
-  }
-  return source;
-}
-
-/** Compile one glob of the config syntax into a case-insensitive RegExp. */
-export function globToRegExp(glob) {
-  if (typeof glob !== "string" || glob === "" || glob.startsWith("/")) throw new Error(`invalid glob ${JSON.stringify(glob)}`);
-  const alternatives = expandBraces(glob).map((pattern) => {
-    const segments = pattern.split("/");
-    let source = "";
-    segments.forEach((segment, index) => {
-      const last = index === segments.length - 1;
-      if (segment === "**") source += last ? ".*" : "(?:[^/]+/)*";
-      else source += segmentSource(segment) + (last ? "" : "/");
-    });
-    return source;
-  });
-  return new RegExp(`^(?:${alternatives.join("|")})$`, "i");
+/**
+ * A path the shared matcher may see: a non-empty string that is still
+ * non-empty once trimmed and once its leading ./ or / is removed.
+ */
+export function isValidPath(value) {
+  return typeof value === "string" && value.trim() !== "" && normalizePath(value) !== "";
 }
 
 /** Split a path into lower-case words on non-alphanumerics and camelCase boundaries. */
@@ -141,42 +177,43 @@ function stringList(value, where, errors, pattern) {
   return value;
 }
 
+// The shared matcher's glob syntax and semantics (picomatch with dot and nocase).
 function compileGlobs(list, where, errors) {
   return list.flatMap((glob) => {
     try {
-      return [globToRegExp(glob)];
+      return [compileGlob(glob)];
     } catch (error) {
-      errors.push(`${where}: ${error.message}`);
+      errors.push(`${where}: ${messageOf(error)}`);
       return [];
     }
   });
 }
 
-function compileEntry(name, entry, kind, allowedKeys, errors) {
-  const where = `${kind}.${name}`;
+function compileCategory(name, entry, errors) {
+  const where = `safe_categories.${name}`;
   if (!NAME_PATTERN.test(name)) errors.push(`${where}: invalid name`);
+  if (OUTPUT_CLASSES.includes(name)) errors.push(`${where}: name collides with a class`);
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     errors.push(`${where} must be an object`);
     return null;
   }
-  for (const key of Object.keys(entry)) if (!allowedKeys.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
+  for (const key of Object.keys(entry)) if (!CATEGORY_KEYS.has(key)) errors.push(`${where}: unknown rule key "${key}"`);
   const paths = stringList(entry.paths, `${where}.paths`, errors);
-  const keywords = stringList(entry.path_keywords, `${where}.path_keywords`, errors, KEYWORD_PATTERN);
   return {
     name,
     paths: compileGlobs(paths, `${where}.paths`, errors),
     pathGlobs: paths,
-    keywords,
+    keywords: stringList(entry.path_keywords, `${where}.path_keywords`, errors, KEYWORD_PATTERN),
     exclude: compileGlobs(stringList(entry.exclude, `${where}.exclude`, errors), `${where}.exclude`, errors),
     excludeKeywords: stringList(entry.exclude_keywords, `${where}.exclude_keywords`, errors, KEYWORD_PATTERN),
-    areas: stringList(entry.areas, `${where}.areas`, errors),
-    signals: stringList(entry.signals, `${where}.signals`, errors),
   };
 }
 
 /**
- * Validate and compile the parsed config. Unknown keys, bad globs and rules
- * that name an unknown class are errors, never silently ignored.
+ * Validate and compile the parsed detector config (SQL content rules and safe
+ * categories). Unknown keys (a "classes" section included: path classes live
+ * in docs/sensitive-paths.json), bad globs and SQL rules for a class outside
+ * SQL_RULE_CLASSES are errors, never silently ignored.
  * @returns {{config: object|null, errors: string[]}}
  */
 export function compileConfig(raw) {
@@ -184,19 +221,12 @@ export function compileConfig(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { config: null, errors: ["config must be a JSON object"] };
   for (const key of Object.keys(raw)) if (!TOP_KEYS.has(key)) errors.push(`config: unknown key "${key}"`);
   if (raw.version !== CONFIG_VERSION) errors.push(`config: version must be ${CONFIG_VERSION}`);
-  const section = (value, label) => {
-    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0) {
-      errors.push(`config: ${label} must be a non-empty object`);
-      return [];
-    }
-    return Object.entries(value);
-  };
-  const classes = section(raw.classes, "classes").map(([name, entry]) => compileEntry(name, entry, "classes", CLASS_KEYS, errors)).filter(Boolean);
-  const categories = section(raw.safe_categories, "safe_categories")
-    .map(([name, entry]) => compileEntry(name, entry, "safe_categories", CATEGORY_KEYS, errors))
-    .filter(Boolean);
-  for (const category of categories) {
-    if (classes.some((entry) => entry.name === category.name)) errors.push(`safe_categories.${category.name}: name collides with a class`);
+  let categories = [];
+  const rawCategories = raw.safe_categories;
+  if (!rawCategories || typeof rawCategories !== "object" || Array.isArray(rawCategories) || Object.keys(rawCategories).length === 0) {
+    errors.push("config: safe_categories must be a non-empty object");
+  } else {
+    categories = Object.entries(rawCategories).map(([name, entry]) => compileCategory(name, entry, errors)).filter(Boolean);
   }
 
   const sql = raw.sql_content;
@@ -217,28 +247,50 @@ export function compileConfig(raw) {
         else if (ids.has(rule.id)) errors.push(`${where}: duplicate id "${rule.id}"`);
         ids.add(rule.id);
         if (typeof rule.reason !== "string" || rule.reason.trim() === "") errors.push(`${where}: reason must be a non-empty string`);
-        if (!classes.some((entry) => entry.name === rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
+        if (!SQL_RULE_CLASSES.includes(rule.class)) errors.push(`${where}: unknown class "${rule.class}"`);
         const tokens = stringList(rule.tokens, `${where}.tokens`, errors, SQL_TOKEN_PATTERN);
         if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
         return [{ id: rule.id, class: rule.class, tokens, reason: rule.reason }];
       }),
     };
   }
-  return errors.length ? { config: null, errors } : { config: { classes, categories, sqlContent }, errors: [] };
+  return errors.length ? { config: null, errors } : { config: { categories, sqlContent }, errors: [] };
 }
 
-/** Read, parse and compile a config file; parse failures become errors. */
-export function loadConfig(file = CONFIG_PATH) {
+/**
+ * Load the detector config and the shared sensitive-paths list from one
+ * checkout. The list is read from root's working tree (never a git ref), so
+ * in CI the base checkout's copy judges the PR. Any read, parse or validation
+ * failure becomes an error and config is null.
+ * @returns {{config: object|null, errors: string[], raw?: object, sensitivePathsText?: string}}
+ */
+export function loadConfig({ root = REPO_ROOT, file = path.join(root, CONFIG_REPO_PATH) } = {}) {
+  const errors = [];
   let raw;
+  let compiled = null;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
-    return { config: null, errors: [`config could not be read: ${error instanceof Error ? error.message : String(error)}`] };
+    errors.push(`config could not be read: ${messageOf(error)}`);
   }
-  return compileConfig(raw);
+  if (errors.length === 0) {
+    const result = compileConfig(raw);
+    compiled = result.config;
+    errors.push(...result.errors);
+  }
+  let matcher = null;
+  let sensitivePathsText = null;
+  try {
+    matcher = createMatcher(loadSensitivePaths({ root }));
+    sensitivePathsText = readSensitivePathsText({ root });
+  } catch (error) {
+    errors.push(`${SENSITIVE_PATHS_FILE} could not be loaded: ${messageOf(error)}`);
+  }
+  if (errors.length) return { config: null, errors, raw };
+  return { config: { ...compiled, matcher }, errors: [], raw, sensitivePathsText };
 }
 
-// ---------------------------------------------------------------- paths
+// ---------------------------------------------------------------- classify
 
 function entryReason(entry, path, words) {
   if (entry.exclude.some((re) => re.test(path))) return null;
@@ -250,22 +302,22 @@ function entryReason(entry, path, words) {
 }
 
 /**
- * Classify one path. Every matching class is returned; the first matching
- * safe category applies only when no class matched.
+ * Classify one path. Its classes are the shared list's (config.matcher, every
+ * spelling of the path); the first matching safe category applies only when
+ * no class matched. A path with neither has classes [] and category null here;
+ * detect gives its file the "unclassified" class. Throws on a path isValidPath
+ * rejects.
  * @returns {{classes: string[], category: string|null, reasons: string[]}}
  */
 export function classifyPath(path, config) {
-  const words = pathWords(path);
-  const classes = [];
-  const reasons = [];
-  for (const entry of config.classes) {
-    const reason = entryReason(entry, path, words);
-    if (reason) {
-      classes.push(entry.name);
-      reasons.push(`${entry.name}:${reason}`);
-    }
+  if (!isValidPath(path)) throw new TypeError(`invalid path ${JSON.stringify(path)}`);
+  const matches = config.matcher.match(path);
+  const classes = SENSITIVE_CLASSES.filter((name) => matches.some((entry) => entry.class === name));
+  if (classes.length) {
+    const reasons = classes.flatMap((name) => matches.filter((entry) => entry.class === name).map((entry) => `${name}:path:${entry.glob}`));
+    return { classes, category: null, reasons };
   }
-  if (classes.length) return { classes, category: null, reasons };
+  const words = pathWords(path);
   for (const entry of config.categories) {
     const reason = entryReason(entry, path, words);
     if (reason) return { classes, category: entry.name, reasons: [`${entry.name}:${reason}`] };
@@ -303,8 +355,9 @@ export function sqlWords(text, depth = 0) {
     const char = sql[index];
     const next = sql[index + 1];
     if (char === "-" && next === "-") {
-      const end = sql.indexOf("\n", index);
-      index = end === -1 ? sql.length : end + 1;
+      // Postgres ends a line comment at CR as well as LF.
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") index += 1;
+      index += 1;
     } else if (char === "/" && next === "*") {
       let level = 1;
       index += 2;
@@ -374,18 +427,41 @@ export function classifySql(text, config) {
 // Every status except "removed" has head content; an unknown status is read too.
 const readsHead = (status) => status !== "removed";
 
+/** Why a changed-file entry cannot be classified, or null. */
+function fileProblem(file) {
+  if (!file || typeof file !== "object" || Array.isArray(file)) return "is not an object";
+  if (!isValidPath(file.filename)) return `filename ${JSON.stringify(file.filename) ?? String(file.filename)} is not a non-empty path`;
+  if (typeof file.status !== "string" || file.status === "") return `${file.filename} has no status`;
+  const previous = file.previous_filename;
+  if (previous !== undefined && previous !== null && !isValidPath(previous)) {
+    return `${file.filename} has previous_filename ${JSON.stringify(previous) ?? String(previous)}, which is not a non-empty path`;
+  }
+  if (file.status === "renamed" && !isValidPath(previous)) return `${file.filename} is renamed but has no previous_filename`;
+  return null;
+}
+
 /**
- * Classify a list of changed files.
+ * Classify a list of changed files. Each entry must be a well-formed file
+ * (fileProblem) and the list must be non-empty unless allowEmpty (the PR's
+ * own changed_files count is 0); anything else is an error and the bad entry
+ * never reaches the matcher.
  * @param {object} input
  * @param {{filename: string, status: string, previous_filename?: string}[]} input.files
- * @param {(path: string) => Promise<string>} [input.readHeadFile] head content of a .sql file
- * @param {object} input.config compiled config
+ * @param {(path: string) => Promise<string>} [input.readHeadFile] head content of a SQL file
+ * @param {object} input.config loadConfig().config (or compileConfig() plus a matcher)
  */
-export async function detect({ files, readHeadFile, config, sha = null, baseSha = null, errors = [] }) {
+export async function detect({ files, readHeadFile, config, sha = null, baseSha = null, errors = [], allowEmpty = false }) {
   const allErrors = [...errors];
-  const order = config.classes.map((entry) => entry.name);
+  const list = Array.isArray(files) ? files : [];
+  if (!Array.isArray(files)) allErrors.push("the changed-file list is not an array");
+  else if (files.length === 0 && !allowEmpty) allErrors.push("the changed-file list is empty, but the PR does not report zero changed files");
   const results = [];
-  for (const file of files) {
+  for (const [index, file] of list.entries()) {
+    const problem = fileProblem(file);
+    if (problem) {
+      allErrors.push(`changed file ${index + 1}: ${problem}`);
+      continue;
+    }
     const paths = [file.filename];
     if (file.previous_filename && file.previous_filename !== file.filename) paths.push(file.previous_filename);
     const classes = [];
@@ -399,27 +475,32 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
       reasons.push(...result.reasons.map((reason) => label + reason));
       categories.push(result.category);
     }
-    if (readsHead(file.status) &&config.sqlContent.paths.some((re) => re.test(file.filename))) {
+    if (readsHead(file.status) && config.sqlContent.paths.some((re) => re.test(file.filename))) {
       try {
         if (!readHeadFile) throw new Error("no head reader");
         const sql = classifySql(await readHeadFile(file.filename), config);
         for (const name of sql.classes) if (!classes.includes(name)) classes.push(name);
         reasons.push(...sql.reasons);
       } catch (error) {
-        allErrors.push(`could not read ${file.filename} at head: ${error instanceof Error ? error.message : String(error)}`);
+        allErrors.push(`could not read ${file.filename} at head: ${messageOf(error)}`);
       }
     }
     // A rename keeps its safe category only when both names share it.
     if (!classes.length && categories.every((name) => name && name === categories[0])) category = categories[0];
-    classes.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    // Fail closed: only a safe category makes a file with no class non-sensitive.
+    if (!classes.length && !category) {
+      classes.push(UNCLASSIFIED);
+      reasons.push(`${UNCLASSIFIED}:no-safe-category`);
+    }
+    classes.sort((a, b) => OUTPUT_CLASSES.indexOf(a) - OUTPUT_CLASSES.indexOf(b));
     const entry = { path: file.filename, status: file.status, classes, category, reasons };
     if (paths.length > 1) entry.previous_path = file.previous_filename;
     results.push(entry);
   }
 
-  const classes = order.filter((name) => results.some((file) => file.classes.includes(name)));
+  const classes = OUTPUT_CLASSES.filter((name) => results.some((file) => file.classes.includes(name)));
   return {
-    version: CONFIG_VERSION,
+    version: OUTPUT_VERSION,
     sha,
     base_sha: baseSha,
     status: allErrors.length ? "error" : "ok",
@@ -427,14 +508,251 @@ export async function detect({ files, readHeadFile, config, sha = null, baseSha 
     sensitive_count: results.filter((file) => file.classes.length).length,
     multi_class: classes.length > 1,
     files: results,
-    unclassified: results.filter((file) => !file.classes.length && !file.category).map((file) => file.path),
+    unclassified: results.filter((file) => file.classes.includes(UNCLASSIFIED)).map((file) => file.path),
     errors: allErrors,
   };
 }
 
 /** The result for a run that could not classify anything. */
 export function errorResult(errors, { sha = null, baseSha = null } = {}) {
-  return { version: CONFIG_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors };
+  const gate_loosening = detectGateLoosening({ incomplete: "the PR could not be classified" });
+  return { version: OUTPUT_VERSION, sha, base_sha: baseSha, status: "error", classes: [], sensitive_count: 0, multi_class: false, files: [], unclassified: [], errors, gate_loosening };
+}
+
+// ---------------------------------------------------------------- gate loosening
+
+export const DETECTOR_REPO_PATH = "scripts/sensitive-class-detect.mjs";
+export const WORKFLOW_REPO_PATH = ".github/workflows/sensitive-class.yml";
+// The detector imports proof-check.mjs, so an edit there changes it after merge.
+// The shared matcher it also imports is judged by findGateLoosening (matcher_changed).
+export const DETECTOR_HELPER_REPO_PATH = "scripts/proof-check.mjs";
+const GATE_PATHS = [CONFIG_REPO_PATH, DETECTOR_REPO_PATH, DETECTOR_HELPER_REPO_PATH, WORKFLOW_REPO_PATH];
+// Every safe category field that affects matching: the whole category schema
+// (CATEGORY_KEYS, which the validator keeps closed) except description text.
+export const CATEGORY_MATCH_FIELDS = [...CATEGORY_KEYS].filter((field) => field !== "description");
+// The reason kind for one item added to or removed from a safe category field.
+// A path takes the first safe category that matches, so narrowing a category
+// lets a path fall through to a later one: that loosens a rename just as a
+// widening does. A field missing here is flagged both ways (category_changed).
+const CATEGORY_FIELD_EFFECTS = {
+  paths: { added: "exemption_added", removed: "category_narrowed" },
+  path_keywords: { added: "exemption_added", removed: "category_narrowed" },
+  exclude: { added: "category_narrowed", removed: "exemption_widened" },
+  exclude_keywords: { added: "category_narrowed", removed: "exemption_widened" },
+};
+const UNKNOWN_FIELD_EFFECT = { added: "category_changed", removed: "category_changed" };
+
+const listOf = (entry, field) => (Array.isArray(entry?.[field]) ? entry[field] : []);
+const objectOf = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+const sqlRuleKey = (rule) => JSON.stringify([rule?.id, rule?.class, rule?.tokens, rule?.reason]);
+
+/**
+ * Report-only gate_loosening classification of this detector's own config
+ * (scripts/sensitive-classes.json) and gate files, run by the base copy of
+ * this script so a PR cannot change its own judgement. Each of these needs a
+ * Grok Bot countersign on top of Blaine's card. Reason kinds:
+ * - not_checked: the changed-file list is incomplete, so a config edit cannot
+ *   be ruled out;
+ * - gate_changed, gate_removed: the detector script, its proof-check.mjs
+ *   helper or its workflow is edited or removed (CI runs the base copy, so the
+ *   edit takes effect only after merge);
+ * - config_unreadable, config_invalid: the head config is removed, renamed,
+ *   unreadable, unparseable or invalid under the base validator, or the base
+ *   config cannot be read (fail closed);
+ * - rule_narrowed: a sql_content path is removed or edited (an edit is a
+ *   removal plus an addition);
+ * - sql_rule_removed: a sql_content rule is removed or edited;
+ * - exemption_added: a path or path_keywords item added to a safe category
+ *   (a new or renamed category adds all of its own);
+ * - exemption_widened: an exclude or exclude_keywords item removed from a safe
+ *   category;
+ * - category_narrowed: a safe category is removed or renamed, loses a path or
+ *   path_keywords item, or gains an exclude or exclude_keywords item. A path
+ *   takes the first safe category that matches and a rename stays safe only
+ *   when both names land in the same one, so a path that falls through to a
+ *   later category can make a rename safe;
+ * - category_order_changed: the safe categories kept from base change order;
+ * - category_changed: any change to a safe category field with no recorded
+ *   effect (none today; it keeps a new schema field from passing silently).
+ * Every safe_categories edit that can change a classification is flagged.
+ * Path classes are not judged here: removing, narrowing or reclassifying a
+ * glob in docs/sensitive-paths.json, and editing the matcher, are the shared
+ * list's findGateLoosening reasons (gateLooseningForPull adds them).
+ * Not loosening: added SQL rules or paths, description and syntax text, item
+ * order or duplicates inside a list, and reordering sql_content rules (every
+ * rule is checked, so their order does not matter).
+ * The diff is textual, so it fails safe with false positives: an equivalent
+ * rewrite (splitting a brace glob into two, a case-only edit) is flagged, an
+ * exclusion on a new category is flagged although it only trims that
+ * category, and so is a stale branch that edits the config after base has
+ * added rules (the newer base rules look removed). gateFiles: [{ path,
+ * status }] from the PR file list.
+ */
+export function detectGateLoosening({ baseRaw = null, headRaw = null, baseError = null, headError = null, gateFiles = [], incomplete = null }) {
+  const reasons = [];
+  const at = CONFIG_REPO_PATH;
+  if (incomplete) reasons.push({ kind: "not_checked", path: at, message: `${at} loosening cannot be ruled out: ${incomplete}.` });
+  for (const { path, status } of gateFiles) {
+    if (path === CONFIG_REPO_PATH) continue;
+    reasons.push(status === "removed"
+      ? { kind: "gate_removed", path, message: `${path} is deleted.` }
+      : { kind: "gate_changed", path, message: `${path} is edited; needs review that it does not relax the check (CI runs the base copy, so the edit takes effect only after merge).` });
+  }
+  if (!gateFiles.some((file) => file.path === CONFIG_REPO_PATH)) return finish(reasons);
+  if (baseError) {
+    reasons.push({ kind: "config_unreadable", ref: "base", path: at, message: `${at} at the base commit cannot be read (${baseError}); loosening cannot be checked.` });
+    return finish(reasons);
+  }
+  if (headError) {
+    reasons.push({ kind: "config_unreadable", ref: "head", path: at, message: `${at} at head cannot be read (${headError}).` });
+    return finish(reasons);
+  }
+  const { errors } = compileConfig(headRaw);
+  if (errors.length) {
+    reasons.push({ kind: "config_invalid", ref: "head", path: at, message: `${at} at head is invalid: ${errors.join("; ")}.` });
+    return finish(reasons);
+  }
+  reasons.push(...diffConfig(baseRaw, headRaw));
+  return finish(reasons);
+}
+
+const finish = (reasons) => ({ detected: reasons.length > 0, reasons, requires: [...GATE_LOOSENING_REQUIRES] });
+
+function diffConfig(base, head) {
+  const at = CONFIG_REPO_PATH;
+  const reasons = [];
+  const baseCategories = objectOf(base.safe_categories);
+  const headCategories = objectOf(head.safe_categories);
+
+  // Safe categories. A path takes the first safe category that matches, and a
+  // rename stays safe only when both names land in the same one, so any change
+  // to which category a path lands in can exempt a file. Flagged: a removed
+  // category, a reorder of the categories kept from base, and every item added
+  // to or removed from any CATEGORY_MATCH_FIELDS field (a new category diffs
+  // against an empty one). When none is flagged, every base category survives
+  // with the same match sets in the same relative order and any new category
+  // matches nothing, so every path lands where it did on base.
+  for (const name of Object.keys(baseCategories)) {
+    if (!Object.hasOwn(headCategories, name)) {
+      reasons.push({ kind: "category_narrowed", path: at, entry: `safe_categories.${name}`, message: `${at} removes safe category "${name}"; a path it matched can fall through to a later category.` });
+    }
+  }
+  const baseOrder = Object.keys(baseCategories).filter((name) => Object.hasOwn(headCategories, name));
+  const headOrder = Object.keys(headCategories).filter((name) => Object.hasOwn(baseCategories, name));
+  if (baseOrder.join("\n") !== headOrder.join("\n")) {
+    reasons.push({ kind: "category_order_changed", path: at, entry: "safe_categories", value: headOrder, message: `${at} reorders safe categories from ${JSON.stringify(baseOrder)} to ${JSON.stringify(headOrder)}.` });
+  }
+  for (const [name, entry] of Object.entries(headCategories)) {
+    const prior = Object.hasOwn(baseCategories, name) ? baseCategories[name] : {};
+    for (const field of CATEGORY_MATCH_FIELDS) {
+      const effect = CATEGORY_FIELD_EFFECTS[field] ?? UNKNOWN_FIELD_EFFECT;
+      const before = new Set(listOf(prior, field));
+      const after = new Set(listOf(entry, field));
+      for (const value of after) {
+        if (!before.has(value)) reasons.push({ kind: effect.added, path: at, entry: `safe_categories.${name}`, field, value, message: `${at} adds ${field} ${JSON.stringify(value)} to safe category "${name}".` });
+      }
+      for (const value of before) {
+        if (!after.has(value)) reasons.push({ kind: effect.removed, path: at, entry: `safe_categories.${name}`, field, value, message: `${at} removes ${field} ${JSON.stringify(value)} from safe category "${name}".` });
+      }
+    }
+  }
+
+  const baseSql = objectOf(base.sql_content);
+  const headSql = objectOf(head.sql_content);
+  const keptPaths = new Set(listOf(headSql, "paths"));
+  for (const value of listOf(baseSql, "paths")) {
+    if (!keptPaths.has(value)) reasons.push({ kind: "rule_narrowed", path: at, entry: "sql_content", field: "paths", value, message: `${at} removes or edits sql_content path ${JSON.stringify(value)}.` });
+  }
+  const keptRules = new Set(listOf(headSql, "rules").map(sqlRuleKey));
+  for (const rule of listOf(baseSql, "rules")) {
+    if (!keptRules.has(sqlRuleKey(rule))) reasons.push({ kind: "sql_rule_removed", path: at, entry: "sql_content", value: sqlRuleKey(rule), message: `${at} removes or edits sql_content rule ${JSON.stringify(sqlRuleKey(rule))}.` });
+  }
+  return reasons;
+}
+
+/** A GitHub file entry as git --name-status --no-renames changes (what findGateLoosening reads). */
+function nameStatusChanges(file) {
+  const name = file?.filename;
+  if (file?.status === "added" || file?.status === "copied") return [{ status: "A", file: name }];
+  if (file?.status === "removed") return [{ status: "D", file: name }];
+  if (file?.status === "renamed" && file.previous_filename) return [{ status: "D", file: file.previous_filename }, { status: "A", file: name }];
+  return [{ status: "M", file: name }];
+}
+
+/**
+ * The shared list's gate_loosening reasons (scripts/lib/sensitive-paths.mjs
+ * findGateLoosening, not reimplemented here): a removed, narrowed or
+ * reclassified glob in docs/sensitive-paths.json, a deleted or invalid list
+ * (headText null or invalid), and an edit to the code that applies it
+ * (GATE_CODE_FILES). baseText is the base checkout's copy; headText the PR
+ * head's, or baseText when the PR does not touch the list.
+ */
+export function sharedListLoosening({ files, baseText, headText }) {
+  const changedFiles = files.flatMap(nameStatusChanges).filter((change) => typeof change.file === "string");
+  return findGateLoosening({ baseText, headText, changedFiles }).reasons.map((reason) => ({ kind: reason.code, path: reason.file, source: "sensitive-paths", ...reason }));
+}
+
+/**
+ * Gate loosening for a PR from its file list: this detector's own config and
+ * gate files (detectGateLoosening), plus the shared list's findGateLoosening.
+ * A head copy is read (as data) only when the PR touches that file, so a
+ * stale branch that leaves it alone is never judged against newer base rules.
+ * A head read that fails is an API error: it is returned in errors (status
+ * error) as well as flagged config_unreadable.
+ * @returns {Promise<{gateLoosening: {detected: boolean, reasons: object[], requires: string[]}, errors: string[]}>}
+ */
+export async function gateLooseningForPull({ files, readHeadFile, baseRaw, baseError = null, sensitivePathsText = null, incomplete = null }) {
+  const errors = [];
+  const readHead = async (file) => {
+    if (!readHeadFile) throw new Error("no head reader");
+    return readHeadFile(file);
+  };
+  const gateFiles = [];
+  for (const file of files) {
+    for (const path of GATE_PATHS) {
+      if (file?.filename === path) gateFiles.push({ path, status: file.status });
+      else if (file?.previous_filename === path) gateFiles.push({ path, status: "removed" });
+    }
+  }
+  const config = gateFiles.find((file) => file.path === CONFIG_REPO_PATH);
+  let headRaw = null;
+  let headError = null;
+  if (config?.status === "removed") headError = "the file is removed";
+  else if (config) {
+    let text = null;
+    try {
+      text = await readHead(CONFIG_REPO_PATH);
+    } catch (error) {
+      headError = messageOf(error);
+      errors.push(`could not read ${CONFIG_REPO_PATH} at head: ${headError}`);
+    }
+    if (headError === null) {
+      try {
+        headRaw = JSON.parse(text);
+      } catch (error) {
+        headError = messageOf(error);
+      }
+    }
+  }
+  const reasons = [...detectGateLoosening({ baseRaw, headRaw, baseError, headError, gateFiles, incomplete }).reasons];
+
+  let headText = sensitivePathsText;
+  if (files.some((file) => file?.filename === SENSITIVE_PATHS_FILE || file?.previous_filename === SENSITIVE_PATHS_FILE)) {
+    const current = files.find((file) => file?.filename === SENSITIVE_PATHS_FILE && file.status !== "removed");
+    headText = null; // deleted or renamed away: config_removed
+    if (current) {
+      try {
+        headText = await readHead(SENSITIVE_PATHS_FILE);
+      } catch (error) {
+        // The glob diff cannot run; the base text keeps matcher_changed reporting.
+        headText = sensitivePathsText;
+        errors.push(`could not read ${SENSITIVE_PATHS_FILE} at head: ${messageOf(error)}`);
+        reasons.push({ kind: "config_unreadable", ref: "head", path: SENSITIVE_PATHS_FILE, message: `${SENSITIVE_PATHS_FILE} at head cannot be read (${messageOf(error)}); loosening cannot be checked.` });
+      }
+    }
+  }
+  reasons.push(...sharedListLoosening({ files, baseText: sensitivePathsText, headText }));
+  return { gateLoosening: finish(reasons), errors };
 }
 
 // ---------------------------------------------------------------- GitHub
@@ -462,7 +780,8 @@ const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 /**
  * Read a PR's head and base, its changed files and a head reader. A list that
  * cannot be complete (more than MAX_FILES files, a failed page, a count that
- * disagrees with the PR, or a head that moved) is an error.
+ * disagrees with the PR, or a head that moved) is an error. changedFiles is
+ * the PR's own count, so a consumer can tell an empty PR from a lost list.
  */
 export async function fetchPullRequest(client, repo, number, { expectedHeadSha } = {}) {
   const pull = await client.json(`/repos/${repo}/pulls/${number}`);
@@ -484,10 +803,12 @@ export async function fetchPullRequest(client, repo, number, { expectedHeadSha }
     errors.push(`file list is incomplete: API listed ${files.length} of ${expected} changed files`);
   }
   const readHeadFile = (path) => client.raw(`/repos/${repo}/contents/${encodePath(path)}?ref=${encodeURIComponent(sha)}`);
-  return { sha, baseSha, files, readHeadFile, errors };
+  return { sha, baseSha, files, changedFiles: Number.isInteger(expected) ? expected : null, readHeadFile, errors };
 }
 
 // ---------------------------------------------------------------- CLI
+
+export const GATE_LOOSENING_LINE = `${SHARED_GATE_LOOSENING_LINE} (report only; does not fail the PR).`;
 
 export function formatSummary(result) {
   const label = result.status === "ok" ? "OK" : "ERROR";
@@ -495,14 +816,22 @@ export function formatSummary(result) {
   lines.push(`Head: ${safeInline(result.sha ?? "unknown")} · base: ${safeInline(result.base_sha ?? "unknown")}`, "");
   lines.push(`Classes: ${result.classes.length ? result.classes.map(safeInline).join(", ") : "none"}`);
   lines.push(`Sensitive files: ${result.sensitive_count} of ${result.files.length}${result.multi_class ? " (multi-class)" : ""}`);
-  lines.push(`Unclassified: ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
+  lines.push(`Unclassified (sensitive, no safe category): ${result.unclassified.length ? result.unclassified.map(safeInline).join(", ") : "none"}`, "");
   for (const error of result.errors) lines.push(`- error: ${safeInline(error)}`);
   if (result.errors.length) lines.push("");
+  if (result.gate_loosening?.detected) {
+    lines.push(GATE_LOOSENING_LINE);
+    for (const reason of result.gate_loosening.reasons) lines.push(`- ${safeInline(reason.message)}`);
+    lines.push("");
+  } else if (result.gate_loosening) {
+    lines.push("Gate loosening: none", "");
+  }
   if (result.files.length) {
     lines.push("| File | Status | Classes | Category |", "| --- | --- | --- | --- |");
     for (const file of result.files) {
       const name = safeInline(file.path).replaceAll("|", "\\|");
-      lines.push(`| ${name} | ${file.status ?? ""} | ${file.classes.join(", ") || "-"} | ${file.category ?? (file.classes.length ? "-" : "**unclassified**")} |`);
+      const classes = file.classes.map((entry) => (entry === UNCLASSIFIED ? `**${entry}**` : entry)).join(", ");
+      lines.push(`| ${name} | ${file.status ?? ""} | ${classes || "-"} | ${file.category ?? "-"} |`);
     }
     lines.push("");
   }
@@ -528,12 +857,15 @@ function parseArgs(argv) {
 }
 
 const usage = "Usage: node scripts/sensitive-class-detect.mjs --repo owner/name --pr <number> [--json out.json] [--head-sha <sha>] [--config file]\n"
-  + "Reads GITHUB_TOKEN or GH_TOKEN. Report mode: exits 0 whenever it writes a result, including status error.";
+  + "Reads GITHUB_TOKEN or GH_TOKEN. Path classes come from docs/sensitive-paths.json in this checkout.\n"
+  + "Report mode: exits 0 whenever it writes a result, including status error.";
 
 /**
+ * @param {object} [options] root: the checkout whose docs/sensitive-paths.json
+ *   and scripts/sensitive-classes.json judge (default: this script's own)
  * @returns {Promise<number>} 0 when a result was written, 2 on bad arguments
  */
-export async function main(argv = process.argv.slice(2), env = process.env, { fetchImpl, stdout = process.stdout } = {}) {
+export async function main(argv = process.argv.slice(2), env = process.env, { fetchImpl, stdout = process.stdout, root = REPO_ROOT } = {}) {
   let options;
   try {
     options = parseArgs(argv);
@@ -543,7 +875,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
     return 2;
   }
 
-  const { config, errors: configErrors } = loadConfig(options.config ?? CONFIG_PATH);
+  const { config, errors: configErrors, raw: baseRaw, sensitivePathsText } = loadConfig({ root, file: options.config });
   let result;
   if (!config) {
     result = errorResult(configErrors, { sha: options["head-sha"] ?? null });
@@ -551,9 +883,16 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
     try {
       const client = githubClient({ token: env.GITHUB_TOKEN || env.GH_TOKEN, apiUrl: env.GITHUB_API_URL, fetchImpl });
       const pull = await fetchPullRequest(client, options.repo, options.pr, { expectedHeadSha: options["head-sha"] });
-      result = await detect({ ...pull, config });
+      result = await detect({ ...pull, config, allowEmpty: pull.changedFiles === 0 });
+      const incomplete = pull.errors.length ? "the changed-file list is incomplete or stale" : null;
+      const loosening = await gateLooseningForPull({ ...pull, baseRaw, sensitivePathsText, incomplete });
+      result.gate_loosening = loosening.gateLoosening;
+      if (loosening.errors.length) {
+        result.errors.push(...loosening.errors);
+        result.status = "error";
+      }
     } catch (error) {
-      result = errorResult([`GitHub API error: ${error instanceof Error ? error.message : String(error)}`], { sha: options["head-sha"] ?? null });
+      result = errorResult([`GitHub API error: ${messageOf(error)}`], { sha: options["head-sha"] ?? null });
     }
   }
 
@@ -564,6 +903,20 @@ export async function main(argv = process.argv.slice(2), env = process.env, { fe
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * True when node was asked to run this file. Realpaths are compared because
+ * node runs a script given through a symlinked path (macOS /tmp, for example)
+ * from its real path; a plain comparison would skip the CLI and write nothing.
+ */
+function invokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsScript()) {
   process.exitCode = await main();
 }

@@ -1,0 +1,32 @@
+-- OVD-797: Jarvis channels data model + RLS.
+--
+-- Targets the draft docs/migration-drafts/ovd-797-jarvis-channels.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. .github/workflows/ovd797-pending-pgtap.yml runs it against a
+-- throwaway database with the draft applied. In the approved window, the draft
+-- is promoted and this file is renamed to
+-- supabase/tests/ovd797_jarvis_channels.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers (named cases from OVD-797):
+--   * DM-1  shape: ten tables, RLS on every table, seed channels disabled
+--   * DM-2  a second conversation for the same user fails
+--   * DM-3  a duplicate (channel, idempotency_key) inbound event is rejected;
+--           an on-conflict replay leaves one row
+--   * DM-4  a duplicate (channel, external_id_hash) is rejected
+--   * DM-5  cross-user RLS: A sees 0 of B's rows; updates are denied; a run id
+--           carried by both users' messages leaks no control command either way
+--   * DM-6  a non-admin (and an admin without AAL2) cannot read or write
+--           grants or channel settings
+--   * DM-7  anon is denied on every table
+--   * DM-8  no client insert path for control commands; the guard returns
+--           not_owner for a run the caller does not own
+--   * DM-9  a duplicate (graph_run_id, idempotency_key) leaves one row
+--   * DM-10 a link code expiring more than 10 minutes out violates the CHECK
+--   * DM-11 a decision without best_guess is rejected (NOT NULL)
+-- DM-1R (rollback returns the exact pre-draft schema) is checked outside
+-- pgTAP by the workflow and the fixture: pg_dump --schema-only diff is empty.
+-- True concurrency for DM-3 and DM-9 is in docs/migration-drafts/ovd-797-fixture.sh.
+-- [header-only snapshot of supabase/tests/pending/ovd797_jarvis_channels.sql.pending at d2b7981b (#792); body omitted]
+select 1;

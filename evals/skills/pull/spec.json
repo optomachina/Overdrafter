@@ -1,0 +1,59 @@
+{
+  "skill": "pull",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "dirty-branch",
+      "task": "Issue branch has uncommitted edits and needs the latest main.",
+      "expectedBehaviors": [
+        "Does not rebase a dirty branch",
+        "Avoids destructive resets",
+        "Reports exactly what blocks sync"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Does not rebase a dirty branch",
+          "points": 4
+        },
+        {
+          "id": "b2",
+          "criterion": "Avoids destructive resets",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Reports exactly what blocks sync",
+          "points": 3
+        }
+      ]
+    },
+    {
+      "id": "main-sync",
+      "task": "On main, refresh to upstream.",
+      "expectedBehaviors": [
+        "Uses git fetch and pull --ff-only origin main",
+        "Reports what updated and whether conflicts occurred",
+        "Confirms preflight"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Uses git fetch and pull --ff-only origin main",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Reports what updated and whether conflicts occurred",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Confirms preflight",
+          "points": 2
+        }
+      ]
+    }
+  ]
+}
