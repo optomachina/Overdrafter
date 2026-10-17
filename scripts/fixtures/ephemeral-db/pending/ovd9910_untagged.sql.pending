@@ -1,0 +1,6 @@
+-- OVD-924 fixture: pgTAP for scripts/fixtures/ephemeral-db/drafts/ovd-9910-post-rollback.sql.
+begin;
+select plan(1);
+select ok(true, 'fixture check');
+select * from finish();
+rollback;
