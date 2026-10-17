@@ -40,3 +40,5 @@ begin
   end loop;
 end;
 $ovd949$;
+-- OVD-949 negative test (throwaway, reverted in the next commit): re-grant anon after the self-check.
+grant execute on function public.user_can_edit_job(uuid) to anon;
