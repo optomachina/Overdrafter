@@ -462,7 +462,7 @@ describe("emit -> validate round trip", () => {
   it("binds patch_id to the given sha rather than head", () => {
     const wsA = sha("ws-a");
     const verdict = buildVerdict(
-      { role: "verifier", verdict: "PASS", sha: wsA, base: sha("main"), head: sha("feature"), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } },
+      { role: "verifier", verdict: "PASS", sha: wsA, base: sha("main"), head: sha("feature"), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "verify-run", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } },
       { cwd: repo, now: NOW },
     );
     expect(verdict.sha).toBe(wsA);
@@ -545,6 +545,79 @@ describe("emit -> validate round trip", () => {
       const body = main([...ARGS(), "--role", "reviewer", "--findings", join(outside, "findings.json")], { cwd: repo, now: NOW, env: runnerEnv });
       expect(JSON.parse(extractVerdictBlocks(body)[0]).findings).toHaveLength(1);
     });
+  });
+
+  it("emits the same comment when no new fields are given", () => {
+    const body = main(ARGS(), { cwd: repo, now: NOW });
+    const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
+    const expected = {
+      schema: "overdrafter.verdict/v1",
+      role: "verifier",
+      verdict: "PASS",
+      sha: sha("feature"),
+      patch_id: patchId("main", "feature"),
+      diff_id: diffId("main", "feature"),
+      verifier: { id: "astra-verifier", model_family: "opus", github_login: "verifier-bot" },
+      evidence: [{ kind: "verify-run", url: "https://github.com/o/r/actions/runs/42" }],
+      notes: [],
+      readiness: { conflicts: 0, open_threads: 0, checks: "green" },
+      timestamp: "2026-10-16T12:34:56Z",
+    };
+    expect(JSON.stringify(verdict, null, 2)).toBe(JSON.stringify(expected, null, 2));
+    expect(body).toBe(formatComment(expected));
+    expect(verdict).not.toHaveProperty("base_sha");
+    expect(verdict).not.toHaveProperty("findings");
+    expect(verdict).not.toHaveProperty("supersedes");
+    expect(verdict).not.toHaveProperty("reason");
+  });
+
+  it("emits base_sha, supersedes, reason and gate findings when they are given", () => {
+    const findingsFile = join(repo, "gate-findings.json");
+    writeFileSync(findingsFile, JSON.stringify([
+      { severity: "high", file: "feature.txt", line: 1, summary: "null deref" },
+      { severity: "low", file: "src/feature.txt", summary: "name is unclear" },
+    ]));
+    const base = sha("main");
+    const body = main([
+      ...ARGS(),
+      "--base-sha", base,
+      "--supersedes", "4242",
+      "--reason", "infra",
+      "--findings", findingsFile,
+    ], { cwd: repo, now: NOW });
+    const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
+    expect(verdict.base_sha).toBe(base);
+    expect(verdict.supersedes).toBe(4242);
+    expect(verdict.reason).toBe("infra");
+    expect(verdict.findings).toEqual([
+      { severity: "high", file: "feature.txt", line: 1, summary: "null deref" },
+      { severity: "low", file: "src/feature.txt", summary: "name is unclear" },
+    ]);
+    expect(verdict.findings.some((finding) => "corroborated" in finding)).toBe(false);
+    expect(validateVerdict(verdict)).toEqual({ ok: true, errors: [] });
+  });
+
+  it("rejects a pass that is not carried by an https ci-run or verify-run", () => {
+    expect(() => main([...argsWithout("--evidence"), "--evidence", "log=https://x.test/"], { cwd: repo, now: NOW }))
+      .toThrow(/https ci-run or verify-run/);
+    expect(() => main([...argsWithout("--evidence"), "--evidence", "probe=box:/workspace/probe.log"], { cwd: repo, now: NOW }))
+      .toThrow(/https ci-run or verify-run/);
+    const failBody = main([
+      ...argsWithout("--verdict", "--evidence"),
+      "--verdict", "FAIL",
+      "--evidence", "probe=box:/workspace/probe.log",
+    ], { cwd: repo, now: NOW });
+    expect(JSON.parse(extractVerdictBlocks(failBody)[0]).evidence).toEqual([
+      { kind: "probe", url: "box:/workspace/probe.log" },
+    ]);
+  });
+
+  it("rejects supersedes without reason, and a reason other than infra", () => {
+    expect(() => main([...ARGS(), "--supersedes", "9"], { cwd: repo, now: NOW })).toThrow(/reason: is required when supersedes is present/);
+    expect(() => main([...ARGS(), "--reason", "infra"], { cwd: repo, now: NOW })).toThrow(/supersedes: is required when reason is present/);
+    expect(() => main([...ARGS(), "--supersedes", "9", "--reason", "flake"], { cwd: repo, now: NOW })).toThrow(/must be "infra"/);
+    expect(() => main([...ARGS(), "--supersedes", "0", "--reason", "infra"], { cwd: repo, now: NOW })).toThrow(/--supersedes must be a positive integer/);
+    expect(() => main([...ARGS(), "--base-sha", "HEAD"], { cwd: repo, now: NOW })).toThrow(/--base-sha must be a full 40-character lowercase commit SHA/);
   });
 
   it("emits reviewer verdicts with corroborated findings and marks them advisory", () => {

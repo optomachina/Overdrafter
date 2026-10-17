@@ -1,4 +1,8 @@
 // @vitest-environment node
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   SCHEMA_ID,
@@ -72,12 +76,12 @@ describe("validateVerdict", () => {
     ["non-https evidence", valid({ evidence: [{ kind: "log", url: "http://example.com/log" }] }), 'verdict.evidence[0].url: must use https (got http) (got "http://example.com/log")'],
     ["relative evidence", valid({ evidence: [{ kind: "log", url: "/runs/1" }] }), "verdict.evidence[0].url: must be an absolute https URL"],
     ["credentialed evidence", valid({ evidence: [{ kind: "log", url: "https://u:p@example.com/" }] }), "verdict.evidence[0].url: must not embed credentials"],
-    ["unknown evidence kind", valid({ evidence: [{ kind: "vibes", url: "https://example.com" }] }), "verdict.evidence[0].kind: must be one of verify-run, test, log, artifact"],
+    ["unknown evidence kind", valid({ evidence: [{ kind: "vibes", url: "https://example.com" }] }), "verdict.evidence[0].kind: must be one of verify-run, test, log, artifact, ci-run, probe, screenshot, review"],
     ["zero evidence links", valid({ evidence: [] }), "verdict.evidence: must have at least 1 item (got 0)"],
     ["unparseable timestamp", valid({ timestamp: "yesterday" }), "verdict.timestamp: must be an ISO-8601 UTC timestamp"],
     ["non-UTC timestamp", valid({ timestamp: "2026-10-16T12:00:00+02:00" }), "verdict.timestamp: must be an ISO-8601 UTC timestamp"],
     ["impossible date", valid({ timestamp: "2026-02-30T12:00:00Z" }), "verdict.timestamp: is not a real calendar time"],
-    ["verifier with findings", valid({ findings: [] }), "verdict.findings: is only allowed when role is reviewer"],
+    ["verifier with legacy findings", valid({ findings: [{ severity: "low", file: "a.ts", line: 1, model: "grok" }] }), "verdict.findings: is only allowed when role is reviewer"],
     ["reviewer without findings", valid({ role: "reviewer" }), "verdict.findings: is required when role is reviewer"],
     ["PASS_NOTES without notes", valid({ verdict: "PASS_NOTES" }), "verdict.notes: PASS_NOTES requires at least one note"],
     ["bad finding line", valid({ role: "reviewer", findings: [{ severity: "low", file: "a.ts", line: 0, model: "grok" }] }), "verdict.findings[0].line: must be >= 1 (got 0)"],
@@ -262,5 +266,195 @@ describe("parseVerdictComments", () => {
     expect(result.latest.verdict.verdict).toBe("PASS");
     expect(result.conflicts).toHaveLength(1);
     expect(() => parseVerdictComments([], { sha: "HEAD" })).toThrow(/40-hex/);
+  });
+});
+
+const gateFinding = (overrides = {}) => ({
+  severity: "medium",
+  file: "src/a.ts",
+  line: 4,
+  summary: "bounds check is off by one",
+  ...overrides,
+});
+
+describe("OVD-845 optional verdict fields", () => {
+  const baseSha = "f".repeat(40);
+
+  it("keeps every new field optional and still rejects unknown top-level fields", () => {
+    expect(schema.additionalProperties).toBe(false);
+    for (const field of ["findings", "base_sha", "supersedes", "reason"]) {
+      expect(schema.required).not.toContain(field);
+    }
+    expect(schema.properties.findings.items.oneOf.every((entry) => entry.additionalProperties === false)).toBe(true);
+    expect(validateVerdict(valid({ approved: true })).errors).toContain("verdict.approved: is not an allowed field");
+    expect(validateVerdict(valid({ base_sha: baseSha, approved: true })).errors).toContain("verdict.approved: is not an allowed field");
+  });
+
+  it("accepts gate findings for both roles, with line optional", () => {
+    expect(validateVerdict(valid({ findings: [] }))).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({ findings: [gateFinding()] })).ok).toBe(true);
+    const withoutLine = gateFinding();
+    delete withoutLine.line;
+    expect(validateVerdict(valid({ findings: [withoutLine] }))).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({
+      role: "reviewer",
+      findings: [gateFinding({ severity: "high", line: 12, summary: "x".repeat(300) })],
+    }))).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({
+      role: "reviewer",
+      findings: [
+        { severity: "info", file: "README.md", line: null, model: "codex", message: "context" },
+        { severity: "low", file: "src/a.ts", line: 3, model: "grok", corroborated: true },
+      ],
+    })).ok).toBe(true);
+  });
+
+  const findingCases = [
+    ["bad severity", gateFinding({ severity: "critical" }), "verdict.findings[0].severity: must be one of high, medium, low"],
+    ["legacy severity on a gate finding", gateFinding({ severity: "info" }), "verdict.findings[0].severity: must be one of high, medium, low"],
+    [".. path", gateFinding({ file: "../src/a.ts" }), "verdict.findings[0].file: must be a repo-relative path with no .. segment"],
+    ["nested .. path", gateFinding({ file: "src/../../etc/passwd" }), "verdict.findings[0].file: must be a repo-relative path with no .. segment"],
+    ["absolute path", gateFinding({ file: "/etc/passwd" }), "verdict.findings[0].file: must be a repo-relative path with no leading /"],
+    ["windows absolute path", gateFinding({ file: "C:/secret.ts" }), "verdict.findings[0].file: must be a repo-relative path with no leading /"],
+    ["line 0", gateFinding({ line: 0 }), "verdict.findings[0].line: must be >= 1 (got 0)"],
+    ["negative line", gateFinding({ line: -3 }), "verdict.findings[0].line: must be >= 1 (got -3)"],
+    ["summary of 301 chars", gateFinding({ summary: "x".repeat(301) }), "verdict.findings[0].summary: must be at most 300 characters"],
+    ["empty summary", gateFinding({ summary: "" }), "verdict.findings[0].summary: must not be empty"],
+    ["extra finding field", gateFinding({ note: "nope" }), "verdict.findings[0].note: is not an allowed field"],
+  ];
+
+  it.each(findingCases)("rejects a gate finding with %s", (_name, finding, message) => {
+    const result = validateVerdict(valid({ findings: [finding] }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.startsWith(message))).toBe(true);
+  });
+
+  it("accepts base_sha and a supersedes/reason pair, and rejects either one alone", () => {
+    expect(validateVerdict(valid({ base_sha: baseSha }))).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({ supersedes: 123456, reason: "infra" }))).toEqual({ ok: true, errors: [] });
+    const missingReason = validateVerdict(valid({ supersedes: 9 }));
+    expect(missingReason.ok).toBe(false);
+    expect(missingReason.errors).toContain("verdict.reason: is required when supersedes is present");
+    const missingSupersedes = validateVerdict(valid({ reason: "infra" }));
+    expect(missingSupersedes.ok).toBe(false);
+    expect(missingSupersedes.errors).toContain("verdict.supersedes: is required when reason is present");
+  });
+
+  const pairCases = [
+    ["reason other than infra", { supersedes: 9, reason: "product" }, 'verdict.reason: must be "infra"'],
+    ["reason flake", { supersedes: 9, reason: "flake" }, 'verdict.reason: must be "infra"'],
+    ["supersedes 0", { supersedes: 0, reason: "infra" }, "verdict.supersedes: must be >= 1 (got 0)"],
+    ["negative supersedes", { supersedes: -1, reason: "infra" }, "verdict.supersedes: must be >= 1 (got -1)"],
+    ["string supersedes", { supersedes: "123", reason: "infra" }, "verdict.supersedes: must be integer (got string)"],
+    ["short base_sha", { base_sha: "abc" }, "verdict.base_sha: must match ^[0-9a-f]{40}$"],
+    ["uppercase base_sha", { base_sha: "F".repeat(40) }, "verdict.base_sha: must match ^[0-9a-f]{40}$"],
+  ];
+
+  it.each(pairCases)("rejects %s", (_name, overrides, message) => {
+    const result = validateVerdict(valid(overrides));
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.startsWith(message))).toBe(true);
+  });
+
+  it("allows box-only evidence on FAIL and refuses it as the carrier of a pass", () => {
+    const box = { kind: "probe", url: "box:/workspace/verify.log" };
+    expect(validateVerdict(valid({ verdict: "FAIL", evidence: [box] }))).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({ verdict: "FAIL", evidence: [{ kind: "log", url: "box:/workspace/artifacts/run.log" }] })).ok).toBe(true);
+    const passBox = validateVerdict(valid({ evidence: [{ kind: "verify-run", url: "box:/workspace/verify.log" }] }));
+    expect(passBox.ok).toBe(false);
+    expect(passBox.errors).toContain("verdict.evidence: PASS and PASS_NOTES require at least one https ci-run or verify-run item");
+    const supplemented = valid({
+      evidence: [
+        { kind: "verify-run", url: "https://github.com/o/r/actions/runs/1" },
+        box,
+      ],
+    });
+    expect(validateVerdict(supplemented)).toEqual({ ok: true, errors: [] });
+    expect(validateVerdict(valid({
+      evidence: [{ kind: "ci-run", url: "https://github.com/o/r/actions/runs/99" }],
+    }))).toEqual({ ok: true, errors: [] });
+  });
+
+  const evidenceCases = [
+    ["PASS_NOTES with only a probe", { verdict: "PASS_NOTES", notes: ["low: probed the login path"], evidence: [{ kind: "probe", url: "https://example.com/probe" }] }],
+    ["PASS with only a screenshot", { evidence: [{ kind: "screenshot", url: "https://example.com/screen.png" }] }],
+    ["PASS with only a review link", { evidence: [{ kind: "review", url: "https://github.com/o/r/pull/1#discussion_r1" }] }],
+    ["PASS with only https log", { evidence: [{ kind: "log", url: "https://example.com/log" }] }],
+    ["PASS with only https test", { evidence: [{ kind: "test", url: "https://example.com/test" }] }],
+    ["PASS with only https artifact", { evidence: [{ kind: "artifact", url: "https://example.com/artifact" }] }],
+    ["PASS_NOTES with only a box probe", { verdict: "PASS_NOTES", notes: ["low: box log"], evidence: [{ kind: "probe", url: "box:/workspace/probe.log" }] }],
+  ];
+
+  it.each(evidenceCases)("rejects %s", (_name, overrides) => {
+    const result = validateVerdict(valid(overrides));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("verdict.evidence: PASS and PASS_NOTES require at least one https ci-run or verify-run item");
+  });
+
+  it("still rejects a non-https URL and a malformed box path on every verdict", () => {
+    const httpFail = validateVerdict(valid({ verdict: "FAIL", evidence: [{ kind: "log", url: "http://example.com/log" }] }));
+    expect(httpFail.errors.some((error) => error.startsWith("verdict.evidence[0].url: must use https (got http)"))).toBe(true);
+    for (const url of ["box:workspace/log", "box://workspace/log", "box:/workspace/../secret", "box:/workspace/./log"]) {
+      const result = validateVerdict(valid({ verdict: "FAIL", evidence: [{ kind: "log", url }] }));
+      expect(result.ok, url).toBe(false);
+      expect(result.errors.some((error) => error.startsWith("verdict.evidence[0].url: must be a box path"))).toBe(true);
+    }
+  });
+});
+
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const COMPLETE_SHA = /^[0-9a-f]{40}$/;
+const COMPLETE_DIFF = /^[0-9a-f]{64}$/;
+
+function verdictSources() {
+  const tracked = execFileSync("git", ["grep", "-l", "-I", "overdrafter.verdict/v1"], { cwd: repoRoot, encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  const fixtureDir = join(repoRoot, "scripts/fixtures/verdict");
+  const fixtures = readdirSync(fixtureDir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => join("scripts/fixtures/verdict", name));
+  return [...new Set([...tracked, ...fixtures])].sort();
+}
+
+function documentsIn(relativePath) {
+  const text = readFileSync(join(repoRoot, relativePath), "utf8");
+  const docs = [];
+  const push = (raw) => {
+    try {
+      const value = JSON.parse(raw);
+      if (value && typeof value === "object" && !Array.isArray(value) && value.schema === SCHEMA_ID) docs.push({ source: relativePath, value });
+    } catch {
+      // Illustrative fences that are not JSON are not verdict documents.
+    }
+  };
+  if (relativePath.endsWith(".json")) push(text);
+  for (const block of extractVerdictBlocks(text)) push(block);
+  for (const match of text.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n```/g)) push(match[1]);
+  return docs;
+}
+
+describe("existing verdict fixtures", () => {
+  it("parses every verdict fixture and example in the repo and validates each complete one unchanged", () => {
+    const documents = verdictSources().flatMap(documentsIn);
+    const complete = documents.filter((doc) => COMPLETE_SHA.test(doc.value.sha) && COMPLETE_SHA.test(doc.value.patch_id) && COMPLETE_DIFF.test(doc.value.diff_id));
+    const illustrations = documents.filter((doc) => !complete.includes(doc));
+    expect(complete.map((doc) => doc.source).sort()).toEqual([
+      "scripts/fixtures/verdict/fail-https.json",
+      "scripts/fixtures/verdict/pass-notes.json",
+      "scripts/fixtures/verdict/reviewer-legacy-findings.json",
+      "scripts/fixtures/verdict/verifier-pass.json",
+    ]);
+    for (const doc of complete) {
+      expect(validateVerdict(doc.value), doc.source).toEqual({ ok: true, errors: [] });
+    }
+    expect(illustrations.map((doc) => doc.source)).toContain("docs/verdict-format.md");
+    const example = illustrations.find((doc) => doc.source === "docs/verdict-format.md");
+    expect(validateVerdict(example.value).errors).toEqual([
+      expect.stringMatching(/^verdict\.sha: must match \^\[0-9a-f\]\{40\}\$/),
+      expect.stringMatching(/^verdict\.patch_id: must match \^\[0-9a-f\]\{40\}\$/),
+      expect.stringMatching(/^verdict\.diff_id: must match \^\[0-9a-f\]\{64\}\$/),
+    ]);
   });
 });
