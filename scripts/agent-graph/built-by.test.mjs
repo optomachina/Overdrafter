@@ -85,14 +85,20 @@ describe('builder attribution', () => {
     ['empty body', '', {}, 'missing'],
     ['missing line', 'A PR without tags', {}, 'missing'],
     ['garbage', 'Built-by: nonsense', {}, 'unknown'],
-    ['existing free text', 'Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)', {}, 'unknown'],
+    // Only this existing row's expected status changes: free text is now accepted.
+    ['existing free text', 'Built-by: Engineer / Codex (gpt via codex exec, ChatGPT plan)', {}, 'ok'],
     ['unauthorized builder', tag('codex', 'qa'), {}, 'unknown'],
     ['partial garbage', `${tag()}; nonsense`, {}, 'unknown'],
   ])('%s requests both pools', (_name, body, options, status) => {
     const result = parse(body, options);
     expect(result.status).toBe(status);
-    if (status !== 'missing') expect(result.findings.length).toBeGreaterThan(0);
-    expect(reviewers(result)).toEqual(both);
+    if (status === 'ok') {
+      expect(result.findings).toEqual([]);
+      expect(reviewers(result)).toEqual(['claude-sonnet']);
+    } else {
+      if (status !== 'missing') expect(result.findings.length).toBeGreaterThan(0);
+      expect(reviewers(result)).toEqual(both);
+    }
   });
   it('never throws on internal errors', () => {
     const throwing = new Proxy({}, { get() { throw new Error('test'); } });
@@ -156,5 +162,65 @@ describe('report-only CLI', () => {
       expect(source).not.toMatch(/check[-_]runs|createCheckRun|createCommitStatus|\/statuses|fetch\(|https?:|execSync|spawn\(/i);
       expect(source).not.toMatch(/writeFile|appendFile|process\.exit\(/);
     } finally { rmSync(directory, { recursive: true }); }
+  });
+});
+
+
+describe('free-text Built-by form', () => {
+  it('retains the first family token and routes the safe-build form', () => {
+    const result = parse('Built-by: Engineer / codex via safe-build (host)');
+    expect(result).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai', token: 'codex' }], status: 'ok', findings: [] });
+    expect(reviewers(result)).toEqual(['claude-sonnet']);
+  });
+  it('routes the real #848 grok form', () => {
+    const result = parse('Built-by: Engineer / grok-4.7 via Cursor cloud agent');
+    expect(result.status).toBe('ok');
+    expect(result.builders[0].family).toBe('grok');
+    expect(reviewers(result)).toEqual(['codex-xhigh']);
+  });
+  it.each([
+    ['  built-by:   eNgInEeR   /   CoDeX, via safe-build (host)  ', 'engineer', 'CoDeX', 'codex'],
+    ['BUILT-BY: Cursor Cloud / GPT-5 via agent', 'cursor-cloud', 'GPT-5', 'codex'],
+    ['Built-by: engineer / openai', 'engineer', 'openai', 'codex'],
+    ['Built-by: Engineer / sonnet', 'engineer', 'sonnet', 'claude-sonnet'],
+    ['Built-by: Engineer / claude', 'engineer', 'claude', 'claude-sonnet'],
+    ['Built-by: Engineer / opus', 'engineer', 'opus', 'claude-opus'],
+    ['Built-by: Engineer / claude-opus', 'engineer', 'claude-opus', 'claude-opus'],
+    ['Built-by: Engineer / jev', 'engineer', 'jev', 'jev'],
+  ])('accepts %s', (body, bot, token, pool) => {
+    const result = parse(body);
+    expect(result.status).toBe('ok');
+    expect(result.builders[0]).toEqual({ bot, token, model: `model:${pool}`, family: routing.pools[pool].family });
+  });
+  it.each([
+    'Built-by: Jev', 'Built-by: Engineer /', 'Built-by: Engineer',
+    'Built-by: Engineer /   ', 'Built-by: garbage', 'Built-by: Engineer / mystery',
+    'Built-by: / codex',
+    'Built-by: Engineer / Codex (...) + grok-4.7 via Cursor cloud agent',
+    'Built-by: Engineer / Codex (...), grok-4.7 via Cursor cloud agent',
+    'Built-by: Engineer / Codex, grok-4.7 via Cursor cloud agent',
+    'Built-by: Engineer / codex\nBuilt-by: Engineer / grok-4.7',
+    `Built-by: Engineer / codex\n${tag()}`,
+  ])('fails safe for %s', body => {
+    const result = parse(body);
+    expect(result.status).toBe('unknown');
+    expect(result.findings.length).toBeGreaterThan(0);
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('preserves unknown bot names for the existing finding', () => {
+    const result = parse('Built-by: Strange Bot / codex');
+    expect(result.builders[0].bot).toBe('strange-bot');
+    expect(result.findings).toContain('Unknown bot: strange-bot');
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('requires the mapped pool to exist', () => {
+    const pools = { ...routing.pools };
+    delete pools.codex;
+    const result = parse('Built-by: Engineer / codex', { routing: { ...routing, pools } });
+    expect(result.status).toBe('unknown');
+    expect(reviewers(result)).toEqual(both);
+  });
+  it('preserves canonical bot=... model=... parsing unchanged', () => {
+    expect(parse(tag())).toEqual({ builders: [{ bot: 'engineer', model: 'model:codex', family: 'openai' }], status: 'ok', findings: [] });
   });
 });
