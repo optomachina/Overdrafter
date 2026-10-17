@@ -9,7 +9,6 @@
 -- supabase/tests/pending/ovd771_service_kill_switch.sql.pending is renamed to
 -- supabase/tests/ovd771_service_kill_switch.sql in the same change.
 -- Rollback: docs/migration-drafts/ovd-771.rollback.sql.
--- The rollback check is also covered by the ephemeral-db rollback stage (OVD-924), pending PR-2.
 --
 -- Requires: 20261013043100_ovd722_provider_kill_switch.sql (applied).
 --
