@@ -520,6 +520,18 @@ describe("emit -> validate round trip", () => {
       expect(() => resolveInputFile("sub/outdir/f.json", { cwd: repo, env })).toThrow(/must be inside the repository root/);
     });
 
+    it("rejects non-regular files: a FIFO and a directory", () => {
+      const fifo = join(repo, "sub", "pipe.json");
+      execFileSync("mkfifo", [fifo]);
+      mkdirSync(join(repo, "sub", "dir.json"));
+      expect(() => resolveInputFile("sub/pipe.json", { cwd: repo, env })).toThrow(/must be a regular file/);
+      expect(() => resolveInputFile("sub/dir.json", { cwd: repo, env })).toThrow(/must be a regular file/);
+      expect(() => main([...ARGS(), "--role", "reviewer", "--findings", fifo], { cwd: repo, now: NOW, env })).toThrow(/must be a regular file/);
+      const runnerEnv = { RUNNER_TEMP: outside };
+      execFileSync("mkfifo", [join(outside, "pipe.json")]);
+      expect(() => resolveInputFile(join(outside, "pipe.json"), { cwd: repo, env: runnerEnv })).toThrow(/must be a regular file/);
+    });
+
     it("rejects missing files", () => {
       expect(() => resolveInputFile("missing.json", { cwd: repo, env })).toThrow(/does not exist/);
     });

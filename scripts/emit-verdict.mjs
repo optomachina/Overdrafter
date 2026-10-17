@@ -380,7 +380,11 @@ export function resolveInputFile(file, { cwd = process.cwd(), env = process.env 
     found = true;
     if (stat.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
     const real = realpathSync(candidate);
-    if (isInside(base, real)) return real;
+    if (!isInside(base, real)) continue;
+    // A FIFO, socket, device or directory would block or fail inside readFileSync.
+    // Check the resolved target too: a symlinked parent directory changes what is read.
+    if (!stat.isFile() || !statSync(real).isFile()) throw new Error(`${label} must be a regular file`);
+    return real;
   }
   if (!found) throw new Error(`${label} does not exist`);
   throw new Error(`${label} must be inside the repository root${env.RUNNER_TEMP ? " or $RUNNER_TEMP" : ""}`);
