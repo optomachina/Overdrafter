@@ -40,7 +40,7 @@ import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs"
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
 import { GITHUB_MARKER_IO, hashVerifiedPaths, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
 
-import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./lib/jev-screen-files.mjs";
+import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./jev-pr-screen-files.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORK_DIR = `${homedir()}/work/claude-jobs`;
@@ -345,9 +345,11 @@ function incomplete(pr) {
 /** Screen one PR: a valid marker hit skips Jev; otherwise ask Jev and write a marker. */
 async function screenOne(pr, context) {
   let verified;
+  let acquisition;
   const hasPr = Number.isInteger(pr.pr) && pr.pr > 0;
   try {
-    const files = hasPr ? await context.files(pr.pr, pr.sha) : localDiffFiles(context.root, context.baseRef);
+    acquisition = hasPr ? await context.files(pr.pr, pr.sha) : null;
+    const files = hasPr ? acquisition.paths : localDiffFiles(context.root, context.baseRef);
     verified = { ...pr, files };
   } catch {
     return incomplete(pr);
@@ -357,6 +359,11 @@ async function screenOne(pr, context) {
   const hit = sha ? await readHit(sha, context.io, hashVerifiedPaths(verified.files)) : null;
   const result = hit ? resultFromMarker(hit) : await context.ask(screenState(verified), SCREEN_QUESTIONS, { timeoutMs: 20_000 });
   if (sha && await markerSha(verified, context.io, context.warn) !== sha) return incomplete(verified);
+  try {
+    if (hasPr) await acquisition.revalidate();
+  } catch {
+    return incomplete(verified);
+  }
   if (!hit && sha && result?.ok) await recordMarker(verified, sha, result, context);
   return { pr: verified, result, markerHit: !!hit, markerTier: hit?.tier ?? null };
 }

@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
@@ -43,7 +43,7 @@ import {
 import { JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
-import { FILES_INCOMPLETE, verifiedPrFiles } from "./lib/jev-screen-files.mjs";
+import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./jev-pr-screen-files.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -67,13 +67,13 @@ afterAll(() => {
 // Legacy classification/logging tests use explicit synthetic acquisition. The
 // authoritative transport and pre-PR boundaries are tested below with screen().
 async function fixtureScreen(prs, options) {
-  if (options.marker) return screen(prs, { files: () => ["README.md"], ...options });
+  if (options.marker) return screen(prs, { files: () => ({ paths: ["README.md"], revalidate: () => {} }), ...options });
   const fixtures = prs.map((pr, index) => ({ ...pr, pr: pr.pr ?? index + 1, sha: SHA }));
   return screen(fixtures, {
     files: (number) => {
       const { paths, problem } = prFilePaths(fixtures.find((pr) => pr.pr === number).files);
       if (problem) throw new Error(problem);
-      return paths;
+      return { paths, revalidate: () => {} };
     },
     marker: { headSha: async () => SHA, read: async () => ({ found: false }), write: async () => ({ success: true }) },
     ...options,
@@ -550,7 +550,7 @@ function countingJev(choice = "normal", confidence = 0.9, noul = 0.15) {
   return jev;
 }
 
-const quiet = { files: () => ["README.md"], log: "/dev/null", append: () => {}, warn: () => {} };
+const quiet = { files: () => ({ paths: ["README.md"], revalidate: () => {} }), log: "/dev/null", append: () => {}, warn: () => {} };
 const readme = (pr = 846, sha = SHA) => ({ pr, sha, deterministic: "low", files: ["README.md"], title: "Docs" });
 
 describe("jev screen marker", () => {
@@ -898,7 +898,7 @@ describe("jev screen marker", () => {
     expect(floor).toMatchObject({ marker_hit: true, deterministic: "low", final: "risky" });
     // The local path tier still applies: a low marker cannot lower a migration.
     const lowMarker = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }))] } });
-    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io, files: () => [MIGRATION_SQL] });
+    const [migration] = await screen([{ ...readme(), files: [MIGRATION_SQL] }], { ...quiet, ask: jev.ask, marker: lowMarker.io, files: () => ({ paths: [MIGRATION_SQL], revalidate: () => {} }) });
     expect(migration).toMatchObject({ marker_hit: false, deterministic: "risky", final: "risky" });
     // A stored confidence below the current floor is uncertain, so at least normal.
     const [stricter] = await screen([readme()], { ...quiet, ask: jev.ask, marker: lowMarker.io, minConfidence: 0.995 });
@@ -1018,7 +1018,7 @@ describe("OVD-961 authoritative file boundaries", () => {
   it("checks the final page for exact multiples and rejects malformed JSON", () => {
     const paths = Array.from({ length: 100 }, (_, i) => `docs/${i}`);
     const transport = fileTransport({ paths });
-    expect(transport.files(846, SHA)).toEqual(paths);
+    expect(transport.files(846, SHA).paths).toEqual(paths);
     expect(transport.calls.filter((args) => args[1].includes("/files?"))).toHaveLength(2);
     expect(() => verifiedPrFiles(846, SHA, { run: () => "invalid" })).toThrow();
   });
@@ -1061,5 +1061,98 @@ describe("OVD-961 authoritative file boundaries", () => {
       expect(failed).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
     }
     expect(ask).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Mutable REST snapshot for rename and post-acquisition identity regressions. */
+function mutableAcquisition(records) {
+  const fixture = { snapshot: { head: { sha: SHA }, base: { sha: OTHER_SHA }, changed_files: records.length } };
+  fixture.files = (pr, sha) => verifiedPrFiles(pr, sha, { run: (args) => {
+    if (args[1].includes("/files?")) return JSON.stringify(records);
+    if (fixture.snapshot === null) throw new Error("snapshot unavailable");
+    return JSON.stringify(fixture.snapshot);
+  } });
+  return fixture;
+}
+
+describe("OVD-961 independent review regressions", () => {
+  const renamed = { filename: "docs/plain.md", previous_filename: ".github/workflows/required.yml", status: "renamed" };
+
+  it("preserves sensitive rename sources, reconciles records and hashes the complete affected set", async () => {
+    const acquisition = mutableAcquisition([renamed]);
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const ask = vi.fn(countingJev("low").ask);
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    const paths = [renamed.filename, renamed.previous_filename];
+    expect(record).toMatchObject({ final: "risky", deterministic: "risky", filesProblem: null });
+    expect(ask.mock.calls[0][0].files).toEqual(paths);
+    expect(parseMarkerDescription(github.store[SHA][0].description)).toMatchObject({ tier: "risky", filesHash: hashVerifiedPaths(paths) });
+    expect(acquisition.files(846, SHA).snapshot.count).toBe(1);
+    const chain = mutableAcquisition([renamed, { filename: "docs/next.md", previous_filename: renamed.filename, status: "renamed" }]);
+    expect(chain.files(846, SHA).paths).toEqual([...paths, "docs/next.md"]);
+  });
+
+  it.each([
+    { filename: "docs/plain.md", status: "renamed" },
+    { ...renamed, previous_filename: "" },
+    { ...renamed, previous_filename: null },
+    { ...renamed, previous_filename: 123 },
+    { ...renamed, previous_filename: "bad\0path" },
+    { ...renamed, previous_filename: renamed.filename },
+    { ...renamed, status: "modified" },
+  ])("rejects malformed rename metadata before cache or model access: %j", async (entry) => {
+    const marker = { headSha: vi.fn(), read: vi.fn(), write: vi.fn() };
+    const ask = vi.fn();
+    const [record] = await screen([readme()], { ...quiet, files: mutableAcquisition([entry]).files, marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE });
+    for (const fn of [...Object.values(marker), ask]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("preserves both sides of a real local rename even when git recognizes it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jev-rename-"));
+    temps.push(root);
+    const git = (...args) => execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8" });
+    git("init", "-q");
+    mkdirSync(join(root, ".github/workflows"), { recursive: true });
+    mkdirSync(join(root, "docs"));
+    writeFileSync(join(root, renamed.previous_filename), "name: required\non: push\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    git("mv", renamed.previous_filename, renamed.filename);
+    git("commit", "-qm", "rename");
+    expect(git("diff", "--name-status", "-M", "HEAD^...HEAD")).toContain("R100");
+    expect(new Set(localDiffFiles(root, "HEAD^"))).toEqual(new Set([renamed.filename, renamed.previous_filename]));
+    const ask = vi.fn(countingJev("low").ask);
+    const marker = { read: vi.fn(), write: vi.fn(), headSha: vi.fn() };
+    const [record] = await screen([{ ...readme(), pr: undefined }], { ...quiet, root, baseRef: "HEAD^", sensitivePaths: loadSensitivePaths({ root: repoRoot }), marker, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: null });
+    expect(new Set(ask.mock.calls[0][0].files)).toEqual(new Set([renamed.filename, renamed.previous_filename]));
+    for (const fn of Object.values(marker)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each(["fresh", "cached"].flatMap((mode) => ["base", "head", "count", "error"].map((change) => [mode, change])))
+  ("rejects %s result after post-acquisition %s change without a marker write", async (mode, change) => {
+    const acquisition = mutableAcquisition([{ filename: "README.md" }]);
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: mode === "cached" ? [status(markerText({ tier: "low", jevTier: "low" }))] : [] } });
+    const mutate = () => {
+      if (change === "error") acquisition.snapshot = null;
+      else if (change === "count") acquisition.snapshot.changed_files = 2;
+      else acquisition.snapshot[change].sha = "c".repeat(40);
+    };
+    const read = github.io.read;
+    github.io.read = async (...args) => { const result = await read(...args); if (mode === "cached") mutate(); return result; };
+    const ask = vi.fn(async () => { mutate(); return countingJev("low").ask(); });
+    const [record] = await screen([readme()], { ...quiet, files: acquisition.files, marker: github.io, ask });
+    expect(record).toMatchObject({ final: "risky", filesProblem: FILES_INCOMPLETE, cache_hit: false });
+    expect(github.posts()).toHaveLength(0);
+    expect(ask).toHaveBeenCalledTimes(mode === "fresh" ? 1 : 0);
+  });
+
+  it("protects the acquisition helper with the existing sensitive-path policy", () => {
+    const imported = readFileSync(new URL("./jev-pr-screen.mjs", import.meta.url), "utf8").match(/from "([^"]*screen-files\.mjs)"/)?.[1];
+    expect(imported).toBeTruthy();
+    const actualPath = relative(repoRoot, fileURLToPath(new URL(imported, new URL("./jev-pr-screen.mjs", import.meta.url))));
+    expect(deterministicTier({ deterministic: "low", files: [actualPath] }, loadSensitivePaths({ root: repoRoot })))
+      .toMatchObject({ tier: "risky", sensitiveClasses: ["infra_ci"] });
   });
 });

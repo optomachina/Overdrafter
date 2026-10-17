@@ -57,11 +57,16 @@ all REST file pages and checks their exact count against `changed_files`, with
 head/base snapshots before and after. A mismatch, malformed/duplicate page,
 failed read, head race, or GitHub's 3000-file cap (including exactly 3000)
 screens `risky` with `filesProblem: "files-incomplete"`, without cache or Jev.
-The head is checked again before accepting a cached result or writing a marker.
+The full head/base/count identity is retained and revalidated before accepting
+a cached or fresh result or writing a marker. Renamed files retain both the
+current and previous path, with validated rename metadata. Counts reconcile API
+records, separately from the deduplicated affected-path set used for classification
+and hashing.
 
 Without a PR number, `--base-ref` is required: the screen resolves it to a commit
-SHA and obtains paths from `git diff --name-only -z <base>...HEAD`. Failed base
-resolution or an empty/failed diff fails risky. Pre-PR screening never reads or
+SHA and obtains paths from `git diff --no-renames --name-only -z <base>...HEAD`. Failed base
+resolution or an empty/failed diff fails risky. Disabling rename detection keeps
+both deleted source paths and added destination paths in the affected set. Pre-PR screening never reads or
 writes the PR status cache. Legacy `screen.py`/`packet.py` callers remain advisory;
 this change does not activate or migrate them.
 
