@@ -1,9 +1,10 @@
 # Merge queue for `main` (OVD-854)
 
 Status: **Option B (strict) and `enforce_admins` were approved by Blaine on
-2026-10-16; application is pending.** A read-back on 2026-10-16 showed both
-still `false`, so neither is in force. Before relying on strict mode, verify
-with:
+2026-10-16 and are now in force.** A read-back of the protection on 2026-10-16
+after they were applied showed `strict` and `enforce_admins` both `true`, with
+`ci` and `provider-go-live` as the required checks. To re-verify the live
+settings, run:
 
 ```bash
 gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
@@ -11,11 +12,11 @@ gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .re
 
 The `land` skill (`.codex/skills/land/SKILL.md`) does not handle strict mode
 yet. That work is tracked in OVD-889. Until it lands, an out-of-date PR is
-updated with `gh pr update-branch` and re-checked by hand (state, head, and
-`ci` and `provider-go-live` green on the new head) before
+brought current with `gh pr update-branch` and re-checked by hand (state, head,
+and `ci` and `provider-go-live` green on the new head) before
 `gh pr merge --match-head-commit <head>`. The `gh api` commands under Option B
-stay here as the apply and rollback reference. **Option A (merge queue) is not
-applied** and still needs the repo moved to an organization. Any further change
+stay here as the rollback and re-apply reference. **Option A (merge queue) is
+not applied** and still needs the repo moved to an organization. Any further change
 to branch protection is a protected action that needs Blaine's approval card,
 and Grok Bot applies it only after approval.
 
@@ -33,18 +34,18 @@ returned `User`). Two separate decisions for Blaine follow:
    [Prerequisite: organization ownership](#prerequisite-organization-ownership).
 2. **Option B, applicable now:** turn on `strict: true` ("Require branches to be
    up to date before merging") on the classic branch protection. Approved by
-   Blaine on 2026-10-16 together with `enforce_admins`; application is pending
-   (see Status). See
+   Blaine on 2026-10-16 together with `enforce_admins`, and now in force (see
+   Status). See
    [Option B: strict up to date checks](#option-b-strict-up-to-date-checks-applicable-now).
 
-Option B is the approved path. Option A stays drafted so it can be applied once
+Option B is in force. Option A stays drafted so it can be applied once
 the repo is org-owned.
 
 ## Why
 
-Today `main` requires `ci` and `provider-go-live` with `strict: false` and has
-no merge queue, so a PR can merge green against a stale base and break `main`.
-`strict: true` fixes that by blocking the merge until the PR branch contains
+Before Option B, `main` required `ci` and `provider-go-live` with
+`strict: false` and had no merge queue, so a PR could merge green against a
+stale base and break `main`. `strict: true` (now in force) fixes that by blocking the merge until the PR branch contains
 the current `main` and the required checks have passed on it. Merges are then
 serialised by hand (update the branch, wait for checks, merge). A merge queue
 does the same job automatically: it builds each PR on top of the current `main`
@@ -277,31 +278,35 @@ have passed on that state. It does not serialise automatically; after each
 merge, every other open PR goes out of date and must be updated (which reruns
 both checks, since both trigger on `synchronize`) before it can merge.
 
-### Approved settings (application pending)
+### Applied settings (in force since 2026-10-16)
 
-| Setting | Before | After (approved 2026-10-16, pending) |
+| Setting | Before | After (approved and in force, 2026-10-16) |
 | --- | --- | --- |
 | `required_status_checks.strict` | `false` | `true` |
 | `required_status_checks.checks` | `ci`, `provider-go-live` (app 15368) | unchanged |
-| `enforce_admins` | `false` | `true` (approved with Option B; set separately from the call below) |
+| `enforce_admins` | `false` | `true` (approved with Option B; a separate setting from the call below) |
 | Everything else in classic protection | as snapshotted | unchanged |
 
 The call below targets the `required_status_checks` sub-resource with `PATCH`,
 so it does not touch `enforce_admins`, reviews, or any other protection
-setting. `enforce_admins` is approved with Option B but is a separate setting:
-turn it on in the branch protection settings UI, or with
+setting. `enforce_admins` was approved with Option B but is a separate setting:
+it is turned on in the branch protection settings UI, or with
 `gh api --method POST repos/optomachina/Overdrafter/branches/main/protection/enforce_admins`
-(rollback: the same path with `--method DELETE`), under the same approval card
-rules. The `PATCH` call restates the two required checks with their app id so
-they cannot be dropped or rebound to another app.
+(rollback: the same path with `--method DELETE`). The `PATCH` call restates the
+two required checks with their app id so they cannot be dropped or rebound to
+another app. The commands below stay as the rollback and re-apply reference;
+running either one again is a protected change that needs Blaine's approval
+card.
 
 ### Apply command
 
-> **DO NOT RUN. Requires Blaine's approval card. Grok Bot applies only after
-> approval**, with the card naming this runbook's commit SHA.
+> **Reference only: both settings are already in force (see Status).** Do not
+> re-run this unless the read-back shows the protection has drifted, and then
+> only with Blaine's approval card. Grok Bot applies protection changes only
+> after approval, with the card naming this runbook's commit SHA.
 
 ```bash
-# DO NOT RUN without Blaine's approval card (Grok Bot applies).
+# Reference only (already in force). Re-run only with Blaine's approval card.
 gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/required_status_checks --input - <<'JSON'
 {
   "strict": true,
@@ -313,14 +318,13 @@ gh api --method PATCH repos/optomachina/Overdrafter/branches/main/protection/req
 JSON
 ```
 
-Verify (read-only) that only `strict` changed, plus `enforce_admins` if it was
-turned on in the same window:
+Verify (read-only) that only `strict` and `enforce_admins` changed:
 
 ```bash
 gh api repos/optomachina/Overdrafter/branches/main/protection > /tmp/ovd854-protection-after.json
 diff <(jq -S . /tmp/ovd854-protection-before.json) <(jq -S . /tmp/ovd854-protection-after.json)
-# Expected diff: required_status_checks.strict false -> true, plus
-# enforce_admins.enabled false -> true if it was applied; nothing else.
+# Expected diff: required_status_checks.strict false -> true and
+# enforce_admins.enabled false -> true; nothing else.
 ```
 
 If the snapshot shows the required checks differ from `ci` and
@@ -366,8 +370,8 @@ JSON
 
 ### Dry-run checklist (after approval and apply)
 
-1. Snapshot recorded; the after/before diff shows only `strict` changed, plus
-   `enforce_admins` if it was applied with it.
+1. Snapshot recorded; the after/before diff shows only `strict` and
+   `enforce_admins` changed.
 2. Open two trivial docs PRs from the same `main`. Merge the first. Confirm
    the second shows "This branch is out-of-date" and cannot merge.
 3. Update the second branch; confirm `ci` and `provider-go-live` rerun on the
