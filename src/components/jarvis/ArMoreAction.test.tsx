@@ -24,7 +24,7 @@ it("opens a labelled modal, contains focus and restores focus on every close pat
     expect(screen.getByRole("dialog")).toBe(dialog);
     if (close === "cancel") fireEvent.click(cancel);
     if (close === "escape") fireEvent.keyDown(dialog, { key: "Escape" });
-    if (close === "backdrop") fireEvent.click(dialog.parentElement!);
+    if (close === "backdrop") fireEvent.click(screen.getByRole("button", { name: "Close sheet" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(more);
     expect(more.getAttribute("aria-expanded")).toBe("false");

@@ -5,7 +5,7 @@ import posterUrl from "@/features/jarvis/ar/preview-assets/plate-thumb.png";
 // Deliberately inert fixture URLs: this preview proves placement, not device launch.
 const model = { name: "PLATE_R1", glbUrl: "https://example.invalid/plate.glb", usdzUrl: "https://example.invalid/plate.usdz", viewUrl: "https://example.invalid/models/plate" };
 const statuses = ["ready", "loading", "failed"] as const;
-function MockResult({ arActionSlot }: { arActionSlot: ReactNode }) {
+function MockResult({ arActionSlot }: Readonly<{ arActionSlot: ReactNode }>) {
   return <section className="jarvis-ar-card"><h2>PLATE_R1</h2><p>Result area preview</p>
     <a className="jarvis-ar-row jarvis-ar-outline" href={model.viewUrl}>OPEN 3D</a>
     {arActionSlot}

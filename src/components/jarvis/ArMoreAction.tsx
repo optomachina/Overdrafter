@@ -12,11 +12,11 @@ interface Props extends ArModel {
 
 /** Shell-side slot content for the OVD-804 thread's `arActionSlot`: MORE plus the AR sheet.
  * Lives outside src/features/jarvis because the import boundary keeps React hooks out of the feature core. */
-export function ArMoreAction({ title, ...props }: Props) {
+export function ArMoreAction({ title, ...props }: Readonly<Props>) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const sheet = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (!open) return;
     const moreButton = trigger.current;
@@ -49,15 +49,14 @@ export function ArMoreAction({ title, ...props }: Props) {
 
   return <>
     <button ref={trigger} className="jarvis-ar-row" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>MORE</button>
-    {open && <div className="jarvis-ar-backdrop" onClick={(event) => {
-      if (event.target === event.currentTarget) setOpen(false);
-    }}>
-      <div ref={sheet} className="jarvis-ar-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+    {open && <div className="jarvis-ar-backdrop">
+      <button type="button" className="jarvis-ar-scrim" aria-label="Close sheet" tabIndex={-1} onClick={() => setOpen(false)} />
+      <dialog ref={sheet} open className="jarvis-ar-sheet" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <div className="jarvis-ar-grabber" aria-hidden="true" />
         <h2 id={titleId}>{title}</h2>
         <ViewInArAction {...props} />
         <button className="jarvis-ar-row jarvis-ar-cancel" onClick={() => setOpen(false)}>CANCEL</button>
-      </div>
+      </dialog>
     </div>}
   </>;
 }
