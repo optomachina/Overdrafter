@@ -276,7 +276,8 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     group: "Envelope",
     text: `Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`,
     label: "envelope reviewed (automatic)",
-    match: /envelope reviewed/i,
+    // Ticked checkbox line only; must not match prose or unticked / "not envelope reviewed".
+    match: /^\s*[-*]\s*\[[xX]\]\s*\**envelope reviewed \(automatic\)/im,
     na: false,
     auto: true,
   },
@@ -371,7 +372,7 @@ function parseCheckboxLines(content) {
   for (const line of content.split("\n")) {
     const match = line.match(CHECKBOX_LINE);
     if (match) {
-      boxes.push({ checked: match[1] !== " ", text: match[2] });
+      boxes.push({ checked: match[1] !== " ", text: match[2], line: line });
       continue;
     }
 
@@ -527,12 +528,17 @@ function validateProviderGoLiveSection(body, findings) {
 
   const unused = [...boxes];
   for (const required of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
-    const index = unused.findIndex((box) => required.match.test(box.text));
     if (required.auto) {
-      // Filled automatically; consume the line if present and never fail on it.
+      // Prefer a ticked automatic line. Also swallow an unticked real auto line so
+      // it never fails the gate, but never consume lookalikes like "not envelope reviewed".
+      let index = unused.findIndex((box) => required.match.test(box.line));
+      if (index === -1) {
+        index = unused.findIndex((box) => /^envelope reviewed \(automatic\)/i.test(box.text));
+      }
       if (index !== -1) unused.splice(index, 1);
       continue;
     }
+    const index = unused.findIndex((box) => required.match.test(box.text));
     if (index === -1) {
       errors.push(`missing Provider go-live item "${required.label}"`);
       continue;

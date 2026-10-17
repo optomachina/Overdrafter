@@ -532,6 +532,37 @@ describe("validatePrBody", () => {
     expect(validate(unchecked)).toEqual({ ok: true, errors: [] });
   });
 
+  it("matches only a ticked envelope-reviewed (automatic) checkbox line", () => {
+    const { match } = PROVIDER_GO_LIVE_REQUIRED_ITEMS.find((item) => item.id === "envelope-reviewer");
+    for (const line of [
+      "- [x] envelope reviewed (automatic)",
+      "* [X] Envelope reviewed (automatic). Signed: anyone.",
+      "  - [x] envelope reviewed (automatic)",
+      "- [x] **Envelope reviewed (automatic).** Signed: Grok Bot under Blaine Wilson",
+    ]) {
+      expect(match.test(line), line).toBe(true);
+    }
+    for (const line of [
+      "not envelope reviewed",
+      "- [ ] envelope reviewed (automatic)",
+      "the envelope reviewed (automatic) item is missing",
+      "    envelope reviewed (automatic)",
+      "> envelope reviewed (automatic)",
+    ]) {
+      expect(match.test(line), line).toBe(false);
+    }
+  });
+
+  it("does not treat an unticked lookalike as the automatic envelope item", () => {
+    const section = buildGoLiveSection({ "envelope-reviewer": null }).replace(
+      "## Provider go-live",
+      "## Provider go-live\n\n- [ ] not envelope reviewed\n",
+    );
+    const result = validate(section);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => /not envelope reviewed/i.test(error))).toBe(true);
+  });
+
   it("rejects a placeholder URL on every item", () => {
     const overrides = Object.fromEntries(
       PROVIDER_GO_LIVE_REQUIRED_ITEMS.map((item) => [item.id, { evidence: "https://example.test/ok" }]),
