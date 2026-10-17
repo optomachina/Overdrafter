@@ -210,7 +210,7 @@
     "gate-loosening": "root-agent countersign plus Blaine's OK"
   },
   "runtime_routing": {
-    "note": "Where work runs (Blaine, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate.",
+    "note": "Where work runs (Blaine, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate. Build pools are peers (Blaine via Grok Bot, 2026-10-16; replaces the retired overflow-only wording): Codex (ChatGPT subscription, lean on it), Claude Code (Max subscription) and Cursor. Cursor means Grok-model cloud agents only, on included usage only, stopping around 90% of the weekly included allowance; never the on-demand balance and never Claude-model cloud agents.",
     "cloud": {
       "does": [
         "coordinate",
@@ -267,7 +267,7 @@
         },
         {
           "id": "build-furthest-behind-pace",
-          "rule": "New builds go to the build-mode pool furthest behind pace."
+          "rule": "New builds go to the build-mode pool furthest behind pace. Codex, Claude Code and Cursor (Grok cloud agents, included usage only) are peer build pools; none is overflow-only."
         },
         {
           "id": "burn-before-reset",
