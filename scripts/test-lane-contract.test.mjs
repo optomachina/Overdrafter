@@ -24,6 +24,7 @@ const portableSuites = [
   "scripts/lint-rls-new-tables.node-test.mjs",
   "scripts/sensitive-paths-report.node-test.mjs",
   "scripts/check-migration-immutability.node-test.mjs",
+  "scripts/check-secret-paths.node-test.mjs",
 ];
 
 function portableCommand() {
