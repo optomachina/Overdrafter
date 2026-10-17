@@ -6,7 +6,8 @@
 # contains the current base, has the protection-required checks successful on
 # that exact SHA, and is still the PR head right before the merge. If this run
 # had to update the branch, it merges only when that update left the reviewable
-# diff unchanged. A changed diff stops the run; re-run land when checks pass.
+# diff unchanged. A changed diff stops the run. Do not land that head until a
+# fresh review and QA verdict exist there.
 #
 #   1. Read the PR once and pin its head SHA.
 #   2. If the head does not contain a freshly fetched origin/<base>, update it
@@ -18,8 +19,9 @@
 #   3. Wait for the new head and prove it is exactly that update merge (two
 #      parents: the old pin, then a commit already on the base). Compare the
 #      reviewable diff (diff_id, the sha256 of the pinned `git diff --raw`)
-#      before and after. If it changed, stop with exit 10 and do not merge;
-#      re-run land when checks pass. If it is unchanged, re-pin.
+#      before and after. If it changed, stop with exit 11 and do not merge.
+#      A fresh review and QA verdict at the new head are required before
+#      landing. If it is unchanged, re-pin.
 #   4. Read required checks from protection before updates; fail closed. Wait
 #      for latest runs (and statuses for app-less contexts); only success passes.
 #   5. Re-read state, head and mergeability, then
@@ -45,7 +47,8 @@
 #   7  update round cap exceeded because the base kept moving
 #   8  overall deadline exceeded; if merge sent, inspect PR by hand
 #   9  merged but post-merge read-back failed or exceeded deadline -> Human Review; never auto-revert
-#   10 updated branch, but the diff changed; re-run land when checks pass
+#   10 reserved for the future ovd-merge-gate check (OVD-845); this script does not exit 10
+#   11 updated, and the PR diff changed; a fresh review and QA verdict at the new head are required before landing
 #
 # Settings (non-negative integers unless noted; defaults in brackets):
 #   LAND_POLL_INTERVAL [15] seconds between polls   LAND_HEAD_POLLS [24]
@@ -362,8 +365,8 @@ while :; do
     old_diff="$DIFF_ID"
     review_diff_id "$3" "$NEW" || stop 5 'could not read the post-update diff; not merging'
     if [ "$old_diff" != "$DIFF_ID" ]; then
-      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff changed"
-      stop 10 "updated $PIN -> $NEW but the diff changed; re-run land when checks pass"
+      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff changed ($old_diff -> $DIFF_ID)"
+      stop 11 "updated $PIN -> $NEW and the PR diff changed (diff_id $old_diff -> $DIFF_ID); a fresh review and QA verdict at $NEW are required before landing"
     fi
 
     note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff unchanged"

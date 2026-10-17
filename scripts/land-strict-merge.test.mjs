@@ -143,10 +143,12 @@ it('stops without merging when the update changes the diff', async () => {
   git('push', '-q', 'origin', 'pr-diff');
   git('push', '-q', '--force', 'origin', 'main-diff:main');
   git('push', '-q', 'origin', `${U2}:refs/heads/update-diff`);
-  expect(reviewDiffId(fork, H2)).not.toBe(reviewDiffId(M2, U2));
-  const calls = await run(scenario([pr(H2, 'BEHIND'), pr(U2)]), 10, 're-run land when checks pass');
-  expect(calls.output).toContain(`updated ${H2} -> ${U2} but the diff changed`);
-  expect(calls.output).toContain('diff changed');
+  const oldDiff = reviewDiffId(fork, H2);
+  const newDiff = reviewDiffId(M2, U2);
+  expect(oldDiff).not.toBe(newDiff);
+  const calls = await run(scenario([pr(H2, 'BEHIND'), pr(U2)]), 11, `a fresh review and QA verdict at ${U2} are required before landing`);
+  expect(calls.output).toContain(`land: STOP: updated ${H2} -> ${U2} and the PR diff changed (diff_id ${oldDiff} -> ${newDiff}); a fresh review and QA verdict at ${U2} are required before landing`);
+  expect(calls.output).not.toContain('re-run land when checks pass');
   expect(calls.filter(a => a.includes('PUT'))).toHaveLength(1);
   expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
   expect(calls.filter(a => String(a[1]).includes('check_name='))).toEqual([]);
@@ -381,9 +383,12 @@ it.each(['failure', 'pending', 'success'])('combines latest status and run: stat
 });
 it('documents deadline, protection, tree read-back and supervised first run', () => {
   const header = readFileSync(script, 'utf8').split('set -u')[0];
-  for (const text of ['LAND_DEADLINE', 'LAND_CALL_TIMEOUT', 'LAND_ALLOW_FALLBACK_CHECKS', 'fallback only', '8  overall', '9  merged', '10 updated']) expect(header).toContain(text);
+  for (const text of ['LAND_DEADLINE', 'LAND_CALL_TIMEOUT', 'LAND_ALLOW_FALLBACK_CHECKS', 'fallback only', '8  overall', '9  merged', '11 updated']) expect(header).toContain(text);
+  expect(header).toContain('10 reserved');
+  expect(header).not.toContain('10 updated');
   const skill = readFileSync(fileURLToPath(new URL('../.codex/skills/land/SKILL.md', import.meta.url)), 'utf8');
-  for (const text of ['First live run', 'supervision by Release', '| 8 |', '| 9 |', '| 10 |', 'latest run', 'commit status', 'tree', 'update chain', 'diff changed']) expect(skill).toContain(text);
+  for (const text of ['First live run', 'supervision by Release', '| 8 |', '| 9 |', '| 11 |', 'latest run', 'commit status', 'tree', 'update chain', 'passing review and QA verdict']) expect(skill).toContain(text);
+  expect(skill).not.toMatch(/\| 10 \| Updated the branch/);
 });
 
 it('stops 9, not 8, when the post-merge tree fetch hits the deadline', async () => {

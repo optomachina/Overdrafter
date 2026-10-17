@@ -14,8 +14,9 @@ The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
 through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
 out-of-date PR current with the update-branch API as a merge (never a rebase or
 force push) and proves the new head is that merge. If that update changes the
-reviewable diff (`diff_id`), it stops without merging; re-run land when checks
-pass on the new head. If the diff is unchanged, it waits for the required checks
+reviewable diff (`diff_id`), it stops without merging (exit 11). Do not re-run
+land at the new head until a passing review and QA verdict exist at that head.
+If the diff is unchanged, it waits for the required checks
 read from branch protection (`ci` and `provider-go-live` today) on the new
 head, and merges with
 `gh pr merge --match-head-commit <head>`, failing closed on any mismatch,
@@ -351,8 +352,9 @@ them.
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
   updates it. The `land` skill handles strict mode through
   `.codex/skills/land/land_strict_merge.sh` (`SKILL.md` steps 8 to 11,
-  OVD-889). When an update changes the reviewable diff, it stops and does not
-  merge; re-run it when checks pass. When the diff is unchanged, it waits for
+  OVD-889). When an update changes the reviewable diff, it stops (exit 11) and
+  does not merge. Do not re-run land at the new head until a passing review and
+  QA verdict exist at that head. When the diff is unchanged, it waits for
   the required checks read from branch protection
   (`ci` and `provider-go-live` today) and verifies the landed tree against the
   pinned head. As a manual fallback, update an
