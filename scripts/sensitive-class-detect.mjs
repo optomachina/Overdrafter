@@ -37,10 +37,16 @@ const TOP_KEYS = new Set(["version", "description", "syntax", "sql_content", "cl
 const CLASS_KEYS = new Set(["description", "areas", "signals", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const CATEGORY_KEYS = new Set(["description", "paths", "path_keywords", "exclude", "exclude_keywords"]);
 const SQL_KEYS = new Set(["paths", "rules", "exemptions"]);
-const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason", "within", "after", "until", "informational"]);
+const SQL_RULE_KEYS = new Set(["id", "class", "tokens", "reason", "within", "after", "inside", "until", "informational"]);
 const SQL_EXEMPTION_KEYS = new Set(["id", "reason", "paths", "rules", "targets", "gate_loosening"]);
 // A whole lower-cased word as sqlWords emits it, or one punctuation character.
 const SQL_TOKEN_PATTERN = /^(?:[a-z_][a-z0-9_$]*|[^\sA-Za-z0-9_$])$/;
+// An exemption target is an unquoted lower-case role name, safe to splice into a RegExp.
+const SQL_TARGET_PATTERN = /^[a-z_][a-z0-9_]*$/;
+// The only rules an exemption can clear: its statement shape is SET [LOCAL] ROLE <target>.
+const SQL_EXEMPTABLE_RULES = new Set(["auth_set_role", "auth_set_local_role"]);
+// Postgres SQL whitespace; a comment counts as one space.
+const SQL_SPACE = "[ \\t\\n\\r\\f]";
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const KEYWORD_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -221,7 +227,7 @@ export function compileConfig(raw) {
       if (tokens.length === 0) errors.push(`${where}.tokens must not be empty`);
       const compiled = { id: rule.id, class: rule.class, tokens, reason: rule.reason, informational: rule.informational === true };
       if (rule.informational !== undefined && typeof rule.informational !== "boolean") errors.push(`${where}.informational must be a boolean`);
-      for (const key of ["within", "after"]) {
+      for (const key of ["within", "after", "inside"]) {
         if (rule[key] === undefined) continue;
         if (!Array.isArray(rule[key]) || rule[key].length === 0) errors.push(`${where}.${key} must be a non-empty array of token lists`);
         else {
@@ -258,12 +264,16 @@ export function compileConfig(raw) {
           const rule = compiledRules.find((candidate) => candidate.id === id);
           if (!rule) errors.push(`${where}: unknown rule "${id}"`);
           else if (rule.informational) errors.push(`${where}: rule "${id}" is informational`);
+          else if (!SQL_EXEMPTABLE_RULES.has(id)) errors.push(`${where}: rule "${id}" is not a SET [LOCAL] ROLE rule`);
         }
-        const targets = exemption.targets === undefined ? null : stringList(exemption.targets, `${where}.targets`, errors, SQL_TOKEN_PATTERN);
-        if (targets && targets.length === 0) errors.push(`${where}.targets must not be empty when present`);
+        const targets = stringList(exemption.targets, `${where}.targets`, errors, SQL_TARGET_PATTERN);
+        if (targets.length === 0) errors.push(`${where}.targets must not be empty`);
         // Exemption paths match case-sensitively: a looser match would loosen the gate further.
         const compiledPaths = compileGlobs(paths, `${where}.paths`, errors, { caseSensitive: true });
-        return [{ id: exemption.id, reason: exemption.reason, paths: compiledPaths, rules: ruleIds, targets }];
+        // The whole comment-stripped top-level statement must be SET [LOCAL] ROLE <unquoted target> [;].
+        const names = targets.filter((target) => SQL_TARGET_PATTERN.test(target)).join("|");
+        const statement = new RegExp(`^set${SQL_SPACE}+(?:local${SQL_SPACE}+)?role${SQL_SPACE}+(?:${names})${SQL_SPACE}*;?$`, "i");
+        return [{ id: exemption.id, reason: exemption.reason, paths: compiledPaths, rules: ruleIds, statement }];
       }),
     };
   }
@@ -336,7 +346,9 @@ const MAX_SQL_DEPTH = 8;
  * `U&'row\005fsecurity'`, `U&"row\005fsecurity"`) or built at run time
  * (`'row_' || 'security'`, format(), EXECUTE of a variable) are not decoded,
  * and set_config with the setting name nested deeper than `(('role'))` or
- * passed as a variable does not match the role rules.
+ * passed as a variable does not match the role rules. auth_dynamic_role
+ * catches EXECUTE and format() whose argument holds the word role, but not
+ * one spelled from fragments (`execute 'set ' || 'ro' || 'le anon'`).
  */
 export function sqlWords(text) {
   return sqlTokens(text).words;
@@ -344,19 +356,23 @@ export function sqlWords(text) {
 
 /**
  * sqlWords with the 1-based source line of every word. A word inside a string
- * or dollar-quoted body gets the line it sits on in the file. `raws` holds each
- * word as written (original case; a quoted identifier keeps its quotes), and
- * `starts`/`ends` count the string or dollar-quoted bodies each word starts and ends
- * (a word can open or close several nested bodies at once).
- * @returns {{words: string[], lines: number[], raws: string[], starts: number[], ends: number[]}}
+ * or dollar-quoted body gets the line it sits on in the file. `starts`/`ends` count the string or dollar-quoted bodies each word starts and ends
+ * (a word can open or close several nested bodies at once). `statements` holds
+ * the text of every statement split at a ';' outside strings, quoted
+ * identifiers, dollar-quoted bodies and comments, with each comment replaced by
+ * a space and the text trimmed; `statement` is the index of the statement each
+ * word sits in (a word inside a string gets the statement holding the string).
+ * @returns {{words: string[], lines: number[], starts: number[], ends: number[], statement: number[], statements: string[]}}
  */
 export function sqlTokens(text, depth = 0, firstLine = 1) {
   const sql = String(text);
   const words = [];
   const lines = [];
-  const raws = [];
   const starts = [];
   const ends = [];
+  const statement = [];
+  const statements = [];
+  let current = "";
   const breaks = [];
   for (let at = sql.indexOf("\n"); at !== -1; at = sql.indexOf("\n", at + 1)) breaks.push(at);
   const lineAt = (offset) => {
@@ -369,7 +385,7 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
     }
     return firstLine + low;
   };
-  const push = (word, line, raw = word) => (words.push(word), lines.push(line), raws.push(raw), starts.push(0), ends.push(0));
+  const push = (word, line) => (words.push(word), lines.push(line), starts.push(0), ends.push(0), statement.push(statements.length));
   const pushBody = (body, offset) => {
     const inner = sqlBodyTokens(body, depth, lineAt(offset));
     if (inner.words.length === 0) return;
@@ -377,17 +393,19 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
     inner.ends[inner.ends.length - 1] += 1;
     words.push(...inner.words);
     lines.push(...inner.lines);
-    raws.push(...inner.raws);
     starts.push(...inner.starts);
     ends.push(...inner.ends);
+    statement.push(...inner.words.map(() => statements.length));
   };
   let index = 0;
   while (index < sql.length) {
     const char = sql[index];
     const next = sql[index + 1];
+    const from = index;
     if (char === "-" && next === "-") {
       const end = sql.indexOf("\n", index);
       index = end === -1 ? sql.length : end + 1;
+      current += " ";
     } else if (char === "/" && next === "*") {
       let level = 1;
       index += 2;
@@ -396,9 +414,10 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
         else if (sql[index] === "*" && sql[index + 1] === "/") (level -= 1), (index += 2);
         else index += 1;
       }
+      current += " ";
     } else if (char === "'" || char === '"') {
       const backslash = char === "'" && /e/i.test(sql[index - 1] ?? "") && !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      if (backslash && words.at(-1) === "e") words.pop(), lines.pop(), raws.pop(), starts.pop(), ends.pop();
+      if (backslash && words.at(-1) === "e") words.pop(), lines.pop(), starts.pop(), ends.pop(), statement.pop();
       const start = index;
       index += 1;
       let body = "";
@@ -412,36 +431,40 @@ export function sqlTokens(text, depth = 0, firstLine = 1) {
         } else (body += sql[index]), (index += 1);
       }
       if (char === "'") pushBody(body, start);
-      else if (body !== "") push(body.toLowerCase(), lineAt(start), `"${body}"`);
+      else if (body !== "") push(body.toLowerCase(), lineAt(start));
+      current += sql.slice(from, index);
     } else if (char === "$" && !/[A-Za-z0-9_]/.test(sql[index - 1] ?? "") && DOLLAR_TAG.test(sql.slice(index, index + 64))) {
       const tag = DOLLAR_TAG.exec(sql.slice(index, index + 64))[0];
       const bodyStart = index + tag.length;
       const close = sql.indexOf(tag, bodyStart);
       pushBody(sql.slice(bodyStart, close === -1 ? sql.length : close), bodyStart);
       index = close === -1 ? sql.length : close + tag.length;
+      current += sql.slice(from, index);
     } else if (/[A-Za-z_]/.test(char)) {
       const match = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(index, index + 256));
-      push(match[0].toLowerCase(), lineAt(index), match[0]);
+      push(match[0].toLowerCase(), lineAt(index));
       index += match[0].length;
+      current += match[0];
     } else {
       if (!/\s/.test(char)) push(char, lineAt(index));
       index += 1;
+      current += char;
+      if (char === ";") statements.push(current.trim()), (current = "");
     }
   }
-  return { words, lines, raws, starts, ends };
+  statements.push(current.trim());
+  return { words, lines, starts, ends, statement, statements };
 }
 
 function sqlBodyTokens(body, depth, firstLine) {
   if (depth < MAX_SQL_DEPTH) return sqlTokens(body, depth + 1, firstLine);
   const words = [];
   const lines = [];
-  const raws = [];
   for (const match of body.matchAll(/[A-Za-z_][A-Za-z0-9_$]*/g)) {
     words.push(match[0].toLowerCase());
     lines.push(firstLine + (body.slice(0, match.index).match(/\n/g)?.length ?? 0));
-    raws.push(match[0]);
   }
-  return { words, lines, raws, starts: words.map(() => 0), ends: words.map(() => 0) };
+  return { words, lines, starts: words.map(() => 0), ends: words.map(() => 0) };
 }
 
 const sequenceAt = (words, start, tokens) => tokens.every((token, offset) => words[start + offset] === token);
@@ -479,48 +502,59 @@ function followedBy(words, levels, start, from, token) {
   return false;
 }
 
-/** The index of the word a SET names after the matched tokens, skipping TO and '='. */
-function targetIndex(words, from) {
-  return words[from] === "to" || words[from] === "=" ? from + 1 : from;
-}
-
 /**
- * Whether the SET target at `at` is exactly the lower-cased word: a quoted
- * name or a string literal value must already be lower case (Postgres keeps
- * its case; "Anon" is not anon), and the target must end the statement —
- * the next word is ';' or the end of the text, or the target ends its string
- * and the string is followed by ';', ')' or the end of the text (so
- * 'set role anon' || 'x' does not name anon).
+ * Whether the match at `start` lies in the argument of one of the `inside`
+ * sequences in the same top-level statement. A sequence ending in '(' is a
+ * call whose argument runs to its matching ')' (format(…)); any other
+ * sequence takes everything after it up to the end of its own statement
+ * (EXECUTE …). Parentheses and ';' count only at the sequence's string
+ * nesting level, so those inside literals do not close the argument, and the
+ * match may sit deeper (in a literal or dollar-quoted body) but not shallower.
  */
-function exactTarget(tokens, at) {
-  const { words, raws, starts, ends } = tokens;
-  const word = words[at];
-  if (word === undefined) return false;
-  const raw = raws[at];
-  const literal = raw.startsWith('"') || starts[at];
-  if (literal && raw !== word && raw !== `"${word}"`) return false;
-  const next = words[at + 1];
-  if (next === undefined || next === ";") return true;
-  return ends[at] && next === ")";
+function insideArgument({ words, statement, ends }, levels, start, inside) {
+  for (let at = start - 1; at >= 0 && statement[at] === statement[start]; at -= 1) {
+    for (const tokens of inside) {
+      const last = at + tokens.length - 1;
+      if (last >= start || !sequenceAt(words, at, tokens) || levels[at] > levels[start]) continue;
+      const level = levels[at];
+      const call = tokens.at(-1) === "(";
+      let depth = 0;
+      let open = true;
+      // The scan starts at the sequence's last word, so a call's own '(' opens depth 1.
+      for (let cursor = last; cursor < start && open; cursor += 1) {
+        if (boundary(words, levels, cursor, level)) open = false;
+        else if (call && levels[cursor] === level && words[cursor] === "(") depth += 1;
+        else if (call && levels[cursor] === level && words[cursor] === ")") open = --depth > 0;
+        // A sequence inside a string ends with that string ('EXECUTE' does not reach the next literal).
+        if (levels[cursor] - ends[cursor] < level) open = false;
+      }
+      if (open) return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Classes whose token sequences occur in the SQL text. Each matching rule adds
  * the reason `<class>:sql:<id>: <reason>`. Every occurrence is also a hit with
  * its rule id, path and line. An informational rule's hits never add a class.
- * When `path` matches an exemption that lists the rule (and, if the exemption
- * has targets, the SET names exactly one of them) the hit is exempt and is marked
+ * A rule with `inside` matches only within the argument of one of those
+ * sequences (see insideArgument).
+ * When `path` matches an exemption that lists the rule and the hit's whole
+ * top-level statement (comments stripped) is exactly SET [LOCAL] ROLE with one
+ * of the exemption's unquoted targets, the hit is exempt and is marked
  * gate_loosening; the rule adds its class only for a hit that is not exempt.
+ * A hit inside a string or dollar-quoted body is never exempt: its statement
+ * holds the quoted text, which the statement pattern cannot match.
  * @returns {{classes: string[], reasons: string[], hits: object[]}}
  */
 export function classifySql(text, config, path = null) {
   const tokens = sqlTokens(text);
-  const { words, lines } = tokens;
+  const { words, lines, statement, statements } = tokens;
   const levels = nestingLevels(tokens);
   // A '.', '..' or empty segment could walk an exempt prefix out of its directory, so such a path is never exempt.
   const plainPath = path !== null && String(path).split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
   const exemptions = plainPath ? config.sqlContent.exemptions.filter((entry) => entry.paths.some((re) => re.test(path))) : [];
-  const targeted = new Set(config.sqlContent.exemptions.filter((entry) => entry.targets).flatMap((entry) => entry.rules));
   const classes = [];
   const reasons = [];
   const hits = [];
@@ -531,17 +565,12 @@ export function classifySql(text, config, path = null) {
       const end = start + rule.tokens.length;
       if (rule.within && !withinStatement(words, levels, start, rule.within)) continue;
       if (rule.after && !withinStatement(words, levels, start, rule.after)) continue;
+      if (rule.inside && !insideArgument(tokens, levels, start, rule.inside)) continue;
       if (rule.until && !followedBy(words, levels, start, end, rule.until)) continue;
       const hit = { id: rule.id, class: rule.class, path, line: lines[start], sensitive: !rule.informational };
-      let exact = false;
-      if (targeted.has(rule.id)) {
-        const at = targetIndex(words, end);
-        hit.target = words[at] ?? null;
-        exact = exactTarget(tokens, at);
-      }
       if (rule.informational) hit.informational = true;
       else {
-        const exemption = exemptions.find((entry) => entry.rules.includes(rule.id) && (!entry.targets || (exact && entry.targets.includes(hit.target))));
+        const exemption = exemptions.find((entry) => entry.rules.includes(rule.id) && levels[start] === 0 && entry.statement.test(statements[statement[start]]));
         if (exemption) Object.assign(hit, { sensitive: false, exemption: exemption.id, gate_loosening: true });
       }
       sensitive ||= hit.sensitive;
