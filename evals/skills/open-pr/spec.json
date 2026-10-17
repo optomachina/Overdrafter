@@ -1,0 +1,53 @@
+{
+  "skill": "open-pr",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "normal-flow",
+      "task": "Normal Symphony flow, branch not yet pushed, asked to open a PR.",
+      "expectedBehaviors": [
+        "Uses push skill first because the branch is local only",
+        "Refuses on main",
+        "Confirms preflight"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Uses push skill first because the branch is local only",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Refuses on main",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Confirms preflight",
+          "points": 3
+        }
+      ]
+    },
+    {
+      "id": "blank-body",
+      "task": "Asked to open a PR quickly with an empty body.",
+      "expectedBehaviors": [
+        "Refuses a blank or placeholder body",
+        "Builds a complete body that matches the diff"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Refuses a blank or placeholder body",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Builds a complete body that matches the diff",
+          "points": 5
+        }
+      ]
+    }
+  ]
+}

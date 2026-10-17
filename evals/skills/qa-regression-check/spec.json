@@ -1,0 +1,65 @@
+{
+  "skill": "qa-regression-check",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "green-build-only",
+      "task": "A PR changes file upload validation. Author says 'CI is green, ship it'. Run the skill.",
+      "expectedBehaviors": [
+        "Refuses to treat passing build as proof of correctness",
+        "Applies stricter scrutiny for file handling and names regression surfaces",
+        "Lists missing tests and manual checks for risky paths",
+        "Maps acceptance criteria to evidence and returns a clear pass/fail"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Refuses to treat passing build as proof of correctness",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "Applies stricter scrutiny for file handling and names regression surfaces",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Lists missing tests and manual checks for risky paths",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Maps acceptance criteria to evidence and returns a clear pass/fail",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "criteria-mapping",
+      "task": "PR claims three acceptance criteria; evidence exists for two.",
+      "expectedBehaviors": [
+        "Marks the unevidenced criterion as not verified",
+        "Returns a fail or conditional status with rationale",
+        "Identifies neighboring areas likely to regress"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Marks the unevidenced criterion as not verified",
+          "points": 4
+        },
+        {
+          "id": "b2",
+          "criterion": "Returns a fail or conditional status with rationale",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Identifies neighboring areas likely to regress",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}

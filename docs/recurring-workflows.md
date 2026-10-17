@@ -167,3 +167,16 @@ Use the `land` skill only when the issue is already in `Merging` and a real PR
 exists. After GitHub shows the approved PR merged, record the merge and move the
 issue to `Done` automatically unless an acceptance criterion still requires
 deployment, live verification, an external operation, or other post-merge work.
+
+The drafted merge queue for `main` (required checks, settings, re-run policy,
+rollback, and the rule that every required check triggers on `merge_group`)
+lives in [docs/runbooks/merge-queue.md](runbooks/merge-queue.md). A merge queue
+needs an organization-owned repo, so it is not applied. The runbook also covers
+the applicable fallback, Option B (`strict: true` up to date checks), which
+Blaine approved on 2026-10-16 together with `enforce_admins`. Both are now in
+force (confirmed by a protection read-back on 2026-10-16), so an out-of-date PR
+cannot merge until it is brought current. The read-only command in the
+runbook's Status paragraph re-verifies the live settings. The `land` skill does
+not handle strict mode yet (tracked in OVD-889); until it does, bring an
+out-of-date PR current with `gh pr update-branch` and re-check it by hand
+before `gh pr merge --match-head-commit`.

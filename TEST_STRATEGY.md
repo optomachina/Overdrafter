@@ -92,8 +92,10 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
   leaves production browser configuration unchanged, and never skips a test.
 - `npm run test:portable-node` runs the explicit portable Node suites for catalog
   parity diagnostics, sourcing schema restore preparation, and closed native
-  journal parsing. Root `verify` and CI require this gate independently of the
-  agent control-plane checks. These use synthetic data and owned temporary files;
+  journal parsing, plus the OVD-871 migration immutability report
+  (`HEAD^1..HEAD` git history, report mode: findings never fail it). Root
+  `verify` and CI require this gate independently of the agent control-plane
+  checks. These use synthetic data and owned temporary files;
   they do not establish database behavior or native runtime qualification.
 - `npm test` and the default `npm run verify` discovery exclude the local
   database-backed quote RPC suite and live-provider tests. Exclusion is lane
@@ -573,6 +575,8 @@ Minimum CI target:
 - typecheck
 - automated tests
 - pgTAP database tests when `supabase/tests/` contains database-policy coverage
+- RLS deny-case coverage for changed policies (`rls-deny-coverage`, report mode; see `docs/rls-deny-coverage.md`)
+- append-only migrations (report mode via `test:portable-node`; the dedicated `migration-immutability` ci.yml job is a card draft; see `docs/migration-immutability.md`)
 - build
 - worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`
