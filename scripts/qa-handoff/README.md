@@ -99,3 +99,10 @@ concurrency group; when both write a marker for the same sha, the post-write
 dedupe keeps the `github-actions[bot]` marker and removes the backstop's.
 
 Single PR or sha: `node scripts/qa-handoff/run.mjs --repo optomachina/Overdrafter --mode report --pr 123`.
+
+## Handoff exclusions (OVD-921)
+
+`HANDOFF_EXCLUDED_CHECKS` always removes `ovd-merge-gate`, including when
+protection or `REQUIRED_CHECKS` supplies it. QA's verdict is an input to that
+future gate (OVD-845), so waiting on it would create a cycle. The runner logs
+excluded names. An excluded-only list still produces `no-required-checks`.
