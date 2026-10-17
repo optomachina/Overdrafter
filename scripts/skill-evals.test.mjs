@@ -468,18 +468,33 @@ describe("report", () => {
   describe("report --skill \"\" with uncommitted skill changes", () => {
     // `changed` only compares commits, so an empty list proves nothing while the
     // working tree holds an edit that no commit contains.
+    // The ignore rules this repo uses for skill roots (see .gitignore): `.agents/`,
+    // `.codex/` and `skills/` are ignored, so a skill there is tracked only because it
+    // was force-added, and `git status` never lists an untracked file inside one.
+    const REPO_SKILL_IGNORES = [".claude/skills/", ".agents/", ".codex/", "skills/", "!evals/skills/"];
     const cleanRepo = () => {
       const root = tmp();
       const git = initGit(root);
-      write(root, ".gitignore", ".claude/skills/\n");
+      write(root, ".gitignore", `${REPO_SKILL_IGNORES.join("\n")}\n.DS_Store\n`);
       write(root, ".agents/skills/demo/SKILL.md", "1");
       write(root, ".agents/skills/demo/notes.md", "1");
+      write(root, ".codex/skills/other/SKILL.md", "1");
       write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec()));
+      write(root, "evals/skills/other/spec.json", JSON.stringify(goodSpec("other")));
       write(root, "docs/x.md", "1");
-      git("add", "-A");
+      git("add", "-f", "-A");
       git("commit", "-qm", "base");
       return { root, git, none: path.join(root, "no-such-scores.json") };
     };
+    it("the fixture mirrors the repo: its ignore rules are the real .gitignore's, and they hide untracked skill files", () => {
+      const realRules = new Set(fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8").split("\n"));
+      for (const rule of REPO_SKILL_IGNORES) expect(realRules.has(rule)).toBe(true);
+      const { root, git } = cleanRepo();
+      write(root, ".agents/skills/demo/new.md", "1");
+      write(root, ".codex/skills/fresh/SKILL.md", "1");
+      // This is the gap: plain git status lists neither, so the guard cannot rely on it.
+      expect(git("status", "--porcelain", "-z", "--untracked-files=all", "--", ".agents/skills", ".codex/skills")).toBe("");
+    });
     const dirtyCases = [
       ["an unstaged edit", ({ root }) => write(root, ".agents/skills/demo/SKILL.md", "2"), [".agents/skills/demo/SKILL.md"]],
       ["a staged edit", ({ root, git }) => {
@@ -487,8 +502,17 @@ describe("report", () => {
         git("add", "-A");
       }, [".agents/skills/demo/SKILL.md"]],
       ["an edited spec", ({ root }) => write(root, "evals/skills/demo/spec.json", JSON.stringify(goodSpec(), null, 2)), ["evals/skills/demo/spec.json"]],
+      // Untracked and gitignored, as in the real repo: `git status` lists none of the next six.
       ["an untracked file in a skill", ({ root }) => write(root, ".agents/skills/demo/new.md", "1"), [".agents/skills/demo/new.md"]],
-      ["an untracked new skill", ({ root }) => write(root, ".codex/skills/fresh/SKILL.md", "1"), [".codex/skills/fresh/SKILL.md"]],
+      ["an untracked file in a .codex skill", ({ root }) => write(root, ".codex/skills/other/NEW.md", "1"), [".codex/skills/other/NEW.md"]],
+      ["an untracked new skill", ({ root }) => write(root, ".codex/skills/fresh/SKILL.md", "1"), [".codex/skills/fresh/"]],
+      ["an untracked new skill under .agents", ({ root }) => {
+        write(root, ".agents/skills/brandnew/SKILL.md", "1");
+        write(root, ".agents/skills/brandnew/refs/a.md", "1");
+      }, [".agents/skills/brandnew/"]],
+      ["an untracked directory inside a skill", ({ root }) => write(root, ".agents/skills/demo/refs/r.md", "1"), [".agents/skills/demo/refs/"]],
+      ["an untracked symlink in a skill root", ({ root }) => fs.symlinkSync("../../elsewhere", path.join(root, ".agents/skills/linked")), [".agents/skills/linked"]],
+      ["an untracked file that is not ignored", ({ root }) => write(root, "evals/skills/demo/extra.json", "{}"), ["evals/skills/demo/extra.json"]],
       ["an unstaged delete", ({ root }) => fs.rmSync(path.join(root, ".agents/skills/demo/notes.md")), [".agents/skills/demo/notes.md"]],
       ["a staged rename", ({ root, git }) => {
         git("mv", ".agents/skills/demo/notes.md", ".agents/skills/demo/moved.md");
@@ -525,10 +549,49 @@ describe("report", () => {
       const repo = cleanRepo();
       write(repo.root, "docs/x.md", "2");
       write(repo.root, "docs/new.md", "1");
+      // Roots with no tracked skill are where third-party skills are installed locally.
       write(repo.root, ".claude/skills/third-party/SKILL.md", "1");
+      write(repo.root, ".cursor/skills/third-party/SKILL.md", "1");
+      // Ignored paths that are not under a skill root are not skill work either.
+      write(repo.root, ".codex/config.toml", "1");
+      write(repo.root, ".agents/other-tool/state.json", "1");
+      write(repo.root, ".gstack/browse.json", "1");
       const r = run(repo.root, "report", "--skill", "", repo.none);
       expect(r.code).toBe(0);
       expect(r.text).toMatch(/Overall: nothing to re-score/);
+    });
+    it("skips .DS_Store, an empty directory and a directory holding only .DS_Store", () => {
+      const repo = cleanRepo();
+      write(repo.root, ".agents/skills/demo/.DS_Store", "1");
+      write(repo.root, ".agents/skills/.DS_Store", "1");
+      write(repo.root, ".agents/skills/ghost/.DS_Store", "1");
+      fs.mkdirSync(path.join(repo.root, ".codex/skills/hollow"), { recursive: true });
+      const r = run(repo.root, "report", "--skill", "", repo.none);
+      expect(r.code).toBe(0);
+      expect(r.text).toMatch(/Overall: nothing to re-score/);
+    });
+    it("a root counts as holding skills once one is tracked, so its untracked files are then listed", () => {
+      const repo = cleanRepo();
+      write(repo.root, ".claude/skills/third-party/SKILL.md", "1");
+      expect(run(repo.root, "report", "--skill", "", repo.none).code).toBe(0);
+      // A force-added skill makes .claude/skills a repo skill root (here with its spec).
+      write(repo.root, ".claude/skills/mine/SKILL.md", "1");
+      write(repo.root, "evals/skills/mine/spec.json", JSON.stringify(goodSpec("mine")));
+      repo.git("add", "-f", ".claude/skills/mine", "evals/skills/mine");
+      repo.git("commit", "-qm", "add a skill to .claude/skills");
+      const clean = run(repo.root, "report", "--skill", "", repo.none);
+      expect(clean.code).toBe(1);
+      expect(clean.text).toContain("- error: uncommitted: .claude/skills/third-party/");
+      expect(clean.text).not.toContain("uncommitted: .claude/skills/mine");
+    });
+    it("lists each path once when git status and the untracked listing both see it", () => {
+      const repo = cleanRepo();
+      write(repo.root, ".gitignore", "");
+      repo.git("add", ".gitignore");
+      repo.git("commit", "-qm", "stop ignoring skill roots");
+      write(repo.root, ".agents/skills/demo/new.md", "1");
+      const json = JSON.parse(run(repo.root, "report", "--skill", "", "--json", repo.none).text);
+      expect(json.errors.filter((e) => e === "uncommitted: .agents/skills/demo/new.md")).toHaveLength(1);
     });
     it("reports validation errors, not the uncommitted check, for a broken repo", () => {
       const repo = cleanRepo();

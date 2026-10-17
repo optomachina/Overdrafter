@@ -255,17 +255,35 @@ export function changedSkills(root, base, head) {
 }
 
 /**
- * Paths with uncommitted changes (staged, unstaged or untracked) under the
- * skill roots or the spec root. `changed` only compares commits, so an empty
- * list cannot be trusted while any of these exist. Outside a git checkout
- * there is no git state to ask, so it returns [].
+ * Paths with uncommitted changes under the skill roots or the spec root:
+ * staged, unstaged, deleted or untracked, ignored or not. `changed` only
+ * compares commits, so an empty list cannot be trusted while any of these
+ * exist. Outside a git checkout there is no git state to ask, so it returns [].
+ *
+ * `git status` never lists an untracked file inside a gitignored directory, and
+ * this repo ignores `.agents/`, `.codex/` and `skills/` (its skills are tracked
+ * only because they were force-added). So a new file in a skill, or a new skill
+ * dir, would pass unseen. For every root that already holds a tracked skill
+ * (the repo's own skill location), the untracked files are listed directly,
+ * ignored or not; a wholly untracked dir is one `dir/` entry. A root with no
+ * tracked skill (`.claude/skills`, `.cursor/skills`) is where third-party
+ * skills are installed locally, so what git ignores there stays ignored.
+ * `.DS_Store` is never skill work and is skipped.
  */
 export function uncommittedSkillChanges(root) {
   if (!isGitCheckout(root)) return [];
   // -z: NUL-separated, unquoted `XY path` entries; --no-renames keeps one path per entry.
   const args = ["status", "--porcelain", "-z", "--no-renames", "--untracked-files=all", "--", ...SKILL_ROOTS, SPEC_ROOT];
   const out = execFileSync(GIT_BIN, args, { cwd: root, encoding: "utf8" });
-  return out.split("\0").filter(Boolean).map((entry) => entry.slice(3));
+  const paths = out.split("\0").filter(Boolean).map((entry) => entry.slice(3));
+  const tracked = gitLsFiles(root, SKILL_ROOTS);
+  const holdsSkills = SKILL_ROOTS.filter((base) => tracked.some((f) => f.startsWith(`${base}/`)));
+  if (holdsSkills.length) {
+    // No --exclude-standard: only --exclude=.DS_Store applies, so ignored files are listed.
+    const others = ["ls-files", "-z", "--others", "--directory", "--no-empty-directory", "--exclude=.DS_Store", "--", ...holdsSkills];
+    paths.push(...execFileSync(GIT_BIN, others, { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean));
+  }
+  return [...new Set(paths)];
 }
 
 /**
