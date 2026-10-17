@@ -153,9 +153,6 @@ function anyHeadingText(lines, index) {
   const line = lines[index].replace(CONTAINER_PREFIX, "");
   const atx = line.match(ANY_ATX_HEADING);
   if (atx) return atx[1] ?? "";
-  // HTML headings anywhere on the line.
-  const html = line.match(/<h[1-6]\b[^>]*>([\s\S]*?)(?:<\/h[1-6]>|$)/i);
-  if (html) return html[1];
   // A setext underline makes the whole paragraph above it a heading; count it on
   // the underline line, joining the paragraph lines.
   const unquote = (text) => text.replace(/^(?:[ \t]*>)+/, "");
@@ -219,6 +216,13 @@ function collectSections(body) {
     }
     offset += line.length + 1;
   });
+
+  // HTML headings, possibly several per line or spanning lines, anywhere outside
+  // a code fence (an unclosed tag runs to the end).
+  const unfenced = lines.map((line, index) => (hidden.fenced[index] && !hidden.uncertain[index] ? "" : line)).join("\n");
+  for (const html of unfenced.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)(?=<\/h[1-6]\s*>|<h[1-6]\b|$(?![\s\S]))/gi)) {
+    if (isGoLiveHeading(html[1])) goLiveHeadings += 1;
+  }
 
   const sections = new Map();
   headings.forEach((entry, position) => {
