@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { GraphArtifactKind, GraphDecisionRequestedEvent, GraphDecisionResolvedEvent, GraphEvent } from '../core/types';
 import type { ThreadClient } from './client';
 import type { EventSource } from './event-source';
+import { ModelView } from './ModelView';
 import { ThreadDialog } from './ThreadDialog';
 import './thread.css';
 
@@ -25,6 +26,11 @@ type ControlEvent = Extract<GraphEvent, { type: 'control_requested' | 'control_a
 function lastOf<T extends GraphEvent>(events: readonly GraphEvent[], match: (e: GraphEvent) => e is T): T | undefined {
   for (let i = events.length - 1; i >= 0; i--) { const e = events[i]; if (match(e)) return e; }
   return undefined;
+}
+
+// The first picture is always the iso view, with or without a 3D model to open.
+function pictureAlt(index: number): string {
+  return index === 0 ? 'Iso' : 'Top view';
 }
 
 function decisionLabel(resolved: GraphDecisionResolvedEvent): string {
@@ -104,7 +110,7 @@ function Decision({ event, resolved, client, offline }: Readonly<{ event: GraphD
 
 export function JarvisThread({ source, client, runId, arActionSlot, workingName = "candidate" }: Readonly<{ source: EventSource; client: ThreadClient; runId: string; workingName?: string; arActionSlot?: ReactNode }>) {
   const [events, setEvents] = useState<GraphEvent[]>([]), [offline, setOffline] = useState(false);
-  const [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
+  const [viewer, setViewer] = useState(false), [confirm, setConfirm] = useState(false), [command, setCommand] = useState(''), [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
   const inFlight = useRef(false), keys = useRef(new Map<string, string>());
   useEffect(() => {
@@ -115,7 +121,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
     }), setOffline);
   }, [source, runId]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  const closeConfirm = useCallback(() => setConfirm(false), []);
+  const closeViewer = useCallback(() => setViewer(false), []), closeConfirm = useCallback(() => setConfirm(false), []);
   const status = lastOf(events, (e): e is StatusEvent => e.type === 'status');
   const decisions = events.filter(e => e.type === 'decision_requested');
   const resolutions = events.filter(e => e.type === 'decision_resolved');
@@ -127,7 +133,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
   const failure = events.find(e => e.type === 'error');
   const artifacts = events.filter(e => e.type === 'artifact').filter(a => safeArtifactUrl(a.uri));
   const refs = (applied?.kind === 'cancel' ? applied.kept : result?.artifacts ?? artifacts).filter(a => safeArtifactUrl(a.uri));
-  const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), step = refs.find(a => a.kind === 'step');
+  const pictures = refs.filter(a => a.kind === 'png').map(a => a.uri), glb = refs.find(a => a.kind === 'glb'), step = refs.find(a => a.kind === 'step');
   const working = workingLabel(artifacts.length > 0, workingName, pending, !!failure, status, offline);
   const state = controlState(control, command);
   const sendControl = async (kind: 'pause' | 'cancel') => {
@@ -150,12 +156,15 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
       </li>)}</ol>{!failure && applied?.kind !== 'cancel' && <div>
         <button disabled={offline || !!state} onClick={() => void sendControl('pause')}>{state || 'PAUSE'}</button>
         <button disabled={offline || inFlight.current} onClick={() => setConfirm(true)}>CANCEL</button>
-      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => <img key={p} src={p} alt={i === 0 ? 'Iso' : 'Top view'} />)}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+      </div>}</>}{decisions.map(d => <Decision key={`${d.runId}:${d.decisionId}`} event={d} resolved={resolutions.find(r => r.decisionId === d.decisionId)} client={client} offline={offline} />)}{control && <p>{controlMessage(control)}</p>}{failure && <p role="alert">CAD: FAIL · {failure.message}</p>}{error && <p role="alert">{error}</p>}{result && <h2>{result.summary}</h2>}{applied?.kind === 'cancel' && <h2>Work kept</h2>}{pictures.map((p, i) => i === 0 && glb ? <button className="jt-picture" key={p} onClick={() => setViewer(true)}>
+        <img src={p} alt="Iso" />Iso · tap for 3D</button> : <img key={p} src={p} alt={pictureAlt(i)} />)}{glb && <button onClick={() => setViewer(true)}>OPEN 3D VIEW</button>}{arActionSlot}<Dimensions artifacts={artifacts} />{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />
       <p className="jt-muted">Preview only. Messages are not sent.</p>
-    </footer>{confirm && <ThreadDialog sheet close={closeConfirm}>
+    </footer>{viewer && glb && <ThreadDialog close={closeViewer}>
+      <ModelView uri={glb.uri} pictures={pictures} step={step?.uri} />
+    </ThreadDialog>}{confirm && <ThreadDialog sheet close={closeConfirm}>
       <h2>Cancel request?</h2>
       <p>Jarvis stops at the next safe checkpoint. Work done so far stays in the thread.</p>
       <button disabled={inFlight.current} onClick={() => { void sendControl('cancel'); setConfirm(false); }}>CANCEL REQUEST</button>
