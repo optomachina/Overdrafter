@@ -235,4 +235,4 @@ workflow above is the faithful proof on a real local Supabase stack. Results:
 3. Add the OVD-602 allowlist rows above.
 4. Delete `.github/workflows/ovd707-pending-pgtap.yml` and the `ovd-707-*` Sonar CPD exclusion if the promoted migration no longer needs it.
 5. Resolve the remaining design questions (Q3, Q5, Q6); Q1, Q2 and Q4 are decided above.
-6. In the same window, for each seeded live provider (`fictiv`, `oshcut`, `quickparts`, `weerg`, `xometry`): one admin records a real dry run, and a different admin activates it, or Blaine activates through the override. Until then the service read returns nothing for them.
+6. In the same window, for each seeded live provider (`fictiv`, `oshcut`, `quickparts`, `weerg`, `xometry`): one admin records a real dry run, and a different admin activates it, or Blaine activates through the override. Until then the service read returns nothing for them. `oshcut` cannot have a real dry run before its OVD-677 certification run, so it stays `approved` (not `active`) until then.
