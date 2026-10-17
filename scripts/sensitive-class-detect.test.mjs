@@ -64,7 +64,7 @@ describe("config", () => {
     expect(loadConfig().errors).toEqual([]);
     expect(Object.keys(rawConfig)).not.toContain("classes");
     expect(Object.keys(rawConfig.safe_categories)).toEqual(["docs", "tests", "frontend_ui", "styles_assets", "repo_scripts", "agent_skills"]);
-    expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer"]);
+    expect([...new Set(rawConfig.sql_content.rules.map((rule) => rule.class))]).toEqual(["rls", "definer", "auth"]);
     expect(OUTPUT_CLASSES).toEqual([...SENSITIVE_CLASSES, ...SQL_CONTENT_CLASSES, UNCLASSIFIED]);
     expect(UNCLASSIFIED).toBe("unclassified");
   });
@@ -564,7 +564,7 @@ describe("detect", () => {
     const result = await detect({ files: Object.keys(sqlFiles).map(modified), readHeadFile, config, sha: "h", baseSha: "b" });
     expect(result).toMatchObject({ version: OUTPUT_VERSION, sha: "h", base_sha: "b", status: "ok", classes: ["schema", "migrations", "rls", "definer"], multi_class: true });
     expect(result.files.map((file) => file.classes)).toEqual([["schema", "migrations", "rls"], ["schema", "definer"], ["schema"]]);
-    expect(result.files[0].reasons).toEqual(["schema:path:**/*.sql", "migrations:path:supabase/migrations/**", "rls:sql:create policy"]);
+    expect(result.files[0].reasons).toEqual(["schema:path:**/*.sql", "migrations:path:supabase/migrations/**", "rls:sql:rls_create_policy: CREATE POLICY defines a row level security policy"]);
     expect(result.unclassified).toEqual([]);
   });
 
@@ -1244,7 +1244,7 @@ describe("gate_loosening: detector config diff against base", () => {
 
   it("does not flag an added sql_content rule or path", () => {
     const result = judge((head) => {
-      head.sql_content.rules.push({ class: "definer", tokens: ["set", "role"] });
+      head.sql_content.rules.push({ id: "definer_extra", class: "definer", tokens: ["set", "role"], reason: "extra rule" });
       head.sql_content.paths.push("**/*.ddl");
     });
     expect(result).toMatchObject({ detected: false, reasons: [] });
