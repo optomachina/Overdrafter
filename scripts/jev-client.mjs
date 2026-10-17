@@ -48,16 +48,39 @@ function networkReason(error) {
   return `network_${sanitizeToken(String(error?.cause?.code ?? error?.name ?? "error"))}`;
 }
 
+/**
+ * Map a non-ok askJev reason to a loud fallback source (logging only).
+ * default_jev_blocked: auth/credential block (http_401/403)
+ * jev_blocked: other failed Jev calls
+ */
+export function fallbackSourceForReason(reason) {
+  if (reason === "http_401" || reason === "http_403") return "default_jev_blocked";
+  return "jev_blocked";
+}
+
+/** stderr WARN for Jev fallbacks. Never prints secrets or raw response text. */
+export function warnJevFallback(source, reason, latencyMs) {
+  const src = sanitizeToken(String(source ?? "jev_blocked")) ?? "jev_blocked";
+  const why = reason == null ? "null" : (sanitizeToken(String(reason)) ?? "unknown");
+  const ms = Number.isFinite(latencyMs) ? latencyMs : "null";
+  console.error(`WARN jev-fallback source=${src} reason=${why} latencyMs=${ms}`);
+}
+
 export async function askJev(state, questions, options) {
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
+  const failed = (reason, extra = {}) => {
+    const latencyMs = latency();
+    warnJevFallback(fallbackSourceForReason(reason), reason, latencyMs);
+    return { ok: false, reason, ...extra, latencyMs };
+  };
   const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000 } = options ?? {};
   let payload;
   try {
     payload = JSON.stringify({ state, model, questions });
   } catch {
     // A BigInt or circular input is a caller error, not a network failure; never sent.
-    return { ok: false, reason: "invalid_request", latencyMs: latency() };
+    return failed("invalid_request");
   }
   const headers = { "Content-Type": "application/json" };
   const apiKey = process.env.TYPESAFE_API_KEY?.trim();
@@ -70,21 +93,21 @@ export async function askJev(state, questions, options) {
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await response.text();
-    if (!response.ok) return { ok: false, reason: `http_${response.status}`, latencyMs: latency() };
+    if (!response.ok) return failed(`http_${response.status}`);
     let body;
     try {
       body = JSON.parse(text);
     } catch {
-      return { ok: false, reason: "malformed_response", latencyMs: latency() };
+      return failed("malformed_response");
     }
-    if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, reason: "malformed_response", latencyMs: latency() };
-    if (body.model !== model) return { ok: false, reason: "unexpected_model_version", model: sanitizeToken(body.model), latencyMs: latency() };
+    if (!body || typeof body !== "object" || Array.isArray(body)) return failed("malformed_response");
+    if (body.model !== model) return failed("unexpected_model_version", { model: sanitizeToken(body.model) });
     for (const id of Object.keys(questions ?? {})) {
-      if (!isValidAnswer(questions[id], body.answers?.[id])) return { ok: false, reason: "malformed_response", latencyMs: latency() };
+      if (!isValidAnswer(questions[id], body.answers?.[id])) return failed("malformed_response");
     }
     return { ok: true, model: body.model, answers: body.answers, usage: body.usage ?? null, latencyMs: latency() };
   } catch (error) {
-    return { ok: false, reason: networkReason(error), latencyMs: latency() };
+    return failed(networkReason(error));
   }
 }
 
