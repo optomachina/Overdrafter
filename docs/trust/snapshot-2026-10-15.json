@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "trust-snapshot.v1",
+  "generatedAt": "2026-10-15T23:59:59Z",
+  "window": {
+    "start": "2026-08-24",
+    "end": "2026-10-15"
+  },
+  "sources": {
+    "repository": "optomachina/Overdrafter",
+    "baseBranch": "main",
+    "harnessResultFiles": 0
+  },
+  "merges": {
+    "total": 333,
+    "perWeek": [
+      {
+        "weekStart": "2026-08-24",
+        "count": 42
+      },
+      {
+        "weekStart": "2026-08-31",
+        "count": 26
+      },
+      {
+        "weekStart": "2026-09-07",
+        "count": 54
+      },
+      {
+        "weekStart": "2026-09-14",
+        "count": 1
+      },
+      {
+        "weekStart": "2026-09-21",
+        "count": 43
+      },
+      {
+        "weekStart": "2026-09-28",
+        "count": 16
+      },
+      {
+        "weekStart": "2026-10-05",
+        "count": 51
+      },
+      {
+        "weekStart": "2026-10-12",
+        "count": 100
+      }
+    ]
+  },
+  "qa": {
+    "pass": 31,
+    "fail": 2,
+    "noVerdict": 300,
+    "unit": "latest_verdict_per_merged_pr"
+  },
+  "reverts": {
+    "reverts": 0,
+    "rollbacks": 0
+  },
+  "timeToMerge": {
+    "medianHours": 1.19,
+    "p90Hours": 21.38,
+    "perWeek": [
+      {
+        "weekStart": "2026-08-24",
+        "medianHours": 0.26,
+        "p90Hours": 1.24
+      },
+      {
+        "weekStart": "2026-08-31",
+        "medianHours": 7.65,
+        "p90Hours": 35.09
+      },
+      {
+        "weekStart": "2026-09-07",
+        "medianHours": 0.62,
+        "p90Hours": 17.68
+      },
+      {
+        "weekStart": "2026-09-14",
+        "medianHours": 9.09,
+        "p90Hours": 9.09
+      },
+      {
+        "weekStart": "2026-09-21",
+        "medianHours": 0.38,
+        "p90Hours": 5.25
+      },
+      {
+        "weekStart": "2026-09-28",
+        "medianHours": 0.61,
+        "p90Hours": 8.2
+      },
+      {
+        "weekStart": "2026-10-05",
+        "medianHours": 9.73,
+        "p90Hours": 22.51
+      },
+      {
+        "weekStart": "2026-10-12",
+        "medianHours": 1.8,
+        "p90Hours": 54.08
+      }
+    ]
+  },
+  "liveQuotes": [],
+  "bots": []
+}

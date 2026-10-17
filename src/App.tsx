@@ -44,6 +44,7 @@ import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
 
 // The dynamic import is eliminated from production builds, including its native handoff tooling.
+const JarvisArPreview = import.meta.env.DEV ? lazy(() => import("./pages/JarvisArPreview")) : null;
 const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
   ? lazy(() => import("./pages/EngineeringWorkbench"))
   : null;
@@ -152,6 +153,7 @@ const App = () => {
               {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
                 ? <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />
                 : EngineeringAdminRoute && <Route path="/engineering" element={<Suspense fallback={null}><EngineeringAdminRoute /></Suspense>} />}
+              {JarvisArPreview && <Route path="/dev/jarvis-ar" element={<Suspense fallback={<p>Opening AR preview</p>}><JarvisArPreview /></Suspense>} />}
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />

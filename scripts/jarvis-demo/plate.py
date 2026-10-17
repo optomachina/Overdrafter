@@ -130,6 +130,20 @@ def render_pngs(plate, iso_path, top_path):
         plt.close(fig)
 
 
+def optional_usdz_export():
+    """Converter seam only: never label a placeholder as an AR artifact.
+
+    Future converter contract: mm coordinates (USD metersPerUnit=0.001), Y up,
+    same origin as GLB/STEP. Axis and physical scale need validator proof.
+    pxr alone does not supply a GLB importer; conversion remains unimplemented.
+    """
+    try:
+        import pxr  # noqa: F401; optional, never an installed dependency here
+    except ImportError:
+        return None, "USDZ export unavailable: optional pxr converter dependency is absent"
+    return None, "USDZ export pending: pxr present but GLB to USDZ converter is not implemented"
+
+
 def main():
     runs_root = Path(os.environ.get("JARVIS_DEMO_ROOT", Path.home() / "overnight" / "jarvis")).resolve() / "runs"
     out_dir = Path(sys.argv[2]).resolve()
@@ -149,6 +163,7 @@ def main():
     files = {"step": "plate.step", "glb": "plate.glb", "iso": "plate-iso.png", "top": "plate-top.png"}
     export_step(plate, str(out_dir / files["step"]))
     export_gltf(plate, str(out_dir / files["glb"]), binary=True, linear_deflection=0.01, angular_deflection=0.1)
+    files["usdz"], usdz_reason = optional_usdz_export()
     step_shape = import_step(str(out_dir / files["step"]))
     glb_report = watertight_report(str(out_dir / files["glb"]))
     results, measured = checks(plate, step_shape, glb_report, params)
@@ -162,6 +177,8 @@ def main():
         "stepBboxMm": measured,
         "volumeMm3": round(plate.volume, 3),
         "glb": glb_report,
+        "usdz": None,
+        "usdzReason": usdz_reason,
         "checks": results,
         "allChecksPass": all(r["pass"] for r in results),
         "files": files,
