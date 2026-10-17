@@ -125,6 +125,15 @@ each one as gate_loosening, or accept the gap and rely on review. Decide this
 before the job is made required. Until then, do not read the scan as proof that
 a PR cannot loosen it.
 
+**Known gap, still open: merge commits.** gitleaks reads the range with
+`git log -p`, which prints no diff for a merge commit. So content that appears
+only in a merge's conflict resolution is most likely not scanned. The first
+live run on PR #825 points this way: it reported 3 commits scanned for a range
+of 4, and the fourth is a merge. The path block diffs trees, so it still sees a
+sensitive path added in a merge. Confirm this on the pinned version, and
+decide how to cover it (for example, a second gitleaks pass over the
+`merge-base..head` diff) before the job is made required.
+
 ## Optional pre-commit hook (docs only)
 
 This is not installed automatically, and nothing in the repo turns it on. To
@@ -222,5 +231,5 @@ After the report week, each of these needs its own Blaine approval:
   on `merge_group` (see `scripts/merge-queue-workflows.test.mjs` and
   `docs/runbooks/merge-queue.md`), so that change adds a `merge_group` no-op
   trigger. Today the workflow deliberately has none.
-- Before either: decide the inline `gitleaks:allow` gap, and add the
-  real-binary checks listed under "Test coverage and follow-ups".
+- Before either: decide the inline `gitleaks:allow` and merge-commit gaps, and
+  add the real-binary checks listed under "Test coverage and follow-ups".
