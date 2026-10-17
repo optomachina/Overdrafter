@@ -10,11 +10,21 @@ settings, run:
 gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
 ```
 
-The `land` skill (`.codex/skills/land/SKILL.md`) does not handle strict mode
-yet. That work is tracked in OVD-889. Until it lands, an out-of-date PR is
-brought current with `gh pr update-branch` and re-checked by hand (state, head,
-and `ci` and `provider-go-live` green on the new head) before
-`gh pr merge --match-head-commit <head>`. The `gh api` commands under Option B
+The `land` skill (`.codex/skills/land/SKILL.md`, step 8) handles strict mode
+through `.codex/skills/land/land_strict_merge.sh` (OVD-889). It brings an
+out-of-date PR current with the update-branch API as a merge (never a rebase or
+force push) and proves the new head is that merge. If that update changes the
+reviewable diff (`diff_id`), it stops without merging (exit 11). Do not re-run
+land at the new head until a passing review and QA verdict exist at that head.
+If the diff is unchanged, it waits for the required checks
+read from branch protection (`ci` and `provider-go-live` today) on the new
+head, and merges with
+`gh pr merge --match-head-commit <head>`, failing closed on any mismatch,
+timeout or unknown state. It reads back the merge commit tree and requires it
+to equal the pinned head tree before reporting success. The manual fallback
+is the same sequence by hand:
+`gh pr update-branch`, re-check state, head and both checks on the new head,
+then `gh pr merge --match-head-commit <head>`. The `gh api` commands under Option B
 stay here as the rollback and re-apply reference. **Option A (merge queue) is
 not applied** and still needs the repo moved to an organization. Any further change
 to branch protection is a protected action that needs Blaine's approval card,
@@ -340,8 +350,14 @@ them.
   blocks the merge again.
 - **Auto-merge and the `land` skill.** GitHub auto-merge does not update an
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
-  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) does not handle
-  strict mode yet; that work is tracked in OVD-889. Until it lands, update an
+  updates it. The `land` skill handles strict mode through
+  `.codex/skills/land/land_strict_merge.sh` (`SKILL.md` steps 8 to 11,
+  OVD-889). When an update changes the reviewable diff, it stops (exit 11) and
+  does not merge. Do not re-run land at the new head until a passing review and
+  QA verdict exist at that head. When the diff is unchanged, it waits for
+  the required checks read from branch protection
+  (`ci` and `provider-go-live` today) and verifies the landed tree against the
+  pinned head. As a manual fallback, update an
   out-of-date PR with `gh pr update-branch`, wait for `ci` and
   `provider-go-live` on the new head, re-check the PR state and head by hand,
   and merge with `gh pr merge --match-head-commit <head>` pinned to the head

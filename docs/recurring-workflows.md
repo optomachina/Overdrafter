@@ -176,7 +176,11 @@ the applicable fallback, Option B (`strict: true` up to date checks), which
 Blaine approved on 2026-10-16 together with `enforce_admins`. Both are now in
 force (confirmed by a protection read-back on 2026-10-16), so an out-of-date PR
 cannot merge until it is brought current. The read-only command in the
-runbook's Status paragraph re-verifies the live settings. The `land` skill does
-not handle strict mode yet (tracked in OVD-889); until it does, bring an
+runbook's Status paragraph re-verifies the live settings. The `land` skill
+handles strict mode through `.codex/skills/land/land_strict_merge.sh`
+(OVD-889). An update that changes the reviewable diff stops without merging
+(exit 11). Do not re-run land at the new head until a passing review and QA
+verdict exist at that head. An unchanged diff is re-checked and merged in
+that run. As a manual fallback, bring an
 out-of-date PR current with `gh pr update-branch` and re-check it by hand
 before `gh pr merge --match-head-commit`.
