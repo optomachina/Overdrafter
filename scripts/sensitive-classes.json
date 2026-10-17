@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "description": "Single source of truth for sensitive PR classes and auto-merge safe categories. Encodes the AGENTS.md 'Sensitive paths (single shared list)' table and the 'Approval timing and low-risk auto-merge' categories. Read by scripts/sensitive-class-detect.mjs (OVD-844), the auto-merge eligibility check (OVD-845) and the Jev screen. Keep in sync with AGENTS.md; scripts/sensitive-class-detect.test.mjs fails on drift.",
+  "description": "OVD-844 detector config: the SQL content rules (rls, definer) and the AGENTS.md 'Approval timing and low-risk auto-merge' safe categories. Sensitive path classes are not here: they come only from docs/sensitive-paths.json through scripts/lib/sensitive-paths.mjs (OVD-873), and this file never copies those globs. A path with any sensitive class is never in a safe category. Read by scripts/sensitive-class-detect.mjs; the auto-merge eligibility check (OVD-845) reads the detector's JSON result, not this file.",
   "syntax": {
-    "paths": "Globs over the repo-relative path, case-insensitive. '**' matches zero or more whole segments, '*' and '?' stay within one segment, '{a,b}' is alternation.",
+    "paths": "Globs over the repo-relative path, compiled by the shared matcher (scripts/lib/sensitive-paths.mjs compileGlob): picomatch semantics with dot and nocase, supported syntax *, **, ? and {a,b}.",
     "path_keywords": "Path words, case-insensitive. A path splits into words on non-alphanumerics and camelCase boundaries; a keyword matches a word it prefixes ('auth' matches 'authProvider', 'auth-callback'). A hyphenated keyword matches consecutive words ('provider-admission' matches 'providerAdmission').",
     "exclude": "Globs; a path matching one is not in this entry.",
     "exclude_keywords": "Path keywords; a path matching one is not in this entry. Exclusions fail closed, so here a keyword also matches inside a word ('auth' matches 'Unauthorized', 'Reauthenticate').",
-    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too; false positives are accepted to fail closed. Every changed file except a removal is read at the head. The SQL is read as data and never executed."
+    "sql_content": "Token sequences matched in SQL after comments and quoted identifiers are removed. Every string literal and dollar-quoted body is also tokenized as SQL (DO blocks, function bodies, EXECUTE strings), so a literal that mentions a token sequence matches too; false positives are accepted to fail closed. Every changed file matching sql_content.paths, except a removal, is read at the head. The SQL is read as data and never executed. Rule classes must be the detector's SQL content classes (rls, definer)."
   },
   "sql_content": {
     "paths": ["**/*.{sql,pgsql,psql}"],
@@ -17,139 +17,6 @@
       { "class": "rls", "tokens": ["row", "level", "security"] },
       { "class": "definer", "tokens": ["security", "definer"] }
     ]
-  },
-  "classes": {
-    "migration": {
-      "description": "Database schema and migrations, including migration drafts and release SQL.",
-      "areas": ["Database schema and migrations"],
-      "signals": ["supabase/migrations/"],
-      "paths": ["supabase/migrations/**", "docs/migration-drafts/**", "docs/release/**/*.sql"]
-    },
-    "rls": {
-      "description": "Row level security: rls paths and CREATE/ALTER/DROP POLICY or ROW LEVEL SECURITY in SQL.",
-      "areas": ["Database schema and migrations", "Auth, permissions, sessions"],
-      "signals": ["rls"],
-      "path_keywords": ["rls"]
-    },
-    "definer": {
-      "description": "SECURITY DEFINER in SQL.",
-      "areas": [],
-      "signals": [],
-      "paths": []
-    },
-    "auth": {
-      "description": "Auth, permissions and sessions.",
-      "areas": ["Auth, permissions, sessions"],
-      "signals": ["auth", "permission(s)", "session"],
-      "path_keywords": ["auth", "oauth", "permission", "session"]
-    },
-    "billing": {
-      "description": "Payments, pricing and billing.",
-      "areas": ["Payments, pricing, billing"],
-      "signals": ["payment", "billing", "stripe", "pricing", "invoice", "checkout"],
-      "path_keywords": ["payment", "billing", "stripe", "pricing", "invoice", "checkout"]
-    },
-    "provider": {
-      "description": "Provider dispatch.",
-      "areas": ["Provider dispatch"],
-      "signals": ["dispatch", "worker/src/adapters/", "provider-admission", "provider-upload"],
-      "paths": ["worker/src/adapters/**"],
-      "path_keywords": ["dispatch", "provider-admission", "provider-upload"]
-    },
-    "secrets": {
-      "description": "Secrets and environment.",
-      "areas": ["Secrets and env"],
-      "signals": ["secret", "credential", "*.pem", "*.key", "keys/", "token(s).{json,yaml,ts,js}", "vault", ".env*", "env.{ts,js,json}", ".envrc"],
-      "paths": ["**/*.pem", "**/*.key", "**/keys/**", "**/token{,s}.{json,yaml,yml,ts,js}", "**/.env*", "**/.env*/**", "**/env.{ts,js,json}", "**/.envrc"],
-      "path_keywords": ["secret", "credential", "vault"]
-    },
-    "ci": {
-      "description": "CI workflows and actions, this detector and its config, and the scripts/** files CI runs: every scripts path referenced from .github/** plus the scripts those import or call. Scripts reached only through npm run are not listed (package.json is deps). scripts/sensitive-class-detect.test.mjs fails when a referenced script is missing.",
-      "areas": ["Infra, CI, deploy"],
-      "signals": [".github/workflows/", ".github/actions/"],
-      "paths": [
-        ".github/workflows/**",
-        ".github/actions/**",
-        "scripts/sensitive-class*",
-        "scripts/proof-check*",
-        "scripts/preflight.sh",
-        "scripts/symphony-preflight.sh",
-        "scripts/validate-pr-body*",
-        "scripts/check-sourcing-worker-scope.mjs",
-        "scripts/provider-enablement-detect.mjs",
-        "scripts/run-supabase-policy-tests*",
-        "scripts/migration-timestamp.mjs",
-        "scripts/free-quote-*",
-        "scripts/fixtures/free-quote-*",
-        "scripts/qualification/free-quote-*",
-        "scripts/generate-free-quote-fixtures*",
-        "scripts/native/**",
-        "scripts/native-{companion-inert-ci,first-loop-vitest,result-reader,storage-qualification}*",
-        "scripts/{verify-,}ovd420-*",
-        "scripts/ovd{462,510,518,520,561,570,576,577,591}-*",
-        "scripts/quote-selection-expiry-rehearsal.mjs",
-        "scripts/selection-publication-rehearsal.mjs",
-        "scripts/window-1/ovd602-*",
-        "scripts/lint-security-definer.mjs",
-        "scripts/security-definer-baseline.json",
-        "scripts/ephemeral-db-apply.mjs",
-        "scripts/supabase-target-guard.mjs",
-        "scripts/check-rls-deny-coverage.mjs",
-        "scripts/rls-deny-baseline.json"
-      ]
-    },
-    "infra": {
-      "description": "Infrastructure and deploy.",
-      "areas": ["Infra, CI, deploy"],
-      "signals": ["infra/", "terraform/", "deploy/", "k8s/", "helm/", "ops/", "*.tf", "Dockerfile", "docker-compose", "vercel.json", "netlify.toml", "fly.toml", "scripts/deploy*", "scripts/release*"],
-      "paths": [
-        "**/infra/**",
-        "**/terraform/**",
-        "**/deploy/**",
-        "**/k8s/**",
-        "**/helm/**",
-        "**/ops/**",
-        "**/*.tf",
-        "**/*.tfvars",
-        "**/Dockerfile",
-        "**/Dockerfile.*",
-        "**/*.Dockerfile",
-        "**/docker-compose*",
-        "**/vercel.json",
-        "**/netlify.toml",
-        "**/fly.toml",
-        "scripts/deploy*",
-        "scripts/deploy*/**",
-        "scripts/release*",
-        "scripts/release*/**"
-      ]
-    },
-    "deps": {
-      "description": "Dependencies and lockfiles.",
-      "areas": ["New dependencies"],
-      "signals": ["package.json", "lockfiles", "requirements*.txt", "pyproject.toml", "uv.lock", "Cargo.toml", "go.mod"],
-      "paths": [
-        "**/package.json",
-        "**/package-lock.json",
-        "**/npm-shrinkwrap.json",
-        "**/yarn.lock",
-        "**/pnpm-lock.yaml",
-        "**/bun.lock",
-        "**/bun.lockb",
-        "**/requirements*.txt",
-        "**/pyproject.toml",
-        "**/poetry.lock",
-        "**/uv.lock",
-        "**/Pipfile",
-        "**/Pipfile.lock",
-        "**/Cargo.toml",
-        "**/Cargo.lock",
-        "**/go.mod",
-        "**/go.sum",
-        "**/Gemfile",
-        "**/Gemfile.lock"
-      ]
-    }
   },
   "safe_categories": {
     "docs": {
