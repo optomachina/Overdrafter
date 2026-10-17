@@ -1,0 +1,496 @@
+[
+  {
+    "file": "empty-430.png",
+    "state": "empty",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "direct-430.png",
+    "state": "direct",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "parallel-430.png",
+    "state": "parallel",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "decide-430.png",
+    "state": "decide",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "evidence-430.png",
+    "state": "evidence",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "result-430.png",
+    "state": "result",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "commit-430.png",
+    "state": "commit",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "committed-430.png",
+    "state": "committed",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "more-430.png",
+    "state": "more",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "paused-430.png",
+    "state": "paused",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "failed-430.png",
+    "state": "failed",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "checkfail-430.png",
+    "state": "checkfail",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "offline-430.png",
+    "state": "offline",
+    "width": 430,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/empty-375.png",
+    "state": "empty",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/direct-375.png",
+    "state": "direct",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/parallel-375.png",
+    "state": "parallel",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/decide-375.png",
+    "state": "decide",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/evidence-375.png",
+    "state": "evidence",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/result-375.png",
+    "state": "result",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/commit-375.png",
+    "state": "commit",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/committed-375.png",
+    "state": "committed",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/more-375.png",
+    "state": "more",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/paused-375.png",
+    "state": "paused",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/failed-375.png",
+    "state": "failed",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/checkfail-375.png",
+    "state": "checkfail",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 1,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  },
+  {
+    "file": "375/offline-375.png",
+    "state": "offline",
+    "width": 375,
+    "ok": true,
+    "contrast": {
+      "onBg": 3.6,
+      "onSurface": 3.3
+    },
+    "clipped": [],
+    "overflowX": 0,
+    "dashes": [],
+    "small": [],
+    "smallTargets": [],
+    "accentElements": 0,
+    "sample": true,
+    "rendered": true,
+    "pageErrors": []
+  }
+]

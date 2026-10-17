@@ -1,0 +1,49 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-771: service_role path for the provider kill switch (the CLI brake).
+--
+-- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
+-- to any database outside a Blaine-approved migration window. When approved,
+-- it ships as ONE migration (next timestamp from `npm run migration:new`), and
+-- supabase/tests/pending/ovd771_service_kill_switch.sql.pending is renamed to
+-- supabase/tests/ovd771_service_kill_switch.sql in the same change.
+-- Rollback: docs/migration-drafts/ovd-771.rollback.sql.
+--
+-- Requires: 20261013043100_ovd722_provider_kill_switch.sql (applied).
+--
+-- Transaction: no begin/commit of its own. The migration runner wraps it in
+-- one transaction. By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Why: the admin UI now requires an AAL2 (MFA) session before it flips a
+-- switch. The emergency CLI (scripts/provider-kill.mjs) must keep working when
+-- no admin can complete MFA, so it moves off the admin user session onto the
+-- service role. The admin RPCs are unchanged; these are new, service_role-only
+-- RPCs that take the same locks, apply the same compare and set rule, and write
+-- the same audit table. A service_role call has no auth.uid(), so the audit
+-- row records actor 'cli:service_role' (fixed by the function; the caller
+-- cannot choose it) and the required free-text operator name.
+--
+-- Expand only. Changes to existing objects:
+--   * private.provider_kill_switch_audit.actor changes from uuid to text
+--     (USING actor::text: every existing row keeps its user id, as text) and
+--     stays NOT NULL. A new nullable `operator` column is added. A check
+--     constraint allows exactly two shapes: a user id with no operator (admin
+--     RPC rows) or 'cli:service_role' with a 2-120 character operator.
+--     The column type change rewrites the table; a rewrite fires no row
+--     triggers, so the append-only triggers are untouched.
+--   * No existing function body changes: every OVD-722 prosrc pin holds. The
+--     admin RPCs insert a uuid into the text column through the standard
+--     assignment cast, and comparisons with a quoted uuid literal (as in
+--     supabase/tests/ovd722_provider_kill_switch.sql) still match.
+--
+-- Interaction with the OVD-722 rollback: its dependency guard refuses while
+-- any other function references the switch tables, so these functions must be
+-- rolled back (this draft's rollback) before OVD-722 can be.
+
+-- =====================================================================
+-- Audit shape
+-- =====================================================================
+-- [header-only snapshot of docs/migration-drafts/ovd-771.sql at d2b7981b (#792); body omitted]
+select 1;

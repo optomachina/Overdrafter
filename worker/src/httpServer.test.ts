@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createWorkerRuntimeState, recordRuntimeEvent, startHealthServer } from "./httpServer";
+import { createWorkerRuntimeState, recordRuntimeEvent, startHealthServer, supabaseProjectRef } from "./httpServer";
 import type { WorkerConfig } from "./types";
 
 const workerConfig: WorkerConfig = {
@@ -52,7 +52,28 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
 
+describe("supabaseProjectRef", () => {
+  it("derives only the hosted project ref from the Supabase URL", () => {
+    expect(supabaseProjectRef("https://ldmambwtksfvqdufhaam.supabase.co")).toBe("ldmambwtksfvqdufhaam");
+    expect(supabaseProjectRef("https://example.supabase.co")).toBeNull();
+    expect(supabaseProjectRef("not a url")).toBeNull();
+  });
+});
+
 describe("startHealthServer", () => {
+  it("reports the staging Supabase project ref on /health", async () => {
+    const server = await startHealthServer(
+      { ...workerConfig, supabaseUrl: "https://ldmambwtksfvqdufhaam.supabase.co" },
+      createWorkerRuntimeState(),
+    );
+    servers.push(server);
+
+    const payload = await (await fetch(`${server.url}/health`)).json();
+
+    expect(payload.supabaseProjectRef).toBe("ldmambwtksfvqdufhaam");
+    expect(JSON.stringify(payload)).not.toContain(workerConfig.supabaseServiceRoleKey);
+  });
+
   it("sanitizes raw reaper-style errors before exposing health events", async () => {
     const runtimeState = createWorkerRuntimeState();
     const rawError = {

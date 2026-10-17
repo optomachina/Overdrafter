@@ -1,0 +1,31 @@
+-- OVD-766 group d (OVD-770): quote selection RPCs require a verified caller who
+-- can edit the job.
+--
+-- Targets the DRAFT docs/migration-drafts/ovd-766-d.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd766_d_guards.sql in the same change.
+-- Pre-apply observation: the two proconfig assertions fail (search_path is
+-- pg_catalog today), and the unverified and signed-out api_select_quote_option
+-- cases fail because the current body has no require_verified_auth.
+--
+-- Coverage, per function:
+--   * catalog: prosecdef, proconfig search_path="", EXECUTE for authenticated
+--     only (no PUBLIC, no anon)
+--   * anon is denied (permission denied, 42501)
+--   * a signed-out authenticated request is denied
+--   * a verified user outside the job's org and projects is denied
+--   * an unverified org member is denied
+--   * read-only member: TODO, not constructible today. public.project_role is
+--     ('owner', 'editor') and user_can_edit_job grants every org member via
+--     user_can_access_org, so every caller user_can_access_job admits is also an
+--     editor. Two premise assertions pin this, so a viewer role or a narrower
+--     user_can_edit_job makes this file fail until real denial cases replace them.
+--   * an org-member editor is allowed and the write lands
+--   * AAL1 admin: not applicable; neither function requires AAL2.
+-- Every denial is followed by a full-row snapshot comparison (job, client
+-- selections, audit events) taken as postgres, so RLS cannot hide a write.
+-- Synthetic local records only.
+-- [header-only snapshot of supabase/tests/pending/ovd766_d_guards.sql.pending at d2b7981b (#792); body omitted]
+select 1;

@@ -6,6 +6,12 @@ to execute it. Every production window requires a separately reviewed, exact,
 single-use authorization JSON whose SHA-256 is supplied out of band. Local
 tests and qualification never contact a hosted target.
 
+New migration releases follow the staging-first flow in
+[docs/runbooks/staging.md](../runbooks/staging.md): apply to the staging project
+`ldmambwtksfvqdufhaam` and pass staging smoke reads, recorded with that
+runbook's evidence template, before any production window. Staging evidence
+does not replace the production authorization or Blaine's approval card.
+
 ## Frozen release package
 
 - Repository: `optomachina/Overdrafter`

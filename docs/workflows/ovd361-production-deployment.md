@@ -11,6 +11,12 @@ from migration head `20260813005020` to the OVD-361/362-qualified head
 Do not substitute `npm run db:push`. The production-first migration set contains
 files older than the hosted head and requires `--include-all`.
 
+This historical procedure predates the staging project. Any migration applied
+to production now first follows the staging-first flow in
+[docs/runbooks/staging.md](../runbooks/staging.md) (staging apply, rollback
+drill, and smoke reads on `ldmambwtksfvqdufhaam`), and still needs Blaine's
+approval card.
+
 This procedure authorizes no customer upload, provider dispatch, enrollment,
 billing activation, or commercial administration. All commercial rollout
 controls stay off throughout the window.
