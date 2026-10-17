@@ -46,6 +46,10 @@ export type ProviderTaskRouteInput = {
   lease?: ProviderTaskLeasePort;
   consumer?: ProviderAuthorizationConsumer;
   onAdapterStart?: () => void;
+  /** OVD-813: the fixture sanity gate, supplier pause, and whether this is a verified internal test quote. */
+  sanity?: ProviderTaskPipelineDeps["sanity"];
+  pause?: ProviderTaskPipelineDeps["pause"];
+  internalTestQuote?: boolean;
 };
 
 export async function readProviderTaskLane(
@@ -94,6 +98,7 @@ export function runGenericProviderTask(input: ProviderTaskRouteInput): Promise<P
       adapterRevision: input.adapterRevision,
       leaseSetting: input.leaseSetting,
       quoteInput: input.quoteInput,
+      internalTestQuote: input.internalTestQuote === true,
     },
     {
       readLane: () => readProviderTaskLane(input.supabase, input.claim.vendorQuoteResultId),
@@ -112,6 +117,8 @@ export function runGenericProviderTask(input: ProviderTaskRouteInput): Promise<P
       daySwitch: input.daySwitch,
       consumer: input.consumer,
       onAdapterStart: input.onAdapterStart,
+      sanity: input.sanity,
+      pause: input.pause,
     },
   );
 }

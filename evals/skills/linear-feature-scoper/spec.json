@@ -1,0 +1,71 @@
+{
+  "skill": "linear-feature-scoper",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "raw-issue",
+      "task": "Raw issue: 'Make quotes better and faster, also add export'. Scope it.",
+      "expectedBehaviors": [
+        "Flags ambiguity explicitly instead of guessing",
+        "States the issue should be split into follow-ups",
+        "Produces acceptance criteria as verifiable checks and a test plan",
+        "Writes no code"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Flags ambiguity explicitly instead of guessing",
+          "points": 3
+        },
+        {
+          "id": "b2",
+          "criterion": "States the issue should be split into follow-ups",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Produces acceptance criteria as verifiable checks and a test plan",
+          "points": 2
+        },
+        {
+          "id": "b4",
+          "criterion": "Writes no code",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "clear-issue",
+      "task": "Issue: 'Add a Retry button to a failed quote row; calls the existing requeue endpoint.' Scope it.",
+      "expectedBehaviors": [
+        "Normalized problem statement and verifiable acceptance criteria",
+        "Likely files and dependency/risk notes",
+        "Smallest viable plan plus automated and manual test plan",
+        "PR outline with verification evidence expectations; no code written"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Normalized problem statement and verifiable acceptance criteria",
+          "points": 2
+        },
+        {
+          "id": "b2",
+          "criterion": "Likely files and dependency/risk notes",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Smallest viable plan plus automated and manual test plan",
+          "points": 3
+        },
+        {
+          "id": "b4",
+          "criterion": "PR outline with verification evidence expectations; no code written",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}

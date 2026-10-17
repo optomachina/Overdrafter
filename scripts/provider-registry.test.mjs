@@ -699,4 +699,23 @@ describe("API providers and adopted adapters", () => {
       adoptedAdapter: { module: adopted.module, defaultDenyTest: "worker/src/adapters/fictiv.ts" },
     }))).toThrow("defaultDenyTest is invalid");
   });
+
+  // OVD-773: off-host hosts a portal genuinely needs; exact hostnames only.
+  it("accepts an exact, sorted off-host allowlist without changing liveAdapter or egress", () => {
+    const entry = { key: "oshcut", liveAdapter: false, sessionSecrets: [], egress: "none" };
+    expect(validateProviderRegistryEntry(entry)).not.toHaveProperty("offHostAllowlist");
+    expect(validateProviderRegistryEntry({ ...entry, offHostAllowlist: [] }).offHostAllowlist).toEqual([]);
+    expect(validateProviderRegistryEntry({
+      ...entry,
+      offHostAllowlist: ["cdn.jsdelivr.net", "unpkg.com"],
+    })).toEqual({ ...entry, offHostAllowlist: ["cdn.jsdelivr.net", "unpkg.com"] });
+    for (const host of ["*.jsdelivr.net", "CDN.jsdelivr.net", "cdn.jsdelivr.net:443", "https://unpkg.com", "unpkg.com/x", "localhost", ""]) {
+      expect(() => validateProviderRegistryEntry({ ...entry, offHostAllowlist: [host] })).toThrow("offHostAllowlist[0] is invalid");
+    }
+    expect(() => validateProviderRegistryEntry({ ...entry, offHostAllowlist: "unpkg.com" })).toThrow("must be an array");
+    expect(() => validateProviderRegistryEntry({ ...entry, offHostAllowlist: ["unpkg.com", "unpkg.com"] }))
+      .toThrow("contains duplicate hosts");
+    expect(() => validateProviderRegistryEntry({ ...entry, offHostAllowlist: ["unpkg.com", "cdn.jsdelivr.net"] }))
+      .toThrow("must be sorted");
+  });
 });

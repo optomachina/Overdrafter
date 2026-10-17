@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { VendorName } from "@/integrations/supabase/types";
 import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 import {
-  PROVIDER_DAILY_QUOTE_CAP,
   PROVIDER_PROCESS_CAPABILITIES,
   classifyFanoutProcess,
   describeFanoutSkipReason,
@@ -153,8 +152,7 @@ describe("planProviderFanout guards", () => {
     ]);
   });
 
-  it("skips a provider the guards report at the daily cap of about 20 quotes", () => {
-    expect(PROVIDER_DAILY_QUOTE_CAP).toBe(20);
+  it("skips a provider the guards report at its admin-set daily cap", () => {
     const plan = planProviderFanout({
       primary: "xometry",
       candidates: CANDIDATES,

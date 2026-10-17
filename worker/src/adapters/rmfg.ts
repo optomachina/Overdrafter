@@ -10,7 +10,7 @@ import {
 import { VendorAdapter } from "./base.js";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization.js";
 import { RMFG_DISPATCH_ENVELOPE } from "./rmfgDispatchAuthorization.js";
-import { createRmfgHttpTransport, RMFG_DAILY_QUOTE_CAP, type RmfgBlockReason } from "./rmfgHttpTransport.js";
+import { createRmfgHttpTransport, type RmfgBlockReason } from "./rmfgHttpTransport.js";
 import {
   runRmfgQuoteOnly,
   type RmfgQuoteInput,
@@ -155,16 +155,13 @@ function checkpointFor(request: RmfgQuoteRequest): "before_navigation" | "before
   return "before_navigation";
 }
 
-type StopOutcome = StopClassification | "daily_cap" | null;
+type StopOutcome = StopClassification | null;
 
-function classifyStop(status: number, body: unknown, blockedBefore: RmfgBlockReason | null,
-  blockedAfter: RmfgBlockReason | null): StopOutcome {
+function classifyStop(status: number, body: unknown, blockedBefore: RmfgBlockReason | null): StopOutcome {
   // A latched client answers without a request; report the original block, not a challenge.
   if (blockedBefore === "authorization_required") return { code: "login_required", reason: "rmfg_authorization_required" };
   if (blockedBefore === "rate_limited") return { code: "anti_detection_block", reason: "rmfg_rate_limited" };
   if (status === 401) return { code: "login_required", reason: "rmfg_authorization_required" };
-  // The client's own cap answers 429 without a request and without latching a block.
-  if (status === 429 && blockedAfter === null) return "daily_cap";
   if (status === 429) return { code: "anti_detection_block", reason: "rmfg_rate_limited" };
   // RMFG answers JSON; an HTML or empty answer is a challenge or interstitial page.
   if (status !== 0 && status !== 204 && body === null) return { code: "captcha", reason: "rmfg_challenge_response" };
@@ -200,7 +197,7 @@ export class RmfgAdapter extends VendorAdapter {
     super("rmfg", config);
     this.env = options.env ?? process.env;
     this.createTransport = options.createTransport
-      ?? ((apiKey) => createRmfgHttpTransport({ apiKey, dailyQuoteCap: RMFG_DAILY_QUOTE_CAP }));
+      ?? ((apiKey) => createRmfgHttpTransport({ apiKey }));
   }
 
   async quote(baseInput: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
@@ -256,8 +253,8 @@ export class RmfgAdapter extends VendorAdapter {
       }
       const blockedBefore = transport.blockedReason?.() ?? null;
       const response = await transport(request);
-      stop = classifyStop(response.status, response.body, blockedBefore, transport.blockedReason?.() ?? null);
-      if (stop && stop !== "daily_cap" && stop.code === "captcha") processChallengeLatch = stop;
+      stop = classifyStop(response.status, response.body, blockedBefore);
+      if (stop?.code === "captcha") processChallengeLatch = stop;
       return stop ? { status: 0, body: null } : response;
     };
 
@@ -274,10 +271,6 @@ export class RmfgAdapter extends VendorAdapter {
     const capturedSeam = seamError as { error: unknown } | null;
     if (capturedSeam) throw capturedSeam.error;
     const capturedStop = stop as StopOutcome;
-    if (capturedStop === "daily_cap") {
-      throw refusal("provider_daily_cap_reached",
-        `RMFG reached its daily cap of ${RMFG_DAILY_QUOTE_CAP} quotes; nothing was sent.`);
-    }
     if (capturedStop) throw stopError(capturedStop, { providerInteractionAttempted: true });
     return this.fromResult(input, result);
   }

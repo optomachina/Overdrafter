@@ -56,12 +56,14 @@ describe("Xometry upload capability checkpoint (OVD-414)", () => {
     expect(decision.allowedExtensions).toEqual(["step", "stp"]);
   });
 
-  it("denies when the observed accept list differs from the admission list", async () => {
+  it("reports format drift while keeping the admitted ∩ live extensions (OVD-863)", async () => {
     const decision = await createXometryUploadCapabilityCheckpoint(async () => admissionPayload())({
       ...observed,
       extensions: ["step", "stp", "exe"],
     });
     expect(decision.classification).toBe("format_added");
+    expect(decision.allowedExtensions).toEqual(["step", "stp"]);
+    expect(decision.reportedAddedExtensions).toEqual(["exe"]);
   });
 
   it("denies a disabled or expired admission with a classification only", async () => {

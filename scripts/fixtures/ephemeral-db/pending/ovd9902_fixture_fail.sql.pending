@@ -1,0 +1,6 @@
+-- OVD-849 fixture: pgTAP for the draft ovd-9902-fixture-fail.sql, which never applies.
+begin;
+select plan(1);
+select pass('unreachable');
+select * from finish();
+rollback;

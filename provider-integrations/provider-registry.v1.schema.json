@@ -66,6 +66,15 @@
           "type": "string",
           "minLength": 20,
           "description": "Required when liveAdapter is true and no session secret has requiredWhenListed true. Explains why the adapter can be listed without a generated required-secret check."
+        },
+        "offHostAllowlist": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+          },
+          "description": "Exact lowercase hostnames (no wildcards, ports, or paths), sorted, that the provider portal genuinely needs off its own hosts, for example a JS CDN. The portal kernel continues subresource requests to them instead of quietly blocking them; navigations and payload-bearing requests to them remain boundary violations. Absent by default. Never changes liveAdapter or egress."
         }
       }
     },

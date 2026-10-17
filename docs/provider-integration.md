@@ -66,6 +66,16 @@ A `ProviderPortalDefinition` contributes reviewed routes, allowed hosts, selecto
 
 The generic portal workflow is reconnaissance/evaluation infrastructure. It may prove uploadability or a finite manual-review outcome. It may not publish a whole-page or otherwise unanchored number as an offer.
 
+#### Off-host requests (OVD-773)
+
+Real provider pages always load telemetry, so the kernel classifies every request outside the definition's allowed hosts instead of failing on the first one:
+
+- **Hard violation** (`unexpected_origin`, request aborted): a top-level main-frame navigation off the provider host; any request carrying an `Authorization`, `Proxy-Authorization`, or `Cookie` header; and any request with a non-empty body, unless the body is a browser-generated report (`application/csp-report` or `application/reports+json`, at most 64 KiB). Multipart uploads, form posts, JSON, and `text/plain` beacons all count as our payload. A request the kernel cannot classify fails closed as a violation.
+- **Quietly blocked** (everything else: CSP reports, analytics and RUM GETs, fonts, CDN scripts, images): aborted with `blockedbyclient`, so nothing leaves the browser, and recorded as a `boundary.blocked_offhost` event with host and resource type only (never a URL or query string). The kernel result, error payloads, scrubbed evidence, and the adapter `rawPayload` carry `portalBoundary.blockedOffhostCount` and a per-host count.
+- WebSocket, popup/unexpected page, and main-frame navigation rules are unchanged.
+
+A provider whose portal genuinely needs an off-host host (for example a JS CDN) lists it in the registry entry's optional `offHostAllowlist`: exact lowercase hostnames, sorted, no wildcards. Subresource requests to an allowlisted host are continued; navigations and payload-bearing requests to it are still violations. A definition may set `offHostAllowlist` directly; otherwise the registry's value applies. Every provider starts with no allowlist, and an allowlist entry never changes `liveAdapter` or `egress`.
+
 ### Evaluation evidence
 
 Standalone evaluation remains operator-invoked and local. Evidence may include provider key, manifest/envelope/adapter revisions, exact file hashes, account mode, timestamps, terminal state, normalized offers with non-sensitive stable offer/option identifiers, and scrubbed artifact references. It must not contain CAD/drawing bytes, cookies, tokens, credentials, provider-account or customer identifiers, raw unsanitized screenshots/HTML, or persisted customer offers.

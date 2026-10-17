@@ -1,0 +1,91 @@
+name: QA handoff
+
+# OVD-865. When a required-check workflow finishes on a PR, hand the PR to QA
+# once per head sha: every required check on the PR's current head passed, the
+# PR is open, not a draft, and targets main. The gate is
+# scripts/qa-handoff/gate.mjs; scripts/qa-handoff/run.mjs does the IO and is
+# the same entry point the hourly Mac mini backstop runs (see
+# scripts/qa-handoff/README.md).
+#
+# Trusted code only: workflow_run runs with the default branch's copy of this
+# file, and the job checks out the default branch, never the PR head, to load
+# the gate. The payload's head_sha and PR number are lookup keys only; the
+# script re-reads the PR, checks, statuses and comments through the API.
+#
+# QA_HANDOFF_MODE=report (the default) only logs what it would hand off to the
+# job summary and writes nothing to the PR. Switch it to apply to add the
+# qa:ready label and post the hidden marker comment
+# `<!-- qa-handoff sha=<head_sha> -->`, the per-sha idempotency record.
+#
+# Marker authors: github-actions[bot] plus the repo variable
+# QA_HANDOFF_TRUSTED_MARKER_AUTHORS (comma separated logins). Set that variable
+# to the Mac mini backstop's `gh api user` login so the workflow honors the
+# backstop's markers; the backstop trusts github-actions[bot] the same way.
+#
+# The triggering workflows own the required checks on main: `ci` (CI) and
+# `provider-go-live` (PR body gate). Keep this list in step with branch
+# protection and with DEFAULT_REQUIRED_CHECKS in gate.mjs.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - PR body gate
+    types:
+      - completed
+
+# One handoff at a time per PR, and never cancel one in flight: the queued run
+# re-reads state and finds the marker the first run wrote.
+concurrency:
+  group: qa-handoff-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  qa-handoff:
+    name: qa-handoff
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      QA_HANDOFF_MODE: report
+      # Used only when branch protection is unreadable with GITHUB_TOKEN.
+      REQUIRED_CHECKS: ci,provider-go-live
+
+    steps:
+      - name: Checkout default branch
+        # Safe (S7631): checks out trusted default-branch scripts only, never the PR head; no persisted creds; sparse to scripts/qa-handoff.
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts/qa-handoff
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Hand off to QA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          # Must list the backstop's gh login; see the header comment.
+          QA_HANDOFF_TRUSTED_MARKER_AUTHORS: ${{ vars.QA_HANDOFF_TRUSTED_MARKER_AUTHORS }}
+        run: |
+          set -uo pipefail
+          if [ ! -f scripts/qa-handoff/run.mjs ]; then
+            printf '### QA handoff: SKIPPED\n\nThe default branch has no scripts/qa-handoff/run.mjs yet.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          args=(--repo "$REPOSITORY" --mode "$QA_HANDOFF_MODE" --sha "$EVENT_SHA")
+          # Fork PRs carry no PR number; run.mjs then finds the open PR by sha.
+          if [ -n "$EVENT_PR" ]; then
+            args+=(--pr "$EVENT_PR")
+          fi
+          node scripts/qa-handoff/run.mjs "${args[@]}"

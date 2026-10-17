@@ -347,7 +347,24 @@ export type VendorQuoteAdapterInput = {
    * lost. Adapters stop at their next checkpoint by throwing ProviderAbortedError.
    */
   signal?: AbortSignal;
+  /**
+   * OVD-779: operator-local capture hook injected only by the live-evaluation
+   * harness when LIVE_HARNESS_SCREENSHOTS=1. Production never sets it, and
+   * adapters honor it only on the live-evaluation path; adapters have no
+   * screenshot code of their own (OVD-611).
+   */
+  harnessPriceCaptureHook?: HarnessPriceCaptureHook;
 };
+
+/** OVD-779: the only page surface a harness capture hook receives. */
+export type HarnessPriceCapturePage = {
+  screenshot(options: { path: string; fullPage?: boolean; type?: "png" }): Promise<unknown>;
+};
+
+export type HarnessPriceCaptureHook = (capture: {
+  page: HarnessPriceCapturePage;
+  label: "price-capture";
+}) => Promise<VendorArtifact[]>;
 
 export type StagedFile = {
   originalName: string;
@@ -534,6 +551,13 @@ export type WorkerConfig = {
   providerSessionLease?: "off" | "on";
   /** OVD-381: HMAC key for opaque lease identities; required when the lease is on. Never logged. */
   providerSessionNamespaceKey?: Uint8Array | null;
+  /**
+   * OVD-829: "on" reserves every live dispatch through the durable counter
+   * (api_worker_reserve_provider_dispatch). Default off until the ovd-828-s1
+   * migration is applied; off keeps the kill switch and counts the cap in
+   * process (see ProviderDispatchCapMode).
+   */
+  providerDurableDispatchCap?: "off" | "on";
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
   drawingExtractionDebugAllowedModels: string[];

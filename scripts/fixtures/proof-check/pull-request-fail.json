@@ -1,0 +1,12 @@
+{
+  "action": "opened",
+  "number": 4243,
+  "pull_request": {
+    "number": 4243,
+    "draft": false,
+    "body": "## Summary\n\nFixture PR.\n\n## Proof\n\n<!-- proof: replace me -->\n\n## Tests\n\nNone.\n",
+    "base": { "sha": "0000000000000000000000000000000000000001", "ref": "main" },
+    "head": { "sha": "0000000000000000000000000000000000000003", "ref": "fixture" }
+  },
+  "repository": { "full_name": "optomachina/Overdrafter" }
+}

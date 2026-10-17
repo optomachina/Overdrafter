@@ -51,9 +51,11 @@ import {
   CANCELLED_PROVIDER_DISABLED,
   isProviderKillSwitchEngaged,
   PROVIDER_KILL_SWITCH_ENGAGED,
+  PROVIDER_DAILY_CAP_REACHED,
   PROVIDER_KILL_SWITCH_UNAVAILABLE,
+  ProviderDispatchRefusedError,
   ProviderKillSwitchError,
-} from "./providerKillSwitch.js";
+} from "./providerSettings.js";
 import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
 
 /**
@@ -68,7 +70,8 @@ import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
  *   3. verify the captured bytes against the authorized outbound files
  *   4. acquire the exact session lease (OVD-462), only when the setting is on
  *   5. invoke only the admitted adapter through the OVD-461 seam
- *   6. validate the complete normalized result (OVD-463)
+ *   6. validate the complete normalized result (OVD-463), then the fixture
+ *      sanity gate (OVD-813, `deps.sanity`), which may hold the result
  *   7. persist atomically (one `reconcile_vendor_quote_offers` call)
  *   8. release the lease
  *
@@ -88,6 +91,9 @@ import { isRetryableVendorTaskError, nextRetryAt } from "./vendorTaskRetry.js";
  * upload, configuration or save), ends as `cancelled_provider_disabled`: never
  * a provider failure, never manual follow up, never a requeue.
  */
+
+/** OVD-813: the lane stop for a supplier the fixture sanity gate paused. */
+export const PROVIDER_PAUSED_FIXTURE_HEAL = "provider_paused_fixture_heal";
 
 export const PROVIDER_SESSION_LEASE_SETTINGS = ["off", "on"] as const;
 export type ProviderSessionLeaseSetting = (typeof PROVIDER_SESSION_LEASE_SETTINGS)[number];
@@ -243,6 +249,15 @@ export function classifyProviderAdapterFailure(
       ? { failureClass: "manual_follow_up", code: PROVIDER_KILL_SWITCH_UNAVAILABLE }
       : { failureClass: "failed", code: PROVIDER_KILL_SWITCH_UNAVAILABLE };
   }
+  // OVD-829: the supplier settings gate refused before launch, so nothing was
+  // sent. A spent daily cap goes to manual quoting; an unreachable counter
+  // fails like an unreadable switch (it may be a spent cap).
+  if (error instanceof ProviderDispatchRefusedError) {
+    return {
+      failureClass: error.reasonCode === PROVIDER_DAILY_CAP_REACHED ? "manual_follow_up" : "failed",
+      code: error.reasonCode,
+    };
+  }
   // OVD-748: an abort is a stop decision, never a provider failure and never retried.
   if (error instanceof ProviderAbortedError) {
     return { failureClass: phase.started ? "manual_follow_up" : "failed", code: PROVIDER_ABORTED };
@@ -281,8 +296,11 @@ export type ProviderTaskOutcome = {
    * only when the adapter's mutation phase had started before the refusal.
    */
   killSwitch: { error: ProviderKillSwitchError; providerMutationPossible: boolean } | null;
-  /** Set only when persisted. */
-  persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number } | null;
+  /**
+   * Set only when persisted. `held` means the OVD-813 sanity gate withheld the
+   * prices and offers: the caller must not compute routing scores from it.
+   */
+  persisted: { status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number; held?: boolean } | null;
   /**
    * Failure evidence for the worker to keep and clean up: the adapter's own
    * error (for repair candidates) and the artifacts of a failed or refused
@@ -313,6 +331,18 @@ export type ProviderTaskPipelineInput = {
   adapterRevision: string;
   leaseSetting: ProviderSessionLeaseSetting;
   quoteInput: VendorQuoteAdapterInput;
+  /** OVD-813: a verified internal test quote (internal marker, internal org, golden part). */
+  internalTestQuote?: boolean;
+};
+
+/** OVD-813: what the fixture sanity gate needs about the lane; kept structural so the pipeline imports no heal code. */
+export type ProviderTaskSanityContext = {
+  provider: VendorName;
+  vendorQuoteResultId: string;
+  quoteRunId: string;
+  requestedQuantity: number;
+  packageId: string;
+  internalTestQuote: boolean;
 };
 
 export type ProviderTaskPipelineDeps = {
@@ -332,6 +362,16 @@ export type ProviderTaskPipelineDeps = {
   consumer?: ProviderAuthorizationConsumer;
   guards?: readonly ProviderExecutionGuard[];
   validate?: (candidate: ProviderResultCandidate, expectation: ProviderResultExpectation) => ProviderResultValidation;
+  /**
+   * OVD-813: the fixture sanity gate, run between validation and persist. A
+   * held result comes back as `manual_review_pending` without prices or offers.
+   */
+  sanity?: (
+    output: VendorQuoteAdapterOutput,
+    context: ProviderTaskSanityContext,
+  ) => Promise<{ output: VendorQuoteAdapterOutput; held: boolean }>;
+  /** OVD-813: the fixture-heal supplier pause; a paused supplier admits only internal test quotes. */
+  pause?: { admits(provider: VendorName, quote: { internalTestQuote: boolean }): boolean };
   now?: () => number;
   log?: ProviderExecutionLogger;
   /**
@@ -485,7 +525,13 @@ function isStop(value: unknown): value is Stop {
   return typeof value === "object" && value !== null && (value as Stop).stop === true;
 }
 
-type Persisted = { persisted: true; status: VendorQuoteAdapterOutput["status"]; offerCount: number; artifactCount: number };
+type Persisted = {
+  persisted: true;
+  status: VendorQuoteAdapterOutput["status"];
+  offerCount: number;
+  artifactCount: number;
+  held: boolean;
+};
 
 /** Mutable facts gathered while the pipeline runs; read when the outcome is built. */
 type RunState = {
@@ -772,7 +818,7 @@ function toOutcome(result: Stop | Persisted, state: RunState, attempts: number, 
       retryAt: null,
       rejection: null,
       killSwitch: null,
-      persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount },
+      persisted: { status: result.status, offerCount: result.offerCount, artifactCount: result.artifactCount, held: result.held },
     };
   }
   if (result.killSwitch) {
@@ -824,6 +870,32 @@ function persistableOutput(
     return stop("manual_follow_up", "expired_validity", "validate");
   }
   return toAdapterOutput(output, validated, validUntil);
+}
+
+/**
+ * OVD-813: runs the injected sanity gate. Without one the result passes
+ * unchanged; a gate that throws never lets the unchecked price through.
+ */
+async function sanityGate(
+  step: AdmittedStep,
+  output: VendorQuoteAdapterOutput,
+  packageId: string,
+): Promise<{ output: VendorQuoteAdapterOutput; held: boolean } | Stop> {
+  if (!step.deps.sanity) return { output, held: false };
+  try {
+    const gated = await step.deps.sanity(output, {
+      provider: step.input.claim.provider,
+      vendorQuoteResultId: step.input.claim.vendorQuoteResultId,
+      quoteRunId: step.input.task.quoteRunId,
+      requestedQuantity: step.input.requestedQuantity,
+      packageId,
+      internalTestQuote: step.input.internalTestQuote === true,
+    });
+    if (!gated?.output || typeof gated.held !== "boolean") return stop("manual_follow_up", "fixture_sanity_failed", "validate");
+    return gated;
+  } catch {
+    return stop("manual_follow_up", "fixture_sanity_failed", "validate");
+  }
 }
 
 /** Everything steps 5 to 7 need once authorization, bytes and session passed. */
@@ -887,6 +959,10 @@ async function executeValidateAndPersist(
           if (error instanceof ProviderKillSwitchError && error.checkpoint === "before_launch") {
             state.adapterStarted = false;
           }
+          // OVD-829: the settings gate runs only at before_launch.
+          if (error instanceof ProviderDispatchRefusedError) {
+            state.adapterStarted = false;
+          }
           if (error instanceof ProviderAbortedError && error.checkpoint === "before_launch") {
             state.adapterStarted = false;
           }
@@ -918,21 +994,26 @@ async function executeValidateAndPersist(
   if (refused) return refused;
   if (!validation.ok || !SHA256.test(packageId)) return stop("failed", "result_validation_failed", "validate");
 
+  const persistable = persistableOutput(output, validation.value, now());
+  if (isStop(persistable)) return persistable;
+  // 6 to 7. OVD-813 fixture sanity gate: a drifting price is held, not shown.
+  const gated = await sanityGate(step, persistable, packageId);
+  if (isStop(gated)) return gated;
+
   // 7. Persist atomically, only while the lease (if any) is still held.
   try {
     leaseContext?.assertHeld();
   } catch {
     return stop("failed", "lease_lost", "persist");
   }
-  const persistable = persistableOutput(output, validation.value, now());
-  if (isStop(persistable)) return persistable;
   try {
-    const persisted = await deps.persist(persistable);
+    const persisted = await deps.persist(gated.output);
     return {
       persisted: true,
-      status: persistable.status,
-      offerCount: validation.value.offers.length,
+      status: gated.output.status,
+      offerCount: gated.held ? 0 : validation.value.offers.length,
       artifactCount: persisted?.artifactCount ?? 0,
+      held: gated.held,
     };
   } catch {
     return stop("failed", "persistence_failure", "persist");
@@ -981,6 +1062,12 @@ async function runSteps(
   // 2. Current capability and service authorization.
   const authorization = await resolveAuthorization(deps, provider);
   if (isStop(authorization)) return authorization;
+  // OVD-813: a supplier paused for drift runs internal test quotes only.
+  // Checked after authorization so an engaged kill switch wins: the lane ends
+  // cancelled_provider_disabled, not in the manual follow-up queue.
+  if (deps.pause && !deps.pause.admits(provider, { internalTestQuote: input.internalTestQuote === true })) {
+    return stop("manual_follow_up", PROVIDER_PAUSED_FIXTURE_HEAL, "authorize");
+  }
   // 3. Captured bytes.
   const files = await resolveFiles(deps, authorization.envelope);
   if (isStop(files)) return files;

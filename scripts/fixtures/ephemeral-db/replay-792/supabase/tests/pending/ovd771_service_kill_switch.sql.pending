@@ -1,0 +1,23 @@
+-- OVD-771: service_role path for the provider kill switch (the CLI brake).
+--
+-- Targets the draft docs/migration-drafts/ovd-771.sql,
+-- applied on top of 20261013043100_ovd722_provider_kill_switch.sql.
+-- PENDING: the draft is NOT applied (NEEDS BLAINE MIGRATION WINDOW). This file
+-- carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the draft is promoted and this file is
+-- renamed to supabase/tests/ovd771_service_kill_switch.sql in the same change.
+-- Pre-apply observation: every assertion that references the new functions or
+-- the new audit columns fails with "does not exist".
+--
+-- Covers:
+--   * pg_proc: SECURITY DEFINER, search_path = '', EXECUTE for service_role only
+--   * anon and authenticated (even a platform admin) are denied
+--   * service_role is allowed; operator and >= 10 character reason required
+--   * each service flip writes one audit row: actor 'cli:service_role', the
+--     operator and the reason; the audit stays append-only
+--   * the audit check constraint allows only a user id with no operator, or
+--     'cli:service_role' with an operator
+--   * release is compare and set (versionless release refused)
+--   * the worker read sees the flip at once; the admin RPC path still audits
+-- [header-only snapshot of supabase/tests/pending/ovd771_service_kill_switch.sql.pending at d2b7981b (#792); body omitted]
+select 1;

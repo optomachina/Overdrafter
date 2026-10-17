@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E0E10">
+<title>Jarvis phone app v4.1 · OVD-799 (sample data)</title>
+<style>
+/*FONTS*/
+/* v4 = v3 plus Critiquito fixes. One accent (#FF7A1A) at most per screen. Radius 0/2/4, no shadows, no gradients. */
+:root{--bg:#0E0E10;--surface:#18181B;--hairline:#2A2A2F;--control-border:#6A6A72;--text:#F2F1EE;--muted:#A3A3AA;--accent:#FF7A1A;--on-accent:#0E0E10;
+ --sans:"Plex Sans",ui-sans-serif,sans-serif;--mono:"Plex Mono",ui-monospace,monospace;--tap:44px;--pad:20px;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 var(--sans);-webkit-text-size-adjust:100%;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sample{font:11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:center;padding:6px 0}
+.app{min-height:100dvh;display:flex;flex-direction:column}
+.hdr{display:flex;align-items:center;justify-content:space-between;min-height:52px;padding:0 4px 0 var(--pad);padding-top:env(safe-area-inset-top)}
+.brand{font-weight:600;font-size:17px}
+.ico{display:inline-flex;align-items:center;justify-content:center;min-width:var(--tap);min-height:var(--tap);border:0;background:none;color:var(--text);padding:0}
+.ico svg{width:24px;height:24px}
+.state{all:unset;box-sizing:border-box;display:block;white-space:nowrap;width:100%;min-height:var(--tap);line-height:var(--tap);padding:0 var(--pad);font:13px var(--sans);color:var(--muted);border-bottom:1px solid var(--hairline);cursor:pointer}
+.stline{display:flex;align-items:center;border-bottom:1px solid var(--hairline)}.stline .state{border-bottom:0;flex:1;min-width:0;overflow:hidden;padding-right:4px}.stline .btn{padding:0 10px}
+.state b{font-weight:600;color:var(--text)}
+main{flex:1;padding:12px var(--pad) 24px;display:flex;flex-direction:column;gap:22px}
+.you{align-self:flex-end;max-width:85%;background:var(--surface);border-radius:4px;padding:10px 14px}
+.jar p{margin:0 0 10px}.jar p:last-child{margin:0}
+.small{font-size:13px;color:var(--muted)}
+.mono{font-family:var(--mono)}
+.read{margin:12px 0 0;padding:0;list-style:none;border-top:1px solid var(--hairline)}
+.read li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline);font-size:14px}
+.read li span:first-child{flex:none;width:92px;font:13px/1.7 var(--mono);color:var(--muted);letter-spacing:.04em}
+.lanes{margin:0;padding:0;list-style:none}
+.lanes li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:14px;border-bottom:1px solid var(--hairline)}
+.lanes li span:last-child{font:13px/1.7 var(--mono);color:var(--muted);letter-spacing:.04em}
+.lanes li.live span:last-child{color:var(--text)}
+.alts{margin:10px 0 0;display:flex;flex-direction:column;gap:8px}
+.alt{all:unset;box-sizing:border-box;display:flex;gap:12px;align-items:flex-start;min-height:72px;padding:12px 14px;border:1px solid var(--control-border);border-radius:4px;cursor:pointer}
+.alt .dot{flex:none;width:16px;height:16px;margin-top:3px;border:1.5px solid var(--muted);border-radius:50%;display:grid;place-content:center}
+.alt[aria-checked="true"]{border:2px solid var(--text);padding:11px 13px}
+.alt[aria-checked="true"] .dot{border-color:var(--text)}
+.alt[aria-checked="true"] .dot::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--text)}
+.alt .v{font:15px var(--mono)}
+.alt .d{display:block;font:13px var(--mono);color:var(--muted)}
+.altwrap{display:flex;flex-direction:column}
+.link{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;min-height:var(--tap);font-size:14px;color:var(--text);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.evrow{all:unset;box-sizing:border-box;display:flex;justify-content:space-between;align-items:center;width:100%;min-height:var(--tap);padding:0 14px;border-top:1px solid var(--hairline);font-size:14px;cursor:pointer}
+.evrow span:last-child{color:var(--muted);font:13px var(--mono)}
+.alt:focus-visible,.state:focus-visible,.link:focus-visible,.evrow:focus-visible,.view:focus-visible,:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0}
+.model{border:1px solid var(--hairline);border-radius:4px;overflow:hidden;margin-top:12px}
+.model .view{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;background:var(--surface)}
+.model svg{display:block;width:62%;margin:0 auto;padding:14px 0}
+.model .bar{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 14px;border-top:1px solid var(--hairline)}
+.model .name{flex:1;min-width:0;font:13px var(--mono);color:var(--muted)}
+.btn{min-height:var(--tap);min-width:var(--tap);padding:0 14px;border:1px solid var(--control-border);border-radius:4px;background:none;font:13px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.btn.fill{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.ghost{border-color:transparent;color:var(--muted)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.tall{min-height:48px}
+.row{display:flex;gap:8px}.row .btn{flex:1}
+.dock{position:sticky;bottom:0;background:var(--bg)}
+.dock .row{padding:0 16px 12px}
+.composer{display:flex;gap:8px;align-items:flex-end;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.composer textarea{flex:1;min-height:var(--tap);resize:none;padding:11px 14px;background:var(--surface);color:var(--text);border:1px solid var(--control-border);border-radius:4px;font:16px/1.3 var(--sans)}
+.composer textarea::placeholder{color:var(--muted)}
+.shot .dock{position:static}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{min-height:var(--tap);padding:0 14px;border:1px solid var(--control-border);border-radius:4px;background:none;font:14px var(--sans)}
+.banner{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:var(--tap);padding:0 4px 0 var(--pad);border-bottom:1px solid var(--hairline);font:13px var(--mono);color:var(--text)}
+.snack{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 16px 12px;padding:0 4px 0 14px;min-height:52px;background:var(--surface);border:1px solid var(--control-border);border-radius:4px;font-size:14px}
+.sheetwrap{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:5}
+.sheet{width:100%;background:var(--surface);border-top:1px solid var(--hairline);border-radius:4px 4px 0 0;padding:8px 8px calc(12px + env(safe-area-inset-bottom))}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--control-border);margin:0 auto 8px}
+.sheet h2{margin:0;padding:6px 16px 10px;font:13px var(--mono);letter-spacing:.04em;color:var(--muted)}
+.sheet .item{display:block;width:100%;min-height:52px;text-align:left;padding:0 16px;border:0;background:none;font-size:16px}
+.sheet .sep{height:1px;background:var(--hairline);margin:4px 0}
+.sheet p{margin:0 16px 12px;color:var(--muted);font-size:15px}
+.sheet .row{padding:0 8px}
+.calc{margin:0 16px 12px;padding:0;list-style:none;font:13px/1.7 var(--mono)}
+.calc li{display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--hairline);padding:6px 0}
+.calc .lbl{color:var(--muted)}.calc .f{white-space:nowrap;color:var(--text)}
+</style>
+</head>
+<body>
+<div id="mock"></div>
+<div id="root"></div>
+<script>
+const STATES=["empty","direct","parallel","decide","evidence","result","commit","committed","more","paused","failed","checkfail","offline"];
+const q=new URLSearchParams(location.search), state=q.get("state")||"direct", shot=q.get("shot")==="1";
+const I={menu:`<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`,
+ send:`<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 17V7M7.5 11.5 12 7l4.5 4.5"/></svg>`};
+const hdr=`<header class="hdr"><div class="brand">Jarvis</div><button class="ico" aria-label="Menu, threads and account">${I.menu}</button></header>`;
+const stateLine=(w,c="none",off=false)=>`<div class="stline"><button class="state" aria-label="Design state.${off?' Offline.':''} Working ${w}, Committed ${c}. Tap for history">${off?'Offline · ':''}Working <b>${w}</b> · Committed <b>${c}</b></button>${off?'<button class="btn ghost" style="flex:none">RETRY</button>':''}</div>`;
+const you=`<div class="you">Make a 4 inch square plate.</div>`;
+const composer=(ph="Message Jarvis")=>`<form class="composer" onsubmit="return false" aria-label="Message Jarvis"><label class="sr" for="m">Message</label><textarea id="m" rows="1" placeholder="${ph}"></textarea><button class="ico" id="send" aria-label="Send" disabled>${I.send}</button></form>`;
+const plate=`<svg viewBox="0 0 120 70" aria-hidden="true"><polygon points="30.6,35 60,52 60,56.2 30.6,39.2" fill="#1F1F23" stroke="#F2F1EE" stroke-width=".8"/><polygon points="60,52 89.4,35 89.4,39.2 60,56.2" fill="#2C2C31" stroke="#F2F1EE" stroke-width=".8"/><polygon points="60,18 89.4,35 60,52 30.6,35" fill="#161619" stroke="#F2F1EE" stroke-width=".8"/></svg>`;
+const lanes=(cad,check,live=true,first="DONE")=>`<ul class="lanes" aria-label="Work in progress" aria-live="polite"><li><span>Concept picks</span><span>${first}</span></li><li class="${live?'live':''}"><span>CAD model</span><span>${cad}</span></li><li><span>Independent check</span><span>${check}</span></li></ul>`;
+const ALTS=[["0.250 in","default","Reference weight · reference deflection"],["0.125 in","","0.5× weight · 8× more deflection"],["0.500 in","","2× weight · 0.125× deflection (8× stiffer)"]];
+const S={}, D={}; let line=null, banner="";
+S.empty=()=>`<div class="jar"><p>Describe the part you need. Jarvis reads it back before anything runs.</p>
+ <div class="chips" role="group" aria-label="Example request"><button class="chip">Example · Make a 4 inch square plate</button></div></div>`;
+S.direct=()=>`${you}<div class="jar"><p>Here is how Jarvis reads it. Nothing runs until you start it.</p>
+ <ul class="read" aria-label="Interpreted request"><li><span>Outcome</span><span>Square plate, 4 in per side</span></li>
+ <li><span>Open</span><span>Thickness and material not specified. Jarvis asks only if a choice matters.</span></li>
+ <li><span>Plan</span><span>Concept picks, CAD, then an independent check</span></li></ul></div>`;
+D.direct=`<div class="row"><button class="btn fill tall">START</button><button class="btn tall">EDIT</button></div>`;
+S.parallel=(off=false)=>`${you}<div class="jar"><p>Started. Work runs on its own; you hear from Jarvis only for a judgment call.</p>${off?lanes("LAST SEEN WORKING · 1:42","WAITS FOR CAD",false):lanes("WORKING · 1:42","WAITS FOR CAD")}
+ <div class="row" style="margin-top:8px;justify-content:flex-end"><button class="btn ghost" style="flex:none" ${off?'disabled aria-disabled="true"':''}>PAUSE</button><button class="btn ghost" style="flex:none" ${off?'disabled aria-disabled="true"':''}>CANCEL</button></div></div>`;
+S.paused=()=>`${you}<div class="jar"><p>Paused at the CAD checkpoint. Work so far is kept.</p>${lanes("PAUSED","WAITS FOR CAD",false)}</div>`;
+D.paused=`<div class="row"><button class="btn fill tall">RESUME</button><button class="btn tall">CANCEL JOB</button></div>`;
+S.failed=()=>`${you}<div class="jar"><p>CAD failed. The CAD agent returned no model. Your request and decisions are kept.</p>${lanes("FAILED","NOT RUN",false)}
+ <div class="row" style="margin-top:8px"><button class="btn">VIEW LOG</button></div></div>`;
+D.failed=`<div class="row"><button class="btn fill tall">RETRY CAD</button></div>`;
+const decide=()=>`${you}<div class="jar"><p>One judgment call before CAD: plate thickness.</p>
+ <p class="small">Ratios to 0.250 in. Weight scales with thickness; bending deflection scales with 1 / thickness³ for the same material, load, span and supports. Material is not specified; machining is not estimated. Sample data. <button class="link small" style="min-height:44px">How these are calculated</button></p>
+ ${lanes("WAITS FOR YOU","WAITS FOR CAD",false)}
+ <div class="alts" role="radiogroup" aria-label="Thickness alternatives">${ALTS.map((a,i)=>`<button class="alt" role="radio" aria-checked="${i===0}" tabindex="${i===0?0:-1}" data-v="${a[0]}"><span class="dot" aria-hidden="true"></span><span><span class="v">${a[0]}${a[1]?' · '+a[1]:''}</span><span class="d">${a[2]}</span></span></button>`).join("")}</div>
+ <p class="hint" id="sk">Skip uses 0.250 in as a recorded guess. You can change it later from Decisions; Jarvis then runs CAD again.</p></div>`;
+S.decide=decide; D.decide=`<div class="row"><button class="btn fill tall" id="approve">APPROVE 0.250 IN</button><button class="btn tall" aria-describedby="sk">SKIP</button></div>`;
+S.evidence=decide;
+const resultBody=(committed=false)=>`${you}<div class="jar"><p>${committed?'Committed':'Candidate ready'}: <span class="mono">4.000 × 4.000 × 0.250 in</span><br><span class="small mono">101.6 × 101.6 × 6.35 mm</span></p>
+ <p><button class="link">${committed?'Thickness 0.250 in was a recorded guess. Change starts a new working candidate':'Thickness 0.250 in was a recorded guess. Change'}</button></p>
+ <div class="model"><button class="view" aria-label="Open 3D view of PLATE_R1">${plate}</button>
+  <button class="evrow" aria-label="Independent check passed, sample. Open report"><span>${committed?'Check passed · committed with report':'Independent check passed'}</span><span>REPORT</span></button>
+  <div class="bar"><span class="name">PLATE_R1 · sample</span><button class="btn">OPEN 3D</button><button class="btn ghost" aria-label="More: decisions, view in AR, download STEP, units" aria-haspopup="menu">MORE</button></div></div></div>`;
+S.result=()=>resultBody(); D.result=`<div class="row"><button class="btn fill tall">COMMIT PLATE R1</button></div>`;
+S.more=()=>resultBody(); S.commit=()=>resultBody();
+S.committed=()=>resultBody(true);
+D.committed=`<div class="snack" role="status"><span>PLATE R1 committed as baseline</span><button class="btn ghost" style="color:var(--text)">UNDO</button></div>`;
+S.checkfail=()=>`${you}<div class="jar"><p>The independent check did not pass, so this candidate is not committable. The reason is in the check report.</p>
+ <p><button class="link">Change thickness (recorded guess)</button></p>
+ <div class="model"><button class="view" aria-label="Open 3D view of PLATE_R1">${plate}</button>
+  <button class="evrow" aria-label="Independent check failed, sample. Open report"><span>Independent check failed</span><span>REPORT</span></button>
+  <div class="bar"><span class="name">PLATE_R1 · sample</span><button class="btn">OPEN 3D</button></div></div></div>`;
+D.checkfail=`<div class="row"><button class="btn fill tall">RETRY CAD</button></div>`;
+S.offline=()=>S.parallel(true);
+const sheets={
+ more:`<div class="sheet" role="menu" aria-label="PLATE_R1 options"><div class="grab" aria-hidden="true"></div><h2>PLATE_R1</h2><button class="item" role="menuitem">Decisions and recorded guesses</button><button class="item" role="menuitem">View in AR</button><button class="item" role="menuitem">Download STEP</button><button class="item" role="menuitem">Show mm</button><div class="sep"></div><button class="item" role="menuitem">Cancel</button></div>`,
+ commit:`<div class="sheet" role="alertdialog" aria-modal="true" aria-labelledby="ch"><div class="grab" aria-hidden="true"></div><p id="ch" style="color:var(--text)">Commit PLATE R1 as baseline? Previous baseline: none. You can revert from History.</p><div class="row"><button class="btn fill tall">COMMIT</button><button class="btn tall">CANCEL</button></div></div>`,
+ evidence:`<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="eh"><div class="grab" aria-hidden="true"></div><h2 id="eh">HOW THESE ARE CALCULATED</h2><p>Example: 0.125 in against 0.250 in, same material, load, span and supports. Sample data.</p><ul class="calc"><li><span class="lbl">Weight scales with thickness</span><span class="f">0.125 / 0.250 = 0.5× · half the weight</span></li><li><span class="lbl">Bending deflection scales with 1 / thickness³</span><span class="f">(0.250 / 0.125)³ = 8× · 8× more deflection</span></li><li><span class="lbl">Machining</span><span class="f">Not estimated</span></li></ul><div class="row"><button class="btn tall">CANCEL</button></div></div>`};
+const lines={empty:["none"],direct:["none"],decide:["none"],evidence:["none"],failed:["none"],committed:["none","PLATE R1"],parallel:["PLATE R1 (in progress)"],paused:["PLATE R1 (in progress)"],offline:["PLATE R1"]};
+const L=lines[state]||["PLATE R1"];
+const topSlot = stateLine(L[0],L[1]||"none",state==="offline");
+document.getElementById("mock").innerHTML=`<div class="sample" data-mock>Sample data</div>`;
+if(shot)document.body.classList.add("shot");
+const dock = (state==="commit")?"":(D[state]||"");
+document.getElementById("root").innerHTML=`<div class="app">${hdr}${topSlot}<main>${(S[state]||S.direct)()}</main><div class="dock">${dock}${composer(state==="empty"?"Describe the part you need":"Message Jarvis")}</div></div>${sheets[state]?`<div class="sheetwrap">${sheets[state]}</div>`:""}`;
+const alts=[...document.querySelectorAll(".alt")];
+const pick=b=>{alts.forEach(x=>{x.setAttribute("aria-checked",x===b);x.tabIndex=x===b?0:-1});b.focus();const a=document.getElementById("approve");if(a)a.textContent="APPROVE "+b.dataset.v.toUpperCase();};
+alts.forEach((b,i)=>{b.onclick=()=>pick(b);b.onkeydown=e=>{const d={ArrowDown:1,ArrowRight:1,ArrowUp:-1,ArrowLeft:-1}[e.key];if(d){e.preventDefault();pick(alts[(i+d+alts.length)%alts.length]);}}});
+const ta=document.getElementById("m"),sb=document.getElementById("send");const upd=()=>{const on=ta.value.trim().length>0;sb.disabled=!on;sb.style.color=on?"var(--text)":"var(--muted)"};ta.oninput=upd;upd();
+</script>
+</body>
+</html>
