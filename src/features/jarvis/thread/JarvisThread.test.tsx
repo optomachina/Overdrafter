@@ -16,7 +16,7 @@ function setup() {
   render(<JarvisThread source={source} client={client} runId="run" />);
   return { client, send: (...events: GraphEvent[]) => act(() => push(events)) };
 }
-const artifact = (seq: number, kind: 'png' | 'glb' | 'step'): Extract<GraphEvent, { type: 'artifact' }> => ({ ...base, seq, type: 'artifact', agentId: 'cad', kind, name: kind, mimeType: '', uri: `/${kind}`, dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } });
+const artifact = (seq: number, kind: 'png' | 'glb' | 'step' | 'usdz'): Extract<GraphEvent, { type: 'artifact' }> => ({ ...base, seq, type: 'artifact', agentId: 'cad', kind, name: kind, mimeType: '', uri: `/${kind}`, dimensionsMm: { x: 101.6, y: 101.6, z: 6.35 } });
 
 describe('web thread', () => {
   it('T1 renders status, decision, then result pictures and 3D action', () => {
@@ -170,4 +170,11 @@ it('drops unsafe event, result and kept artifact URLs', () => {
   expect(screen.getByRole('link').getAttribute('href')).toBe('https://example.com/model.glb');
   s.send({ ...base, seq: 3, type: 'control_applied', commandId: 'c', checkpoint: 'agent', kind: 'cancel', state: 'cancelled', kept: [{ kind: 'step', uri: 'javascript:alert(1)' }] });
   expect(screen.queryByRole('link')).toBeNull();
+});
+it('handles a usdz artifact event without mislabelling it as the GLB review view', () => {
+  const s = setup();
+  s.send(artifact(1, 'glb'), artifact(2, 'usdz'), artifact(3, 'step'));
+  const links = screen.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]);
+  expect(links).toEqual(expect.arrayContaining([['.GLB REVIEW VIEW', '/glb'], ['.USDZ AR VIEW', '/usdz'], ['.STEP AUTHORITATIVE', '/step']]));
+  expect(links.filter(([label]) => label === '.GLB REVIEW VIEW')).toHaveLength(1);
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { GraphDecisionRequestedEvent, GraphDecisionResolvedEvent, GraphEvent } from '../core/types';
+import type { GraphArtifactKind, GraphDecisionRequestedEvent, GraphDecisionResolvedEvent, GraphEvent } from '../core/types';
 import type { ThreadClient } from './client';
 import type { EventSource } from './event-source';
 import { ModelView } from './ModelView';
@@ -10,6 +10,9 @@ function createKey(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
+
+// Exhaustive so a new artifact kind fails typecheck instead of borrowing another kind's label.
+const downloadLabel: Record<Exclude<GraphArtifactKind, 'png'>, string> = { step: '.STEP AUTHORITATIVE', glb: '.GLB REVIEW VIEW', usdz: '.USDZ AR VIEW' };
 
 function safeArtifactUrl(uri: string): boolean {
   try { return ['https:', 'blob:'].includes(new URL(uri, 'https://relative.invalid').protocol); }
@@ -101,7 +104,7 @@ export function JarvisThread({ source, client, runId, arActionSlot, workingName 
             <p>{[d.x, d.y, d.z].map(n => (n / 25.4).toFixed(3)).join(' × ')} in</p>
             <p className="jt-muted">{[d.x, d.y, d.z].map(n => n.toFixed(3)).join(' × ')} mm</p>
           </>;
-        })()}{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{a.kind === 'step' ? '.STEP AUTHORITATIVE' : '.GLB REVIEW VIEW'}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
+        })()}{refs.filter(a => a.kind !== 'png').map(a => <a key={a.uri} href={a.uri} download>{downloadLabel[a.kind]}</a>)}{step && <a href={step.uri} download>DOWNLOAD STEP</a>}</div>
     <footer>
       <label htmlFor="jarvis-message">Message Jarvis</label>
       <textarea id="jarvis-message" placeholder="Describe the part you need" />
