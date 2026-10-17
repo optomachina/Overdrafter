@@ -609,18 +609,19 @@ function insideArgument({ words, statement, ends }, levels, start, inside) {
  * A hit inside a string or dollar-quoted body is never exempt: its statement
  * holds the quoted text, which the statement pattern cannot match.
  * When the tokenizer meets a character it does not classify, the file gets no
- * exemption: rawSqlTokens reads comments and quotes as code, every hit stays
- * sensitive and the reason `sql:tokenizer_unknown_char: …` is added.
+ * exemption: the rules run over both the parsed tokens and rawSqlTokens (which
+ * reads comments and quotes as code), the hits are the union of both (per rule
+ * and line, the larger count), every hit stays sensitive and the reason
+ * `sql:tokenizer_unknown_char: …` is added.
  * @returns {{classes: string[], reasons: string[], hits: object[]}}
  */
 export function classifySql(text, config, path = null) {
   const parsed = sqlTokens(text);
   // A character the tokenizer cannot classify may mean it is out of step with Postgres, so the file gets
-  // no exemption at all: comments and quotes are read as code (rawSqlTokens) and no exemption applies.
+  // no exemption at all: the rules also run over the raw text with comments and quotes read as code
+  // (rawSqlTokens), whose structure is coarser, and every hit of either reading is reported.
   const { unknown } = parsed;
-  const tokens = unknown ? rawSqlTokens(text) : parsed;
-  const { words, lines, statement, statements } = tokens;
-  const levels = nestingLevels(tokens);
+  const readings = (unknown ? [parsed, rawSqlTokens(text)] : [parsed]).map((tokens) => ({ tokens, levels: nestingLevels(tokens) }));
   // A '.', '..' or empty segment could walk an exempt prefix out of its directory, so such a path is never exempt.
   const plainPath = path !== null && String(path).split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
   const exemptions = plainPath && !unknown ? config.sqlContent.exemptions.filter((entry) => entry.paths.some((re) => re.test(path))) : [];
@@ -632,23 +633,37 @@ export function classifySql(text, config, path = null) {
     reasons.push(`sql:tokenizer_unknown_char: ${code} on line ${unknown.line} is not a character the SQL tokenizer classifies, so no comment, string or statement exemption applies to this file`);
   }
   for (const rule of config.sqlContent.rules) {
-    let sensitive = false;
-    for (let start = 0; start < words.length; start += 1) {
-      if (!sequenceAt(words, start, rule.tokens)) continue;
-      const end = start + rule.tokens.length;
-      if (rule.within && !withinStatement(words, levels, start, rule.within)) continue;
-      if (rule.after && !withinStatement(words, levels, start, rule.after)) continue;
-      if (rule.inside && !insideArgument(tokens, levels, start, rule.inside)) continue;
-      if (rule.until && !followedBy(words, levels, start, end, rule.until)) continue;
-      const hit = { id: rule.id, class: rule.class, path, line: lines[start], sensitive: !rule.informational };
-      if (rule.informational) hit.informational = true;
-      else {
-        const exemption = exemptions.find((entry) => entry.statements[rule.id]?.test(statements[statement[start]]) && levels[start] === 0);
-        if (exemption) Object.assign(hit, { sensitive: false, exemption: exemption.id, gate_loosening: true });
+    // Per reading, this rule's hits; with two readings, keep per line the larger count.
+    const ruleHits = readings.map(({ tokens, levels }) => {
+      const { words, lines, statement, statements } = tokens;
+      const found = [];
+      for (let start = 0; start < words.length; start += 1) {
+        if (!sequenceAt(words, start, rule.tokens)) continue;
+        const end = start + rule.tokens.length;
+        if (rule.within && !withinStatement(words, levels, start, rule.within)) continue;
+        if (rule.after && !withinStatement(words, levels, start, rule.after)) continue;
+        if (rule.inside && !insideArgument(tokens, levels, start, rule.inside)) continue;
+        if (rule.until && !followedBy(words, levels, start, end, rule.until)) continue;
+        const hit = { id: rule.id, class: rule.class, path, line: lines[start], sensitive: !rule.informational };
+        if (rule.informational) hit.informational = true;
+        else {
+          const exemption = exemptions.find((entry) => entry.statements[rule.id]?.test(statements[statement[start]]) && levels[start] === 0);
+          if (exemption) Object.assign(hit, { sensitive: false, exemption: exemption.id, gate_loosening: true });
+        }
+        found.push(hit);
       }
-      sensitive ||= hit.sensitive;
-      hits.push(hit);
+      return found;
+    });
+    const merged = ruleHits[0];
+    for (const extra of ruleHits.slice(1)) {
+      const count = (list, line) => list.filter((hit) => hit.line === line).length;
+      for (const line of new Set(extra.map((hit) => hit.line))) {
+        const missing = count(extra, line) - count(merged, line);
+        merged.push(...extra.filter((hit) => hit.line === line).slice(0, Math.max(0, missing)));
+      }
     }
+    hits.push(...merged);
+    const sensitive = merged.some((hit) => hit.sensitive);
     if (!sensitive) continue;
     if (!classes.includes(rule.class)) classes.push(rule.class);
     reasons.push(`${rule.class}:sql:${rule.id}: ${rule.reason}`);

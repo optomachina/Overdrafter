@@ -814,6 +814,27 @@ describe("classifySql: tokenizer stays in step with Postgres (OVD-878 final roun
     ]);
   });
 
+  // Re-review @ 2c113e9a: the raw reading alone splits at every ';' and counts every ')', so the
+  // structural rules also run over the parsed tokens and both readings' hits are reported.
+  it.each([
+    ["ALTER ROLE x PASSWORD ';' SUPERUSER;", "auth_role_superuser"],
+    ["ALTER ROLE x /* ; */ SUPERUSER;", "auth_role_superuser"],
+    ["GRANT /* ; */ service_role TO x;", "auth_grant_service_role"],
+    ["CREATE ROLE x -- ;\nIN ROLE postgres;", "auth_in_role_postgres"],
+    ["select format(')' || 'set %s anon', 'role');", "auth_dynamic_role"],
+    ["EXECUTE 'x;' || 'role';", "auth_dynamic_role"],
+  ])("with an unclassified character, still reports what the parsed tokens find: %j", (text, id) => {
+    const result = classifySql(`select 'a \u2014 b';\n${text}`, config, tests);
+    expect(result.classes).toEqual(["auth"]);
+    expect(unknownReason(result)).toHaveLength(1);
+    expect(result.hits).toContainEqual(expect.objectContaining({ id, sensitive: true }));
+  });
+
+  it("reports a hit both readings find once", () => {
+    const result = classifySql("select '\u2014';\ngrant service_role to x; grant service_role to y;", config, tests);
+    expect(ids(result)).toEqual(["auth_grant_service_role", "auth_grant_service_role"]);
+  });
+
   it("does not count a non-ASCII character inside a comment as unknown", () => {
     const result = classifySql("-- caf\u00e9 \u2014 \u{1F600}\n/* \u00a0 */ set role anon;", config, tests);
     expect(ids(result)).toEqual(["auth_set_role[EXEMPT]"]);
