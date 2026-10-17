@@ -1,17 +1,44 @@
 #!/usr/bin/env node
 // OVD-921: evidence for an operator, never a protection or merge gate.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 function onBlock(text) {
-  return text.match(/^(?:on|"on"|'on'):\s*([^\n]*)\n((?:[ \t]+.*\n|\n|[ \t]+.*$)*)/m)?.slice(1).join("\n") ?? "";
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => /^(?:on|"on"|'on'):/.test(line));
+  if (start === -1) return "";
+  const block = [lines[start].slice(lines[start].indexOf(":") + 1).trimStart()];
+  let index = start + 1;
+  while (index < lines.length && (lines[index].trim() === "" || /^[ \t]/.test(lines[index]))) {
+    block.push(lines[index]);
+    index += 1;
+  }
+  return block.join("\n");
+}
+
+function hasTrigger(lines, name) {
+  return lines.some((line) => {
+    const trimmed = line.trim();
+    if (trimmed === name || trimmed.split(":", 1)[0].trimEnd() === name) return true;
+    return trimmed.split(/[,[\]]/).slice(1, -1).some((entry) => entry.trim() === name);
+  });
+}
+
+function hasUntrustedCheckout(text) {
+  const steps = text.split(/^ {6}- /m).slice(1);
+  return steps.some((step) => {
+    const lines = step.split("\n");
+    return lines.some((line) => /^uses:\s*actions\/checkout@/.test(line.trim()))
+      && lines.some((line) => /^\s/.test(line) && line.trim().startsWith("ref:")
+        && ["head.sha", "head.ref", "head_sha", "github.event.pull_request.head"].some((head) => line.includes(head)));
+  });
 }
 
 function jobBlock(text, jobId) {
   const lines = text.split("\n");
-  const jobs = lines.findIndex((line) => line === "jobs:");
+  const jobs = lines.indexOf("jobs:");
   if (jobs === -1) return "";
   const start = lines.findIndex((line, index) => index > jobs && line === `  ${jobId}:`);
   if (start === -1) return "";
@@ -21,29 +48,28 @@ function jobBlock(text, jobId) {
 }
 
 export function checkWorkflowShape(workflowText, jobId) {
-  const text = workflowText.replace(/\r\n/g, "\n");
-  const triggers = onBlock(text);
+  const text = workflowText.replaceAll("\r\n", "\n");
+  const triggers = onBlock(text).split("\n");
   const findings = [];
   const add = (code, detail) => findings.push({ code, detail });
-  if (!/(?:^\s*merge_group\s*:|[\[,]\s*merge_group\s*[,\]]|^merge_group\s*$)/m.test(triggers)) {
+  if (!hasTrigger(triggers, "merge_group")) {
     add("no_merge_group", "on: must include merge_group");
   }
-  if (/^\s+paths(?:-ignore)?\s*:/m.test(triggers)) add("paths_filter", "trigger has a paths filter");
+  if (triggers.some((line) => /^\s/.test(line) && /^paths(?:-ignore)?\s*:/.test(line.trim()))) {
+    add("paths_filter", "trigger has a paths filter");
+  }
   const job = jobBlock(text, jobId);
   if (!job) add("job_missing", `job ${jobId} is missing`);
   else {
-    if (/^ {4}if\s*:/m.test(job)) add("job_level_if", "job-level if can skip reporting");
-    if (job.match(/^ {4}name:\s*(.*?)\s*$/m)?.[1] !== jobId) {
+    const lines = job.split("\n");
+    if (lines.some((line) => /^ {4}if\s*:/.test(line))) add("job_level_if", "job-level if can skip reporting");
+    const name = lines.find((line) => line.startsWith("    name:"));
+    if (name?.slice("    name:".length).trim() !== jobId) {
       add("job_name_mismatch", `job name must be exactly ${jobId}`);
     }
   }
-  if (/\b(?:pull_request_target|workflow_run)\s*(?=:|[,\]])/.test(triggers)) {
-    // Inspect each step separately so an unrelated ref cannot taint a checkout.
-    const steps = text.split(/^ {6}- /m).slice(1);
-    if (steps.some((step) => /(?:^|\n\s*)uses:\s*actions\/checkout@/.test(step)
-      && /^\s+ref:.*(?:head\.sha|head\.ref|head_sha|github\.event\.pull_request\.head)/m.test(step))) {
-      add("untrusted_checkout", "privileged trigger checks out a PR head");
-    }
+  if ((hasTrigger(triggers, "pull_request_target") || hasTrigger(triggers, "workflow_run")) && hasUntrustedCheckout(text)) {
+    add("untrusted_checkout", "privileged trigger checks out a PR head");
   }
   return { ok: findings.length === 0, findings };
 }
@@ -91,15 +117,23 @@ export function assertReadOnlyGhArgs(args) {
   }
 }
 
+export const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+
+export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = existsSync } = {}) {
+  const found = dirs.map((dir) => join(dir, name)).find((candidate) => exists(candidate));
+  if (!found) throw new Error(`${name} not found in fixed binary directories`);
+  return found;
+}
+
 function runGhDefault(args) {
   assertReadOnlyGhArgs(args);
-  const result = spawnSync("gh", args, { encoding: "utf8" });
+  const result = spawnSync(resolveBinary("gh"), args, { encoding: "utf8", env: { ...process.env, PATH: SAFE_BIN_DIRS.join(":") } });
   // Never forward stderr: an external command may include sensitive diagnostics.
   if (result.error || result.status !== 0) throw new Error("GitHub read failed");
   return JSON.parse(result.stdout);
 }
 
-function parseArgs(argv) {
+function readArgs(argv) {
   const args = { repo: "optomachina/Overdrafter", heads: 20 };
   const valued = new Set(["check", "workflow", "job", "heads", "dry-run-merged", "evaluator", "repo"]);
   for (let i = 0; i < argv.length; i += 1) {
@@ -108,6 +142,11 @@ function parseArgs(argv) {
     else if (argv[i].startsWith("--") && valued.has(key) && argv[i + 1] && !argv[i + 1].startsWith("--")) args[key] = argv[++i];
     else throw new Error("unknown argument or missing value");
   }
+  return args;
+}
+
+function parseArgs(argv) {
+  const args = readArgs(argv);
   if (!args.check || !args.workflow || !/^[\w.-]+\/[\w.-]+$/.test(args.repo)) throw new Error("--check and --workflow are required; repo must be owner/name");
   const workflow = resolve(args.workflow);
   if (!workflow.startsWith(`${resolve(".github/workflows")}/`)) throw new Error("workflow must be under .github/workflows");
@@ -119,6 +158,20 @@ function parseArgs(argv) {
   }
   if (args.evaluator && !args["dry-run-merged"]) throw new Error("--evaluator requires --dry-run-merged");
   return { ...args, workflow, job: args.job ?? args.check };
+}
+
+async function readPullPages(get, repo, state, count, mergedOnly) {
+  const selected = [];
+  const perPage = Math.min(count, 100);
+  let page = 1;
+  let done = false;
+  while (!done) {
+    const rows = await get(`repos/${repo}/pulls?state=${state}&sort=updated&direction=desc&per_page=${perPage}&page=${page}`);
+    selected.push(...rows.filter((pr) => !mergedOnly || pr.merged_at != null));
+    done = selected.length >= count || rows.length < perPage;
+    page += 1;
+  }
+  return selected.slice(0, count);
 }
 
 export async function main({ argv = process.argv.slice(2), runGh = runGhDefault, readFile = readFileSync, out = console.log, err = console.error } = {}) {
@@ -140,21 +193,10 @@ export async function main({ argv = process.argv.slice(2), runGh = runGhDefault,
       const data = await runGh(command);
       return typeof data === "string" ? JSON.parse(data) : data;
     };
-    // Page explicitly: requested samples must not silently truncate at 100.
-    const pulls = async (state, count, mergedOnly = false) => {
-      const selected = [];
-      for (let page = 1; selected.length < count; page += 1) {
-        const rows = await get(`repos/${args.repo}/pulls?state=${state}&sort=updated&direction=desc&per_page=${Math.min(count, 100)}&page=${page}`);
-        selected.push(...rows.filter((pr) => !mergedOnly || pr.merged_at != null));
-        if (rows.length < Math.min(count, 100)) break;
-      }
-      return selected.slice(0, count);
-    };
+    const pulls = (state, count, mergedOnly = false) => readPullPages(get, args.repo, state, count, mergedOnly);
     const heads = (await pulls("all", args.heads)).map((pr) => ({ number: pr.number, sha: pr.head.sha }));
-    const checkRunsBySha = {};
-    for (const { sha } of heads) {
-      checkRunsBySha[sha] = (await get(`repos/${args.repo}/commits/${sha}/check-runs?per_page=100`)).check_runs;
-    }
+    const checkRunsBySha = Object.fromEntries(await Promise.all(heads.map(async ({ sha }) =>
+      [sha, (await get(`repos/${args.repo}/commits/${sha}/check-runs?per_page=100`)).check_runs])));
     const history = reportingHistory({ heads, checkRunsBySha, checkName: args.check });
     let replay;
     if (args["dry-run-merged"]) {

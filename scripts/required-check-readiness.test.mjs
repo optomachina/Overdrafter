@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { assertReadOnlyGhArgs, buildReport, checkWorkflowShape, main, replayMergedPrs, reportingHistory } from "./required-check-readiness.mjs";
+import { assertReadOnlyGhArgs, buildReport, checkWorkflowShape, main, replayMergedPrs, reportingHistory, resolveBinary } from "./required-check-readiness.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/proof-check.yml", import.meta.url), "utf8");
 const shape = () => checkWorkflowShape(workflow, "proof-check");
@@ -23,6 +23,42 @@ describe("required check readiness", () => {
     [workflow.replace("  pull_request:", "  workflow_run:").replace("pull_request.base.sha", "workflow_run.head_sha"), "untrusted_checkout"],
   ])("reports shape finding %s", (text, code) => {
     expect(checkWorkflowShape(text, "proof-check").findings.map((finding) => finding.code)).toContain(code);
+  });
+  it("resolves binaries only from fixed directories in order", () => {
+    const checked = [];
+    expect(resolveBinary("gh", { exists: (path) => { checked.push(path); return path === "/usr/local/bin/gh"; } })).toBe("/usr/local/bin/gh");
+    expect(checked).toEqual(["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"]);
+    expect(() => resolveBinary("gh", { exists: () => false })).toThrow("not found");
+  });
+  it.each(["on", '"on"', "'on'"])("accepts quoted and inline triggers: %s", (key) => {
+    const job = "jobs:\n  check:\n    name: check";
+    expect(checkWorkflowShape(`${key}: [pull_request, merge_group]\n\n${job}`, "check").ok).toBe(true);
+    expect(checkWorkflowShape(`${key}:\n\tmerge_group:\n\n${job}`, "check").ok).toBe(true);
+  });
+  it("stops trigger scanning at the next top-level key on long input", () => {
+    const text = `on:\n  push:\n${" ".repeat(100000)}\njobs:\n  check:\n    name: check\n    merge_group:`;
+    expect(checkWorkflowShape(text, "check").findings.map(({ code }) => code)).toEqual(["no_merge_group"]);
+  });
+  it("keeps checkout refs within their own step", () => {
+    const text = "on: [pull_request_target, merge_group]\njobs:\n  check:\n    name: check\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo fixture\n        ref: head.sha";
+    expect(checkWorkflowShape(text, "check").ok).toBe(true);
+    expect(checkWorkflowShape(text.replace("      - run: echo fixture\n", ""), "check").findings.map(({ code }) => code)).toContain("untrusted_checkout");
+  });
+  it("pages samples over 100 and reads every head", async () => {
+    const pages = [];
+    const checks = [];
+    const output = [];
+    const code = await main({ argv: ["--check", "proof-check", "--workflow", ".github/workflows/proof-check.yml", "--heads", "101"],
+      readFile: () => workflow, out: (line) => output.push(JSON.parse(line)), runGh: (args) => {
+        if (args[1].includes("check-runs")) { checks.push(args[1]); return { check_runs: [run] }; }
+        const page = Number(new URL(`https://fixture.invalid/${args[1]}`).searchParams.get("page"));
+        pages.push(page);
+        return Array.from({ length: page === 1 ? 100 : 1 }, (_, i) => ({ number: (page - 1) * 100 + i, head: { sha: `sha${page}-${i}` } }));
+      } });
+    expect(code).toBe(0);
+    expect(pages).toEqual([1, 2]);
+    expect(checks).toHaveLength(101);
+    expect(output[0].history.covered).toBe(101);
   });
   it("requires exact name and app coverage, not a passing conclusion", () => {
     expect(history().ok).toBe(false);
