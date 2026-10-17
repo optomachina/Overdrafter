@@ -1,0 +1,28 @@
+-- OVD-766 group d (tracked as OVD-770): quote selection RPCs require a verified
+-- caller with edit rights on the job.
+--
+-- DRAFT ONLY. Not a migration and not applied anywhere. It needs a
+-- Blaine-approved migration window before it is promoted into
+-- supabase/migrations. Rollback: docs/migration-drafts/ovd-766-d.rollback.sql.
+-- pgTAP: supabase/tests/pending/ovd766_d_guards.sql.pending (rename to
+-- supabase/tests/ovd766_d_guards.sql in the promoting change).
+--
+-- Idempotent: every statement is create or replace, revoke, or grant, so it can
+-- run more than once and in either order with the OVD-736 anon revoke. Both
+-- functions already lack anon and PUBLIC EXECUTE since
+-- 20261002041305_enforce_quote_selection_expiry.sql; the revoke below restates it.
+--
+-- Source of each body: 20261002041305_enforce_quote_selection_expiry.sql (the
+-- latest definition of both). What changes:
+--   * api_set_job_selected_vendor_quote_offer: user_can_access_job ->
+--     user_can_edit_job. It already called require_verified_auth.
+--   * api_select_quote_option: adds require_verified_auth before any read or
+--     lock, and user_can_access_package -> user_can_edit_job(v_package.job_id).
+--   * Both: set search_path = '' (was pg_catalog) with every reference schema
+--     qualified, including the job_status cast.
+-- Error messages, lookup order, locking, expiry and invalidation checks, writes
+-- and the audit event are unchanged. user_can_edit_job itself is not changed
+-- (finding 5 is held for Blaine); today it grants every org member and every
+-- project owner/editor, so legitimate callers see no difference.
+-- [header-only snapshot of docs/migration-drafts/ovd-766-d.sql at d2b7981b (#792); body omitted]
+select 1;
