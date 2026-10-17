@@ -342,9 +342,19 @@ jobs:
   # Pre-merge regression gate on extraction quality. Runs only when a corpus
   # exists and a provider key is available, and reports "skipped" otherwise so
   # an empty corpus never reads as a passing quality signal.
+  # Each gate step emits one machine line EXTRACTION_GATE_RESULT=pass|fail|error
+  # (eval:gate exit 0 / 1 / anything else) and the `ci` job decides from it per
+  # EXTRACTION_GATE_MODE (OVD-869). Only a clean quality fail (exit 1) leaves
+  # this job green for the mode to decide; a crash (any other exit) still fails
+  # the job after emitting its line, and so does any non-gate step, which fails
+  # ci in every mode.
   extraction-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    outputs:
+      corpus: ${{ steps.corpus.outputs.present }}
+      result-line: ${{ steps.gate-parser.outputs.line }}${{ steps.gate-full.outputs.line }}
 
     # Declared at job level on purpose: a step's own `env` block is not in scope
     # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
@@ -408,16 +418,35 @@ jobs:
       # rather than left to depend on which secrets happen to be set, so the run
       # is reproducible.
       - name: Run extraction gate (parser only)
+        id: gate-parser
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
         env:
           DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
         run: |
           echo "::notice::No provider key configured; gating the deterministic parser only. Model-fallback fields are not measured."
+          set +e
           npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
       - name: Run extraction gate (full production path)
+        id: gate-full
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
-        run: npm --prefix worker run eval:gate
+        run: |
+          set +e
+          npm --prefix worker run eval:gate
+          code=$?
+          set -e
+          case "$code" in 0) result=pass ;; 1) result=fail ;; *) result=error ;; esac
+          echo "eval:gate exited $code"
+          echo "EXTRACTION_GATE_RESULT=$result"
+          echo "line=EXTRACTION_GATE_RESULT=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" = "error" ]; then exit "$code"; fi
 
   ovd420-recovery-egress-network:
     runs-on: ubuntu-latest
@@ -441,6 +470,107 @@ jobs:
 
   free-quote-sql-qualification:
     uses: ./.github/workflows/free-quote-sql-qualification.yml
+
+  # OVD-871: supabase/migrations is append-only (docs/migration-immutability.md).
+  # Only added files with a timestamp after the newest base migration pass;
+  # modified, deleted, renamed, copied and mode-only changes are violations.
+  # Report mode (Blaine approved shipping it, 2026-10-16): continue-on-error and
+  # not in the `ci` aggregate's needs, so it never blocks a merge. Making it
+  # required or passing --enforce is a separate, later approval.
+  # The checker runs from the base copy (HEAD^1), so a PR's edits to it take
+  # effect only after merge. When the base has no copy yet, the head copy runs.
+  # The migration-edit-approved label waives violations only when the PR
+  # timeline shows Blaine applied it after the head was pushed; that waiver and
+  # edits to the checker or this job are reported as gate_loosening.
+  migration-immutability:
+    name: migration-immutability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      # pull_request checks out the PR merged into the base tip, so HEAD^1 is
+      # the base as merged; push and merge_group commits have their base there too.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check migration immutability
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # The synchronize/opened payload's updated_at is at or after the push
+          # of this head, and re-runs keep the same payload.
+          PR_HEAD_PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+        # GitHub runs this as `bash -e`; the checker's exit is captured, never
+        # trips -e, so the summary is always written.
+        run: |
+          set -uo pipefail
+          checker="$RUNNER_TEMP/check-migration-immutability.mjs"
+          file=scripts/check-migration-immutability.mjs
+          if git cat-file -e "HEAD^1:$file" 2>/dev/null; then
+            git show "HEAD^1:$file" > "$checker"
+            echo "Checker taken from: base"
+          else
+            cp "$file" "$checker"
+            echo "Checker taken from: head"
+          fi
+          override=()
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${PR_NUMBER:-}" ]; then
+            timeline="$RUNNER_TEMP/migration-immutability-timeline.ndjson"
+            if gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/timeline" --jq '.[]' > "$timeline" 2> /dev/null; then
+              override=(--timeline "$timeline")
+            else
+              override=(--timeline-error "gh api timeline request failed")
+            fi
+            override+=(--head-sha "$PR_HEAD_SHA" --head-pushed-at "$PR_HEAD_PUSHED_AT")
+          fi
+          report="$RUNNER_TEMP/migration-immutability.json"
+          text="$RUNNER_TEMP/migration-immutability.txt"
+          # Report mode: findings exit 0. A non-zero exit means the checker could not run.
+          rc=0
+          # ${override[@]+...} keeps an empty array from tripping set -u on bash 3.2.
+          node "$checker" --root . --base-ref HEAD^1 --head-ref HEAD ${override[@]+"${override[@]}"} \
+            --json-out "$report" > "$text" 2>&1 || rc=$?
+          cat "$text"
+          {
+            echo '### Migration immutability (report mode)'
+            if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then
+              echo "**ERROR: the checker did not produce a report (exit $rc), so nothing was checked.**"
+              echo
+            fi
+            # Report only: gate_loosening never fails this job.
+            if grep -q '^GATE LOOSENING' "$text"; then
+              echo "**GATE LOOSENING: needs Blaine's explicit OK before merge.**"
+              echo
+            fi
+            echo '```'
+            cat "$text"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # A checker that could not run fails this job loudly (red) but never
+          # blocks a merge: the job has continue-on-error and is not in `ci`.
+          if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then exit 1; fi
+
+      - name: Upload migration immutability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-immutability
+          path: ${{ runner.temp }}/migration-immutability.json
+          if-no-files-found: warn
 
   ci:
     name: ci
@@ -505,3 +635,31 @@ jobs:
           if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
             exit 1
           fi
+
+      - name: Checkout extraction gate decision script
+        if: ${{ always() }}
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/extraction-gate-decision.mjs
+          sparse-checkout-cone-mode: false
+
+      # EXTRACTION_GATE_MODE comes from the repository variable
+      # vars.EXTRACTION_GATE_MODE, which only sets the default mode. It does not
+      # stop a PR from changing the mode: on pull_request runs this workflow and
+      # scripts/extraction-gate-decision.mjs are taken from the PR head, so a PR
+      # can hardcode a mode here or edit the decision script. Protecting those
+      # two files is a review control (CODEOWNERS plus required code-owner
+      # review), not something the variable provides.
+      # Values: report (default; unset or anything else) or enforce. Flipping
+      # the variable to enforce requires Blaine's approval. The mode governs
+      # only the parsed result line (fail/error: warning in report, fail in
+      # enforce); a failed extraction-gate job fails ci above in every mode.
+      - name: Decide extraction gate
+        if: ${{ always() }}
+        env:
+          EXTRACTION_GATE_MODE: ${{ vars.EXTRACTION_GATE_MODE }}
+          EXTRACTION_GATE_OUTPUT: ${{ needs.extraction-gate.outputs.result-line }}
+          EXTRACTION_GATE_CORPUS: ${{ needs.extraction-gate.outputs.corpus }}
+          EXTRACTION_GATE_JOB_RESULT: ${{ needs.extraction-gate.result }}
+        run: node scripts/extraction-gate-decision.mjs
