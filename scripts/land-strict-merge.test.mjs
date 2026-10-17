@@ -5,6 +5,7 @@
 // breaks these tests. The script runs through async spawn so a slow run never
 // blocks the vitest worker.
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -107,6 +108,12 @@ async function run(s, code, message, args = ['7'], env = {}) {
 function expectMerge(calls, pin) {
   expect(calls.filter(a => a[1] === 'merge')).toEqual([['pr', 'merge', '7', '--squash', '--match-head-commit', pin]]);
 }
+// Same pinned raw diff as review_diff_id / computeDiffId.
+function reviewDiffId(base, head) {
+  const raw = spawnSync(realGit, ['diff', '--raw', '-z', '--no-abbrev', '--no-renames', '--full-index', '--no-relative', '--ignore-submodules=none', '-O/dev/null', '--no-color', '--end-of-options', `${base}...${head}`, '--'], { cwd });
+  if (raw.status !== 0) throw Error(raw.stderr?.toString() || 'diff failed');
+  return createHash('sha256').update(raw.stdout).digest('hex');
+}
 it('merges an up to date head pinned exactly', async () => {
   const calls = await run(scenario(), 0, 'merged and verified'); expectMerge(calls, U);
   expect(calls.some(a => a.includes('PUT'))).toBe(false);
@@ -116,9 +123,38 @@ it('updates behind main, ignores stale checks, waits for the merge head', async 
   const s = scenario([pr(H, 'BEHIND'), pr(H), pr(U), pr(U), pr(U), pr(U, 'CLEAN', 'MERGED')]);
   s['check-runs:ci'][0].stdout.check_runs.push(runs('ci', H, 'completed', 'failure').stdout.check_runs[0]);
   const calls = await run(s, 0, 'new pinned head'); expectMerge(calls, U);
+  expect(reviewDiffId(B, H)).toBe(reviewDiffId(M, U));
   expect(calls.filter(a => a.includes('PUT'))).toEqual([['api', '-X', 'PUT', 'repos/{owner}/{repo}/pulls/7/update-branch', '-f', `expected_head_sha=${H}`]]);
-  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U} (origin/main ${M}, second parent ${M})`);
+  expect(calls.output).toContain(`update round 1/3: old head ${H} -> new head ${U} (origin/main ${M}, second parent ${M}); diff unchanged`);
   expect(calls.filter(a => a[0] === 'api' && !a.includes('PUT') && !a[1].includes('/protection/')).every(a => a[1].includes(`/commits/${U}/`))).toBe(true);
+});
+it('stops without merging when the update changes the diff', async () => {
+  git('checkout', '-q', '-b', 'pr-diff', B);
+  const H2 = commit('shared', 'base\npr-line\n');
+  git('checkout', '-q', '-b', 'main-diff', B);
+  const M2 = commit('shared', 'main-line\nbase\n');
+  git('checkout', '-q', 'pr-diff');
+  git('merge', '-q', '--no-ff', '-m', 'update', M2);
+  const U2 = git('rev-parse', 'HEAD');
+  git('push', '-q', 'origin', 'pr-diff');
+  git('push', '-q', '--force', 'origin', 'main-diff:main');
+  git('push', '-q', 'origin', `${U2}:refs/heads/update-diff`);
+  expect(reviewDiffId(B, H2)).not.toBe(reviewDiffId(M2, U2));
+  const calls = await run(scenario([pr(H2, 'BEHIND'), pr(U2)]), 10, 're-run land when checks pass');
+  expect(calls.output).toContain(`updated ${H2} -> ${U2} but the diff changed`);
+  expect(calls.output).toContain('diff changed');
+  expect(calls.filter(a => a.includes('PUT'))).toHaveLength(1);
+  expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+  expect(calls.filter(a => String(a[1]).includes('check_name='))).toEqual([]);
+});
+it('does not merge when the post-update diff cannot be read', async () => {
+  writeFileSync(join(root, 'git'), `#!/bin/bash
+if [ "$1" = diff ]; then exit 1; fi
+exec '${realGit}' "$@"
+`, { mode: 0o755 });
+  const calls = await run(scenario([pr(H, 'BEHIND'), pr(U)]), 5, 'could not read the pre-update diff', ['7'], { PATH: `${root}:${process.env.PATH}` });
+  expect(calls.filter(a => a[1] === 'merge')).toEqual([]);
+  expect(calls.filter(a => a.includes('PUT'))).toHaveLength(1);
 });
 it('rejects head movement during checks at the first poll', async () => {
   const s = scenario([pr(), pr(X)]);
@@ -341,9 +377,9 @@ it.each(['failure', 'pending', 'success'])('combines latest status and run: stat
 });
 it('documents deadline, protection, tree read-back and supervised first run', () => {
   const header = readFileSync(script, 'utf8').split('set -u')[0];
-  for (const text of ['LAND_DEADLINE', 'LAND_CALL_TIMEOUT', 'LAND_ALLOW_FALLBACK_CHECKS', 'fallback only', '8  overall', '9  merged']) expect(header).toContain(text);
+  for (const text of ['LAND_DEADLINE', 'LAND_CALL_TIMEOUT', 'LAND_ALLOW_FALLBACK_CHECKS', 'fallback only', '8  overall', '9  merged', '10 updated']) expect(header).toContain(text);
   const skill = readFileSync(fileURLToPath(new URL('../.codex/skills/land/SKILL.md', import.meta.url)), 'utf8');
-  for (const text of ['First live run', 'supervision by Release', '| 8 |', '| 9 |', 'latest run', 'commit status', 'tree', 'update chain']) expect(skill).toContain(text);
+  for (const text of ['First live run', 'supervision by Release', '| 8 |', '| 9 |', '| 10 |', 'latest run', 'commit status', 'tree', 'update chain', 'diff changed']) expect(skill).toContain(text);
 });
 
 it('stops 9, not 8, when the post-merge tree fetch hits the deadline', async () => {

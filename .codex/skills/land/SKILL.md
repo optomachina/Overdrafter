@@ -53,7 +53,7 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 ```
 
    - It pins the PR head SHA once. If that head does not contain a freshly fetched `origin/main`, it updates the branch with the REST update-branch API, which always merges `main` into the branch and is sent with `expected_head_sha`, so GitHub refuses if the head moved. It never rebases and never force-pushes.
-   - It waits for the new head and proves it is exactly that update merge: two parents, the old pin first and a commit already on `main` second. Only then does it re-pin.
+   - It waits for the new head and proves it is exactly that update merge: two parents, the old pin first and a commit already on `main` second. It then compares the reviewable diff (`diff_id`, the sha256 of the pinned `git diff --raw`, the same bytes as `computeDiffId`) of the old head against its merge-base with the merged base, and of the new head against that base. If the diff changed, it stops with exit 10 and does not merge. Re-run land when checks pass on the new head. If the diff is unchanged, it re-pins and continues.
    - Required checks come from branch protection, failing closed if unreadable. `LAND_REQUIRED_CHECKS` and `LAND_REQUIRED_APP_ID` are fallback-only, enabled explicitly by `LAND_ALLOW_FALLBACK_CHECKS=1`. The latest run per name and required app counts; only `success` passes. For app-less contexts it also reads the latest commit status, and every present source must succeed. Missing checks remain pending. Every poll re-reads the head and stops if it changed.
    - `LAND_DEADLINE` (3600 seconds) bounds the whole run across polls and update rounds. Each gh call and git fetch is bounded by the lesser of `LAND_CALL_TIMEOUT` (60 seconds) and remaining time. `LAND_BASE` defaults to `main`; a non-main base requires setting it explicitly.
    - Each proven update logs its round, old/new heads, fetched base and second parent; success prints the accumulated update chain (or `none`).
@@ -74,6 +74,7 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 | 7 | `main` kept moving through 3 update rounds | Stay in `Merging`; report, then re-run from step 8 |
 | 8 | Overall deadline exceeded | Stay in `Merging`; if the message says the merge command was sent, check the PR by hand before re-running |
 | 9 | Merged but tree read-back failed | Do not mark `Done`, do not revert; move to `Human Review` |
+| 10 | Updated the branch, but the diff changed | Stay in `Merging`; do not merge this head in the same run; re-run from step 8 when checks pass |
 | other | Unexpected failure | Treat as 5 |
 
 10. A re-run starts from step 8, not step 4: after an update-branch the local branch is behind its remote, so step 4's push would be rejected. A re-run pins afresh from GitHub; a PR that already merged stops at the precondition check (exit 2) instead of verifying a head against itself, so check a merged PR's head by hand against the SHA the earlier run pinned.
@@ -96,6 +97,7 @@ echo "land_strict_merge.sh exit: $LAND_EXIT"
 - Never rebase or force-push to update a PR.
 - Never merge without `--match-head-commit`; never use `--admin`.
 - A "behind" or "not up to date" block is never a reason for `Rework`; it means update and re-check (step 8 does this).
+- When that update changes the diff, stop. Do not merge the new head in the same run. Re-run land when checks pass.
 - Never re-pin by re-reading the head after a failed merge; verify against the pin the run already holds.
 
 ## First live run

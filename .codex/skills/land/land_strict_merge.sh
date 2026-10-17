@@ -4,7 +4,9 @@
 # Lands one OverDrafter PR under strict branch protection (OVD-889). Run it from
 # inside the repo checkout. It never merges unless one pinned head SHA is OPEN,
 # contains the current base, has the protection-required checks successful on
-# that exact SHA, and is still the PR head right before the merge.
+# that exact SHA, and is still the PR head right before the merge. If this run
+# had to update the branch, it merges only when that update left the reviewable
+# diff unchanged. A changed diff stops the run; re-run land when checks pass.
 #
 #   1. Read the PR once and pin its head SHA.
 #   2. If the head does not contain a freshly fetched origin/<base>, update it
@@ -13,8 +15,11 @@
 #      always MERGES the base into the head (it has no rebase mode) and takes
 #      expected_head_sha, so GitHub refuses if the head moved. Never a rebase,
 #      never a force push.
-#   3. Wait for the new head, prove it is exactly that update merge (two
-#      parents: the old pin, then a commit already on the base), and re-pin.
+#   3. Wait for the new head and prove it is exactly that update merge (two
+#      parents: the old pin, then a commit already on the base). Compare the
+#      reviewable diff (diff_id, the sha256 of the pinned `git diff --raw`)
+#      before and after. If it changed, stop with exit 10 and do not merge;
+#      re-run land when checks pass. If it is unchanged, re-pin.
 #   4. Read required checks from protection before updates; fail closed. Wait
 #      for latest runs (and statuses for app-less contexts); only success passes.
 #   5. Re-read state, head and mergeability, then
@@ -40,6 +45,7 @@
 #   7  update round cap exceeded because the base kept moving
 #   8  overall deadline exceeded; if merge sent, inspect PR by hand
 #   9  merged but post-merge read-back failed or exceeded deadline -> Human Review; never auto-revert
+#   10 updated branch, but the diff changed; re-run land when checks pass
 #
 # Settings (non-negative integers unless noted; defaults in brackets):
 #   LAND_POLL_INTERVAL [15] seconds between polls   LAND_HEAD_POLLS [24]
@@ -81,6 +87,27 @@ is_sha() {
   local x="${1-}"
   [ "${#x}" -eq 40 ] || return 1
   case "$x" in *[!0-9a-f]*) return 1 ;; esac
+  return 0
+}
+
+# DIFF_ID = sha256 of `git diff --raw -z` for base...head. The argv matches
+# computeDiffId in scripts/emit-verdict.mjs, so this is the same reviewable
+# diff OVD-845 uses for carry-over. --raw -z contains NUL bytes; the bytes are
+# piped to the hasher and never stored in a shell variable. Returns 1 when the
+# diff cannot be hashed. An empty diff hashes as the sha256 of empty input.
+review_diff_id() {
+  local base="$1" head="$2" raw
+  is_sha "$base" && is_sha "$head" || return 1
+  if command -v sha256sum >/dev/null 2>&1; then
+    raw="$(git diff --raw -z --no-abbrev --no-renames --full-index --no-relative --ignore-submodules=none -O/dev/null --no-color --end-of-options "${base}...${head}" -- | sha256sum)" || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    raw="$(git diff --raw -z --no-abbrev --no-renames --full-index --no-relative --ignore-submodules=none -O/dev/null --no-color --end-of-options "${base}...${head}" -- | shasum -a 256)" || return 1
+  else
+    return 1
+  fi
+  DIFF_ID="${raw%% *}"
+  [ "${#DIFF_ID}" -eq 64 ] || return 1
+  case "$DIFF_ID" in *[!0-9a-f]*) return 1 ;; esac
   return 0
 }
 
@@ -322,11 +349,28 @@ while :; do
     git merge-base --is-ancestor "$3" "$BASE_TIP" \
       || stop 5 "unexpected history: second parent $3 is not on origin/$LAND_BASE"
 
-    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3)"
+    # Same diff_id means the update did not change the reviewable diff, so the
+    # head that was already reviewed can still be merged after checks pass on
+    # the new SHA. A different diff_id needs a fresh review; do not merge it
+    # in this run.
+    old_base="$(git merge-base "$PIN" "$3")" || stop 5 'could not read the pre-update merge-base; not merging'
+    is_sha "$old_base" || stop 5 'malformed pre-update merge-base; not merging'
+    if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+      stop 5 'could not hash the diff (no sha256sum or shasum); not merging'
+    fi
+    review_diff_id "$old_base" "$PIN" || stop 5 'could not read the pre-update diff; not merging'
+    old_diff="$DIFF_ID"
+    review_diff_id "$3" "$NEW" || stop 5 'could not read the post-update diff; not merging'
+    if [ "$old_diff" != "$DIFF_ID" ]; then
+      note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff changed"
+      stop 10 "updated $PIN -> $NEW but the diff changed; re-run land when checks pass"
+    fi
+
+    note "update round $((round + 1))/$LAND_MAX_UPDATES: old head $PIN -> new head $NEW (origin/$LAND_BASE $BASE_TIP, second parent $3); diff unchanged"
     chain="${chain}${chain:+; }$PIN -> $NEW ($LAND_BASE $BASE_TIP)"
-    PIN="$NEW"   # the only re-pin, and only after the checks above
+    PIN="$NEW"   # the only re-pin, and only after the history and diff checks above
     round=$((round + 1))
-    note "updated branch; new pinned head $PIN"
+    note "updated branch; diff unchanged; new pinned head $PIN"
   fi
 
   # ---- 4. required checks on the pin -----------------------------------------
