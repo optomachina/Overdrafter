@@ -39,7 +39,7 @@
 #   6  merge conflict (DIRTY, or update-branch refused for a conflict) -> Rework
 #   7  update round cap exceeded because the base kept moving
 #   8  overall deadline exceeded; if merge sent, inspect PR by hand
-#   9  merged but tree read-back failed -> Human Review; never auto-revert
+#   9  merged but post-merge read-back failed or exceeded deadline -> Human Review; never auto-revert
 #
 # Settings (non-negative integers unless noted; defaults in brackets):
 #   LAND_POLL_INTERVAL [15] seconds between polls   LAND_HEAD_POLLS [24]
@@ -58,10 +58,15 @@ set -u -o pipefail
 export LC_ALL=C
 
 MERGE_SENT=false
+MERGED_SEEN=false
 DEADLINE_AT=2147483647
 stop() {
   local code="$1" reason="$2"
   if { [ "$code" = 4 ] || [ "$code" = 5 ]; } && [ "$SECONDS" -ge "$DEADLINE_AT" ]; then code=8; fi
+  if [ "$code" = 8 ] && [ "$MERGED_SEEN" = true ]; then
+    code=9
+    reason='MERGED but the post-merge read-back did not finish before the overall deadline; do not mark Done, do NOT auto-revert, escalate to Human Review'
+  fi
   if [ "$code" = 8 ]; then
     reason="$reason; overall deadline of ${LAND_DEADLINE} s exceeded"
     if [ "$MERGE_SENT" = true ]; then reason="$reason; merge command was sent; PR state must be checked by hand"; fi
@@ -80,34 +85,30 @@ is_sha() {
 }
 
 deadline() { [ "$SECONDS" -lt "$DEADLINE_AT" ] || stop 8 'deadline reached'; }
-# Include descendants of wrappers so they cannot retain command-substitution pipes.
-kill_tree() {
-  local child
-  while IFS= read -r child; do
-    [ -z "$child" ] || kill_tree "$child" "$2"
-  done < <(ps -eo pid=,ppid= | awk -v parent="$1" '$2 == parent {print $1}')
-  kill -"$2" "$1" 2>/dev/null || :
-}
+# Isolate each command so cleanup also closes pipes held by its descendants.
 bounded() {
   local budget="$1" command_pid watchdog_pid result
   shift
+  set -m
   "$@" &
   command_pid=$!
+  set +m
   (
     sleeper=''
-    trap 'if [ -n "$sleeper" ]; then kill "$sleeper" 2>/dev/null; fi; exit 0' TERM INT
+    trap 'if [ -n "$sleeper" ]; then kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null; fi; exit 0' TERM INT
     sleep "$budget" &
     sleeper=$!
     wait "$sleeper"
-    kill_tree "$command_pid" TERM
+    kill -TERM -- -"$command_pid" 2>/dev/null || :
     sleep 2 &
     sleeper=$!
     wait "$sleeper"
-    kill_tree "$command_pid" KILL
+    kill -KILL -- -"$command_pid" 2>/dev/null || :
   ) >/dev/null 2>&1 &
   watchdog_pid=$!
   result=0
   wait "$command_pid" || result=$?
+  kill -KILL -- -"$command_pid" 2>/dev/null || :
   kill "$watchdog_pid" 2>/dev/null
   wait "$watchdog_pid" 2>/dev/null || :
   return "$result"
@@ -355,10 +356,11 @@ while :; do
         elif $run.conclusion == "success" then "pass" else "failed" end end' 2>/dev/null)" || verdict=invalid
       if [ "$app" = null ]; then
         status_verdict=invalid
-        if statuses="$(gh_cmd api "repos/{owner}/{repo}/commits/$PIN/statuses?per_page=100" 2>/dev/null)"; then
-          status_verdict="$(printf '%s' "$statuses" | jq -r --arg name "$name" '
-            if type != "array" then "invalid" else
-            ([.[] | select(.context == $name)] | sort_by(.id // 0) | last) as $s |
+        if statuses="$(gh_cmd api "repos/{owner}/{repo}/commits/$PIN/status?per_page=100" 2>/dev/null)"; then
+          status_verdict="$(printf '%s' "$statuses" | jq -r --arg pin "$PIN" --arg name "$name" '
+            if type != "object" or .sha != $pin or (.statuses | type) != "array"
+              or (.total_count | type) != "number" or .total_count > (.statuses | length) then "invalid" else
+            ([.statuses[] | select(.context == $name)] | sort_by(.id // 0) | last) as $s |
             if $s == null then "absent" elif $s.state == "success" then "pass"
             elif $s.state == "pending" then "pending" else "failed" end end' 2>/dev/null)" || status_verdict=invalid
         else deadline; fi
@@ -431,6 +433,7 @@ while [ "$i" -le "$LAND_MERGE_POLLS" ]; do
   case "$STATE" in
     MERGED)
       [ "$HEAD" = "$PIN" ] || stop 5 "merged head $HEAD differs from the verified head $PIN; do not mark Done"
+      MERGED_SEEN=true
       field '.mergeCommit.oid'; oid="$FIELD"
       if is_sha "$oid"; then
         # Exit 9 is never converted to the deadline exit: the PR is MERGED, so

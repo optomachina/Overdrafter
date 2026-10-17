@@ -58,7 +58,7 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.LAND_STUB_LOG, JSON.stringify(args)+'\\n');
 const scenario = JSON.parse(fs.readFileSync(process.env.LAND_STUB_SCENARIO));
-let kind = args[0]==='pr' && args[1]==='view' ? 'pr-view' : args[0]==='pr' && args[1]==='merge' ? 'merge' : args.includes('PUT') ? 'update-branch' : args.join(' ').includes('/protection/required_status_checks') ? 'protection' : args.join(' ').includes('/statuses') ? 'statuses' : args.join(' ').includes('check_name=') ? 'check-runs:'+args.join(' ').match(/check_name=([^&]+)/)[1] : 'unknown';
+let kind = args[0]==='pr' && args[1]==='view' ? 'pr-view' : args[0]==='pr' && args[1]==='merge' ? 'merge' : args.includes('PUT') ? 'update-branch' : args.join(' ').includes('/protection/required_status_checks') ? 'protection' : args.join(' ').includes('/status?') ? 'statuses' : args.join(' ').includes('check_name=') ? 'check-runs:'+args.join(' ').match(/check_name=([^&]+)/)[1] : 'unknown';
 const path = process.env.LAND_STUB_LOG+'.counts';
 const counts = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path)) : {};
 const responses = scenario[kind];
@@ -78,10 +78,11 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 const response = stdout => ({ stdout });
+const statuses = (items, sha = U, total_count = items.length) => response({ sha, total_count, statuses: items });
 const pr = (head = U, mergeStateStatus = 'CLEAN', state = 'OPEN') => response({ state, isDraft: false, mergeStateStatus, headRefOid: head, baseRefName: 'main', mergeCommit: { oid: S } });
 const runs = (name, head = U, status = 'completed', conclusion = 'success', app = 15368) => response({ total_count: 1, check_runs: [{ name, head_sha: head, status, conclusion, app: { id: app } }] });
 function scenario(views = [pr(), pr(), pr(), pr(U, 'CLEAN', 'MERGED')]) {
-  return { protection: [response({ checks: [{ context: 'ci', app_id: 15368 }, { context: 'provider-go-live', app_id: 15368 }] })], statuses: [response([])], 'pr-view': views, 'check-runs:ci': [runs('ci')], 'check-runs:provider-go-live': [runs('provider-go-live')], merge: [response('')], 'update-branch': [response('')] };
+  return { protection: [response({ checks: [{ context: 'ci', app_id: 15368 }, { context: 'provider-go-live', app_id: 15368 }] })], statuses: [statuses([])], 'pr-view': views, 'check-runs:ci': [runs('ci')], 'check-runs:provider-go-live': [runs('provider-go-live')], merge: [response('')], 'update-branch': [response('')] };
 }
 function runScript(args, env) {
   return new Promise((resolve, reject) => {
@@ -309,7 +310,7 @@ it.each(['success', 'failure', 'in_progress'])('uses only latest check run: %s',
 it.each(['success', 'failure', 'pending'])('uses latest app-less commit status: %s', async state => {
   const s = scenario(state === 'success' ? undefined : [pr()]);
   s.protection = [response({ contexts: ['ci'] })]; s['check-runs:ci'] = [response({ check_runs: [] })];
-  s.statuses = [response([{ context: 'ci', state: 'success', id: 1 }, { context: 'ci', state, id: 2 }])];
+  s.statuses = [statuses([{ context: 'ci', state: 'success', id: 1 }, { context: 'ci', state, id: 2 }])];
   await run(s, state === 'success' ? 0 : state === 'failure' ? 3 : 4, state === 'success' ? 'merged and verified' : state === 'failure' ? 'FAILED' : 'timed out');
 });
 it.each(['CLOSED', 'MERGED', 'DRAFT'])('rejects pin precondition %s before protection', async state => {
@@ -335,7 +336,7 @@ it('reports the proven update chain on success', async () => {
 it.each(['failure', 'pending', 'success'])('combines latest status and run: status=%s', async state => {
   const s = scenario(state === 'success' ? undefined : [pr()]);
   s.protection = [response({ checks: [{ context: 'ci', app_id: null }] })];
-  s.statuses = [response([{ context: 'ci', state, id: 2 }])];
+  s.statuses = [statuses([{ context: 'ci', state, id: 2 }])];
   await run(s, state === 'failure' ? 3 : state === 'pending' ? 4 : 0, state === 'failure' ? 'FAILED' : state === 'pending' ? 'timed out' : 'merged and verified');
 });
 it('documents deadline, protection, tree read-back and supervised first run', () => {
@@ -368,4 +369,61 @@ it('a protection read killed by the deadline exits 8, not the fail-closed 2', as
   const s = scenario(); s.protection = [{ sleep: 30, ...s.protection[0] }];
   const calls = await run(s, 8, 'deadline', ['7'], { LAND_DEADLINE: '2' });
   expect(calls.filter(a => a.includes('PUT') || a[1]?.includes('check_name='))).toEqual([]);
+});
+
+it.each([
+  ['an exited parent with a descendant holding stdout', 'sleep 6 &', 3000],
+  ['a command and descendant ignoring TERM', 'trap "" TERM; sleep 6', 5000],
+  ['an exited parent leaving a TERM-resistant descendant', '(trap "" TERM; sleep 6) & wait', 5000],
+])('bounds command substitution with %s', async (_name, command, maxElapsed) => {
+  const bounded = readFileSync(script, 'utf8').match(/^bounded\(\) \{\n[\s\S]*?^\}/m)?.[0];
+  expect(bounded).toBeTruthy();
+  const start = Date.now();
+  // Keep stdout captured: an orphan holding this pipe must delay completion
+  // and fail the elapsed-time assertion if group cleanup is removed.
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn('bash', ['-c', `${bounded}\nvalue=$(bounded 1 bash -c "$1"); printf 'returned'`, 'bounded-test', command]);
+    let stdout = '', stderr = '';
+    child.stdout.on('data', data => { stdout += data; });
+    child.stderr.on('data', data => { stderr += data; });
+    child.on('error', reject);
+    child.on('close', status => resolve({ status, stdout, stderr }));
+  });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toBe('returned');
+  expect(Date.now() - start).toBeLessThan(maxElapsed);
+});
+
+it.each(['truncated', 'wrong sha', 'array', 'missing count', 'string count', 'missing statuses'])('rejects invalid combined status: %s', async kind => {
+  const s = scenario([pr()]);
+  s.protection = [response({ contexts: ['ci'] })];
+  // A successful same-name run must never mask an unverifiable status source.
+  const items = Array.from({ length: 100 }, (_, id) => ({ context: `other-${id}`, state: 'success', id }));
+  const invalid = {
+    truncated: { sha: U, total_count: 150, statuses: items },
+    'wrong sha': { sha: H, total_count: 0, statuses: [] },
+    array: [],
+    'missing count': { sha: U, statuses: [] },
+    'string count': { sha: U, total_count: '0', statuses: [] },
+    'missing statuses': { sha: U, total_count: 0 },
+  }[kind];
+  s.statuses = [response(invalid)];
+  const calls = await run(s, 4, 'timed out waiting for required checks');
+  expect(calls.filter(a => a[1]?.includes('/status?'))).toEqual(Array(2).fill(['api', `repos/{owner}/{repo}/commits/${U}/status?per_page=100`]));
+});
+
+it('routes an already-expired deadline before post-merge fetch to 9', () => {
+  const source = readFileSync(script, 'utf8');
+  const stop = source.match(/^stop\(\) \{\n[\s\S]*?^\}/m)?.[0];
+  const deadline = source.match(/^deadline\(\) \{.*$/m)?.[0];
+  expect(stop).toBeTruthy(); expect(deadline).toBeTruthy();
+  const result = spawnSync('bash', ['-c', `${stop}\n${deadline}\nMERGE_SENT=true; MERGED_SEEN=true; LAND_DEADLINE=1; DEADLINE_AT=0; deadline`], { encoding: 'utf8' });
+  expect(result.status).toBe(9);
+  expect(result.stderr).toContain('MERGED but the post-merge read-back did not finish before the overall deadline; do not mark Done, do NOT auto-revert, escalate to Human Review');
+});
+
+it('preserves known MERGED when a later poll would cross the deadline', async () => {
+  const merged = pr(U, 'CLEAN', 'MERGED'); merged.stdout.mergeCommit = null;
+  const calls = await run(scenario([pr(), pr(), pr(), merged]), 9, 'MERGED but the post-merge read-back did not finish before the overall deadline', ['7'], { LAND_DEADLINE: '10', LAND_POLL_INTERVAL: '15' });
+  expectMerge(calls, U);
 });
