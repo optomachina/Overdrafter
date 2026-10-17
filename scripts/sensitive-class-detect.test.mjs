@@ -685,6 +685,19 @@ describe("workflow", () => {
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("::warning title=Sensitive class::no readable result");
     expect(run.summary).toContain("### Sensitive classes: ERROR");
+    expect(run.outExists).toBe(false);
+  });
+
+  // Review @ 6e96e47c: an unreadable result written before an exit 0 stayed and was uploaded.
+  it.each(shells)("a detector that exits 0 with unreadable JSON gives an ERROR summary and leaves no result to upload (%s %s)", (...shell) => {
+    for (const body of ['{"status": "ok", "files": [', "", "null"]) {
+      const stub = `${writeArgs}writeFileSync(process.argv[process.argv.indexOf("--json") + 1], ${JSON.stringify(body)});\n`;
+      const run = runStep(shell, stub);
+      expect(run.status, body).toBe(0);
+      expect(run.stdout, body).toContain("::warning title=Sensitive class::no readable result (report mode, not failing the job)");
+      expect(run.summary, body).toContain("sensitive-class-detect exited 0 but wrote no readable result.");
+      expect(run.outExists, body).toBe(false);
+    }
   });
 
   it.each(shells)("a base without the detector skips with a summary (%s %s)", (...shell) => {
