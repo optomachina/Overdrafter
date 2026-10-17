@@ -1,6 +1,7 @@
 -- =====================================================================
 -- NEEDS BLAINE MIGRATION WINDOW - not applied
 -- =====================================================================
+-- ovd: idempotent
 -- OVD-707 (PR 1 of 3, group a): providers as data. Provider definitions,
 -- their append-only revisions and audit log, and the admin transition RPCs.
 --
