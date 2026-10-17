@@ -1,6 +1,6 @@
 {
   "schema": "overdrafter.agent-graph/v1",
-  "version": "1.0.0-draft.3",
+  "version": "1.0.0-draft.4",
   "note": "Canonical OverDrafter agent graph. Written in the JSON subset of YAML so it parses with no dependencies. Owns routing, verdicts and the merge gate; AGENTS.md owns approvals, the auto-merge allowlist and sensitive paths. Validate with: node scripts/validate-agent-graph.mjs",
   "root": "grok-bot",
   "nodes": {
@@ -61,7 +61,8 @@
       "role": "gate"
     },
     "release": {
-      "role": "release"
+      "role": "release",
+      "note": "Architect/Release bot. Sensitive-scope issues route here architect-first (design and plan before any engineer handoff); protected merges route here from the merge gate."
     },
     "ci": {
       "role": "ci",
@@ -245,7 +246,7 @@
       "note": "auto-merge eligibility"
     },
     "usage_balancer": {
-      "note": "Pool selection and Jev-first screening (Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate.",
+      "note": "Pool selection and Jev-first screening (Overdrafter Lead, 2026-10-16). Placement only; does not change edges, verdicts or the merge gate. Precedence: caps (weekly-review-only, five-hour-no-builds) override every assignment rule (build-furthest-behind-pace, burn-before-reset); each override is declared in `overrides`, and overrides must not form a cycle.",
       "balancer": {
         "repo": "optomachina/pstack-project-template",
         "script": "scripts/usage-balancer/usage-balancer.mjs",
@@ -262,7 +263,7 @@
       "rules": [
         {
           "id": "jev-first",
-          "rule": "Jev goes first for screening, triage, risk and review screens, and scoring. Jev only decides; it never writes code or text. Log every call, and fall back to the reviewer when Jev is throttled, failing or low-confidence."
+          "rule": "Jev goes first for screening, triage, risk and review screens, and scoring. Jev only decides; it never writes code or text. Log every call. When Jev is throttled, failing or low-confidence, Sonnet does the screen instead; a fallback screen never counts as jev_not_risky, so that PR cannot auto-merge and needs Blaine's OK."
         },
         {
           "id": "build-furthest-behind-pace",
@@ -274,14 +275,19 @@
         },
         {
           "id": "weekly-review-only",
-          "rule": "At >=90% of the weekly budget the pool is review only. This overrides burn-before-reset.",
+          "rule": "At >=90% of the weekly budget the pool is review only. This cap overrides build-furthest-behind-pace and burn-before-reset.",
           "overrides": [
+            "build-furthest-behind-pace",
             "burn-before-reset"
           ]
         },
         {
           "id": "five-hour-no-builds",
-          "rule": "If the 5-hour window is >=90%, no new builds."
+          "rule": "If the 5-hour window is >=90%, no new builds. This cap overrides build-furthest-behind-pace and burn-before-reset.",
+          "overrides": [
+            "build-furthest-behind-pace",
+            "burn-before-reset"
+          ]
         },
         {
           "id": "skip-no-data",

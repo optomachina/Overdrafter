@@ -33,6 +33,26 @@ test("rejects a single reviewer family", () => {
   assert.match(validateGraph(graph, schema).join("\n"), /two model families/);
 });
 
+test("overflow reviewer does not count toward the two-family rule", () => {
+  const { graph, schema } = fresh();
+  graph.nodes.codex.family = "anthropic";
+  assert.equal(graph.nodes.grok.family, "xai");
+  assert.match(validateGraph(graph, schema).join("\n"), /two model families/);
+});
+
+test("caps override every assignment rule", () => {
+  const { graph } = fresh();
+  const byId = Object.fromEntries(graph.runtime_routing.usage_balancer.rules.map((r) => [r.id, r]));
+  for (const cap of ["weekly-review-only", "five-hour-no-builds"])
+    for (const target of ["build-furthest-behind-pace", "burn-before-reset"]) assert.ok(byId[cap].overrides.includes(target), `${cap} overrides ${target}`);
+});
+
+test("rejects an override cycle", () => {
+  const { graph, schema } = fresh();
+  graph.runtime_routing.usage_balancer.rules[2].overrides = ["weekly-review-only"];
+  assert.match(validateGraph(graph, schema).join("\n"), /override cycle/);
+});
+
 test("usage balancer rules are present, unique and override known rules", () => {
   const { graph, schema } = fresh();
   const ids = graph.runtime_routing.usage_balancer.rules.map((r) => r.id);

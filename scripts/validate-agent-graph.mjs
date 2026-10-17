@@ -38,8 +38,12 @@ export function validateGraph(graph, schema) {
   });
   const verifiers = Object.values(graph.nodes).filter((n) => n.role === "verifier");
   if (!verifiers.length || verifiers.some((n) => n.must_not_author !== true)) errors.push("every verifier must set must_not_author: true");
-  const families = new Set(Object.values(graph.nodes).filter((n) => n.role === "reviewer").map((n) => n.family));
-  if (families.size < 2) errors.push("reviewers must span at least two model families");
+  // Count only reviewers on the default path: unconditional edges out of jev. Overflow or risk-gated reviewers don't count.
+  const defaultReviewers = graph.edges
+    .filter((e) => e.from === "jev" && !e.when && !e.unless && graph.nodes[e.to]?.role === "reviewer")
+    .map((e) => graph.nodes[e.to]);
+  const families = new Set(defaultReviewers.map((n) => n.family));
+  if (families.size < 2) errors.push("default-path reviewers (unconditional jev edges) must span at least two model families");
   const rules = graph.runtime_routing?.usage_balancer?.rules ?? [];
   const ruleIds = new Set();
   for (const r of rules) {
@@ -48,6 +52,16 @@ export function validateGraph(graph, schema) {
     if (!r.rule.trim()) errors.push(`usage_balancer: rule ${r.id} has empty text`);
   }
   for (const r of rules) for (const o of r.overrides ?? []) if (!ruleIds.has(o)) errors.push(`usage_balancer: rule ${r.id} overrides unknown rule ${o}`);
+  const overrides = new Map(rules.map((r) => [r.id, r.overrides ?? []]));
+  const state = new Map();
+  const visit = (id, trail) => {
+    if (state.get(id) === "done") return;
+    if (state.get(id) === "open") { errors.push(`usage_balancer: override cycle ${[...trail, id].join(" -> ")}`); return; }
+    state.set(id, "open");
+    for (const o of overrides.get(id) ?? []) if (overrides.has(o)) visit(o, [...trail, id]);
+    state.set(id, "done");
+  };
+  for (const id of overrides.keys()) visit(id, []);
   return errors;
 }
 
