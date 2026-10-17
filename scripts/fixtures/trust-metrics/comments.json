@@ -1,0 +1,12 @@
+[
+  { "id": 101, "issue_url": "https://api.github.com/repos/o/r/issues/1", "created_at": "2026-09-28T05:00:00Z", "body": "QA: FAIL on abc1234\n\nMissing test." },
+  { "id": 102, "issue_url": "https://api.github.com/repos/o/r/issues/1", "created_at": "2026-09-28T09:00:00Z", "body": "QA: PASS on def5678 - all ACs met." },
+  { "id": 201, "issue_url": "https://api.github.com/repos/o/r/issues/2", "created_at": "2026-09-29T12:00:00Z", "body": "\n**QA: FAIL** on 1234567. Regression in parser." },
+  { "id": 301, "issue_url": "https://api.github.com/repos/o/r/issues/3", "created_at": "2026-10-05T13:00:00Z", "body": "Final-head QA PASS at 9d67da339c23703f059cba336b3c756a22335b08." },
+  { "id": 401, "issue_url": "https://api.github.com/repos/o/r/issues/4", "created_at": "2026-10-06T01:00:00Z", "body": "QA FAIL follow-up on head `ad052d6`. Closed the bypasses." },
+  { "id": 402, "issue_url": "https://api.github.com/repos/o/r/issues/4", "created_at": "2026-10-06T02:00:00Z", "body": "Hosted CI on head 48fbf2b: success. QA: PASS is pending." },
+  { "id": 501, "issue_url": "https://api.github.com/repos/o/r/issues/5", "created_at": "2026-10-12T00:00:00Z", "body": "QA: PASS on 111aaaa" },
+  { "id": 502, "issue_url": "https://api.github.com/repos/o/r/issues/5", "created_at": "2026-10-12T06:00:00Z", "body": "QA: FAIL on 222bbbb. This supersedes the PASS above." },
+  { "id": 503, "issue_url": "https://api.github.com/repos/o/r/issues/5", "created_at": "2026-10-16T05:00:00Z", "body": "QA: PASS on 333cccc (after the window)" },
+  { "id": 601, "issue_url": "https://api.github.com/repos/o/r/issues/6", "created_at": "2026-10-15T21:00:00Z", "body": "QA: PASS on 444dddd" }
+]
