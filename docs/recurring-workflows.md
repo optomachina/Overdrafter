@@ -175,5 +175,7 @@ needs an organization-owned repo, so it is not applied. The runbook also covers
 the applicable fallback, Option B (`strict: true` up to date checks), which
 Blaine approved on 2026-10-16 together with `enforce_admins`; application is
 pending, so verify the live settings (the read-only command in the runbook's
-Status paragraph) before relying on strict mode. The `land` skill already
-handles a `BEHIND` branch and is correct whether or not strict is on.
+Status paragraph) before relying on strict mode. The `land` skill does not
+handle strict mode yet (tracked in OVD-889); until it does, update an
+out-of-date PR with `gh pr update-branch` and re-check it by hand before
+`gh pr merge --match-head-commit`.

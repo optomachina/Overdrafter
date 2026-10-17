@@ -9,13 +9,15 @@ with:
 gh api repos/optomachina/Overdrafter/branches/main/protection --jq '{strict: .required_status_checks.strict, enforce_admins: .enforce_admins.enabled}'
 ```
 
-The `land` skill (`.codex/skills/land/SKILL.md`) is correct whether or not strict
-is on: it only needs the update-branch path when a PR reports `BEHIND`, which
-happens only under strict. The `gh api` commands under Option B stay here as the
-apply and rollback reference. **Option A (merge queue) is not applied** and
-still needs the repo moved to an organization. Any further change to branch
-protection is a protected action that needs Blaine's approval card, and Grok Bot
-applies it only after approval.
+The `land` skill (`.codex/skills/land/SKILL.md`) does not handle strict mode
+yet. That work is tracked in OVD-889. Until it lands, an out-of-date PR is
+updated with `gh pr update-branch` and re-checked by hand (state, head, and
+`ci` and `provider-go-live` green on the new head) before
+`gh pr merge --match-head-commit <head>`. The `gh api` commands under Option B
+stay here as the apply and rollback reference. **Option A (merge queue) is not
+applied** and still needs the repo moved to an organization. Any further change
+to branch protection is a protected action that needs Blaine's approval card,
+and Grok Bot applies it only after approval.
 
 **Blocker: the merge queue (Option A) cannot be applied to this repo as it is
 owned today.** GitHub's docs say: "Pull request merge queues are available in
@@ -334,17 +336,13 @@ them.
   blocks the merge again.
 - **Auto-merge and the `land` skill.** GitHub auto-merge does not update an
   out-of-date branch by itself; `gh pr merge --auto` waits until someone
-  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) reads the PR's
-  state, head and required checks in one call. A `BEHIND` PR gets
-  `gh pr update-branch` and the skill stops; the next land run waits for `ci`
-  and `provider-go-live` on the new head. A current PR with both checks green
-  is merged with `--match-head-commit` pinned to the head it read, so GitHub
-  refuses the merge if the head moved and, under strict, if the branch fell
-  behind `main`. The final wait never updates the branch: `BEHIND`, `DIRTY`,
-  a closed PR or a moved head stop and report, and success needs the merged
-  head to equal the pinned head. A "not up to date" block means update and
-  re-run, never `Rework`. The same steps are correct with strict off, where
-  `BEHIND` never occurs.
+  updates it. `.codex/skills/land/SKILL.md` (steps 9 to 11) does not handle
+  strict mode yet; that work is tracked in OVD-889. Until it lands, update an
+  out-of-date PR with `gh pr update-branch`, wait for `ci` and
+  `provider-go-live` on the new head, re-check the PR state and head by hand,
+  and merge with `gh pr merge --match-head-commit <head>` pinned to the head
+  you checked, so GitHub refuses the merge if the head moved. A "not up to
+  date" block means update and re-check, never `Rework`.
 - **Infra flakes and cancelled runs.** Same policy as the queue: re-run the
   failed job, never fix a flake with a code change, a cancelled run is not a
   pass.
