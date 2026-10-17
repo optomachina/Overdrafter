@@ -163,6 +163,37 @@ export function mergedInWindow(pullRequests, window, baseBranch = DEFAULT_BASE_B
 
 // ---------- metrics ----------
 
+function collectLabelDeclarations(labels, declare) {
+  for (const label of labels ?? []) {
+    const name = (typeof label === "string" ? label : label?.name)?.toLowerCase();
+    if (name?.startsWith("model:")) declare(name.slice(6), "label");
+  }
+}
+
+function parseBodyModelToken(line) {
+  const text = stripMarkdown(line.trim().replace(/^[-*+]\s+/, "")).replace(/^[-+]\s+/, "");
+  const match = /^(?:build(?:er)?\s+)?model\s*:\s*/i.exec(text);
+  if (!match) return null;
+  const remainder = text.slice(match[0].length);
+  let token = /^\S*/.exec(remainder)[0];
+  if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
+  while (token.length > 0 && ",;:)·".includes(token.at(-1))) token = token.slice(0, -1);
+  return token.toLowerCase();
+}
+
+function collectBodyDeclarations(body, declare) {
+  let fenced = false;
+  for (const line of (body ?? "").split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const token = parseBodyModelToken(line);
+    if (token !== null) declare(token, "body");
+  }
+}
+
 /** Builder evidence is unanimous or unknown; human author identities are discarded. */
 export function attributePullRequest(pr) {
   const candidates = new Map();
@@ -179,26 +210,8 @@ export function attributePullRequest(pr) {
     if (!BOT_KEY.test(key)) ambiguous = true;
     else add(key, source);
   };
-  for (const label of pr.labels ?? []) {
-    const name = (typeof label === "string" ? label : label?.name)?.toLowerCase();
-    if (name?.startsWith("model:")) declare(name.slice(6), "label");
-  }
-  let fenced = false;
-  for (const line of (pr.body ?? "").split("\n")) {
-    if (line.trimStart().startsWith("```")) {
-      fenced = !fenced;
-      continue;
-    }
-    if (fenced) continue;
-    const text = stripMarkdown(line.trim().replace(/^[-*+]\s+/, "")).replace(/^[-+]\s+/, "");
-    const match = /^(?:build(?:er)?\s+)?model\s*:\s*/i.exec(text);
-    if (!match) continue;
-    const remainder = text.slice(match[0].length);
-    let token = /^\S*/.exec(remainder)[0];
-    if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
-    token = token.replace(/[,;:)·]+$/, "").toLowerCase();
-    declare(token, "body");
-  }
+  collectLabelDeclarations(pr.labels, declare);
+  collectBodyDeclarations(pr.body, declare);
   add(pr.authorBot ?? authorBotKey(pr), "author");
   const sources = [...new Set([...evidenceSources, ...[...candidates.values()].flatMap((values) => [...values])])].sort(compareCodeUnits);
   if (ambiguous) return { bot: "unknown", status: "ambiguous", sources };
@@ -225,14 +238,18 @@ export function computeBotAttribution(merged) {
   return result;
 }
 
-export function computeBots(merged, comments, window) {
+function groupPullRequestsByBot(merged) {
   const groups = new Map();
-  const reviews = new Map();
   for (const pr of merged) {
     const { bot } = attributePullRequest(pr);
     if (!groups.has(bot)) groups.set(bot, []);
     groups.get(bot).push(pr);
   }
+  return groups;
+}
+
+function tallyBotReviews(merged, comments, window, groups) {
+  const reviews = new Map();
   const numbers = new Set(merged.map((pr) => pr.number));
   const seen = new Set();
   for (const comment of comments.map(normalizeComment)) {
@@ -245,21 +262,31 @@ export function computeBots(merged, comments, window) {
     if (!reviews.has(verdict.bot)) reviews.set(verdict.bot, { approved: 0, changesRequired: 0 });
     reviews.get(verdict.bot)[verdict.verdict === "approved" ? "approved" : "changesRequired"] += 1;
   }
-  return [...groups.keys()].sort((a, b) => {
-    if (a === "unknown") return 1;
-    if (b === "unknown") return -1;
-    return compareCodeUnits(a, b);
-  }).map((bot) => {
-    const prs = groups.get(bot);
-    const { pass, fail, noVerdict } = computeQa(prs, comments, window);
-    return {
-      bot,
-      prs: prs.length,
-      qa: { pass, fail, noVerdict, passRate: pass + fail === 0 ? null : Math.round(pass / (pass + fail) * 10000) / 10000 },
-      reverts: computeReverts(prs),
-      reviews: reviews.get(bot) ?? { approved: 0, changesRequired: 0 },
-    };
-  });
+  return reviews;
+}
+
+function compareBotKeys(a, b) {
+  if (a === "unknown") return 1;
+  if (b === "unknown") return -1;
+  return compareCodeUnits(a, b);
+}
+
+function buildBotRow(bot, prs, reviews, comments, window) {
+  const { pass, fail, noVerdict } = computeQa(prs, comments, window);
+  return {
+    bot,
+    prs: prs.length,
+    qa: { pass, fail, noVerdict, passRate: pass + fail === 0 ? null : Math.round(pass / (pass + fail) * 10000) / 10000 },
+    reverts: computeReverts(prs),
+    reviews: reviews.get(bot) ?? { approved: 0, changesRequired: 0 },
+  };
+}
+
+export function computeBots(merged, comments, window) {
+  const groups = groupPullRequestsByBot(merged);
+  const reviews = tallyBotReviews(merged, comments, window, groups);
+  return [...groups.keys()].sort(compareBotKeys)
+    .map((bot) => buildBotRow(bot, groups.get(bot), reviews, comments, window));
 }
 
 export function computeMerges(merged, window) {
