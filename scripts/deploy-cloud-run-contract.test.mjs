@@ -400,6 +400,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       SUPABASE_SERVICE_ROLE_SECRET_NAME: "supabase-service-role-key-staging",
       WORKER_MODE: "simulate",
       XOMETRY_STORAGE_STATE_SECRET_NAME: "xometry-storage-state-staging",
+      WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME: "worker-provider-session-namespace-key-staging",
     };
 
     it("deploys a simulate-mode staging worker bound only to staging secrets", async () => {
@@ -414,7 +415,15 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       expect(updateSecrets).toEqual({
         SUPABASE_SERVICE_ROLE_KEY: "supabase-service-role-key-staging:latest",
         XOMETRY_STORAGE_STATE_JSON: "xometry-storage-state-staging:latest",
+        WORKER_PROVIDER_SESSION_NAMESPACE_KEY: "worker-provider-session-namespace-key-staging:latest",
       });
+    });
+
+    it("refuses a staging deploy that leaves the production lease namespace key default", async () => {
+      const { WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME: _key, ...defaults } = STAGING_ENV;
+      const { failure, calls } = await runDeployScript({ envOverrides: defaults });
+      expect(failure).not.toBeNull();
+      expect(calls).toEqual([]);
     });
 
     it("refuses a staging deploy that leaves the Xometry and worker-mode defaults", async () => {

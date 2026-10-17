@@ -73,6 +73,10 @@ call:
 - every other secret name that is set (`FICTIV_`, `QUICKPARTS_`,
   `WEERG_STORAGE_STATE_SECRET_NAME`, `OPENAI_`/`ANTHROPIC_API_KEY_SECRET_NAME`,
   `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME`) ends in `-staging`.
+- the OVD-462 provider session lease is on by default, and
+  `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` defaults to the production
+  `worker-provider-session-namespace-key`, so a staging deploy must set it to a
+  `-staging` name (or set `WORKER_PROVIDER_SESSION_LEASE=off`).
 
 In the other direction, a deploy without `OVERDRAFTER_DEPLOY_ENV=staging` is
 refused when `SUPABASE_URL` names the staging project. Live staging dispatch is
