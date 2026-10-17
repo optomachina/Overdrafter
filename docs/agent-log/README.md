@@ -1,12 +1,17 @@
 # Agent decision log
 
-`jev-decisions.jsonl` (now written to `~/work/claude-jobs/jev-decisions.jsonl`, 
+`jev-decisions.jsonl` (written to `~/work/claude-jobs/jev-decisions.jsonl`, 
 outside the repository) records every Jev (TypeSafe, `jev-1.13.0`) decision the
 lead engineer uses to size review, one JSON object per line: PR, head SHA,
 deterministic tier, the matched sensitive-path classes (`sensitiveClasses`, from
 `docs/sensitive-paths.json` through `scripts/lib/sensitive-paths.mjs`), Jev's
-tier, confidence and incident probability, the final tier, latency, cache hit
-status, and caller identification.
+tier, confidence and incident probability, the final tier, latency (null on
+marker hits), marker hit status, caller, and screener identity.
+
+Dedupe: uses GitHub commit status markers (context `jev-screen`) keyed by
+(full 40-hex SHA, screener, question-set hash, model). Reading is fail-safe:
+re-screens on anything missing, mismatched or untrusted. Writing fails open:
+a write failure never fails the screen.
 
 Rules the log encodes, and the review each tier gets:
 

@@ -19,65 +19,31 @@
  * malformed list screens "risky" and the record names the problem
  * (filesProblem), because an empty list is what a failed fetch looks like.
  *
- * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]
+ * Dedupe: uses GitHub commit status markers (context "jev-screen") keyed by
+ * (full 40-hex SHA, screener, question-set hash, model). Reading is fail-safe:
+ * re-screens on anything missing, mismatched or untrusted. Writing fails open:
+ * a write failure never fails the screen.
+ *
+ * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] [--caller <id>] <input.json> [log.jsonl]
  * input.json: [{ pr, sha, title, files: [path | {path}, ...], additions?, deletions?, deterministic: "low"|"normal"|"risky", notes? }]
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
+import { readMarker, writeMarker, claimPendingMarker, waitForPendingMarker, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORK_DIR = `${homedir()}/work/claude-jobs`;
 export const DEFAULT_LOG = `${WORK_DIR}/jev-decisions.jsonl`;
-export const DEFAULT_CACHE = `${WORK_DIR}/jev-screen-cache.json`;
 export const TIERS = ["low", "normal", "risky"];
 export const DEFAULT_MIN_CONFIDENCE = 0.5;
 const MAX_CONCURRENT_CALLS = 4;
 
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const floorOf = (value) => (isProbability(value) ? value : DEFAULT_MIN_CONFIDENCE);
-
-/**
- * Cache key for dedupe: (pr, sha, model). Returns null for invalid inputs.
- */
-export function cacheKey(pr, sha, model) {
-  const prNum = Number.isInteger(pr) ? pr : null;
-  const shaTok = sanitizeToken(sha);
-  const modelTok = sanitizeToken(model);
-  if (prNum === null || !shaTok || !modelTok) return null;
-  return `${prNum}:${shaTok}:${modelTok}`;
-}
-
-/**
- * Load the cache file (a JSON object mapping cache keys to cached results).
- * Returns {} if the file does not exist or is invalid.
- */
-export function loadCache(cachePath) {
-  try {
-    if (!existsSync(cachePath)) return {};
-    const content = readFileSync(cachePath, "utf8");
-    const parsed = JSON.parse(content);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Save the cache to disk.
- */
-export function saveCache(cache, cachePath) {
-  try {
-    const dir = dirname(cachePath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
-  } catch {
-    // Fail open: if we can't save the cache, just continue
-  }
-}
 
 export const SCREEN_QUESTIONS = {
   tier: {
@@ -195,7 +161,7 @@ export function deterministicTier(pr, sensitivePaths, { skipSensitivePaths = fal
  * screens risky with sensitivePathsUnavailable. skipSensitivePaths: true
  * skips the path check (tier-logic tests only).
  */
-export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false, cacheHit = false, caller = null } = {}) {
+export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false, markerHit = false, caller = null } = {}) {
   const gate = gatedChoice(result, "tier", floorOf(minConfidence));
   const skip = skipSensitivePaths === true;
   const list = skip ? null : usableSensitivePaths(sensitivePaths);
@@ -204,7 +170,7 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
   return {
     ts: now.toISOString(),
     kind: "pr_risk_screen",
-    pr: Number.isInteger(pr.pr) ? pr.pr : null,
+    pr: Number.isInteger(pr.pr) && pr.pr > 0 ? pr.pr : null,
     sha: sanitizeToken(pr.sha),
     model: result?.ok ? sanitizeToken(result.model) : null,
     ok: result?.ok === true,
@@ -220,9 +186,10 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
     final: finalTier(deterministic, gate),
-    latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
-    cacheHit,
+    latency_ms: markerHit ? null : (Number.isFinite(result?.latencyMs) ? result.latencyMs : null),
+    marker_hit: markerHit,
     caller: caller ? sanitizeToken(caller) : null,
+    screener: SCREENER_ID,
   };
 }
 
@@ -239,60 +206,99 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
 
 export async function screen(
   prs,
-  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, cachePath = DEFAULT_CACHE, caller = null } = {},
+  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, caller = null, usePendingClaim = false } = {},
 ) {
   // Always screened against a list: only null or undefined loads it, and any
   // other value that is not a valid list (false, 0, "", NaN ...) screens every
   // PR risky. screen() has no opt-out.
   const sensitivePaths = given === null || given === undefined ? loadScreenSensitivePaths({ root, baseRef }) : usableSensitivePaths(given);
   
-  // Load cache for dedupe
-  const cache = loadCache(cachePath);
-  let cacheChanged = false;
-  
+  const questionHash = hashQuestions(SCREEN_QUESTIONS);
   const results = [];
-  const cacheHits = [];
+  const markerHits = [];
   
-  // Check cache for each PR and only call Jev for cache misses
+  // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
-    const chunkPrs = prs.slice(start, start + MAX_CONCURRENT_CALLS);
-    const chunkTasks = chunkPrs.map(async (pr) => {
-      // Build cache key with expected model version
-      const key = cacheKey(pr.pr, pr.sha, JEV_MODEL);
-      
-      // Check cache first
-      if (key && cache[key]) {
-        // Cache hit: return cached result
-        return { result: cache[key], hit: true };
+    const chunk = prs.slice(start, start + MAX_CONCURRENT_CALLS).map(async (pr) => {
+      // Validate SHA
+      if (!isValidSha(pr.sha)) {
+        // Invalid SHA: screen without marker
+        const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
+        const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+        return { result, markerHit: false };
       }
       
-      // Cache miss: call Jev
+      // Try to read marker
+      const marker = await readMarker(pr.sha, JEV_MODEL, questionHash);
+      
+      if (marker.found) {
+        // Marker hit: reconstruct result from marker
+        const jevTier = marker.jevTier || marker.tier;
+        const result = {
+          ok: true,
+          model: marker.model,
+          answers: {
+            tier: { type: "choice", choice: jevTier, confidence: 1.0 },
+            incident: { type: "noul", noul: 0 }
+          },
+          latencyMs: 0
+        };
+        return { result, markerHit: true };
+      }
+      
+      // Marker miss: claim pending (optional), wait briefly, then screen
+      if (usePendingClaim) {
+        await claimPendingMarker(pr.sha, caller || SCREENER_ID, JEV_MODEL, questionHash);
+        
+        // Wait for another worker's result
+        const waited = await waitForPendingMarker(pr.sha, JEV_MODEL, questionHash, { maxWaitMs: 30000 });
+        if (waited.found) {
+          const jevTier = waited.jevTier || waited.tier;
+          const result = {
+            ok: true,
+            model: waited.model,
+            answers: {
+              tier: { type: "choice", choice: jevTier, confidence: 1.0 },
+              incident: { type: "noul", noul: 0 }
+            },
+            latencyMs: 0
+          };
+          return { result, markerHit: true };
+        }
+      }
+      
+      // Call Jev
       const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
       const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
       
-      // Save successful result to cache
-      if (result?.ok && key) {
-        cache[key] = result;
-        cacheChanged = true;
+      // Write marker on success
+      if (result?.ok && isValidSha(pr.sha)) {
+        const gate = gatedChoice(result, "tier", floorOf(minConfidence));
+        const jevTier = TIERS.includes(gate.choice) ? gate.choice : null;
+        if (jevTier) {
+          // Compute deterministic tier to get final tier
+          const { tier: detTier } = deterministicTier(pr, sensitivePaths);
+          const final = maxTier(detTier, jevTier);
+          await writeMarker(pr.sha, final, jevTier, result.model, questionHash);
+        }
       }
       
-      return { result, hit: false };
+      return { result, markerHit: false };
     });
     
-    const chunkResults = await Promise.all(chunkTasks);
+    const chunkResults = await Promise.all(chunk);
     results.push(...chunkResults.map(r => r.result));
-    cacheHits.push(...chunkResults.map(r => r.hit));
+    markerHits.push(...chunkResults.map(r => r.markerHit));
   }
   
-  // Save updated cache if changed
-  if (cacheChanged) {
-    saveCache(cache, cachePath);
-  }
-  
-  // Ensure log directory exists
-  const logDir = dirname(log);
-  if (!existsSync(logDir)) {
-    mkdirSync(logDir, { recursive: true });
+  // Ensure log directory exists (fail open)
+  try {
+    const logDir = dirname(log);
+    if (!existsSync(logDir)) {
+      mkdirSync(logDir, { recursive: true });
+    }
+  } catch {
+    // Fail open: if we can't create the log dir, continue without logging
   }
   
   // Append in input order so the log reads like the batch.
@@ -300,24 +306,37 @@ export async function screen(
     decisionRecord(pr, results[index], new Date(), { 
       minConfidence, 
       sensitivePaths, 
-      cacheHit: cacheHits[index],
+      markerHit: markerHits[index],
       caller 
     })
   );
-  for (const record of records) append(log, `${JSON.stringify(record)}\n`);
+  
+  try {
+    for (const record of records) {
+      append(log, `${JSON.stringify(record)}\n`);
+    }
+  } catch {
+    // Fail open: if we can't write the log, continue
+  }
+  
   return records;
 }
 
-const USAGE = "usage: jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]";
+const USAGE = "usage: jev-pr-screen.mjs [--base-ref <ref>] [--caller <id>] <input.json> [log.jsonl]";
 
-/** CLI arguments: [--base-ref <ref>] <input.json> [log.jsonl]. Throws with the usage line. */
+/** CLI arguments: [--base-ref <ref>] [--caller <id>] <input.json> [log.jsonl]. Throws with the usage line. */
 export function parseScreenArgs(argv) {
   const positional = [];
   let baseRef = null;
+  let caller = null;
   for (let k = 0; k < argv.length; k += 1) {
     if (argv[k] === "--base-ref") {
       baseRef = argv[k + 1] ?? "";
       if (baseRef === "" || baseRef.startsWith("-")) throw new Error(`--base-ref needs a ref; ${USAGE}`);
+      k += 1;
+    } else if (argv[k] === "--caller") {
+      caller = argv[k + 1] ?? "";
+      if (caller === "" || caller.startsWith("-")) throw new Error(`--caller needs an id; ${USAGE}`);
       k += 1;
     } else if (argv[k].startsWith("--")) {
       throw new Error(`unknown option ${argv[k]}; ${USAGE}`);
@@ -326,7 +345,7 @@ export function parseScreenArgs(argv) {
     }
   }
   if (positional.length < 1 || positional.length > 2) throw new Error(USAGE);
-  return { input: positional[0], log: positional[1] ?? DEFAULT_LOG, baseRef };
+  return { input: positional[0], log: positional[1] ?? DEFAULT_LOG, baseRef, caller };
 }
 
 /**
@@ -351,17 +370,18 @@ if (invokedAsScript()) {
     console.error(`jev-pr-screen: ${error.message}`);
     process.exit(2);
   }
-  const { input, log, baseRef } = args;
+  const { input, log, baseRef, caller } = args;
   const sensitivePaths = loadScreenSensitivePaths({ baseRef });
   if (sensitivePaths === SENSITIVE_PATHS_UNAVAILABLE) {
     console.error(`jev-pr-screen: ${SENSITIVE_PATHS_FILE} could not be loaded${baseRef == null ? "" : ` at ${baseRef}`}; every PR screens risky (fail closed)`);
   } else if (!baseRef) {
     console.error(`jev-pr-screen: no --base-ref, so the working tree's ${SENSITIVE_PATHS_FILE} is used; pass the PR base (for example --base-ref origin/main) so a PR cannot narrow its own list`);
   }
-  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, sensitivePaths });
+  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, sensitivePaths, caller });
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";
-    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}`);
+    const marker = r.marker_hit ? " (marker hit)" : "";
+    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${marker}`);
   }
 }

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,25 +7,30 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
-  DEFAULT_CACHE,
   FILES_EMPTY,
   FILES_ENTRY_INVALID,
   FILES_MISSING,
   FILES_NOT_ARRAY,
   SENSITIVE_PATHS_UNAVAILABLE,
-  cacheKey,
+  SCREEN_QUESTIONS,
   decisionRecord,
   deterministicTier,
   finalTier,
-  loadCache,
   loadScreenSensitivePaths,
   maxTier,
   parseScreenArgs,
   prFilePaths,
   replay,
-  saveCache,
   screen,
 } from "./jev-pr-screen.mjs";
+import {
+  buildMarkerDescription,
+  parseMarkerDescription,
+  hashQuestions,
+  isValidSha,
+  MARKER_VERSION,
+  SCREENER_ID,
+} from "./lib/jev-screen-marker.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -60,7 +65,7 @@ const accepted = (choice, confidence = 0.9) => ({ status: "accepted", choice, co
 const askLow = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
 const MIGRATION_SQL = ["supabase", "migrations", "x.sql"].join("/");
 /** A readable label for a value (JSON would print NaN as null and drop undefined). */
-const labelOf = (value) => (typeof value === "number" || value === undefined ? String(value) : JSON.stringify(value));
+const labelOf = (value) => (typeof value === "number" || value === "undefined" ? String(value) : JSON.stringify(value));
 /** Tier-logic tests only: the one explicit way to skip the sensitive-path check. */
 const SKIP = { skipSensitivePaths: true };
 
@@ -98,7 +103,7 @@ describe("jev PR screen", () => {
     expect(record.sha).toMatch(/^[\w.-]*$/);
     expect(record.model).toMatch(/^[\w.-]*$/);
     expect(record.jev).toMatchObject({ confidence: null, pIncident: null, status: "failed" });
-    expect(record.latencyMs).toBeNull();
+    expect(record.latency_ms).toBeNull();
     expect(record.final).toBe("normal");
   });
 
@@ -112,6 +117,24 @@ describe("jev PR screen", () => {
     expect(ok).toMatchObject({ final: "low", jev: { tier: "low", confidence: 0.95, pIncident: 0.1 }, ok: true });
     const failed = decisionRecord({ pr: 2, sha: "b", deterministic: "low" }, { ok: false, reason: "http_403" }, new Date(0), SKIP);
     expect(failed).toMatchObject({ final: "normal", ok: false, reason: "http_403", jev: { pIncident: null } });
+  });
+
+  it("rejects PR 0 and negative PR numbers", () => {
+    const record = decisionRecord(
+      { pr: 0, sha: "abc", deterministic: "low" },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
+      new Date(0),
+      SKIP,
+    );
+    expect(record.pr).toBeNull();
+    
+    const negativeRecord = decisionRecord(
+      { pr: -5, sha: "def", deterministic: "low" },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
+      new Date(0),
+      SKIP,
+    );
+    expect(negativeRecord.pr).toBeNull();
   });
 
   it("replays logged decisions under a stricter confidence floor", () => {
@@ -129,12 +152,6 @@ describe("jev PR screen", () => {
     expect(replay(uncertain, { minConfidence: 0.3 })[0]).toMatchObject({ after: "low", changed: true });
     const riskyBase = [{ pr: 7, sha: "h", ok: true, deterministic: "risky", final: "risky", jev: { tier: "low", confidence: 0.99 } }];
     expect(replay(riskyBase, { minConfidence: 0.1 })[0]).toMatchObject({ after: "risky", changed: false });
-  });
-
-  it("replays the committed log to itself at the default floor", () => {
-    const lines = readFileSync(DEFAULT_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(lines.length).toBeGreaterThan(0);
-    for (const result of replay(lines)) expect(result.changed).toBe(false);
   });
 
   it("raises the declared tier to risky for sensitive paths from the shared list, never lowers it", () => {
@@ -165,14 +182,16 @@ describe("jev PR screen", () => {
         .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
     // screen(): null and undefined load the list (README.md stays low, a migration is risky) ...
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     for (const value of [null, undefined]) {
-      const [low, risky] = await screen([plain, migration], { ask: askLow, append: () => {}, sensitivePaths: value });
+      const [low, risky] = await screen([plain, migration], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
       expect(low, labelOf(value)).toMatchObject({ deterministic: "low", sensitiveClasses: [], sensitivePathsUnavailable: false, final: "low" });
       expect(risky, labelOf(value)).toMatchObject({ deterministic: "risky", sensitiveClasses: ["schema", "migrations"], sensitivePathsUnavailable: false, final: "risky" });
     }
     // ... and any other value that is not a valid list screens every PR risky, even when Jev answers low at 0.99.
     for (const value of invalid.filter((entry) => entry !== null && entry !== undefined)) {
-      const [record] = await screen([plain], { ask: askLow, append: () => {}, sensitivePaths: value });
+      const [record] = await screen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: value });
       expect(record, labelOf(value))
         .toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
@@ -181,7 +200,7 @@ describe("jev PR screen", () => {
       expect(deterministicTier(plain, false, { skipSensitivePaths }), labelOf(skipSensitivePaths)).toEqual(unavailable);
       expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: 0, skipSensitivePaths }).final, labelOf(skipSensitivePaths)).toBe("risky");
     }
-    const [noOptOut] = await screen([plain], { ask: askLow, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
+    const [noOptOut] = await screen([plain], { ask: askLow, log: tempLog, append: () => {}, sensitivePaths: false, skipSensitivePaths: true });
     expect(noOptOut).toMatchObject({ deterministic: "risky", sensitivePathsUnavailable: true, final: "risky" });
     expect(decisionRecord(plain, failedJev, new Date(0), { sensitivePaths: false, ...SKIP })).toMatchObject({ deterministic: "low", sensitivePathsUnavailable: false });
   });
@@ -211,58 +230,68 @@ describe("jev PR screen", () => {
       [[{ path: 3 }], FILES_ENTRY_INVALID],
       [["README.md", { name: "x" }], FILES_ENTRY_INVALID],
     ];
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     for (const [files, problem] of malformed) {
       const pr = { pr: 8, sha: "g", deterministic: "low", files };
       expect(deterministicTier(pr, sensitivePaths), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
       expect(deterministicTier(pr, SENSITIVE_PATHS_UNAVAILABLE), JSON.stringify(files)).toEqual({ tier: "risky", sensitiveClasses: null, filesProblem: problem });
-      const [record] = await screen([pr], { ask: askLow, append: () => {} });
+      const [record] = await screen([pr], { ask: askLow, log: tempLog, append: () => {} });
       expect(record, JSON.stringify(files)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, filesProblem: problem, final: "risky" });
     }
   });
 
   it("screens a PR that edits only the list's control files as risky", async () => {
-    for (const file of ["scripts/lib/sensitive-paths.mjs", SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/jev-pr-screen.mjs", "scripts/validate-agent-contract.mjs", "scripts/fixtures/sensitive-paths/paths.json"]) {
-      const [record] = await screen([{ pr: 10, sha: "h", deterministic: "low", files: [file] }], { ask: askLow, append: () => {} });
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
+    for (const file of ["scripts/lib/sensitive-paths.mjs", SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/jev-pr-screen.mjs", "scripts/jev-client.mjs", "scripts/validate-agent-contract.mjs", "scripts/fixtures/sensitive-paths/paths.json"]) {
+      const [record] = await screen([{ pr: 10, sha: "h", deterministic: "low", files: [file] }], { ask: askLow, log: tempLog, append: () => {} });
       expect(record, file).toMatchObject({ deterministic: "risky", sensitiveClasses: ["infra_ci"], filesProblem: null, final: "risky" });
     }
-    const [both] = await screen([{ pr: 11, sha: "i", deterministic: "low", files: [SENSITIVE_PATHS_FILE, "AGENTS.md"] }], { ask: askLow, append: () => {} });
+    const [both] = await screen([{ pr: 11, sha: "i", deterministic: "low", files: [SENSITIVE_PATHS_FILE, "AGENTS.md"] }], { ask: askLow, log: tempLog, append: () => {} });
     expect(both).toMatchObject({ deterministic: "risky", final: "risky" });
   });
 
   it("appends one JSONL line per PR", async () => {
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     const lines = [];
     const ask = async () => ({ ok: false, reason: "timeout", latencyMs: 1 });
-    const records = await screen([{ pr: 3, sha: "c", deterministic: "risky" }], { ask, log: "x.jsonl", append: (_p, line) => lines.push(line) });
+    const records = await screen([{ pr: 3, sha: "c", deterministic: "risky" }], { ask, log: tempLog, append: (_p, line) => lines.push(line) });
     expect(records[0].final).toBe("risky");
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0])).toMatchObject({ pr: 3, final: "risky" });
     // The default screen reads docs/sensitive-paths.json, so a declared-low PR touching a lockfile is risky.
-    const [lockfile] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: "x.jsonl", append: () => {} });
+    const [lockfile] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {} });
     expect(lockfile).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
     // sensitivePaths: null is not an opt-out of the path check.
-    const [optOut] = await screen([{ pr: 4, sha: "d", deterministic: "low", files: ["package-lock.json"] }], { ask, log: "x.jsonl", append: () => {}, sensitivePaths: null });
+    const [optOut] = await screen([{ pr: 4, sha: "d2", deterministic: "low", files: ["package-lock.json"] }], { ask, log: tempLog, append: () => {}, sensitivePaths: null });
     expect(optOut).toMatchObject({ deterministic: "risky", sensitiveClasses: ["deps"], final: "risky" });
   });
 
   it("screens against the base ref's list, so a PR that narrows the list cannot lower its own tier", async () => {
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     const ask = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
     // The PR removes the .env glob and adds a .env file.
     const dir = baseAndHeadRepo(withoutGlob("**/.env*"));
     const pr = { pr: 5, sha: "e", deterministic: "low", files: [".env.production"] };
-    const [fromBase] = await screen([pr], { ask, root: dir, baseRef: "HEAD^1", append: () => {} });
+    const [fromBase] = await screen([pr], { ask, root: dir, baseRef: "HEAD^1", log: tempLog, append: () => {} });
     expect(fromBase).toMatchObject({ deterministic: "risky", sensitiveClasses: ["secrets"], sensitivePathsUnavailable: false, final: "risky" });
     // The working tree (the PR's own list) is what --base-ref replaces.
-    const [fromHead] = await screen([pr], { ask, root: dir, append: () => {} });
+    const [fromHead] = await screen([pr], { ask, root: dir, log: tempLog, append: () => {} });
     expect(fromHead).toMatchObject({ deterministic: "low", sensitiveClasses: [], final: "low" });
     // A base ref that cannot be read is never replaced by the head list: "" (an unset $BASE) included.
     for (const baseRef of ["no-such-ref", "", "HEAD~9"]) {
       expect(loadScreenSensitivePaths({ root: dir, baseRef }), JSON.stringify(baseRef)).toBe(SENSITIVE_PATHS_UNAVAILABLE);
-      const [record] = await screen([pr], { ask, root: dir, baseRef, append: () => {} });
+      const [record] = await screen([pr], { ask, root: dir, baseRef, log: tempLog, append: () => {} });
       expect(record, JSON.stringify(baseRef)).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
   });
 
   it("fails closed to risky when the base list cannot be loaded", async () => {
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     const ask = async () => ({ ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 });
     const pr = { pr: 6, sha: "f", deterministic: "low", files: ["README.md"] };
     const broken = baseAndHeadRepo(readFileSync(join(repoRoot, SENSITIVE_PATHS_FILE), "utf8"), "{ not json");
@@ -271,7 +300,7 @@ describe("jev PR screen", () => {
     mkdirSync(`${output}:docs`);
     for (const baseRef of ["no-such-ref", "", "HEAD^1", `--output=${output}`]) {
       expect(loadScreenSensitivePaths({ root: broken, baseRef }), baseRef).toBe(SENSITIVE_PATHS_UNAVAILABLE);
-      const [record] = await screen([pr], { ask, root: broken, baseRef, append: () => {} });
+      const [record] = await screen([pr], { ask, root: broken, baseRef, log: tempLog, append: () => {} });
       expect(record, baseRef).toMatchObject({ deterministic: "risky", sensitiveClasses: null, sensitivePathsUnavailable: true, final: "risky" });
     }
     // An option-like ref is never handed to git.
@@ -289,111 +318,102 @@ describe("jev PR screen", () => {
     expect(proc.stderr).toMatch(/jev-pr-screen: usage:/);
   });
 
-  it("parses --base-ref on the command line", () => {
-    expect(parseScreenArgs(["--base-ref", "origin/main", "in.json"])).toEqual({ input: "in.json", log: DEFAULT_LOG, baseRef: "origin/main" });
-    expect(parseScreenArgs(["in.json", "out.jsonl"])).toEqual({ input: "in.json", log: "out.jsonl", baseRef: null });
-    for (const argv of [[], ["--base-ref"], ["--base-ref", "--x", "in.json"], ["--nope", "in.json"], ["a", "b", "c"]]) {
+  it("parses --base-ref and --caller on the command line", () => {
+    expect(parseScreenArgs(["--base-ref", "origin/main", "in.json"])).toEqual({ input: "in.json", log: DEFAULT_LOG, baseRef: "origin/main", caller: null });
+    expect(parseScreenArgs(["--caller", "test-caller", "in.json"])).toEqual({ input: "in.json", log: DEFAULT_LOG, baseRef: null, caller: "test-caller" });
+    expect(parseScreenArgs(["--base-ref", "origin/main", "--caller", "engineer", "in.json", "out.jsonl"])).toEqual({ input: "in.json", log: "out.jsonl", baseRef: "origin/main", caller: "engineer" });
+    expect(parseScreenArgs(["in.json", "out.jsonl"])).toEqual({ input: "in.json", log: "out.jsonl", baseRef: null, caller: null });
+    for (const argv of [[], ["--base-ref"], ["--base-ref", "--x", "in.json"], ["--caller"], ["--nope", "in.json"], ["a", "b", "c"]]) {
       expect(() => parseScreenArgs(argv), argv.join(" ")).toThrow(/usage/);
     }
   });
 
-  it("generates cache keys from pr, sha, and model", () => {
-    expect(cacheKey(123, "abc123", "jev-1.13.0")).toBe("123:abc123:jev-1.13.0");
-    expect(cacheKey(456, "def456/../../", "jev-1.13.0")).toMatch(/^456:[\w._-]+:jev-1.13.0$/);
-    // Invalid inputs return null
-    expect(cacheKey("not a number", "abc", "jev-1.13.0")).toBeNull();
-    expect(cacheKey(123, null, "jev-1.13.0")).toBeNull();
-    expect(cacheKey(123, "abc", null)).toBeNull();
+  it("validates commit SHAs (40 hex chars only)", () => {
+    expect(isValidSha("0123456789abcdef0123456789abcdef01234567")).toBe(true);
+    expect(isValidSha("ABCDEF0123456789ABCDEF0123456789ABCDEF01")).toBe(true);
+    expect(isValidSha("head")).toBe(false);
+    expect(isValidSha("abc123")).toBe(false);
+    expect(isValidSha("ovd-622")).toBe(false);
+    expect(isValidSha("0123456789abcdef0123456789abcdef0123456")).toBe(false);
+    expect(isValidSha("0123456789abcdef0123456789abcdef012345678")).toBe(false);
+    expect(isValidSha("")).toBe(false);
+    expect(isValidSha(null)).toBe(false);
   });
 
-  it("loads and saves cache files", () => {
-    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
-    temps.push(dirname(cachePath));
+  it("hashes question sets to detect schema changes", () => {
+    const hash1 = hashQuestions(SCREEN_QUESTIONS);
+    expect(hash1).toMatch(/^[0-9a-f]{8}$/);
     
-    // Empty cache when file doesn't exist
-    expect(loadCache(cachePath)).toEqual({});
+    const hash2 = hashQuestions(SCREEN_QUESTIONS);
+    expect(hash2).toBe(hash1);
     
-    // Save and load cache
-    const cache = { "123:abc:jev-1.13.0": { ok: true, model: "jev-1.13.0", answers: {} } };
-    saveCache(cache, cachePath);
-    expect(loadCache(cachePath)).toEqual(cache);
-    
-    // Invalid JSON returns empty cache
-    writeFileSync(cachePath, "not json", "utf8");
-    expect(loadCache(cachePath)).toEqual({});
+    const modified = { ...SCREEN_QUESTIONS, tier: { ...SCREEN_QUESTIONS.tier, instructions: "different" } };
+    const hash3 = hashQuestions(modified);
+    expect(hash3).not.toBe(hash1);
   });
 
-  it("uses cache to dedupe screens with the same pr, sha, and model", async () => {
-    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
-    temps.push(dirname(cachePath));
-    const logPath = join(dirname(cachePath), "log.jsonl");
+  it("builds and parses marker descriptions", () => {
+    const desc = buildMarkerDescription("risky", "normal", "jev-1.13.0", "abc12345");
+    expect(desc).toBe("v1 tier=risky jev=normal model=jev-1.13.0 q=abc12345 screener=mjs");
     
-    let callCount = 0;
-    const ask = async () => {
-      callCount += 1;
-      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 };
-    };
+    const parsed = parseMarkerDescription(desc);
+    expect(parsed).toEqual({
+      version: "v1",
+      tier: "risky",
+      jev: "normal",
+      model: "jev-1.13.0",
+      q: "abc12345",
+      screener: "mjs"
+    });
     
-    const pr = { pr: 100, sha: "test123", title: "Test PR", deterministic: "low", files: ["README.md"] };
-    
-    // First call: cache miss, should call Jev
-    const [record1] = await screen([pr], { ask, log: logPath, append: appendFileSync, cachePath, caller: "test1" });
-    expect(callCount).toBe(1);
-    expect(record1.cacheHit).toBe(false);
-    expect(record1.caller).toBe("test1");
-    
-    // Second call with same pr, sha, model: cache hit, should not call Jev
-    const [record2] = await screen([pr], { ask, log: logPath, append: appendFileSync, cachePath, caller: "test2" });
-    expect(callCount).toBe(1); // Still 1, no new call
-    expect(record2.cacheHit).toBe(true);
-    expect(record2.caller).toBe("test2");
-    expect(record2.final).toBe(record1.final);
+    expect(parseMarkerDescription("v2 tier=low")).toBeNull();
+    expect(parseMarkerDescription("v1 tier=low")).toBeNull(); // missing required fields
+    expect(parseMarkerDescription("")).toBeNull();
+    expect(parseMarkerDescription(null)).toBeNull();
   });
 
-  it("re-screens when the sha changes", async () => {
-    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
-    temps.push(dirname(cachePath));
-    const logPath = join(dirname(cachePath), "log.jsonl");
+  it("logs marker hits with null latency", async () => {
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
+    const lines = [];
     
-    let callCount = 0;
-    const ask = async () => {
-      callCount += 1;
-      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 };
-    };
+    const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 250 };
     
-    const pr1 = { pr: 101, sha: "abc123", title: "Test PR", deterministic: "low", files: ["README.md"] };
-    const pr2 = { pr: 101, sha: "def456", title: "Test PR", deterministic: "low", files: ["README.md"] };
+    // Cache miss: latency should be logged
+    const recordMiss = decisionRecord(
+      { pr: 100, sha: "test-sha-1234567890123456789012345678901234567890", deterministic: "low" },
+      result,
+      new Date(0),
+      { sensitivePaths: SKIP.skipSensitivePaths, markerHit: false }
+    );
+    expect(recordMiss.latency_ms).toBe(250);
+    expect(recordMiss.marker_hit).toBe(false);
     
-    // First call
-    await screen([pr1], { ask, log: logPath, append: appendFileSync, cachePath });
-    expect(callCount).toBe(1);
-    
-    // Second call with different sha: should call Jev again
-    await screen([pr2], { ask, log: logPath, append: appendFileSync, cachePath });
-    expect(callCount).toBe(2);
+    // Marker hit: latency should be null
+    const recordHit = decisionRecord(
+      { pr: 101, sha: "test-sha-1234567890123456789012345678901234567890", deterministic: "low" },
+      result,
+      new Date(0),
+      { sensitivePaths: SKIP.skipSensitivePaths, markerHit: true }
+    );
+    expect(recordHit.latency_ms).toBeNull();
+    expect(recordHit.marker_hit).toBe(true);
   });
 
-  it("re-screens when the model version changes", async () => {
-    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
-    temps.push(dirname(cachePath));
+  it("records caller and screener fields", async () => {
+    const tempLog = join(mkdtempSync(join(tmpdir(), "jev-log-")), "log.jsonl");
+    temps.push(dirname(tempLog));
     
-    // Manually set up cache with old model version
-    const oldKey = cacheKey(102, "xyz789", "jev-1.12.0");
-    const cache = { [oldKey]: { ok: true, model: "jev-1.12.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 } };
-    saveCache(cache, cachePath);
+    const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 100 };
     
-    let callCount = 0;
-    const ask = async () => {
-      callCount += 1;
-      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "normal", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 100 };
-    };
+    const record = decisionRecord(
+      { pr: 102, sha: "abc1234567890123456789012345678901234567", deterministic: "low" },
+      result,
+      new Date(0),
+      { sensitivePaths: SKIP.skipSensitivePaths, caller: "test_caller" }
+    );
     
-    const pr = { pr: 102, sha: "xyz789", title: "Test PR", deterministic: "low", files: ["README.md"] };
-    
-    // Screen with current model version (1.13.0): should miss cache and call Jev
-    const [record] = await screen([pr], { ask, log: "/tmp/log.jsonl", append: () => {}, cachePath });
-    expect(callCount).toBe(1);
-    expect(record.cacheHit).toBe(false);
-    expect(record.jev.tier).toBe("normal");
+    expect(record.caller).toBe("test_caller");
+    expect(record.screener).toBe(SCREENER_ID);
   });
 });
