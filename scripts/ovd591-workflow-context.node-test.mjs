@@ -6,6 +6,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+for (const [file, command, evidence] of [
+  ['ovd591-qualification.yml', 'run', 'OVD591_EVIDENCE'],
+  ['ovd591-retention-qualification.yml', 'run-retention', 'OVD591_EVIDENCE'],
+  ['free-quote-sql-qualification.yml', 'run-free-quote', 'FREE_QUOTE_EVIDENCE'],
+]) {
+  test(`${file} requires a passed fixture receipt and retained evidence`, () => {
+    const source = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8');
+    const step = source.split(/\n      - name: /).find(block => block.includes(`ovd591-ci-fixture.mjs ${command} "`));
+    assert(step);
+    assert.match(step, /set -euo pipefail/);
+    assert(step.includes(`node scripts/ovd591-ci-fixture.mjs ${command} "$${evidence}"`));
+    assert(step.includes(`test -s "$${evidence}/fixture-result.json"`));
+    assert(step.includes(`jq -e '.status == "passed"' "$${evidence}/fixture-result.json"`));
+    assert.match(step, /echo "::error::[^\n]+\n\s+exit 1/);
+    const upload = source.split(/\n      - name: /).find(block => block.includes('actions/upload-artifact@v4'));
+    assert.match(upload, /if-no-files-found: error/);
+  });
+}
+
 for (const [file, stem] of [['ovd591-qualification.yml', 'ovd591'],
   ['ovd591-retention-qualification.yml', 'ovd591-retention']]) {
   test(`${file} initializes the same evidence path after runner allocation`, t => {

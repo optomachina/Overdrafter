@@ -42,7 +42,13 @@ jobs:
         if: steps.image-cache.outputs.cache-hit == 'true'
         run: node scripts/ovd591-image-pull.mjs load "$OVD591_IMAGE_CACHE"
       - name: Provision and run separate actual retention qualification
-        run: node scripts/ovd591-ci-fixture.mjs run-retention "$OVD591_EVIDENCE"
+        run: |
+          set -euo pipefail
+          node scripts/ovd591-ci-fixture.mjs run-retention "$OVD591_EVIDENCE"
+          if ! test -s "$OVD591_EVIDENCE/fixture-result.json" || ! jq -e '.status == "passed"' "$OVD591_EVIDENCE/fixture-result.json" > /dev/null; then
+            echo "::error::SQL qualification exited successfully without a passed fixture receipt."
+            exit 1
+          fi
       - name: Receipt and save the registry-pulled Supabase image
         id: image-save
         if: ${{ !cancelled() && steps.image-cache.outputs.cache-hit != 'true' }}
@@ -68,5 +74,5 @@ jobs:
         with:
           name: ovd591-retention-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.OVD591_EVIDENCE }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
