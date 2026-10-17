@@ -523,7 +523,9 @@ describe("detect", () => {
 
     it("scans a body just under the limit normally", async () => {
       const result = await run(MAX_SQL_TOKENS);
-      expect(result).toMatchObject({ status: "ok", errors: [], sensitive_count: 0, unclassified: [file] });
+      // The path alone is sensitive (shared list); a clean body adds no SQL class.
+      expect(result).toMatchObject({ status: "ok", errors: [], unclassified: [] });
+      expect(result.files[0].classes).toEqual(classifyPath(file, config).classes);
       expect(result.manual_review).toBeUndefined();
     });
 
@@ -532,7 +534,10 @@ describe("detect", () => {
       expect(result.status).toBe("ok");
       expect(result.errors).toEqual([]);
       expect(result.sensitive_count).toBe(1);
-      expect(result.files[0].classes).toEqual(config.classes.map((entry) => entry.name).filter((name) => config.sqlContent.rules.some((rule) => rule.class === name)));
+      const sqlClasses = new Set(config.sqlContent.rules.map((rule) => rule.class));
+      const expected = [...new Set([...classifyPath(file, config).classes, ...sqlClasses])].sort((a, b) => OUTPUT_CLASSES.indexOf(a) - OUTPUT_CLASSES.indexOf(b));
+      expect(result.files[0].classes).toEqual(expected);
+      for (const name of sqlClasses) expect(result.files[0].classes).toContain(name);
       expect(result.manual_review).toEqual([
         `SQL body ${file} rejected for size: exceeds the limit of ${MAX_SQL_TOKENS} tokens; manual review is required`,
       ]);
