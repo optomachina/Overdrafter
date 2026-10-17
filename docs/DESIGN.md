@@ -299,7 +299,6 @@ Reject any UI work that includes:
 
 | Date | Decision | Rationale |
 |---|---|---|
-| 2026-10-15 | Jarvis PWA uses a dark surface and #FF7A1A accent | Blaine’s direction for the phone front door; rest of the system unchanged. |
 | 2026-08-13 | Design context follows the narrow 1.0 customer and routes deferred capability detail to Linear | Keeps the design system aligned with the active product contract without making it another roadmap. |
 | 2026-04-25 | Initial design system created | `/design-consultation` ran with Codex + Claude subagent + competitive research (Xometry, Fictiv, Anduril, SpaceX, Hermeus, Onshape, Linear). All three voices independently converged on warm-bone-on-paper with single oxidized-red accent and mono filename hero. Memorable thing: "the most elegant way to get great parts fast." Reference class: Hadrian / Anduril / SpaceX, NOT Xometry / Fictiv. |
 | 2026-04-25 | Mono = Lab Mono (free) with Letter Gothic Mono on the future-license roadmap | Berkeley Mono rejected (no real ASME heritage). Courier Prime considered (real heritage, free, but slightly looser feel). Lab Mono picked as the modern Letter Gothic homage — same shape, free, ships now. Letter Gothic Mono is the eventual upgrade for authentic mechanical-drafting heritage. |
