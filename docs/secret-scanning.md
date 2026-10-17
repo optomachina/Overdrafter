@@ -5,12 +5,17 @@ Two layers keep secrets out of the repo:
 1. **Path block** (`scripts/check-secret-paths.mjs`, in repo, no dependencies).
    It rejects files whose path says "secret", whatever their contents.
 2. **Content scan** (gitleaks, using `.gitleaks.toml`). It finds secret-shaped
-   values in any file. gitleaks is a new dependency, so the binary and the
-   workflow that runs it are Blaine's card items. The full draft is in
-   [CARD DRAFT](#card-draft-githubworkflowssecret-scanyml) below.
+   values in any file.
 
-Both run in **report mode** for one week: findings are printed and nothing
-fails. Making either a required check goes in the Blaine queue.
+Both run on every pull request in the `secret-scan` job,
+[`.github/workflows/secret-scan.yml`](#workflow-githubworkflowssecret-scanyml).
+Blaine approved the pinned gitleaks v8.30.1 binary and this report-mode
+workflow on 2026-10-16: "secret scanning tool is approved".
+
+The job runs in **report mode** for one week: findings are printed and never
+fail it. It is not a required check, and the `ci` aggregate does not need it.
+Making it required, or switching either layer to enforce, is a **later,
+separate approval**; this approval does not cover it.
 
 ## Path block
 
@@ -47,8 +52,9 @@ Allowed exceptions:
   `(`, `)`, `<`, `>`, `=`), so an `.envrc` cannot set a value or run a command.
   Values belong in the git-ignored file it loads.
 
-`SENSITIVE_PATH_RULES` is the one list. It moves to OVD-873's
-`docs/sensitive-paths.json` once that lands (PR #818).
+`SENSITIVE_PATH_RULES` is the one list. OVD-873's `docs/sensitive-paths.json`
+landed in PR #818; moving this list onto it is a follow-up, so keep the two in
+sync until then.
 
 Output has paths, rule ids and reasons only. The checker reads file contents
 only to evaluate `.envrc`, and it never prints them. Git is called as
@@ -63,21 +69,29 @@ and exits 0.
 That test runs the checker on `HEAD^1..HEAD` in report mode, never fails on
 findings, and skips when there is no `HEAD^1` (shallow or single-commit
 checkouts). The behaviour itself is covered by `scripts/check-secret-paths.test.mjs`
-(vitest).
+(vitest). On pull requests the `secret-scan` job runs the **base** copy of the
+checker on the PR range (see below).
 
-### Test coverage and card follow-ups
+### Test coverage and follow-ups
 
-The tests in this PR cover the **path block only**. Their fixtures hold
-synthetic AWS, Stripe, JWT and PEM values, but only to prove the checker never
-prints file contents; nothing in this PR runs gitleaks. These gitleaks content
-tests need the gitleaks binary, which is the card dependency, so they are
-**card follow-ups**:
+- `scripts/check-secret-paths.test.mjs` covers the path block. Its fixtures
+  hold synthetic AWS, Stripe, JWT and PEM values, built at runtime, to prove
+  the checker never prints file contents.
+- `scripts/secret-scan-workflow.test.mjs` covers the workflow. It pins the
+  approved shape (triggers, permissions, SHA pins, the gitleaks hash, report
+  mode, outside `ci`). It also runs each step's `run:` block under `bash -e`,
+  as GitHub does, with a stub `gitleaks` and stub `curl`: clean, findings and
+  crash cases each write a step summary and exit as described below.
+
+Neither suite runs the real gitleaks binary. The first live run is the
+`secret-scan` job on this PR. These real-binary checks are **follow-ups**,
+due before the job is made required:
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
 - The redacted JSON report and the job log contain none of those values.
-- A head-side `.gitleaksignore` or inline `gitleaks:allow` (see below) does or
-  does not suppress a finding, matching what the card decides.
+- A head-side `.gitleaksignore` is never loaded, and inline `gitleaks:allow`
+  (see below) behaves the way the decision on that gap says.
 
 ## gitleaks config and gate_loosening
 
@@ -95,27 +109,27 @@ card. The path block reports these as `gate_loosening` entries with
 `requires: ["grokbot_countersign", "blaine_card"]`. They are report-only and
 never change `ok` or the exit code.
 
-The draft workflow closes the two file-based bypasses:
+The workflow closes the two file-based bypasses:
 
 - It reads `.gitleaks.toml` and the path-block script from the **base** commit.
 - It never uses the head copy of `.gitleaksignore`: it deletes the checked-out
   copy and passes `--gitleaks-ignore-path` pointing to an empty file in
   `$RUNNER_TEMP`.
 
-**Known gap, for the card to decide:** gitleaks skips any line carrying an
-inline `gitleaks:allow` comment, and that comment arrives with the PR's own
-content. There is no gitleaks flag to turn it off. So a PR **can** still hide a
-secret from the content scan this way, and the path block does not look at
-file contents. Options for the card: grep the PR's added lines for
-`gitleaks:allow` and report each one as gate_loosening, or accept the gap and
-rely on review. Until the card decides, do not read the scan as proof that a PR
-cannot loosen it.
+**Known gap, still open:** gitleaks skips any line carrying an inline
+`gitleaks:allow` comment, and that comment arrives with the PR's own content.
+There is no gitleaks flag to turn it off. So a PR **can** still hide a secret
+from the content scan this way, and the path block does not look at file
+contents. Options: grep the PR's added lines for `gitleaks:allow` and report
+each one as gate_loosening, or accept the gap and rely on review. Decide this
+before the job is made required. Until then, do not read the scan as proof that
+a PR cannot loosen it.
 
 ## Optional pre-commit hook (docs only)
 
 This is not installed automatically, and nothing in the repo turns it on. To
-use it locally, install gitleaks yourself (verify the checksum as in the card
-draft) and add `.git/hooks/pre-commit`:
+use it locally, install gitleaks yourself (verify the checksum as the workflow
+does) and add `.git/hooks/pre-commit`:
 
 ```sh
 #!/bin/sh
@@ -130,128 +144,83 @@ not on the index, so run it before you push:
 npm run secrets:paths -- --base-ref origin/main --enforce
 ```
 
-## CARD DRAFT: `.github/workflows/secret-scan.yml`
+## Workflow: `.github/workflows/secret-scan.yml`
 
-**Not in this PR.** This needs Blaine's card for two reasons: it adds the
-gitleaks dependency, and it adds a workflow. Paste this into the card or the
-PR body as is.
+**Ships in report mode.** Blaine's approval on 2026-10-16 ("secret scanning
+tool is approved") covers two things: the pinned gitleaks binary and this
+report-mode workflow with `continue-on-error`. It does not cover making the
+job required or enforcing.
 
-- gitleaks **v8.30.1** (latest release on 2026-10-16), `linux_x64` tarball.
-- SHA-256 `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`,
-  from the official release checksums file
-  `https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt`.
-  It was checked against a `sha256sum` of the downloaded tarball.
-- Actions are pinned by full commit SHA: `actions/checkout` v5.1.0 and
-  `actions/upload-artifact` v4.6.2.
-- Trigger is `pull_request` only (never `pull_request_target`), with
-  `permissions: contents: read` and no secrets.
-- gitleaks scans the PR range only (`--log-opts base..head`, which in
-  `git log` means commits on head that are not on base) with `--redact`.
-  The only artifact is the redacted JSON report.
+Pinned inputs. Each was re-verified on 2026-10-16 before use:
+
+- gitleaks **v8.30.1** (the latest release), `linux_x64` tarball, SHA-256
+  `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`. That is the
+  `linux_x64` line of the official
+  `https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt`,
+  and it matches the asset digest GitHub reports for the release. The job
+  checks it with `sha256sum -c` before extracting anything.
+- Actions are pinned by full commit SHA, and each tag ref resolves to that
+  commit: `actions/checkout` v5.1.0 (`fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`)
+  and `actions/upload-artifact` v4.6.2 (`ea165f8d65b6e75b540449e92b4886f43607fa02`).
+
+Shape:
+
+- Trigger is `pull_request` only (never `pull_request_target`). Top-level
+  `permissions: contents: read`, no secrets and no token. Checkout uses
+  `persist-credentials: false`.
+- Every `${{ }}` value reaches the shell through `env:` (`BASE_SHA`,
+  `HEAD_SHA`), never inside a `run:` block. The step checks that both are full
+  commit SHAs present in the checkout before reading anything, because an
+  empty `BASE_SHA` would turn `"$BASE_SHA:.gitleaks.toml"` into the PR's
+  index copy.
+- The config and the path-block script are the **base** copies (`git show
+  "$BASE_SHA:..."`), never the PR's. When the base has no `.gitleaks.toml`
+  yet, gitleaks runs its default rules (`[extend] useDefault = true`). When the
+  base has no path block yet, that step reports `Skipped` and exits 0. Both
+  hold for the PR that adds this workflow.
+- gitleaks scans the PR's commits only (`--log-opts base..head`, which in `git
+  log` means commits on head that are not on base) with `--redact`. The only
+  artifact is the redacted JSON report, kept for 7 days.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
-- The config is the base copy, and the head's `.gitleaksignore` is never used
-  (the checked-out copy is deleted and `--gitleaks-ignore-path` points to an
-  empty file). Inline `gitleaks:allow` is still honoured; see the known gap
-  above.
-- `continue-on-error: true` for the one-week report period.
+- The job has `continue-on-error: true`, is not a required check, and is not
+  in the `ci` aggregate's `needs`.
 
-```yaml
-# OVD-872: secret scanning (report mode). Edits to this file, .gitleaks.toml
-# or .gitleaksignore are gate_loosening: Grok Bot countersign plus Blaine's card.
-name: secret-scan
+Step behaviour. GitHub runs each `run:` block as `bash -e`. Every exit code
+that matters is captured with `|| rc=$?`, so `-e` never stops a step before it
+writes its step summary.
 
-on:
-  pull_request:
+| Case | Summary | Step exit |
+| --- | --- | --- |
+| gitleaks finds nothing | "No secrets found" | 0 |
+| gitleaks findings | count, then rule, file, line and commit per finding, plus a `::warning` annotation | 0 (report mode) |
+| gitleaks error, panic, no report, or exit code and report disagree | `ERROR` plus the redacted log | 1 |
+| gitleaks download, checksum or start fails | `ERROR` | 1 |
+| Blocked paths or gate_loosening | the checker's report, flagged | 0 (report mode) |
+| Path block crashes or prints no result | `ERROR` plus its output | 1 |
+| Missing or unknown base/head SHA | `ERROR` | 1 |
 
-permissions:
-  contents: read
+- gitleaks is called with `--exit-code 3`, so findings can be told apart from
+  gitleaks' own errors (exit 1) and Go panics (exit 2). A result counts as clean
+  or as findings only when the exit code and the report agree.
+- The step's own finding list never prints a finding's `Secret`, `Match` or
+  `Line` fields, even if redaction failed. For gitleaks' own log and report,
+  `--redact` masks those values, and `-v` is not passed, so the log holds only
+  the summary lines.
+- PR-controlled text (path names, scanner output) is printed between
+  `::stop-commands::` markers, so it cannot issue workflow commands.
+- A step that fails (exit 1) turns the job red, but continue-on-error keeps the
+  run green, and nothing requires the job, so it never blocks a merge. gitleaks
+  still runs when the path block step fails.
 
-concurrency:
-  group: secret-scan-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+### Later, separate approval (not covered by the 2026-10-16 approval)
 
-jobs:
-  secret-scan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Report mode for one week; making this required is a Blaine queue item.
-    continue-on-error: true
-    env:
-      GITLEAKS_VERSION: "8.30.1"
-      # From gitleaks_8.30.1_checksums.txt on the official GitHub release.
-      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-      BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    steps:
-      - name: Checkout (full history for the base..head range)
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+After the report week, each of these needs its own Blaine approval:
 
-      - name: Install gitleaks (pinned version and SHA-256)
-        run: |
-          set -euo pipefail
-          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -o "$RUNNER_TEMP/$tarball" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
-          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/gitleaks"
-          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
-          "$RUNNER_TEMP/gitleaks/gitleaks" version
-
-      - name: Load base copies of the config and path block
-        # The PR's own .gitleaks.toml, .gitleaksignore and path block are not
-        # used. Inline gitleaks:allow comments are a known gap (see docs).
-        run: |
-          set -euo pipefail
-          git show "${BASE_SHA}:.gitleaks.toml" > "$RUNNER_TEMP/gitleaks.toml"
-          git show "${BASE_SHA}:scripts/check-secret-paths.mjs" > "$RUNNER_TEMP/check-secret-paths.mjs"
-          # Never honour a head-side fingerprint ignore list: use an empty one,
-          # and drop the checked-out root copy in case gitleaks also reads it
-          # from the source directory.
-          : > "$RUNNER_TEMP/gitleaksignore-empty"
-          rm -f .gitleaksignore
-
-      - name: Secret path block (report mode)
-        run: node "$RUNNER_TEMP/check-secret-paths.mjs" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"
-
-      - name: gitleaks (PR diff only, redacted)
-        run: |
-          "$RUNNER_TEMP/gitleaks/gitleaks" git \
-            --no-banner \
-            --redact \
-            --config "$RUNNER_TEMP/gitleaks.toml" \
-            --gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore-empty" \
-            --log-opts="${BASE_SHA}..${HEAD_SHA}" \
-            --report-format json \
-            --report-path "$RUNNER_TEMP/gitleaks-report.json" \
-            --exit-code 1
-
-      - name: Upload redacted gitleaks report
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: gitleaks-report-redacted
-          path: ${{ runner.temp }}/gitleaks-report.json
-          if-no-files-found: ignore
-          retention-days: 7
-```
-
-Notes for the card:
-
-- `--redact` masks `Secret`, `Match` and `Line` in the report and in the log,
-  and `-v` is not passed, so the log shows only the summary. Only the redacted
-  report is uploaded.
-- The workflow reads base copies of the config and script, so the first PR that
-  adds this workflow must merge after this PR. Until then the `git show` step
-  has nothing to read.
-- Verify on the pinned version that `--gitleaks-ignore-path` plus deleting the
-  root `.gitleaksignore` means no head-side ignore file is loaded, including
-  any nested copy (the path block reports nested copies as gate_loosening
-  either way).
-- Decide the inline `gitleaks:allow` gap, and add the gitleaks content tests
-  listed under "Test coverage and card follow-ups".
-- After the report week, Blaine's queue: drop `continue-on-error`, pass
-  `--enforce` to the path block, and add `secret-scan` to the required checks.
+- Drop `continue-on-error`, and pass `--enforce` to the path block.
+- Add `secret-scan` to the required checks. A required check must also report
+  on `merge_group` (see `scripts/merge-queue-workflows.test.mjs` and
+  `docs/runbooks/merge-queue.md`), so that change adds a `merge_group` no-op
+  trigger. Today the workflow deliberately has none.
+- Before either: decide the inline `gitleaks:allow` gap, and add the
+  real-binary checks listed under "Test coverage and follow-ups".

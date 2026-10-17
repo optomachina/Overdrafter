@@ -1,13 +1,15 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   GIT_BIN,
   SENSITIVE_PATH_RULES,
   envrcLoadsOnly,
+  isInvokedDirectly,
   matchSensitiveRules,
   run,
 } from "./check-secret-paths.mjs";
@@ -231,5 +233,33 @@ describe("check-secret-paths diff mode", () => {
     for (const output of [json.out + json.err, human]) {
       for (const secret of SECRETS) expect(output).not.toContain(secret);
     }
+  });
+});
+
+describe("invoked directly through a symlink", () => {
+  // The secret-scan workflow runs a copy of the checker from $RUNNER_TEMP. Node
+  // resolves symlinks in import.meta.url but not in process.argv[1], so a copy
+  // reached through a symlinked directory used to print nothing and exit 0.
+  const checker = readFileSync(fileURLToPath(new URL("./check-secret-paths.mjs", import.meta.url)), "utf8");
+
+  it("runs and reports when the checker's directory is reached through a symlink", () => {
+    const realDir = mkdtempSync(join(tmpdir(), "secret-paths-real-"));
+    temps.push(realDir);
+    writeFileSync(join(realDir, "check-secret-paths.mjs"), checker);
+    const linkDir = join(mkdtempSync(join(tmpdir(), "secret-paths-link-")), "link");
+    temps.push(dirname(linkDir));
+    symlinkSync(realDir, linkDir, "dir");
+    const dir = repo({ ".env.local": "X=1\n" });
+    const result = spawnSync(process.execPath, [join(linkDir, "check-secret-paths.mjs")], { cwd: dir, encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("BLOCKED .env.local [env]");
+    expect(result.stdout).toContain("secret-paths: 1 blocked path(s)");
+  });
+
+  it("is false for another file or no argv[1]", () => {
+    const self = fileURLToPath(new URL("./check-secret-paths.mjs", import.meta.url));
+    expect(isInvokedDirectly(self, pathToFileURL(self).href)).toBe(true);
+    expect(isInvokedDirectly(fileURLToPath(import.meta.url), pathToFileURL(self).href)).toBe(false);
+    expect(isInvokedDirectly(undefined, pathToFileURL(self).href)).toBe(false);
   });
 });

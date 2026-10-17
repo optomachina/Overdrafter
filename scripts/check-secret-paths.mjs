@@ -25,7 +25,9 @@
  * contents. Git is the only input; nothing touches the network.
  */
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const GIT_BIN = "/usr/bin/git";
 export const REPORT_SCHEMA = "ovd872.secret-paths.v1";
@@ -37,8 +39,8 @@ export const GATE_LOOSENING_REQUIRES = ["grokbot_countersign", "blaine_card"];
 
 /**
  * The one list of blocked path patterns, matched case-insensitively against the
- * file's basename. This moves to OVD-873's docs/sensitive-paths.json once that
- * lands (PR #818); keep the two in sync until then.
+ * file's basename. OVD-873's docs/sensitive-paths.json landed in PR #818;
+ * moving this list onto it is a follow-up, so keep the two in sync until then.
  */
 export const SENSITIVE_PATH_RULES = Object.freeze([
   { id: "pem", glob: "*.pem" },
@@ -208,6 +210,20 @@ export function run(argv, { cwd = process.cwd(), stdout = process.stdout, stderr
   return opts.enforce && !report.ok ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = run(process.argv.slice(2));
+/**
+ * True when node was started on this very file. Node resolves symlinks in
+ * import.meta.url but leaves process.argv[1] as given, so compare real paths.
+ * The secret-scan workflow runs a copy from $RUNNER_TEMP; on macOS a copy under
+ * /var/folders (a symlink to /private/var) would otherwise print nothing and
+ * exit 0. If a path cannot be resolved, fall back to the literal compare.
+ */
+export function isInvokedDirectly(argv1 = process.argv[1], moduleUrl = import.meta.url) {
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return moduleUrl === pathToFileURL(resolve(argv1)).href;
+  }
 }
+
+if (isInvokedDirectly()) process.exitCode = run(process.argv.slice(2));
