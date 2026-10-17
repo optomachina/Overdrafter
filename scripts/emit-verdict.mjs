@@ -7,10 +7,11 @@
  * required commit SHAs (the tool never resolves refs); it fills sha from head,
  * patch_id from `git patch-id --verbatim` over base...head, and a UTC
  * timestamp. It exits 1 with `emit-verdict: <reason>` on stderr, and prints no
- * verdict, on any error, including a diff with a NUL byte that git patch-id
- * cannot hash. Prints the comment body to stdout; it only
- * posts (via `gh pr comment`) when --post and --pr are both given. Never edit a
- * posted verdict comment: edited comments are rejected, so post a new one.
+ * verdict, on any error, including a diff that git patch-id cannot hash to a
+ * single id (a NUL byte, or a line that makes it split the diff). Prints the
+ * comment body to stdout; it only posts (via `gh pr comment`) when --post and
+ * --pr are both given. Never edit a posted verdict comment: edited comments are
+ * rejected, so post a new one.
  *
  * Arguments may come from an LLM, so they are treated as untrusted: --base and
  * --head must be full lowercase 40-hex commit SHAs and are passed to git after
@@ -147,8 +148,15 @@ const PINNED_DIFF = [
  * and implies the order-independent `--stable` hashing (git rejects passing
  * both). Both ends must be full commit SHAs (checked before any git call) and
  * follow `--end-of-options`, so neither can be read as a git option. Throws on
- * an empty diff and on a diff containing a NUL byte (see the guard below); the
- * CLI reports either as `emit-verdict: <message>` on stderr and exits 1.
+ * an empty diff, on a diff containing a NUL byte (see the guard below) and on
+ * a diff that git patch-id splits into more than one patch (see
+ * parsePatchIdOutput); the CLI reports each as `emit-verdict: <message>` on
+ * stderr and exits 1.
+ *
+ * The id deliberately ignores hunk line numbers and `index` lines (that is what
+ * keeps it stable across a rebase), so equal ids do not prove an identical
+ * change: the verdict binds to `sha` (the head SHA), and `patch_id` is only a
+ * rebase-reuse aid. See docs/verdict-format.md.
  */
 export function computePatchId({ base, head, cwd }) {
   const baseSha = assertSha(base, "--base");
@@ -173,9 +181,36 @@ export function computePatchId({ base, head, cwd }) {
       `computePatchId: ${baseSha}...${headSha} diff contains a NUL byte, which git patch-id cannot hash (it stops reading a line at the first NUL); refusing to compute a patch_id that two different diffs could share`,
     );
   }
-  const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
-  if (!SHA.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
-  return patchId;
+  return parsePatchIdOutput(git(["patch-id", "--verbatim"], { cwd, input: diff }), `${baseSha}...${headSha}`);
+}
+
+/** One `git patch-id` output line: `<patch id> <commit id or 40 zeros>`. */
+const PATCH_ID_LINE = /^([0-9a-f]{40}) [0-9a-f]{40}$/;
+
+/**
+ * The patch id out of `git patch-id` output for one diff, or a thrown error.
+ * git tests every input line with get_oid_hex(): a line that starts with 40 hex
+ * characters is taken for the next commit's id, which ends the current patch
+ * and starts a new one, and git prints one output line per patch. Diff text
+ * lines start with `+`, `-` or a space, but a base85 data line of a `GIT binary
+ * patch` starts with a length character, and `c` to `f` are hex digits, so a
+ * crafted (yet valid) binary patch can split a diff in two. Taking the first id
+ * would then ignore every file after the split. A single diff must yield
+ * exactly one line of the form `<40-hex> <40-hex or zeros>`; anything else
+ * fails closed. `label` names the diff in the error message.
+ */
+export function parsePatchIdOutput(output, label = "the diff") {
+  const lines = output.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  if (lines.length === 0) throw new Error(`computePatchId: git patch-id returned no id for ${label}`);
+  if (lines.length > 1) {
+    throw new Error(
+      `computePatchId: git patch-id returned ${lines.length} ids for ${label}, which is one diff; a diff line that starts with 40 hex characters (for example a base85 line of a binary patch) makes it split the diff into several patches, and everything after the split would go unhashed, so refusing to compute a patch_id that two different diffs could share`,
+    );
+  }
+  const match = PATCH_ID_LINE.exec(lines[0]);
+  if (!match) throw new Error(`computePatchId: git patch-id returned an unexpected line for ${label}: ${JSON.stringify(lines[0])}`);
+  return match[1];
 }
 
 const parseCount = (name, value) => {

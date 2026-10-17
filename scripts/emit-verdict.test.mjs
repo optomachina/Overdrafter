@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertSha, buildVerdict, computePatchId, formatComment, isEntryPoint, main, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
+import { assertSha, buildVerdict, computePatchId, formatComment, isEntryPoint, main, parsePatchIdOutput, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -155,6 +155,42 @@ describe("computePatchId", () => {
   });
 });
 
+describe("computePatchId ignores hunk positions", () => {
+  // git patch-id drops the hunk headers and `index` lines, which is what keeps an
+  // id stable across a rebase. The price, documented in docs/verdict-format.md:
+  // the same edit at two positions with identical context shares an id, so a
+  // patch_id only aids rebase reuse and never proves an identical change.
+  /** Ten identical lines, with `text` inserted before line index `at` when given. */
+  const lines = (at, text = "NEW") => {
+    const out = Array.from({ length: 10 }, () => "x");
+    if (at !== undefined) out.splice(at, 0, text);
+    return `${out.join("\n")}\n`;
+  };
+
+  beforeAll(() => {
+    git("checkout", "-q", "-b", "pos-base", "main");
+    commit("pos.txt", lines(), "ten identical lines");
+    git("checkout", "-q", "-b", "pos-4", "pos-base");
+    commit("pos.txt", lines(3), "insert NEW at line 4");
+    git("checkout", "-q", "-b", "pos-7", "pos-base");
+    commit("pos.txt", lines(6), "insert NEW at line 7");
+    git("checkout", "-q", "-b", "pos-other", "pos-base");
+    commit("pos.txt", lines(3, "OTHER"), "insert OTHER at line 4");
+    git("checkout", "-q", "main");
+  });
+
+  it("gives one id to the same edit at two positions with identical context", () => {
+    expect(git("diff", "pos-base", "pos-4")).toContain("@@ -1,6 +1,7 @@");
+    expect(git("diff", "pos-base", "pos-7")).toContain("@@ -4,6 +4,7 @@");
+    expect(git("rev-parse", "pos-4^{tree}")).not.toBe(git("rev-parse", "pos-7^{tree}"));
+    expect(patchId("pos-base", "pos-4")).toBe(patchId("pos-base", "pos-7"));
+  });
+
+  it("still gives a different id when the inserted text differs", () => {
+    expect(patchId("pos-base", "pos-other")).not.toBe(patchId("pos-base", "pos-4"));
+  });
+});
+
 describe("computePatchId with NUL bytes", () => {
   // git patch-id hashes each diff line with strlen(), so it ignores everything
   // after a line's first NUL. git decides text vs binary from the first 8000
@@ -215,6 +251,163 @@ describe("computePatchId with NUL bytes", () => {
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/^emit-verdict: computePatchId: [0-9a-f]{40}\.\.\.[0-9a-f]{40} diff contains a NUL byte, which git patch-id cannot hash/);
+  });
+});
+
+describe("computePatchId with a diff that git patch-id splits", () => {
+  // git patch-id treats an input line that starts with 40 hex characters as the
+  // next commit's id: it ends the current patch and prints one output line per
+  // patch. Text hunk lines start with "+", "-" or " ", so only a base85 data
+  // line of a "GIT binary patch" can do that (its length character is "c" to
+  // "f" for 29 to 32 bytes, and those are hex digits). The fixture below is a
+  // 73-byte file with a leading NUL (so git classes it as binary) whose
+  // deflate stream is one stored block of 84 bytes; git cuts that into lines of
+  // 52 and 32 bytes, and the 32-byte line (the last 28 file bytes plus the
+  // adler32) is chosen to read as "f" followed by 39 hex characters.
+  const SPLIT_NAME = /git patch-id returned 2 ids for [0-9a-f]{40}\.\.\.[0-9a-f]{40}, which is one diff/;
+  const BASE85 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+  const HEX = new Set("0123456789ABCDEFabcdef");
+  const script = fileURLToPath(new URL("./emit-verdict.mjs", import.meta.url));
+
+  const adler32 = (bytes) => {
+    let a = 1;
+    let b = 0;
+    for (const byte of bytes) {
+      a = (a + byte) % 65521;
+      b = (b + a) % 65521;
+    }
+    return ((b << 16) | a) >>> 0;
+  };
+  /** Git's base85 for 4 bytes (5 characters). */
+  const encode85 = (value) => {
+    let rest = value;
+    let out = "";
+    for (let i = 0; i < 5; i++) {
+      out = BASE85[rest % 85] + out;
+      rest = Math.floor(rest / 85);
+    }
+    return out;
+  };
+  const decode85 = (text) => [...text].reduce((value, char) => value * 85 + BASE85.indexOf(char), 0);
+
+  /** 73 bytes whose last base85 line in `git diff --binary` starts with 40 hex characters. */
+  const craftedBinary = () => {
+    const length = 73;
+    const wantedHex = "abcdef0123456789abcdef0123456789abc"; // 7 groups of 5 characters = 28 bytes
+    const tail = Buffer.alloc(28);
+    for (let group = 0; group < 7; group++) tail.writeUInt32BE(decode85(wantedHex.slice(group * 5, group * 5 + 5)), group * 4);
+    // The first 4 characters of the adler32's base85 form must be hex too; about 1 in 220 values is.
+    for (let counter = 0; counter < 1e6; counter++) {
+      const data = Buffer.alloc(length);
+      data.writeUInt32BE(counter, 1); // data[0] stays 0: the NUL makes git treat the file as binary
+      for (let i = 5; i < length - 28; i++) data[i] = ((i * 131 + counter * 7) & 0xff) | 0x80;
+      tail.copy(data, length - 28);
+      if ([...encode85(adler32(data)).slice(0, 4)].every((char) => HEX.has(char))) return data;
+    }
+    throw new Error("could not craft the binary fixture");
+  };
+
+  const commitFiles = (files, message) => {
+    for (const [name, content] of Object.entries(files)) {
+      writeFileSync(join(repo, name), content);
+      git("add", name);
+    }
+    git("commit", "-q", "-m", message);
+  };
+  const rawPatchIdLines = (head) => {
+    const diff = execFileSync("git", ["diff", "--no-color", "--no-ext-diff", "--no-renames", "--full-index", "--binary", "--end-of-options", `${sha("main")}...${sha(head)}`, "--"], { cwd: repo, stdio: ["ignore", "pipe", "pipe"] });
+    expect(diff.includes(0)).toBe(false); // no NUL, so the NUL guard cannot be what stops it
+    return execFileSync("git", ["patch-id", "--verbatim"], { cwd: repo, input: diff, encoding: "utf8" }).trim().split("\n");
+  };
+
+  beforeAll(() => {
+    const blob = craftedBinary();
+    // Both heads carry the same crafted blob; they differ only in the files git sorts after it.
+    git("checkout", "-q", "-b", "split-one", "main");
+    commitFiles({ "a.bin": blob, "z.txt": "first change\n" }, "crafted binary, first change after it");
+    git("checkout", "-q", "-b", "split-two", "main");
+    commitFiles({ "a.bin": blob, "z.txt": "second change\n", "z.sh": "echo hidden after the split\n" }, "crafted binary, a different change after it");
+    // The same layout with ordinary bytes in the binary file: no data line reads as an object id.
+    git("checkout", "-q", "-b", "split-plain", "main");
+    commitFiles({ "a.bin": Buffer.concat([Buffer.from([0]), Buffer.alloc(72, 0x80)]), "z.txt": "first change\n" }, "ordinary binary, first change after it");
+    git("checkout", "-q", "main");
+  });
+
+  it("builds a fixture where raw git patch-id prints two lines for each of two different diffs", () => {
+    expect(git("diff", "--numstat", "--no-renames", "main", "split-one").split("\n")[0]).toBe("-\t-\ta.bin"); // binary
+    expect(git("rev-parse", "split-one:a.bin")).toBe(git("rev-parse", "split-two:a.bin"));
+    expect(git("rev-parse", "split-one:z.txt")).not.toBe(git("rev-parse", "split-two:z.txt"));
+    for (const head of ["split-one", "split-two"]) {
+      const lines = rawPatchIdLines(head);
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toMatch(/^[0-9a-f]{40} 0{40}$/);
+      expect(lines[1]).toMatch(/^[0-9a-f]{40} [0-9a-f]{40}$/);
+    }
+    // The first line is the same for both: it covers only what precedes the split.
+    expect(rawPatchIdLines("split-one")[0]).toBe(rawPatchIdLines("split-two")[0]);
+    expect(rawPatchIdLines("split-one")[1]).not.toBe(rawPatchIdLines("split-two")[1]);
+  });
+
+  it("refuses to compute a patch_id instead of returning the id of the part before the split", () => {
+    expect(() => patchId("main", "split-one")).toThrow(SPLIT_NAME);
+    expect(() => patchId("main", "split-two")).toThrow(SPLIT_NAME);
+    expect(() => patchId("main", "split-two")).toThrow(new RegExp(`${sha("main")}\\.\\.\\.${sha("split-two")}`));
+  });
+
+  it("still returns one id for a normal diff and for an ordinary binary file", () => {
+    expect(rawPatchIdLines("feature")).toHaveLength(1);
+    expect(rawPatchIdLines("split-plain")).toHaveLength(1);
+    expect(patchId("main", "feature")).toMatch(/^[0-9a-f]{40}$/);
+    expect(patchId("main", "split-plain")).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("fails buildVerdict and main() the same way, without a verdict", () => {
+    const input = { role: "verifier", verdict: "PASS", base: sha("main"), head: sha("split-two"), verifierId: "v", modelFamily: "opus", githubLogin: "bot", evidence: [{ kind: "log", url: "https://x.test/" }], readiness: { conflicts: 0, open_threads: 0, checks: "green" } };
+    expect(() => buildVerdict(input, { cwd: repo, now: NOW })).toThrow(SPLIT_NAME);
+    expect(() => main([...argsWithout("--head"), "--head", sha("split-one")], { cwd: repo, now: NOW })).toThrow(SPLIT_NAME);
+  });
+
+  it("exits 1 with the reason on stderr and nothing on stdout when run as a CLI", () => {
+    let result;
+    try {
+      execFileSync(process.execPath, [script, ...argsWithout("--head"), "--head", sha("split-two")], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      result = { status: 0, stdout: "", stderr: "" };
+    } catch (error) {
+      result = { status: error.status, stdout: error.stdout, stderr: error.stderr };
+    }
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/^emit-verdict: computePatchId: git patch-id returned 2 ids for [0-9a-f]{40}\.\.\.[0-9a-f]{40}, which is one diff/);
+  });
+});
+
+describe("parsePatchIdOutput", () => {
+  const ID = "a".repeat(40);
+  const OTHER = "b".repeat(40);
+  const ZEROS = "0".repeat(40);
+
+  it("returns the patch id of exactly one `<id> <commit id or zeros>` line", () => {
+    expect(parsePatchIdOutput(`${ID} ${ZEROS}\n`)).toBe(ID);
+    expect(parsePatchIdOutput(`${ID} ${OTHER}\n`)).toBe(ID);
+    expect(parsePatchIdOutput(`${ID} ${ZEROS}`)).toBe(ID);
+  });
+
+  it("throws on no output or a bare newline", () => {
+    expect(() => parsePatchIdOutput("", "x...y")).toThrow(/returned no id for x\.\.\.y/);
+    expect(() => parsePatchIdOutput("\n")).toThrow(/returned an unexpected line/);
+  });
+
+  it("throws on more than one line, whatever the lines are", () => {
+    expect(() => parsePatchIdOutput(`${ID} ${ZEROS}\n${OTHER} ${ID}\n`)).toThrow(/returned 2 ids for the diff, which is one diff/);
+    expect(() => parsePatchIdOutput(`${ID} ${ZEROS}\n${OTHER} ${ID}\n${ID} ${OTHER}\n`)).toThrow(/returned 3 ids/);
+    expect(() => parsePatchIdOutput(`${ID} ${ZEROS}\n\n`)).toThrow(/returned 2 ids/);
+    expect(() => parsePatchIdOutput(`\n${ID} ${ZEROS}\n`)).toThrow(/returned 2 ids/);
+  });
+
+  it("throws when the single line is not `<40-hex> <40-hex>`", () => {
+    for (const bad of [ID, `${ID} `, `${ID}  ${ZEROS}`, `${ID.toUpperCase()} ${ZEROS}`, `${ID.slice(1)} ${ZEROS}`, `${ID} ${ZEROS}x`, `${ID} ${ZEROS}\r`, `x ${ZEROS}`, `${ID} ${ZEROS} extra`]) {
+      expect(() => parsePatchIdOutput(`${bad}\n`)).toThrow(/returned an unexpected line/);
+    }
   });
 });
 

@@ -131,11 +131,47 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   patch-id cannot hash ...` before it calls `git patch-id`. Real binary files
   are unaffected: a NUL in the first 8000 bytes makes git encode the file, and
   the encoded diff has no raw NUL.
+- A diff for which `git patch-id` prints anything but exactly one id is an
+  error, never a `patch_id`. `git patch-id` takes any input line that starts
+  with 40 hex characters for the id of the next commit: that ends the current
+  patch, and git prints one output line per patch. Text hunk lines start with
+  `+`, `-` or a space, but a base85 data line of a `GIT binary patch` starts
+  with a length character, and `c` to `f` are hex digits, so a real, valid
+  `git diff --binary` can contain such a line. Reading only the first id would
+  then leave out every file after it. `computePatchId` requires exactly one
+  output line of the form `<40-hex> <40-hex or zeros>` and otherwise throws
+  `computePatchId: git patch-id returned N ids for <base>...<head>, which is
+  one diff ...` (or `returned no id`), before any id is used.
 - Exit status: the script exits 0 after printing the comment. On any error,
-  including an empty diff or the NUL case above, it prints
-  `emit-verdict: <message>` to stderr, prints no verdict to stdout and exits
-  1; the empty-diff and NUL errors happen before anything is posted. OVD-845 must treat a throw from `computePatchId` as
+  including an empty diff or either `patch_id` case above (a NUL byte, or more
+  than one id from `git patch-id`), it prints `emit-verdict: <message>` to
+  stderr, prints no verdict to stdout and exits 1. These errors happen before
+  anything is posted. OVD-845 must treat a throw from `computePatchId` as
   "cannot carry this verdict over", never as a match.
+
+### What `patch_id` is, and what it is not
+
+The verdict binds to `sha`, the head SHA it was verified at. `patch_id` is only
+an aid for reusing a verdict after a rebase. It is not a proof that two heads
+hold the same change.
+
+`git patch-id` ignores line numbers by design: it drops the hunk headers
+(`@@ -a,b +c,d @@`) and the `index` lines, and that is what keeps the id the same
+when a rebase moves a change to a different position or onto a different base.
+The rebase-reuse rule (`patch-id-equal`) relies on exactly that, so
+`computePatchId` does not change the mechanism or add a position-aware hash.
+The consequence is that the same edit made at two different positions in a file,
+with identical surrounding context lines, has the same `patch_id`. For example,
+inserting the same line at line 4 or at line 7 of a file of identical lines
+(`@@ -1,6 +1,7 @@` versus `@@ -4,6 +4,7 @@`) gives one id. Equal `patch_id`s
+therefore do not show that two heads contain an identical change, only that
+their diffs are equal once positions are ignored.
+
+When OVD-845 considers carrying a verdict over to a head whose SHA differs from
+the verdict's `sha`, it must decide for itself what reuse requires on top of an
+equal `patch_id`, for example the same changed-file list and hunk positions, or
+tree equality when the base has not changed. This format does not provide that
+check.
 - `timestamp` is the current UTC time, to the second.
 - Reviewers add `--role reviewer --findings findings.json`. The file must hold a
   JSON array. The script tags the findings with `corroborated` before printing
@@ -173,7 +209,7 @@ created_at`) is rejected. To change a verdict, post a new comment.
 | `conflicts` | Those disagreeing verifier verdicts (`verdict` or `patch_id` differs from the latest one). |
 | `latest` | The latest verifier entry, `{ comment_id, block, created_at, verdict }`, kept for diagnostics even when conflicting. Never use it as gate input. |
 | `reviews` | Valid advisory `reviewer` verdicts for `sha`. |
-| `other_sha` | Valid verdicts for other SHAs. These are stale for this head. Under the OVD-845 rebase rule, a verdict carries over only when its `patch_id` equals the patch-id recomputed for the current head. |
+| `other_sha` | Valid verdicts for other SHAs. These are stale for this head. Under the OVD-845 rebase rule, a verdict carries over only when its `patch_id` equals the patch-id recomputed for the current head; equal ids ignore hunk positions, so see OVD-845 responsibilities. |
 | `rejected` | `{ comment_id, block, reason, errors }`, where `reason` is one of `edited_comment`, `missing_comment_timestamps`, `invalid_json`, `schema_error` or `author_mismatch`. |
 
 The parser only reads blocks that start with a ```` ```overdrafter-verdict ````
@@ -202,7 +238,9 @@ gate. The gate must do each of them; none is enforced here.
   combined list.
 - **Staleness.** The parser doesn't compare `sha` with the live PR head.
   OVD-845 does, using the PR commits API, and applies the rebase rule above
-  with a patch-id it recomputes itself.
+  with a patch-id it recomputes itself. An equal `patch_id` does not prove an
+  identical change (it ignores hunk positions, see "What `patch_id` is, and what
+  it is not"), so OVD-845 owns deciding what reuse requires beyond it.
 
 ## Corroboration
 
@@ -219,14 +257,24 @@ cover:
 
 - the emit-to-validate round trip;
 - one fixture per schema violation;
-- patch-id stability across a no-op rebase, and a new patch-id when the diff
-  changes, including an indentation-only change or a change only in invalid
-  UTF-8 bytes; the same id under different `diff.*` config (temporary git repo
-  in `os.tmpdir()`);
+- patch-id stability across a no-op rebase, and a new patch-id when the content
+  of the diff changes, including an indentation-only change or a change only in
+  invalid UTF-8 bytes; the same id under different `diff.*` config (temporary
+  git repo in `os.tmpdir()`); and, as documented above, the same id for the same
+  edit at two different positions with identical context;
 - NUL bytes: two commits whose text-classified files differ only after a NUL
   past byte 8000 make `computePatchId`, `buildVerdict` and the CLI fail (exit 1,
   nothing on stdout) instead of returning one shared id, while a NUL-free diff
   and a git-classified binary file with an early NUL still get distinct ids;
+- split patch-id output: two commits that carry the same crafted binary file
+  (its last base85 line starts with 40 hex characters, with no NUL anywhere in
+  the diff) and differ only in files sorted after it. Raw `git patch-id` prints
+  two lines for each, and `computePatchId`, `buildVerdict` and the CLI fail
+  (exit 1, nothing on stdout) instead of returning the shared first id, while an
+  ordinary diff and an ordinary binary file still get one id.
+  `parsePatchIdOutput` is also tested directly: one line is accepted; no
+  output, a bare newline, several lines, or a line that is not
+  `<40-hex> <40-hex>` throw;
 - `--base`/`--head`: both required; ref names (`main`, `origin/main`, `HEAD`),
   39- and 41-character hex, uppercase hex and values starting with `--` are
   refused, a valid SHA is accepted, and an unknown SHA is reported;
