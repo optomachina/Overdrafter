@@ -113,13 +113,15 @@ only) so the deployed target is visible.
 
 ### Repairing staging after a failed apply or lease step
 
-If a staging worker deploy is refused at the lease step ("A staging worker
-requires WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME to end in -staging."
-or "WORKER_PROVIDER_SESSION_LEASE must be on or off."), the script exits before
-any `gcloud` call, so nothing in staging changed. Set
-`WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` to a `-staging` Secret
-Manager name (and `WORKER_PROVIDER_SESSION_LEASE` to `on`, `off` or unset), then
-re-run `worker/scripts/deploy-cloud-run.sh`.
+If a staging worker deploy is refused because
+`WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` does not end in `-staging`,
+that check runs before any `gcloud` call, so nothing in staging changed. An
+invalid `WORKER_PROVIDER_SESSION_LEASE` (not `on` or `off`) is refused later;
+in snapshot mode a read-only `gcloud` preflight may already have run, but the
+script still exits before `gcloud run deploy`, so nothing in staging is
+mutated. Set `WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME` to a
+`-staging` Secret Manager name (and `WORKER_PROVIDER_SESSION_LEASE` to `on`,
+`off` or unset), then re-run `worker/scripts/deploy-cloud-run.sh`.
 
 If the staging migration history has drifted from the repository, for example
 because staging applied `20261015074957_ovd736_revoke_anon_definer_execute`
