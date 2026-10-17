@@ -153,9 +153,18 @@ function anyHeadingText(lines, index) {
   const line = lines[index].replace(CONTAINER_PREFIX, "");
   const atx = line.match(ANY_ATX_HEADING);
   if (atx) return atx[1] ?? "";
-  const next = index + 1 < lines.length ? lines[index + 1].replace(/^(?:[ \t]*>)+/, "") : "";
-  if (SETEXT_UNDERLINE.test(next) && /\S/.test(line)) {
-    return line;
+  // HTML headings anywhere on the line.
+  const html = line.match(/<h[1-6]\b[^>]*>([\s\S]*?)(?:<\/h[1-6]>|$)/i);
+  if (html) return html[1];
+  // A setext underline makes the whole paragraph above it a heading; count it on
+  // the underline line, joining the paragraph lines.
+  const unquote = (text) => text.replace(/^(?:[ \t]*>)+/, "");
+  if (SETEXT_UNDERLINE.test(unquote(lines[index])) && index > 0) {
+    const paragraph = [];
+    for (let back = index - 1; back >= 0 && /\S/.test(unquote(lines[back])); back -= 1) {
+      paragraph.unshift(unquote(lines[back]).replace(CONTAINER_PREFIX, ""));
+    }
+    if (paragraph.length > 0) return paragraph.join(" ");
   }
   return null;
 }
@@ -173,10 +182,14 @@ function squashHeading(text) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-/** Conservative: a heading naming both "provider" and "live" counts as go-live. */
+/**
+ * Conservative: a heading containing "provider go-live", or a short heading
+ * naming both "provider" and "live", counts as go-live.
+ */
 function isGoLiveHeading(text) {
   const squashed = squashHeading(text);
-  return squashed.includes("provider") && squashed.includes("live");
+  if (squashed.includes("providergolive")) return true;
+  return squashed.length <= 40 && squashed.includes("provider") && squashed.includes("live");
 }
 
 function collectSections(body) {

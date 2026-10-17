@@ -647,6 +647,8 @@ describe("validatePrBody", () => {
         "> ## Provider go-live",
         "### Pro<span></span>vider go-live",
         "> Provider go-live\n> ---",
+        "Provider\ngo-live\n---",
+        "<h2>Provider go-live</h2>",
       ]) {
         const body = `${missingAuto}\n${heading}\n\n- [x] Envelope reviewed (automatic)\n`;
         expect(validate(body).errors, heading).toContain('"Provider go-live" appears 2 times; keep exactly one section');
