@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import {
   FILES_MISSING,
   FILES_NOT_ARRAY,
   SENSITIVE_PATHS_UNAVAILABLE,
+  classifyFallback,
   decisionRecord,
   deterministicTier,
   finalTier,
@@ -61,6 +62,56 @@ const labelOf = (value) => (typeof value === "number" || value === undefined ? S
 const SKIP = { skipSensitivePaths: true };
 
 describe("jev PR screen", () => {
+  it("classifies fallback sources without changing tiers", () => {
+    expect(classifyFallback({ ok: false, reason: "http_403" }, { status: "failed" })).toEqual({ source: "default_jev_blocked", reason: "http_403" });
+    expect(classifyFallback({ ok: false, reason: "timeout" }, { status: "failed" })).toEqual({ source: "jev_blocked", reason: "timeout" });
+    expect(classifyFallback({ ok: true }, { status: "uncertain", choice: "low", confidence: 0.2 })).toEqual({ source: "safe-default", reason: "uncertain" });
+    expect(classifyFallback({ ok: true }, { status: "failed", reason: "malformed_answer" })).toEqual({ source: "jev_used:false", reason: "malformed_answer" });
+    expect(classifyFallback({ ok: true }, { status: "accepted", choice: "low", confidence: 0.9 })).toEqual({ source: null, reason: null });
+  });
+
+  it("records latencyMs and fallback_reason on every decision row", () => {
+    const failed = decisionRecord({ pr: 1, sha: "a", deterministic: "low" }, { ok: false, reason: "timeout", latencyMs: 9 }, new Date(0), SKIP);
+    expect(failed).toMatchObject({ latencyMs: 9, fallback_reason: "timeout", fallback_source: "jev_blocked" });
+    expect(failed.warning).toContain("source=jev_blocked");
+    const ok = decisionRecord(
+      { pr: 2, sha: "b", deterministic: "low" },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 5 },
+      new Date(0),
+      SKIP,
+    );
+    expect(ok).toMatchObject({ latencyMs: 5, fallback_reason: null, fallback_source: null, warning: null, final: "low" });
+  });
+
+  it("emits WARN for each fallback source in screen and stays quiet on the normal path", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const lines = [];
+    const queue = [
+      { ok: false, reason: "http_403", latencyMs: 2 },
+      { ok: false, reason: "timeout", latencyMs: 4 },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.1 }, incident: { type: "noul", noul: 0 } }, latencyMs: 3 },
+      { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0 } }, latencyMs: 1 },
+    ];
+    try {
+      const records = await screen(
+        queue.map((_, i) => ({ pr: 100 + i, sha: "s", deterministic: "low", files: ["README.md"] })),
+        { ask: async () => queue.shift(), append: (_p, line) => lines.push(line), sensitivePaths: [] },
+      );
+      expect(records.map((r) => r.fallback_source)).toEqual(["default_jev_blocked", "jev_blocked", "safe-default", null]);
+      expect(records.every((r) => Object.hasOwn(r, "latencyMs") && Object.hasOwn(r, "fallback_reason"))).toBe(true);
+      expect(records[3].fallback_reason).toBeNull();
+      expect(records[3].warning).toBeNull();
+      const warns = err.mock.calls.map((c) => c[0]);
+      expect(warns.some((w) => String(w).includes("source=default_jev_blocked"))).toBe(true);
+      expect(warns.some((w) => String(w).includes("source=jev_blocked"))).toBe(true);
+      expect(warns.some((w) => String(w).includes("source=safe-default"))).toBe(true);
+      expect(JSON.parse(lines[3])).toMatchObject({ fallback_reason: null, latencyMs: 1 });
+      expect(JSON.parse(lines[0]).warning).toContain("default_jev_blocked");
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it("lets Jev raise the tier but never lower it", () => {
     expect(finalTier("low", accepted("risky"))).toBe("risky");
     expect(finalTier("risky", accepted("low"))).toBe("risky");

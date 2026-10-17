@@ -24,7 +24,7 @@
  */
 import { appendFileSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { askJev, gatedChoice, sanitizeToken } from "./jev-client.mjs";
+import { askJev, gatedChoice, sanitizeToken, warnJevFallback } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -68,6 +68,26 @@ export function finalTier(deterministic, gate) {
   const base = TIERS.includes(deterministic) ? deterministic : "risky";
   const jevTier = gate?.status === "accepted" && TIERS.includes(gate.choice) ? gate.choice : "normal";
   return maxTier(base, jevTier);
+}
+
+/**
+ * Loud-fallback source for a screen result (logging only; never changes tiers).
+ *   Jev success (ok + accepted + known tier) → null (no fallback)
+ *   ok:false with http_401/403 → default_jev_blocked
+ *   ok:false otherwise → jev_blocked
+ *   ok:true but uncertain gate → safe-default
+ *   ok:true but failed/unknown tier → jev_used:false
+ */
+export function classifyFallback(result, gate) {
+  const accepted = gate?.status === "accepted" && TIERS.includes(gate.choice);
+  if (result?.ok === true && accepted) return { source: null, reason: null };
+  if (result?.ok !== true) {
+    const reason = result?.reason ?? gate?.reason ?? "no_result";
+    if (reason === "http_401" || reason === "http_403") return { source: "default_jev_blocked", reason };
+    return { source: "jev_blocked", reason };
+  }
+  if (gate?.status === "uncertain") return { source: "safe-default", reason: "uncertain" };
+  return { source: "jev_used:false", reason: gate?.reason ?? gate?.status ?? "no_accepted_tier" };
 }
 
 /** Stands in for a sensitive-path list that could not be loaded: every PR then screens risky. */
@@ -158,6 +178,11 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
   const list = skip ? null : usableSensitivePaths(sensitivePaths);
   const { tier: deterministic, sensitiveClasses, filesProblem } = deterministicTier(pr, list, { skipSensitivePaths: skip });
   const incident = result?.ok ? result.answers?.incident?.noul : undefined;
+  const fallback = classifyFallback(result, gate);
+  const latencyMs = Number.isFinite(result?.latencyMs) ? result.latencyMs : null;
+  const warning = fallback.source
+    ? `WARN jev-fallback source=${fallback.source} reason=${fallback.reason ?? "null"} latencyMs=${latencyMs ?? "null"}`
+    : null;
   return {
     ts: now.toISOString(),
     kind: "pr_risk_screen",
@@ -177,7 +202,10 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     sensitivePathsUnavailable: list === SENSITIVE_PATHS_UNAVAILABLE,
     filesProblem,
     final: finalTier(deterministic, gate),
-    latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
+    latencyMs,
+    fallback_reason: fallback.reason,
+    fallback_source: fallback.source,
+    warning,
   };
 }
 
@@ -211,7 +239,13 @@ export async function screen(
   }
   // Append in input order so the log reads like the batch.
   const records = prs.map((pr, index) => decisionRecord(pr, results[index], new Date(), { minConfidence, sensitivePaths }));
-  for (const record of records) append(log, `${JSON.stringify(record)}\n`);
+  for (const record of records) {
+    // Screen-level WARN for every fallback (including safe-default / jev_used:false).
+    if (record.fallback_source) {
+      warnJevFallback(record.fallback_source, record.fallback_reason, record.latencyMs);
+    }
+    append(log, `${JSON.stringify(record)}\n`);
+  }
   return records;
 }
 
@@ -269,6 +303,7 @@ if (invokedAsScript()) {
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";
-    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}`);
+    const warn = r.warning ? ` | ${r.warning}` : "";
+    console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${warn}`);
   }
 }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createServer } from "node:http";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { askJev, gatedChoice, isValidAnswer, JEV_MODEL, smoke } from "./jev-client.mjs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { askJev, fallbackSourceForReason, gatedChoice, isValidAnswer, JEV_MODEL, smoke, warnJevFallback } from "./jev-client.mjs";
 
 const FAKE_KEY = "synthetic-fake-key-0123456789";
 const criteria = { implementer: "Writes code.", verifier: "Runs checks." };
@@ -15,9 +15,27 @@ function stubFetch(status, text) {
 }
 const body = (answers, model = JEV_MODEL) => JSON.stringify({ model, answers, usage: { input_tokens: 10, output_tokens: 2 } });
 
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("fallback WARN helpers", () => {
+  it("maps auth blocks to default_jev_blocked and others to jev_blocked", () => {
+    expect(fallbackSourceForReason("http_403")).toBe("default_jev_blocked");
+    expect(fallbackSourceForReason("http_401")).toBe("default_jev_blocked");
+    expect(fallbackSourceForReason("timeout")).toBe("jev_blocked");
+  });
+
+  it("prints WARN jev-fallback lines without secrets", () => {
+    warnJevFallback("jev_blocked", "timeout", 12);
+    expect(console.error).toHaveBeenCalledExactlyOnceWith("WARN jev-fallback source=jev_blocked reason=timeout latencyMs=12");
+  });
 });
 
 describe("askJev", () => {
@@ -26,6 +44,14 @@ describe("askJev", () => {
     const result = await askJev({ task: "synthetic" }, choiceQ);
     expect(result).toMatchObject({ ok: true, model: JEV_MODEL, usage: { input_tokens: 10, output_tokens: 2 } });
     expect(result.answers.role.choice).toBe("verifier");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("WARNs on failed calls with fallback source", async () => {
+    stubFetch(403, "denied");
+    expect(await askJev({}, choiceQ)).toMatchObject({ ok: false, reason: "http_403" });
+    const line = console.error.mock.calls[0][0];
+    expect(line).toMatch(/^WARN jev-fallback source=default_jev_blocked reason=http_403 latencyMs=\d+$/);
   });
 
   it("sends no Authorization header when TYPESAFE_API_KEY is unset or empty", async () => {
