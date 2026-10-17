@@ -228,7 +228,7 @@ describe("classifyPath: classes come from docs/sensitive-paths.json", () => {
     ["worker/src/provider/_admission.ts", ["provider_dispatch"]],
     ["docs/provider/ upload.md", ["provider_dispatch"]],
     ["src/features/provider/_/upload.tsx", ["provider_dispatch"]],
-    ["src/features/checKout.tsx", ["payments"]],
+    ["src/features/chec\u212Aout.tsx", ["payments"]],
     ["docs/a.pgsql", ["schema"]],
     ["src/assets/b.psql", ["schema"]],
   ])("restored coverage: %j -> %j", (file, classes) => {

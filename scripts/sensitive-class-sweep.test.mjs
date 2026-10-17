@@ -52,7 +52,7 @@ describe("v1 rules (frozen copy of 0163daf7)", () => {
     ["src/features/quotes/quoteRls.ts", ["rls"]],
     ["src/features/provider/_upload/Form.tsx", ["provider"]],
     ["src/features/providerUpload.tsx", ["provider"]],
-    ["src/features/checKout.tsx", ["billing"]],
+    ["src/features/chec\u212Aout.tsx", ["billing"]],
     ["scripts/native/x.mjs", ["ci"]],
     ["src/lib/urls.ts", []],
     ["src/features/provideradmission.tsx", []],
@@ -61,7 +61,7 @@ describe("v1 rules (frozen copy of 0163daf7)", () => {
   });
 
   it("finds the non-ASCII characters whose lower case is an ASCII letter", () => {
-    expect(Object.fromEntries(nonAsciiCaseFolds())).toEqual({ k: ["K"] });
+    expect(Object.fromEntries(nonAsciiCaseFolds())).toEqual({ k: ["\u212A"] });
   });
 });
 
@@ -70,7 +70,7 @@ describe("residual classes", () => {
     ["src/features/q/x~rls.ts", "rls after ~"],
     ["src/features/q/x rls.ts", "rls after U+0020"],
     ["src/features/quotes/quoteRls.ts", "rls at a camelCase boundary"],
-    ["src/features/q/xİrls.ts", "rls after U+0130"],
+    ["src/features/q/x\u0130rls.ts", "rls after U+0130"],
     ["src/features/q/x,rls.ts", null], // a glob can spell ","
     ["src/features/q/rls.ts", null], // a segment start
     ["src/features/auth~x.ts", null], // not rls

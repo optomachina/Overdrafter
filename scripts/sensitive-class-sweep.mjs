@@ -249,9 +249,9 @@ export function v1ClassifyPath(file) {
 // ---------------------------------------------------------------- generated names
 
 /** Every printable ASCII character other than a letter or digit (space and the 32 punctuation characters). */
-export const ASCII_NON_ALNUM = Object.freeze(Array.from({ length: 95 }, (_, k) => String.fromCharCode(32 + k)).filter((char) => !/[A-Za-z0-9]/.test(char)));
+export const ASCII_NON_ALNUM = Object.freeze(Array.from({ length: 95 }, (_, k) => String.fromCodePoint(32 + k)).filter((char) => !/[A-Za-z0-9]/.test(char)));
 /** A tab, a no-break space, a non-ASCII letter, a CJK character and the dotted capital I (lower case "i" plus a combining dot). */
-export const EXTRA_CHARACTERS = Object.freeze(["\t", " ", "é", "中", "İ"]);
+export const EXTRA_CHARACTERS = Object.freeze(["\t", "\u00A0", "\u00E9", "\u4E2D", "\u0130"]);
 export const CHARACTERS = Object.freeze([...ASCII_NON_ALNUM, ...EXTRA_CHARACTERS]);
 export const DIRECTORIES = Object.freeze(["src/features", "src/pages", "src/components", "worker/src", "scripts", "docs", "e2e", ".codex/skills"]);
 export const TAILS = Object.freeze([".tsx", ".md", "/index.ts"]);
@@ -415,6 +415,12 @@ export function* sweepNames({ directories = DIRECTORIES, tails = TAILS } = {}) {
 
 // ---------------------------------------------------------------- residual classes
 
+/** Code-unit order, so keys and tables do not depend on the ICU locale. */
+function byCodeUnit(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 /** Characters a glob can spell literally (outside braces, "," is literal). */
 const GLOB_LITERAL = /^[A-Za-z0-9._\-/,]$/;
 
@@ -453,7 +459,7 @@ export function residualClass(name, v1Result) {
     else if (GLOB_LITERAL.test(char)) return null;
     else keys.add(`rls after ${describeCharacter(char)}`);
   }
-  return [...keys].sort()[0];
+  return [...keys].sort(byCodeUnit)[0];
 }
 
 /**
@@ -483,30 +489,34 @@ export function runSweep({ config, names = sweepNames() } = {}) {
     stats.total += 1;
     const before = v1ClassifyPath(name);
     const after = classifyPath(name, config);
-    if (!isSafe(before) && isSafe(after) && before.classes.length === 0) {
-      stats.newlySafe += 1;
-      if (stats.newlySafeNames.length < 20) stats.newlySafeNames.push(name);
+    if (before.classes.length === 0) {
+      if (!isSafe(before) && isSafe(after)) {
+        stats.newlySafe += 1;
+        if (stats.newlySafeNames.length < 20) stats.newlySafeNames.push(name);
+      }
+      continue;
     }
-    if (before.classes.length === 0) continue;
     stats.v1Sensitive += 1;
-    if (after.classes.length) {
-      stats.kept += 1;
-      continue;
-    }
-    stats.lost += 1;
-    if (isSafe(after)) stats.lostToSafe += 1;
-    else stats.lostToUnclassified += 1;
-    const key = residualClass(name, before);
-    if (key === null) {
-      stats.unexplained.push(name);
-      continue;
-    }
-    const entry = stats.residual.get(key) ?? { count: 0, toSafe: 0, example: name };
-    entry.count += 1;
-    if (isSafe(after)) entry.toSafe += 1;
-    stats.residual.set(key, entry);
+    if (after.classes.length) stats.kept += 1;
+    else recordLost(stats, name, before, isSafe(after));
   }
   return stats;
+}
+
+/** Count a name sensitive at v1 and not sensitive here, under its residual class or as unexplained. */
+function recordLost(stats, name, before, safe) {
+  stats.lost += 1;
+  if (safe) stats.lostToSafe += 1;
+  else stats.lostToUnclassified += 1;
+  const key = residualClass(name, before);
+  if (key === null) {
+    stats.unexplained.push(name);
+    return;
+  }
+  const entry = stats.residual.get(key) ?? { count: 0, toSafe: 0, example: name };
+  entry.count += 1;
+  if (safe) entry.toSafe += 1;
+  stats.residual.set(key, entry);
 }
 
 /** Check a residual class's witness against v1, this checkout and the shared fixture. Returns problems. */
@@ -518,7 +528,7 @@ export function witnessProblems(key, config, fixture) {
   const sameUnderWildcard = name.length === same.length && [...name].every((char, index) => char.toLowerCase() === same[index] || (!GLOB_LITERAL.test(char) && same[index] === "u"));
   if (!sameUnderWildcard) problems.push(`${key}: witness ${JSON.stringify(name)} differs from ${same} in more than the unspellable character or case`);
   const row = fixture.paths.find((entry) => entry.path === same);
-  if (!row || row.classes.length !== 0) problems.push(`${key}: ${same} is not pinned as not sensitive in ${FIXTURE_PATH}`);
+  if (row?.classes.length !== 0) problems.push(`${key}: ${same} is not pinned as not sensitive in ${FIXTURE_PATH}`);
   return problems;
 }
 
@@ -541,7 +551,7 @@ export function formatSweep(stats) {
     if (shown === key) return key;
     return `rls after ${/^U\+[0-9A-F]{4,}$/.test(shown) ? shown : codeSpan(shown)}`;
   };
-  for (const [key, entry] of [...stats.residual].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  for (const [key, entry] of [...stats.residual].sort(([a], [b]) => byCodeUnit(a, b))) {
     lines.push(`| ${label(key)} | ${entry.count} | ${entry.toSafe} | ${codeSpan(JSON.stringify(entry.example))} |`);
   }
   return `${lines.join("\n")}\n`;
