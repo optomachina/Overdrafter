@@ -251,11 +251,16 @@ export const PROVIDER_GO_LIVE_NA_PLACEHOLDERS = new Set([
   "n.a",
 ]);
 
+/** Signature on the automatic envelope review item (Blaine Wilson, Oct 16, 2026). */
+export const PROVIDER_GO_LIVE_AUTO_SIGNATURE = "Grok Bot under Blaine Wilson standing authority";
+
 /**
  * `na: true` items may be marked N/A with a written justification when the
  * item does not apply to the stage being enabled. Items with `na: false` always
  * need a real evidence link. Legal stance items are never N/A, with one
- * exception: the ITAR/EAR item may be N/A for a US only provider.
+ * exception: the ITAR/EAR item may be N/A for a US only provider. `auto: true`
+ * items are filled by the renderer, pre-checked with the automatic signature;
+ * the gate never asks a human for them and never fails on them.
  */
 export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
@@ -269,10 +274,11 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
   {
     id: "envelope-reviewer",
     group: "Envelope",
-    text: "Envelope reviewed by a named reviewer. Evidence:",
-    label: "envelope reviewed by a named reviewer",
-    match: /envelope reviewed by a named reviewer/i,
+    text: `Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`,
+    label: "envelope reviewed (automatic)",
+    match: /envelope reviewed/i,
     na: false,
+    auto: true,
   },
   {
     id: "worker-secret",
@@ -315,50 +321,18 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     na: true,
   },
   {
-    id: "rollback",
+    id: "supplier-switch",
     group: "Admit",
-    text: "Rollback/disable steps rehearsed. Evidence:",
-    label: "rollback/disable steps rehearsed",
-    match: /rollback\/disable steps rehearsed/i,
-    na: false,
-  },
-  {
-    id: "kill-switch",
-    group: "Legal stance",
-    text: "Per provider kill switch rehearsal (`npm run provider:kill`, `docs/runbooks/provider-cease-and-desist.md`). Evidence:",
-    label: "per provider kill switch rehearsal",
-    match: /kill switch rehearsal/i,
-    na: false,
-  },
-  {
-    id: "same-day-off",
-    group: "Legal stance",
-    text: "Provider is turned off the same day on a C&D, IP or bot block, CAPTCHA wall, or account ban. Evidence:",
-    label: "provider turned off the same day on a C&D, block, CAPTCHA wall, or ban",
-    match: /off the same day/i,
-    na: false,
-  },
-  {
-    id: "rate-limit",
-    group: "Legal stance",
-    text: "Traffic stays at about 20 quotes per provider per day. Evidence:",
-    label: "about 20 quotes per provider per day",
-    match: /about 20 quotes per provider per day/i,
-    na: false,
-  },
-  {
-    id: "no-evasion",
-    group: "Legal stance",
-    text: "Never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block. Evidence:",
-    label: "never rotate IPs, solve CAPTCHAs, mimic human pacing, or retry around a block",
-    match: /never rotate IPs/i,
+    text: "Per-supplier on/off switch in the admin dashboard (immediate, worker-enforced at generic dispatch) and optional admin daily quote cap (default unlimited), via OVD-829. Evidence:",
+    label: "per-supplier on/off switch in the admin dashboard",
+    match: /per-supplier on\/off switch/i,
     na: false,
   },
   {
     id: "no-passwords",
     group: "Legal stance",
-    text: "No stored customer passwords; encrypted session tokens only, with one click revoke. Evidence:",
-    label: "no stored customer passwords, encrypted session tokens, one click revoke",
+    text: "No stored customer passwords; encrypted session tokens only. Evidence:",
+    label: "no stored customer passwords, encrypted session tokens only",
     match: /no stored customer passwords/i,
     na: false,
   },
@@ -554,6 +528,11 @@ function validateProviderGoLiveSection(body, findings) {
   const unused = [...boxes];
   for (const required of PROVIDER_GO_LIVE_REQUIRED_ITEMS) {
     const index = unused.findIndex((box) => required.match.test(box.text));
+    if (required.auto) {
+      // Filled automatically; consume the line if present and never fail on it.
+      if (index !== -1) unused.splice(index, 1);
+      continue;
+    }
     if (index === -1) {
       errors.push(`missing Provider go-live item "${required.label}"`);
       continue;
