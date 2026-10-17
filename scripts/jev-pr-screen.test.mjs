@@ -360,6 +360,43 @@ describe("jev PR screen", () => {
     expect(recordHit.marker_tier).toBe("low");
   });
 
+  it("logs rows with head_sha, cache_hit and tokens, plus the sha and marker_hit aliases", () => {
+    const sha = "a".repeat(40);
+    const usage = { input_tokens: 412, output_tokens: 9 };
+    const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, usage, latencyMs: 250 };
+    const miss = decisionRecord({ pr: 100, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, caller: "qa" });
+    expect(Object.keys(miss).sort()).toEqual(
+      ["caller", "cache_hit", "deterministic", "filesProblem", "final", "head_sha", "jev", "kind", "latency_ms", "marker_hit", "marker_tier", "model", "ok", "pr", "reason", "screener", "sensitiveClasses", "sensitivePathsUnavailable", "sha", "tokens", "ts"].sort(),
+    );
+    expect(miss).toMatchObject({ head_sha: sha, sha, cache_hit: false, marker_hit: false, tokens: { input_tokens: 412, output_tokens: 9 }, latency_ms: 250 });
+
+    // A cache hit made no Jev call: no tokens, no latency.
+    const hit = decisionRecord({ pr: 100, sha, deterministic: "low" }, result, new Date(0), { ...SKIP, markerHit: true, markerTier: "low" });
+    expect(hit).toMatchObject({ head_sha: sha, sha, cache_hit: true, marker_hit: true, tokens: null, latency_ms: null });
+
+    // No usage, unusable counts or a failed call: null, never invented numbers.
+    const tokensOf = (extra) => decisionRecord({ pr: 100, sha, deterministic: "low" }, { ...result, ...extra }, new Date(0), SKIP).tokens;
+    expect(tokensOf({ usage: undefined })).toBeNull();
+    expect(tokensOf({ usage: null })).toBeNull();
+    expect(tokensOf({ usage: { input_tokens: "12", output_tokens: -1 } })).toBeNull();
+    expect(tokensOf({ usage: { input_tokens: 7 } })).toEqual({ input_tokens: 7, output_tokens: null });
+    expect(decisionRecord({ pr: 100, sha, deterministic: "low" }, { ok: false, reason: "timeout", usage }, new Date(0), SKIP).tokens).toBeNull();
+
+    // replay() reads either name for the cache hit flag and the SHA.
+    const row = { pr: 1, ok: true, deterministic: "low", final: "risky", marker_tier: "risky", jev: { tier: "low", confidence: 0.99 } };
+    expect(replay([{ ...row, head_sha: "c", cache_hit: true }])).toEqual([{ pr: 1, sha: "c", before: "risky", after: "risky", changed: false }]);
+    expect(replay([{ ...row, sha: "c", marker_hit: true }])).toEqual([{ pr: 1, sha: "c", before: "risky", after: "risky", changed: false }]);
+  });
+
+  it("logs Jev's token usage from screen() and null on a cache hit", async () => {
+    const github = fakeGitHub({ heads: { 846: SHA } });
+    const ask = async () => ({ ok: true, model: JEV_MODEL, answers: { tier: { type: "choice", choice: "normal", confidence: 0.9 }, incident: { type: "noul", noul: 0.1 } }, usage: { input_tokens: 300, output_tokens: 4 }, latencyMs: 50 });
+    const [first] = await screen([readme()], { ...quiet, ask, marker: github.io });
+    const [second] = await screen([readme()], { ...quiet, ask, marker: github.io });
+    expect(first).toMatchObject({ cache_hit: false, tokens: { input_tokens: 300, output_tokens: 4 } });
+    expect(second).toMatchObject({ cache_hit: true, tokens: null });
+  });
+
   it("records caller and screener fields", () => {
     const result = { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 100 };
     const record = decisionRecord({ pr: 102, sha: "b".repeat(40), deterministic: "low" }, result, new Date(0), { ...SKIP, caller: "test_caller" });
@@ -584,6 +621,25 @@ describe("jev screen marker", () => {
     // The hit replays the stored answer, never a synthetic certainty.
     expect(second.jev).toEqual({ tier: "normal", confidence: 0.9, status: "accepted", pIncident: 0.15 });
     expect(github.posts()).toHaveLength(1);
+  });
+
+  it("screens again and writes a new marker when the PR head moves to a new SHA", async () => {
+    // A marker already exists for the old head SHA; the PR head then moves to NEW_SHA.
+    const NEW_SHA = "1111111111111111111111111111111111111111";
+    const github = fakeGitHub({ heads: { 846: NEW_SHA }, statuses: { [SHA]: [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 }))] } });
+    const jev = countingJev("normal", 0.9, 0.2);
+    const [record] = await screen([readme(846, NEW_SHA)], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
+    expect(record).toMatchObject({ head_sha: NEW_SHA, cache_hit: false, marker_hit: false, final: "normal" });
+    // Exactly one new marker, on the new SHA; the old SHA's marker is untouched.
+    expect(github.posts().map((args) => args[1])).toEqual([`repos/optomachina/Overdrafter/statuses/${NEW_SHA}`]);
+    expect(parseMarkerDescription(github.store[NEW_SHA][0].description)).toMatchObject({ tier: "normal", jevTier: "normal", model: JEV_MODEL, questionHash: Q });
+    expect(github.store[SHA]).toHaveLength(1);
+    // The next screen at the new head is a cache hit; the old SHA is no longer the head, so it is never read.
+    const [again] = await screen([readme(846, NEW_SHA)], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
+    expect(again).toMatchObject({ head_sha: NEW_SHA, cache_hit: true, final: "normal" });
+    expect(github.calls.some((args) => args[1].includes(SHA))).toBe(false);
   });
 
   it("misses when the model changed and screens again under the new model", async () => {

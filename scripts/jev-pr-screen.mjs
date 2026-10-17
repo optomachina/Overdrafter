@@ -174,11 +174,13 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
   const incident = result?.ok ? result.answers?.incident?.noul : undefined;
   const marker = markerHit ? markerFloor(markerTier) : null;
   const final = finalTier(deterministic, gate);
+  const sha = sanitizeToken(pr.sha);
   return {
     ts: now.toISOString(),
     kind: "pr_risk_screen",
     pr: Number.isInteger(pr.pr) && pr.pr > 0 ? pr.pr : null,
-    sha: sanitizeToken(pr.sha),
+    head_sha: sha,
+    sha, // alias of head_sha, kept for older readers
     model: result?.ok ? sanitizeToken(result.model) : null,
     ok: result?.ok === true,
     reason: result?.ok ? null : (sanitizeToken(result?.reason) ?? "no_result"),
@@ -194,7 +196,9 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     filesProblem,
     final: marker ? maxTier(final, marker) : final,
     latency_ms: loggedLatency(result, markerHit),
-    marker_hit: markerHit,
+    tokens: loggedTokens(result, markerHit),
+    cache_hit: markerHit,
+    marker_hit: markerHit, // alias of cache_hit, kept for older readers
     marker_tier: marker,
     caller: caller ? sanitizeToken(caller) : null,
     screener: SCREENER_ID,
@@ -212,6 +216,25 @@ function loggedLatency(result, markerHit) {
   return Number.isFinite(result?.latencyMs) ? result.latencyMs : null;
 }
 
+const isTokenCount = (value) => Number.isSafeInteger(value) && value >= 0;
+
+/**
+ * Token usage from the Jev response ({ input_tokens, output_tokens }, each a
+ * count or null), or null on a marker hit (no call was made) or when the
+ * response carries no usable count. Never estimated.
+ */
+function loggedTokens(result, markerHit) {
+  if (markerHit || !result?.ok) return null;
+  const usage = result.usage;
+  if (usage === null || typeof usage !== "object") return null;
+  const input = isTokenCount(usage.input_tokens) ? usage.input_tokens : null;
+  const output = isTokenCount(usage.output_tokens) ? usage.output_tokens : null;
+  return input === null && output === null ? null : { input_tokens: input, output_tokens: output };
+}
+
+/** A logged row's cache hit flag: cache_hit, or its older alias marker_hit. */
+const rowCacheHit = (record) => (record.cache_hit ?? record.marker_hit) === true;
+
 /** Recompute final tiers from logged decisions under a different confidence floor (rule replay). */
 export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {}) {
   const floor = floorOf(minConfidence);
@@ -219,8 +242,8 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
     const { tier, confidence } = record.jev ?? {};
     const accepted = record.ok === true && isProbability(confidence) && confidence >= floor;
     const recomputed = finalTier(record.deterministic, accepted ? { status: "accepted", choice: tier } : { status: "uncertain" });
-    const final = record.marker_hit === true ? maxTier(recomputed, markerFloor(record.marker_tier)) : recomputed;
-    return { pr: record.pr, sha: record.sha, before: record.final, after: final, changed: final !== record.final };
+    const final = rowCacheHit(record) ? maxTier(recomputed, markerFloor(record.marker_tier)) : recomputed;
+    return { pr: record.pr, sha: record.head_sha ?? record.sha, before: record.final, after: final, changed: final !== record.final };
   });
 }
 
@@ -427,7 +450,7 @@ if (invokedAsScript()) {
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";
-    const marker = r.marker_hit ? " (marker hit)" : "";
+    const marker = r.cache_hit ? " (cache hit)" : "";
     console.log(`#${r.pr} det=${r.deterministic} jev=${r.jev.tier}@${r.jev.confidence} p_incident=${r.jev.pIncident} -> ${r.final}${failure}${files}${marker}`);
   }
 }
