@@ -116,7 +116,9 @@ node scripts/emit-verdict.mjs --role verifier --verdict PASS \
   or textconv. The verifier and OVD-845 therefore compute the same id for the
   same commits regardless of local config. OVD-845 must compute the id with
   `computePatchId` (or byte-identical options) rather than its own diff. An
-  empty diff is an error.
+  empty diff is an error. The diff is handled as raw bytes and never decoded
+  as text, so two diffs that differ only in invalid UTF-8 bytes get different
+  ids.
 - `timestamp` is the current UTC time, to the second.
 - Reviewers add `--role reviewer --findings findings.json`. The file must hold a
   JSON array. The script tags the findings with `corroborated` before printing
@@ -201,8 +203,9 @@ cover:
 - the emit-to-validate round trip;
 - one fixture per schema violation;
 - patch-id stability across a no-op rebase, and a new patch-id when the diff
-  changes, including an indentation-only change; the same id under different
-  `diff.*` config (temporary git repo in `os.tmpdir()`);
+  changes, including an indentation-only change or a change only in invalid
+  UTF-8 bytes; the same id under different `diff.*` config (temporary git repo
+  in `os.tmpdir()`);
 - `--base`/`--head`: both required; ref names (`main`, `origin/main`, `HEAD`),
   39- and 41-character hex, uppercase hex and values starting with `--` are
   refused, a valid SHA is accepted, and an unknown SHA is reported;
@@ -214,6 +217,9 @@ cover:
 - `--findings` resolution: `../` traversal, absolute paths outside the base,
   symlinks (including one inside the repository pointing outside), and
   `$RUNNER_TEMP` as a base;
+- the CLI entry guard: the script runs `main()` (and reports errors with a
+  non-zero exit) when launched directly or through a symlinked path, and
+  `isEntryPoint` is false for a missing or unresolvable `argv[1]`;
 - posting only with `--post`, through an injected runner: injected PR numbers
   are refused, the argv is fixed, the body file holds the comment during the
   call, and the temp directory is gone afterwards (also when `gh` fails).

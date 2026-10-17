@@ -88,13 +88,17 @@ export function resolveGhBin(env = process.env, { lookup = resolveBinary } = {})
   return target;
 }
 
-const git = (args, { cwd, input } = {}) =>
+/**
+ * Run git. Output is a string by default; pass `encoding: "buffer"` for raw
+ * bytes (diff content is not guaranteed to be valid UTF-8).
+ */
+const git = (args, { cwd, input, encoding = "utf8" } = {}) =>
   execFileSync(resolveBinary("git"), args, {
     cwd,
     input,
     env: SAFE_ENV,
     shell: false,
-    encoding: "utf8",
+    encoding,
     maxBuffer: 256 * 1024 * 1024,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -147,8 +151,11 @@ export function computePatchId({ base, head, cwd }) {
   const headSha = assertSha(head, "--head");
   assertCommit(baseSha, "--base", { cwd });
   assertCommit(headSha, "--head", { cwd });
-  const diff = git([...PINNED_DIFF, "--end-of-options", `${baseSha}...${headSha}`, "--"], { cwd });
-  if (!diff.trim()) throw new Error(`computePatchId: ${baseSha}...${headSha} has an empty diff`);
+  // The diff stays a Buffer end to end: decoding it as UTF-8 would collapse every
+  // invalid byte sequence to U+FFFD, so two different diffs could share an id.
+  // Only patch-id's ASCII output is decoded.
+  const diff = git([...PINNED_DIFF, "--end-of-options", `${baseSha}...${headSha}`, "--"], { cwd, encoding: "buffer" });
+  if (diff.length === 0) throw new Error(`computePatchId: ${baseSha}...${headSha} has an empty diff`);
   const [patchId] = git(["patch-id", "--verbatim"], { cwd, input: diff }).trim().split(/\s+/);
   if (!SHA.test(patchId ?? "")) throw new Error("computePatchId: git patch-id returned no id");
   return patchId;
@@ -341,7 +348,22 @@ export function main(argv = process.argv.slice(2), { cwd, now, run, env } = {}) 
   return body;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+/**
+ * True when this module is the script node was started with. Both sides are
+ * compared by realpath, because node resolves symlinks for `import.meta.url`
+ * but leaves `process.argv[1]` as the path the caller used. False when `entry`
+ * is missing or either path cannot be resolved.
+ */
+export function isEntryPoint(moduleUrl = import.meta.url, entry = process.argv[1]) {
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(entry);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   try {
     process.stdout.write(main());
   } catch (error) {

@@ -3,8 +3,9 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { assertSha, buildVerdict, computePatchId, formatComment, main, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
+import { assertSha, buildVerdict, computePatchId, formatComment, isEntryPoint, main, postComment, resolveBinary, resolveGhBin, resolveInputFile } from "./emit-verdict.mjs";
 import { extractVerdictBlocks, parseVerdictComments, validateVerdict } from "./verdict-schema.mjs";
 
 let repo;
@@ -73,6 +74,25 @@ describe("computePatchId", () => {
     commit("ws.py", "if x:\n    y()\n    z()\n", "indented z");
     git("checkout", "-q", "main");
     expect(patchId("main", "ws-a")).not.toBe(patchId("main", "ws-b"));
+  });
+
+  it("keeps the diff as bytes, so diffs differing only in invalid UTF-8 get different ids", () => {
+    // 0x80 and 0xff are both invalid UTF-8 and both decode to U+FFFD, so a
+    // string round trip would make these two diffs identical.
+    git("checkout", "-q", "-b", "bytes-a", "main");
+    commit("raw.dat", Buffer.from([0x70, 0x72, 0x65, 0x80, 0x73, 0x75, 0x66, 0x0a]), "invalid byte 0x80");
+    git("checkout", "-q", "-b", "bytes-b", "main");
+    commit("raw.dat", Buffer.from([0x70, 0x72, 0x65, 0xff, 0x73, 0x75, 0x66, 0x0a]), "invalid byte 0xff");
+    git("checkout", "-q", "main");
+    expect(git("rev-parse", "bytes-a:raw.dat")).not.toBe(git("rev-parse", "bytes-b:raw.dat"));
+    expect(patchId("main", "bytes-a")).not.toBe(patchId("main", "bytes-b"));
+  });
+
+  it("is stable for the same invalid-UTF-8 diff on two different commits", () => {
+    git("checkout", "-q", "-b", "bytes-c", "main");
+    commit("raw.dat", Buffer.from([0x70, 0x72, 0x65, 0x80, 0x73, 0x75, 0x66, 0x0a]), "invalid byte 0x80 again");
+    git("checkout", "-q", "main");
+    expect(patchId("main", "bytes-c")).toBe(patchId("main", "bytes-a"));
   });
 
   it("does not depend on local diff config", () => {
@@ -237,6 +257,59 @@ describe("emit -> validate round trip", () => {
     expect(body).toContain("advisory reviewer verdict, not gate input");
     const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
     expect(verdict.findings.every((f) => f.corroborated)).toBe(true);
+  });
+});
+
+describe("CLI entry guard", () => {
+  const script = fileURLToPath(new URL("./emit-verdict.mjs", import.meta.url));
+  const other = fileURLToPath(new URL("./emit-verdict.test.mjs", import.meta.url));
+  const moduleUrl = new URL("./emit-verdict.mjs", import.meta.url).href;
+  let dir;
+  let link;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "ovd851-entry-"));
+    link = join(dir, "emit-verdict-link.mjs");
+    symlinkSync(script, link);
+    symlinkSync(link, join(dir, "link-to-link.mjs"));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("recognises the module as the entry point by realpath, including through symlinks", () => {
+    expect(isEntryPoint(moduleUrl, script)).toBe(true);
+    expect(isEntryPoint(moduleUrl, link)).toBe(true);
+    expect(isEntryPoint(moduleUrl, join(dir, "link-to-link.mjs"))).toBe(true);
+  });
+
+  it("is false when argv[1] is missing, unresolvable or another file", () => {
+    expect(isEntryPoint(moduleUrl, undefined)).toBe(false);
+    expect(isEntryPoint(moduleUrl, "")).toBe(false);
+    expect(isEntryPoint(moduleUrl, join(dir, "missing.mjs"))).toBe(false);
+    expect(isEntryPoint(moduleUrl, other)).toBe(false);
+    expect(isEntryPoint("not a url", script)).toBe(false);
+  });
+
+  const cli = (entry, args) => {
+    try {
+      return { status: 0, stdout: execFileSync(process.execPath, [entry, ...args], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }), stderr: "" };
+    } catch (error) {
+      return { status: error.status, stdout: error.stdout, stderr: error.stderr };
+    }
+  };
+
+  it("runs main() when launched through a symlinked path", () => {
+    for (const entry of [script, link, join(dir, "link-to-link.mjs")]) {
+      const result = cli(entry, ARGS());
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("OverDrafter verdict: PASS");
+      expect(JSON.parse(extractVerdictBlocks(result.stdout)[0])).toMatchObject({ sha: sha("feature"), patch_id: patchId("main", "feature") });
+    }
+  });
+
+  it("reports errors and exits non-zero through a symlinked path instead of exiting 0 silently", () => {
+    const result = cli(link, argsWithout("--base"));
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/^emit-verdict: --base must be a full 40-character lowercase commit SHA/);
   });
 });
 
