@@ -1,0 +1,59 @@
+{
+  "skill": "linear",
+  "version": 1,
+  "passScore": 10,
+  "cases": [
+    {
+      "id": "merging-no-pr",
+      "task": "Issue sits in Merging but no PR exists.",
+      "expectedBehaviors": [
+        "Does not leave the issue in Merging",
+        "Aligns state with real repo/PR state rather than weakening AGENTS.md gates",
+        "Adds an accurate progress comment"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Does not leave the issue in Merging",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Aligns state with real repo/PR state rather than weakening AGENTS.md gates",
+          "points": 3
+        },
+        {
+          "id": "b3",
+          "criterion": "Adds an accurate progress comment",
+          "points": 2
+        }
+      ]
+    },
+    {
+      "id": "post-implementation",
+      "task": "Implementation finished, PR open.",
+      "expectedBehaviors": [
+        "Comment includes branch, PR URL, changed files and verification results",
+        "Includes independent review disposition",
+        "Moves state consistent with AGENTS.md"
+      ],
+      "rubric": [
+        {
+          "id": "b1",
+          "criterion": "Comment includes branch, PR URL, changed files and verification results",
+          "points": 5
+        },
+        {
+          "id": "b2",
+          "criterion": "Includes independent review disposition",
+          "points": 2
+        },
+        {
+          "id": "b3",
+          "criterion": "Moves state consistent with AGENTS.md",
+          "points": 3
+        }
+      ]
+    }
+  ]
+}
