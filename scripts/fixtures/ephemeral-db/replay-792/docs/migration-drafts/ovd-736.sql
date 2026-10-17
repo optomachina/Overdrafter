@@ -1,0 +1,44 @@
+-- OVD-736: revoke anon and PUBLIC EXECUTE on SECURITY DEFINER functions.
+--
+-- PROPOSED migration draft. NOT APPLIED. This file is intentionally outside
+-- supabase/migrations/ and is applied only in a migration window the lead runs.
+-- When it is promoted, copy it byte for byte into
+-- supabase/migrations/<npm run migration:next>_ovd736_revoke_anon_definer_execute.sql.
+-- supabase/tests/fixtures/ovd736_anon_definer_privileges.inc is a byte copy of
+-- this file, enforced by scripts/run-supabase-policy-tests.node-test.mjs.
+-- Rollback: docs/migration-drafts/ovd-736.rollback.sql. Notes and evidence:
+-- docs/migration-drafts/ovd-736-notes.md.
+--
+-- Transaction: this file has no begin/commit of its own. It relies on the
+-- migration runner wrapping it in one transaction (the Supabase CLI does). If run
+-- by hand, use `psql --single-transaction -v ON_ERROR_STOP=1 -f ovd-736.sql`.
+-- Any failure aborts the whole transaction and leaves the prior grants in place.
+--
+-- Scope: expand only. No data change, no function body change, no DROP. One
+-- search_path change (section 4, OVD-759). Before this file, each of the 56 functions below has the
+-- ACL {=X/postgres, postgres=X, anon=X, authenticated=X, service_role=X}
+-- (local stack and the 2026-10-12 production inventory agree).
+--
+-- After this file:
+--   * PUBLIC and anon: no EXECUTE on any of the 56 functions. No logged out
+--     app path calls them (see the notes file), and every one already refuses or
+--     returns nothing for a caller without auth.uid(), so anon sees no change
+--     beyond 42501 instead of an application error.
+--   * authenticated: unchanged for the 37 client RPCs (api_*) and for the 11
+--     internal helpers that an RLS policy for authenticated calls directly.
+--     Revoked for the 8 internal helpers that no policy, view, invoker function
+--     or client calls directly (they are reached only from other SECURITY
+--     DEFINER functions, which run as the owner, or as triggers).
+--   * service_role and postgres: unchanged.
+--   * Section 5 re-grants EXECUTE explicitly to every role kept above, so this
+--     end state holds even where a kept role had reached a function only
+--     through PUBLIC.
+--
+-- Trigger functions: PostgreSQL checks EXECUTE on a trigger function only at
+-- CREATE TRIGGER time, never when the trigger fires, so revoking it does not
+-- stop the trigger for any writer. supabase/tests/ovd736_anon_definer_privileges.sql
+-- proves this.
+
+-- 1. Client RPCs (api_*): signed in only. Keep authenticated and service_role.
+-- [header-only snapshot of docs/migration-drafts/ovd-736.sql at d2b7981b (#792); body omitted]
+select 1;

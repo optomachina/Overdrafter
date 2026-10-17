@@ -71,6 +71,13 @@ Use `docs/recurring-workflows.md` as the concise operating guide for repeated is
 - use the repo-local skills in `.codex/skills/` for `pull`, `commit`, `push`, `linear`, and `land`
 - do not rely on custom prompt snippets when the repo already documents the workflow locally
 
+## Git requirements
+
+Review tooling that computes `git patch-id --verbatim` (the OVD-851 verdict
+tooling) needs git 2.39 or newer, and local and CI must use the same git
+version and the same `.gitattributes`. See
+`docs/review-tooling-git-requirements.md`.
+
 ## Package manager
 
 - Use `npm` for both the repo root and the `worker/` package.

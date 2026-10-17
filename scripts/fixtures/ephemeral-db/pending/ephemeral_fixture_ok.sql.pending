@@ -1,0 +1,7 @@
+-- OVD-849 fixture: pgTAP for 20990101000000_ephemeral_fixture_ok.sql.
+begin;
+select plan(2);
+select has_table('public', 'ephemeral_fixture_ok', 'fixture table exists');
+select has_column('public', 'ephemeral_fixture_ok', 'note', 'fixture table has note');
+select * from finish();
+rollback;
