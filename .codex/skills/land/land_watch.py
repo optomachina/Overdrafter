@@ -26,6 +26,24 @@ def read_pr():
     return json.loads(result.stdout)
 
 
+def classify_checks(checks):
+    """Classify GraphQL CheckRun and StatusContext entries without I/O."""
+    failing, pending = [], []
+    for check in checks:
+        name = check.get("name") or check.get("context") or "unnamed-check"
+        if "context" in check and "conclusion" not in check:
+            state = check.get("state")
+            if state in ("PENDING", "EXPECTED"):
+                pending.append(name)
+            elif state != "SUCCESS":
+                failing.append(f"{name}: {state}")
+        elif check.get("status") != "COMPLETED" or check.get("conclusion") in (None, ""):
+            pending.append(name)
+        elif check["conclusion"] != "SUCCESS":
+            failing.append(f"{name}: {check['conclusion']}")
+    return failing, pending
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in {"-h", "--help"}:
         print("Usage: land_watch.py")
@@ -50,16 +68,7 @@ def main() -> int:
             time.sleep(15)
             continue
 
-        failing = []
-        pending = []
-        for check in checks:
-            conclusion = check.get("conclusion")
-            status = check.get("status")
-            name = check.get("name") or check.get("context") or "unnamed-check"
-            if conclusion not in (None, "SUCCESS"):
-                failing.append(f"{name}: {conclusion}")
-            elif status not in (None, "COMPLETED"):
-                pending.append(name)
+        failing, pending = classify_checks(checks)
 
         if failing:
             print("PR checks are failing:")
