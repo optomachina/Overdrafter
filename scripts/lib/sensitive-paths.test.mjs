@@ -399,14 +399,14 @@ describe("gate loosening", () => {
 
   it("puts the files that control the list on the list, so editing any of them is sensitive", () => {
     const matcher = createMatcher(config);
-    for (const file of [...GATE_CODE_FILES, SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths.test.mjs", "scripts/jev-client.mjs", "scripts/validate-agent-contract.node-test.mjs"]) {
+    for (const file of [...GATE_CODE_FILES, SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths.test.mjs", "scripts/jev-client.mjs", "scripts/lib/jev-screen-marker.mjs", "scripts/validate-agent-contract.node-test.mjs"]) {
       expect(matcher.classify(file), file).toContain("infra_ci");
     }
     // A PR that edits only the matcher (or only the list and AGENTS.md) is sensitive.
     expect(classifyPaths([MATCHER_PATH], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
     expect(classifyPaths([SENSITIVE_PATHS_FILE, "AGENTS.md"], config)).toMatchObject({ sensitive: true, classes: ["infra_ci"] });
     // Adding these globs (OVD-873 round 3) did not loosen anything.
-    const controlGlobs = [SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths*", "scripts/sensitive-paths*", "scripts/fixtures/sensitive-paths/**", "scripts/jev-pr-screen*", "scripts/jev-client*", "scripts/validate-agent-contract*"];
+    const controlGlobs = [SENSITIVE_PATHS_FILE, "AGENTS.md", "scripts/lib/sensitive-paths*", "scripts/sensitive-paths*", "scripts/fixtures/sensitive-paths/**", "scripts/jev-pr-screen*", "scripts/jev-client*", "scripts/lib/jev-screen-marker*", "scripts/validate-agent-contract*"];
     expect(config.globs.filter((entry) => controlGlobs.includes(entry.glob))).toEqual(controlGlobs.map((glob) => ({ glob, class: "infra_ci" })));
     const before = withGlobs((globs) => globs.splice(0, globs.length, ...globs.filter((entry) => !controlGlobs.includes(entry.glob))));
     expect(findGateLoosening({ baseText: before, headText: configText })).toMatchObject({ detected: false, reasons: [] });

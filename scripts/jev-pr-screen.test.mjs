@@ -27,6 +27,7 @@ import {
 import {
   FIXED_PATH,
   MARKER_CONTEXT,
+  MAX_STATUS_PAGES,
   buildMarkerDescription,
   canonicalJson,
   hashQuestions,
@@ -42,6 +43,24 @@ import { JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
+// Every GitHub call in this file goes through an in-memory fake. As a backstop,
+// a gh that slipped past the fakes would have no credentials and a host that
+// cannot resolve, so it could never reach GitHub.
+const GH_ENV_KEYS = ["GH_HOST", "GH_CONFIG_DIR", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+const savedGhEnv = Object.fromEntries(GH_ENV_KEYS.map((key) => [key, process.env[key]]));
+const isolatedGhConfig = mkdtempSync(join(tmpdir(), "jev-gh-none-"));
+for (const key of GH_ENV_KEYS) delete process.env[key];
+process.env.GH_HOST = "gh-guard.invalid";
+process.env.GH_CONFIG_DIR = isolatedGhConfig;
+afterAll(() => {
+  for (const [key, value] of Object.entries(savedGhEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmSync(isolatedGhConfig, { recursive: true, force: true });
+});
+
 const temps = [];
 afterAll(() => {
   for (const dir of temps) rmSync(dir, { recursive: true, force: true });
@@ -458,7 +477,10 @@ const Q = hashQuestions(SCREEN_QUESTIONS);
 const markerText = (fields = {}) =>
   buildMarkerDescription({ tier: "normal", jevTier: "normal", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, ...fields });
 const status = (description, { context = MARKER_CONTEXT, state = "success", login = "optomachina" } = {}) => ({ context, state, description, creator: { login } });
-const STATUSES_PATH = /^repos\/optomachina\/Overdrafter\/commits\/([0-9a-f]{40})\/statuses\?per_page=100$/;
+const STATUSES_PATH = /^repos\/optomachina\/Overdrafter\/commits\/([0-9a-f]{40})\/statuses\?per_page=100&page=([1-9]\d*)$/;
+const statusesPage = (sha, page) => ["api", `repos/optomachina/Overdrafter/commits/${sha}/statuses?per_page=100&page=${page}`];
+/** n statuses from other tools (never markers), to push markers onto later pages. */
+const filler = (n) => Array.from({ length: n }, (_, k) => status(`check ${k}`, { context: `ci/${k}` }));
 const POST_PATH = /^repos\/optomachina\/Overdrafter\/statuses\/([0-9a-f]{40})$/;
 const PULL_PATH = /^repos\/optomachina\/Overdrafter\/pulls\/(\d+)$/;
 const field = (args, name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
@@ -474,7 +496,11 @@ function fakeGitHub({ statuses = {}, heads = {}, failWrites = false } = {}) {
     calls.push(args);
     const path = args[1];
     const read = STATUSES_PATH.exec(path);
-    if (read) return JSON.stringify(store[read[1]] ?? []);
+    if (read) {
+      // GitHub pages: per_page=100, page is 1-based.
+      const start = (Number(read[2]) - 1) * 100;
+      return JSON.stringify((store[read[1]] ?? []).slice(start, start + 100));
+    }
     const post = POST_PATH.exec(path);
     if (post) {
       if (failWrites) throw new Error("HTTP 403");
@@ -530,9 +556,70 @@ describe("jev screen marker", () => {
     expect(text.length).toBeLessThanOrEqual(140);
     expect(parseMarkerDescription(text)).toEqual({ version: "v1", tier: "risky", jevTier: "normal", confidence: 0.876, pIncident: 0.124, model: "jev-1.13.0", questionHash: "abc12345", screener: "mjs" });
     expect(parseMarkerDescription(markerText({ pIncident: null })).pIncident).toBeNull();
-    for (const bad of ["v2 tier=low jev=low c=0.9 model=m q=h screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 model=m q=h screener=mjs", "v1 tier=low jev=low c=1.5 model=m q=h screener=mjs", "v1 tier=low jev=low model=m q=h screener=mjs", "", null]) {
+    expect(parseMarkerDescription(markerText({ confidence: 1, pIncident: 0 }))).toMatchObject({ confidence: 1, pIncident: 0 });
+    for (const bad of ["v2 tier=low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low", "v1 tier=Low jev=low c=0.9 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low c=1.5 p=na model=m q=abc12345 screener=mjs", "v1 tier=low jev=low p=na model=m q=abc12345 screener=mjs", "", null]) {
       expect(parseMarkerDescription(bad), String(bad)).toBeNull();
     }
+  });
+
+  it("rejects a marker with a duplicate field, so an appended tier cannot lower a risky marker", () => {
+    const risky = markerText({ tier: "risky" });
+    const duplicates = [
+      `${risky} tier=low jev=low`, // the Architect's repro: the last duplicate used to win
+      `${risky} tier=risky`, // repeated with the same value is still rejected
+      `${risky} c=0.9`,
+      `${risky} p=na`,
+      `${risky} model=${JEV_MODEL}`,
+      `${risky} q=${Q}`,
+      `${risky} screener=mjs`,
+      risky.replace("jev=normal", "jev=normal jev=low"),
+    ];
+    for (const text of duplicates) expect(parseMarkerDescription(text), text).toBeNull();
+  });
+
+  it("rejects malformed fields: hash format, confidence, incident, tier, version and extra junk", () => {
+    const base = markerText();
+    const swap = (from, to) => base.replace(from, to);
+    const malformed = {
+      hash: [swap(`q=${Q}`, "q=ABC12345"), swap(`q=${Q}`, "q=abc1234"), swap(`q=${Q}`, "q=abc123456"), swap(`q=${Q}`, "q=xyz12345"), swap(`q=${Q}`, "q=")],
+      confidence: [swap("c=0.9", "c=abc"), swap("c=0.9", "c=NaN"), swap("c=0.9", "c=-0.1"), swap("c=0.9", "c=1.5"), swap("c=0.9", "c=1.001"), swap("c=0.9", "c=0.9999"), swap("c=0.9", "c=1e-1"), swap("c=0.9", "c=.9"), swap("c=0.9", "c=0x1"), swap("c=0.9", "c=Infinity")],
+      incident: [swap("p=0.1", "p=abc"), swap("p=0.1", "p=2"), swap("p=0.1", "p=-0"), swap("p=0.1", "p=NA"), swap("p=0.1", "p=null")],
+      tier: [swap("tier=normal", "tier=high"), swap("tier=normal", "tier=Normal"), swap("jev=normal", "jev=critical"), swap("tier=normal", "tier=")],
+      version: [swap("v1 ", "v1.0 "), swap("v1 ", "V1 "), swap("v1 ", "")],
+      junk: [`${base} junk`, `${base} x=1`, `${base} a=b=c`, swap("tier=normal", "tier==normal"), swap("model=", "Model="), `${base} =`, swap(" c=0.9", " c=0.9;"), `${base} ${"x".repeat(140)}`],
+      missing: [swap(" p=0.1", ""), swap(" screener=mjs", ""), swap(` q=${Q}`, "")],
+    };
+    for (const [kind, texts] of Object.entries(malformed)) {
+      for (const text of texts) expect(parseMarkerDescription(text), `${kind}: ${text}`).toBeNull();
+    }
+  });
+
+  it("treats a rejected marker as a miss, never as a hit", async () => {
+    const risky = markerText({ tier: "risky" });
+    const rejected = [`${risky} tier=low jev=low`, risky.replace(`q=${Q}`, "q=ABC12345"), risky.replace("c=0.9", "c=9"), risky.replace("tier=risky", "tier=extreme"), `${risky} junk`];
+    for (const description of rejected) {
+      const github = fakeGitHub({ statuses: { [SHA]: [status(description)] } });
+      expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run }), description).toEqual({ found: false, reason: "no_valid_marker" });
+    }
+    // Through screen(): the tampered marker is a miss, so Jev runs and its answer stands.
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: [status(`${risky} tier=low jev=low`)] } });
+    const jev = countingJev("normal");
+    const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(1);
+    expect(record).toMatchObject({ cache_hit: false, final: "normal" });
+  });
+
+  it("rejects a bad SHA and a status that names another commit", async () => {
+    const github = fakeGitHub({ statuses: { [SHA]: [status(markerText())] } });
+    for (const sha of [SHA.slice(0, 39), `${SHA}0`, `${SHA.slice(0, 39)}g`, ` ${SHA}`, `${SHA}\n`, `${SHA}/statuses`, "", null, 123]) {
+      expect(await readMarker(sha, JEV_MODEL, Q, { run: github.run }), String(sha)).toEqual({ found: false, reason: "invalid_sha" });
+    }
+    expect(github.calls).toEqual([]);
+    const url = (sha) => `https://api.github.com/repos/optomachina/Overdrafter/statuses/${sha}`;
+    const elsewhere = fakeGitHub({ statuses: { [SHA]: [{ ...status(markerText({ tier: "low", jevTier: "low" })), url: url(OTHER_SHA) }, { ...status(markerText()), url: 42 }] } });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: elsewhere.run })).toEqual({ found: false, reason: "no_valid_marker" });
+    const here = fakeGitHub({ statuses: { [SHA]: [{ ...status(markerText()), url: url(SHA.toUpperCase()) }] } });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: here.run })).toMatchObject({ found: true, tier: "normal" });
   });
 
   it("resolves gh only from the trusted directories, never PATH", () => {
@@ -561,12 +648,64 @@ describe("jev screen marker", () => {
     });
     expect(await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).toEqual({ found: true, version: "v1", tier: "low", jevTier: "low", confidence: 0.9, pIncident: 0.1, model: JEV_MODEL, questionHash: Q, screener: "mjs" });
     // Reads the raw JSON (no --jq filter, which made gh exit 1 on the array).
-    expect(github.calls).toEqual([["api", `repos/optomachina/Overdrafter/commits/${SHA}/statuses?per_page=100`]]);
+    expect(github.calls).toEqual([statusesPage(SHA, 1)]);
   });
 
-  it("takes the highest tier when several markers match", async () => {
+  it("takes the highest tier when several markers match, then the newest", async () => {
     const github = fakeGitHub({ statuses: { [SHA]: [status(markerText({ tier: "normal" })), status(markerText({ tier: "risky" })), status(markerText({ tier: "low", jevTier: "low" }))] } });
     expect((await readMarker(SHA, JEV_MODEL, Q, { run: github.run })).tier).toBe("risky");
+    // Statuses are newest first: on a tier tie the newest marker wins.
+    const tie = fakeGitHub({ statuses: { [SHA]: [status(markerText({ tier: "risky", jevTier: "low", confidence: 0.7 })), status(markerText({ tier: "risky", jevTier: "risky", confidence: 0.95 }))] } });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: tie.run })).toMatchObject({ tier: "risky", jevTier: "low", confidence: 0.7 });
+  });
+
+  it("reads every page of statuses, so a stronger marker past the first 100 is never missed", async () => {
+    // The Architect's repro: a low marker on page 1 and a risky marker on page 2 used to give a low hit.
+    const low = status(markerText({ tier: "low", jevTier: "low" }));
+    const risky = status(markerText({ tier: "risky" }));
+    const pageTwo = fakeGitHub({ statuses: { [SHA]: [low, ...filler(99), risky, ...filler(5)] } });
+    expect((await readMarker(SHA, JEV_MODEL, Q, { run: pageTwo.run })).tier).toBe("risky");
+    expect(pageTwo.calls).toEqual([statusesPage(SHA, 1), statusesPage(SHA, 2)]);
+    // 250 statuses: the strongest marker is on page 3 of 3.
+    const pageThree = fakeGitHub({ statuses: { [SHA]: [low, ...filler(220), risky, ...filler(28)] } });
+    expect(pageThree.store[SHA]).toHaveLength(250);
+    expect((await readMarker(SHA, JEV_MODEL, Q, { run: pageThree.run })).tier).toBe("risky");
+    expect(pageThree.calls).toEqual([1, 2, 3].map((page) => statusesPage(SHA, page)));
+    // Exactly 100 statuses: a full page is never taken as the end, so page 2 (empty) is read too.
+    const full = fakeGitHub({ statuses: { [SHA]: [low, ...filler(99)] } });
+    expect((await readMarker(SHA, JEV_MODEL, Q, { run: full.run })).tier).toBe("low");
+    expect(full.calls).toEqual([statusesPage(SHA, 1), statusesPage(SHA, 2)]);
+    // The only marker sits on page 2.
+    const onlyLater = fakeGitHub({ statuses: { [SHA]: [...filler(150), low] } });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: onlyLater.run })).toMatchObject({ found: true, tier: "low" });
+  });
+
+  it("misses fail-safe when a later page fails, a page is oversized or the pages never end", async () => {
+    const low = status(markerText({ tier: "low", jevTier: "low" }));
+    const firstPageThenFail = (args) => {
+      if (args[1].endsWith("&page=1")) return JSON.stringify([low, ...filler(99)]);
+      throw new Error("gh: HTTP 502");
+    };
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: firstPageThenFail })).toMatchObject({ found: false, reason: "api_error", error: "gh: HTTP 502" });
+    const badSecondPage = (args) => (args[1].endsWith("&page=1") ? JSON.stringify([low, ...filler(99)]) : "{}");
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: badSecondPage })).toMatchObject({ found: false, reason: "api_error" });
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: () => JSON.stringify([low, ...filler(100)]) })).toMatchObject({ found: false, reason: "api_error" });
+    let pages = 0;
+    const endless = () => {
+      pages += 1;
+      return JSON.stringify([low, ...filler(99)]);
+    };
+    expect(await readMarker(SHA, JEV_MODEL, Q, { run: endless })).toMatchObject({ found: false, reason: "api_error", error: `more than ${MAX_STATUS_PAGES} pages of statuses` });
+    expect(pages).toBe(MAX_STATUS_PAGES);
+  });
+
+  it("screens risky when the risky marker is on page 2 (no fail-open through a truncated list)", async () => {
+    const statuses = [status(markerText({ tier: "low", jevTier: "low", confidence: 0.99 })), ...filler(120), status(markerText({ tier: "risky", jevTier: "low", confidence: 0.99 }))];
+    const github = fakeGitHub({ heads: { 846: SHA }, statuses: { [SHA]: statuses } });
+    const jev = countingJev("low", 0.99);
+    const [record] = await screen([readme()], { ...quiet, ask: jev.ask, marker: github.io });
+    expect(jev.calls).toBe(0);
+    expect(record).toMatchObject({ cache_hit: true, marker_tier: "risky", final: "risky" });
   });
 
   it("misses fail-safe on no marker, an invalid SHA, an API error or a bad response", async () => {
@@ -595,6 +734,7 @@ describe("jev screen marker", () => {
     expect(await writeMarker(SHA, { ...marker, tier: "high" }, { run: github.run })).toEqual({ success: false, reason: "invalid_tier" });
     expect(await writeMarker(SHA, { ...marker, confidence: 1.2 }, { run: github.run })).toEqual({ success: false, reason: "invalid_probability" });
     expect(await writeMarker(SHA, { ...marker, model: "bad model" }, { run: github.run })).toEqual({ success: false, reason: "invalid_key" });
+    expect(await writeMarker(SHA, { ...marker, questionHash: "not-a-hash" }, { run: github.run })).toEqual({ success: false, reason: "invalid_key" });
     expect(await writeMarker(SHA, marker, { run: fakeGitHub({ failWrites: true }).run })).toMatchObject({ success: false, reason: "api_error" });
   });
 

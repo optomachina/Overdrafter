@@ -32,8 +32,21 @@ export const FIXED_PATH = TRUSTED_BIN_DIRS.join(":");
 /** GitHub's limit on a commit status description. */
 export const MAX_DESCRIPTION_LENGTH = 140;
 
+/** Statuses per page when listing a commit's statuses (GitHub's maximum). */
+export const STATUS_PAGE_SIZE = 100;
+/** Pages read before giving up; more than this is a miss, never a partial read. */
+export const MAX_STATUS_PAGES = 50;
+
 const GH_TIMEOUT_MS = 10_000;
 const TOKEN = /^[A-Za-z0-9._-]+$/;
+/** A question-set hash: 8 lowercase hex chars, as hashQuestions returns. */
+const QUESTION_HASH = /^[0-9a-f]{8}$/;
+/** A probability as the writer prints it: 0 to 1 with at most 3 decimals. */
+const PROBABILITY_TEXT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
+/** One key=value field of a marker description. */
+const FIELD = /^([a-z]+)=([A-Za-z0-9._-]+)$/;
+/** The fields every marker carries, each exactly once and nothing else. */
+const MARKER_KEYS = Object.freeze(["tier", "jev", "c", "p", "model", "q", "screener"]);
 
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const errorText = (error) => String(error?.message ?? error);
@@ -116,60 +129,91 @@ export function buildMarkerDescription({ tier, jevTier, confidence, pIncident = 
   return `${MARKER_VERSION} tier=${tier} jev=${jevTier} c=${floor3(confidence)} p=${p} model=${model} q=${questionHash} screener=${SCREENER_ID}`;
 }
 
+/**
+ * The key=value fields of a description, or null when the version is wrong or
+ * any token is malformed, unknown, repeated or missing. Strict on purpose: a
+ * marker with an appended or repeated field is rejected whole, never merged.
+ */
 function descriptionFields(description) {
-  const parts = description.trim().split(/\s+/);
-  if (parts[0] !== MARKER_VERSION) return null;
-  const fields = { version: parts[0] };
-  for (const part of parts.slice(1)) {
-    const [key, value, extra] = part.split("=");
-    if (key && value && extra === undefined) fields[key] = value;
+  if (description.length > MAX_DESCRIPTION_LENGTH) return null;
+  const [version, ...parts] = description.trim().split(/\s+/);
+  if (version !== MARKER_VERSION) return null;
+  const fields = new Map();
+  for (const part of parts) {
+    const match = FIELD.exec(part);
+    if (!match || !MARKER_KEYS.includes(match[1]) || fields.has(match[1])) return null;
+    fields.set(match[1], match[2]);
   }
-  return fields;
+  return fields.size === MARKER_KEYS.length ? Object.fromEntries(fields) : null;
 }
 
+const probabilityText = (text) => (PROBABILITY_TEXT.test(text) ? Number(text) : null);
+
 /**
- * Parse a marker description. Returns null unless the version matches and the
- * tiers, confidence, model, question hash and screener are all well formed.
+ * Parse a marker description. Returns null unless the version matches, every
+ * field appears exactly once with nothing extra, and the tiers, confidence,
+ * incident probability, model, question hash and screener are all well formed.
  */
 export function parseMarkerDescription(description) {
   if (!description || typeof description !== "string") return null;
   const fields = descriptionFields(description);
   if (!fields) return null;
-  const confidence = Number(fields.c);
-  const pIncident = fields.p === undefined || fields.p === "na" ? null : Number(fields.p);
+  const confidence = probabilityText(fields.c);
+  const pIncident = fields.p === "na" ? null : probabilityText(fields.p);
   const wellFormed =
     MARKER_TIERS.includes(fields.tier) &&
     MARKER_TIERS.includes(fields.jev) &&
-    isProbability(confidence) &&
-    (pIncident === null || isProbability(pIncident)) &&
-    TOKEN.test(fields.model ?? "") &&
-    TOKEN.test(fields.q ?? "") &&
-    TOKEN.test(fields.screener ?? "");
+    confidence !== null &&
+    (fields.p === "na" || pIncident !== null) &&
+    TOKEN.test(fields.model) &&
+    QUESTION_HASH.test(fields.q) &&
+    TOKEN.test(fields.screener);
   if (!wellFormed) return null;
-  return { version: fields.version, tier: fields.tier, jevTier: fields.jev, confidence, pIncident, model: fields.model, questionHash: fields.q, screener: fields.screener };
+  return { version: MARKER_VERSION, tier: fields.tier, jevTier: fields.jev, confidence, pIncident, model: fields.model, questionHash: fields.q, screener: fields.screener };
 }
 
-/** All statuses on sha (newest first), as parsed JSON. Throws on any gh or shape error. */
+/**
+ * Every status on sha (newest first), read page by page until a short page, as
+ * parsed JSON. Throws on any gh or shape error, or past MAX_STATUS_PAGES, so a
+ * truncated list is a miss and never a hit on a weaker marker.
+ */
 function fetchStatuses(sha, { owner = DEFAULT_OWNER, repo = DEFAULT_REPO, run = runGh } = {}) {
-  const statuses = JSON.parse(run(["api", `repos/${owner}/${repo}/commits/${sha}/statuses?per_page=100`]));
-  if (!Array.isArray(statuses)) throw new Error("statuses response is not an array");
-  return statuses;
+  const statuses = [];
+  for (let page = 1; page <= MAX_STATUS_PAGES; page += 1) {
+    const batch = JSON.parse(run(["api", `repos/${owner}/${repo}/commits/${sha}/statuses?per_page=${STATUS_PAGE_SIZE}&page=${page}`]));
+    if (!Array.isArray(batch)) throw new Error("statuses response is not an array");
+    if (batch.length > STATUS_PAGE_SIZE) throw new Error("statuses page is larger than requested");
+    statuses.push(...batch);
+    if (batch.length < STATUS_PAGE_SIZE) return statuses;
+  }
+  throw new Error(`more than ${MAX_STATUS_PAGES} pages of statuses`);
+}
+
+/** False when status names a commit other than sha (its url ends in /statuses/<sha>). */
+function statusForSha(status, sha) {
+  if (status.url === undefined) return true;
+  return typeof status.url === "string" && status.url.toLowerCase().endsWith(`/statuses/${sha.toLowerCase()}`);
 }
 
 /** The parsed marker when status is a trusted success marker for this key, else null. */
-function validMarker(status, { model, questionHash, allowedAuthors }) {
+function validMarker(status, { sha, model, questionHash, allowedAuthors }) {
   if (status?.context !== MARKER_CONTEXT || status.state !== "success") return null;
   if (!allowedAuthors.includes(status.creator?.login)) return null;
+  if (!statusForSha(status, sha)) return null;
   const parsed = parseMarkerDescription(status.description);
   if (!parsed) return null;
   const matches = parsed.model === model && parsed.questionHash === questionHash && parsed.screener === SCREENER_ID;
   return matches ? parsed : null;
 }
 
-/** The marker with the highest final tier (raise-only when several agree on the key). */
-function highestMarker(markers) {
+/**
+ * The strongest marker: the highest final tier (raise-only when several agree
+ * on the key), then the newest. markers is newest first, as GitHub lists them,
+ * so on a tie the earlier one wins.
+ */
+function strongestMarker(markers) {
   const rank = (marker) => MARKER_TIERS.indexOf(marker.tier);
-  return markers.slice(1).reduce((max, current) => (rank(current) > rank(max) ? current : max), markers[0]);
+  return markers.slice(1).reduce((best, current) => (rank(current) > rank(best) ? current : best), markers[0]);
 }
 
 /**
@@ -188,9 +232,9 @@ export async function readMarker(sha, model, questionHash, options = {}) {
     return miss("api_error", { error: errorText(error) });
   }
   if (!statuses.some((status) => status?.context === MARKER_CONTEXT)) return miss("no_marker");
-  const valid = statuses.map((status) => validMarker(status, { model, questionHash, allowedAuthors })).filter(Boolean);
+  const valid = statuses.map((status) => validMarker(status, { sha, model, questionHash, allowedAuthors })).filter(Boolean);
   if (valid.length === 0) return miss("no_valid_marker");
-  return { found: true, ...highestMarker(valid) };
+  return { found: true, ...strongestMarker(valid) };
 }
 
 function invalidWrite(sha, marker) {
@@ -198,7 +242,7 @@ function invalidWrite(sha, marker) {
   const { tier, jevTier, confidence, pIncident = null, model, questionHash } = marker ?? {};
   if (!MARKER_TIERS.includes(tier) || !MARKER_TIERS.includes(jevTier)) return "invalid_tier";
   if (!isProbability(confidence) || !(pIncident === null || isProbability(pIncident))) return "invalid_probability";
-  if (!TOKEN.test(model ?? "") || !TOKEN.test(questionHash ?? "")) return "invalid_key";
+  if (!TOKEN.test(model ?? "") || !QUESTION_HASH.test(questionHash ?? "")) return "invalid_key";
   return null;
 }
 
