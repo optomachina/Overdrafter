@@ -534,6 +534,28 @@ describe("report", () => {
       expect(json).toMatchObject({ ok: false, reason: "uncommitted skill changes; commit first", skills: [] });
       expect(json.errors).toEqual(expect.arrayContaining(paths.map((p) => `uncommitted: ${p}`)));
     });
+    it("lists an untracked spec under evals/skills whether or not evals/ is gitignored", () => {
+      // `!evals/skills/` cannot re-include a dir whose parent is ignored, so with `evals/`
+      // ignored plain git status never sees a new spec. The untracked listing must.
+      for (const extraIgnores of [[], ["evals/"]]) {
+        const repo = cleanRepo();
+        write(repo.root, ".gitignore", `${[...REPO_SKILL_IGNORES, ...extraIgnores].join("\n")}\n.DS_Store\n`);
+        // Tracked specs alone stay quiet, so scanning evals/skills adds no false alarm.
+        expect(run(repo.root, "report", "--skill", "", repo.none).code).toBe(0);
+        // A skill committed before its spec: validate passes because it reads the working tree.
+        write(repo.root, ".agents/skills/late/SKILL.md", "1");
+        repo.git("add", "-f", ".agents/skills/late");
+        repo.git("commit", "-qm", "skill committed before its spec");
+        write(repo.root, "evals/skills/late/spec.json", JSON.stringify(goodSpec("late")));
+        write(repo.root, "evals/skills/demo/extra.json", "{}");
+        const seen = repo.git("status", "--porcelain", "-z", "--untracked-files=all", "--", "evals/skills");
+        expect(seen !== "").toBe(extraIgnores.length === 0);
+        const r = run(repo.root, "report", "--skill", "", repo.none);
+        expect(r.code).toBe(1);
+        expect(r.text).toMatch(/Reason: uncommitted skill changes; commit first/);
+        for (const p of ["evals/skills/demo/extra.json", "evals/skills/late/"]) expect(r.text).toContain(`- error: uncommitted: ${p}`);
+      }
+    });
     it("shows the gap it closes: `changed` lists nothing while an edit is pending", () => {
       const repo = cleanRepo();
       write(repo.root, ".agents/skills/demo/SKILL.md", "2");
