@@ -353,12 +353,31 @@ describe("bot attribution", () => {
 
   it.each([
     "Model: opus per Release",
+    "_Model: opus_",
+    "__model: opus__",
+    "Model: opus.",
+    "Model: opus, per Release",
+    "Model: opus; per Release",
+    "Model: opus: per Release",
+    "Model: opus) per Release",
+    "Model: opus· per Release",
     "**model:opus** · **Needs Blaine's card**",
     "Build model: **opus** (source: handoff)",
     "> - Builder model: opus",
     "+ Model: opus",
   ])("reads explicit body evidence: %s", (body) => {
     expect(attributePullRequest(normalizePullRequest({ body }))).toEqual({ bot: "opus", status: "attributed", sources: ["body"] });
+  });
+
+  it("preserves complete bot keys in body evidence", () => {
+    expect(attributePullRequest({ body: "Model: z_bot", labels: ["model:z_bot"] })).toEqual({ bot: "z_bot", status: "attributed", sources: ["body", "label"] });
+    expect(attributePullRequest({ body: "Model: bot-" })).toEqual({ bot: "bot-", status: "attributed", sources: ["body"] });
+  });
+
+  it.each(["codex/opus", "codex,opus", "opus|codex", ""])("treats invalid explicit model tokens as conflicting: %s", (token) => {
+    const body = `Model: ${token}`;
+    expect(attributePullRequest({ body })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body"] });
+    expect(attributePullRequest({ body, labels: ["model:codex"] })).toEqual({ bot: "unknown", status: "conflicting", sources: ["body", "label"] });
   });
 
   it("accepts explicit handoff lines and preserves keys without aliases", () => {
@@ -405,6 +424,12 @@ describe("review verdicts", () => {
   it("parses the standard first-line format", () => {
     expect(parseReviewVerdict("Codex review @ 1a2b3c4d: APPROVED")).toEqual({ bot: "codex", round: "review", sha: "1a2b3c4d", verdict: "approved" });
     expect(parseReviewVerdict("\n**Opus re-review @ DEADBEEF: CHANGES REQUIRED** details")).toEqual({ bot: "opus", round: "re-review", sha: "deadbeef", verdict: "changes_required" });
+  });
+  it.each(["z_bot", "bot-"])("preserves the complete reviewer key: %s", (bot) => {
+    expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)).toEqual({ bot, round: "review", sha: "deadbeef", verdict: "approved" });
+  });
+  it.each(["codex/opus", "codex,opus", "opus|codex"])("rejects ambiguous reviewer keys: %s", (bot) => {
+    expect(parseReviewVerdict(`${bot} review @ deadbeef: APPROVED`)).toBeNull();
   });
   it.each([undefined, "Opus review: CHANGES REQUIRED @ 7717135c", "Intro\nCodex review @ deadbeef: APPROVED", "unknown review @ deadbeef: APPROVED", "Codex review @ abc: APPROVED", `Codex review @ ${"a".repeat(41)}: APPROVED`, "2bot review @ deadbeef: APPROVED"])("rejects nonstandard verdict %s", (body) => {
     expect(parseReviewVerdict(body)).toBeNull();

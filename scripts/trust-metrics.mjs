@@ -112,7 +112,7 @@ const inWindow = (iso, window) => {
 // ---------- normalization ----------
 
 const BOT_KEY = /^[a-z0-9][a-z0-9._-]*$/;
-const stripMarkdown = (line) => line.replaceAll(/[*_`#>]/g, "").trim();
+const stripMarkdown = (line) => line.replaceAll(/[*`#>]/g, "").replaceAll(/(^|\s)_+|_+(?=\s|$)/g, "$1").trim();
 
 function authorBotKey(raw) {
   const author = raw.user ?? raw.author;
@@ -175,6 +175,7 @@ export function attributePullRequest(pr) {
     const name = (typeof label === "string" ? label : label?.name)?.toLowerCase();
     if (name?.startsWith("model:")) add(name.slice(6), "label");
   }
+  let conflictingBody = false;
   let fenced = false;
   for (const line of (pr.body ?? "").split("\n")) {
     if (line.trimStart().startsWith("```")) {
@@ -183,19 +184,26 @@ export function attributePullRequest(pr) {
     }
     if (fenced) continue;
     const text = stripMarkdown(line.trim().replace(/^[-*+]\s+/, "")).replace(/^[-+]\s+/, "");
-    const match = /^(?:build(?:er)?\s+)?model\s*:\s*([a-z0-9][a-z0-9._-]*)\b/i.exec(text);
-    if (match) add(match[1].toLowerCase(), "body");
+    const match = /^(?:build(?:er)?\s+)?model\s*:\s*/i.exec(text);
+    if (!match) continue;
+    const remainder = text.slice(match[0].length);
+    let token = /^\S*/.exec(remainder)[0];
+    if (token === remainder && /[^.]\.$/.test(token)) token = token.slice(0, -1);
+    token = token.replace(/[,;:)·]+$/, "").toLowerCase();
+    if (BOT_KEY.test(token)) add(token, "body");
+    else conflictingBody = true;
   }
   add(pr.authorBot ?? authorBotKey(pr), "author");
   const sources = [...new Set([...candidates.values()].flatMap((values) => [...values]))].sort(compareCodeUnits);
+  if (conflictingBody) return { bot: "unknown", status: "conflicting", sources: [...new Set([...sources, "body"])].sort(compareCodeUnits) };
   if (candidates.size === 1) return { bot: [...candidates.keys()][0], status: "attributed", sources };
   return { bot: "unknown", status: candidates.size ? "conflicting" : "no_signal", sources };
 }
 
 export function parseReviewVerdict(body) {
   const first = (body ?? "").split("\n").find((line) => line.trim() !== "") ?? "";
-  const match = /^([A-Za-z][A-Za-z0-9._-]*)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b/i.exec(stripMarkdown(first));
-  if (!match || match[1].toLowerCase() === "unknown") return null;
+  const match = /^(\S+)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b/i.exec(stripMarkdown(first));
+  if (!match || !/^[a-z][a-z0-9._-]*$/i.test(match[1]) || match[1].toLowerCase() === "unknown") return null;
   return { bot: match[1].toLowerCase(), round: match[2].toLowerCase(), sha: match[3].toLowerCase(), verdict: match[4].toLowerCase().replace(" ", "_") };
 }
 

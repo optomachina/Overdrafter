@@ -100,7 +100,7 @@ All paths are relative to the snapshot root.
 | `bots[].reviews.changesRequired` | integer | Standard CHANGES REQUIRED verdict comments attributed to this reviewer. | PR comments |
 | `botAttribution.attributed` | integer | Merged PRs with exactly one distinct candidate key. | attribution evidence |
 | `botAttribution.noSignal` | integer | Merged PRs with no candidate keys. | attribution evidence |
-| `botAttribution.conflicting` | integer | Merged PRs with multiple distinct candidate keys. | attribution evidence |
+| `botAttribution.conflicting` | integer | Merged PRs with multiple distinct candidate keys or invalid explicit model tokens. | attribution evidence |
 | `botAttribution.bySource.label` | integer | Attributed PRs supported by a model label. | PR labels |
 | `botAttribution.bySource.body` | integer | Attributed PRs supported by an explicit body model line. | PR bodies |
 | `botAttribution.bySource.author` | integer | Attributed PRs supported by a GitHub App bot author. | bot author metadata |
@@ -120,9 +120,18 @@ Each merged PR collects builder candidates from three sources:
 
 - **label:** every label matching `model:<key>` after lowercasing.
 - **body:** explicit model lines, ignoring lines inside triple-backtick fenced
-  code blocks. Strip markdown characters `* _ \` # >`, leading list markers
-  (`- `, `* `, `+ `), and surrounding whitespace. Match
-  `/^(?:build(?:er)?\s+)?model\s*:\s*([a-z0-9][a-z0-9._-]*)\b/i`.
+  code blocks. Strip `*`, backticks, `#` and `>` everywhere, leading list markers
+  (`- `, `* `, `+ `), and surrounding whitespace. Strip runs of underscores
+  only at line boundaries or adjacent to whitespace, preserving underscores
+  inside tokens: `_Model: opus_` and `__model: opus__` work, and `z_bot`
+  stays `z_bot`. Match the prefix `/^(?:build(?:er)?\s+)?model\s*:\s*/i`,
+  then take the whole next whitespace-delimited token. Remove trailing
+  punctuation from the set `, ; : ) ·`; also remove a single trailing `.`
+  only when the line ends immediately after it (never a run of periods).
+  The whole remaining token must match the bot key pattern, case-insensitively,
+  then is lowercased. Thus `Model: bot-` credits `bot-`, and `Model: opus.`
+  and `Model: opus, per Release` credit `opus`. An empty or ambiguous token
+  such as `codex/opus`, `codex,opus` or `opus|codex` is conflicting evidence.
   This includes an exact `model:<key>` line, `Model: opus per Release`,
   `**model:opus** · **Needs Blaine's card**`, `Build model: **opus** (source: …)`,
   and `Model: sonnet per Grok Bot triage handoff (no model label exists)`.
@@ -137,21 +146,27 @@ Each merged PR collects builder candidates from three sources:
 
 Exactly one distinct key means `attributed`; its sorted, distinct `sources`
 record all agreeing sources. Zero keys means `no_signal` with no sources.
-Multiple distinct keys mean `conflicting`, with all contributing sources.
+Multiple distinct keys or an invalid explicit model token mean `conflicting`,
+with all contributing sources (including `body` for an invalid token), even
+when a label or author supplies a valid key. An ambiguous explicit model line
+prevents attribution from any source.
 Both unattributable cases go to `unknown`, never guessed. A label cannot
 outvote a body or author. `botAttribution` counts these three outcomes;
 `bySource` counts only attributed PRs, once per agreeing source, so one PR
 can count toward multiple sources.
 
 Review comments count toward the **reviewer**, independently of the builder.
-The first non-empty line, after stripping the same markdown characters and
+The first non-empty line, after applying the same markdown stripping rules and
 trimming, must match this case-insensitive format:
 
 ```text
-^([A-Za-z][A-Za-z0-9._-]*)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b
+^(\S+)\s+(review|re-review)\s*@\s*([0-9a-f]{7,40})\s*:\s*(approved|changes required)\b
 ```
 
-The reviewer key must be valid and cannot be `unknown`. The parser lowercases
+The whole whitespace-delimited reviewer token must match
+`/^[a-z][a-z0-9._-]*$/i` and cannot be `unknown`; partial or ambiguous
+tokens are rejected. Internal underscores remain intact, so
+`z_bot review @ deadbeef: APPROVED` credits `z_bot`. The parser lowercases
 the bot, round and SHA and returns verdict `approved` or `changes_required`.
 `Codex review @ 1a2b3c4d: APPROVED` and
 `**Opus re-review @ deadbeef: CHANGES REQUIRED**` count.
