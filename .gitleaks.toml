@@ -1,0 +1,19 @@
+# OVD-872: gitleaks config. Docs: docs/secret-scanning.md.
+#
+# Any edit to this file is gate_loosening: it needs a Grok Bot countersign
+# plus Blaine's card. scripts/check-secret-paths.mjs reports every edit.
+
+title = "Overdrafter gitleaks config"
+
+# Use gitleaks' built-in default rules unchanged.
+[extend]
+useDefault = true
+
+# Allowlist: intentionally empty. gitleaks rejects an [[allowlists]] table
+# with no checks in it, so there are no entries until an exception is
+# approved. Add one entry per approved exception, scoped as narrowly as
+# possible, with a description naming the approving card:
+#
+# [[allowlists]]
+# description = "OVD-XXX: <why this is not a secret>"
+# paths = ['''^exact/path/to/file$''']
