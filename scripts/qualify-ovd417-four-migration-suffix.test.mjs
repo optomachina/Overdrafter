@@ -102,7 +102,9 @@ describe("OVD-417 local qualification harness", () => {
     expect(mismatch.output).toContain("Supabase CLI must be exactly 2.78.1; found 2.115.0");
     expect(mismatch.supabaseCalls).toBe("--version\n");
     expect(mismatch.dockerCalled).toBe(false);
+  });
 
+  it("passes the CLI version check for the exact version and fails later on the project directory", () => {
     const exact = toolVersionPreflight("2.78.1");
     expect(exact.output).toContain("temporary project copy must be an existing non-symlink directory");
     expect(exact.output).not.toContain("Supabase CLI must be exactly");
@@ -125,20 +127,32 @@ describe("OVD-417 local qualification harness", () => {
     expect(runner.match(/dry-run\.txt\" 2>&1/g)).toHaveLength(2);
   });
 
+  const admissionClean = "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_clean";
+  const admissionRecovery = "postgresql://postgres:postgres@localhost:54322/ovd417_recovery";
+  const admissionRestored = "postgresql://postgres:postgres@[::1]:54322/ovd417_restored";
+
   it.each([
-    ["routing override", "must not contain connection query or fragment parameters"],
-    ["duplicate database", "must be pairwise distinct"],
-    ["non-empty evidence", "local evidence directory must be empty"],
-  ])("rejects %s before qualification", (scenario, message) => {
-    const clean = "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_clean";
-    const recovery = "postgresql://postgres:postgres@localhost:54322/ovd417_recovery";
-    const restored = "postgresql://postgres:postgres@[::1]:54322/ovd417_restored";
-    expect(validationFailure({
-      clean: scenario === "routing override" ? `${clean}?hostaddr=203.0.113.10` : clean,
-      recovery: scenario === "duplicate database" ? clean.replace("127.0.0.1", "localhost") : recovery,
-      restored,
-      dirtyEvidence: scenario === "non-empty evidence",
-    })).toContain(message);
+    {
+      name: "a routing override",
+      input: { clean: `${admissionClean}?hostaddr=203.0.113.10`, recovery: admissionRecovery, restored: admissionRestored },
+      expected: "must not contain connection query or fragment parameters",
+    },
+    {
+      name: "duplicate databases",
+      input: {
+        clean: admissionClean,
+        recovery: admissionClean.replace("127.0.0.1", "localhost"),
+        restored: admissionRestored,
+      },
+      expected: "must be pairwise distinct",
+    },
+    {
+      name: "non-empty evidence",
+      input: { clean: admissionClean, recovery: admissionRecovery, restored: admissionRestored, dirtyEvidence: true },
+      expected: "local evidence directory must be empty",
+    },
+  ])("rejects $name before qualification", ({ input, expected }) => {
+    expect(validationFailure(input)).toContain(expected);
   });
 
   it("injects immediately after the first migration and refuses promotion from a one-row prefix", () => {

@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Drive the real Overdrafter app with Playwright and capture evidence.
 # Usage: verify.sh [--mode fixture|local] [--features auth,quote,provider]
-#                  [--prepare] [--doctor] [--dry-run] [-- <extra playwright args>]
+#                  [--prepare] [--doctor] [--dry-run] [--out DIR] [-- <extra playwright args>]
+# VERIFY_APP_ROOT drives a different checkout with this harness (CI uses the
+# base harness against the PR head, see ../run).
 # Exit: 0 PASS, 1 FAIL, 2 usage error, 3 INCOMPLETE (skips, zero passes or no counts).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../../../.." && pwd)"
+ROOT="$(cd "${VERIFY_APP_ROOT:-$HERE/../../../..}" && pwd)"
 cd "$ROOT"
 
-MODE=fixture FEATURES=auth,quote,provider PREPARE=0 DOCTOR=0 DRY=0
+MODE=fixture FEATURES=auth,quote,provider PREPARE=0 DOCTOR=0 DRY=0 OUT=
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode) MODE="${2-}"; shift 2 || { echo "--mode needs a value" >&2; exit 2; } ;;
@@ -17,6 +19,7 @@ while [ $# -gt 0 ]; do
     --prepare) PREPARE=1; shift ;;
     --doctor) DOCTOR=1; shift ;;
     --dry-run) DRY=1; shift ;;
+    --out) OUT="${2-}"; shift 2 || { echo "--out needs a value" >&2; exit 2; } ;;
     --) shift; break ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -24,11 +27,19 @@ done
 case "$MODE" in fixture|local) ;; *) echo "mode must be fixture or local" >&2; exit 2 ;; esac
 if [ "$MODE" = fixture ] && [ "$PREPARE" = 1 ]; then echo "--prepare only applies to --mode local" >&2; exit 2; fi
 
-# One "<config>\t<spec>" line per spec; non-zero for unknown, empty or spec-less features.
+# One "SKIPPED\t<feature>" line per feature with no specs in this mode, then one
+# "<config>\t<spec>" line per spec; non-zero for unknown or empty features, a
+# single feature with no specs in this mode, or a selection that leaves no specs.
 SPECS_OUT="$(node "$HERE/feature-specs.mjs" "$FEATURES" "$MODE")" || exit 2
-CONFIGS=() SPECS=()
+CONFIGS=() SPECS=() SKIPPED=()
+SKIP_NOTE="SKIPPED: no $MODE specs"
 while IFS=$'\t' read -r cfg spec; do
   [ -n "$spec" ] || continue
+  if [ "$cfg" = SKIPPED ]; then
+    SKIPPED+=("$spec")
+    echo "feature $spec: $SKIP_NOTE (not run, not counted as a pass)"
+    continue
+  fi
   SPECS+=("$spec")
   case " ${CONFIGS[*]-} " in *" $cfg "*) ;; *) CONFIGS+=("$cfg") ;; esac
 done <<< "$SPECS_OUT"
@@ -85,9 +96,10 @@ else
   GREP=(--grep-invert @fixture)
 fi
 
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 # Absolute: Playwright resolves relative report paths against each config's directory.
-OUT="$ROOT/artifacts/verify-overdrafter/$STAMP"
+if [ -z "$OUT" ]; then OUT="$ROOT/artifacts/verify-overdrafter/$(date -u +%Y%m%dT%H%M%SZ)"
+elif [ "${OUT#/}" = "$OUT" ]; then OUT="$ROOT/$OUT"
+fi
 EXTRA=("$@")
 command_for() { # <index> <config>
   local i="$1" cfg="$2" specs=()
@@ -125,7 +137,9 @@ DIRTY=clean; [ -z "$(git status --porcelain)" ] || DIRTY=dirty
 {
   echo "mode: $MODE"
   echo "features: $FEATURES"
+  if [ "${#SKIPPED[@]}" -gt 0 ]; then echo "skipped features: ${SKIPPED[*]} ($SKIP_NOTE)"; else echo "skipped features: none"; fi
   echo "specs: ${SPECS[*]}"
+  echo "configs: ${CONFIGS[*]}"
   for c in "${COMMANDS[@]}"; do echo "command: $c"; done
   echo "git head: $(git rev-parse HEAD) ($DIRTY tree)"
   echo "exit codes: ${RUNS[*]%%:*}"
