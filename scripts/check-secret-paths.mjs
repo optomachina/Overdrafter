@@ -2,11 +2,15 @@
 /**
  * OVD-872: secret path block.
  *
- * Flags added or modified files in a diff whose path matches a sensitive
- * pattern (private keys, certificate bundles, .env files, Playwright storage
- * state). `.env.example` is always allowed. `.envrc` is allowed only when every
- * line is blank, a comment, or a bare `source` / `source_env` / `dotenv` of a
- * file, so it cannot carry values itself.
+ * Flags added, modified or type-changed files in a diff whose path matches a
+ * sensitive pattern (private keys, certificate bundles, .env files, Playwright
+ * storage state). `.env.example` is always allowed. `.envrc` is allowed only
+ * when every line is blank, a comment, or a bare `source` / `source_env` /
+ * `dotenv` of a file, so it cannot carry values itself.
+ *
+ * Fail closed on odd names: any such path containing a control character
+ * (line feed, carriage return, tab, ...) or a Unicode line separator is
+ * blocked whatever its name, and printed with those characters escaped.
  *
  * Any added, modified or deleted `.gitleaks.toml` or `.gitleaksignore`, in
  * any directory, is reported as gate_loosening (Grok Bot countersign plus
@@ -59,9 +63,18 @@ const ENVRC_COMMENT_OR_BLANK = /^\s*(?:#.*)?$/;
 // assignment, substitution or second command onto the line.
 const ENVRC_LOAD_LINE = /^\s*(?:source|source_env|dotenv)(?:\s+[^\s;&|`$()<>=]+)*\s*$/;
 
+/** C0/C1 control characters plus U+2028/U+2029, which also end a line. */
+const CONTROL_CHARS = /[\p{Cc}\u2028\u2029]/u;
+const CONTROL_CHARS_ALL = /[\p{Cc}\u2028\u2029]/gu;
+
+/** Git statuses whose head-side path is checked: added, modified, type change. */
+const CHECKED_STATUSES = new Set(["A", "M", "T"]);
+
+// `s` (dotAll) lets `*` match any character, including a line feed, so a
+// name such as "a<LF>.pem" cannot slip past `*.pem`.
 function globToRegExp(glob) {
-  const body = glob.split("*").map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
-  return new RegExp(`^${body}$`, "i");
+  const body = glob.split("*").map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`)).join(".*");
+  return new RegExp(`^${body}$`, "is");
 }
 
 const COMPILED_RULES = SENSITIVE_PATH_RULES.map((rule) => ({ ...rule, re: globToRegExp(rule.glob) }));
@@ -74,6 +87,16 @@ export function basename(path) {
 export function matchSensitiveRules(path) {
   const name = basename(path);
   return COMPILED_RULES.filter((rule) => rule.re.test(name)).map((rule) => rule.id);
+}
+
+/** True when the path contains a control character or a line separator. */
+export function hasControlChars(path) {
+  return CONTROL_CHARS.test(path);
+}
+
+/** The path with every control character or line separator shown as \uXXXX. */
+export function displayPath(path) {
+  return path.replaceAll(CONTROL_CHARS_ALL, (c) => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`);
 }
 
 /** True when every `.envrc` line is blank, a comment, or a bare source/dotenv. */
@@ -113,6 +136,28 @@ export function listChanges(cwd, baseRef, headRef) {
   return changes;
 }
 
+function gateLooseningEntry({ status, path }) {
+  const name = basename(path);
+  let reason = null;
+  if (name === GITLEAKS_CONFIG) reason = "allowlist config edited";
+  else if (name === GITLEAKS_IGNORE) reason = "fingerprint ignore list edited";
+  return reason ? { path, status, reason, requires: [...GATE_LOOSENING_REQUIRES] } : null;
+}
+
+function pathFinding({ path }, readFile) {
+  const rules = matchSensitiveRules(path);
+  if (hasControlChars(path)) {
+    return { path, rules: ["control_char", ...rules], reason: "path contains a control character or line separator" };
+  }
+  if (rules.length === 0) return null;
+  const name = basename(path);
+  if (name === ".env.example") return null;
+  if (name === ".envrc") {
+    return envrcLoadsOnly(readFile(path)) ? null : { path, rules, reason: ".envrc does more than source/source_env/dotenv" };
+  }
+  return { path, rules, reason: "blocked sensitive path" };
+}
+
 /**
  * Evaluate a change list. readFile(path) returns the head copy of a file; it
  * is only called for `.envrc` and its result never reaches the report.
@@ -120,23 +165,12 @@ export function listChanges(cwd, baseRef, headRef) {
 export function evaluateChanges(changes, readFile) {
   const findings = [];
   const gateLoosening = [];
-  for (const { status, path } of changes) {
-    if (basename(path) === GITLEAKS_CONFIG) {
-      gateLoosening.push({ path, status, reason: "allowlist config edited", requires: [...GATE_LOOSENING_REQUIRES] });
-    } else if (basename(path) === GITLEAKS_IGNORE) {
-      gateLoosening.push({ path, status, reason: "fingerprint ignore list edited", requires: [...GATE_LOOSENING_REQUIRES] });
-    }
-    if (status !== "A" && status !== "M") continue;
-    const rules = matchSensitiveRules(path);
-    if (rules.length === 0) continue;
-    const name = basename(path);
-    if (name === ".env.example") continue;
-    if (name === ".envrc") {
-      if (envrcLoadsOnly(readFile(path))) continue;
-      findings.push({ path, rules, reason: ".envrc does more than source/source_env/dotenv" });
-      continue;
-    }
-    findings.push({ path, rules, reason: "blocked sensitive path" });
+  for (const change of changes) {
+    const gate = gateLooseningEntry(change);
+    if (gate) gateLoosening.push(gate);
+    if (!CHECKED_STATUSES.has(change.status)) continue;
+    const finding = pathFinding(change, readFile);
+    if (finding) findings.push(finding);
   }
   return { findings, gateLoosening };
 }
@@ -151,7 +185,7 @@ export function buildReport({ cwd = process.cwd(), baseRef = DEFAULT_BASE_REF, h
     base_ref: baseRef,
     head_ref: headRef,
     merge_base: base,
-    checked_paths: changes.filter((c) => c.status === "A" || c.status === "M").length,
+    checked_paths: changes.filter((c) => CHECKED_STATUSES.has(c.status)).length,
     ok: findings.length === 0,
     findings,
     gate_loosening: gateLoosening,
@@ -162,9 +196,11 @@ export function formatReport(report) {
   const lines = [
     `secret-paths: ${report.base_ref}...${report.head_ref} (merge-base ${report.merge_base.slice(0, 12)}), ${report.checked_paths} added/modified path(s)`,
   ];
-  for (const f of report.findings) lines.push(`  BLOCKED ${f.path} [${f.rules.join(",")}]: ${f.reason}`);
+  // Escaped, so a PR-chosen name cannot start a line of its own (for example
+  // a fake "secret-paths: OK" or a closing code fence in the step summary).
+  for (const f of report.findings) lines.push(`  BLOCKED ${displayPath(f.path)} [${f.rules.join(",")}]: ${f.reason}`);
   for (const g of report.gate_loosening) {
-    lines.push(`  gate_loosening ${g.path} (${g.status}): ${g.reason}; requires ${g.requires.join(" + ")}`);
+    lines.push(`  gate_loosening ${displayPath(g.path)} (${g.status}): ${g.reason}; requires ${g.requires.join(" + ")}`);
   }
   lines.push(report.ok ? "secret-paths: OK" : `secret-paths: ${report.findings.length} blocked path(s)`);
   return lines.join("\n") + "\n";

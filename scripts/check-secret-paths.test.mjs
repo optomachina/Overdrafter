@@ -1,14 +1,16 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   GIT_BIN,
   SENSITIVE_PATH_RULES,
+  displayPath,
   envrcLoadsOnly,
+  hasControlChars,
   isInvokedDirectly,
   matchSensitiveRules,
   run,
@@ -83,10 +85,36 @@ describe("SENSITIVE_PATH_RULES", () => {
     expect(matchSensitiveRules(path)).toEqual([]);
   });
 
+  // Without dotAll, `*` stopped at a line feed and "a<LF>.pem" matched nothing.
+  it.each([
+    ["a\n.pem", "pem"],
+    ["x/.env\nfoo", "env"],
+    ["keys/prod\n.key", "key"],
+    ["id_rsa\r", "id_rsa"],
+    ["e2e/admin\tstorage-state\u2028.json", "storage_state"],
+  ])("%j matches %s across control characters", (path, id) => {
+    expect(matchSensitiveRules(path)).toContain(id);
+  });
+
   it("has one entry per documented pattern", () => {
     expect(SENSITIVE_PATH_RULES.map((rule) => rule.glob)).toEqual([
       "*.pem", "*.key", "*.p12", "id_rsa*", ".env*", "*storage-state*.json",
     ]);
+  });
+});
+
+describe("control characters in paths", () => {
+  it.each(["a\nb", "a\rb", "a\tb", "a\u0000b", "a\u007fb", "a\u0085b", "a\u2028b", "a\u2029b"])("%j has a control character", (path) => {
+    expect(hasControlChars(path)).toBe(true);
+  });
+
+  it.each(["src/app.ts", "a b.pem", "café/naïve.txt", "emoji-🔑.txt"])("%j has none", (path) => {
+    expect(hasControlChars(path)).toBe(false);
+    expect(displayPath(path)).toBe(path);
+  });
+
+  it("escapes each one as \\uXXXX", () => {
+    expect(displayPath("a\n\r\t\u2028b")).toBe(String.raw`a\u000a\u000d\u0009\u2028b`);
   });
 });
 
@@ -135,6 +163,42 @@ describe("check-secret-paths diff mode", () => {
     const { report } = check(repo({ [path]: content }));
     expect(blockedPaths(report)).toEqual([path]);
     expect(report.ok).toBe(false);
+  });
+
+  it("blocks any added name with a line feed, carriage return or tab (git -z), and escapes it", () => {
+    const names = ["lf\n.txt", "cr\r.txt", "tab\t.txt", "a\n.pem", "dir\nx/plain.ts"];
+    const dir = repo(Object.fromEntries(names.map((name) => [name, "x\n"])));
+    const { report } = check(dir);
+    expect(blockedPaths(report)).toEqual([...names].sort());
+    for (const finding of report.findings) {
+      expect(finding.rules[0]).toBe("control_char");
+      expect(finding.reason).toBe("path contains a control character or line separator");
+    }
+    expect(report.findings.find((f) => f.path === "a\n.pem").rules).toEqual(["control_char", "pem"]);
+    let human = "";
+    run([], { cwd: dir, stdout: { write: (c) => { human += c; return true; } }, stderr: { write: () => true } });
+    expect(human.trimEnd().split("\n")).toHaveLength(names.length + 2);
+    expect(human).toContain(String.raw`  BLOCKED a\u000a.pem [control_char,pem]`);
+    expect(human).toContain(String.raw`  BLOCKED cr\u000d.txt [control_char]`);
+    expect(human).toContain(String.raw`  BLOCKED tab\u0009.txt [control_char]`);
+    expect(human.trimEnd().split("\n").at(-1)).toBe(`secret-paths: ${names.length} blocked path(s)`);
+  });
+
+  it("does not block deleting a file with a control character in its name", () => {
+    const dir = repo({ "old\n.txt": "x\n" });
+    commit(dir, {}, ["old\n.txt"]);
+    expect(check(dir).report.findings).toEqual([]);
+  });
+
+  it("blocks a sensitive path whose type changed (file to symlink)", () => {
+    const dir = repo({ "deploy/server.key": PEM });
+    unlinkSync(join(dir, "deploy/server.key"));
+    symlinkSync("../README.md", join(dir, "deploy/server.key"));
+    commit(dir, {});
+    const { report } = check(dir);
+    expect(git(dir, "diff", "--name-status", "HEAD^1", "HEAD").trim()).toBe("T\tdeploy/server.key");
+    expect(blockedPaths(report)).toEqual(["deploy/server.key"]);
+    expect(report.checked_paths).toBe(1);
   });
 
   it("blocks a modified sensitive file and ignores a deleted one", () => {

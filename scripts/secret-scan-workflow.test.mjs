@@ -6,7 +6,9 @@
  * contents: read, SHA-pinned actions and gitleaks binary, base copies only).
  * The step tests run each `run:` block the way GitHub does (`bash -e`) with a
  * stub gitleaks and stub curl, and check that clean, findings and crash cases
- * all write a step summary and exit as documented.
+ * all write a step summary and exit as documented. One stub runs the same
+ * `git log` that gitleaks v8.30.1 runs, on a repo built to hide content from
+ * it, to prove what the scan step lets gitleaks see.
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -39,6 +41,9 @@ const PINNED_ACTIONS = {
 const GITLEAKS_VERSION = "8.30.1";
 const GITLEAKS_SHA256 = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb";
 const CHECKER_PATH = "scripts/check-secret-paths.mjs";
+// git's well-known empty tree (SHA-1). The scan step points GIT_ATTR_SOURCE at it.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const LOG_OPTS_FLAGS = "--text --no-textconv --diff-merges=remerge";
 
 // Synthetic secret-shaped value, assembled at runtime so no matching literal
 // is ever committed to this repo.
@@ -157,11 +162,21 @@ describe("secret-scan workflow structure", () => {
     const install = step("install").run;
     expect(install).toContain('"https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"');
     expect(install).toContain('echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -');
+    // HTTPS only, also after redirects (SonarCloud githubactions:S6506).
+    expect(install).toContain("curl --proto '=https' --tlsv1.2 -sSfL --retry 3 -o");
   });
 
   it("scans the PR range only, redacted, with the base config and an empty ignore list", () => {
     const scan = step("scan").run;
-    for (const flag of ["--redact", '--log-opts="${BASE_SHA}..${HEAD_SHA}"', '--config "$RUNNER_TEMP/gitleaks.toml"', '--gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore-empty"']) {
+    for (const flag of [
+      "--redact",
+      "--ignore-gitleaks-allow",
+      `--log-opts="${LOG_OPTS_FLAGS} \${BASE_SHA}..\${HEAD_SHA}"`,
+      '--config "$RUNNER_TEMP/gitleaks.toml"',
+      '--gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore-empty"',
+      `empty_tree=${EMPTY_TREE}`,
+      'GIT_ATTR_SOURCE="$empty_tree" "$RUNNER_TEMP/gitleaks/gitleaks" git',
+    ]) {
       expect(scan).toContain(flag);
     }
     expect(scan).not.toMatch(/\s(?:-v|--verbose)\b/);
@@ -270,6 +285,16 @@ describe("path block step under bash -e", { timeout: 30_000 }, () => {
     expect(summary).not.toMatch(/ERROR|BLOCKED|GATE LOOSENING/);
   });
 
+  it("blocks a name with a line feed and escapes it, so it cannot fake a result line", () => {
+    const spoof = "nl\nsecret-paths: OK\n.pem";
+    const { status, stdout, summary } = runPaths({ [CHECKER_PATH]: realChecker }, { [spoof]: "x\n" });
+    expect(status).toBe(0);
+    expect(summary).toContain(String.raw`BLOCKED nl\u000asecret-paths: OK\u000a.pem [control_char,pem]`);
+    expect(summary).toContain("**Blocked sensitive paths. Report mode: this does not block merging.**");
+    expect(summary).not.toMatch(/^secret-paths: OK$/m);
+    expect(stoppedSection(stdout)).toMatch(/^secret-paths: 1 blocked path\(s\)$/m);
+  });
+
   it("skips, and says so, when the base has no path block", () => {
     const { status, summary } = runPaths({}, { [CHECKER_PATH]: realChecker, ".env.local": "X=1\n" });
     expect(status).toBe(0);
@@ -311,8 +336,10 @@ describe("install step under bash -e", { timeout: 30_000 }, () => {
     execFileSync("tar", ["-czf", tarball, "-C", stubDir, "gitleaks"]);
     const bin = scratch("secret-scan-bin-");
     const urls = join(bin, "urls");
+    const curlArgs = join(bin, "curl-args");
     writeFileSync(join(bin, "curl"), [
       "#!/bin/sh",
+      `printf '%s\\n' "$@" > "${curlArgs}"`,
       `[ ${curlExit} -eq 0 ] || exit ${curlExit}`,
       'out=""',
       'while [ "$#" -gt 0 ]; do',
@@ -327,7 +354,7 @@ describe("install step under bash -e", { timeout: 30_000 }, () => {
     ].join("\n"));
     chmodSync(join(bin, "curl"), 0o755);
     const sha256 = createHash("sha256").update(readFileSync(tarball)).digest("hex");
-    return { bin, urls, sha256 };
+    return { bin, urls, curlArgs, sha256 };
   }
 
   function install({ bin, sha256 }) {
@@ -343,6 +370,7 @@ describe("install step under bash -e", { timeout: 30_000 }, () => {
     expect(installed).toBe(true);
     expect(stdout).toContain("8.30.1");
     expect(readFileSync(f.urls, "utf8").trim()).toBe(url);
+    expect(readFileSync(f.curlArgs, "utf8").split("\n").slice(0, 4)).toEqual(["--proto", "=https", "--tlsv1.2", "-sSfL"]);
     expect(summary).toBe("");
   });
 
@@ -371,6 +399,7 @@ describe("gitleaks step under bash -e (stub gitleaks)", { timeout: 30_000 }, () 
     'const fs = require("node:fs");',
     "const args = process.argv.slice(2);",
     "fs.writeFileSync(process.env.STUB_ARGS, JSON.stringify(args));",
+    "fs.writeFileSync(process.env.STUB_ARGS + \".env\", JSON.stringify({ GIT_ATTR_SOURCE: process.env.GIT_ATTR_SOURCE ?? null }));",
     "const value = (flag) => args[args.indexOf(flag) + 1];",
     'const report = value("--report-path");',
     'const exitCode = Number(value("--exit-code"));',
@@ -379,6 +408,7 @@ describe("gitleaks step under bash -e (stub gitleaks)", { timeout: 30_000 }, () 
     "switch (process.env.STUB_MODE) {",
     '  case "clean": fs.writeFileSync(report, "[]"); console.log("INF no leaks found\\n::error::injected"); process.exit(0);',
     '  case "findings": fs.writeFileSync(report, JSON.stringify([finding("aws-access-token", "src/config.ts", 3), finding("stripe-access-token", "worker/pay.ts", 9)])); console.log("WRN leaks found: 2"); process.exit(exitCode);',
+    '  case "control": fs.writeFileSync(report, JSON.stringify([finding("aws-access-token", "a\\n```\\n::error::b\\r\\t.ts", 1)])); process.exit(exitCode);',
     '  case "panic": process.stderr.write("panic: boom\\n"); process.exit(2);',
     '  case "fatal": process.stderr.write("FTL failed to load config\\n"); process.exit(1);',
     '  case "silent": process.exit(0);',
@@ -399,23 +429,31 @@ describe("gitleaks step under bash -e (stub gitleaks)", { timeout: 30_000 }, () 
       runnerTemp,
       env: { BASE_SHA: BASE, HEAD_SHA: HEAD, STUB_MODE: mode, STUB_ARGS: argsFile, STUB_MARKER: AWS_KEY },
     });
-    return { ...result, runnerTemp, args: JSON.parse(readFileSync(argsFile, "utf8")) };
+    return {
+      ...result,
+      runnerTemp,
+      args: JSON.parse(readFileSync(argsFile, "utf8")),
+      env: JSON.parse(readFileSync(`${argsFile}.env`, "utf8")),
+    };
   }
 
   it("calls gitleaks on the PR range with redaction, the base config and an empty ignore list", () => {
-    const { args, runnerTemp } = scan("clean");
+    const { args, env, runnerTemp } = scan("clean");
     expect(args).toEqual([
       "git",
       "--no-banner",
       "--redact",
+      "--ignore-gitleaks-allow",
       "--config", join(runnerTemp, "gitleaks.toml"),
       "--gitleaks-ignore-path", join(runnerTemp, "gitleaksignore-empty"),
-      `--log-opts=${BASE}..${HEAD}`,
+      `--log-opts=--text --no-textconv --diff-merges=remerge ${BASE}..${HEAD}`,
       "--report-format", "json",
       "--report-path", join(runnerTemp, "gitleaks-report.json"),
       "--exit-code", "3",
       ".",
     ]);
+    // In-tree .gitattributes are never read, at any depth.
+    expect(env).toEqual({ GIT_ATTR_SOURCE: EMPTY_TREE });
   });
 
   it("clean: writes the summary and passes", () => {
@@ -438,6 +476,16 @@ describe("gitleaks step under bash -e (stub gitleaks)", { timeout: 30_000 }, () 
     expect(`${stdout}${summary}`).not.toContain(AWS_KEY);
   });
 
+  it("findings: escapes control characters in a file name, so it cannot add lines", () => {
+    const { status, stdout, summary } = scan("control");
+    expect(status).toBe(0);
+    const listed = String.raw`- aws-access-token in a\u000a` + "```" + String.raw`\u000a::error::b\u000d\u0009.ts:1 (commit abcdef123456)`;
+    expect(summary).toContain(listed);
+    expect(stoppedSection(stdout)).toContain(listed);
+    expect(summary).not.toMatch(/^::error::/m);
+    expect(summary.match(/^```$/gm)).toHaveLength(2);
+  });
+
   it.each([
     ["panic", 2, "panic: boom"],
     ["fatal", 1, "FTL failed to load config"],
@@ -449,5 +497,125 @@ describe("gitleaks step under bash -e (stub gitleaks)", { timeout: 30_000 }, () 
     expect(summary).toContain(`**ERROR: gitleaks did not produce a usable report (exit ${code}), so this PR's commits were not scanned.**`);
     expect(summary).toContain(log);
     expect(summary).not.toContain("stale");
+  });
+});
+
+// A stub that does what gitleaks v8.30.1's `git` command does with its
+// input: run `git -C <source> log -p -U0` plus --log-opts split on spaces
+// (sources/git.go:75-91), skip files git calls binary (sources/git.go:327-330),
+// and match the added lines. Only one rule, an AWS access key id. It proves
+// which content reaches gitleaks; it is not gitleaks' own diff parser.
+const GIT_LOG_STUB = [
+  "#!/usr/bin/env node",
+  'const fs = require("node:fs");',
+  'const { execFileSync } = require("node:child_process");',
+  "const args = process.argv.slice(2);",
+  "const value = (flag) => args[args.indexOf(flag) + 1];",
+  'const logOpts = args.find((a) => a.startsWith("--log-opts=")).slice("--log-opts=".length);',
+  "const source = args[args.length - 1];",
+  'const out = execFileSync(process.env.STUB_GIT, ["-C", source, "log", "-p", "-U0", ...logOpts.split(" ")], { encoding: "latin1", maxBuffer: 64 * 1024 * 1024 });',
+  "const findings = [];",
+  'let commit = "";',
+  "let file = null;",
+  "let lineNo = 0;",
+  'for (const line of out.split("\\n")) {',
+  '  if (line.startsWith("commit ")) { commit = line.split(" ")[1]; file = null; continue; }',
+  '  if (line.startsWith("diff --git ")) { file = line.slice(line.lastIndexOf(" b/") + 3); continue; }',
+  "  if (file === null) continue;",
+  '  if (line.startsWith("Binary files ")) { file = null; continue; }',
+  "  const hunk = /^@@ -\\S+ \\+(\\d+)/.exec(line);",
+  "  if (hunk) { lineNo = Number(hunk[1]); continue; }",
+  '  if (line.startsWith("+++ ") || !line.startsWith("+")) continue;',
+  '  if (/AKIA[0-9A-Z]{16}/.test(line)) findings.push({ RuleID: "aws-access-token", File: file, StartLine: lineNo, Commit: commit, Secret: "REDACTED", Match: "REDACTED" });',
+  "  lineNo += 1;",
+  "}",
+  'fs.writeFileSync(value("--report-path"), JSON.stringify(findings));',
+  'process.exit(findings.length > 0 ? Number(value("--exit-code")) : 0);',
+  "",
+].join("\n");
+
+const gitVersion = () => execFileSync(GIT_BIN, ["--version"], { encoding: "utf8" }).match(/(\d+)\.(\d+)/).slice(1).map(Number);
+const gitAtLeast = (major, minor) => {
+  const [a, b] = gitVersion();
+  return a > major || (a === major && b >= minor);
+};
+
+describe("gitleaks step on a PR built to hide content (git log stub)", { timeout: 30_000 }, () => {
+  /**
+   * main gets a base commit; the PR branch adds content that plain
+   * `git log -p` would not show: a root `* -diff`, a nested `binary`
+   * attribute, a NUL byte, a conflict resolution and an edit inside a clean
+   * merge. Each hidden line carries the synthetic AWS key.
+   */
+  function hidingRepo() {
+    const dir = scratch("secret-scan-hide-");
+    git(dir, "init", "-q");
+    git(dir, "branch", "-M", "main");
+    commit(dir, { "README.md": "fixture\n", "conf.txt": "a\nb\nc\n", "other.txt": "x\n" });
+    git(dir, "checkout", "-q", "-b", "pr");
+    commit(dir, { ".gitattributes": "* -diff\n", "creds.txt": `aws_key = ${AWS_KEY}\n` });
+    commit(dir, { "sub/.gitattributes": "secret.txt binary\n", "sub/secret.txt": `k=${AWS_KEY}\n` });
+    commit(dir, { "nul.txt": `\0\nk=${AWS_KEY}\n` });
+    commit(dir, { "conf.txt": "a\nPR\nc\n" });
+    git(dir, "checkout", "-q", "main");
+    commit(dir, { "conf.txt": "a\nMAIN\nc\n" });
+    git(dir, "checkout", "-q", "pr");
+    // Conflicts on conf.txt; the resolution below is the merge commit's own content.
+    expect(spawnSync(GIT_BIN, ["merge", "-q", "--no-ff", "main"], { cwd: dir, encoding: "utf8" }).status).not.toBe(0);
+    const conflictMerge = commit(dir, { "conf.txt": `a\nkey=${AWS_KEY}\nc\n` });
+    git(dir, "checkout", "-q", "main");
+    const base = commit(dir, { "main2.txt": "z\n" });
+    git(dir, "checkout", "-q", "pr");
+    expect(spawnSync(GIT_BIN, ["merge", "-q", "--no-ff", "--no-commit", "main"], { cwd: dir, encoding: "utf8" }).status).toBe(0);
+    const evilMerge = commit(dir, { "other.txt": `x\nevil=${AWS_KEY}\n` });
+    expect(git(dir, "rev-list", "--min-parents=2", `${base}..HEAD`).trim().split("\n")).toEqual([evilMerge, conflictMerge]);
+    return { dir, base, head: evilMerge, conflictMerge, evilMerge };
+  }
+
+  function scanRepo({ dir, base, head }) {
+    const runnerTemp = scratch("secret-scan-runner-");
+    const env = { BASE_SHA: base, HEAD_SHA: head, STUB_GIT: GIT_BIN };
+    expect(runStep("base", { cwd: dir, runnerTemp, env }).status).toBe(0);
+    mkdirSync(join(runnerTemp, "gitleaks"));
+    writeFileSync(join(runnerTemp, "gitleaks", "gitleaks"), GIT_LOG_STUB);
+    chmodSync(join(runnerTemp, "gitleaks", "gitleaks"), 0o755);
+    return runStep("scan", { cwd: dir, runnerTemp, env });
+  }
+
+  const visible = (dir, args, env = {}) => execFileSync(GIT_BIN, ["-C", ".", "log", "-p", "-U0", ...args], {
+    cwd: dir,
+    encoding: "latin1",
+    env: { ...process.env, ...env },
+  });
+
+  it("without the scan step's options, plain git log -p hides every one of them", () => {
+    const repo = hidingRepo();
+    const out = visible(repo.dir, [`${repo.base}..${repo.head}`]);
+    expect(out).not.toContain(AWS_KEY);
+    for (const file of ["creds.txt", "sub/secret.txt", "nul.txt"]) {
+      expect(out).toContain(`Binary files /dev/null and b/${file} differ`);
+    }
+  });
+
+  it.skipIf(!gitAtLeast(2, 40))("GIT_ATTR_SOURCE alone ignores the PR's attributes; only --text shows the NUL-byte file", () => {
+    const repo = hidingRepo();
+    const out = visible(repo.dir, [`${repo.base}..${repo.head}`], { GIT_ATTR_SOURCE: EMPTY_TREE });
+    expect(out).toContain(`+aws_key = ${AWS_KEY}`);
+    expect(out).toContain(`+k=${AWS_KEY}`);
+    expect(out).toContain("Binary files /dev/null and b/nul.txt differ");
+  });
+
+  // --diff-merges=remerge needs git 2.36; GIT_ATTR_SOURCE (2.40) is a second layer here.
+  it.skipIf(!gitAtLeast(2, 36))("the scan step reports the attribute-hidden, NUL-byte and merge-only content", () => {
+    const repo = hidingRepo();
+    const { status, stdout, summary } = scanRepo(repo);
+    expect(status).toBe(0);
+    expect(summary).toContain("**5 possible secret(s) in this PR's commits. Report mode: this does not block merging.**");
+    for (const file of ["creds.txt:1", "sub/secret.txt:1", "nul.txt:2"]) {
+      expect(summary).toMatch(new RegExp(String.raw`^- aws-access-token in ${file.replace(".", String.raw`\.`)} \(commit [0-9a-f]{12}\)$`, "m"));
+    }
+    expect(summary).toContain(`- aws-access-token in conf.txt:2 (commit ${repo.conflictMerge.slice(0, 12)})`);
+    expect(summary).toContain(`- aws-access-token in other.txt:2 (commit ${repo.evilMerge.slice(0, 12)})`);
+    expect(`${stdout}${summary}`).not.toContain(AWS_KEY);
   });
 });

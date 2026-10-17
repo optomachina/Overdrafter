@@ -25,12 +25,12 @@ npm run secrets:paths -- --base-ref origin/main         # whole branch
 npm run secrets:paths -- --base-ref origin/main --enforce --json
 ```
 
-It checks the files **added or modified** on `--head-ref` (default `HEAD`)
-since its merge-base with `--base-ref` (default `HEAD^1`), the same as
-`git diff base...head`. Commits that land on the base after the branch point
-are not counted. It looks only at that diff, so files from older history are
-ignored, and deleting a sensitive file is never a finding. Renames count as an
-add of the new path.
+It checks the files **added, modified or type-changed** (for example a file
+replaced by a symlink) on `--head-ref` (default `HEAD`) since its merge-base
+with `--base-ref` (default `HEAD^1`), the same as `git diff base...head`.
+Commits that land on the base after the branch point are not counted. It looks
+only at that diff, so files from older history are ignored, and deleting a
+sensitive file is never a finding. Renames count as an add of the new path.
 
 Blocked basenames (case-insensitive), from `SENSITIVE_PATH_RULES`:
 
@@ -42,6 +42,18 @@ Blocked basenames (case-insensitive), from `SENSITIVE_PATH_RULES`:
 | `id_rsa` | `id_rsa*` |
 | `env` | `.env*` |
 | `storage_state` | `*storage-state*.json` |
+
+Matching is on the whole basename: `*` matches any character, including a
+line feed, so `a<LF>.pem` is still `pem`.
+
+**Control characters fail closed.** Any checked path that contains a control
+character (line feed, carriage return, tab, any other C0 or C1 control) or a
+Unicode line or paragraph separator is blocked with rule `control_char`,
+whatever its name, plus any glob rule it also matches. Paths come from
+`git diff -z`, so git never quotes or alters them first. The human report
+prints these characters as `\uXXXX`, so a name cannot start a line of its own
+(for example a fake `secret-paths: OK`, or a closing code fence in the step
+summary). Deleting such a file is not a finding.
 
 Allowed exceptions:
 
@@ -79,26 +91,44 @@ checker on the PR range (see below).
   the checker never prints file contents.
 - `scripts/secret-scan-workflow.test.mjs` covers the workflow. It pins the
   approved shape (triggers, permissions, SHA pins, the gitleaks hash, report
-  mode, outside `ci`). It also runs each step's `run:` block under `bash -e`,
-  as GitHub does, with a stub `gitleaks` and stub `curl`: clean, findings and
-  crash cases each write a step summary and exit as described below.
+  mode, outside `ci`) and the exact gitleaks arguments. It also runs each
+  step's `run:` block under `bash -e`, as GitHub does, with a stub `gitleaks`
+  and stub `curl`: clean, findings and crash cases each write a step summary
+  and exit as described below.
+- One stub in that suite runs the same `git log -p -U0 <log-opts>` that
+  gitleaks v8.30.1 runs, on a repo built to hide content from it: a root
+  `* -diff`, a nested `secret.txt binary`, a file with a NUL byte, a conflict
+  resolution and an edit made inside a clean merge. Plain `git log -p` shows
+  none of the five; the scan step reports all five.
 
-Neither suite runs the real gitleaks binary. The first live run is the
-`secret-scan` job on this PR. These real-binary checks are **follow-ups**,
-due before the job is made required:
+Neither suite runs the real gitleaks binary. These real-binary checks are
+**follow-ups**, due before the job is made required:
 
 - gitleaks catches a synthetic AWS access key, Stripe secret key, JWT and PEM
   private key added in a PR range.
 - The redacted JSON report and the job log contain none of those values.
-- A head-side `.gitleaksignore` is never loaded, and inline `gitleaks:allow`
-  (see below) behaves the way the decision on that gap says.
+- A head-side `.gitleaksignore` is never loaded, and a line carrying
+  `gitleaks:allow` is still reported.
+- A `-diff` attribute and a NUL-byte file are still reported, and so are a
+  conflict resolution and an edit inside a merge. For the merge cases this
+  also checks gitleaks' diff parser (`go-gitdiff` v0.9.1) on `remerge` output;
+  see the parser detail at the end of "What the scan still does not see".
+- The base `.gitleaks.toml` loads. No run has used it yet, because the base of
+  this PR has none.
 
 ## gitleaks config and gate_loosening
 
 `.gitleaks.toml` extends the gitleaks default rules (`[extend] useDefault = true`)
-and has an empty allowlist. gitleaks rejects an `[[allowlists]]` table with no
-checks in it, so the empty allowlist is "no entries". A commented template shows
-the shape of an entry.
+and adds no allowlist entries of its own. gitleaks rejects an `[[allowlists]]`
+table with no checks in it, so there is no table yet. A commented template
+shows the shape of an entry.
+
+`useDefault` also brings the default config's **global allowlist**, so some
+paths are never scanned. Examples: any path containing `gitleaks.toml`;
+image, font, Office, PDF, `.bin`, `.dll` and `.exe` files; lockfiles
+(`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` and others);
+`node_modules/`, some `vendor/` trees and Python virtualenv `lib/` trees. It
+also drops matched values such as `true`, `null` or a bare `${VAR}`.
 
 Every allowlist exception goes in `.gitleaks.toml`, one narrowly scoped entry
 each, with a description naming the approving card. gitleaks also skips any
@@ -109,30 +139,64 @@ card. The path block reports these as `gate_loosening` entries with
 `requires: ["grokbot_countersign", "blaine_card"]`. They are report-only and
 never change `ok` or the exit code.
 
-The workflow closes the two file-based bypasses:
+### What a PR cannot use to hide its own content
 
-- It reads `.gitleaks.toml` and the path-block script from the **base** commit.
-- It never uses the head copy of `.gitleaksignore`: it deletes the checked-out
-  copy and passes `--gitleaks-ignore-path` pointing to an empty file in
-  `$RUNNER_TEMP`.
+Each of these comes with the PR, and none of them changes what the scan sees:
 
-**Known gap, still open:** gitleaks skips any line carrying an inline
-`gitleaks:allow` comment, and that comment arrives with the PR's own content.
-There is no gitleaks flag to turn it off. So a PR **can** still hide a secret
-from the content scan this way, and the path block does not look at file
-contents. Options: grep the PR's added lines for `gitleaks:allow` and report
-each one as gate_loosening, or accept the gap and rely on review. Decide this
-before the job is made required. Until then, do not read the scan as proof that
-a PR cannot loosen it.
+- **The PR's `.gitleaks.toml` and path block.** Both are read from the
+  **base** commit.
+- **A head-side `.gitleaksignore`.** The job deletes the checked-out copy and
+  passes `--gitleaks-ignore-path` pointing to an empty file in `$RUNNER_TEMP`.
+- **Inline `gitleaks:allow` comments.** gitleaks normally skips any finding
+  whose line carries one. The scan passes `--ignore-gitleaks-allow` (defined
+  in `cmd/root.go` and checked in `detect/detect.go` in v8.30.1), so such a
+  line is still reported. Every exception lives in `.gitleaks.toml`.
+- **`.gitattributes` and binary content.** gitleaks reads
+  `git log -p -U0 <log-opts>` and skips every file that git prints as
+  `Binary files ... differ`. On `pull_request` the work tree is the PR merge
+  commit, so a PR could add `* -diff` (or `secret.txt binary`) and git would
+  print every file as binary. A NUL byte in a file's first 8,000 bytes does
+  the same with no attributes at all. The scan closes both:
+  - `GIT_ATTR_SOURCE` is git's empty tree, so git reads no `.gitattributes`
+    from the checkout or its index, at any depth. A PR's `-diff`, `binary`, or
+    diff or merge driver has no effect. This needs git 2.40 or later; an
+    older git ignores the variable, and `--text` below still covers both
+    cases.
+  - `--log-opts` starts with `--text --no-textconv`: git prints every file as
+    text, including NUL-byte files, and no conversion filter rewrites it.
+- **Merge commits.** Plain `git log -p` prints no diff for a merge, so content
+  that appears only in a merge (a conflict resolution, or an edit made during
+  a clean merge) was not scanned. The first live runs on PR #825 showed it:
+  "4 commits scanned" for a range of 5 that includes a merge. `--log-opts`
+  now adds `--diff-merges=remerge`: for each two-parent merge, git re-runs the
+  merge itself and shows how the recorded result differs from it. A clean
+  merge adds nothing; a resolution or an edit shows up as added lines.
 
-**Known gap, still open: merge commits.** gitleaks reads the range with
-`git log -p`, which prints no diff for a merge commit. So content that appears
-only in a merge's conflict resolution is most likely not scanned. The first
-live run on PR #825 points this way: it reported 3 commits scanned for a range
-of 4, and the fourth is a merge. The path block diffs trees, so it still sees a
-sensitive path added in a merge. Confirm this on the pinned version, and
-decide how to cover it (for example, a second gitleaks pass over the
-`merge-base..head` diff) before the job is made required.
+### What the scan still does not see
+
+- **Octopus merges** (three or more parents). git does not re-merge them; it
+  prints `Skipping remerge-diff for octopus merges` into the log, and their
+  merge-only content is not scanned. The path block still diffs trees, so it
+  sees a sensitive path added there.
+- **Text in other encodings.** `--text` shows UTF-16 or similar content as
+  raw bytes, so a key stored as UTF-16 does not match the rules.
+- **Archive contents.** gitleaks only opens archives with
+  `--max-archive-depth` above 0, and the job leaves it at 0. With `--text` an
+  archive's compressed bytes are scanned as text, which finds nothing inside.
+- **Paths on the default global allowlist** (see above).
+- **Commit messages.** gitleaks scans file content, not messages.
+- **The workflow file itself.** On `pull_request` GitHub runs the PR's own copy
+  of `.github/workflows/secret-scan.yml`, so a PR that edits it controls its
+  own scan. Base copies protect the config and the path block, not this file.
+  Making the job enforcing needs a ruleset, required workflow or CODEOWNERS
+  rule on top.
+
+One parser detail for the real-binary follow-up: for a file that had a merge
+conflict, git adds a `remerge CONFLICT ...` line to the diff header. Reading
+`go-gitdiff` v0.9.1 (the parser gitleaks uses), that line ends the git header,
+and the hunk is then read through the plain `--- a/f` / `+++ b/f` lines. The
+added lines are still scanned, but such a finding's file may show as `b/f`.
+The real-binary check should confirm this.
 
 ## Optional pre-commit hook (docs only)
 
@@ -167,7 +231,9 @@ Pinned inputs. Each was re-verified on 2026-10-16 before use:
   `linux_x64` line of the official
   `https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt`,
   and it matches the asset digest GitHub reports for the release. The job
-  checks it with `sha256sum -c` before extracting anything.
+  downloads it over HTTPS only (`curl --proto '=https' --tlsv1.2`, which
+  also covers redirects) and checks it with `sha256sum -c` before extracting
+  anything.
 - Actions are pinned by full commit SHA, and each tag ref resolves to that
   commit: `actions/checkout` v5.1.0 (`fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`)
   and `actions/upload-artifact` v4.6.2 (`ea165f8d65b6e75b540449e92b4886f43607fa02`).
@@ -187,17 +253,21 @@ Shape:
   yet, gitleaks runs its default rules (`[extend] useDefault = true`). When the
   base has no path block yet, that step reports `Skipped` and exits 0. Both
   hold for the PR that adds this workflow.
-- gitleaks scans the PR's commits only (`--log-opts base..head`, which in `git
-  log` means commits on head that are not on base) with `--redact`. The only
-  artifact is the redacted JSON report, kept for 7 days.
+- gitleaks scans the PR's commits only (`base..head`, which in `git log`
+  means commits on head that are not on base) with `--redact` and
+  `--ignore-gitleaks-allow`. `--log-opts` is
+  `--text --no-textconv --diff-merges=remerge base..head`, and the process
+  runs with `GIT_ATTR_SOURCE` set to git's empty tree (see "What a PR cannot
+  use to hide its own content"). The only artifact is the redacted JSON
+  report, kept for 7 days.
 - The path block diffs head against `merge-base(base, head)`, so base commits
   after the branch point are not counted.
 - The job has `continue-on-error: true`, is not a required check, and is not
   in the `ci` aggregate's `needs`.
 
 Step behaviour. GitHub runs each `run:` block as `bash -e`. Every exit code
-that matters is captured with `|| rc=$?`, so `-e` never stops a step before it
-writes its step summary.
+that matters is captured with `|| rc=$?`, so in each case below `-e` does not
+stop a step before it writes its step summary.
 
 | Case | Summary | Step exit |
 | --- | --- | --- |
@@ -213,9 +283,10 @@ writes its step summary.
   gitleaks' own errors (exit 1) and Go panics (exit 2). A result counts as clean
   or as findings only when the exit code and the report agree.
 - The step's own finding list never prints a finding's `Secret`, `Match` or
-  `Line` fields, even if redaction failed. For gitleaks' own log and report,
-  `--redact` masks those values, and `-v` is not passed, so the log holds only
-  the summary lines.
+  `Line` fields, even if redaction failed. Control characters in a file name
+  are printed as `\uXXXX`, so the name cannot start a line of its own. For
+  gitleaks' own log and report, `--redact` masks those values, and `-v` is not
+  passed, so the log holds only the summary lines.
 - PR-controlled text (path names, scanner output) is printed between
   `::stop-commands::` markers, so it cannot issue workflow commands.
 - A step that fails (exit 1) turns the job red, but continue-on-error keeps the
@@ -231,5 +302,6 @@ After the report week, each of these needs its own Blaine approval:
   on `merge_group` (see `scripts/merge-queue-workflows.test.mjs` and
   `docs/runbooks/merge-queue.md`), so that change adds a `merge_group` no-op
   trigger. Today the workflow deliberately has none.
-- Before either: decide the inline `gitleaks:allow` and merge-commit gaps, and
-  add the real-binary checks listed under "Test coverage and follow-ups".
+- Before either: run the real-binary checks listed under "Test coverage and
+  follow-ups", and decide what to do about each item under "What the scan
+  still does not see".
