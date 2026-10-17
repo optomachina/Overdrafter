@@ -134,6 +134,26 @@ function writeGlb(file: string, triangles: number[][][]) {
 }
 
 describe("OVD-802 CadAgent plate recipe", () => {
+  it.each([undefined, null, "plate.usdz"])("publishes only supplied AR artifacts (%s) and preserves measured dimensions", async (usdz) => {
+    const runner: CadWorkerRunner = async (params) => {
+      const outcome = fakeOutcome(params);
+      if (usdz !== undefined) outcome.result!.files.usdz = usdz;
+      return outcome;
+    };
+    const graph = graphWith(cadOnly(new CadAgent({ env: { JARVIS_CAD_AGENT_ENABLED: "1" }, runner })));
+    const runId = graph.submit({ prompt: "4 inch square plate, 0.25 in thick, no holes" });
+    expect(await graph.waitForTerminal(runId)).toMatchObject({ state: "completed" });
+    const events = graph.getEvents(runId);
+    const artifacts = artifactsOf(events);
+    expect(artifacts.map((a) => a.kind)).toEqual(usdz ? ["step", "glb", "usdz", "png", "png"] : ["step", "glb", "png", "png"]);
+    for (const artifact of artifacts.filter((a) => a.kind === "glb" || a.kind === "usdz")) {
+      expect(artifact.dimensionsMm).toEqual({ x: 101.6, y: 101.6, z: 6.35 });
+      expect(validateDesignGraphEvent(artifact).ok).toBe(true);
+    }
+    if (usdz) expect(artifacts.find((a) => a.kind === "usdz")).toMatchObject({ mimeType: "model/vnd.usdz+zip", uri: "file:///tmp/jd-fake/plate.usdz" });
+    expect(events.at(-1)).toMatchObject({ type: "result", artifacts: artifacts.map(({ kind, uri }) => ({ kind, uri })) });
+  });
+
   realIt(
     "P-1 '4 inch square plate' produces a 101.6 x 101.6 mm solid within 0.01 mm, measured from the STEP",
     async () => {
@@ -186,7 +206,7 @@ describe("OVD-802 CadAgent plate recipe", () => {
 
       const artifacts = artifactsOf(events);
       expect(artifacts.map((a) => `${a.kind}:${a.name}`)).toEqual(["step:plate.step", "glb:plate.glb", "png:plate-iso.png", "png:plate-top.png"]);
-      const magic = { step: "ISO-10303-21", glb: "glTF", png: "\x89PNG" };
+      const magic = { step: "ISO-10303-21", glb: "glTF", png: "\x89PNG", usdz: "PK\x03\x04" };
       for (const a of artifacts) {
         const head = readFileSync(fileOf(a.uri)).subarray(0, 12).toString("latin1");
         expect(head.startsWith(magic[a.kind]), a.name).toBe(true);
