@@ -125,7 +125,7 @@ describe("OVD-417 local qualification harness", () => {
     expect(runner.match(/dry-run\.txt\" 2>&1/g)).toHaveLength(2);
   });
 
-  it.each([
+  it.skipIf(process.env.OVD_PREFLIGHT_DOCKER_UNAVAILABLE === "1" && !process.env.CI).each([
     ["routing override", "must not contain connection query or fragment parameters"],
     ["duplicate database", "must be pairwise distinct"],
     ["non-empty evidence", "local evidence directory must be empty"],
