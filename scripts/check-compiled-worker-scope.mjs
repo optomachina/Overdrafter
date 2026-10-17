@@ -1,4 +1,5 @@
 /** Offline source-build evidence only; never qualifies a deployed image. */
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -74,7 +75,7 @@ export function buildEvidence(revision, packetPath, outputPath) {
   return manifest;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   try {
     const [revision, packet, output, ...extra] = process.argv.slice(2);
     if (!revision || !packet || !output || extra.length) throw new Error("Usage: node scripts/check-compiled-worker-scope.mjs <full-source-sha> <replay.json> <new-output-directory>");
