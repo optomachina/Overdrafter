@@ -82,7 +82,7 @@ export interface ChannelAdapter {
 
 export type DomainAgentId = "cad" | "optics" | "electronics" | "analysis";
 export type GraphNodeId = "intake" | "concept_picks" | "domain_agent" | "verify" | "result";
-export type GraphArtifactKind = "png" | "glb" | "step";
+export type GraphArtifactKind = "png" | "glb" | "step" | "usdz";
 export type GraphStatusState = "started" | "completed" | "info";
 export type GraphSkipCause = "skip" | "timeout";
 export type GraphErrorCode = "agent_not_enabled" | "no_agent" | "agent_failed" | "verify_failed" | "internal_error";

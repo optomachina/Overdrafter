@@ -219,6 +219,7 @@ describe("DesignGraph slice 1", () => {
     ];
     for (const event of valid) expect(validateDesignGraphEvent(event).ok).toBe(true);
 
+    expect(validateDesignGraphEvent({ ...envelope, type: "artifact", nodeId: "domain_agent", agentId: "cad", kind: "usdz", name: "plate.usdz", mimeType: "model/vnd.usdz+zip", uri: "https://example.com/plate.usdz" }).ok).toBe(true);
     const [status, requested, resolved, artifact, result, error] = valid as Record<string, unknown>[];
     const malformed: [string, unknown][] = [
       ["not an object", "status"],
