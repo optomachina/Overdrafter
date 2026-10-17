@@ -162,13 +162,22 @@ function boxPathError(value) {
   return null;
 }
 
-/** Repo-relative path: no leading slash, no `..` segment, no empty segment. */
+/**
+ * Repo-relative path: no leading slash, no drive letter, no `..` segment, no
+ * empty segment. The path is normalized first (`\` becomes `/`), so POSIX and
+ * Windows forms are checked by the same rules: `/x`, `\x`, `\\server\share`,
+ * `C:\x`, `C:/x`, drive-relative `C:x` and `C:../x`, and `..` reached through
+ * either separator are all rejected. A segment of two or more dots followed by
+ * only dots or spaces (`...`, `.. `) is treated as `..`, because Windows trims
+ * trailing dots and spaces from path segments.
+ */
 function repoPathError(value) {
-  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(value)) {
-    return "must be a repo-relative path with no leading /";
+  const normalized = value.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+    return "must be a repo-relative path with no leading / or drive letter";
   }
-  const segments = value.split(/[\\/]/);
-  if (segments.includes("..")) return "must be a repo-relative path with no .. segment";
+  const segments = normalized.split("/");
+  if (segments.some((segment) => /^\.\.[. ]*$/.test(segment))) return "must be a repo-relative path with no .. segment";
   if (segments.some((segment) => segment.length === 0)) return "must be a repo-relative path";
   return null;
 }

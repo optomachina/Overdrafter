@@ -329,6 +329,53 @@ describe("OVD-845 optional verdict fields", () => {
     expect(result.errors.some((error) => error.startsWith(message))).toBe(true);
   });
 
+  // Architect CHANGES_REQUIRED 6236206625, finding 1: drive-relative and
+  // Windows-form paths must not escape the repo root.
+  const ABSOLUTE = "verdict.findings[0].file: must be a repo-relative path with no leading / or drive letter";
+  const DOTDOT = "verdict.findings[0].file: must be a repo-relative path with no .. segment";
+  const escapingPaths = [
+    ["drive-relative parent", "C:../outside.ts", ABSOLUTE],
+    ["drive-relative backslash parent", "C:..\\outside.ts", ABSOLUTE],
+    ["drive-relative file", "C:x", ABSOLUTE],
+    ["lowercase drive-relative file", "d:src/a.ts", ABSOLUTE],
+    ["bare drive", "C:", ABSOLUTE],
+    ["drive with backslash", "C:\\x", ABSOLUTE],
+    ["drive with slash", "C:/x", ABSOLUTE],
+    ["posix absolute", "/x", ABSOLUTE],
+    ["backslash rooted", "\\x", ABSOLUTE],
+    ["UNC share", "\\\\server\\share\\a.ts", ABSOLUTE],
+    ["forward-slash UNC share", "//server/share/a.ts", ABSOLUTE],
+    ["device path", "\\\\?\\C:\\x", ABSOLUTE],
+    ["backslash traversal", "..\\x", DOTDOT],
+    ["nested backslash traversal", "src\\..\\..\\x", DOTDOT],
+    ["mixed-separator traversal", "src/..\\..\\x", DOTDOT],
+    ["mixed-separator traversal, other order", "src\\../../x", DOTDOT],
+    ["trailing .. segment", "src/..", DOTDOT],
+    ["Windows-trimmed dots", "...\\x", DOTDOT],
+    ["Windows-trimmed dot and space", "src/.. /x", DOTDOT],
+  ];
+
+  it.each(escapingPaths)("rejects a gate finding file with %s (%s)", (_name, file, message) => {
+    const result = validateVerdict(valid({ findings: [gateFinding({ file })] }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.startsWith(message))).toBe(true);
+  });
+
+  const repoRelativePaths = [
+    "src/a.ts",
+    "src\\a.ts",
+    "src/nested\\mixed/a.ts",
+    "README.md",
+    ".github/workflows/ci.yml",
+    "src/..hidden/a.ts",
+    "src/a..b.ts",
+    "src/notes:v2.md",
+  ];
+
+  it.each(repoRelativePaths)("accepts the repo-relative gate finding file %s", (file) => {
+    expect(validateVerdict(valid({ findings: [gateFinding({ file })] }))).toEqual({ ok: true, errors: [] });
+  });
+
   it("accepts base_sha and a supersedes/reason pair, and rejects either one alone", () => {
     expect(validateVerdict(valid({ base_sha: baseSha }))).toEqual({ ok: true, errors: [] });
     expect(validateVerdict(valid({ supersedes: 123456, reason: "infra" }))).toEqual({ ok: true, errors: [] });

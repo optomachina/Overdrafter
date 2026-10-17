@@ -597,6 +597,41 @@ describe("emit -> validate round trip", () => {
     expect(validateVerdict(verdict)).toEqual({ ok: true, errors: [] });
   });
 
+  // Architect CHANGES_REQUIRED 6236206625, finding 2: corroboration is decided
+  // per legacy finding even when gate findings sit next to them.
+  it("tags corroboration on legacy findings mixed with gate findings, keeping gate findings and order unchanged", () => {
+    const findingsFile = join(repo, "mixed-findings.json");
+    writeFileSync(findingsFile, JSON.stringify([
+      { severity: "high", file: "feature.txt", line: 1, model: "grok", corroborated: false },
+      { severity: "medium", file: "feature.txt", line: 1, summary: "gate note" },
+      { severity: "medium", file: "feature.txt", line: 1, model: "codex" },
+      { severity: "low", file: "other.txt", line: 2, model: "grok", corroborated: true },
+    ]));
+    const body = main([...ARGS(), "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW });
+    const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
+    expect(verdict.findings).toEqual([
+      { severity: "high", file: "feature.txt", line: 1, model: "grok", corroborated: true },
+      { severity: "medium", file: "feature.txt", line: 1, summary: "gate note" },
+      { severity: "medium", file: "feature.txt", line: 1, model: "codex", corroborated: true },
+      { severity: "low", file: "other.txt", line: 2, model: "grok", corroborated: false },
+    ]);
+    expect(validateVerdict(verdict)).toEqual({ ok: true, errors: [] });
+  });
+
+  it("does not count a gate finding as corroboration for a lone legacy finding", () => {
+    const findingsFile = join(repo, "mixed-lone-findings.json");
+    writeFileSync(findingsFile, JSON.stringify([
+      { severity: "high", file: "feature.txt", line: 1, summary: "gate note" },
+      { severity: "high", file: "feature.txt", line: 1, model: "grok", corroborated: true },
+    ]));
+    const body = main([...ARGS(), "--role", "reviewer", "--findings", findingsFile], { cwd: repo, now: NOW });
+    const verdict = JSON.parse(extractVerdictBlocks(body)[0]);
+    expect(verdict.findings).toEqual([
+      { severity: "high", file: "feature.txt", line: 1, summary: "gate note" },
+      { severity: "high", file: "feature.txt", line: 1, model: "grok", corroborated: false },
+    ]);
+  });
+
   it("rejects a pass that is not carried by an https ci-run or verify-run", () => {
     expect(() => main([...argsWithout("--evidence"), "--evidence", "log=https://x.test/"], { cwd: repo, now: NOW }))
       .toThrow(/https ci-run or verify-run/);

@@ -273,13 +273,17 @@ function isGateFinding(finding) {
 }
 
 /**
- * Legacy findings (no `summary`) are tagged `corroborated`, as before.
- * Gate findings are emitted unchanged: `corroborated` is not part of that shape.
+ * Legacy findings (no `summary`) are tagged `corroborated`, as before, even
+ * when gate findings sit next to them: corroboration is decided per legacy
+ * finding, against the other legacy findings, and any caller-supplied
+ * `corroborated` value is overwritten. Gate findings are emitted unchanged
+ * (`corroborated` is not part of that shape), and the original order is kept.
  */
 function prepareFindings(findings) {
   if (!Array.isArray(findings)) throw new Error("findings must be a JSON array of finding objects");
-  if (findings.some(isGateFinding)) return findings;
-  return tagCorroborated(findings);
+  const tagged = tagCorroborated(findings.filter((finding) => !isGateFinding(finding)));
+  let next = 0;
+  return findings.map((finding) => (isGateFinding(finding) ? finding : tagged[next++]));
 }
 
 const parseEvidence = (entry) => {
