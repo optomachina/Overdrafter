@@ -1,11 +1,13 @@
 /** Offline registry error handling only. No Docker, image download, or SQL execution. */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { IMAGE } from './ovd591-sql-qualification.mjs';
 import { PLATFORMS } from './free-quote-platform-sources.mjs';
-import { RATE_LIMIT_PATTERNS, backoffMs, isPublicEcrThrottle, pullConfig, pullFixtureImage, pullImages, spawnCall }
-  from './ovd591-image-pull.mjs';
+import { RATE_LIMIT_PATTERNS, backoffMs, isPublicEcrThrottle, loadImageCache, loadedProvenance, pullConfig, pullFixtureImage,
+  pullImages, readImageCache, saveImageCache, spawnCall } from './ovd591-image-pull.mjs';
 
 const ok = { status: 0, stdout: 'synthetic pull receipt', stderr: '', failure: null };
 const throttle = { status: 1, stdout: '', stderr: 'Error response from daemon: toomanyrequests: Rate exceeded\n', failure: null };
@@ -18,7 +20,7 @@ function simulation(results, options = {}) {
       return results[Math.min(calls.length - 1, results.length - 1)];
     }, save: value => receipts.push(structuredClone(value)), ...options.settings };
   return { calls, waits, waitStarts, receipts, run: () => pullFixtureImage(settings, {
-    now: () => time, random: options.random ?? (() => 1), env: options.env ?? {},
+    now: () => time, random: options.random ?? (() => 1), env: options.env ?? {}, ...(options.readCache && { readCache: options.readCache }),
     wait: async (ms, _value, { signal }) => {
       assert.equal(signal, settings.signal); waits.push(ms); waitStarts.push(time); time += options.waitMs ?? ms;
       options.afterWait?.();
@@ -74,21 +76,55 @@ for (const image of [IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image]) {
     assert.equal(s.receipts[0].status, 'running'); assert.equal(s.receipts[0].attempts.length, 1);
   });
 }
-test('skipLoaded skips the pull and receipts "cached" when docker image inspect succeeds', async () => {
-  const digested = { ...ok, stdout: `["${IMAGE.split(':')[0]}@sha256:${'a'.repeat(64)}"]` };
+const imageId = 'sha256:' + 'c'.repeat(64);
+const repoDigest = `${IMAGE.slice(0, IMAGE.lastIndexOf(':'))}@sha256:${'a'.repeat(64)}`;
+const inspected = (id, digests) => ({ ...ok, stdout: `${JSON.stringify(id)} ${JSON.stringify(digests)}\n` });
+const cacheReceipt = (entries = [{ image: IMAGE, id: imageId, repoDigests: [repoDigest] }]) => ({ schemaVersion: 1, images: entries });
+const withCache = (results, cache) => simulation(results, { settings: { skipLoaded: true }, readCache: () => cache });
+test('skipLoaded skips the pull and receipts "cached" when the local image has registry RepoDigests', async () => {
+  const digested = inspected(imageId, [repoDigest]);
   const s = simulation([digested], { settings: { skipLoaded: true } });
-  assert.equal(await s.run(), digested);
-  assert.deepEqual(s.calls.map(call => [call.command, ...call.args]), [['docker', 'image', 'inspect', '--format', '{{json .RepoDigests}}', IMAGE]]);
-  assert.deepEqual(s.waits, []); assert.equal(s.receipts.at(-1).status, 'cached');
+  const result = await s.run();
+  assert.deepEqual(result.provenance, { source: 'registry', id: imageId, repoDigests: [repoDigest] });
+  assert.deepEqual(s.calls.map(call => [call.command, ...call.args]),
+    [['docker', 'image', 'inspect', '--format', '{{json .Id}} {{json .RepoDigests}}', IMAGE]]);
+  assert.deepEqual(s.waits, []); assert.equal(s.receipts.at(-1).status, 'cached'); assert.equal(s.receipts.at(-1).source, 'registry');
   assert.deepEqual(s.receipts.at(-1).attempts, [{ attempt: 0, status: 'cached' }]);
 });
-test('skipLoaded still pulls an image loaded from a tarball without RepoDigests', async () => {
-  const undigested = { ...ok, stdout: '[]' };
-  const s = simulation([undigested, ok], { settings: { skipLoaded: true } });
-  assert.equal(await s.run(), ok);
-  assert.deepEqual(s.calls.map(call => call.args[0] + ' ' + call.args.at(-1)), ['image ' + IMAGE, 'pull ' + IMAGE]);
-  assert.equal(s.receipts.at(-1).status, 'passed');
+test('skipLoaded still pulls an image loaded from a tarball without RepoDigests when no cache receipt exists', async () => {
+  for (const cache of [null, undefined]) {
+    const s = withCache([inspected(imageId, []), ok], cache);
+    assert.equal(await s.run(), ok);
+    assert.deepEqual(s.calls.map(call => call.args[0] + ' ' + call.args.at(-1)), ['image ' + IMAGE, 'pull ' + IMAGE]);
+    assert.equal(s.receipts.at(-1).status, 'passed');
+  }
+  const s = simulation([inspected(imageId, null), ok], { settings: { skipLoaded: true }, env: { OVD591_IMAGE_CACHE: '/nonexistent-ovd591-cache' } });
+  assert.equal(await s.run(), ok); assert.equal(s.calls.length, 2);
 });
+test('skipLoaded admits a loaded image without RepoDigests only when its image ID matches the cache receipt', async () => {
+  const s = withCache([inspected(imageId, [])], cacheReceipt());
+  const result = await s.run();
+  assert.deepEqual(result.provenance, { source: 'image-cache', id: imageId, repoDigests: [repoDigest] });
+  assert.equal(s.calls.length, 1); assert.equal(s.receipts.at(-1).status, 'cached');
+  assert.deepEqual([s.receipts.at(-1).source, s.receipts.at(-1).id, s.receipts.at(-1).repoDigests], ['image-cache', imageId, [repoDigest]]);
+});
+for (const [name, cache, local = inspected(imageId, [])] of [
+  ['a different image ID', cacheReceipt([{ image: IMAGE, id: 'sha256:' + 'e'.repeat(64), repoDigests: [repoDigest] }])],
+  ['a receipt for another image reference', cacheReceipt([{ image: PLATFORMS.auth.image, id: imageId, repoDigests: [repoDigest] }])],
+  ['receipted digests of another repository', cacheReceipt([{ image: IMAGE, id: imageId, repoDigests: [`public.ecr.aws/supabase/gotrue@sha256:${'a'.repeat(64)}`] }])],
+  ['receipted digests that are not exact sha256 digests', cacheReceipt([{ image: IMAGE, id: imageId, repoDigests: [`${repoDigest}0`] }])],
+  ['empty receipted digests', cacheReceipt([{ image: IMAGE, id: imageId, repoDigests: [] }])],
+  ['an unknown receipt schema', { ...cacheReceipt(), schemaVersion: 2 }],
+  ['a malformed local image ID', cacheReceipt([{ image: IMAGE, id: 'c'.repeat(64), repoDigests: [repoDigest] }]), inspected('c'.repeat(64), [])],
+  ['unparseable inspect output', cacheReceipt(), { ...ok, stdout: `["${repoDigest}"]` }],
+  ['a failed inspect', cacheReceipt(), { ...inspected(imageId, []), status: 1 }],
+]) {
+  test(`skipLoaded pulls instead of admitting a loaded image with ${name}`, async () => {
+    const s = withCache([local, ok], cache);
+    assert.equal(await s.run(), ok);
+    assert.deepEqual(s.calls.map(call => call.args[0]), ['image', 'pull']); assert.equal(s.receipts.at(-1).status, 'passed');
+  });
+}
 test('skipLoaded falls through to the retried pull when the image is not loaded', async () => {
   const missing = { status: 1, stdout: '', stderr: 'Error: No such image', failure: null };
   const s = simulation([missing, throttle, ok], { settings: { skipLoaded: true } });
@@ -101,8 +137,81 @@ test('the inspect probe is off by default and enabled by the CLI and both fixtur
 });
 test('CLI pullImages skips images that are already loaded', async () => {
   const out = [], seen = [];
-  assert.equal(await pullImages([IMAGE], { call: async (_c, args) => { seen.push(args[0]); return { ...ok, stdout: `["x@sha256:${'b'.repeat(64)}"]` }; }, out: line => out.push(JSON.parse(line)) }), 0);
+  assert.equal(await pullImages([IMAGE], { call: async (_c, args) => { seen.push(args[0]); return inspected(imageId, [repoDigest]); }, out: line => out.push(JSON.parse(line)) }), 0);
   assert.deepEqual(seen, ['image']); assert.equal(out[0].status, 'cached');
+});
+function cacheDir(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'ovd591-image-cache-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  return join(dir, 'cache');
+}
+function docker(images) {
+  const calls = [];
+  return { calls, call: async (command, args) => {
+    calls.push(args);
+    if (args[0] === 'image') return images[args.at(-1)] ?? { ...ok, status: 1, stderr: 'Error: No such image' };
+    if (args[0] === 'save') { writeFileSync(args[2], 'synthetic tarball'); return ok; }
+    if (args[0] === 'load') return images.load ?? ok;
+    throw Error('unexpected simulated command');
+  } };
+}
+test('saveImageCache receipts each registry-pulled image ID and digests, then saves them by exact reference', async t => {
+  const dir = cacheDir(t), auth = PLATFORMS.auth.image, authDigest = `public.ecr.aws/supabase/gotrue@sha256:${'b'.repeat(64)}`;
+  const d = docker({ [IMAGE]: inspected(imageId, [repoDigest]), [auth]: inspected('sha256:' + 'd'.repeat(64), [authDigest]) });
+  assert.equal(await saveImageCache(dir, [IMAGE, auth], { call: d.call, err: () => assert.fail('no warning expected') }), 0);
+  assert.deepEqual(d.calls.at(-1), ['save', '-o', join(dir, 'images.tar'), IMAGE, auth]);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8')), cacheReceipt([
+    { image: IMAGE, id: imageId, repoDigests: [repoDigest] }, { image: auth, id: 'sha256:' + 'd'.repeat(64), repoDigests: [authDigest] }]));
+  assert.deepEqual(readImageCache({ OVD591_IMAGE_CACHE: dir }), JSON.parse(readFileSync(join(dir, 'receipt.json'), 'utf8')));
+});
+for (const [name, local] of [['a loaded copy without RepoDigests', inspected(imageId, [])], ['a missing image', undefined],
+  ['digests of another repository', inspected(imageId, [`public.ecr.aws/supabase/gotrue@sha256:${'a'.repeat(64)}`])]]) {
+  test(`saveImageCache refuses ${name} and writes nothing`, async t => {
+    const dir = cacheDir(t), err = [], d = docker({ [IMAGE]: local });
+    assert.equal(await saveImageCache(dir, [IMAGE], { call: d.call, err: line => err.push(line) }), 1);
+    assert(!d.calls.some(args => args[0] === 'save')); assert.equal(readImageCache({ OVD591_IMAGE_CACHE: dir }), null);
+    assert.match(err[0], /^::warning::image cache not saved: .*not a registry-pulled local image/);
+  });
+}
+test('saveImageCache rejects unsupported references and leaves no receipt when docker save fails', async t => {
+  const err = [];
+  assert.equal(await saveImageCache(cacheDir(t), ['docker.io/library/postgres:17'], { call: docker({}).call, err: line => err.push(line) }), 1);
+  const dir = cacheDir(t), d = docker({ [IMAGE]: inspected(imageId, [repoDigest]) });
+  const failing = async (command, args) => args[0] === 'save' ? { ...ok, status: 1, stderr: 'no space left on device' } : d.call(command, args);
+  assert.equal(await saveImageCache(dir, [IMAGE], { call: failing, err: line => err.push(line) }), 1);
+  assert.equal(readImageCache({ OVD591_IMAGE_CACHE: dir }), null);
+  assert.match(err[0], /unsupported image reference/); assert.match(err[1], /docker save failed: no space left on device/);
+});
+test('loadImageCache loads the tarball and reports which receipted images will be admitted', async t => {
+  const dir = cacheDir(t), auth = PLATFORMS.auth.image, authDigest = `public.ecr.aws/supabase/gotrue@sha256:${'b'.repeat(64)}`;
+  mkdirSync(dir); writeFileSync(join(dir, 'receipt.json'), JSON.stringify(cacheReceipt([
+    { image: IMAGE, id: imageId, repoDigests: [repoDigest] }, { image: auth, id: 'sha256:' + 'd'.repeat(64), repoDigests: [authDigest] }])));
+  const out = [], err = [], d = docker({ [IMAGE]: inspected(imageId, []), [auth]: inspected('sha256:' + 'e'.repeat(64), []) });
+  assert.equal(await loadImageCache(dir, { call: d.call, out: line => out.push(JSON.parse(line)), err: line => err.push(line) }), 0);
+  assert.deepEqual(d.calls[0], ['load', '-i', join(dir, 'images.tar')]);
+  assert.deepEqual(out, [{ image: IMAGE, admitted: true, source: 'image-cache', id: imageId, repoDigests: [repoDigest] },
+    { image: auth, admitted: false }]);
+  assert.deepEqual(err, [`::warning::cached ${auth} does not match its receipt; it will be pulled`]);
+});
+test('loadImageCache never fails the job: a missing receipt skips docker and a failed load only warns', async t => {
+  const err = [], missing = docker({});
+  assert.equal(await loadImageCache(cacheDir(t), { call: missing.call, err: line => err.push(line) }), 0);
+  assert.deepEqual(missing.calls, []); assert.match(err[0], /receipt missing or malformed/);
+  const dir = cacheDir(t); mkdirSync(dir); writeFileSync(join(dir, 'receipt.json'), JSON.stringify(cacheReceipt()));
+  const broken = docker({ load: { ...ok, status: 1, stderr: 'unexpected EOF' } });
+  assert.equal(await loadImageCache(dir, { call: broken.call, err: line => err.push(line) }), 0);
+  assert.deepEqual(broken.calls.map(args => args[0]), ['load']); assert.match(err[1], /docker load failed; images will be pulled\nunexpected EOF/);
+});
+test('a saved cache round-trips: the loaded copy without RepoDigests is admitted through the receipt on disk', async t => {
+  const dir = cacheDir(t);
+  assert.equal(await saveImageCache(dir, [IMAGE], { call: docker({ [IMAGE]: inspected(imageId, [repoDigest]) }).call }), 0);
+  const s = simulation([inspected(imageId, [])], { settings: { skipLoaded: true }, env: { OVD591_IMAGE_CACHE: dir } });
+  assert.equal((await s.run()).provenance.source, 'image-cache'); assert.equal(s.calls.length, 1);
+});
+test('loadedProvenance prefers live registry digests over any receipt', () => {
+  assert.deepEqual(loadedProvenance(IMAGE, { id: imageId, repoDigests: [repoDigest] }, null),
+    { source: 'registry', id: imageId, repoDigests: [repoDigest] });
+  assert.equal(loadedProvenance(IMAGE, null, cacheReceipt()), null);
 });
 test('first success makes one attempt and no wait', async () => {
   const s = simulation([ok]); await s.run(); assert.equal(s.calls.length, 1); assert.deepEqual(s.waits, []);
@@ -263,6 +372,21 @@ test('all existing pull call sites use the bounded helper and all hosted gates r
     const workflow = source(`.github/workflows/${name}.yml`);
     assert.match(workflow, /node --test scripts\/ovd591-image-pull.node-test.mjs/);
     assert.doesNotMatch(workflow, /continue-on-error:/);
+  }
+});
+test('SQL qualification workflows cache images by exact reference and load/save only through the receipted helper', () => {
+  for (const name of ['ovd591-qualification', 'ovd591-retention-qualification', 'free-quote-sql-qualification']) {
+    const workflow = readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8');
+    assert.match(workflow, /key=ovd591-ecr-v1-' \+ (IMAGE|images\.join\('\+'\))/, name);
+    assert.equal(workflow.match(/key: \$\{\{ steps\.images\.outputs\.key \}\}/g)?.length, 2, name);
+    assert.match(workflow, /uses: actions\/cache\/restore@v4/); assert.match(workflow, /uses: actions\/cache\/save@v4/);
+    assert.match(workflow, /node scripts\/ovd591-image-pull\.mjs load "\$OVD591_IMAGE_CACHE"/);
+    assert.match(workflow, /node scripts\/ovd591-image-pull\.mjs save "\$OVD591_IMAGE_CACHE" \$IMAGES; then echo "saved=true"/);
+    assert.doesNotMatch(workflow, /docker (load|save|pull)|actions\/cache@|hashFiles/, name);
+    const order = ['actions/cache/restore', 'image-pull.mjs load', 'ovd591-ci-fixture.mjs run', 'image-pull.mjs save', 'actions/cache/save']
+      .map(text => workflow.indexOf(text));
+    assert(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1])), `${name}: ${order}`);
+    assert(workflow.indexOf('node --test') < workflow.indexOf('OVD591_IMAGE_CACHE='), `${name}: unit tests must not see the cache`);
   }
 });
 test('native SQL proofs workflow pulls through the shared helper with no inline docker pull retry loop', () => {

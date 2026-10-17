@@ -49,7 +49,8 @@
           "enum": ["api", "declarative_portal", "custom_portal", "guidance_only"]
         },
         "processFamily": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,49}$" },
-        "implementationStage": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,49}$" }
+        "implementationStage": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,49}$" },
+        "quoteCurrency": { "type": "string", "pattern": "^[A-Z]{3}$" }
       }
     },
     "capabilityEnvelope": {

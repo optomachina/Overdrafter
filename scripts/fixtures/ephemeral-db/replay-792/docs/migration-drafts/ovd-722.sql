@@ -1,0 +1,61 @@
+-- =====================================================================
+-- NEEDS BLAINE MIGRATION WINDOW - not applied
+-- =====================================================================
+-- OVD-722: per-provider and global provider kill switch.
+--
+-- This is a DRAFT. It must not be copied into supabase/migrations/ or applied
+-- to any database outside a Blaine-approved migration window. When approved,
+-- it ships as ONE migration (next timestamp from `npm run migration:new`), and
+-- supabase/tests/pending/ovd722_provider_kill_switch.sql.pending is renamed to
+-- supabase/tests/ovd722_provider_kill_switch.sql in the same change.
+--
+-- Transaction: this file has no begin/commit of its own. The migration
+-- runner wraps it in one transaction (the Supabase CLI does). By hand:
+--   psql --single-transaction -v ON_ERROR_STOP=1 -f <file>
+--
+-- Companion change in the same window/PR as the migration: promote
+-- supabase/tests/pending/ovd722_provider_kill_switch.sql.pending. No existing
+-- suite needs retargeting: no existing function is renamed, wrapped or
+-- replaced, so every existing prosrc/proconfig pin holds.
+--
+-- Deploy ordering: apply this migration BEFORE (or together with) the worker
+-- build containing OVD-722. That worker fails closed: without
+-- api_worker_provider_kill_switch_state every live dispatch is refused with
+-- provider_kill_switch_unavailable. The queue retries three times; when the
+-- retries are spent the task fails and the lane ends failed with a visible
+-- note (it is not routed to manual quoting), so no lane stays queued forever.
+--
+-- Purpose: stop all automated traffic to one provider (or to every provider)
+-- with a data flip. No deploy, no worker restart, no caching: every server
+-- preflight and every worker checkpoint reads the current row.
+--
+-- The switch is deliberately separate from
+-- private.quote_provider_admission_policies revisions and
+-- private.provider_dispatch_envelope_reviews.withdrawn_at. Admission changes
+-- are reviewed and slow; the switch is an emergency brake that only ever
+-- denies. Withdrawing an envelope stays the durable follow-up.
+--
+-- Fail-closed rules:
+--   * A provider with no kill-switch row is treated as ENGAGED.
+--   * A missing global singleton row is treated as ENGAGED.
+--   * The worker treats an RPC error, malformed response, or a read slower than
+--     2s as ENGAGED for the purpose of refusing (worker/src/providerKillSwitch.ts).
+--
+-- Layout (expand -> enforce -> contract):
+--   PHASE 1 EXPAND   additive objects only; no existing behavior changes.
+--   PHASE 2 ENFORCE  adds a BEFORE INSERT trigger on both permit tables
+--                    that refuses enqueue for a switched-off provider. This
+--                    is still expand only: it adds objects and alters no
+--                    existing function, signature, body or grant. While every
+--                    switch is disengaged (the seed) nothing behaves
+--                    differently.
+--   PHASE 3 CONTRACT not in this window (see the end of the file).
+--   ROLLBACK         guarded reversal of PHASE 2 then PHASE 1.
+-- =====================================================================
+
+-- =====================================================================
+-- PHASE 1 EXPAND
+-- =====================================================================
+
+-- [header-only snapshot of docs/migration-drafts/ovd-722.sql at d2b7981b (#792); body omitted]
+select 1;

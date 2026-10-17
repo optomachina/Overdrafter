@@ -1,13 +1,23 @@
 /** Retry only the public ECR throttle, without changing image or registry.
  * Docker 29 daemons report it without the legacy "Error response from daemon: " prefix.
- * CLI: node scripts/ovd591-image-pull.mjs pull <image>... */
+ * CLI: node scripts/ovd591-image-pull.mjs pull <image>...
+ *      node scripts/ovd591-image-pull.mjs save <cache-dir> <image>...   (registry-pulled images -> tarball + ID receipt)
+ *      node scripts/ovd591-image-pull.mjs load <cache-dir> */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const RATE_LIMIT_PATTERNS = Object.freeze([/toomanyrequests/i, /data limit exceeded/i, /rate exceeded/i]);
 const REGISTRY = 'public.ecr.aws';
+const IMAGE_REF = /^public\.ecr\.aws\/supabase\/[a-z-]+:[a-zA-Z0-9.-]+$/;
+const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
+/** Directory holding images.tar and receipt.json; set only for fixture runs after the cache restore. */
+export const IMAGE_CACHE_ENV = 'OVD591_IMAGE_CACHE';
+const INSPECT_FORMAT = '{{json .Id}} {{json .RepoDigests}}';
+const CACHE_TIMEOUT_MS = 600_000;
 const DAEMON_PREFIX = /^Error response from daemon: /i;
 const SETTINGS = Object.freeze({
   OVD_PULL_MAX_ATTEMPTS: { key: 'maxAttempts', fallback: 5, min: 1, max: 8 },
@@ -42,11 +52,41 @@ export function isPublicEcrThrottle(result) {
   });
 }
 
+/** Parses `docker image inspect --format INSPECT_FORMAT`; null when malformed. */
+function parseInspect(stdout) {
+  const [id, digests, ...rest] = String(stdout ?? '').trim().split(' ');
+  if (rest.length) return null;
+  try { return { id: JSON.parse(id), repoDigests: JSON.parse(digests) ?? [] }; } catch { return null; }
+}
+/** Every digest names this image's repository at an exact sha256 manifest digest. */
+const registryDigests = (image, digests) => Array.isArray(digests) && digests.length > 0 && digests.every(digest =>
+  typeof digest === 'string' && digest.startsWith(`${image.slice(0, image.lastIndexOf(':'))}@sha256:`) && /@sha256:[a-f0-9]{64}$/.test(digest));
+
+/** Receipt written by saveImageCache; null when the cache is unset, absent or unreadable. */
+export function readImageCache(env = process.env, read = readFileSync) {
+  const dir = env[IMAGE_CACHE_ENV];
+  if (!dir) return null;
+  try { return JSON.parse(read(join(dir, 'receipt.json'), 'utf8')); } catch { return null; }
+}
+
+/** Registry provenance for a local image, or null. A pulled image carries RepoDigests. `docker load` drops them, so a loaded
+ * copy is admitted only when its content-addressed image ID equals the ID receipted when that exact reference was pulled. */
+export function loadedProvenance(image, local, cache) {
+  if (!local || !IMAGE_ID.test(String(local.id))) return null;
+  if (Array.isArray(local.repoDigests) && local.repoDigests.some(digest => /@sha256:[a-f0-9]{64}$/.test(String(digest)))) {
+    return { source: 'registry', id: local.id, repoDigests: local.repoDigests };
+  }
+  const entry = cache?.schemaVersion === 1 && Array.isArray(cache.images) ? cache.images.find(value => value?.image === image) : null;
+  if (!entry || entry.id !== local.id || !registryDigests(image, entry.repoDigests)) return null;
+  return { source: 'image-cache', id: local.id, repoDigests: entry.repoDigests };
+}
+
 /** call retains each raw result; save retains classification and bounded retry decisions.
- * skipLoaded: an image already present locally with registry RepoDigests (`docker image inspect` succeeds) is receipted as "cached", not pulled. */
+ * skipLoaded: an image already present locally with registry provenance (see loadedProvenance) is receipted as "cached",
+ * not pulled, and the result carries that provenance. */
 export async function pullFixtureImage({ call, image, label, signal, deadline = Infinity, save, skipLoaded = false },
-  { now = Date.now, wait = delay, random = Math.random, env = process.env } = {}) {
-  assert.match(image, /^public\.ecr\.aws\/supabase\/[a-z-]+:[a-zA-Z0-9.-]+$/);
+  { now = Date.now, wait = delay, random = Math.random, env = process.env, readCache = readImageCache } = {}) {
+  assert.match(image, IMAGE_REF);
   assert.match(label, /^[a-z-]+$/);
   const config = pullConfig(env);
   const expires = Math.min(deadline, now() + config.budgetMs);
@@ -57,13 +97,13 @@ export async function pullFixtureImage({ call, image, label, signal, deadline = 
   };
   try {
     if (skipLoaded) {
-      const loaded = await call('docker', ['image', 'inspect', '--format', '{{json .RepoDigests}}', image], { timeout: expires - now(), allowFailure: true,
+      const loaded = await call('docker', ['image', 'inspect', '--format', INSPECT_FORMAT, image], { timeout: expires - now(), allowFailure: true,
         label: `${label}-inspect` });
       check();
-      // docker load drops RepoDigests; only a registry-digested image may skip the pull.
-      if (!loaded.failure && loaded.status === 0 && /@sha256:[a-f0-9]{64}/.test(String(loaded.stdout ?? ''))) {
-        receipt.status = 'cached'; receipt.attempts.push({ attempt: 0, status: 'cached' });
-        return loaded;
+      const provenance = !loaded.failure && loaded.status === 0 ? loadedProvenance(image, parseInspect(loaded.stdout), readCache(env)) : null;
+      if (provenance) {
+        Object.assign(receipt, { status: 'cached', ...provenance }); receipt.attempts.push({ attempt: 0, status: 'cached' });
+        return { ...loaded, provenance };
       }
     }
     for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
@@ -128,11 +168,56 @@ export async function pullImages(images, { call = spawnCall(), out = console.log
   return 0;
 }
 
+/** Saves registry-pulled images with an image-ID receipt. Refuses images without registry digests, including loaded copies,
+ * so a cache entry is only ever created from a real pull. Failure warns and returns 1; it never alters the local images. */
+export async function saveImageCache(dir, images, { call = spawnCall(), err = console.error } = {}) {
+  try {
+    assert(dir && images.length, 'usage: ovd591-image-pull.mjs save <cache-dir> <image>...');
+    const entries = [];
+    for (const image of images) {
+      assert.match(image, IMAGE_REF, `unsupported image reference: ${image}`);
+      const result = await call('docker', ['image', 'inspect', '--format', INSPECT_FORMAT, image], { timeout: 60_000 });
+      const local = result.status === 0 && !result.failure ? parseInspect(result.stdout) : null;
+      assert(local && IMAGE_ID.test(String(local.id)) && registryDigests(image, local.repoDigests), `${image} is not a registry-pulled local image`);
+      entries.push({ image, id: local.id, repoDigests: local.repoDigests });
+    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const saved = await call('docker', ['save', '-o', join(dir, 'images.tar'), ...images], { timeout: CACHE_TIMEOUT_MS });
+    assert(saved.status === 0 && !saved.failure, `docker save failed: ${String(saved.stderr ?? '').trim()}`);
+    writeFileSync(join(dir, 'receipt.json'), `${JSON.stringify({ schemaVersion: 1, images: entries }, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    err(`::warning::image cache not saved: ${error.message}`);
+    return 1;
+  }
+}
+
+/** Loads a restored cache and reports which receipted images will be admitted. Never fails the job: anything the fixture
+ * does not admit via loadedProvenance is pulled as usual. */
+export async function loadImageCache(dir, { call = spawnCall(), out = console.log, err = console.error, read = readFileSync } = {}) {
+  const cache = readImageCache({ [IMAGE_CACHE_ENV]: dir }, read);
+  if (!Array.isArray(cache?.images)) { err('::warning::image cache receipt missing or malformed; images will be pulled'); return 0; }
+  const loaded = await call('docker', ['load', '-i', join(dir, 'images.tar')], { timeout: CACHE_TIMEOUT_MS });
+  if (loaded.status !== 0 || loaded.failure) {
+    err(`::warning::docker load failed; images will be pulled\n${String(loaded.stderr ?? '').trim()}`.trimEnd());
+    return 0;
+  }
+  for (const { image } of cache.images) {
+    const result = await call('docker', ['image', 'inspect', '--format', INSPECT_FORMAT, image], { timeout: 60_000 });
+    const provenance = result.status === 0 && !result.failure ? loadedProvenance(image, parseInspect(result.stdout), cache) : null;
+    out(JSON.stringify({ image, admitted: Boolean(provenance), ...provenance }));
+    if (!provenance) err(`::warning::cached ${image} does not match its receipt; it will be pulled`);
+  }
+  return 0;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [command, ...images] = process.argv.slice(2);
-  if (command === 'pull') process.exitCode = await pullImages(images);
+  const [command, ...rest] = process.argv.slice(2);
+  if (command === 'pull') process.exitCode = await pullImages(rest);
+  else if (command === 'save') process.exitCode = await saveImageCache(rest[0], rest.slice(1));
+  else if (command === 'load' && rest.length === 1) process.exitCode = await loadImageCache(rest[0]);
   else {
-    console.error('usage: ovd591-image-pull.mjs pull <image>...');
+    console.error('usage: ovd591-image-pull.mjs pull <image>... | save <cache-dir> <image>... | load <cache-dir>');
     process.exitCode = 2;
   }
 }

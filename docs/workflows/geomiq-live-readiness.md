@@ -75,8 +75,8 @@ in full:
   `liveAdapter: true`, or record an approved admission revision until the #677
   migration is applied and the OVD-319 certification walk covers Geomiq.
 - Controlled or uncertain files are never retried around a block. Nothing here
-  rotates IPs, solves a CAPTCHA, or paces requests to look human. The planned
-  ceiling is about 20 quotes per provider per day.
+  rotates IPs, solves a CAPTCHA, or paces requests to look human. There is no
+  default daily quote cap; an admin may set one per supplier (OVD-829).
 
 ## Permissions matrix (OVD-724, #667)
 

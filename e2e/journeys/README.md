@@ -1,0 +1,43 @@
+# Journey tests (OVD-825)
+
+Component tests passed while Jarvis had no user-facing front door. These tests
+start where a user starts.
+
+- `capability-manifest.ts`: one entry per user-facing surface and the entry
+  points it claims. `knownMissing` marks a surface that has no public front
+  door yet, with the issue that will add one.
+- `reachability.ts`: resolves each entry point against the code (app router,
+  `vercel.json`, `api/`, `supabase/functions/`) as a non-admin user with no
+  build flags set. Flag-gated, admin-only and demo-only paths do not count.
+- `src/journeys/reachability.test.ts` (under `src/` so `npm test` collects it):
+  fails on any surface with no reachable entry point. A `knownMissing` surface
+  must stay unreachable; once it is reachable the test fails with
+  `surface X is now reachable; remove knownMissing`. Prints a per-surface table.
+- `jarvis-front-door.spec.ts` (`@fixture`, runs in `npm run e2e:fixture`): phone
+  viewport, `/` -> Jarvis link -> "design a 4 inch square plate" -> status,
+  result card, PNG, GLB/USDZ and AR link. Marked `test.fail()` until
+  [OVD-805](https://linear.app/overdrafter/issue/OVD-805) lands. Two sibling
+  tests keep that honest: a boot guard (shell must mount) and an OVD-805 guard
+  asserting no Jarvis link on `/`. When OVD-805 adds the link the guard goes
+  red; then remove `test.fail()` from the journey and delete the guard.
+
+```bash
+npx vitest run src/journeys --maxWorkers=2
+PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/journeys/jarvis-front-door.spec.ts --workers=1
+```
+
+## Follow-up PRs
+
+1. Channel parity: the same request from each enabled channel adapter (stubbed
+   transport) lands in one shared thread with the same result (OVD-807, OVD-808, OVD-809).
+2. Job control: start, pause, steer, resume and cancel from the phone; assert
+   state changes and preserved partial work (OVD-810, OVD-812).
+3. Access: an allowlisted user gets in, a non-allowlisted user is blocked, a
+   cross-user decision returns 403 (OVD-803, OVD-806).
+4. Skip/best-guess: skip every decision card; the job completes with recorded guesses.
+5. Acceptance gate: every Linear issue with user-facing scope links at least one
+   journey test; fold into the OVD-788 proof check.
+
+Also open: run the front-door spec against preview and nightly against the
+production domain, and decide whether the ChatGPT app (`server/chatgpt`, local
+demo only today) belongs in the manifest.

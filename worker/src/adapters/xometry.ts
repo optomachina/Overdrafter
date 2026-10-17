@@ -21,6 +21,7 @@ import {
 } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
+  type HarnessPriceCaptureHook,
   type VendorArtifact,
   type VendorQuoteAdapterOffer,
   type LiveEvaluationUploadFile,
@@ -54,6 +55,7 @@ import type {
   ProviderUploadCapabilityDecision,
   ProviderUploadCapabilityObserved,
 } from "../providerUploadCapabilityTypes.js";
+import { uploadCapabilityAllowsStagedExtensions } from "../providerUploadCapability.js";
 import { ProviderAbortedError } from "../providerAbort.js";
 import { ProviderKillSwitchError } from "../providerKillSwitch.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
@@ -73,6 +75,8 @@ import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
+  XOMETRY_AS_MACHINED_FINISH_TERMS,
+  XOMETRY_CNC_PROCESS_TERMS,
   XOMETRY_LOCATORS,
   XOMETRY_URLS,
 } from "./xometryConstraints.js";
@@ -479,6 +483,37 @@ async function appendArtifacts(
   label: string,
 ) {
   artifacts.push(...(await capturePageArtifacts(page, runDir, label)));
+}
+
+/**
+ * OVD-779: the price-capture DOM goes through the same redactor as every other
+ * snapshot. The adapter never screenshots (OVD-611); only a hook injected by
+ * the live-evaluation harness may, and a hook failure never fails the quote.
+ */
+export async function capturePriceArtifacts(
+  page: Page,
+  runDir: string,
+  harnessHook: HarnessPriceCaptureHook | null,
+): Promise<VendorArtifact[]> {
+  const artifacts = await capturePageArtifacts(page, runDir, "price-capture");
+  if (!harnessHook) return artifacts;
+  try {
+    artifacts.push(...(await harnessHook({ page, label: "price-capture" })));
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.harness_capture_failed",
+        message: "Live-evaluation harness capture hook failed.",
+        context: {
+          vendor: "xometry",
+          error: error instanceof Error ? error.name : "unknown",
+        },
+      }),
+    );
+  }
+  return artifacts;
 }
 
 async function firstWorkingLocator(page: Page, selectors: readonly string[]) {
@@ -1573,11 +1608,6 @@ type UploadCapabilityGate = {
     | undefined;
 };
 
-const PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS: ReadonlySet<string> = new Set([
-  "matches_policy",
-  "reviewed_missing_accept_xometry",
-]);
-
 function buildUploadCapabilityObservation(
   target: ApprovedUploadTarget,
   observedAccept: string | null,
@@ -1615,7 +1645,9 @@ function buildUploadCapabilityObservation(
  * OVD-414: re-resolves the shared capability decision right before file
  * selection. Anything but a passing classification that covers every staged
  * extension, including a missing or throwing checkpoint, selects no files.
- * Only the classification is carried in the denial, never provider evidence.
+ * OVD-863: format drift passes when every staged extension is in admission ∩
+ * live accept list, and is logged. Only the classification is carried in the
+ * denial, never provider evidence.
  */
 async function assertUploadCapabilityAllowsSelection(
   page: Page,
@@ -1646,14 +1678,30 @@ async function assertUploadCapabilityAllowsSelection(
   } catch {
     return deny("decision_unavailable");
   }
-  if (!PASSING_UPLOAD_CAPABILITY_CLASSIFICATIONS.has(decision?.classification)) {
-    return deny(String(decision?.classification ?? "decision_malformed").slice(0, 64));
-  }
-  const allowed = new Set(decision.allowedExtensions ?? []);
-  const permitsEveryFile = filePaths.every((filePath) =>
-    allowed.has(path.extname(filePath).toLocaleLowerCase().replace(/^\./, "")),
+  const verdict = uploadCapabilityAllowsStagedExtensions(
+    decision,
+    filePaths.map((filePath) => path.extname(filePath)),
   );
-  if (!permitsEveryFile) deny("extension_not_allowed");
+  if (!verdict.allowed) return deny(verdict.reason.slice(0, 64));
+  if (verdict.drift) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.upload_capability_format_drift",
+        message: "Xometry's live accept list drifted from admission; staged files remain within the admitted intersection.",
+        context: {
+          vendor: "xometry",
+          classification: decision.classification,
+          allowedExtensions: decision.allowedExtensions,
+          reportedAddedExtensions: decision.reportedAddedExtensions,
+          reportedRemovedExtensions: decision.reportedRemovedExtensions,
+          route: classifyXometryRoute(page.url()),
+          stateId: target.stateId,
+        },
+      }),
+    );
+  }
 }
 
 async function setFilesOnApprovedUploadTarget(
@@ -1749,10 +1797,12 @@ async function setFilesOnApprovedUploadTarget(
   return { selector: target.selector };
 }
 
+type XometryOptionField = "process" | "material" | "finish";
+
 async function findButtonAndOpen(
   page: Page,
   selectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
 ) {
   const preferredSelector = selectors[0];
   const preferredLocator = page.locator(`${preferredSelector}:visible`).first();
@@ -1806,11 +1856,13 @@ export async function chooseOptionByTerms(
   page: Page,
   terms: string[],
   optionSelectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
   controlSelector: string,
   observer?: XometryProviderObserver,
   searchInput: Locator | null = null,
 ) {
+  // The engineering catalog observes material and finish options only.
+  const catalogField = field === "process" ? null : field;
   for (const term of terms) {
     if (searchInput) await searchInput.fill(term);
     const roleOption = page
@@ -1823,8 +1875,8 @@ export async function chooseOptionByTerms(
       .catch(() => false);
 
     if (roleOptionVisible) {
-      const observation = observer
-        ? await captureCatalogOption(roleOption, field, controlSelector, "role=option", term)
+      const observation = observer && catalogField
+        ? await captureCatalogOption(roleOption, catalogField, controlSelector, "role=option", term)
           .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
         : null;
       try { await roleOption.click(); } finally {
@@ -1840,8 +1892,8 @@ export async function chooseOptionByTerms(
         .first();
 
       if ((await option.count().catch(() => 0)) > 0) {
-        const observation = observer
-          ? await captureCatalogOption(option, field, controlSelector, selector, term)
+        const observation = observer && catalogField
+          ? await captureCatalogOption(option, catalogField, controlSelector, selector, term)
             .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
           : null;
         try { await option.click(); } finally {
@@ -1903,13 +1955,66 @@ async function configureRequiredOption(
   terms: string[],
   controlSelectors: readonly string[],
   optionSelectors: readonly string[],
-  field: "material" | "finish",
+  field: XometryOptionField,
   observer?: XometryProviderObserver,
 ) {
   const control = await findButtonAndOpen(page, controlSelectors, field);
   return chooseOptionByTerms(
     page, terms, optionSelectors, field, control.selector, observer, control.searchInput,
   );
+}
+
+// OVD-777: Xometry auto-selects process, material and finish from the CAD
+// geometry or an attached drawing. Process goes first because changing it
+// reloads the material and finish catalogs.
+const AUTO_SELECTED_FIELDS = ["process", "material", "finish"] as const;
+type AutoSelectedField = (typeof AUTO_SELECTED_FIELDS)[number];
+
+const AUTO_SELECTED_FIELD_CONTROLS = {
+  process: {
+    label: "Process",
+    buttons: XOMETRY_LOCATORS.processButtons,
+    options: XOMETRY_LOCATORS.processOptions,
+  },
+  material: {
+    label: "Material",
+    buttons: XOMETRY_LOCATORS.materialButtons,
+    options: XOMETRY_LOCATORS.materialOptions,
+  },
+  finish: {
+    label: "Finish",
+    buttons: XOMETRY_LOCATORS.finishButtons,
+    options: XOMETRY_LOCATORS.finishOptions,
+  },
+} as const;
+
+/**
+ * Overwrites the listed auto-selected fields with the saved requirement. A
+ * control or option Xometry does not offer is left in place so the saved
+ * summary read-back reports it as saved_requirement_mismatch.
+ */
+async function overwriteAutoSelectedRequirements(
+  page: Page,
+  fields: readonly AutoSelectedField[],
+  terms: Record<AutoSelectedField, string[]>,
+  beforeConfigure: () => Promise<void>,
+  observer?: XometryProviderObserver,
+) {
+  const selections: Partial<Record<AutoSelectedField, string | null>> = {};
+  for (const field of AUTO_SELECTED_FIELDS) {
+    if (!fields.includes(field)) continue;
+    await beforeConfigure();
+    const controls = AUTO_SELECTED_FIELD_CONTROLS[field];
+    selections[field] = await configureRequiredOption(
+      page, terms[field], controls.buttons, controls.options, field, observer,
+    ).catch((error: unknown) => {
+      if (error instanceof VendorAutomationError && error.code === "selector_failure") {
+        return null;
+      }
+      throw error;
+    });
+  }
+  return selections;
 }
 
 async function saveConfiguration(
@@ -2476,6 +2581,7 @@ async function attachDrawingFallback(
 
 type SavedRequirementCheck = {
   quantity: number;
+  processTerms: string[];
   materialTerms: string[];
   finishTerms: string[];
   toleranceTier: string | null;
@@ -2484,6 +2590,7 @@ type SavedRequirementCheck = {
 
 const QUOTE_SUMMARY_FIELD_LABELS = [
   "Quantity",
+  "Process",
   "Material",
   "Finish",
   "Measurement",
@@ -2561,6 +2668,14 @@ function verifySavedRequirements(
   ) {
     mismatches.push("quantity");
   }
+  // OVD-777: an explicit Process field must name the requested process.
+  const processSummary = readQuoteSummaryField(bodyText, "Process");
+  if (
+    processSummary !== null &&
+    !findExactTermMatch(processSummary, expected.processTerms)
+  ) {
+    mismatches.push("process");
+  }
   const materialSummary = readQuoteSummaryField(bodyText, "Material");
   if (
     !materialSummary ||
@@ -2595,6 +2710,23 @@ function verifySavedRequirements(
   }
 
   return mismatches;
+}
+
+/**
+ * OVD-777: the process, material and finish mismatches where the summary
+ * visibly shows a value Xometry selected on its own, so the adapter can
+ * overwrite it. A missing field is left to saved-requirement verification.
+ */
+function autoSelectedRequirementMismatches(
+  bodyText: string,
+  expected: SavedRequirementCheck,
+): AutoSelectedField[] {
+  const mismatches = verifySavedRequirements(bodyText, expected);
+  return AUTO_SELECTED_FIELDS.filter(
+    (field) =>
+      mismatches.includes(field) &&
+      readQuoteSummaryField(bodyText, AUTO_SELECTED_FIELD_CONTROLS[field].label) !== null,
+  );
 }
 
 async function detectBlockingState(page: Page, runDir: string) {
@@ -3097,18 +3229,35 @@ export class XometryAdapter extends VendorAdapter {
       const requestedTolerance = selectToleranceTier(
         input.requirement.tightest_tolerance_inch,
       );
+      const configuredRequirementCheck: SavedRequirementCheck = {
+        quantity: normalizedQuantity(input),
+        processTerms: XOMETRY_CNC_PROCESS_TERMS,
+        materialTerms: materialSummaryTerms,
+        finishTerms: finishTerms ?? [],
+        toleranceTier: requestedTolerance.tier,
+        drawingName: null,
+      };
+      // OVD-777: an empty finish request is as-machined, so an auto-applied
+      // finish is cleared by selecting As Machined.
+      const overwriteTerms: Record<AutoSelectedField, string[]> = {
+        process: XOMETRY_CNC_PROCESS_TERMS,
+        material: materialTerms,
+        finish: finishTerms && finishTerms.length > 0
+          ? finishTerms
+          : XOMETRY_AS_MACHINED_FINISH_TERMS,
+      };
+      const configureCheckpoint = async () =>
+        input.providerKillSwitchCheckpoint?.("before_configure");
       const uploadedSummaryText = await readQuoteSummaryText(page);
       const uploadedSummaryMismatches = verifySavedRequirements(
         uploadedSummaryText,
-        {
-          quantity: normalizedQuantity(input),
-          materialTerms: materialSummaryTerms,
-          finishTerms: finishTerms ?? [],
-          toleranceTier: requestedTolerance.tier,
-          drawingName: null,
-        },
+        configuredRequirementCheck,
       );
       const uploadedSummaryMatches = uploadedSummaryMismatches.length === 0;
+      const uploadedAutoSelections = autoSelectedRequirementMismatches(
+        uploadedSummaryText,
+        configuredRequirementCheck,
+      );
 
       if (uploadedSummaryMatches) {
         const observedMaterial = readQuoteSummaryField(
@@ -3137,6 +3286,15 @@ export class XometryAdapter extends VendorAdapter {
           scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined,
         async () => input.providerKillSwitchCheckpoint?.("before_configure"));
 
+        // OVD-777: plate-like geometry can auto-select Sheet Cutting, whose
+        // catalog has no CNC material options.
+        await overwriteAutoSelectedRequirements(
+          page,
+          uploadedAutoSelections.filter((field) => field === "process"),
+          overwriteTerms,
+          configureCheckpoint,
+        );
+
         await input.providerKillSwitchCheckpoint?.("before_configure");
         selectedMaterial = await configureRequiredOption(
           page,
@@ -3157,6 +3315,15 @@ export class XometryAdapter extends VendorAdapter {
             "finish",
             this.providerObserver ?? this.operationalProviderObserver,
           );
+        } else if (uploadedAutoSelections.includes("finish")) {
+          const overwritten = await overwriteAutoSelectedRequirements(
+            page,
+            ["finish"],
+            overwriteTerms,
+            configureCheckpoint,
+            this.providerObserver ?? this.operationalProviderObserver,
+          );
+          selectedFinish = overwritten.finish ?? null;
         }
 
         await input.providerKillSwitchCheckpoint?.("before_configure");
@@ -3223,6 +3390,36 @@ export class XometryAdapter extends VendorAdapter {
         drawingUploadSelector = drawingFallbackResult.selector;
         drawingUploadVerification = drawingFallbackResult.verification;
         drawingUploadMode = "fallback";
+
+        // OVD-777: Xometry re-derives process, material and finish from the
+        // attached drawing ("Matches your drawing"). Overwrite them once and
+        // save; the read-back below still fails closed on any remainder.
+        await page.waitForLoadState("networkidle").catch(() => undefined);
+        const drawingAutoSelections = autoSelectedRequirementMismatches(
+          await readQuoteSummaryText(page),
+          configuredRequirementCheck,
+        );
+        if (drawingAutoSelections.length > 0) {
+          await configureCheckpoint();
+          await openPartConfigurationIfNeeded(
+            page,
+            this.config.browserTimeoutMs,
+          );
+          const overwritten = await overwriteAutoSelectedRequirements(
+            page,
+            drawingAutoSelections,
+            overwriteTerms,
+            configureCheckpoint,
+            this.providerObserver ?? this.operationalProviderObserver,
+          );
+          if (overwritten.material !== undefined) selectedMaterial = overwritten.material;
+          if (overwritten.finish !== undefined) selectedFinish = overwritten.finish;
+          saveConfigurationSelector = await saveConfiguration(
+            page,
+            this.config.browserTimeoutMs,
+            async () => input.providerKillSwitchCheckpoint?.("before_save"),
+          );
+        }
       }
 
       await page.waitForLoadState("networkidle").catch(() => undefined);
@@ -3267,9 +3464,7 @@ export class XometryAdapter extends VendorAdapter {
       const bodyText = await readQuoteSummaryText(page);
       const manualReviewResult = await detectManualReview(page, bodyText);
       const requirementMismatches = verifySavedRequirements(bodyText, {
-        quantity: normalizedQuantity(input),
-        materialTerms: materialSummaryTerms,
-        finishTerms: finishTerms ?? [],
+        ...configuredRequirementCheck,
         toleranceTier: selectedTolerance,
         drawingName:
           input.stagedDrawingFile &&
@@ -3288,6 +3483,7 @@ export class XometryAdapter extends VendorAdapter {
             reason: "saved_requirement_mismatch",
             requirementMismatches,
             requestedQuantity: normalizedQuantity(input),
+            requestedProcessTerms: XOMETRY_CNC_PROCESS_TERMS,
             requestedMaterialTerms: materialSummaryTerms,
             requestedFinishTerms: finishTerms ?? [],
             requestedToleranceInch: input.requirement.tightest_tolerance_inch,
@@ -3360,6 +3556,11 @@ export class XometryAdapter extends VendorAdapter {
       // review instead of quoting whatever currency string the page happened
       // to contain. See gateVendorPrice for the reasoning.
       const manualReview = manualReviewResult.manualReview || priceGate.locatorDriftDetected;
+      artifacts.push(...(await capturePriceArtifacts(
+        page,
+        runDir,
+        isLiveEvaluation ? input.harnessPriceCaptureHook ?? null : null,
+      )));
 
       if (offers.length === 0 && priceGate.trusted && !manualReviewResult.manualReview) {
         throw new VendorAutomationError(

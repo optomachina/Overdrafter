@@ -125,10 +125,14 @@ async function runDeployScript({
     "GOOGLE_CLOUD_PROJECT",
     "CLOUD_RUN_REGION",
     "SUPABASE_URL",
+    "OVERDRAFTER_DEPLOY_ENV",
     "SUPABASE_SERVICE_ROLE_SECRET_NAME",
     "XOMETRY_STORAGE_STATE_SECRET_NAME",
     "FICTIV_STORAGE_STATE_SECRET_NAME",
     "QUICKPARTS_STORAGE_STATE_SECRET_NAME",
+    "WORKER_PROVIDER_SESSION_LEASE",
+    "WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME",
+    "WEERG_STORAGE_STATE_SECRET_NAME",
     "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
     "XOMETRY_PROFILE_SNAPSHOT_OBJECT",
     "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
@@ -386,6 +390,86 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     });
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+
+  describe("OVD-838 staging worker guard", () => {
+    const STAGING_ENV = {
+      OVERDRAFTER_DEPLOY_ENV: "staging",
+      SERVICE_NAME: "overdrafter-cad-worker-staging",
+      SUPABASE_URL: "https://ldmambwtksfvqdufhaam.supabase.co",
+      SUPABASE_SERVICE_ROLE_SECRET_NAME: "supabase-service-role-key-staging",
+      WORKER_MODE: "simulate",
+      XOMETRY_STORAGE_STATE_SECRET_NAME: "xometry-storage-state-staging",
+    };
+
+    it("deploys a simulate-mode staging worker bound only to staging secrets", async () => {
+      const { failure, calls } = await runDeployScript({ envOverrides: STAGING_ENV });
+      expect(failure).toBeNull();
+      const deployCall = findCall(calls, ["run", "deploy", "overdrafter-cad-worker-staging"]);
+      expect(deployCall).toBeDefined();
+      const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+      expect(envVars.SUPABASE_URL).toBe("https://ldmambwtksfvqdufhaam.supabase.co");
+      expect(envVars.WORKER_MODE).toBe("simulate");
+      const updateSecrets = parseAssignments(optionValue(deployCall, "--update-secrets"));
+      expect(updateSecrets).toEqual({
+        SUPABASE_SERVICE_ROLE_KEY: "supabase-service-role-key-staging:latest",
+        XOMETRY_STORAGE_STATE_JSON: "xometry-storage-state-staging:latest",
+      });
+    });
+
+    it("refuses a staging deploy that leaves the Xometry and worker-mode defaults", async () => {
+      const { WORKER_MODE: _mode, XOMETRY_STORAGE_STATE_SECRET_NAME: _secret, ...defaults } = STAGING_ENV;
+      const { failure, calls } = await runDeployScript({ envOverrides: defaults });
+      expect(failure).not.toBeNull();
+      expect(calls).toEqual([]);
+    });
+
+    it.each([
+      ["the production Supabase URL", { SUPABASE_URL: "https://ozuatdcakezjtevztjlr.supabase.co" }],
+      ["the production service name", { SERVICE_NAME: "overdrafter-cad-worker" }],
+      ["a non-staging service name", { SERVICE_NAME: "overdrafter-cad-worker-prod" }],
+      ["an empty service name", { SERVICE_NAME: "" }],
+      ["the production service-role secret", { SUPABASE_SERVICE_ROLE_SECRET_NAME: "supabase-service-role-key" }],
+      ["a bare -staging service-role secret", { SUPABASE_SERVICE_ROLE_SECRET_NAME: "-staging" }],
+      ["live worker mode", { WORKER_MODE: "live" }],
+      ["the production Xometry session secret", { XOMETRY_STORAGE_STATE_SECRET_NAME: "xometry-storage-state" }],
+      ["a non-staging profile snapshot bucket", {
+        XOMETRY_PROFILE_SNAPSHOT_BUCKET: "synthetic-bucket",
+        XOMETRY_PROFILE_SNAPSHOT_OBJECT: "profiles/synthetic.tgz",
+      }],
+      ["a non-staging Fictiv session secret", { FICTIV_STORAGE_STATE_SECRET_NAME: "fictiv-storage-state" }],
+      ["a non-staging Quickparts session secret", { QUICKPARTS_STORAGE_STATE_SECRET_NAME: "quickparts-storage-state" }],
+      ["a non-staging Weerg session secret", { WEERG_STORAGE_STATE_SECRET_NAME: "weerg-storage-state" }],
+      ["a non-staging OpenAI key secret", { OPENAI_API_KEY_SECRET_NAME: "openai-api-key" }],
+      ["an unknown deploy environment", { OVERDRAFTER_DEPLOY_ENV: "preview" }],
+    ])("refuses a staging deploy that uses %s before invoking gcloud", async (_label, override) => {
+      const { failure, calls } = await runDeployScript({
+        envOverrides: { ...STAGING_ENV, ...override },
+      });
+      expect(failure).not.toBeNull();
+      expect(calls).toEqual([]);
+    });
+
+    it("refuses the staging Supabase URL without OVERDRAFTER_DEPLOY_ENV=staging", async () => {
+      const { failure, calls } = await runDeployScript({
+        snapshot: true,
+        envOverrides: { SUPABASE_URL: "https://ldmambwtksfvqdufhaam.supabase.co" },
+      });
+      expect(failure).not.toBeNull();
+      expect(calls).toEqual([]);
+    });
+
+    it("keeps the staging ref in sync with the web deploy diagnostics", async () => {
+      const script = await readFile(DEPLOY_SCRIPT, "utf8");
+      const diagnostics = await readFile(
+        path.resolve(process.cwd(), "server/operations/deploy-diagnostics.ts"),
+        "utf8",
+      );
+      const shellRef = /^STAGING_SUPABASE_REF="([a-z0-9]{20})"$/m.exec(script)?.[1];
+      const tsRef = /export const STAGING_SUPABASE_REF = "([a-z0-9]{20})";/.exec(diagnostics)?.[1];
+      expect(shellRef).toBeDefined();
+      expect(shellRef).toBe(tsRef);
+    });
   });
 
   it("refuses to deploy when the bucket control preflight fails", async () => {

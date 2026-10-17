@@ -121,3 +121,95 @@ test("@fixture non-platform session makes no operations request", async ({ page 
   await expect(page.getByRole("heading", { name: "Operations", exact: true })).toHaveCount(0);
   expect(requests).toBe(0);
 });
+
+// OVD-829 (OVD-828 S1): the per-supplier daily quote cap next to the on/off
+// switch. The "database" is an in-memory row set behind synthetic RPC routes.
+// There is no default cap: both suppliers start unlimited (null).
+test("@fixture supplier settings: set a cap, see it persist, set unlimited, switch the supplier off", async ({ page }) => {
+  const rows = new Map([
+    ["fictiv", { engaged: false, reason: null as string | null, version: 3, dailyQuoteCap: null as number | null, usedToday: 4 }],
+    ["xometry", { engaged: false, reason: null as string | null, version: 1, dailyQuoteCap: null as number | null, usedToday: 0 }],
+  ]);
+  const writes: Record<string, unknown>[] = [];
+  const external: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.route("**/*", async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== "http://127.0.0.1:4174") { external.push(url.origin); return route.abort(); }
+    if (url.pathname === "/api/admin-operations") return route.fulfill({ json: snapshot(), headers: { "cache-control": "no-store" } });
+    if (url.pathname === "/synthetic-rpc/api_admin_list_provider_kill_switches") {
+      return route.fulfill({ json: {
+        schema: "provider-kill-switch-admin.v1",
+        global: { engaged: false, reason: null, changedBy: null, changedAt: null, version: 0 },
+        providers: [...rows].map(([provider, row]) => ({ provider, changedBy: null, changedAt: null, ...row })),
+      } });
+    }
+    if (url.pathname === "/synthetic-rpc/api_admin_set_provider_settings") {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      writes.push(body);
+      const row = rows.get(body.p_provider as string)!;
+      const cap = body.p_daily_quote_cap as number | null;
+      if (cap !== null && !(Number.isInteger(cap) && cap > 0)) return route.fulfill({ status: 400, json: { message: "daily_quote_cap_must_be_positive" } });
+      const versionless = body.p_expected_version === undefined;
+      if (versionless ? body.p_engaged !== true : body.p_expected_version !== row.version) {
+        return route.fulfill({ status: 400, json: { message: "kill_switch_version_conflict" } });
+      }
+      Object.assign(row, { engaged: body.p_engaged, reason: body.p_reason, version: row.version + 1, ...(versionless ? {} : { dailyQuoteCap: cap }) });
+      return route.fulfill({ json: { provider: body.p_provider, ...row } });
+    }
+    return route.continue();
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/internal/admin");
+
+  const confirm = async (provider: string, reason: string) => {
+    await page.getByLabel(/^Reason/).fill(reason);
+    await page.getByLabel(/to confirm/).fill(provider);
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  };
+  const fictivCap = page.getByLabel("Daily quote cap for fictiv", { exact: true });
+
+  // Uncapped by default; an admin sets a cap of 50.
+  await expect(fictivCap).toBeDisabled();
+  await expect(page.getByText("4 used today (unlimited)")).toBeVisible();
+  await page.locator("#daily-cap-unlimited-fictiv").click();
+  await expect(fictivCap).toHaveValue("");
+  await fictivCap.fill("50");
+  await page.getByRole("button", { name: "Save daily cap for fictiv" }).click();
+  await expect(page.getByText("Set the daily quote cap for fictiv to 50")).toBeVisible();
+  await confirm("fictiv", "raise fictiv for the pilot week");
+  await expect(page.getByText("4 used today of 50")).toBeVisible();
+  expect(writes.at(-1)).toEqual({
+    p_provider: "fictiv", p_engaged: false, p_daily_quote_cap: 50, p_reason: "raise fictiv for the pilot week", p_expected_version: 3,
+  });
+
+  // It persists across a reload.
+  await page.reload();
+  await expect(fictivCap).toHaveValue("50");
+  await expect(page.getByText("4 used today of 50")).toBeVisible();
+
+  // Unlimited.
+  await page.locator("#daily-cap-unlimited-fictiv").click();
+  await expect(fictivCap).toBeDisabled();
+  await page.getByRole("button", { name: "Save daily cap for fictiv" }).click();
+  await expect(page.getByText("Set the daily quote cap for fictiv to unlimited")).toBeVisible();
+  await confirm("fictiv", "fictiv unlimited for the pilot");
+  await expect(page.getByText("4 used today (unlimited)")).toBeVisible();
+  expect(writes.at(-1)).toMatchObject({ p_provider: "fictiv", p_daily_quote_cap: null, p_expected_version: 4 });
+
+  // Switch the supplier off: an emergency engage, no version, the cap kept.
+  const fictivRow = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "fictiv", exact: true }) });
+  await expect(fictivRow.getByText("ALLOWED")).toBeVisible();
+  await page.getByRole("button", { name: "Stop fictiv" }).click();
+  await confirm("fictiv", "cease and desist received today");
+  await expect(fictivRow.getByText("STOPPED")).toBeVisible();
+  expect(writes.at(-1)).toEqual({
+    p_provider: "fictiv", p_engaged: true, p_daily_quote_cap: null, p_reason: "cease and desist received today",
+  });
+  expect(rows.get("fictiv")).toMatchObject({ engaged: true, dailyQuoteCap: null });
+  await expect(page.getByText("4 used today (unlimited)")).toBeVisible();
+
+  expect(external).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});

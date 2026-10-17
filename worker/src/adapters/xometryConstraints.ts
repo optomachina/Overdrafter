@@ -167,6 +167,20 @@ export const XOMETRY_LOCATORS = {
   ],
   // Current configuration controls. Material and finish are required inputs;
   // the adapter fails closed when it cannot apply the requested requirement.
+  // OVD-777: process mirrors the material/finish control shapes. Xometry can
+  // auto-select a non-CNC process (Sheet Cutting) for plate-like geometry.
+  processButtons: [
+    'input[role="combobox"][placeholder="Search Process"]',
+    '#process-multiselect-combobox',
+    '[data-testid="requirement-Process"]',
+    '[aria-label*="process" i]:not([aria-label*="subprocess" i])',
+    'button:has-text("Process")',
+  ],
+  processOptions: [
+    'input[type="radio"][name="process"]',
+    '[role="option"]',
+    '[data-testid*="option" i]',
+  ],
   materialButtons: [
     'input[role="combobox"][placeholder="Search Material"]',
     '#material-multiselect-combobox',
@@ -252,6 +266,16 @@ export const XOMETRY_LOCATORS = {
     '[aria-label*="drawing" i] input[type="file"]',
   ],
 } as const;
+
+/** OVD-777: the only process the CNC lane quotes. */
+export const XOMETRY_CNC_PROCESS_TERMS = ["CNC Machining"];
+
+/**
+ * OVD-777: finish options that clear an auto-applied finish when the saved
+ * requirement is as-machined. Mirrors the as-machined summary values accepted
+ * by saved-requirement verification.
+ */
+export const XOMETRY_AS_MACHINED_FINISH_TERMS = ["As Machined", "Standard"];
 
 export function buildMaterialSearchTerms(material: string) {
   const source = material.toLowerCase();

@@ -1,0 +1,127 @@
+name: Proof check
+
+# Checks that the PR body has a "## Proof" section with at least one
+# recognised item, and a Screenshot for UI changes (scripts/proof-check.mjs).
+# A separate journey-test rule asks UI changes to reference a journey e2e spec
+# or its Actions run; the summary reports both rules.
+# Docs-only PRs are exempt. This is not a required check.
+#
+# The script runs from the base branch's checkout, never from the PR: the job
+# checks out the base sha, reads changed files through the API, and takes the
+# body from the event payload through an environment variable. When the base
+# has no copy of the script yet (the PR that introduces it), the job skips with
+# a summary note.
+#
+# PROOF_CHECK_MODE=report always exits 0 and marks the result in the job
+# summary; any non-zero exit of the script (bad arguments, an uncaught error)
+# becomes a warning annotation and an ERROR line in the summary, via
+# scripts/proof-check-run.sh or, when the base lacks it, an inline copy of the
+# same logic. Switch it to enforce to fail the job on a missing proof or an
+# error.
+#
+# OVD-841: a Command must name a real npm script (base or head package.json)
+# and real files (repo or diff). The head package.json is fetched through the
+# API as data only; nothing from the PR head is checked out or executed. The
+# JSON report (docs/proof-check.md) is uploaded as the proof-check-report
+# artifact. The workflow also runs on merge_group with a no op pass, like
+# pr-body-gate.yml, so a future required check never stalls a merge queue.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - ready_for_review
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: proof-check-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  proof-check:
+    name: proof-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROOF_CHECK_MODE: report
+
+    steps:
+      # A merge queue run has no PR body to read; the pull_request run is the
+      # one that checks the proof.
+      - name: Merge queue no op
+        if: github.event_name == 'merge_group'
+        run: echo "merge_group run, proof-check ran on the pull_request run."
+
+      - name: Checkout base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check proof
+        id: proof
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ ! -f scripts/proof-check.mjs ]; then
+            printf '### Proof check: SKIPPED\n\nThe base branch has no scripts/proof-check.mjs yet, so there is no trusted copy to run.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          changed="$RUNNER_TEMP/proof-check-changed-files.txt"
+          # Files the PR deletes are not proof that anything exists.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[] | select(.status != "removed") | .filename' > "$changed"; then
+            printf '### Proof check: ERROR\n\nCould not list the changed files for this PR.\n' >> "$GITHUB_STEP_SUMMARY"
+            [ "$PROOF_CHECK_MODE" = enforce ] && exit 1
+            exit 0
+          fi
+          # Data only: the head package.json lists scripts a PR adds. A fetch
+          # failure leaves only the base scripts.
+          export PROOF_CHECK_JSON="$RUNNER_TEMP/proof-check.json"
+          export PROOF_CHECK_HEAD_PACKAGE_JSON="$RUNNER_TEMP/head-package.json"
+          if [ -z "${HEAD_SHA:-}" ] || ! gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$REPOSITORY/contents/package.json?ref=$HEAD_SHA" > "$PROOF_CHECK_HEAD_PACKAGE_JSON" 2>/dev/null; then
+            rm -f "$PROOF_CHECK_HEAD_PACKAGE_JSON"
+          fi
+          # The wrapper is read from the base checkout like the script; when the
+          # base has no copy yet, the inline fallback applies the same policy.
+          if [ -f scripts/proof-check-run.sh ]; then
+            exec bash scripts/proof-check-run.sh node scripts/proof-check.mjs --changed-files "$changed"
+          fi
+          node scripts/proof-check.mjs --changed-files "$changed"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning title=Proof check::proof-check exited $rc (report mode, not failing the job)"
+            printf '### Proof check: ERROR\n\nproof-check exited %s.\n' "$rc" >> "$GITHUB_STEP_SUMMARY"
+            [ "$PROOF_CHECK_MODE" = enforce ] && exit "$rc"
+          fi
+          exit 0
+
+      - name: Upload proof report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-check-report
+          path: ${{ runner.temp }}/proof-check.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,27 @@
+{
+  "_provenance": {
+    "reconstructed": true,
+    "source": "Replayed from saved T1 evidence: bodyExcerpt is the saved Xometry quote summary page text for a harness-created 1093-05589-02 quote (T1 shots/xometry-explore-r6-q11.txt), quote id replaced with a placeholder; error shape follows the saved_requirement_mismatch throw in xometry.ts; violations from ovd774-evidence/results.jsonl. 'as machined' produces no finish terms, so requestedFinishTerms is empty.",
+    "observedViolations": "finite_terminal_state_missing, purchasing_action_observed:bodyExcerpt.value",
+    "scrubbed": "No emails, account names, tokens, cookies or session URLs; real quote id replaced with Q00-TEST-0001."
+  },
+  "message": "Xometry saved quote did not confirm: finish.",
+  "code": "unexpected_ui_state",
+  "payload": {
+    "vendor": "xometry",
+    "reason": "saved_requirement_mismatch",
+    "requirementMismatches": [
+      "finish"
+    ],
+    "requestedQuantity": 10,
+    "requestedMaterialTerms": [
+      "6061-T6",
+      "6061"
+    ],
+    "requestedFinishTerms": [],
+    "requestedToleranceInch": 0.005,
+    "drawingName": "1093-05589-02.pdf",
+    "url": "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
+    "bodyExcerpt": "Dashboard / Quotes / Q00-TEST-0001\nQ00-TEST-0001\nITAR/EAR/CUI Controlled Handling\nAdd Certifications\nDownload\nShare\n1 Part Uploaded\nRecent Activity Log\nCollapse All\n1\n1093-05589-02.STEP\nv0\nRevise CAD\nUpload Drawings\nAttach Files\nRemove Part\nRepeat Part\nQuantity\n Edit Configuration\nProcess: CNC Machining\nMaterial: Aluminum 6061-T6x (Best Available)\nMeasurement: 46.99\u202fmm\u00a0\u00d7 33.39\u202fmm\u00a0\u00d7 33.39\u202fmm, 12161.69\u202fmm\u00b3\u00a0\uff5c 1.850\u202fin\u00a0\u00d7 1.314\u202fin\u00a0\u00d7 1.314\u202fin, 0.742\u202fin\u00b3\nPreferred Subprocess: No Preference\nFinish: Black Anodize\nThreads and Tapped Holes: 0\nInserts: 0\nPrecision Tolerance: \u00b1.005\u2033 (\u00b10.13mm)\nPrecision Surface Roughness: Smallest Roughness: 125uin/3.2um Ra\nInspection: Standard Inspection\nCertificates and Supplier Qualifications: Finishing Certification\nPrice and Lead Time\n\u00a0Least Expensive\nArrives by Nov 6\n$41.41 ea.\n$414.15\n$539.62 (Save $125.47)\n\u00a0Standard\nArrives by Oct 30\n$128.25 ea.\n$1,282.46\n$1,750.44 (Save $467.98)\n\u00a0Fastest\nArrives by Oct 26\n$234.39 ea.\n$2,343.87\n$3,248.33 (Save $904.46)\nDrag and Drop orChoose File\nUpload at least 1 CAD file to get started.\nAccepted file types: STEP \u00b7 STP \u00b7 SLDPRT \u00b7 STL \u00b7 DXF \u00b7 IPT \u00b7 X_T \u00b7 X_B \u00b7 3DXML \u00b7 CATPART \u00b7 PRT \u00b7 SAT \u00b7 3MF \u00b7 JT\nRecent CAD Files\n Browse\n\u00a0\u00a0Xometry's Instant Quoting Engine is covered by U.S. Pat. Nos. 11,086,292, 11,347,201, 11,693,388, 11,698,623, 12,099,341, and 12,189,361. Other patents pending.\nOrder Today to arrive by Nov 6.\nAll CNC, Sheet, Tube, and 3D printing orders are eligible for free shipping.\nContinue to CheckoutForward to Purchaser"
+  }
+}

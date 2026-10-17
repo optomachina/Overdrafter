@@ -1,0 +1,253 @@
+-- OVD-707 (group a): providers as data, access guards.
+--
+-- Targets the drafts docs/migration-drafts/ovd-707-a.sql and
+-- docs/migration-drafts/ovd-707-b-seed.sql.
+-- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
+-- file carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the drafts are promoted and this file
+-- is renamed to supabase/tests/ovd707_a_guards.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers, for all 12 admin RPCs and the service read:
+--   * pg_proc: SECURITY DEFINER and search_path = ''
+--   * ACL: admin RPCs EXECUTE for authenticated only, the service read for
+--     service_role only, nothing for PUBLIC or anon; private helpers for no
+--     API role
+--   * tables: no privilege for any API role, RLS enabled and forced
+--   * anon is refused every RPC (permission denied)
+--   * a verified non-admin at AAL2 is refused by the admin check
+--   * an unverified platform admin at AAL2 is refused by require_verified_auth()
+--   * a verified platform admin at AAL1 is refused by the AAL2 check
+--   * service_role cannot call the admin RPCs; an admin cannot call the service read
+--   * refused calls leave no audit row and change no definition
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(75);
+
+create function pg_temp.ovd707a_as(p_user_id uuid, p_role text, p_aal text default null)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_claims jsonb := pg_catalog.jsonb_build_object('sub', p_user_id, 'role', p_role);
+begin
+  if p_aal is not null then
+    v_claims := v_claims || pg_catalog.jsonb_build_object('aal', p_aal);
+  end if;
+  perform pg_catalog.set_config('request.jwt.claims', v_claims::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(p_user_id::text, ''), true);
+end;
+$$;
+
+grant execute on function pg_temp.ovd707a_as(uuid, text, text) to anon, authenticated, service_role;
+
+-- admin: verified platform admin. member: verified, not an admin.
+-- unverified: platform admin whose email is not confirmed.
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-000000707a01', 'authenticated', 'authenticated',
+    'ovd707a-admin@example.test', pg_catalog.timezone('utc', pg_catalog.now())),
+  ('00000000-0000-4000-8000-000000707a02', 'authenticated', 'authenticated',
+    'ovd707a-member@example.test', pg_catalog.timezone('utc', pg_catalog.now())),
+  ('00000000-0000-4000-8000-000000707a03', 'authenticated', 'authenticated',
+    'ovd707a-unverified@example.test', null);
+
+insert into private.platform_admin_emails (email) values
+  ('ovd707a-admin@example.test'),
+  ('ovd707a-unverified@example.test')
+on conflict do nothing;
+
+-- A draft to aim the id-taking RPCs at.
+insert into private.provider_definitions (id, slug, display_name, kind, admission)
+values ('00000000-0000-4000-8000-000000707ad1', 'ovdguarda', 'OVD-707 guard target', 'manual',
+  '{"key": "ovdguarda", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}');
+
+create temporary table ovd707a_rpcs (
+  name text primary key,
+  sig text not null,
+  call text not null,
+  is_service boolean not null default false
+) on commit drop;
+
+insert into ovd707a_rpcs (name, sig, call, is_service) values
+  ('create', 'public.api_admin_create_provider_definition(text, jsonb, text)',
+    $c$select public.api_admin_create_provider_definition('ovdguardb', '{"displayName": "x", "kind": "manual", "admission": {"key": "ovdguardb", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}', 'OVD-707 guard test reason')$c$, false),
+  ('update_draft', 'public.api_admin_update_provider_definition_draft(uuid, jsonb, text)',
+    $c$select public.api_admin_update_provider_definition_draft('00000000-0000-4000-8000-000000707ad1', '{"displayName": "y", "kind": "manual", "admission": {"key": "ovdguarda", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}', 'OVD-707 guard test reason')$c$, false),
+  ('submit', 'public.api_admin_submit_provider_definition(uuid, text)',
+    $c$select public.api_admin_submit_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('approve', 'public.api_admin_approve_provider_definition(uuid, text, boolean)',
+    $c$select public.api_admin_approve_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason', true)$c$, false),
+  ('reject', 'public.api_admin_reject_provider_definition(uuid, text)',
+    $c$select public.api_admin_reject_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('record_dry_run', 'public.api_admin_record_provider_dry_run(uuid, boolean, text, text, boolean)',
+    $c$select public.api_admin_record_provider_dry_run('00000000-0000-4000-8000-000000707ad1', true, 'guard-run', 'OVD-707 guard test reason')$c$, false),
+  ('activate', 'public.api_admin_activate_provider_definition(uuid, text, boolean)',
+    $c$select public.api_admin_activate_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('suspend', 'public.api_admin_suspend_provider_definition(uuid, text)',
+    $c$select public.api_admin_suspend_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('reopen', 'public.api_admin_reopen_provider_definition(uuid, text)',
+    $c$select public.api_admin_reopen_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('retire', 'public.api_admin_retire_provider_definition(uuid, text)',
+    $c$select public.api_admin_retire_provider_definition('00000000-0000-4000-8000-000000707ad1', 'OVD-707 guard test reason')$c$, false),
+  ('list', 'public.api_admin_list_provider_definitions()',
+    $c$select public.api_admin_list_provider_definitions()$c$, false),
+  ('history', 'public.api_admin_list_provider_definition_history(uuid)',
+    $c$select public.api_admin_list_provider_definition_history('00000000-0000-4000-8000-000000707ad1')$c$, false),
+  ('service_list', 'public.api_service_list_active_provider_definitions()',
+    $c$select public.api_service_list_active_provider_definitions()$c$, true);
+
+grant select on ovd707a_rpcs to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- pg_proc posture and grants (10)
+-- ---------------------------------------------------------------------
+select is((select pg_catalog.count(*)::int from ovd707a_rpcs), 13, 'the guard table lists all 13 RPCs');
+
+select is_empty(
+  $$ select r.sig from ovd707a_rpcs r join pg_catalog.pg_proc p on p.oid = r.sig::regprocedure
+     where not (p.prosecdef and p.proconfig = array['search_path=""']) $$,
+  'every RPC is SECURITY DEFINER with search_path = ''''');
+
+select is_empty(
+  $$ select r.sig from ovd707a_rpcs r join pg_catalog.pg_proc p on p.oid = r.sig::regprocedure,
+       pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
+     where a.grantee = 0 and a.privilege_type = 'EXECUTE' $$,
+  'PUBLIC holds EXECUTE on none of the RPCs');
+
+select is_empty(
+  $$ select sig from ovd707a_rpcs where pg_catalog.has_function_privilege('anon', sig, 'EXECUTE') $$,
+  'anon can execute none of the RPCs');
+
+-- The exact ACL: owner plus one API role.
+select is_empty(
+  $$ select r.sig from ovd707a_rpcs r join pg_catalog.pg_proc p on p.oid = r.sig::regprocedure
+     where (select pg_catalog.array_agg(a.grantee::regrole::text order by a.grantee::regrole::text)
+            from pg_catalog.aclexplode(p.proacl) a where a.grantee <> p.proowner)
+       is distinct from array[case when r.is_service then 'service_role' else 'authenticated' end] $$,
+  'pg_proc ACL: admin RPCs grant only authenticated, the service read only service_role');
+
+select is_empty(
+  $$ select sig from ovd707a_rpcs
+     where pg_catalog.has_function_privilege('authenticated', sig, 'EXECUTE') = is_service
+        or pg_catalog.has_function_privilege('service_role', sig, 'EXECUTE') <> is_service $$,
+  'authenticated executes exactly the admin RPCs and service_role exactly the service read');
+
+select is_empty(
+  $$ select p.oid::regprocedure::text
+     from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace,
+       pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) r(role)
+     where n.nspname = 'private'
+       and p.proname in ('provider_hosts_are_valid', 'provider_credential_ref_is_name',
+         'provider_admission_is_valid', 'provider_audit_log_immutable', 'provider_definition_revisions_guard',
+         'provider_definitions_no_delete', 'require_provider_definition_admin', 'provider_definition_reason',
+         'provider_definition_payload', 'provider_definition_state', 'provider_definition_check_input',
+         'provider_request_id', 'write_provider_audit', 'lock_provider_definition', 'require_provider_status',
+         'require_provider_four_eyes', 'provider_approved_contributors', 'move_provider_definition')
+       and pg_catalog.has_function_privilege(r.role, p.oid, 'EXECUTE') $$,
+  'no API role can execute an OVD-707 private helper');
+
+select is_empty(
+  $$ select t.rel || ':' || r.role || ':' || pr.priv
+     from pg_catalog.unnest(array['private.provider_definitions', 'private.provider_definition_revisions',
+            'private.provider_audit_log', 'private.provider_definition_override_emails']) t(rel),
+       pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) r(role),
+       pg_catalog.unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr(priv)
+     where pg_catalog.has_table_privilege(r.role, t.rel, pr.priv) $$,
+  'no API role holds any privilege on the OVD-707 tables');
+
+select is_empty(
+  $$ select r.role
+     from pg_catalog.unnest(array['anon', 'authenticated', 'service_role']) r(role)
+     where pg_catalog.has_sequence_privilege(r.role,
+       pg_catalog.pg_get_serial_sequence('private.provider_audit_log', 'id'), 'USAGE, SELECT, UPDATE') $$,
+  'no API role holds any privilege on the audit log identity sequence');
+
+select is_empty(
+  $$ select c.oid::regclass::text from pg_catalog.pg_class c
+     where c.oid in ('private.provider_definitions'::regclass, 'private.provider_definition_revisions'::regclass,
+                     'private.provider_audit_log'::regclass, 'private.provider_definition_override_emails'::regclass)
+       and not (c.relrowsecurity and c.relforcerowsecurity) $$,
+  'RLS is enabled and forced on every OVD-707 table');
+
+-- ---------------------------------------------------------------------
+-- anon: permission denied on all 13 (13)
+-- ---------------------------------------------------------------------
+set local role anon;
+select pg_temp.ovd707a_as(null, 'anon');
+select throws_ok(r.call, '42501', null, 'anon is refused ' || r.name) from ovd707a_rpcs r order by r.name;
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Verified non-admin at AAL2: refused by the admin check (12)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707a_as('00000000-0000-4000-8000-000000707a02', 'authenticated', 'aal2');
+select throws_ok(r.call, '42501', 'platform_admin_required', 'a non-admin is refused ' || r.name)
+from ovd707a_rpcs r where not r.is_service order by r.name;
+
+-- ---------------------------------------------------------------------
+-- Unverified platform admin at AAL2: refused by require_verified_auth() (12)
+-- ---------------------------------------------------------------------
+select pg_temp.ovd707a_as('00000000-0000-4000-8000-000000707a03', 'authenticated', 'aal2');
+select throws_ok(r.call, 'P0001',
+  'Verify your email or sign in with Google, Microsoft, or Apple before performing this action.',
+  'an unverified admin is refused ' || r.name)
+from ovd707a_rpcs r where not r.is_service order by r.name;
+
+-- ---------------------------------------------------------------------
+-- Verified platform admin at AAL1: refused by the AAL2 check (12)
+-- ---------------------------------------------------------------------
+select pg_temp.ovd707a_as('00000000-0000-4000-8000-000000707a01', 'authenticated', 'aal1');
+select throws_ok(r.call, '42501',
+  'Multi-factor authentication is required for provider definition administration.',
+  'an AAL1 admin is refused ' || r.name)
+from ovd707a_rpcs r where not r.is_service order by r.name;
+
+-- An AAL2 admin still cannot use the worker read (1).
+select pg_temp.ovd707a_as('00000000-0000-4000-8000-000000707a01', 'authenticated', 'aal2');
+select throws_ok(r.call, '42501', null, 'an AAL2 admin is refused the service read')
+from ovd707a_rpcs r where r.is_service;
+reset role;
+
+-- ---------------------------------------------------------------------
+-- service_role: refused every admin RPC (12)
+-- ---------------------------------------------------------------------
+set local role service_role;
+select pg_temp.ovd707a_as(null, 'service_role');
+select throws_ok(r.call, '42501', null, 'service_role is refused ' || r.name)
+from ovd707a_rpcs r where not r.is_service order by r.name;
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Refusals changed nothing (2)
+-- ---------------------------------------------------------------------
+select is(
+  (select pg_catalog.count(*)::int from private.provider_audit_log
+   where actor in ('00000000-0000-4000-8000-000000707a01', '00000000-0000-4000-8000-000000707a02',
+                   '00000000-0000-4000-8000-000000707a03')
+      or provider_id = '00000000-0000-4000-8000-000000707ad1'),
+  0, 'refused calls wrote no audit row');
+select ok(
+  (select d.status = 'draft' and d.display_name = 'OVD-707 guard target' and d.version = 0
+   from private.provider_definitions d where d.id = '00000000-0000-4000-8000-000000707ad1')
+  and not exists (select 1 from private.provider_definitions where slug = 'ovdguardb'),
+  'refused calls left the target draft unchanged and created nothing');
+
+-- ---------------------------------------------------------------------
+-- An AAL2 platform admin is allowed (1)
+-- ---------------------------------------------------------------------
+set local role authenticated;
+select pg_temp.ovd707a_as('00000000-0000-4000-8000-000000707a01', 'authenticated', 'aal2');
+select is(
+  public.api_admin_update_provider_definition_draft('00000000-0000-4000-8000-000000707ad1',
+    '{"displayName": "OVD-707 guard target, edited", "kind": "manual", "admission": {"key": "ovdguarda", "liveAdapter": false, "sessionSecrets": [], "egress": "none"}}',
+    'OVD-707 guard test: AAL2 admin edits') ->> 'displayName',
+  'OVD-707 guard target, edited',
+  'a verified AAL2 platform admin is allowed');
+reset role;
+
+select * from finish();
+rollback;

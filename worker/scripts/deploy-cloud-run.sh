@@ -13,6 +13,9 @@ SERVICE_NAME="${SERVICE_NAME:-overdrafter-cad-worker}"
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${CLOUD_RUN_REGION:-us-west1}"
 SUPABASE_URL="${SUPABASE_URL:-}"
+OVERDRAFTER_DEPLOY_ENV="${OVERDRAFTER_DEPLOY_ENV:-}"
+# Must match STAGING_SUPABASE_REF in server/operations/deploy-diagnostics.ts.
+STAGING_SUPABASE_REF="ldmambwtksfvqdufhaam"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
 XOMETRY_PROFILE_SNAPSHOT_BUCKET="${XOMETRY_PROFILE_SNAPSHOT_BUCKET:-}"
@@ -111,6 +114,50 @@ fi
 
 if [[ -z "$SUPABASE_URL" ]]; then
   echo "SUPABASE_URL is required."
+  exit 1
+fi
+
+# OVD-838: a staging worker targets only the staging Supabase project, runs
+# non-live, and binds only `-staging` names, so no production credential or
+# supplier session reaches it. See docs/staging-env-wiring.md.
+require_staging_name() {
+  # $1 = variable name, $2 = value; empty is allowed only when $3 is "optional".
+  if [[ -z "$2" && "${3:-}" == "optional" ]]; then
+    return 0
+  fi
+  if [[ "$2" != ?*-staging ]]; then
+    echo "A staging worker requires $1 to end in -staging."
+    exit 1
+  fi
+}
+if [[ "$OVERDRAFTER_DEPLOY_ENV" == "staging" ]]; then
+  if [[ "$SUPABASE_URL" != "https://${STAGING_SUPABASE_REF}.supabase.co" ]]; then
+    echo "A staging worker requires the staging Supabase URL."
+    exit 1
+  fi
+  if [[ "$WORKER_MODE" == "live" ]]; then
+    echo "A staging worker must not run live supplier dispatch; set WORKER_MODE=simulate."
+    exit 1
+  fi
+  require_staging_name SERVICE_NAME "$SERVICE_NAME"
+  require_staging_name SUPABASE_SERVICE_ROLE_SECRET_NAME "$SUPABASE_SERVICE_ROLE_SECRET_NAME"
+  if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
+    require_staging_name XOMETRY_PROFILE_SNAPSHOT_BUCKET "$XOMETRY_PROFILE_SNAPSHOT_BUCKET"
+  else
+    # Bound as XOMETRY_STORAGE_STATE_JSON even in simulate mode; the default is the production secret.
+    require_staging_name XOMETRY_STORAGE_STATE_SECRET_NAME "$XOMETRY_STORAGE_STATE_SECRET_NAME"
+  fi
+  require_staging_name FICTIV_STORAGE_STATE_SECRET_NAME "$FICTIV_STORAGE_STATE_SECRET_NAME" optional
+  require_staging_name QUICKPARTS_STORAGE_STATE_SECRET_NAME "$QUICKPARTS_STORAGE_STATE_SECRET_NAME" optional
+  require_staging_name WEERG_STORAGE_STATE_SECRET_NAME "$WEERG_STORAGE_STATE_SECRET_NAME" optional
+  require_staging_name OPENAI_API_KEY_SECRET_NAME "$OPENAI_API_KEY_SECRET_NAME" optional
+  require_staging_name ANTHROPIC_API_KEY_SECRET_NAME "$ANTHROPIC_API_KEY_SECRET_NAME" optional
+  require_staging_name WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME "$WORKER_PROVIDER_SESSION_NAMESPACE_KEY_SECRET_NAME" optional
+elif [[ -n "$OVERDRAFTER_DEPLOY_ENV" ]]; then
+  echo "OVERDRAFTER_DEPLOY_ENV must be empty or staging."
+  exit 1
+elif [[ "$SUPABASE_URL" == *"${STAGING_SUPABASE_REF}"* ]]; then
+  echo "The staging Supabase URL requires OVERDRAFTER_DEPLOY_ENV=staging."
   exit 1
 fi
 

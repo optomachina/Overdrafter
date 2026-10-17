@@ -1,0 +1,2 @@
+src/lib/quote-format.ts
+scripts/proof-check.mjs

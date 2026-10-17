@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { checkProof } from "./proof-check.mjs";
 import { renderPrBody } from "./render-pr-body.mjs";
 import { PROVIDER_GO_LIVE_REQUIRED_ITEMS, validatePrBody } from "./validate-pr-body.mjs";
 
@@ -62,6 +63,29 @@ describe("renderPrBody", () => {
     });
     expect(rendered).toContain("## Summary");
     expect(rendered).toContain("## Documentation");
+  });
+
+  it("renders an optional Proof section that the proof check accepts", () => {
+    const changedFiles = ["scripts/render-pr-body.mjs", "scripts/render-pr-body.test.mjs"];
+    expect(renderPrBody(buildInput())).not.toContain("## Proof");
+    expect(checkProof(renderPrBody(buildInput()), changedFiles).status).toBe("fail");
+
+    const rendered = renderPrBody({
+      ...buildInput(),
+      proof: [
+        "- Test: scripts/render-pr-body.test.mjs",
+        "- Command: npx vitest run scripts/render-pr-body.test.mjs",
+        "  ```text",
+        "  Test Files  1 passed (1)",
+        "  ```",
+      ],
+    });
+
+    expect(validatePrBody(rendered).ok).toBe(true);
+    expect(checkProof(rendered, changedFiles)).toMatchObject({
+      status: "pass",
+      reasons: ["Test: `scripts/render-pr-body.test.mjs`", "Command: `npx vitest run scripts/render-pr-body.test.mjs`"],
+    });
   });
 
   it("renders no-impact migration and no-doc-update states", () => {

@@ -1,0 +1,24 @@
+-- OVD-707 (group a): providers as data, access guards.
+--
+-- Targets the drafts docs/migration-drafts/ovd-707-a.sql and
+-- docs/migration-drafts/ovd-707-b-seed.sql.
+-- PENDING: the drafts are NOT applied (NEEDS BLAINE MIGRATION WINDOW). This
+-- file carries a .pending suffix so the policy-test runner stages it but never
+-- executes it. In the approved window, the drafts are promoted and this file
+-- is renamed to supabase/tests/ovd707_a_guards.sql in the same change.
+-- Pre-apply observation: every assertion fails with "does not exist".
+--
+-- Covers, for all 12 admin RPCs and the service read:
+--   * pg_proc: SECURITY DEFINER and search_path = ''
+--   * ACL: admin RPCs EXECUTE for authenticated only, the service read for
+--     service_role only, nothing for PUBLIC or anon; private helpers for no
+--     API role
+--   * tables: no privilege for any API role, RLS enabled and forced
+--   * anon is refused every RPC (permission denied)
+--   * a verified non-admin at AAL2 is refused by the admin check
+--   * an unverified platform admin at AAL2 is refused by require_verified_auth()
+--   * a verified platform admin at AAL1 is refused by the AAL2 check
+--   * service_role cannot call the admin RPCs; an admin cannot call the service read
+--   * refused calls leave no audit row and change no definition
+-- [header-only snapshot of supabase/tests/pending/ovd707_a_guards.sql.pending at d2b7981b (#792); body omitted]
+select 1;

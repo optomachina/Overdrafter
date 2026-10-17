@@ -345,3 +345,41 @@ export function decideProviderUploadCapability(input: {
 }
 
 export const resolveProviderUploadCapability = decideProviderUploadCapability;
+
+// Format drift still yields allowedExtensions = admitted policy ∩ live list.
+const UPLOAD_PERMITTING_CLASSIFICATIONS: ReadonlySet<string> = new Set<ProviderUploadCapabilityClassification>([
+  "matches_policy",
+  "reviewed_missing_accept_xometry",
+  "format_added",
+  "format_removed",
+]);
+
+/** Outcome of gating staged files on a capability decision. */
+export type ProviderUploadSelectionVerdict =
+  | { allowed: true; drift: boolean }
+  | { allowed: false; reason: string };
+
+/**
+ * OVD-863: shared selection gate. Format drift is not a total block: staged
+ * files pass when every extension (case-insensitive, leading dot stripped) is
+ * in the decision's allowedExtensions. Every other classification, an empty
+ * staged list, or an unsafe extension denies.
+ */
+export function uploadCapabilityAllowsStagedExtensions(
+  decision: ProviderUploadCapabilityDecision | undefined,
+  stagedExtensions: readonly string[],
+): ProviderUploadSelectionVerdict {
+  const classification = decision?.classification;
+  if (typeof classification !== "string") return { allowed: false, reason: "decision_malformed" };
+  if (!UPLOAD_PERMITTING_CLASSIFICATIONS.has(classification)) return { allowed: false, reason: classification };
+  if (stagedExtensions.length === 0) return { allowed: false, reason: "extension_not_allowed" };
+  let staged: string[];
+  try {
+    staged = normalizeProviderUploadExtensions([...stagedExtensions]);
+  } catch {
+    return { allowed: false, reason: "extension_not_allowed" };
+  }
+  const allowed = new Set(Array.isArray(decision?.allowedExtensions) ? decision.allowedExtensions : []);
+  if (!staged.every((extension) => allowed.has(extension))) return { allowed: false, reason: "extension_not_allowed" };
+  return { allowed: true, drift: classification === "format_added" || classification === "format_removed" };
+}
