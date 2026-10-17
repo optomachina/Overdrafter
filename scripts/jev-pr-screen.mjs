@@ -14,13 +14,13 @@
  * loaded (a base ref that does not resolve, "" included, or a missing or
  * invalid list) every PR screens "risky" (fail closed).
  *
- * files must be a non-empty list of raw repository paths, as strings or as
- * gh's {path} objects (`gh pr view --json files`). A missing, empty or
- * malformed list screens "risky" and the record names the problem
- * (filesProblem), because an empty list is what a failed fetch looks like.
+ * Supplied files are ignored: PR files are paginated and verified against the
+ * current head/base and changed_files count. Pre-PR paths come from a local
+ * diff against an explicit resolved base; no PR cache is used. Acquisition
+ * failures screen risky with files-incomplete before Jev or cache access.
  *
  * Dedupe: uses GitHub commit status markers (context "jev-screen") keyed by
- * (full 40-hex SHA, screener, question-set hash, model). A marker is used only
+ * (full 40-hex SHA, screener, question-set hash, model, verified-path hash). A marker is used only
  * when pr is a real PR number and sha is that PR's current head SHA on GitHub.
  * Reading is fail-safe: re-screens on anything missing, mismatched or
  * untrusted. Only an accepted (confident) Jev answer is written, and writing
@@ -38,7 +38,9 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
-import { GITHUB_MARKER_IO, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
+import { GITHUB_MARKER_IO, hashVerifiedPaths, hashQuestions, isValidSha, SCREENER_ID } from "./lib/jev-screen-marker.mjs";
+
+import { FILES_INCOMPLETE, verifiedPrFiles, localDiffFiles } from "./lib/jev-screen-files.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WORK_DIR = `${homedir()}/work/claude-jobs`;
@@ -152,6 +154,7 @@ function entryPath(entry) {
  * tier-logic tests; no list value turns it off.
  */
 export function deterministicTier(pr, sensitivePaths, { skipSensitivePaths = false } = {}) {
+  if (pr.filesProblem === FILES_INCOMPLETE) return { tier: "risky", sensitiveClasses: null, filesProblem: FILES_INCOMPLETE };
   const declared = TIERS.includes(pr.deterministic) ? pr.deterministic : "risky";
   if (skipSensitivePaths === true) return { tier: declared, sensitiveClasses: null, filesProblem: null };
   const list = usableSensitivePaths(sensitivePaths);
@@ -303,9 +306,9 @@ function resultFromMarker(hit) {
   return { ok: true, model: hit.model, answers, latencyMs: null };
 }
 
-async function readHit(sha, io) {
+async function readHit(sha, io, filesHash) {
   try {
-    const hit = await io.read(sha, JEV_MODEL, hashQuestions(SCREEN_QUESTIONS));
+    const hit = await io.read(sha, JEV_MODEL, hashQuestions(SCREEN_QUESTIONS), filesHash);
     return hit?.found === true ? hit : null;
   } catch {
     return null;
@@ -324,6 +327,7 @@ async function recordMarker(pr, sha, result, { io, floor, sensitivePaths, warn }
     pIncident: isProbability(incident) ? incident : null,
     model: result.model,
     questionHash: hashQuestions(SCREEN_QUESTIONS),
+    filesHash: hashVerifiedPaths(pr.files),
   };
   let written;
   try {
@@ -334,29 +338,42 @@ async function recordMarker(pr, sha, result, { io, floor, sensitivePaths, warn }
   if (written?.success !== true) warn(`jev-pr-screen: marker write for #${pr.pr} failed (${sanitizeToken(written?.reason) ?? "unknown"}); the screen result stands`);
 }
 
+function incomplete(pr) {
+  return { pr: { ...pr, files: null, filesProblem: FILES_INCOMPLETE }, result: { ok: false, reason: FILES_INCOMPLETE }, markerHit: false, markerTier: null };
+}
+
 /** Screen one PR: a valid marker hit skips Jev; otherwise ask Jev and write a marker. */
 async function screenOne(pr, context) {
-  const sha = await markerSha(pr, context.io, context.warn);
-  const hit = sha ? await readHit(sha, context.io) : null;
-  if (hit) return { result: resultFromMarker(hit), markerHit: true, markerTier: hit.tier };
-  const result = await context.ask(screenState(pr), SCREEN_QUESTIONS, { timeoutMs: 20_000 });
-  if (sha && result?.ok) await recordMarker(pr, sha, result, context);
-  return { result, markerHit: false, markerTier: null };
+  let verified;
+  const hasPr = Number.isInteger(pr.pr) && pr.pr > 0;
+  try {
+    const files = hasPr ? await context.files(pr.pr, pr.sha) : localDiffFiles(context.root, context.baseRef);
+    verified = { ...pr, files };
+  } catch {
+    return incomplete(pr);
+  }
+  const sha = hasPr ? await markerSha(verified, context.io, context.warn) : null;
+  if (hasPr && !sha) return incomplete(verified);
+  const hit = sha ? await readHit(sha, context.io, hashVerifiedPaths(verified.files)) : null;
+  const result = hit ? resultFromMarker(hit) : await context.ask(screenState(verified), SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+  if (sha && await markerSha(verified, context.io, context.warn) !== sha) return incomplete(verified);
+  if (!hit && sha && result?.ok) await recordMarker(verified, sha, result, context);
+  return { pr: verified, result, markerHit: !!hit, markerTier: hit?.tier ?? null };
 }
 
 /**
  * Screen prs and append one record per PR to log. marker is the marker I/O
- * ({ read, write, headSha }); it defaults to GitHub and tests pass a stub.
+ * ({ read, write, headSha }); files is the authoritative acquisition seam; it defaults to GitHub and tests pass a stub.
  */
 export async function screen(
   prs,
-  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, caller = null, marker = GITHUB_MARKER_IO, warn = (message) => console.error(message) } = {},
+  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, caller = null, marker = GITHUB_MARKER_IO, files = verifiedPrFiles, warn = (message) => console.error(message) } = {},
 ) {
   // Always screened against a list: only null or undefined loads it, and any
   // other value that is not a valid list (false, 0, "", NaN ...) screens every
   // PR risky. screen() has no opt-out.
   const sensitivePaths = given === null || given === undefined ? loadScreenSensitivePaths({ root, baseRef }) : usableSensitivePaths(given);
-  const context = { ask, io: marker, floor: floorOf(minConfidence), sensitivePaths, warn };
+  const context = { files, root, baseRef, ask, io: marker, floor: floorOf(minConfidence), sensitivePaths, warn };
 
   // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
   const outcomes = await mapBounded(prs, MAX_CONCURRENT_CALLS, (pr) => screenOne(pr, context));
@@ -370,7 +387,7 @@ export async function screen(
 
   // Append in input order so the log reads like the batch.
   const records = prs.map((pr, index) =>
-    decisionRecord(pr, outcomes[index].result, new Date(), {
+    decisionRecord(outcomes[index].pr, outcomes[index].result, new Date(), {
       minConfidence,
       sensitivePaths,
       markerHit: outcomes[index].markerHit,
@@ -446,7 +463,7 @@ if (invokedAsScript()) {
   } else if (!baseRef) {
     console.error(`jev-pr-screen: no --base-ref, so the working tree's ${SENSITIVE_PATHS_FILE} is used; pass the PR base (for example --base-ref origin/main) so a PR cannot narrow its own list`);
   }
-  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, sensitivePaths, caller });
+  const records = await screen(JSON.parse(readFileSync(input, "utf8")), { log, baseRef, sensitivePaths, caller });
   for (const r of records) {
     const failure = r.ok ? "" : ` (jev failed: ${r.reason})`;
     const files = r.filesProblem ? ` (${r.filesProblem}, screened risky)` : "";

@@ -18,10 +18,11 @@ probability, the final tier, `latency_ms` (null on cache hits), `tokens`,
   kept for older readers. `replay()` accepts either name.
 
 Dedupe: uses GitHub commit status markers (context `jev-screen`, state
-`success`) keyed by (full 40-hex SHA, screener, question-set hash, model). The
+`success`) keyed by (full 40-hex SHA, screener, question-set hash, model, verified-path hash). The
 question-set hash covers every nested field of the questions. A marker is read
 or written only when the input's `pr` is a real PR number and its `sha` is that
-PR's current head SHA on GitHub; anything else screens without a marker.
+PR's current head SHA on GitHub, with a verified complete file list. A stale or
+unknown PR head fails risky with `files-incomplete`.
 Reading is fail-safe: re-screens on anything missing, mismatched or untrusted.
 Only an accepted (confident) Jev answer is written, with its confidence and
 incident probability, and writing fails open: a write failure is warned about
@@ -51,10 +52,25 @@ Rules the log encodes, and the review each tier gets:
 Screen a batch against the PR base's sensitive-path list, so a PR that narrows
 `docs/sensitive-paths.json` cannot lower its own tier (without `--base-ref` the
 working tree's copy is used; if the list cannot be loaded, including a
-`--base-ref` that does not resolve, every PR screens `risky`). Each PR's
-`files` must be a non-empty list of paths, as strings or as the `{path}`
-objects `gh pr view --json files` returns; a missing, empty or malformed list
-screens `risky` and the record names it in `filesProblem`:
+`--base-ref` that does not resolve, every PR screens `risky`). Caller-supplied `files` are ignored. With a PR number, the screen fetches
+all REST file pages and checks their exact count against `changed_files`, with
+head/base snapshots before and after. A mismatch, malformed/duplicate page,
+failed read, head race, or GitHub's 3000-file cap (including exactly 3000)
+screens `risky` with `filesProblem: "files-incomplete"`, without cache or Jev.
+The head is checked again before accepting a cached result or writing a marker.
+
+Without a PR number, `--base-ref` is required: the screen resolves it to a commit
+SHA and obtains paths from `git diff --name-only -z <base>...HEAD`. Failed base
+resolution or an empty/failed diff fails risky. Pre-PR screening never reads or
+writes the PR status cache. Legacy `screen.py`/`packet.py` callers remain advisory;
+this change does not activate or migrate them.
+
+Marker v2 adds `f`, the full SHA-256 of the JSON-encoded, code-unit-sorted verified
+paths, encoded as 43 base64url characters. v1, malformed and hash-mismatched
+markers miss; no identity field is truncated to fit GitHub's 140-character limit.
+An oversized description skips the write with a warning. Existing trusted-author,
+strict parsing, status pagination/stability checks, confidence gates and tier
+floors remain in force.
 
 ```bash
 NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs --base-ref origin/main <input.json>
