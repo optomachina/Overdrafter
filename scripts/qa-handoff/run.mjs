@@ -40,6 +40,81 @@ import { sanitizeLog } from "./sanitize-log.mjs";
 
 const MODES = new Set(["report", "apply"]);
 
+// A backtick fence is only closed by a backtick fence at least as long as the
+// opener, so a fence strictly longer than the longest backtick run in the
+// content (minimum 3) cannot be closed by PR-derived text. The scan is a single
+// pass with no spread or intermediate array, so it holds for any content size
+// (spreading hundreds of thousands of runs into Math.max overflows the stack).
+export function codeFence(content) {
+  const text = String(content);
+  let longest = 0;
+  let run = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 96) {
+      run += 1;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+  }
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+export function stepSummary(mode, lines) {
+  const body = lines.join("\n");
+  const fence = codeFence(body);
+  return `### QA handoff (${mode} mode)\n\n${fence}\n${body}\n${fence}\n`;
+}
+
+const UNPRINTABLE_ERROR = "unprintable error";
+
+// Text for a log or warning line from whatever was thrown. The thrown value is
+// untrusted: a message getter can throw, a Proxy can throw on every access, a
+// Symbol or a null-prototype message cannot be stringified, and null has no
+// message at all. Reading it is therefore contained and falls back to a
+// constant, so describing a failure can never become a second failure.
+export function describeError(error, maxLen = 200) {
+  try {
+    const text = typeof error === "string" ? error : error?.message;
+    return typeof text === "string" ? sanitizeLog(text, maxLen) : UNPRINTABLE_ERROR;
+  } catch {
+    return UNPRINTABLE_ERROR;
+  }
+}
+
+// Constant apart from the validated mode, so building it cannot fail on
+// PR-derived content.
+function fallbackSummary(mode) {
+  return `### QA handoff (${mode} mode)\n\nThe detailed job summary could not be rendered; see this step's log for the full output.\n`;
+}
+
+// The summary is a convenience view of the log, so it must never change the
+// job's result: a failure while building it falls back to a short constant
+// summary, and a failure while writing it is reported on stderr. Never throws,
+// even when the thrown value is hostile or the warning sink itself throws.
+// Returns "full", "fallback" or "failed" for the summary that reached the file.
+export function writeStepSummary({ path, mode, lines, build = stepSummary, append = appendFileSync, warn = console.error }) {
+  const attempts = [
+    ["full", () => build(mode, lines)],
+    ["fallback", () => fallbackSummary(mode)],
+  ];
+  for (const [kind, render] of attempts) {
+    try {
+      append(path, render());
+      return kind;
+    } catch (error) {
+      // Reporting the failure must not become one: describeError never throws,
+      // and a broken warning sink has nowhere left to report to.
+      try {
+        warn(`qa-handoff: could not write ${kind} step summary: ${describeError(error, 500)}`);
+      } catch {
+        // Best effort: the next attempt, or the return value, still reports it.
+      }
+    }
+  }
+  return "failed";
+}
+
 export function parseArgs(argv) {
   const args = { repo: undefined, mode: "report", pr: undefined, sha: undefined };
   for (let i = 0; i < argv.length; i += 1) {
@@ -281,40 +356,64 @@ export async function run({ args, api, env = {}, log = console.log, lock }) {
   return results;
 }
 
-async function main() {
+// Dependencies are injectable so tests can drive the whole CLI path in
+// process: argv, env, the API client, the summary builder, and exit/out/err.
+export async function main({
+  argv = process.argv.slice(2),
+  env = process.env,
+  api: injectedApi,
+  buildSummary = stepSummary,
+  exit = (code) => process.exit(code),
+  out = console.log,
+  err = console.error,
+} = {}) {
   const lines = [];
   // Fields are sanitized where they are formatted; the sink strips any
-  // remaining control characters without truncating the composed line.
+  // remaining control characters without truncating the composed line. The
+  // line is recorded before it is printed, so a stdout writer that throws
+  // cannot lose it from the summary or fail the run.
   const log = (line) => {
     const safe = sanitizeLog(line, Number.POSITIVE_INFINITY);
     lines.push(safe);
-    console.log(safe);
+    try {
+      out(safe);
+    } catch {
+      // stdout is a view of the recorded lines, not a result.
+    }
+  };
+  // stderr only carries diagnostics, so a writer that throws must not change
+  // the exit status or skip the summary.
+  const warnStderr = (message) => {
+    try {
+      err(message);
+    } catch {
+      // Nothing is left to report to.
+    }
   };
   let args;
   try {
-    args = parseArgs(process.argv.slice(2));
+    args = parseArgs(argv);
   } catch (error) {
-    console.error(`qa-handoff: ${sanitizeLog(error.message)}`);
-    process.exit(2);
+    warnStderr(`qa-handoff: ${describeError(error)}`);
+    return exit(2);
   }
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (!token) {
-    console.error("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
-    process.exit(2);
+    warnStderr("qa-handoff: GITHUB_TOKEN or GH_TOKEN is required");
+    return exit(2);
   }
-  const api = createGithubApi({ token, repo: args.repo });
+  const api = injectedApi ?? createGithubApi({ token, repo: args.repo });
   let status = 0;
   try {
-    await run({ args, api, env: process.env, log });
+    await run({ args, api, env, log });
   } catch (error) {
-    log(`ERROR: ${sanitizeLog(error.message, 500)}`);
+    log(`ERROR: ${describeError(error, 500)}`);
     status = 1;
   }
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    const summary = `### QA handoff (${args.mode} mode)\n\n\`\`\`\n${lines.join("\n")}\n\`\`\`\n`;
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+  if (env.GITHUB_STEP_SUMMARY) {
+    writeStepSummary({ path: env.GITHUB_STEP_SUMMARY, mode: args.mode, lines, build: buildSummary, warn: err });
   }
-  process.exit(status);
+  return exit(status);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
