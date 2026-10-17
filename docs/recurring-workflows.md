@@ -206,13 +206,18 @@ and race past the stop guard.
    contiguous verified run and stops at the first PR with no verdict, an invalid
    verdict, or a verdict for an older SHA. A duplicate or missing PR number, or a
    `base` that is not a hex SHA, fails the plan. Save stdout as the plan:
-   `node scripts/merge-readback.mjs plan --stack stack.json --verdicts verdicts.json --log .audit/merge-plans/<stack>.tsv > plan.json`
-2. **Merge** the planned PRs in order with the normal squash pinned to the SHA.
-3. **Read every merge back.** A queued merge or an armed auto-merge is not a
-   merge, and PR state alone is never enough. After `git fetch origin main`,
-   read `main` back for each landed PR in order:
-   `node scripts/merge-readback.mjs readback-run --repo . --main origin/main --merges merges.json --plan plan.json --log .audit/merge-plans/<stack>.tsv`
-   with `merges.json` as `[{"pr":101,"merge_sha":"…"},{"pr":102,"merge_sha":"…"}]`.
+   `node scripts/merge-readback.mjs plan --stack stack.json --verdicts verdicts.json --log .audit/merge-plans/<stack>.tsv --digest-out digest.json > plan.json`
+2. **Merge one PR.** For each PR in `plan.land`, bottom-up, use the normal
+   squash pinned with `--match-head-commit <verified head sha>`.
+3. **Read that merge back before merging the next PR.** A queued merge or an
+   armed auto-merge is not a merge, and PR state alone is never enough. Run
+   `git fetch origin main`, then read the landed merge back:
+   `node scripts/merge-readback.mjs readback-run --repo . --main origin/main --merges merges.json --plan plan.json --log .audit/merge-plans/<stack>.tsv --prior digest.json --digest-out digest.json`
+   with `merges.json` listing only the merges landed so far, for example
+   `[{"pr":101,"merge_sha":"…"}]` after the first merge. Passed merges are
+   skipped on later runs. Merge the next PR only after it exits 0 with `tree_match=true`, then
+   repeat steps 2–3. Never merge the whole stack and then read it back: a stop
+   leaves the PRs above it unmerged.
    `--plan` is required. The verified head SHA and verdict ref come from
    `plan.json`, and so does the verified base: the plan's `base` for the bottom
    PR, and the verified head of the PR below for every PR above it. There is
@@ -224,7 +229,11 @@ and race past the stop guard.
    match the log: for each merge, the latest plan row for that PR in the same log
    must be a `plan-land` row with the same `head_sha` and `verdict_ref`. A
    hand-written or edited `plan.json`, or one superseded by a later `plan-stop`
-   for that PR, is refused. A
+   for that PR, is refused. `plan` also logs a `plan-digest` row: SHA-256 of
+   the base, ordered `land` list, and `stop`. A different digest, including a
+   dropped lower PR or changed base, is refused with `plan-digest-mismatch`.
+   Each lower PR's merge SHA must be an ancestor of the upper merge's parent;
+   otherwise read-back stops with `lower-merge-not-ancestor-of-parent`. A
    PR that already read back true at the same head and merge SHA is skipped
    with no new row; the same PR and head at a different merge SHA is refused.
    SHAs must be hex, and `--main` must not start with `-`. Without `--main`, the
@@ -233,8 +242,10 @@ and race past the stop guard.
 
    A merge passes in one of two ways. It is a single-parent commit on `main`
    whose parent is the verified base and whose tree equals the verified head's
-   tree. Or, after `main` moved, its patch-id is identical and its tree
-   equals the verified head rebased onto the merge commit's parent. A commit
+   tree. In rebased mode, it passes only when the tree produced by
+   `git merge-tree --write-tree --merge-base=<verified base> <merge parent> <verified head>`
+   equals the merge commit's tree. The patch-id is a context-free (`-U0`)
+   diagnostic logged for forensics; it never passes, stops, or skips a merge. A commit
    with the verified head's tree on top of any other parent fails, because it
    would silently revert what landed in between. In both cases the verified
    base must be an ancestor of the verified head
@@ -271,8 +282,12 @@ and race past the stop guard.
    unacknowledged, `plan`, `readback`, and `readback-run` refuse to run on that
    log. After Blaine decides, record the decision with
    `stop-ack --log <tsv> --pr <n> --by <who> --note "<decision>"`.
-5. **Keep the log append-only.** Record `digest --log <tsv>` with the plan, and
-   before relying on the log, run `verify-log --log <tsv> --prior digest.json`.
+5. **Keep the log append-only.** Pass `--digest-out digest.json` on `plan`,
+   `readback`, `readback-run`, and `stop-ack`. After every plan, read-back, and
+   stop acknowledgement, record the latest digest outside the log in the
+   merge-plan comment. Pass that saved digest as `--prior digest.json` on the
+   next command. Before relying on the log, run
+   `verify-log --log <tsv> --prior digest.json` against the latest saved digest.
    It fails if any earlier byte was rewritten or truncated. It proves continuity
    only from the saved digest onward and cannot detect edits made before the
    digest was taken. Correct a wrong row with a new row and never edit history.
@@ -286,10 +301,11 @@ Template (`init-log --log <tsv>` writes the header row; columns are exact):
 ts	pr	head_sha	patch_id	verdict_ref	action	merge_sha	tree_match	result
 2026-10-16T09:00:00.000Z	101	<head sha>		<verdict ref>	plan-land			verified-at-head
 2026-10-16T09:00:00.000Z	102	<head sha>		<verdict ref>	plan-stop			stop: verdict-not-valid
+2026-10-16T09:00:00.000Z					plan-digest			plan-sha256:<digest>
 2026-10-16T09:20:00.000Z	101	<head sha>	<patch-id>	<verdict ref>	readback	<merge sha>	true	landed (exact)
 ```
 
-`action` is `plan-land`, `plan-stop`, `readback`, or `stop-ack`. Cells are
+`action` is `plan-land`, `plan-stop`, `plan-digest`, `readback`, or `stop-ack`. Cells are
 single-line: tabs and newlines become spaces. A cell that starts with `=`, `+`,
 `-`, or `@` gets a leading `'` so spreadsheets do not run it as a formula, which
 means a value like `-1` is logged as `'-1`. Attach the TSV, or link it, in the

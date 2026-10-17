@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 
 export const DECISION_COLUMNS = ["ts", "pr", "head_sha", "patch_id", "verdict_ref", "action", "merge_sha", "tree_match", "result"];
 export const DECISION_HEADER = `${DECISION_COLUMNS.join("\t")}\n`;
-export const ACTIONS = ["plan-land", "plan-stop", "readback", "stop-ack"];
+export const ACTIONS = ["plan-land", "plan-stop", "plan-digest", "readback", "stop-ack"];
 
 /** Fixed, root-owned binary directories. The caller's PATH is never consulted. */
 const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin"];
@@ -44,6 +44,7 @@ const gitBin = () => (gitBinary ??= resolveBinary("git"));
 function git(repo, args, input) {
   return execFileSync(gitBin(), ["-C", repo, ...args], {
     encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
     env: gitEnv(),
     input,
     stdio: ["pipe", "pipe", "pipe"],
@@ -91,9 +92,9 @@ export function isAncestor(repo, base, head) {
   return gitOk(repo, ["merge-base", "--is-ancestor", "--end-of-options", base, head]);
 }
 
-// Stable patch-id of the diff base..head; "" when the diff is empty.
+// Context-free patch-id for forensics only; never a pass, stop, or skip gate.
 export function patchId(repo, base, head) {
-  const diff = git(repo, ["diff-tree", "-p", "--no-color", base, head]);
+  const diff = git(repo, ["diff-tree", "-p", "-U0", "--no-color", base, head]);
   if (!diff) return "";
   return git(repo, ["patch-id", "--stable"], `${diff}\n`).split(/\s+/)[0] ?? "";
 }
@@ -186,12 +187,11 @@ function compareToVerified(repo, result, { parent, base, head, main, bottom }) {
   if (parent === base && result.merge_tree === result.expected_tree) {
     return { ...result, tree_match: true, mode: "exact", reason: "tree-equals-verified-head" };
   }
-  if (result.patch_id !== result.verified_patch_id) return { ...result, reason: "tree-mismatch-patch-id-differs" };
   const rebased = rebasedTreeOf(repo, base, parent, head);
   if (rebased.reason) return { ...result, reason: rebased.reason };
   const next = { ...result, expected_tree: rebased.tree };
   if (rebased.tree === result.merge_tree) {
-    return { ...next, tree_match: true, mode: "rebased", reason: "patch-id-and-rebased-tree-match" };
+    return { ...next, tree_match: true, mode: "rebased", reason: "rebased-tree-matches" };
   }
   return { ...next, reason: "tree-mismatch-after-rebase" };
 }
@@ -199,7 +199,7 @@ function compareToVerified(repo, result, { parent, base, head, main, bottom }) {
 // Read main back after a merge. A queued merge or an armed auto-merge is not a
 // merge: the commit must exist, be on mainRef, and either sit directly on the
 // verified base with a tree equal to the verified head's tree, or
-// (after main moved) carry the identical patch-id and equal the verified head
+// (after main moved) equal the verified head
 // rebased onto the merge commit's parent. A tree that equals the verified head
 // on top of any other parent would silently revert that parent's changes.
 // The verified base must be an ancestor of the verified head, or the read-back
@@ -355,7 +355,18 @@ function partitionByPrior(repo, rows, merges) {
   return { todo, skipped };
 }
 
-function readBackPlanned({ repo, merge, plan, mainRef }) {
+function readBackPlanned({ repo, merge, plan, mainRef, rows = [] }) {
+  const index = plan.land.findIndex((entry) => String(entry.pr) === String(merge.pr));
+  if (index > 0) {
+    const lower = plan.land[index - 1];
+    const prior = rows.findLast((row) => row.action === "readback" && row.tree_match === "true" && row.pr === String(lower.pr) && row.head_sha === lower.head_sha);
+    const commit = resolveCommit(repo, merge.merge_sha);
+    const parent = commit ? resolveCommit(repo, `${commit}^1`) : null;
+    // Array order cannot prove landing order: the lower squash must precede this parent.
+    if (!prior || !isAncestor(repo, prior.merge_sha, parent)) {
+      return { tree_match: false, reason: `lower-merge-not-ancestor-of-parent: PR ${lower.pr} below ${merge.pr}` };
+    }
+  }
   return readBackOn({ repo, mergeSha: merge.merge_sha, verifiedHead: merge.head_sha, mainRef, planBase: merge.verified_base, bottom: isBottomOfPlan(plan, merge) });
 }
 
@@ -363,7 +374,14 @@ function readBackPlanned({ repo, merge, plan, mainRef }) {
 // plan row for that PR in the log is a plan-land at the same head_sha and
 // verdict_ref. A hand-written or edited plan.json, or a plan superseded by a
 // later plan-stop for the PR, fails closed. Returns a refusal reason or null.
-export function planLogMismatch(rows, merges) {
+export function planDigest(plan) {
+  const entry = ({ pr, head_sha, verdict_ref }) => ({ pr, head_sha, verdict_ref });
+  // Explicit fields keep incidental output metadata out of the plan identity.
+  const canonical = { base: plan.base, land: plan.land.map(entry), stop: plan.stop ? { ...entry(plan.stop), reason: plan.stop.reason } : null };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+export function planLogMismatch(rows, merges, plan) {
   for (const merge of merges) {
     const latest = rows.filter((row) => (row.action === "plan-land" || row.action === "plan-stop") && row.pr === String(merge.pr)).at(-1);
     if (!latest) return `plan-not-in-log: no plan row for PR ${merge.pr}`;
@@ -372,6 +390,10 @@ export function planLogMismatch(rows, merges) {
       return `plan-not-in-log: PR ${merge.pr} plan.json head_sha/verdict_ref differ from the logged plan-land row`;
     }
   }
+  const digestIndex = rows.findLastIndex((row) => row.action === "plan-digest");
+  if (digestIndex < 0) return "plan-not-in-log: no plan-digest row";
+  const latestPlan = rows.findLastIndex((row) => row.action === "plan-land" || row.action === "plan-stop");
+  if (digestIndex < latestPlan || rows[digestIndex].result !== `plan-sha256:${planDigest(plan)}`) return "plan-digest-mismatch";
   return null;
 }
 
@@ -392,15 +414,16 @@ export function readBackRun({ repo, merges, logPath, mainRef, plan }) {
   const check = checkMergesAgainstPlan({ plan, merges, rows });
   if (!check.ok) return refused(check.reason);
   check.merges.forEach(assertMergeShas);
-  const mismatch = planLogMismatch(rows, check.merges);
+  const mismatch = planLogMismatch(rows, check.merges, plan);
   if (mismatch) return refused(mismatch);
   const { todo, skipped, refused: priorRefused } = partitionByPrior(repo, rows, check.merges);
   if (priorRefused) return refused(priorRefused);
   const landed = [];
   for (const merge of todo) {
-    const result = readBackPlanned({ repo, merge, plan, mainRef });
+    const result = readBackPlanned({ repo, merge, plan, mainRef, rows });
     if (logPath) appendDecision(logPath, readBackRow(merge, result));
     if (!result.tree_match) return { landed, skipped, stop: { pr: merge.pr, ...result } };
+    rows.push({ ...readBackRow(merge, result), pr: String(merge.pr) });
     landed.push({ pr: merge.pr, ...result });
   }
   return { landed, skipped, stop: null };
@@ -548,7 +571,8 @@ const USAGE = `usage: merge-readback.mjs <command> [options]
   readback-run --repo <path> --merges <merges.json> --plan <plan.json> --log <tsv> [--main <ref>]
   stop-ack  --log <tsv> --pr <n> --by <who> --note <text>
   digest    --log <tsv>
-  verify-log --log <tsv> --prior <digest.json>`;
+  verify-log --log <tsv> --prior <digest.json>
+  plan/readback (with --log)/readback-run/stop-ack: [--prior <digest.json>] [--digest-out <file>]`;
 
 function cmdInitLog({ options }) {
   required(options, "log");
@@ -565,6 +589,7 @@ function logPlan(logPath, plan) {
   if (plan.stop) {
     appendDecision(logPath, { pr: plan.stop.pr, head_sha: plan.stop.head_sha, verdict_ref: plan.stop.verdict_ref, action: "plan-stop", result: `stop: ${plan.stop.reason}` });
   }
+  appendDecision(logPath, { action: "plan-digest", result: `plan-sha256:${planDigest(plan)}` });
 }
 
 function cmdPlan({ options, print, refuse }) {
@@ -594,7 +619,7 @@ function planBoundMerge(options) {
   if (!check.ok) return { refused: check.reason };
   const [merge] = check.merges;
   assertSha(merge.verified_base, `verified_base for PR ${merge.pr}`);
-  const mismatch = planLogMismatch(rows, [merge]);
+  const mismatch = planLogMismatch(rows, [merge], plan);
   if (mismatch) return { refused: mismatch };
   const prior = priorReadBack(options.repo, rows, merge);
   if (prior.refused) return { refused: prior.refused };
@@ -612,7 +637,7 @@ function cmdReadback({ options, print, refuse }) {
       print({ skipped: bound.skipped, reason: "already-read-back" });
       return 0;
     }
-    result = readBackPlanned({ repo: options.repo, merge: bound.merge, plan: bound.plan, mainRef: options.main });
+    result = readBackPlanned({ repo: options.repo, merge: bound.merge, plan: bound.plan, mainRef: options.main, rows: readDecisions(options.log) });
     appendDecision(options.log, readBackRow(bound.merge, result));
   } else {
     result = readBack({ repo: options.repo, mergeSha: options["merge-sha"], verifiedHead: options["verified-head"], mainRef: options.main });
@@ -634,7 +659,7 @@ function cmdReadbackRun({ options, print }) {
   return run.stop || run.refused ? 1 : 0;
 }
 
-function cmdStopAck({ options }) {
+function cmdStopAck({ options, print }) {
   required(options, "log", "pr", "by", "note");
   const stop = openStop(readDecisions(options.log));
   if (!stop) throw new Error("no open stop to acknowledge");
@@ -647,6 +672,7 @@ function cmdStopAck({ options }) {
     merge_sha: stop.merge_sha,
     result: `ack by ${options.by}: ${options.note}`,
   });
+  print({ acknowledged: stop.pr });
   return 0;
 }
 
@@ -683,7 +709,19 @@ export function runCli(argv, out = process.stdout) {
     print({ refused: reason });
     return 1;
   };
-  return handler({ options, print, refuse });
+  const tracked = ["plan", "readback", "readback-run", "stop-ack"].includes(command);
+  if (tracked && options.prior) {
+    required(options, "log");
+    const verified = verifyAppendOnly(options.log, readJson(options.prior));
+    if (!verified.ok) return refuse(verified.reason);
+  }
+  const withDigest = (value) => {
+    if (!tracked || !options.log) return print(value);
+    const digest = logDigest(options.log);
+    if (options["digest-out"]) fs.writeFileSync(options["digest-out"], `${JSON.stringify(digest, null, 2)}\n`);
+    print(command === "plan" ? value : { ...value, log_digest: digest });
+  };
+  return handler({ options, print: withDigest, refuse });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
