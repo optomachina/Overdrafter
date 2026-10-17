@@ -30,6 +30,8 @@ it. The script verifies the PR head, refuses if any run for that SHA has attempt
 its failed-job log. It reruns failed jobs once per failed run. Cancelled runs
 are excluded. Code failures must be repaired with a new commit.
 
+The script resolves gh only from fixed system directories unless GH_BIN names an absolute path to an existing executable file owned by the current user or root and not writable by group or others; invalid overrides fail closed.
+
 GitHub's attempt counters share the cap across hosts and sequential processes;
 there is no local marker. This is not an atomic lock against simultaneous
 requests before GitHub updates a counter. Coordinate one caller per PR.

@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { resolveGhBin } from './emit-verdict.mjs';
 
 /** Match the watcher's description and failed-log infrastructure signals. */
 export function isInfraFailure(text) {
@@ -29,29 +30,40 @@ export function parseArgs(args) {
   return options;
 }
 
+function collectRuns(gh, sha) {
+  return JSON.parse(gh('run', 'list', '--commit', sha, '--limit', '1000', '--json', 'databaseId,attempt,conclusion,status,name,url'));
+}
+
+function decide(gh, sha, head, runs) {
+  // Fail closed if the result may have been truncated or lacks attempt evidence.
+  if (runs.length >= 1000 || runs.some(run => !Number.isInteger(run.attempt) || run.attempt < 1)) throw new Error('incomplete runs');
+  if (runs.some(run => run.attempt >= 2)) return 'cap-reached';
+  const logs = {};
+  for (const run of runs.filter(isFailed)) logs[run.databaseId] = gh('run', 'view', String(run.databaseId), '--log-failed');
+  return decideRerun(sha, head, runs, logs);
+}
+
+function performReruns(gh, runs) {
+  for (const run of runs.filter(isFailed)) gh('run', 'rerun', String(run.databaseId), '--failed');
+}
+
 export function main(args = process.argv.slice(2)) {
   let options;
   try { options = parseArgs(args); }
   catch { console.error('Usage: node scripts/ci-rerun-once.mjs --pr <n> --sha <sha> [--repo owner/repo] [--caller name] [--log path]'); return 2; }
   const { sha, pr, repo, caller, log } = options;
-  const gh = (...args) => execFileSync('gh', [...args, '--repo', repo], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   let runs = [], reason, decision = 'refused';
   try {
+    const ghBin = resolveGhBin();
+    const gh = (...args) => execFileSync(ghBin, [...args, '--repo', repo], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     const head = JSON.parse(gh('pr', 'view', pr, '--json', 'headRefOid')).headRefOid;
     reason = sha === head ? null : 'not-head';
     if (!reason) {
-      runs = JSON.parse(gh('run', 'list', '--commit', sha, '--limit', '1000', '--json', 'databaseId,attempt,conclusion,status,name,url'));
-      // Fail closed if the result may have been truncated or lacks attempt evidence.
-      if (runs.length >= 1000 || runs.some(run => !Number.isInteger(run.attempt) || run.attempt < 1)) throw new Error('incomplete runs');
-      reason = runs.some(run => run.attempt >= 2) ? 'cap-reached' : null;
-      if (!reason) {
-        const logs = {};
-        for (const run of runs.filter(isFailed)) logs[run.databaseId] = gh('run', 'view', String(run.databaseId), '--log-failed');
-        reason = decideRerun(sha, head, runs, logs);
-      }
+      runs = collectRuns(gh, sha);
+      reason = decide(gh, sha, head, runs);
     }
     if (!reason) {
-      for (const run of runs.filter(isFailed)) gh('run', 'rerun', String(run.databaseId), '--failed');
+      performReruns(gh, runs);
       decision = 'rerun';
     }
   } catch { reason = 'gh-error'; }

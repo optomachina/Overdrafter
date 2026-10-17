@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, openSync, closeSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { resolveBinary, resolveGhBin } from './emit-verdict.mjs';
 import { isInfraFailure, decideRerun } from './ci-rerun-once.mjs';
 const script = resolve('scripts/ci-rerun-once.mjs');
 const sha = 'a'.repeat(40), dirs = [];
@@ -26,15 +27,15 @@ else if (args[1] === 'view') fs.writeSync(1,typeof state.log === 'string' ? stat
 else if (args[1] === 'rerun') { state.runs.find(r=>String(r.databaseId)===args[2]).attempt++; fs.writeFileSync(file,JSON.stringify(state)); }
 else process.exit(1);
 `, { mode: 0o755 });
-  const run = (...args) => {
+  const runWithBin = (ghBin, ...args) => {
     const out = join(dir, 'stdout'), err = join(dir, 'stderr');
     const fds = [openSync(out, 'w'), openSync(err, 'w')];
-    const result = spawnSync('node', [script, '--pr', '936', '--sha', sha, '--log', join(dir, 'audit.jsonl'), ...args], { stdio: ['ignore', ...fds], env: { PATH: `${dir}:${process.env.PATH}` } });
+    const result = spawnSync(process.execPath, [script, '--pr', '936', '--sha', sha, '--log', join(dir, 'audit.jsonl'), ...args], { stdio: ['ignore', ...fds], env: { PATH: process.env.PATH, GH_BIN: ghBin } });
     fds.forEach(closeSync);
     return { status: result.status, stdout: readFileSync(out, 'utf8'), stderr: readFileSync(err, 'utf8') };
   };
   const calls = () => readFileSync(join(dir, 'calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-  return { dir, run, calls };
+  return { dir, run: (...args) => runWithBin(join(dir, 'gh'), ...args), runWithBin, calls };
 }
 test.each(['429', 'Rate Limit', 'runner lost', 'The runner has received a shutdown signal', 'lost communication', 'unexpected EOF'])('classifies %s', text => expect(isInfraFailure(text)).toBe(true));
 test('code logs and empty failures refuse', () => {
@@ -80,4 +81,20 @@ test('reruns each eligible failed run once and excludes cancelled runs', () => {
   const { run, calls } = fixture({ runs });
   expect(run().status).toBe(0);
   expect(calls().filter(call => call[1] === 'rerun').map(call => call[2])).toEqual(['42', '43', '44']);
+});
+
+test('unset GH_BIN searches only fixed directories, ignoring a PATH-only fake', () => {
+  const { dir } = fixture();
+  const searched = [];
+  expect(() => resolveGhBin({ PATH: dir }, {
+    lookup: name => resolveBinary(name, { exists: candidate => { searched.push(candidate); return false; } }),
+  })).toThrow();
+  expect(searched).toEqual(['/usr/bin/gh', '/bin/gh', '/usr/local/bin/gh']);
+});
+
+test('invalid GH_BIN fails closed without exposing its value', () => {
+  const { runWithBin, dir } = fixture();
+  const result = runWithBin(join(dir, 'missing-gh'));
+  expect(result).toEqual({ status: 3, stdout: 'rerun-cap: refused (gh-error)\n', stderr: '' });
+  expect(JSON.parse(readFileSync(join(dir, 'audit.jsonl'), 'utf8'))).toMatchObject({ decision: 'refused', reason: 'gh-error', runs: [] });
 });
