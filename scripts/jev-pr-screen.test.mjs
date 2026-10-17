@@ -7,19 +7,23 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_LOG,
+  DEFAULT_CACHE,
   FILES_EMPTY,
   FILES_ENTRY_INVALID,
   FILES_MISSING,
   FILES_NOT_ARRAY,
   SENSITIVE_PATHS_UNAVAILABLE,
+  cacheKey,
   decisionRecord,
   deterministicTier,
   finalTier,
+  loadCache,
   loadScreenSensitivePaths,
   maxTier,
   parseScreenArgs,
   prFilePaths,
   replay,
+  saveCache,
   screen,
 } from "./jev-pr-screen.mjs";
 import { SENSITIVE_PATHS_FILE, loadSensitivePaths } from "./lib/sensitive-paths.mjs";
@@ -291,5 +295,105 @@ describe("jev PR screen", () => {
     for (const argv of [[], ["--base-ref"], ["--base-ref", "--x", "in.json"], ["--nope", "in.json"], ["a", "b", "c"]]) {
       expect(() => parseScreenArgs(argv), argv.join(" ")).toThrow(/usage/);
     }
+  });
+
+  it("generates cache keys from pr, sha, and model", () => {
+    expect(cacheKey(123, "abc123", "jev-1.13.0")).toBe("123:abc123:jev-1.13.0");
+    expect(cacheKey(456, "def456/../../", "jev-1.13.0")).toMatch(/^456:[\w._-]+:jev-1.13.0$/);
+    // Invalid inputs return null
+    expect(cacheKey("not a number", "abc", "jev-1.13.0")).toBeNull();
+    expect(cacheKey(123, null, "jev-1.13.0")).toBeNull();
+    expect(cacheKey(123, "abc", null)).toBeNull();
+  });
+
+  it("loads and saves cache files", () => {
+    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
+    temps.push(dirname(cachePath));
+    
+    // Empty cache when file doesn't exist
+    expect(loadCache(cachePath)).toEqual({});
+    
+    // Save and load cache
+    const cache = { "123:abc:jev-1.13.0": { ok: true, model: "jev-1.13.0", answers: {} } };
+    saveCache(cache, cachePath);
+    expect(loadCache(cachePath)).toEqual(cache);
+    
+    // Invalid JSON returns empty cache
+    writeFileSync(cachePath, "not json", "utf8");
+    expect(loadCache(cachePath)).toEqual({});
+  });
+
+  it("uses cache to dedupe screens with the same pr, sha, and model", async () => {
+    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
+    temps.push(dirname(cachePath));
+    const logPath = join(dirname(cachePath), "log.jsonl");
+    
+    let callCount = 0;
+    const ask = async () => {
+      callCount += 1;
+      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 };
+    };
+    
+    const pr = { pr: 100, sha: "test123", title: "Test PR", deterministic: "low", files: ["README.md"] };
+    
+    // First call: cache miss, should call Jev
+    const [record1] = await screen([pr], { ask, log: logPath, append: appendFileSync, cachePath, caller: "test1" });
+    expect(callCount).toBe(1);
+    expect(record1.cacheHit).toBe(false);
+    expect(record1.caller).toBe("test1");
+    
+    // Second call with same pr, sha, model: cache hit, should not call Jev
+    const [record2] = await screen([pr], { ask, log: logPath, append: appendFileSync, cachePath, caller: "test2" });
+    expect(callCount).toBe(1); // Still 1, no new call
+    expect(record2.cacheHit).toBe(true);
+    expect(record2.caller).toBe("test2");
+    expect(record2.final).toBe(record1.final);
+  });
+
+  it("re-screens when the sha changes", async () => {
+    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
+    temps.push(dirname(cachePath));
+    const logPath = join(dirname(cachePath), "log.jsonl");
+    
+    let callCount = 0;
+    const ask = async () => {
+      callCount += 1;
+      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 };
+    };
+    
+    const pr1 = { pr: 101, sha: "abc123", title: "Test PR", deterministic: "low", files: ["README.md"] };
+    const pr2 = { pr: 101, sha: "def456", title: "Test PR", deterministic: "low", files: ["README.md"] };
+    
+    // First call
+    await screen([pr1], { ask, log: logPath, append: appendFileSync, cachePath });
+    expect(callCount).toBe(1);
+    
+    // Second call with different sha: should call Jev again
+    await screen([pr2], { ask, log: logPath, append: appendFileSync, cachePath });
+    expect(callCount).toBe(2);
+  });
+
+  it("re-screens when the model version changes", async () => {
+    const cachePath = join(mkdtempSync(join(tmpdir(), "jev-cache-")), "cache.json");
+    temps.push(dirname(cachePath));
+    
+    // Manually set up cache with old model version
+    const oldKey = cacheKey(102, "xyz789", "jev-1.12.0");
+    const cache = { [oldKey]: { ok: true, model: "jev-1.12.0", answers: { tier: { type: "choice", choice: "low", confidence: 0.99 }, incident: { type: "noul", noul: 0.05 } }, latencyMs: 100 } };
+    saveCache(cache, cachePath);
+    
+    let callCount = 0;
+    const ask = async () => {
+      callCount += 1;
+      return { ok: true, model: "jev-1.13.0", answers: { tier: { type: "choice", choice: "normal", confidence: 0.95 }, incident: { type: "noul", noul: 0.1 } }, latencyMs: 100 };
+    };
+    
+    const pr = { pr: 102, sha: "xyz789", title: "Test PR", deterministic: "low", files: ["README.md"] };
+    
+    // Screen with current model version (1.13.0): should miss cache and call Jev
+    const [record] = await screen([pr], { ask, log: "/tmp/log.jsonl", append: () => {}, cachePath });
+    expect(callCount).toBe(1);
+    expect(record.cacheHit).toBe(false);
+    expect(record.jev.tier).toBe("normal");
   });
 });

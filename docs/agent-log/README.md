@@ -1,10 +1,12 @@
 # Agent decision log
 
-`jev-decisions.jsonl` records every Jev (TypeSafe, `jev-1.13.0`) decision the
+`jev-decisions.jsonl` (now written to `~/work/claude-jobs/jev-decisions.jsonl`, 
+outside the repository) records every Jev (TypeSafe, `jev-1.13.0`) decision the
 lead engineer uses to size review, one JSON object per line: PR, head SHA,
 deterministic tier, the matched sensitive-path classes (`sensitiveClasses`, from
 `docs/sensitive-paths.json` through `scripts/lib/sensitive-paths.mjs`), Jev's
-tier, confidence and incident probability, the final tier, and latency.
+tier, confidence and incident probability, the final tier, latency, cache hit
+status, and caller identification.
 
 Rules the log encodes, and the review each tier gets:
 

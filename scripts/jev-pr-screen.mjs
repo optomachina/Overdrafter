@@ -22,19 +22,62 @@
  * Usage: NODE_USE_ENV_PROXY=1 node scripts/jev-pr-screen.mjs [--base-ref <ref>] <input.json> [log.jsonl]
  * input.json: [{ pr, sha, title, files: [path | {path}, ...], additions?, deletions?, deterministic: "low"|"normal"|"risky", notes? }]
  */
-import { appendFileSync, readFileSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { askJev, gatedChoice, sanitizeToken } from "./jev-client.mjs";
+import { homedir } from "node:os";
+import { askJev, gatedChoice, sanitizeToken, JEV_MODEL } from "./jev-client.mjs";
 import { SENSITIVE_PATHS_FILE, classifyPaths, loadSensitivePaths, parseSensitivePaths } from "./lib/sensitive-paths.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-export const DEFAULT_LOG = fileURLToPath(new URL("../docs/agent-log/jev-decisions.jsonl", import.meta.url));
+const WORK_DIR = `${homedir()}/work/claude-jobs`;
+export const DEFAULT_LOG = `${WORK_DIR}/jev-decisions.jsonl`;
+export const DEFAULT_CACHE = `${WORK_DIR}/jev-screen-cache.json`;
 export const TIERS = ["low", "normal", "risky"];
 export const DEFAULT_MIN_CONFIDENCE = 0.5;
 const MAX_CONCURRENT_CALLS = 4;
 
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const floorOf = (value) => (isProbability(value) ? value : DEFAULT_MIN_CONFIDENCE);
+
+/**
+ * Cache key for dedupe: (pr, sha, model). Returns null for invalid inputs.
+ */
+export function cacheKey(pr, sha, model) {
+  const prNum = Number.isInteger(pr) ? pr : null;
+  const shaTok = sanitizeToken(sha);
+  const modelTok = sanitizeToken(model);
+  if (prNum === null || !shaTok || !modelTok) return null;
+  return `${prNum}:${shaTok}:${modelTok}`;
+}
+
+/**
+ * Load the cache file (a JSON object mapping cache keys to cached results).
+ * Returns {} if the file does not exist or is invalid.
+ */
+export function loadCache(cachePath) {
+  try {
+    if (!existsSync(cachePath)) return {};
+    const content = readFileSync(cachePath, "utf8");
+    const parsed = JSON.parse(content);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Save the cache to disk.
+ */
+export function saveCache(cache, cachePath) {
+  try {
+    const dir = dirname(cachePath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
+  } catch {
+    // Fail open: if we can't save the cache, just continue
+  }
+}
 
 export const SCREEN_QUESTIONS = {
   tier: {
@@ -152,7 +195,7 @@ export function deterministicTier(pr, sensitivePaths, { skipSensitivePaths = fal
  * screens risky with sensitivePathsUnavailable. skipSensitivePaths: true
  * skips the path check (tier-logic tests only).
  */
-export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false } = {}) {
+export function decisionRecord(pr, result, now = new Date(), { minConfidence = DEFAULT_MIN_CONFIDENCE, sensitivePaths, skipSensitivePaths = false, cacheHit = false, caller = null } = {}) {
   const gate = gatedChoice(result, "tier", floorOf(minConfidence));
   const skip = skipSensitivePaths === true;
   const list = skip ? null : usableSensitivePaths(sensitivePaths);
@@ -178,6 +221,8 @@ export function decisionRecord(pr, result, now = new Date(), { minConfidence = D
     filesProblem,
     final: finalTier(deterministic, gate),
     latencyMs: Number.isFinite(result?.latencyMs) ? result.latencyMs : null,
+    cacheHit,
+    caller: caller ? sanitizeToken(caller) : null,
   };
 }
 
@@ -194,23 +239,71 @@ export function replay(records, { minConfidence = DEFAULT_MIN_CONFIDENCE } = {})
 
 export async function screen(
   prs,
-  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null } = {},
+  { ask = askJev, log = DEFAULT_LOG, append = appendFileSync, minConfidence = DEFAULT_MIN_CONFIDENCE, root = REPO_ROOT, baseRef = null, sensitivePaths: given = null, cachePath = DEFAULT_CACHE, caller = null } = {},
 ) {
   // Always screened against a list: only null or undefined loads it, and any
   // other value that is not a valid list (false, 0, "", NaN ...) screens every
   // PR risky. screen() has no opt-out.
   const sensitivePaths = given === null || given === undefined ? loadScreenSensitivePaths({ root, baseRef }) : usableSensitivePaths(given);
+  
+  // Load cache for dedupe
+  const cache = loadCache(cachePath);
+  let cacheChanged = false;
+  
   const results = [];
-  // A few calls at a time; titles, paths and notes leave the box, so keep the batch bounded.
+  const cacheHits = [];
+  
+  // Check cache for each PR and only call Jev for cache misses
   for (let start = 0; start < prs.length; start += MAX_CONCURRENT_CALLS) {
-    const chunk = prs.slice(start, start + MAX_CONCURRENT_CALLS).map((pr) => {
+    const chunkPrs = prs.slice(start, start + MAX_CONCURRENT_CALLS);
+    const chunkTasks = chunkPrs.map(async (pr) => {
+      // Build cache key with expected model version
+      const key = cacheKey(pr.pr, pr.sha, JEV_MODEL);
+      
+      // Check cache first
+      if (key && cache[key]) {
+        // Cache hit: return cached result
+        return { result: cache[key], hit: true };
+      }
+      
+      // Cache miss: call Jev
       const state = { title: pr.title, files: pr.files, additions: pr.additions ?? null, deletions: pr.deletions ?? null, notes: pr.notes ?? "" };
-      return ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+      const result = await ask(state, SCREEN_QUESTIONS, { timeoutMs: 20_000 });
+      
+      // Save successful result to cache
+      if (result?.ok && key) {
+        cache[key] = result;
+        cacheChanged = true;
+      }
+      
+      return { result, hit: false };
     });
-    results.push(...(await Promise.all(chunk)));
+    
+    const chunkResults = await Promise.all(chunkTasks);
+    results.push(...chunkResults.map(r => r.result));
+    cacheHits.push(...chunkResults.map(r => r.hit));
   }
+  
+  // Save updated cache if changed
+  if (cacheChanged) {
+    saveCache(cache, cachePath);
+  }
+  
+  // Ensure log directory exists
+  const logDir = dirname(log);
+  if (!existsSync(logDir)) {
+    mkdirSync(logDir, { recursive: true });
+  }
+  
   // Append in input order so the log reads like the batch.
-  const records = prs.map((pr, index) => decisionRecord(pr, results[index], new Date(), { minConfidence, sensitivePaths }));
+  const records = prs.map((pr, index) => 
+    decisionRecord(pr, results[index], new Date(), { 
+      minConfidence, 
+      sensitivePaths, 
+      cacheHit: cacheHits[index],
+      caller 
+    })
+  );
   for (const record of records) append(log, `${JSON.stringify(record)}\n`);
   return records;
 }
