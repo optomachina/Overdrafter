@@ -1,8 +1,10 @@
 // @vitest-environment node
 
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +14,10 @@ import {
   parseNameStatus,
 } from "./provider-enablement-detect.mjs";
 import {
+  ANY_ATX_HEADING,
+  CHECKBOX_LINE,
+  CONTAINER_PREFIX,
+  FENCE_OPEN,
   PROVIDER_GO_LIVE_GROUPS,
   PROVIDER_GO_LIVE_HEADING,
   PROVIDER_GO_LIVE_AUTO_SIGNATURE,
@@ -1056,5 +1062,147 @@ describe("provider go-live docs and workflows", () => {
     expect(workflow).not.toMatch(/^\s+- edited$/m);
     expect(workflow).not.toContain("provider-go-live");
     expect(workflow).not.toContain("validate-pr-body");
+  });
+});
+
+describe("linear heading and checkbox regexes", () => {
+  it("pins ATX headings, including a trailing CR that does not match", () => {
+    const captured = (line) => {
+      const match = ANY_ATX_HEADING.exec(line);
+      return match ? (match[1] ?? "") : null;
+    };
+    expect(captured("#######")).toBeNull();
+    expect(captured("#x")).toBeNull();
+    expect(captured("#")).toBe("");
+    expect(captured("#   ")).toBe("");
+    expect(captured("# a")).toBe("a");
+    expect(captured("   ## a ##")).toBe("a ##");
+    expect(captured("# a\r")).toBeNull();
+  });
+
+  it("pins the container prefix used before heading detection", () => {
+    const stripped = (line) => line.replace(CONTAINER_PREFIX, "");
+    expect(stripped("> - 1. text")).toBe("text");
+    expect(stripped(">>- x")).toBe("x");
+    expect(stripped("1234567890. x")).toBe("1234567890. x");
+    expect(stripped("-x")).toBe("-x");
+  });
+
+  it("pins checkbox captures, including quoted markers and an empty tail", () => {
+    const captured = (line) => {
+      const match = CHECKBOX_LINE.exec(line);
+      return match ? [match[1].includes(">"), match[2], match[3] ?? ""] : null;
+    };
+    expect(captured("+ [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("* [X] a")).toEqual([false, "X", "a"]);
+    expect(captured("1) [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("123456789. [ ] a")).toEqual([false, " ", "a"]);
+    expect(captured("1234567890. [x] a")).toBeNull();
+    expect(captured("- - [x] a")).toEqual([false, "x", "a"]);
+    expect(captured("> 1. - [ ] a")).toEqual([true, " ", "a"]);
+    expect(captured("> - [x] quoted")).toEqual([true, "x", "quoted"]);
+    expect(captured("- [x] plain")).toEqual([false, "x", "plain"]);
+    expect(captured("- [x]")).toEqual([false, "x", ""]);
+    expect(captured("- [x]\t  text")).toEqual([false, "x", "text"]);
+    expect(captured(">- [x] text")).toEqual([true, "x", "text"]);
+    expect(captured(">>- [ ] a")).toEqual([true, " ", "a"]);
+    expect(captured("> >1. [x] b")).toEqual([true, "x", "b"]);
+  });
+
+  it("pins fence openers, including a quoted fence and a backtick in the info string", () => {
+    const captured = (line) => {
+      const match = FENCE_OPEN.exec(line);
+      return match ? [match[1], match[2], match[3]] : null;
+    };
+    expect(captured("> ```")).toEqual(["> ", "```", ""]);
+    expect(captured(">```")).toBeNull();
+    expect(captured("- ~~~")).toEqual(["- ", "~~~", ""]);
+    expect(captured("```js")).toEqual(["", "```", "js"]);
+    expect(captured("```x`x")).toEqual(["", "```", "x`x"]);
+    expect(captured("````")).toEqual(["", "````", ""]);
+  });
+
+  it("still counts a multi-line setext Provider go-live heading, and two of them", () => {
+    const missingAuto = buildGoLiveSection({ "envelope-reviewer": null });
+    for (const heading of ["Provider\ngo-live\n---", "> Provider\n> go-live\n> ==="]) {
+      expect(validate(`${missingAuto}\n${heading}\n`).errors, heading).toContain(
+        '"Provider go-live" appears 2 times; keep exactly one section',
+      );
+      expect(validate(`${missingAuto}\n${heading}\n${heading}\n`).errors, heading).toContain(
+        '"Provider go-live" appears 3 times; keep exactly one section',
+      );
+    }
+  });
+});
+
+const REDOS_CHILD = fileURLToPath(new URL("./validate-pr-body-redos-child.mjs", import.meta.url));
+const REDOS_MISSING = [
+  'add Provider go-live checkboxes to "Provider go-live"',
+  'missing Provider go-live item "provider:check green"',
+  'missing Provider go-live item "envelope reviewed (automatic)"',
+  'missing Provider go-live item "worker adapter and Secret Manager secret"',
+  'missing Provider go-live item "stable egress verified"',
+  'missing Provider go-live item "approved admission revision (generic_dispatch_enabled=true)"',
+  'missing Provider go-live item "automatic_quote_collection rollout and org enablement"',
+  'missing Provider go-live item "certification run evidence"',
+  'missing Provider go-live item "per-supplier on/off switch in the admin dashboard"',
+  'missing Provider go-live item "no stored customer passwords, encrypted session tokens only"',
+  'missing Provider go-live item "ITAR/EAR controlled or uncertain uploads blocked to foreign providers and LLMs"',
+];
+
+function runRedosCase(id) {
+  const result = spawnSync(process.execPath, [REDOS_CHILD, id], { timeout: 5000, encoding: "utf8" });
+  expect(result.error?.code ?? result.signal, result.stderr).toBeFalsy();
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+describe("adversarial ReDoS bounds", { timeout: 30_000 }, () => {
+  const bounded = [
+    ["a1", 250],
+    ["a2", 250],
+    ["a3", 250],
+    ["a5", 250],
+    ["a6", 250],
+    ["a7", 250],
+    ["a8", 250],
+    ["a10", 250],
+    ["a11", 250],
+    ["a12", 250],
+  ];
+
+  it.each(bounded)("%s stays under %i ms and still fails closed", (id, bound) => {
+    const report = runRedosCase(id);
+    expect(report.maxMs).toBeLessThan(bound);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(report.errors.map(() => REDOS_MISSING));
+  });
+
+  it("a4 matches nothing and stays under 50 ms", () => {
+    const report = runRedosCase("a4");
+    expect(report.maxMs).toBeLessThan(50);
+    expect(report.match).toBe(false);
+  });
+
+  it("a mixed 65 KiB body stays under 1 s", () => {
+    const report = runRedosCase("a9");
+    expect(report.sumMs).toBeLessThan(1000);
+    expect(report.maxMs).toBeLessThan(1000);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([REDOS_MISSING]);
+  });
+
+  it("a mixed 10k body stays under 100 ms", () => {
+    const report = runRedosCase("a10k");
+    expect(report.sumMs).toBeLessThan(100);
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([REDOS_MISSING]);
+  });
+
+  it("grows less than 8x from 16 KiB to 64 KiB", () => {
+    const report = runRedosCase("growth");
+    for (const [name, row] of Object.entries(report.ratios)) {
+      expect(row.ratio, name).toBeLessThan(8);
+    }
   });
 });

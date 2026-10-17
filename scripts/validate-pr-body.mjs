@@ -137,35 +137,38 @@ const SECTION_HEADING_LINE = /^##[ \t]+(\S.*)$/;
 // optional closing hashes, or a setext underline on the next line.
 // Any indent counts (list-nested headings sit deeper); for duplicates only, so
 // an indented code line that looks like a heading just fails closed.
-const ANY_ATX_HEADING = /^[ \t]*#{1,6}(?:[ \t]+(.*))?$/;
+export const ANY_ATX_HEADING = /^[ \t]*#{1,6}(?:[ \t]+([^ \t\n\r\u2028\u2029][^\n\r\u2028\u2029]*)?)?$/;
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
-const CONTAINER_PREFIX = /^(?:[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))[ \t]*)+/;
+export const CONTAINER_PREFIX = /^[ \t]*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+/;
 const NAMED_ENTITIES = { nbsp: " ", amp: "&", hyphen: "-", dash: "-", ndash: "-", mdash: "-", minus: "-" };
+const HEADING_TAG = /<\/?[a-z][^>]*>/gi;
+const HTML_HEADING_START = /<h[1-6]\b/gi;
+const HTML_HEADING = /<h[1-6]\b[^>]*>([\s\S]*?)(?=<\/h[1-6]\s*>|<h[1-6]\b|$(?![\s\S]))/yi;
+const GO_LIVE_PHRASE = "providergolive";
+const GO_LIVE_TAIL = GO_LIVE_PHRASE.length - 1;
 
 function decodeEntities(text) {
   return text
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16) % 0x110000))
-    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10) % 0x110000))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10) % 0x110000))
     .replace(/&([a-z]+);/gi, (entity, name) => NAMED_ENTITIES[name.toLowerCase()] ?? entity);
 }
 
-/** Visible text of a heading on line `index`, or null when it is not a heading. */
+/** Visible ATX heading text on line `index`, or null when the line is not ATX. */
 function anyHeadingText(lines, index) {
   // Headings inside blockquotes or list items ("> ## x", "- ## x") count too.
   const line = lines[index].replace(CONTAINER_PREFIX, "");
-  const atx = line.match(ANY_ATX_HEADING);
+  const atx = ANY_ATX_HEADING.exec(line);
   if (atx) return atx[1] ?? "";
-  // A setext underline makes the whole paragraph above it a heading; count it on
-  // the underline line, joining the paragraph lines.
-  const unquote = (text) => text.replace(/^(?:[ \t]*>)+/, "");
-  if (SETEXT_UNDERLINE.test(unquote(lines[index])) && index > 0) {
-    const paragraph = [];
-    for (let back = index - 1; back >= 0 && /\S/.test(unquote(lines[back])); back -= 1) {
-      paragraph.unshift(unquote(lines[back]).replace(CONTAINER_PREFIX, ""));
-    }
-    if (paragraph.length > 0) return paragraph.join(" ");
-  }
   return null;
+}
+
+/** Drop closed tags. A `<` with no later `>` stays literal, so the scan cannot retry it. */
+function stripHeadingTags(text) {
+  const last = text.lastIndexOf(">");
+  if (last === -1) return text;
+  HEADING_TAG.lastIndex = 0;
+  return text.slice(0, last + 1).replace(HEADING_TAG, "") + text.slice(last + 1);
 }
 
 /**
@@ -174,11 +177,297 @@ function anyHeadingText(lines, index) {
  * as go-live.
  */
 function squashHeading(text) {
-  return decodeEntities(stripComments(text, false).text.replace(/<\/?[a-z][^>]*>/gi, ""))
+  return decodeEntities(stripHeadingTags(stripComments(text, false).text))
     .normalize("NFKC")
     .toLowerCase()
     .replace(/&[a-z]+;/g, "")
     .replace(/[^a-z0-9]/g, "");
+}
+
+function createSquashAcc() {
+  return { length: 0, tail: "", head: "", goLive: false, short: "", hold: "", entityRaw: "" };
+}
+
+function squashChars(text) {
+  return text.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function appendAlnum(acc, alnum) {
+  if (!alnum) return;
+  if (!acc.goLive && (acc.tail + alnum).includes(GO_LIVE_PHRASE)) acc.goLive = true;
+  if (acc.head.length < 15) acc.head = (acc.head + alnum).slice(0, 15);
+  acc.tail = (acc.tail + alnum).slice(-GO_LIVE_TAIL);
+  const next = acc.length + alnum.length;
+  if (acc.short !== null && next <= 40) acc.short += alnum;
+  else acc.short = null;
+  acc.length = next;
+}
+
+/** Already-decoded text. One trailing code point stays held so a combiner can join it. */
+function commitDecoded(acc, text) {
+  if (!text) return;
+  const chars = Array.from(acc.hold + text);
+  acc.hold = chars.pop() ?? "";
+  if (chars.length > 0) appendAlnum(acc, squashChars(chars.join("")));
+}
+
+function decodedEntity(raw) {
+  const hex = /^&#x([0-9a-f]+);$/i.exec(raw);
+  if (hex) return String.fromCodePoint(Number.parseInt(hex[1], 16) % 0x110000);
+  const dec = /^&#(\d+);$/.exec(raw);
+  if (dec) return String.fromCodePoint(Number.parseInt(dec[1], 10) % 0x110000);
+  if (/^&[a-z]+;$/i.test(raw)) return NAMED_ENTITIES[raw.slice(1, -1).toLowerCase()] ?? "";
+  return raw;
+}
+
+function scanEntity(data, start) {
+  const next = data[start + 1];
+  if (next === undefined) return { kind: "incomplete" };
+  if (next === "#") {
+    const marker = data[start + 2];
+    if (marker === undefined) return { kind: "incomplete" };
+    let cursor = start + 2;
+    if (marker === "x" || marker === "X") {
+      cursor = start + 3;
+      while (cursor < data.length && /[0-9a-f]/i.test(data[cursor])) cursor += 1;
+      if (cursor === data.length) return { kind: "incomplete" };
+      if (data[cursor] === ";" && cursor > start + 3) return { kind: "done", end: cursor + 1 };
+      return { kind: "broken" };
+    }
+    while (cursor < data.length && /\d/.test(data[cursor])) cursor += 1;
+    if (cursor === data.length) return { kind: "incomplete" };
+    if (data[cursor] === ";" && cursor > start + 2) return { kind: "done", end: cursor + 1 };
+    return { kind: "broken" };
+  }
+  if (/[a-z]/i.test(next)) {
+    let cursor = start + 1;
+    while (cursor < data.length && /[a-z]/i.test(data[cursor])) cursor += 1;
+    if (cursor === data.length) return { kind: "incomplete" };
+    if (data[cursor] === ";") return { kind: "done", end: cursor + 1 };
+    return { kind: "broken" };
+  }
+  return { kind: "broken" };
+}
+
+function pushLiteral(acc, text) {
+  if (!text) return;
+  const data = acc.entityRaw + text;
+  acc.entityRaw = "";
+  let cursor = 0;
+  while (cursor < data.length) {
+    const amp = data.indexOf("&", cursor);
+    if (amp === -1) {
+      commitDecoded(acc, data.slice(cursor));
+      return;
+    }
+    commitDecoded(acc, data.slice(cursor, amp));
+    const entity = scanEntity(data, amp);
+    if (entity.kind === "incomplete") {
+      acc.entityRaw = data.slice(amp);
+      return;
+    }
+    if (entity.kind === "done") {
+      commitDecoded(acc, decodedEntity(data.slice(amp, entity.end)));
+      cursor = entity.end;
+      continue;
+    }
+    commitDecoded(acc, "&");
+    cursor = amp + 1;
+  }
+}
+
+function materialize(acc) {
+  const copy = { ...acc };
+  appendAlnum(copy, squashChars(acc.hold + acc.entityRaw));
+  return copy;
+}
+
+function accIsGoLive(acc) {
+  if (acc.goLive) return true;
+  return acc.short !== null && acc.short.includes("provider") && acc.short.includes("live");
+}
+
+function combinedGoLive(main, side) {
+  if (main.goLive || side.goLive || (main.tail + side.head).includes(GO_LIVE_PHRASE)) return true;
+  if (main.length + side.length > 40 || main.short === null || side.short === null) return false;
+  const all = main.short + side.short;
+  return all.includes(GO_LIVE_PHRASE) || (all.includes("provider") && all.includes("live"));
+}
+
+/**
+ * Streaming squash of one setext paragraph. Equivalent to squashHeading on the
+ * joined paragraph, but each line is consumed once. An open tag is kept aside
+ * and dropped if it closes, so a `>` cannot make the scan retry earlier `<`.
+ */
+function createGoLiveScan() {
+  const main = createSquashAcc();
+  const side = createSquashAcc();
+  let inComment = false;
+  let commentHold = "";
+  let tagHold = "";
+  let inTag = false;
+
+  function resetSide() {
+    side.length = 0;
+    side.tail = "";
+    side.head = "";
+    side.goLive = false;
+    side.short = "";
+    side.hold = "";
+    side.entityRaw = "";
+  }
+
+  function emitPlain(text) {
+    const data = tagHold + text;
+    tagHold = "";
+    let cursor = 0;
+    while (cursor < data.length) {
+      if (inTag) {
+        const close = data.indexOf(">", cursor);
+        if (close === -1) {
+          pushLiteral(side, data.slice(cursor));
+          return;
+        }
+        resetSide();
+        inTag = false;
+        cursor = close + 1;
+        continue;
+      }
+      const open = data.indexOf("<", cursor);
+      if (open === -1) {
+        pushLiteral(main, data.slice(cursor));
+        return;
+      }
+      if (open > cursor) pushLiteral(main, data.slice(cursor, open));
+      const after = data[open + 1];
+      if (after === undefined) {
+        tagHold = "<";
+        return;
+      }
+      if (after === "/") {
+        const letter = data[open + 2];
+        if (letter === undefined) {
+          tagHold = "</";
+          return;
+        }
+        if (/[a-z]/i.test(letter)) {
+          inTag = true;
+          resetSide();
+          cursor = open + 2;
+          continue;
+        }
+        pushLiteral(main, "</");
+        cursor = open + 2;
+        continue;
+      }
+      if (/[a-z]/i.test(after)) {
+        inTag = true;
+        resetSide();
+        cursor = open + 1;
+        continue;
+      }
+      pushLiteral(main, "<");
+      cursor = open + 1;
+    }
+  }
+
+  function feed(piece) {
+    const data = commentHold + piece;
+    commentHold = "";
+    let cursor = 0;
+    while (cursor < data.length) {
+      if (inComment) {
+        const close = data.indexOf("-->", cursor);
+        if (close === -1) {
+          const held = /--?$/.exec(data.slice(cursor));
+          commentHold = held ? held[0] : "";
+          return;
+        }
+        cursor = close + 3;
+        inComment = false;
+        continue;
+      }
+      const start = data.indexOf("<!--", cursor);
+      if (start === -1) {
+        const tail = data.slice(cursor);
+        const held = /<(?:!--?|!)?$/.exec(tail);
+        if (held) {
+          emitPlain(tail.slice(0, held.index));
+          commentHold = held[0];
+        } else {
+          emitPlain(tail);
+        }
+        return;
+      }
+      emitPlain(data.slice(cursor, start));
+      cursor = start + 4;
+      inComment = true;
+    }
+  }
+
+  function isGoLive() {
+    const mainView = materialize(main);
+    if (!inTag) return accIsGoLive(mainView);
+    return combinedGoLive(mainView, materialize(side));
+  }
+
+  return { feed, isGoLive };
+}
+
+function unquoteMarkers(text) {
+  return text.replace(/^(?:[ \t]*>)+/, "");
+}
+
+/**
+ * Setext underlines, decided in one forward pass. The paragraph since the last
+ * blank line is squashed as it grows; an underline never walks back over it.
+ * Flags may count an extra go-live heading, never a missing one.
+ */
+function setextGoLiveFlags(lines) {
+  const flags = new Array(lines.length).fill(false);
+  let scan = createGoLiveScan();
+  let paragraph = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const unquoted = unquoteMarkers(lines[index]);
+    if (!/\S/.test(unquoted)) {
+      scan = createGoLiveScan();
+      paragraph = 0;
+      continue;
+    }
+    if (SETEXT_UNDERLINE.test(unquoted) && paragraph > 0 && scan.isGoLive()) flags[index] = true;
+    const inner = unquoted.replace(CONTAINER_PREFIX, "");
+    scan.feed(paragraph === 0 ? inner : ` ${inner}`);
+    paragraph += 1;
+  }
+  return flags;
+}
+
+/**
+ * HTML headings outside a fence. The sticky copy only runs at a real `<hN`
+ * start, and only while a `>` is still ahead, so an unclosed `<h1` cannot retry.
+ */
+function countHtmlGoLiveHeadings(unfenced) {
+  const lastGt = unfenced.lastIndexOf(">");
+  if (lastGt === -1) return 0;
+  let count = 0;
+  let searchFrom = 0;
+  while (searchFrom <= lastGt) {
+    HTML_HEADING_START.lastIndex = searchFrom;
+    const start = HTML_HEADING_START.exec(unfenced);
+    if (!start || start.index > lastGt) break;
+    HTML_HEADING.lastIndex = start.index;
+    const html = HTML_HEADING.exec(unfenced);
+    if (!html) {
+      searchFrom = start.index + 1;
+      continue;
+    }
+    if (isGoLiveHeading(html[1])) count += 1;
+    const next = HTML_HEADING.lastIndex;
+    searchFrom = next > start.index ? next : start.index + 1;
+  }
+  HTML_HEADING_START.lastIndex = 0;
+  HTML_HEADING.lastIndex = 0;
+  return count;
 }
 
 /**
@@ -199,6 +488,7 @@ function collectSections(body) {
   const headings = [];
   let goLiveHeadings = 0;
   let offset = 0;
+  const setextGoLive = setextGoLiveFlags(lines);
 
   lines.forEach((line, index) => {
     const match = line.match(SECTION_HEADING_LINE);
@@ -206,8 +496,10 @@ function collectSections(body) {
     // Every heading outside a code fence that mentions Provider go-live counts toward
     // duplicates, in any heading form and even where the splitter skips it (an HTML
     // comment, the legacy ``` ranges), so a second copy can never stand in for the real one.
-    const anyText = visibleToCount ? anyHeadingText(lines, index) : null;
-    if (anyText !== null && isGoLiveHeading(anyText)) goLiveHeadings += 1;
+    if (visibleToCount) {
+      const anyText = anyHeadingText(lines, index);
+      if ((anyText !== null && isGoLiveHeading(anyText)) || setextGoLive[index]) goLiveHeadings += 1;
+    }
     // A heading after an unresolved fence still splits sections so ordinary PR
     // bodies keep working; its checkboxes stay hidden.
     if (match && visibleToCount) {
@@ -222,9 +514,7 @@ function collectSections(body) {
   // HTML headings, possibly several per line or spanning lines, anywhere outside
   // a code fence (an unclosed tag runs to the end).
   const unfenced = lines.map((line, index) => (hidden.fenced[index] && !hidden.uncertain[index] ? "" : line)).join("\n");
-  for (const html of unfenced.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)(?=<\/h[1-6]\s*>|<h[1-6]\b|$(?![\s\S]))/gi)) {
-    if (isGoLiveHeading(html[1])) goLiveHeadings += 1;
-  }
+  goLiveHeadings += countHtmlGoLiveHeadings(unfenced);
 
   const sections = new Map();
   headings.forEach((entry, position) => {
@@ -368,8 +658,9 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
     group: "Envelope",
     text: `Envelope reviewed (automatic). Signed: ${PROVIDER_GO_LIVE_AUTO_SIGNATURE}.`,
     label: "envelope reviewed (automatic)",
-    // Ticked checkbox line only; must not match prose or unticked / "not envelope reviewed".
-    match: /^(?:\s*(?:[-*+]|\d{1,9}[.)])\s+)+\[[xX]\]\s*[*_]*\s*envelope reviewed \(automatic\)/im,
+    // [ \t] only, matches runtime. Ticked checkbox line; must not match prose,
+    // an unticked box, or "not envelope reviewed".
+    match: /^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)+\[x\][ \t]*(?:[*_]+[ \t]*)?envelope reviewed \(automatic\)/im,
     na: false,
     auto: true,
   },
@@ -442,8 +733,9 @@ export const PROVIDER_GO_LIVE_REQUIRED_ITEMS = [
 export const PROVIDER_GO_LIVE_GROUPS = ["Envelope", "Live", "Admit", "Legal stance"];
 
 // Any list marker ("-", "*", "+", "1.", "1)"), optionally inside a blockquote.
-// Nested markers ("- - [ ]", "> 1. - [ ]") count too; group 1 is the container prefix.
-const CHECKBOX_LINE = /^((?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t])))*?)[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]*(.*)$/;
+// Nested markers ("- - [ ]", "> 1. - [ ]") count too.
+// Group 1 is only used for the `>` test (a quoted line never satisfies a required item).
+export const CHECKBOX_LINE = /^([ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])[ \t])[ \t]*)*)(?:[-*+]|\d{1,9}[.)])[ \t]+\[([ xX])\][ \t]*([^ \t\n\r\u2028\u2029][^\n\r\u2028\u2029]*)?$/;
 
 export { detectProviderEnablement };
 
@@ -461,7 +753,7 @@ export function enablesProvider(options = {}) {
 export const GATE_CHANGE_HEADING = "Gate change review";
 
 // A fence opener may follow list or blockquote markers ("- ~~~", "> ```").
-const FENCE_OPEN = /^((?:[ \t]*(?:[-*+]|\d{1,9}[.)]|>)(?=[ \t]|$))*[ \t]*)(`{3,}|~{3,})(.*)$/;
+export const FENCE_OPEN = /^([ \t]*(?:(?:[-*+]|\d{1,9}[.)]|>)[ \t]+)*)(`{3,}(?!`)|~{3,}(?!~))([^\n\r\u2028\u2029]*)$/;
 const FENCE_CLOSE = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/;
 const LIST_MARKERS = /^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$))+/;
 const LIST_MARKER = /([-*+]|\d{1,9}[.)])([ \t]*)/g;
@@ -635,15 +927,15 @@ function parseCheckboxLines(sectionLines) {
     // Comment text never counts: the box must be a checkbox as written, and only
     // its text outside "<!-- ... -->" can match an item or carry evidence.
     const visible = stripComments(line, false).text;
-    const match = line.match(CHECKBOX_LINE);
+    const match = CHECKBOX_LINE.exec(line);
     if (match) {
-      const visibleMatch = visible.match(CHECKBOX_LINE);
+      const visibleMatch = CHECKBOX_LINE.exec(visible);
       // A quoted checkbox ("> - [x] ...") is checked like any extra line but never
-      // satisfies a required item.
+      // satisfies a required item. Group 3 is missing when the box has an empty tail.
       boxes.push({
         checked: match[2] !== " ",
-        text: visibleMatch ? visibleMatch[3] : "",
-        firstLine: visibleMatch ? visibleMatch[3] : "",
+        text: visibleMatch ? (visibleMatch[3] ?? "") : "",
+        firstLine: visibleMatch ? (visibleMatch[3] ?? "") : "",
         line: visible,
         quoted: match[1].includes(">"),
       });
