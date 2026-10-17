@@ -98,6 +98,7 @@ function allLines(file, side) {
  * judged by the copy it edits, so the gate asks for a reviewer note.
  */
 export const GATE_FILES = Object.freeze([
+  "scripts/lib/entry-point.mjs",
   "scripts/provider-enablement-detect.mjs",
   "scripts/validate-pr-body.mjs",
   "scripts/validate-pr-body.test.mjs",

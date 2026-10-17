@@ -1,6 +1,7 @@
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1446,7 +1447,7 @@ async function selectOffersAsClient(supabaseUrl, anonKey, email, selections) {
 }
 
 // Run only as a script, so the guard above can be imported by unit tests.
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

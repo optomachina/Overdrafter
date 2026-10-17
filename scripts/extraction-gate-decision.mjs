@@ -13,9 +13,8 @@
  *   EXTRACTION_GATE_CORPUS=<true|false> EXTRACTION_GATE_JOB_RESULT=<result>
  *   node scripts/extraction-gate-decision.mjs
  */
+import { isEntryPoint } from "./lib/entry-point.mjs";
 import { appendFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 export const RESULT_LINE_PREFIX = "EXTRACTION_GATE_RESULT=";
 export const RESULTS = ["pass", "fail", "error"];
@@ -89,11 +88,7 @@ export function decideExtractionGate({ mode, output, corpusPresent, jobResult } 
   return { mode: effectiveMode, result, exitCode, annotation, summary };
 }
 
-const isDirectExecution = process.argv[1]
-  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-  : false;
-
-if (isDirectExecution) {
+if (isEntryPoint(import.meta.url)) {
   const decision = decideExtractionGate({
     mode: process.env.EXTRACTION_GATE_MODE,
     output: process.env.EXTRACTION_GATE_OUTPUT,
