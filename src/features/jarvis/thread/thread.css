@@ -22,12 +22,14 @@
 .jt-lanes li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #2c2c31; padding: 16px 0; }
 .jt-lanes li span:last-child,.jt-muted { color: #a3a3aa; }
 .jt img { display: block; max-width: 100%; width: 100%; }
+.jt .jt-picture { width: 100%; }
 .jt footer { position: sticky; bottom: 0; background: #0e0e10; padding-top: 8px; z-index: 2; }
 .jt textarea { display: block; width: 100%; font-size: 16px; resize: vertical; }
 .jt-overlay { position: fixed; inset: 0; background: #0e0e10; z-index: 50; overflow-y: auto; }
 .jt-overlay > div { min-height: 100%; padding: 16px; }
 .jt-sheet { background: #0008; display: flex; align-items: end; }
 .jt-sheet > div { background: #161619; min-height: 0; width: 100%; }
+.jt model-viewer { width: 100%; height: 55dvh; touch-action: none; }
 
 .jt [role=radiogroup] { margin-bottom: 112px; }
 
