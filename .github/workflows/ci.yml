@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
-          node -e '' | tee "$RUNNER_TEMP/migration-lineage.log"
+          npm run verify:migration-lineage -- --against-base | tee "$RUNNER_TEMP/migration-lineage.log"
           if ! grep -Fq 'Supabase migration-lineage verification passed' "$RUNNER_TEMP/migration-lineage.log"; then
             echo "::error::Migration lineage verifier exited successfully without validation evidence."
             exit 1
@@ -103,7 +103,7 @@ jobs:
       - name: Check provider integrations
         run: |
           set -euo pipefail
-          node -e '' | tee "$RUNNER_TEMP/provider-check.json"
+          npm run --silent provider:check | tee "$RUNNER_TEMP/provider-check.json"
           if ! test -s "$RUNNER_TEMP/provider-check.json" || ! jq -e '.ok == true' "$RUNNER_TEMP/provider-check.json" > /dev/null; then
             echo "::error::Provider check exited successfully without an ok JSON verdict."
             exit 1
@@ -678,7 +678,7 @@ jobs:
           EXTRACTION_GATE_JOB_RESULT: ${{ needs.extraction-gate.result }}
         run: |
           set -euo pipefail
-          node -e '' | tee "$RUNNER_TEMP/extraction-gate-decision.log"
+          node scripts/extraction-gate-decision.mjs | tee "$RUNNER_TEMP/extraction-gate-decision.log"
           if ! grep -Eq '^extraction-gate mode=\S+ result=\S+ exit=' "$RUNNER_TEMP/extraction-gate-decision.log"; then
             echo "::error::Extraction gate decision exited successfully without decision evidence."
             exit 1
