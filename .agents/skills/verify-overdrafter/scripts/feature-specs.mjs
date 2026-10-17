@@ -12,6 +12,13 @@ export const CONFIG_PORTS = {
   "e2e/admin-operations.config.ts": 4174,
 };
 
+// Each config's testDir, relative to the app root. Playwright reports a test's
+// file relative to it, so the judge resolves report files against this.
+export const CONFIG_TEST_DIRS = {
+  [DEFAULT_CONFIG]: "e2e",
+  "e2e/admin-operations.config.ts": "e2e",
+};
+
 const spec = (path, config = DEFAULT_CONFIG) => ({ spec: path, config });
 
 export const FEATURE_SPECS = {
@@ -41,16 +48,29 @@ export function parseFeatures(list) {
   return names;
 }
 
-// Returns [{ spec, config }], deduplicated. Fails closed: every requested
-// feature must have at least one spec in the chosen mode.
-export function specsFor(features, mode) {
+export const skipNote = (mode) => `SKIPPED: no ${mode} specs`;
+
+// Splits the requested features into those with specs in the mode and those
+// without. A feature with no specs in the mode is dropped from a multi-feature
+// request and reported as skipped (never as passing). Fails closed when a
+// single requested feature has no specs in the mode or nothing is left.
+export function selectFeatures(features, mode) {
   if (!["fixture", "local"].includes(mode)) throw new Error(`unknown mode: ${mode}`);
-  const out = new Map();
   for (const name of features) {
-    const entry = FEATURE_SPECS[name];
-    if (!entry) throw new Error(`unknown feature: ${name}`);
-    if (entry[mode].length === 0) throw new Error(`feature ${name} has no ${mode} specs`);
-    for (const s of entry[mode]) out.set(`${s.config}\t${s.spec}`, s);
+    if (!FEATURE_SPECS[name]) throw new Error(`unknown feature: ${name}`);
+  }
+  const included = features.filter((name) => FEATURE_SPECS[name][mode].length > 0);
+  const skipped = features.filter((name) => FEATURE_SPECS[name][mode].length === 0);
+  if (features.length === 1 && skipped.length) throw new Error(`feature ${skipped[0]} has no ${mode} specs`);
+  if (included.length === 0) throw new Error(`no ${mode} specs for features ${features.join(",") || "(none)"}`);
+  return { included, skipped };
+}
+
+// Returns [{ spec, config }], deduplicated, for the features selectFeatures keeps.
+export function specsFor(features, mode) {
+  const out = new Map();
+  for (const name of selectFeatures(features, mode).included) {
+    for (const s of FEATURE_SPECS[name][mode]) out.set(`${s.config}\t${s.spec}`, s);
   }
   return [...out.values()];
 }
@@ -58,8 +78,10 @@ export function specsFor(features, mode) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const [features = "auth,quote,provider", mode = "fixture"] = process.argv.slice(2);
-    // One "<config>\t<spec>" line per spec.
-    for (const s of specsFor(parseFeatures(features), mode)) console.log(`${s.config}\t${s.spec}`);
+    const names = parseFeatures(features);
+    // One "SKIPPED\t<feature>" line per dropped feature, then one "<config>\t<spec>" line per spec.
+    for (const name of selectFeatures(names, mode).skipped) console.log(`SKIPPED\t${name}`);
+    for (const s of specsFor(names, mode)) console.log(`${s.config}\t${s.spec}`);
   } catch (error) {
     console.error(error.message);
     process.exit(2);
