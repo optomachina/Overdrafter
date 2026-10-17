@@ -13,6 +13,24 @@ import { fileURLToPath } from "node:url";
 
 export const SCHEMA_VERSION = "trust-snapshot.v1";
 export const HARNESS_SCHEMA_VERSION = "live-harness-run-artifacts.v1";
+
+/** Fixed binary directories. The caller's PATH is never consulted (Sonar S4036). */
+export const SAFE_BIN_DIRS = ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+const SAFE_ENV = { ...process.env, PATH: SAFE_BIN_DIRS.join(":") };
+
+/** Absolute path of `name` in the first SAFE_BIN_DIRS entry that has it. */
+export function resolveBinary(name, { dirs = SAFE_BIN_DIRS, exists = fs.existsSync } = {}) {
+  const found = dirs.map((dir) => path.join(dir, name)).find((candidate) => exists(candidate));
+  if (!found) throw new Error(`${name} not found in ${dirs.join(", ")}`);
+  return found;
+}
+
+/** Code-unit order, identical to the default `Array#sort` for strings (Sonar S2871). */
+function compareCodeUnits(a, b) {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
 export const DEFAULT_REPOSITORY = "optomachina/Overdrafter";
 export const DEFAULT_BASE_BRANCH = "main";
 export const QA_UNIT = "latest_verdict_per_merged_pr";
@@ -226,7 +244,7 @@ export function computeTimeToMerge(merged) {
   return {
     medianHours: roundHours(percentile(all, 0.5)),
     p90Hours: roundHours(percentile(all, 0.9)),
-    perWeek: [...byWeek.keys()].sort().map((weekStart) => ({
+    perWeek: [...byWeek.keys()].sort(compareCodeUnits).map((weekStart) => ({
       weekStart,
       medianHours: roundHours(percentile(byWeek.get(weekStart), 0.5)),
       p90Hours: roundHours(percentile(byWeek.get(weekStart), 0.9)),
@@ -325,8 +343,9 @@ export function serializeSnapshot(snapshot) {
 // ---------- inputs ----------
 
 function ghApiLines(endpoint) {
-  const output = execFileSync("gh", ["api", "--paginate", endpoint, "--jq", ".[]"], {
+  const output = execFileSync(resolveBinary("gh"), ["api", "--paginate", endpoint, "--jq", ".[]"], {
     encoding: "utf8",
+    env: SAFE_ENV,
     maxBuffer: 512 * 1024 * 1024,
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -363,7 +382,7 @@ export function findResultsFiles(artifactRoot) {
   return entries.filter((entry) => entry.isDirectory())
     .map((entry) => path.join(artifactRoot, entry.name, "results.jsonl"))
     .filter((file) => fs.existsSync(file))
-    .sort();
+    .sort(compareCodeUnits);
 }
 
 const USAGE = `Usage: node scripts/trust-metrics.mjs --window-end YYYY-MM-DD [options]

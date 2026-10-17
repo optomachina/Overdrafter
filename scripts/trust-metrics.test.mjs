@@ -20,6 +20,8 @@ import {
   percentile,
   resolveWindow,
   runCli,
+  resolveBinary,
+  SAFE_BIN_DIRS,
   serializeSnapshot,
   weekStartUtc,
 } from "./trust-metrics.mjs";
@@ -285,5 +287,17 @@ describe("cli", () => {
     expect(() => parseCliArgs(["--bogus"])).toThrow(/Unknown/);
     expect(() => parseCliArgs(["--window-end"])).toThrow(/needs a value/);
     expect(runCli([], { fetchInputs: noNetwork, log: () => undefined })).toBe(2);
+  });
+});
+
+describe("resolveBinary", () => {
+  it("returns the first fixed directory that has the binary and never reads PATH", () => {
+    const exists = (candidate) => candidate === "/usr/local/bin/gh" || candidate === "/opt/homebrew/bin/gh";
+    expect(resolveBinary("gh", { exists })).toBe("/usr/local/bin/gh");
+    expect(SAFE_BIN_DIRS.every((dir) => path.isAbsolute(dir))).toBe(true);
+  });
+
+  it("fails closed when no fixed directory has the binary", () => {
+    expect(() => resolveBinary("gh", { dirs: ["/nowhere"], exists: () => false })).toThrow(/gh not found in \/nowhere/);
   });
 });
