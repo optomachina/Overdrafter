@@ -168,6 +168,7 @@ describe("results.jsonl linking", () => {
       providerQuoteId: "Q00-0000-0000",
       quoteUrl: "https://www.xometry.com/quoting/quote/Q00-0000-0000",
       timestamp: "2026-10-15T12:00:00.000Z",
+      leadTimeBusinessDays: null,
       artifacts: [{
         kind: "html_snapshot",
         label: "result-dom",
@@ -176,6 +177,45 @@ describe("results.jsonl linking", () => {
     });
     expectCanaryRemoved(lines[0]!);
     expectCanaryRemoved(await fs.readFile(path.join(root, row.artifacts[0]!.path), "utf8"));
+  });
+});
+
+describe("results.jsonl lead time (OVD-785)", () => {
+  async function recordWithLeadTime(leadTimeBusinessDays?: number | null) {
+    const root = await tempDir("live-harness-root-");
+    const runArtifacts = await openLiveHarnessRunArtifacts({ root, screenshots: false });
+    const input = {
+      provider: "fictiv",
+      requestedQuantity: 1,
+      quoteUrl: null,
+      status: "instant_quote_received",
+      errorCode: null,
+      totalPriceUsd: 188,
+      artifacts: [],
+      now: new Date("2026-10-15T12:00:00.000Z"),
+    };
+    const row = await runArtifacts.recordResult(
+      leadTimeBusinessDays === undefined ? input : { ...input, leadTimeBusinessDays },
+    );
+    const line = (await fs.readFile(path.join(runArtifacts.runDir, "results.jsonl"), "utf8")).trim();
+    return { row, written: JSON.parse(line) };
+  }
+
+  it("records the adapter lead time when the caller passes one", async () => {
+    const { row, written } = await recordWithLeadTime(7);
+    expect(row.leadTimeBusinessDays).toBe(7);
+    expect(written.leadTimeBusinessDays).toBe(7);
+    expect(written.schemaVersion).toBe("live-harness-run-artifacts.v1");
+  });
+
+  it("writes null when the caller omits the lead time", async () => {
+    const { written } = await recordWithLeadTime();
+    expect(written).toHaveProperty("leadTimeBusinessDays", null);
+  });
+
+  it.each([-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY])("writes null for invalid lead time %s", async (value) => {
+    const { written } = await recordWithLeadTime(value);
+    expect(written.leadTimeBusinessDays).toBeNull();
   });
 });
 
@@ -229,7 +269,7 @@ describe("harness fixture run", () => {
         status: "instant_quote_received",
         totalPriceUsd: 414.15,
         unitPriceUsd: 41.42,
-        leadTimeBusinessDays: null,
+        leadTimeBusinessDays: 5,
         quoteUrl: PLACEHOLDER_QUOTE_URL,
         offers: [{
           providerOptionId: "least-expensive",
@@ -238,7 +278,7 @@ describe("harness fixture run", () => {
           quoteUrl: PLACEHOLDER_QUOTE_URL,
           unitPriceUsd: 41.42,
           totalPriceUsd: 414.15,
-          leadTimeBusinessDays: null,
+          leadTimeBusinessDays: 5,
           shipReceiveBy: "Nov 6",
           tier: "Least Expensive",
           sourcing: null,
@@ -289,6 +329,7 @@ describe("harness fixture run", () => {
       providerQuoteId: "Q00-0000-0000",
       quoteUrl: "https://www.xometry.com/quoting/quote/Q00-0000-0000",
       totalPriceUsd: 414.15,
+      leadTimeBusinessDays: 5,
     });
     const paths = results[0].artifacts.map((artifact: { path: string }) => artifact.path);
     expect(paths).toEqual([
